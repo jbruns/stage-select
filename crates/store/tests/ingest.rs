@@ -170,7 +170,7 @@ impl Env {
                     .to_string_lossy()
                     .into_owned()
             })
-            .filter(|p| p != ".title-select")
+            .filter(|p| p != ".title-select/marker")
             .collect();
         found.sort();
         found
@@ -515,7 +515,7 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert_eq!(plan.content.items.len(), 1);
     assert_eq!(
         plan.content.items[0].destination,
-        ".title-select-retained/1/mystery.a26.kept"
+        ".title-select/retained/1/mystery.a26.kept"
     );
     assert_eq!(env.listing(), before, "planning changes nothing");
 
@@ -532,7 +532,7 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert!(applied.outcomes.iter().all(|o| o.moved), "{applied:?}");
     assert_eq!(
         env.listing(),
-        [".title-select-retained/1/mystery.a26.kept", "other.a26"]
+        [".title-select/retained/1/mystery.a26.kept", "other.a26"]
     );
     assert_eq!(env.state("mystery.a26"), ItemState::Moved);
     let moved = env.item("mystery.a26").last_move.unwrap();
@@ -617,7 +617,7 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     assert_eq!(audits, ["Alpha"]);
     assert_eq!(
         env.listing(),
-        [".title-select-retained/1/Alpha System (2).dat.kept"]
+        [".title-select/retained/1/Alpha System (2).dat.kept"]
     );
     let changed = |set: &str| -> Vec<i64> {
         let plans = env.store.source_set_ingests(set).unwrap();
@@ -793,7 +793,7 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     env.scan();
     env.scan();
     let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
-    std::fs::remove_file(env.dir("in").join(".title-select")).unwrap();
+    std::fs::remove_file(env.dir("in").join(".title-select/marker")).unwrap();
 
     let refused =
         env.store
@@ -826,12 +826,12 @@ fn only_an_ingest_root_is_registered_and_it_holds_no_library_folder() {
         .collect();
     assert_eq!(roots, [("in", true), ("slow", true)]);
 
-    let marker = std::fs::read_to_string(env.dir("in").join(".title-select")).unwrap();
+    let marker = std::fs::read_to_string(env.dir("in").join(".title-select/marker")).unwrap();
     assert!(marker.contains("ingest_folder"), "{marker}");
     // Registering again is a no-op; a marker of another store is refused.
     env.store.register_ingest_folder(&env.config, "in").unwrap();
     std::fs::write(
-        env.dir("in").join(".title-select"),
+        env.dir("in").join(".title-select/marker"),
         r#"{"store": "another", "ingest_folder": 1}"#,
     )
     .unwrap();

@@ -38,7 +38,8 @@ use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{
-    FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of, remove_emptied,
+    FolderDir, Identity, create_staged, ctime_ns, file_stat, parent_made, parent_of,
+    remove_emptied, staged_name,
 };
 use crate::folders::{MARKER_LIMIT, MARKER_NEW, store_id};
 use crate::ingest::OwedAudits;
@@ -76,7 +77,15 @@ enum MarkerFound {
 
 fn read_set_marker(dir: &FolderDir) -> MarkerFound {
     match dir.read(MARKER, MARKER_LIMIT) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => MarkerFound::Absent,
+        // A folder with no `.title-select` directory, or only a file at that name, has no marker.
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            MarkerFound::Absent
+        }
         Err(e) => MarkerFound::Unreadable(e.to_string()),
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(marker) => MarkerFound::Present(marker),
@@ -1328,7 +1337,7 @@ impl Store {
                 && is_file(&st, id)
                 && dir.read(MARKER, MARKER_LIMIT).map_err(io_err)? == json
             {
-                dir.sync().map_err(io_err)?;
+                dir.sync_holding(MARKER).map_err(io_err)?;
                 return self.record_marker(set).map(Ok);
             }
             // The temporary file recorded is gone, so what is there may be what the rename published in its place.
@@ -1394,13 +1403,14 @@ impl Store {
                     )?;
                     Ok(())
                 })?;
-                let file = match dir.create_new(MARKER_NEW) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        forget(self)?;
-                        return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
-                    }
-                };
+                let file =
+                    match parent_made(dir, MARKER_NEW).and_then(|_| dir.create_new(MARKER_NEW)) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            forget(self)?;
+                            return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
+                        }
+                    };
                 self.record_marker_temp(set, Identity::of_fd(&file).map_err(io_err)?)?;
                 file
             }
@@ -1432,7 +1442,7 @@ impl Store {
             }));
         }
         self.fault_point(Fault::RepairMarkerPublished);
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(MARKER).map_err(io_err)?;
         if !stat(MARKER)?.is_some_and(|st| is_file(&st, id)) {
             return self.unpublish_marker(set, dir);
         }
@@ -1453,7 +1463,7 @@ impl Store {
                  moved back to {MARKER_NEW} ({e}); move it out of the folder, then plan the repair again"
             )));
         }
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(MARKER).map_err(io_err)?;
         self.write(|tx| {
             tx.execute(
                 "UPDATE source_folders SET marker_temp_pending = 0, marker_temp_dev = NULL,
@@ -1851,7 +1861,7 @@ impl Store {
         if let Some(batch) = self.extraction_of(r, step, roms, sources, loose)? {
             return self.run_extraction(r, &batch, sources);
         }
-        let staged_name = format!(".{}.title-select-new-{}", base_name(target), unique());
+        let staged_name = staged_name(base_name(target));
         self.write(|tx| {
             tx.execute(
                 "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
@@ -1861,7 +1871,7 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let file = match dir.create_new(&staged_name) {
+        let file = match create_staged(dir, &staged_name) {
             Ok(file) => file,
             Err(e) => return self.step_failed(step, "failed", e.to_string()),
         };
@@ -2041,7 +2051,7 @@ impl Store {
         let mut staged: Vec<(&Extracting, String, File, Identity)> = Vec::new();
         let mut failed: Option<String> = None;
         for one in batch {
-            let staged_name = format!(".{}.title-select-new-{}", base_name(&one.target), unique());
+            let staged_name = staged_name(base_name(&one.target));
             self.write(|tx| {
                 tx.execute(
                     "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL,
@@ -2051,7 +2061,7 @@ impl Store {
                 )?;
                 Ok(())
             })?;
-            let file = match dir.create_new(&staged_name) {
+            let file = match create_staged(dir, &staged_name) {
                 Ok(file) => file,
                 Err(e) => {
                     failed = Some(e.to_string());
@@ -2322,7 +2332,7 @@ impl Store {
                 if deleting.rename_new(&slot, dir, staged_name).is_err() {
                     return Ok(Err(format!(
                         "what was moved to be deleted from {}/{staged_name} is not the file Title Select staged, \
-                         and could not be put back; it was left at .title-select-retained/.deleting/{slot}",
+                         and could not be put back; it was left at .title-select/retained/.deleting/{slot}",
                         dir.path().display()
                     )));
                 }
@@ -2359,8 +2369,9 @@ impl Store {
                 Ok(Some(retention)) => retention.generation,
                 _ => return Err(Error::Io("the kept files folder is missing".into())),
             };
+        let leaf = staged_name.rsplit('/').next().unwrap_or(staged_name);
         let kept = (1..)
-            .map(|n| kept_name(staged_name, n))
+            .map(|n| kept_name(leaf, n))
             .find(|name| matches!(generation.stat(name), Ok(None)))
             .expect("a free name");
         self.write(|tx| {
@@ -2398,7 +2409,7 @@ impl Store {
         {
             return Ok(Err(format!(
                 "{}/{staged_name}, a file Title Select staged, changed since it was written, and could not be kept \
-                 aside ({e}); it was left at .title-select-retained/.deleting/{slot}",
+                 aside ({e}); it was left at .title-select/retained/.deleting/{slot}",
                 r.dir.path().display()
             )));
         }
@@ -2409,7 +2420,7 @@ impl Store {
             _ => {
                 return Ok(Err(format!(
                     "{}/{staged_name}, a file Title Select staged, changed since it was written, and is neither in \
-                     .title-select-retained/.deleting/{slot} nor kept as {kept}",
+                     .title-select/retained/.deleting/{slot} nor kept as {kept}",
                     r.dir.path().display()
                 )));
             }
@@ -2848,7 +2859,7 @@ impl Store {
             }
             self.fault_point(Fault::RepairMoved(step.seq));
         }
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(staged_name).map_err(io_err)?;
         let in_place = match parent_of(dir, target) {
             Ok((parent, name)) => {
                 let parent = parent.as_ref().unwrap_or(dir);

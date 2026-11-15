@@ -1541,11 +1541,9 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     let (_, ended) = client.follow(approved.job.expect("a repair job"));
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     assert!(
-        set.read_dir().unwrap().all(|e| e
+        set.read_dir()
             .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".title-select")),
+            .all(|e| e.unwrap().file_name().to_string_lossy() == ".title-select"),
         "every file is kept in place"
     );
     let gone = client.get("/source-sets/Test%20-%20System").call();
@@ -2248,7 +2246,7 @@ mod selections {
         );
         assert_eq!(status, 201, "{folder}");
         let folder: LibraryFolder = serde_json::from_value(folder).unwrap();
-        assert!(play.join("test/.title-select").is_file());
+        assert!(play.join("test/.title-select/marker").is_file());
         let (status, plan) = send(
             client.post(&format!("/libraries/{}/plans", folder.id)),
             json!({"selection": selection.id}),
@@ -2292,7 +2290,7 @@ mod selections {
             let mut file = std::fs::File::open(play.join("test").join(name)).unwrap();
             title_select_engine::torrentzip::validate(&mut file).unwrap();
         }
-        assert!(!play.join("test/.title-select-staging").exists());
+        assert!(!play.join("test/.title-select/staging").exists());
         let folder: LibraryFolder = client.json(&format!("/libraries/{}", folder.id));
         let build = folder.build.unwrap();
         assert_eq!((folder.generation, build.applied, build.failed), (1, 2, 0));

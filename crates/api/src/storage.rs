@@ -240,15 +240,12 @@ pub const MULTI_ROM_STAYS_ZIP: &str = "it has more than one ROM, and only a game
 pub const NOT_A_FILE_NAME: &str =
     "its ROM's name is not a plain file name, so it can't be stored loose, and it stays TorrentZip";
 
-/// Whether `name`, an entry anywhere in a folder Title Select writes, is one it keeps there for itself and an Audit
-/// passes over: its marker and kept files (`.title-select…`), a private `.deleting` folder, and a file it is writing
-/// under a temporary name (`.<name>.title-select-new-…`). Compared without case, since a folder may be on a
-/// filesystem that ignores it. No Game's file, folder or ROM is ever written under such a name.
+/// Whether `name`, an entry anywhere in a folder Title Select writes, is the one it keeps there for itself and an
+/// Audit passes over: the [`STATE`](crate::build::STATE) directory, which holds its marker, kept files and any file
+/// it is writing under a temporary name. Compared without case, since a folder may be on a filesystem that ignores
+/// it. No Game's file, folder or ROM is ever written under such a name.
 pub fn is_reserved_name(name: &str) -> bool {
-    let name = name.to_lowercase();
-    name.starts_with(".title-select")
-        || name == ".deleting"
-        || (name.starts_with('.') && name.contains(".title-select-new-"))
+    name.eq_ignore_ascii_case(crate::build::STATE)
 }
 
 /// Whether `name` can name a file directly in a folder: not empty, no separator, not `.` or `..`, and not a
@@ -752,10 +749,8 @@ mod tests {
             ..Default::default()
         };
         for (game, roms) in [
-            (".deleting", &["a.bin", "b.bin"][..]),
-            (".Title-Select-Retained", &["a.bin", "b.bin"]),
+            (".Title-Select", &["a.bin", "b.bin"][..]),
             ("Disc", &["a.bin", ".title-select"]),
-            ("Disc", &["a.bin", ".b.bin.title-select-new-1"]),
         ] {
             let (placed, note) = placement(folder, game, roms);
             assert_eq!(
@@ -765,9 +760,15 @@ mod tests {
             );
             assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP), "{game}");
         }
-        let (placed, note) = placement(folder, "Solo", &[".DELETING"]);
+        let (placed, note) = placement(folder, "Solo", &[".TITLE-SELECT"]);
         assert_eq!(placed, Placement::TorrentZip("Solo.zip".into()));
         assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP));
+        // Everything Title Select keeps lives under .title-select/, so names like these are a game's own.
+        for game in [".deleting", ".title-select-retained"] {
+            let (placed, note) = placement(folder, game, &["a.bin", "b.bin"]);
+            assert!(matches!(placed, Placement::Folder { .. }), "{game}");
+            assert_eq!(note, None, "{game}");
+        }
     }
 
     #[test]

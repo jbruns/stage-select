@@ -12,7 +12,7 @@ use title_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
     FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
     KeepReason, Plan, PlanAddition, PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem,
-    PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, invalid_name,
+    PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, STATE, invalid_name,
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
@@ -466,11 +466,25 @@ fn check_folder(
     let mut names = Vec::new();
     for (name, _) in &listing {
         if is_own(name) {
-            // A folder Title Select was creating that was never renamed into place is recorded, and left.
-            let recorded_leftover = || matches!(dir.stat(name), Ok(Some(st)) if inputs.dirs.get(name) == Some(&Identity::of(&st)));
-            if name == STAGING || name == MARKER_NEW || (is_dir_temp(name) && !recorded_leftover())
-            {
-                leftovers.push(name.clone());
+            let own = match dir.sub(STATE).and_then(|state| state.entries()) {
+                Ok(own) => own,
+                // Only a file at its name, which is not Title Select's and holds nothing.
+                Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Vec::new(),
+                Err(e) => {
+                    blockers.push(blocker(BlockerKind::FolderMissing, e.to_string()));
+                    return None;
+                }
+            };
+            for (entry, _) in own {
+                let name = format!("{STATE}/{entry}");
+                // A folder Title Select was creating that was never renamed into place is recorded, and left.
+                let recorded_leftover = || matches!(dir.stat(&name), Ok(Some(st)) if inputs.dirs.get(&name) == Some(&Identity::of(&st)));
+                if name == STAGING
+                    || name == MARKER_NEW
+                    || (is_dir_temp(&name) && !recorded_leftover())
+                {
+                    leftovers.push(name);
+                }
             }
             continue;
         }

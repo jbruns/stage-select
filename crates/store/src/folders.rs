@@ -8,8 +8,8 @@ use std::path::{Component, Path, PathBuf};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use title_select_api::build::{
     AddLibraryFolder, BuildState, BuildSummary, ChangeLibraryFolder, FileOutcome, Incomplete,
-    IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, RETENTION,
-    STAGING, Stale, UnfinishedBuild,
+    IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, STATE, Stale,
+    UnfinishedBuild,
 };
 use title_select_api::discs;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
@@ -17,7 +17,7 @@ use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 use super::audits::recorded_content_sha256;
 use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
-use super::folder_dir::{FolderDir, Identity};
+use super::folder_dir::{FolderDir, Identity, parent_made};
 use super::plans::json;
 use super::profiles::active_profile_id;
 use super::selections::{read_selection, record_by_id};
@@ -496,18 +496,15 @@ pub(super) fn open_writable_folder(
 }
 
 /// The temp file a marker is written to before it is renamed over the marker.
-pub(super) const MARKER_NEW: &str = ".title-select.new";
+pub(super) const MARKER_NEW: &str = ".title-select/marker.new";
 
 /// The largest marker read.
 pub(super) const MARKER_LIMIT: u64 = 64 << 10;
 
-/// Whether `name` is one of the files Title Select keeps in a Library Folder for itself.
+/// Whether `name`, in a folder's own listing, is the directory holding everything Title Select keeps in the folder
+/// for itself.
 pub(super) fn is_own(name: &str) -> bool {
-    name == MARKER
-        || name == STAGING
-        || name == MARKER_NEW
-        || name == RETENTION
-        || super::kept::is_dir_temp(name)
+    name == STATE
 }
 
 /// Replaces the folder's marker atomically and durably. The new marker is written to a file created exclusively and
@@ -522,6 +519,7 @@ pub(super) fn write_marker(
     let mut json = serde_json::to_vec_pretty(marker).expect("a marker always serializes");
     json.push(b'\n');
     let tmp = dir.path().join(MARKER_NEW);
+    parent_made(dir, MARKER_NEW).map_err(|e| Error::Io(e.to_string()))?;
     let mut file = dir
         .create_new(MARKER_NEW)
         .map_err(|e| Error::Io(e.to_string()))?;
@@ -545,7 +543,7 @@ pub(super) fn write_marker(
     };
     is_ours(MARKER_NEW)?;
     dir.replace(MARKER_NEW, MARKER)
-        .and_then(|()| dir.sync())
+        .and_then(|()| dir.sync_holding(MARKER))
         .map_err(|e| Error::Io(e.to_string()))?;
     is_ours(MARKER)
 }
@@ -559,7 +557,10 @@ pub(super) enum MarkerState {
 
 pub(super) fn read_marker(dir: &FolderDir) -> MarkerState {
     match dir.read(MARKER, MARKER_LIMIT) {
-        Err(e) if e.kind() == ErrorKind::NotFound => MarkerState::Absent,
+        // A folder with no `.title-select` directory, or only a file at that name, has no marker.
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            MarkerState::Absent
+        }
         Err(e) => MarkerState::Unreadable(e.to_string()),
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(marker) => MarkerState::Present(marker),

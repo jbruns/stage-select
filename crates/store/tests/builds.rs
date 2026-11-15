@@ -387,7 +387,7 @@ fn names(dir: &Path) -> BTreeSet<String> {
 }
 
 fn marker(dir: &Path) -> serde_json::Value {
-    serde_json::from_slice(&std::fs::read(dir.join(".title-select")).unwrap()).unwrap()
+    serde_json::from_slice(&std::fs::read(dir.join(".title-select/marker")).unwrap()).unwrap()
 }
 
 #[test]
@@ -662,7 +662,7 @@ fn a_dat_revision_mismatch_and_an_unresolved_group_block_the_plan() {
     assert!(!plan.approvable());
 }
 
-const RETAINED: &str = ".title-select-retained";
+const RETAINED: &str = ".title-select/retained";
 
 /// Builds every game into a new folder, then plans the selection of Pong alone: every other built file is no
 /// longer selected.
@@ -725,11 +725,7 @@ fn a_deselected_group_is_removed_by_keeping_its_file_aside() {
 
     assert_eq!(
         names(&dir),
-        BTreeSet::from([
-            ".title-select".to_string(),
-            RETAINED.to_string(),
-            "Pong (USA).zip".to_string()
-        ])
+        BTreeSet::from([".title-select".to_string(), "Pong (USA).zip".to_string()])
     );
     let kept = env.store.kept_files(folder.id).unwrap();
     assert_eq!(kept.len(), built.len() - 1);
@@ -1762,7 +1758,11 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     std::fs::remove_file(dir.join(RETAINED).join("2").join(&kept[0].kept_name)).unwrap();
 
     // Without the folder's marker, nothing can be shown gone, nor planned.
-    std::fs::rename(dir.join(".title-select"), env.tmp.path().join("marker")).unwrap();
+    std::fs::rename(
+        dir.join(".title-select/marker"),
+        env.tmp.path().join("marker"),
+    )
+    .unwrap();
     let refused = env.store.plan_kept_deletion(
         &env.config,
         folder.id,
@@ -1779,7 +1779,11 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     assert!(done.outcomes.iter().all(|o| !o.deleted));
     assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
 
-    std::fs::rename(env.tmp.path().join("marker"), dir.join(".title-select")).unwrap();
+    std::fs::rename(
+        env.tmp.path().join("marker"),
+        dir.join(".title-select/marker"),
+    )
+    .unwrap();
     let done = env
         .store
         .approve_kept_deletion(&env.config, later.id, &later.digest, "Operator")
@@ -1799,9 +1803,19 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
 
 /// The temporary names, in `dir`, of a folder being created there.
 fn creating(dir: &Path) -> Vec<String> {
-    names(dir)
+    temp_names(dir, "retained")
+}
+
+/// The temporary names, as paths in `dir`, its folder `name` in `.title-select` is created under.
+fn temp_names(dir: &Path, name: &str) -> Vec<String> {
+    let state = dir.join(".title-select");
+    if !state.is_dir() {
+        return Vec::new();
+    }
+    names(&state)
         .into_iter()
-        .filter(|n| n.starts_with(&format!("{RETAINED}.new-")))
+        .filter(|n| n.starts_with(&format!("{name}.new-")))
+        .map(|n| format!(".title-select/{n}"))
         .collect()
 }
 
@@ -1834,9 +1848,7 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
         b"theirs",
         "the folder put in its place is left as it is"
     );
-    let mut expected = before.clone();
-    expected.insert(RETAINED.to_string());
-    assert_eq!(names(&dir), expected, "nothing was kept aside");
+    assert_eq!(names(&dir), before, "nothing was kept aside");
     assert!(env.store.kept_files(folder.id).unwrap().is_empty());
     let (env, _) = env.restart();
     let next = env.plan(&folder, plan.content.selection);
@@ -1848,7 +1860,7 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
         "{:?}",
         next.content.blockers
     );
-    assert_eq!(names(&dir), expected);
+    assert_eq!(names(&dir), before);
 }
 
 #[test]
@@ -2313,8 +2325,8 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     // Another folder's marker, as a wrong mount would show.
     let dir = env.play().join("atari2600");
     std::fs::copy(
-        env.play().join("atari2600-b/.title-select"),
-        dir.join(".title-select"),
+        env.play().join("atari2600-b/.title-select/marker"),
+        dir.join(".title-select/marker"),
     )
     .unwrap();
     let plan = env.plan(&first, id);
@@ -2324,7 +2336,7 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     let mut foreign = marker(&env.play().join("atari2600-b"));
     foreign["store"] = "elsewhere".into();
     foreign["folder"] = first.id.into();
-    std::fs::write(dir.join(".title-select"), foreign.to_string()).unwrap();
+    std::fs::write(dir.join(".title-select/marker"), foreign.to_string()).unwrap();
     assert_eq!(
         blockers(&env.plan(&first, id)),
         BTreeSet::from([BlockerKind::Marker])
@@ -2334,12 +2346,12 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     let mut ahead = marker(&env.play().join("atari2600-b"));
     ahead["folder"] = first.id.into();
     ahead["generation"] = 3.into();
-    std::fs::write(dir.join(".title-select"), ahead.to_string()).unwrap();
+    std::fs::write(dir.join(".title-select/marker"), ahead.to_string()).unwrap();
     let plan = env.plan(&first, id);
     assert!(plan.content.blockers[0].message.contains("newer"));
 
     // A missing marker on a folder with files.
-    std::fs::remove_file(dir.join(".title-select")).unwrap();
+    std::fs::remove_file(dir.join(".title-select/marker")).unwrap();
     std::fs::write(dir.join("readme.txt"), b"x").unwrap();
     assert_eq!(
         blockers(&env.plan(&first, id)),
@@ -2442,7 +2454,7 @@ fn a_source_that_fails_its_rehash_fails_only_its_item() {
     let dir = env.play().join("atari2600");
     assert!(!names(&dir).contains("Combat (USA).zip"));
     assert!(names(&dir).contains("Pong (USA).zip"));
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     let build = env.store.build_of_job(job.id).unwrap().unwrap();
     let detail = env.store.build(build.id).unwrap();
     let combat = detail
@@ -2478,7 +2490,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
         env.store.run_build_job(&env.config, job.id, Some(&stop))
     }));
     assert!(ran.is_err());
-    assert!(dir.join(".title-select-staging").is_dir());
+    assert!(dir.join(".title-select/staging").is_dir());
 
     let Env {
         tmp, store, config, ..
@@ -2495,7 +2507,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
     );
     store.recover_builds(&config).unwrap();
 
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     assert_eq!(marker(&dir)["generation"], 0);
     let build = store.build_of_job(job.id).unwrap().unwrap();
     let detail = store.build(build.id).unwrap();
@@ -2646,7 +2658,7 @@ fn a_crash_between_putting_a_file_in_place_and_recording_it_is_settled_from_its_
     assert_eq!(detail.items[2].state, ItemState::Pending);
     let files = env.store.built_files(folder.id).unwrap();
     assert!(files.iter().any(|f| f.target == targets[1]));
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     assert_eq!(marker(&dir)["generation"], 0);
     let next = env.plan(&folder, id);
     assert!(next.approvable(), "{:?}", next.content.blockers);
@@ -2715,7 +2727,7 @@ fn a_marker_that_did_not_follow_the_committed_generation_is_moved_forward() {
 
     assert!(blocked.is_empty(), "{blocked:?}");
     assert_eq!(marker(&dir)["generation"], 1, "and the marker followed");
-    assert!(!dir.join(".title-select.new").exists());
+    assert!(!dir.join(".title-select/marker.new").exists());
     let build = env.store.build_of_job(job).unwrap().unwrap();
     assert_eq!(build.state, BuildState::Interrupted);
     assert_eq!(build.applied, written(&plan).len() as u64);
@@ -2854,14 +2866,14 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     let dir = env.play().join("atari2600");
     let plan = env.plan(&folder, id);
     let job = env.crash(&plan, Fault::AfterPublish(1));
-    assert!(dir.join(".title-select-staging").is_dir());
+    assert!(dir.join(".title-select/staging").is_dir());
     let mut foreign = marker(&dir);
     foreign["store"] = "elsewhere".into();
-    std::fs::write(dir.join(".title-select"), foreign.to_string()).unwrap();
+    std::fs::write(dir.join(".title-select/marker"), foreign.to_string()).unwrap();
     // A staging directory in a folder no unfinished Build of the store accounts for.
     let other_dir = env.play().join("atari2600-b");
-    std::fs::create_dir(other_dir.join(".title-select-staging")).unwrap();
-    std::fs::write(other_dir.join(".title-select-staging/0.zip"), b"x").unwrap();
+    std::fs::create_dir(other_dir.join(".title-select/staging")).unwrap();
+    std::fs::write(other_dir.join(".title-select/staging/0.zip"), b"x").unwrap();
 
     let (env, blocked) = env.restart();
 
@@ -2869,13 +2881,13 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     assert_eq!(blocked.len(), 1);
     assert_eq!(blocked[0].0, build.id);
     assert!(blocked[0].1.contains("another store"), "{blocked:?}");
-    assert!(dir.join(".title-select-staging").is_dir(), "left as it is");
+    assert!(dir.join(".title-select/staging").is_dir(), "left as it is");
     assert_eq!(marker(&dir)["store"], "elsewhere");
     let detail = env.store.build(build.id).unwrap();
     assert_eq!(detail.items[1].state, ItemState::Publishing, "not settled");
     let plan = env.plan(&folder, id);
     assert!(blockers(&plan).contains(&BlockerKind::Recovery));
-    assert!(other_dir.join(".title-select-staging/0.zip").is_file());
+    assert!(other_dir.join(".title-select/staging/0.zip").is_file());
     let plan = env.plan(&other, id);
     assert_eq!(blockers(&plan), BTreeSet::from([BlockerKind::Recovery]));
     assert!(plan.content.blockers[0].message.contains("remove it"));
@@ -2883,10 +2895,10 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     // Once the marker is the store's again, the next start cleans up.
     let mut ours = marker(&dir);
     ours["store"] = marker(&other_dir)["store"].clone();
-    std::fs::write(dir.join(".title-select"), ours.to_string()).unwrap();
+    std::fs::write(dir.join(".title-select/marker"), ours.to_string()).unwrap();
     let (env, blocked) = env.restart();
     assert!(blocked.is_empty(), "{blocked:?}");
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     assert!(env.plan(&folder, id).approvable());
 }
 
@@ -2904,7 +2916,7 @@ fn a_symlink_planted_at_the_markers_temp_file_is_never_followed() {
 
     let plant = |p: title_select_engine::Progress| {
         if p.files_done == 1 {
-            std::os::unix::fs::symlink(&victim, dir.join(".title-select.new")).unwrap();
+            std::os::unix::fs::symlink(&victim, dir.join(".title-select/marker.new")).unwrap();
         }
     };
     let job = env.build_with(&plan, &plant);
@@ -2913,7 +2925,7 @@ fn a_symlink_planted_at_the_markers_temp_file_is_never_followed() {
     assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
     assert_eq!(marker(&dir)["generation"], 0, "the marker did not advance");
     assert!(
-        std::fs::symlink_metadata(dir.join(".title-select.new"))
+        std::fs::symlink_metadata(dir.join(".title-select/marker.new"))
             .unwrap()
             .is_symlink(),
         "recovery leaves what no build wrote"
@@ -2936,7 +2948,7 @@ fn a_marker_changed_during_a_build_stops_it_before_the_next_file_is_put_in_place
         if p.files_done == 1 {
             let mut m = marker(&dir);
             m["generation"] = 5.into();
-            std::fs::write(dir.join(".title-select"), m.to_string()).unwrap();
+            std::fs::write(dir.join(".title-select/marker"), m.to_string()).unwrap();
         }
     };
     let job = env.build_with(&plan, &swap);
@@ -2963,8 +2975,8 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
     let dir = env.play().join("atari2600");
     let moved = env.play().join("moved");
     let elsewhere = env.tmp.path().join("elsewhere");
-    std::fs::create_dir(&elsewhere).unwrap();
-    std::fs::write(elsewhere.join(".title-select"), b"someone else's").unwrap();
+    std::fs::create_dir_all(elsewhere.join(".title-select")).unwrap();
+    std::fs::write(elsewhere.join(".title-select/marker"), b"someone else's").unwrap();
     let plan = env.plan(&folder, id);
     let targets = written(&plan);
 
@@ -2982,7 +2994,7 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
         BTreeSet::from([".title-select".to_owned()])
     );
     assert_eq!(
-        std::fs::read(elsewhere.join(".title-select")).unwrap(),
+        std::fs::read(elsewhere.join(".title-select/marker")).unwrap(),
         b"someone else's"
     );
     for target in &targets {
@@ -3041,7 +3053,7 @@ fn a_staged_file_replaced_after_it_was_verified_is_never_put_in_place() {
     let plan = env.plan(&folder, id);
     let targets = written(&plan);
     let dir = env.play().join("atari2600");
-    let staging = dir.join(".title-select-staging");
+    let staging = dir.join(".title-select/staging");
     let mode = std::sync::Arc::new(std::sync::Mutex::new(None));
     let (seen, at) = (mode.clone(), staging.clone());
     env.store
@@ -3114,7 +3126,7 @@ fn a_file_replaced_at_its_target_once_renamed_is_left_and_reported_uncertain() {
             .any(|f| f.target == targets[1])
     );
     assert!(
-        !dir.join(".title-select-staging").exists(),
+        !dir.join(".title-select/staging").exists(),
         "recovered at once"
     );
     assert!(!blockers(&env.plan(&folder, id)).contains(&BlockerKind::Recovery));
@@ -3129,7 +3141,7 @@ fn recovery_removes_only_entries_it_recorded_creating() {
     let folder = env.folder("atari2600");
     let plan = env.plan(&folder, id);
     let dir = env.play().join("atari2600");
-    let staging = dir.join(".title-select-staging");
+    let staging = dir.join(".title-select/staging");
 
     // A staging directory swapped for a real one, holding a file named as a staged file.
     env.crash(&plan, Fault::AfterPublish(1));
@@ -3137,22 +3149,25 @@ fn recovery_removes_only_entries_it_recorded_creating() {
     std::fs::create_dir(&staging).unwrap();
     std::fs::write(staging.join("2.zip"), b"precious").unwrap();
     // A marker temp file no build wrote.
-    std::fs::write(dir.join(".title-select.new"), b"also precious").unwrap();
+    std::fs::write(dir.join(".title-select/marker.new"), b"also precious").unwrap();
     let (env, blocked) = env.restart();
 
     assert_eq!(blocked.len(), 1, "{blocked:?}");
-    assert!(blocked[0].1.contains(".title-select.new"), "{blocked:?}");
+    assert!(
+        blocked[0].1.contains(".title-select/marker.new"),
+        "{blocked:?}"
+    );
     assert_eq!(
-        std::fs::read(dir.join(".title-select.new")).unwrap(),
+        std::fs::read(dir.join(".title-select/marker.new")).unwrap(),
         b"also precious"
     );
     assert_eq!(std::fs::read(staging.join("2.zip")).unwrap(), b"precious");
 
-    std::fs::remove_file(dir.join(".title-select.new")).unwrap();
+    std::fs::remove_file(dir.join(".title-select/marker.new")).unwrap();
     let (env, blocked) = env.restart();
     assert_eq!(blocked.len(), 1, "{blocked:?}");
     assert!(
-        blocked[0].1.contains(".title-select-staging"),
+        blocked[0].1.contains(".title-select/staging"),
         "{blocked:?}"
     );
     assert_eq!(std::fs::read(staging.join("2.zip")).unwrap(), b"precious");
@@ -3197,7 +3212,7 @@ fn recovery_waits_while_the_root_is_read_only() {
 
     assert_eq!(blocked.len(), 1, "{blocked:?}");
     assert!(blocked[0].1.contains("not writable"), "{blocked:?}");
-    assert!(dir.join(".title-select-staging").is_dir(), "left as it is");
+    assert!(dir.join(".title-select/staging").is_dir(), "left as it is");
     let next = env.plan(&folder, id);
     assert!(blockers(&next).contains(&BlockerKind::ReadOnlyRoot));
     assert!(blockers(&next).contains(&BlockerKind::Recovery));
@@ -3206,7 +3221,7 @@ fn recovery_waits_while_the_root_is_read_only() {
     env.config = config(&env.tmp.path().join("roots/sets"), &env.play(), true);
     let (env, blocked) = env.restart();
     assert!(blocked.is_empty(), "{blocked:?}");
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     assert!(env.plan(&folder, id).approvable());
 }
 
@@ -4075,7 +4090,6 @@ fn drift_is_kept_aside_whole_or_acknowledged_until_it_changes() {
         BTreeSet::from(
             [
                 ".title-select",
-                RETAINED,
                 "Pong (USA).zip",
                 "Combat (USA).zip",
                 "readme.txt",
@@ -4391,7 +4405,7 @@ fn a_built_file_that_is_not_torrentzip_is_repacked_from_its_contents_with_the_ol
     let built = env.store.built_files(folder.id).unwrap();
     let combat = built.iter().find(|f| f.game == "Combat (USA)").unwrap();
     assert_eq!((combat.kind, combat.torrentzip), (ItemKind::Repack, true));
-    assert!(!dir.join(".title-select-staging").exists());
+    assert!(!dir.join(".title-select/staging").exists());
     let checked = check(&env, &folder);
     assert!(checked.drift.is_empty(), "{:?}", checked.drift);
     let combat = checked
@@ -4648,7 +4662,7 @@ fn a_crash_at_each_step_of_a_repack_recovers_and_a_missing_copy_leaves_the_folde
         env.crash(&plan, fault);
         let (env, blocked) = env.restart();
         assert!(blocked.is_empty(), "{fault:?}: {blocked:?}");
-        assert!(!dir.join(".title-select-staging").exists(), "{fault:?}");
+        assert!(!dir.join(".title-select/staging").exists(), "{fault:?}");
 
         let kept = env.store.kept_files(folder.id).unwrap();
         let combat = dir.join("Combat (USA).zip");
@@ -4763,18 +4777,15 @@ fn a_staging_folder_left_mid_creation_is_recorded_by_recovery_and_never_blocks()
             let folder = env.folder("atari2600");
             let dir = env.play().join("atari2600");
             env.crash(&env.plan(&folder, id), fault);
-            let temps: Vec<String> = names(&dir)
-                .into_iter()
-                .filter(|n| n.starts_with(".title-select-staging.new-"))
-                .collect();
+            let temps = temp_names(&dir, "staging");
             assert_eq!(temps.len(), 1, "{fault:?}: {temps:?}");
             if renamed {
                 // As if the stop came just after the rename.
-                std::fs::rename(dir.join(&temps[0]), dir.join(".title-select-staging")).unwrap();
+                std::fs::rename(dir.join(&temps[0]), dir.join(".title-select/staging")).unwrap();
             }
             let (env, blocked) = env.restart();
             assert!(blocked.is_empty(), "{fault:?} {renamed}: {blocked:?}");
-            assert!(!dir.join(".title-select-staging").exists());
+            assert!(!dir.join(".title-select/staging").exists());
 
             let folder = env.store.library_folder(&env.config, folder.id).unwrap();
             assert!(check(&env, &folder).drift.is_empty(), "{fault:?} {renamed}");
@@ -5307,7 +5318,6 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         BTreeSet::from(
             [
                 ".title-select",
-                RETAINED,
                 "Breakout (USA).zip",
                 "Combat (USA).a26",
                 "Pong (USA).a26"

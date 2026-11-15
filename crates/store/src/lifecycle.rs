@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{MARKER, RETENTION};
+use title_select_api::build::{MARKER, RETENTION, STATE};
 use title_select_api::lifecycle::{
     Forgotten, Holds, RegistrationHistory, RegistrationKind, UnregisteredRecord, Unregistration,
 };
@@ -365,8 +365,13 @@ fn remove_own_marker(
     }
     let _ = dir.rmdir(RETENTION);
     dir.unlink(MARKER)
-        .and_then(|()| dir.sync())
-        .or_else(|e| left(e.to_string()))
+        .and_then(|()| dir.sync_holding(MARKER))
+        .or_else(|e| left(e.to_string()))?;
+    // Its own directory goes last, once nothing else is in it.
+    if dir.rmdir(STATE).is_ok() {
+        let _ = dir.sync();
+    }
+    Ok(())
 }
 
 /// Removes every empty directory under `dir`, never a file. Whether `dir` is left empty.

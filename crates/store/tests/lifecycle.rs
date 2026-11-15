@@ -302,13 +302,13 @@ fn a_source_set_is_held_by_a_library_folder_bound_to_it_until_that_folder_is_unr
     assert_eq!(done.kind, RegistrationKind::LibraryFolder);
     let after = files(&env.play().join("atari"));
     assert!(
-        before.contains(".title-select") && !after.contains(".title-select"),
+        before.contains(".title-select/marker") && !after.contains(".title-select/marker"),
         "its own marker goes: {before:?} -> {after:?}"
     );
     assert_eq!(
         before
             .into_iter()
-            .filter(|f| f != ".title-select")
+            .filter(|f| f != ".title-select/marker")
             .collect::<BTreeSet<_>>(),
         after,
         "every built file is left in place"
@@ -484,7 +484,7 @@ fn an_ingest_folder_is_unregistered_and_its_root_then_holds_nothing() {
         .unregister_ingest_folder(&env.config, "in")
         .unwrap();
     assert!(
-        !env.tmp.path().join("in/.title-select").exists(),
+        !env.tmp.path().join("in/.title-select/marker").exists(),
         "its own marker goes"
     );
     assert!(
@@ -530,7 +530,7 @@ fn an_additions_set_is_unregistered_leaving_its_additions_in_place() {
         files(&dir).contains("My Hack.zip"),
         "the addition is left in place"
     );
-    assert!(!files(&dir).contains(".title-select"));
+    assert!(!files(&dir).contains(".title-select/marker"));
     assert!(env.store.additions_sets().unwrap().is_empty());
     assert!(matches!(
         env.store.additions_set(SYSTEM),
@@ -557,7 +557,10 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         done.notes.iter().any(|n| n.contains("kept files")),
         "{done:?}"
     );
-    assert!(files(&dir).contains(".title-select"), "the marker stays");
+    assert!(
+        files(&dir).contains(".title-select/marker"),
+        "the marker stays"
+    );
     assert!(matches!(
         env.store.forget(RegistrationKind::AdditionsSet, set.id),
         Err(Error::Refused(ref why)) if why.contains("kept files")
@@ -581,7 +584,11 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         .approve_additions_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
         .unwrap();
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:#?}");
-    assert!(!files(&dir).contains(".title-select"), "{:?}", files(&dir));
+    assert!(
+        !files(&dir).contains(".title-select/marker"),
+        "{:?}",
+        files(&dir)
+    );
     env.store
         .forget(RegistrationKind::AdditionsSet, set.id)
         .unwrap();
@@ -664,7 +671,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
     assert_eq!(kept.len(), 2);
     let after = files(&env.set());
     assert!(
-        after.iter().all(|f| f.starts_with(".title-select")),
+        after.iter().all(|f| f.starts_with(".title-select/")),
         "every file is kept aside in place: {after:?}"
     );
     assert_eq!(after.len(), 3, "two kept files and the marker: {after:?}");
@@ -684,7 +691,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
         .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
         .unwrap();
     let left = files(&env.set());
-    assert!(!left.contains(".title-select"), "{left:?}");
+    assert!(!left.contains(".title-select/marker"), "{left:?}");
 }
 
 #[test]
@@ -725,7 +732,7 @@ fn setting_aside_an_additions_set_retires_every_addition_then_unregisters_it() {
     assert_eq!(kept.len(), 3);
     let dir = env.tmp.path().join("additions").join(SET);
     assert!(
-        files(&dir).iter().all(|f| f.starts_with(".title-select")),
+        files(&dir).iter().all(|f| f.starts_with(".title-select/")),
         "{:?}",
         files(&dir)
     );
@@ -772,7 +779,7 @@ fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
         "{left:?}"
     );
     assert!(
-        left.contains(".title-select"),
+        left.contains(".title-select/marker"),
         "the marker stays with the kept files: {left:?}"
     );
     let kept = env.store.kept_files(folder.id).unwrap();
@@ -845,7 +852,7 @@ fn moving_a_library_folder_renames_it_in_place_after_approval() {
     assert!(!old.exists());
     let new = env.play().join("consoles/atari 2600");
     assert!(new.join("Pong (USA).zip").is_file());
-    assert!(new.join(".title-select").is_file());
+    assert!(new.join(".title-select/marker").is_file());
     let folders = env.store.library_folders(&env.config).unwrap();
     assert_eq!(folders[0].path, "consoles/atari 2600");
     assert!(matches!(
@@ -1603,7 +1610,7 @@ fn an_ingest_folder_is_refused_where_it_would_overlap_a_source_set() {
         matches!(&refused, Err(Error::Refused(why)) if why.contains("source set")),
         "{refused:?}"
     );
-    assert!(!env.tmp.path().join("in/.title-select").exists());
+    assert!(!env.tmp.path().join("in/.title-select/marker").exists());
 }
 
 #[test]
@@ -1643,7 +1650,7 @@ fn a_registered_ingest_folder_repointed_at_a_source_set_is_refused_when_register
         "{refused:?}"
     );
     assert!(
-        !env.set().join(".title-select").exists(),
+        !env.set().join(".title-select/marker").exists(),
         "no marker written"
     );
 }

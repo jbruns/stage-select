@@ -433,20 +433,18 @@ fn title_selects_own_entries_in_a_source_set_are_not_audited() {
     let f = Fixture::new();
     let dat = f.dat(&[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])]);
     write_file(&f.set_path("Pong (USA).a26"), b"pong");
-    write_file(&f.set_path(".title-select"), b"{}");
-    write_file(&f.set_path(".title-select-retained/1/old.a26"), b"old");
-    write_file(&f.set_path(".title-select-retained/.deleting/7"), b"gone");
-    write_file(
-        &f.set_path("sub/.Pong (USA).zip.title-select-new-1-2-3"),
-        b"partial",
-    );
-    write_file(&f.set_path(".deleting/9"), b"x");
+    write_file(&f.set_path(".title-select/marker"), b"{}");
+    write_file(&f.set_path(".title-select/retained/1/old.a26"), b"old");
+    write_file(&f.set_path(".title-select/retained/.deleting/7"), b"gone");
+    write_file(&f.set_path(".title-select/staging/0.zip"), b"partial");
+    write_file(&f.set_path(".title-select/new-1-2-3"), b"partial");
     write_file(&f.set_path(".hidden.a26"), b"pong");
+    write_file(&f.set_path(".deleting/9"), b"x");
 
     let report = audit(&dat, f.set.path()).unwrap();
 
     let paths: Vec<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
-    assert_eq!(paths, [".hidden.a26", "Pong (USA).a26"]);
+    assert_eq!(paths, [".deleting/9", ".hidden.a26", "Pong (USA).a26"]);
 }
 
 #[test]

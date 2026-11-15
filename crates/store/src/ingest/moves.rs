@@ -38,9 +38,9 @@ use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
 use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
+use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::store_id;
-use crate::kept::{Scope, open_area_deleting, open_retention, unique};
+use crate::kept::{Scope, open_area_deleting, open_retention};
 use crate::plans::{json, to_json};
 use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
@@ -48,7 +48,7 @@ use crate::{Error, Fault, Result, Store, now};
 /// Where a move puts an entry.
 #[derive(Debug, Clone)]
 pub(crate) enum Destination {
-    /// The folder's own kept files: `.title-select-retained/<generation>/<kept_name>`.
+    /// The folder's own kept files: `.title-select/retained/<generation>/<kept_name>`.
     Kept {
         generation: u64,
         kept_name: String,
@@ -1151,7 +1151,7 @@ impl Store {
                 m.name
             ));
         }
-        let staged_name = format!(".{dest_name}.title-select-new-{}", unique());
+        let staged_name = staged_name(dest_name);
         self.write(|tx| {
             tx.execute(
                 "UPDATE ingest_moves SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
@@ -1161,7 +1161,7 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let file = match dest.create_new(&staged_name) {
+        let file = match create_staged(dest, &staged_name) {
             Ok(file) => file,
             Err(e) => return fail(format!("{e}; {} was left as it is", m.name)),
         };
@@ -1341,7 +1341,9 @@ impl Store {
             );
             return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
         }
-        dest.sync().map_err(io)?;
+        dest.sync_holding(staged_name)
+            .and_then(|()| dest.sync())
+            .map_err(io)?;
         self.fault_point(Fault::IngestRenamed);
         if is_file(dest, dest_name, staged, Some(&stamp)).map_err(io)? {
             let st = held(file)?;
@@ -1987,7 +1989,7 @@ mod tests {
                         .to_string_lossy()
                         .into_owned()
                 })
-                .filter(|p| !p.starts_with("store") && !p.ends_with(".title-select"))
+                .filter(|p| !p.starts_with("store") && !p.ends_with(".title-select/marker"))
                 .collect();
             found.sort();
             found
@@ -2049,7 +2051,7 @@ mod tests {
             Fault::IngestMoved,
         );
 
-        assert_eq!(env.listing(), ["in/.title-select-retained/1/pong.a26.kept"]);
+        assert_eq!(env.listing(), ["in/.title-select/retained/1/pong.a26.kept"]);
         assert_eq!(env.unfinished(), 0);
         let kept = env.store.ingest_kept_files("in").unwrap();
         assert_eq!(kept.len(), 1);
@@ -2158,7 +2160,7 @@ mod tests {
         assert_eq!(
             env.listing(),
             [
-                "in/.title-select-retained/1/pong.zip.kept",
+                "in/.title-select/retained/1/pong.zip.kept",
                 "lib/Atari/Pong (USA).zip"
             ]
         );
@@ -2265,7 +2267,7 @@ mod tests {
         let slot = env
             .tmp
             .path()
-            .join("in/.title-select-retained/.deleting/move-1");
+            .join("in/.title-select/retained/.deleting/move-1");
         // Only its ctime tells: written through a descriptor with what it held, its mtime set back.
         env.store
             .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
@@ -2283,7 +2285,7 @@ mod tests {
         assert!(
             env.listing()
                 .iter()
-                .any(|p| p == "in/.title-select-retained/1/pong.a26.kept"),
+                .any(|p| p == "in/.title-select/retained/1/pong.a26.kept"),
             "{:?}",
             env.listing()
         );
@@ -2337,7 +2339,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select-retained/1/pong.a26.kept".to_string(),
+                    "in/.title-select/retained/1/pong.a26.kept".to_string(),
                     format!("lib/Atari/{dest}")
                 ],
                 "{dest}"
@@ -2346,7 +2348,7 @@ mod tests {
                 std::fs::read(
                     env.tmp
                         .path()
-                        .join("in/.title-select-retained/1/pong.a26.kept")
+                        .join("in/.title-select/retained/1/pong.a26.kept")
                 )
                 .unwrap(),
                 b"pong"
@@ -2409,7 +2411,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select-retained/1/pong.a26.kept".to_string(),
+                    "in/.title-select/retained/1/pong.a26.kept".to_string(),
                     "lib/Atari/Pong (USA).a26".to_string()
                 ]
             );
@@ -2419,7 +2421,7 @@ mod tests {
 
     #[test]
     fn an_original_being_kept_is_kept_after_a_stop_even_once_its_published_copy_is_gone() {
-        const KEPT: &str = "in/.title-select-retained/1";
+        const KEPT: &str = "in/.title-select/retained/1";
         for case in [
             "kept from deleting",
             "kept as not exactly a rom",
@@ -2456,7 +2458,7 @@ mod tests {
             env.store
                 .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
                     if fault == Fault::IngestIsolated {
-                        overwrite_in_place(&base.join(".title-select-retained/.deleting/move-1"));
+                        overwrite_in_place(&base.join(".title-select/retained/.deleting/move-1"));
                     }
                     if fault == Fault::IngestSetAside {
                         panic!("stopped");
@@ -2531,13 +2533,13 @@ mod tests {
             .unwrap()
             .clone()
             .expect("kept instead of deleted");
-        for dir in ["in", "in/.title-select-retained/.deleting"] {
+        for dir in ["in", "in/.title-select/retained/.deleting"] {
             assert!(synced.iter().any(|s| s == dir), "{dir} not in {synced:?}");
         }
         assert_eq!(
             env.listing(),
             [
-                "in/.title-select-retained/1/pong.a26.kept",
+                "in/.title-select/retained/1/pong.a26.kept",
                 "lib/Atari/Pong (USA).a26"
             ]
         );
@@ -2576,7 +2578,7 @@ mod tests {
                 Fault::IngestIsolated,
                 isolated_overwritten,
                 b"xxxx",
-                "in/.title-select-retained/1/pong.a26.kept",
+                "in/.title-select/retained/1/pong.a26.kept",
             ),
         ] {
             let env = env();
@@ -2647,7 +2649,7 @@ mod tests {
         assert_eq!(
             listing,
             [
-                "in/.title-select-retained/1/pong.a26.2.kept",
+                "in/.title-select/retained/1/pong.a26.2.kept",
                 "in/pong.a26",
                 "in/pong.a26.orig"
             ],
@@ -2675,7 +2677,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select-retained/1/pong.a26.kept",
+                    "in/.title-select/retained/1/pong.a26.kept",
                     "lib/Atari/Pong (USA).a26"
                 ],
                 "{exact:?}"
@@ -2753,8 +2755,8 @@ mod tests {
 
     #[test]
     fn a_stop_after_any_rename_ends_the_move_only_once_both_folders_are_synced() {
-        const KEPT: &str = "in/.title-select-retained/1";
-        const DELETING: &str = "in/.title-select-retained/.deleting";
+        const KEPT: &str = "in/.title-select/retained/1";
+        const DELETING: &str = "in/.title-select/retained/.deleting";
         type Case = (
             &'static str,
             Fault,
@@ -2801,7 +2803,7 @@ mod tests {
                 Fault::IngestSetAside,
                 |base, fault| {
                     if fault == Fault::IngestIsolated {
-                        let slot = base.join(".title-select-retained/.deleting/move-1");
+                        let slot = base.join(".title-select/retained/.deleting/move-1");
                         overwrite_in_place(&slot);
                     }
                 },

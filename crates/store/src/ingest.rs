@@ -136,7 +136,15 @@ enum MarkerFound {
 
 fn read_ingest_marker(dir: &FolderDir) -> MarkerFound {
     match dir.read(MARKER, MARKER_LIMIT) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => MarkerFound::Absent,
+        // A folder with no `.title-select` directory, or only a file at that name, has no marker.
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            MarkerFound::Absent
+        }
         Err(e) => MarkerFound::Unreadable(e.to_string()),
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(marker) => MarkerFound::Present(marker),

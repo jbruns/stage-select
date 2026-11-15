@@ -15,7 +15,7 @@ use common::*;
 use title_select_api::JobState;
 use title_select_api::build::{
     AddLibraryFolder, CleanupAction, DriftKind, FileOutcome, FolderCheck, ItemKind, LibraryFolder,
-    MARKER, Plan, PlanBuild, PlanCleanup, RETENTION, RemovalKind,
+    Plan, PlanBuild, PlanCleanup, RETENTION, RemovalKind, STATE,
 };
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -386,7 +386,7 @@ fn files_in(dir: &Path) -> Vec<String> {
         for entry in std::fs::read_dir(dir).unwrap() {
             let entry = entry.unwrap();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if prefix.is_empty() && name.starts_with(MARKER) {
+            if prefix.is_empty() && name == STATE {
                 continue;
             }
             let path = format!("{prefix}{name}");
@@ -1031,7 +1031,7 @@ fn injected() -> Vec<(&'static str, Vec<RomSpec>)> {
     };
     vec![
         (
-            ".title-select-retained/1/Injected",
+            ".title-select/retained/1/Injected",
             vec![rom("Injected.iso", &noise(30, 2048 * 10))],
         ),
         ("Sub/Game (Disc 1)", cue(1)),
@@ -1044,7 +1044,7 @@ fn a_game_whose_name_is_a_path_or_a_private_folder_is_never_laid_out() {
     let env = Env::with(StorageFormat::LooseFolder, injected);
     let folder = env.folder();
     let games = [
-        ".title-select-retained/1/Injected",
+        ".title-select/retained/1/Injected",
         "Sub/Game (Disc 1)",
         "Sub/Game (Disc 2)",
     ];

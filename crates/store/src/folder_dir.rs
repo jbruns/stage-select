@@ -13,7 +13,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat};
-use title_select_api::build::FileStat;
+use title_select_api::build::{FileStat, STATE};
 
 /// An open directory and the path it was opened at, for messages.
 pub(super) struct FolderDir {
@@ -157,11 +157,16 @@ impl FolderDir {
         Ok((owned, component(name)?))
     }
 
-    /// The directory `name` in this one, not followed if it is a symlink.
+    /// The directory `name` in this one, a `/`-separated path, no component of it followed if it is a symlink.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
-        let name = component(name)?;
-        let fd = rustix::fs::openat(&self.fd, name, DIR_FLAGS, Mode::empty())
-            .map_err(|e| self.error(name, e))?;
+        let (parent, leaf) = self.resolve(name)?;
+        let fd = rustix::fs::openat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            DIR_FLAGS,
+            Mode::empty(),
+        )
+        .map_err(|e| self.error(name, e))?;
         Ok(FolderDir {
             fd,
             path: self.at(name),
@@ -368,6 +373,15 @@ impl FolderDir {
         .map_err(|e| self.error(name, e))
     }
 
+    /// Makes the entries of the directory holding `rel`, a `/`-separated path relative to this one, durable: this
+    /// directory's for a single name, and for a name in [`STATE`](title_select_api::build::STATE), that directory's.
+    pub fn sync_holding(&self, rel: &str) -> io::Result<()> {
+        match self.resolve(rel)? {
+            (Some(parent), _) => parent.sync(),
+            (None, _) => self.sync(),
+        }
+    }
+
     /// Makes the directory's entries durable.
     pub fn sync(&self) -> io::Result<()> {
         #[cfg(test)]
@@ -452,6 +466,20 @@ pub(super) fn parent_made<'a>(
         found = Some(at.sub(part)?);
     }
     Ok((found, name))
+}
+
+/// The name, in a folder's [`STATE`] directory, that a new file meant for `name` is written under before one rename
+/// that never replaces anything puts it in place: on the folder's own filesystem, and never a name Title Select
+/// gives anything else there.
+pub(super) fn staged_name(name: &str) -> String {
+    format!("{STATE}/new-{}-{name}", super::kept::unique())
+}
+
+/// Creates the new file `name` in `dir` as [`FolderDir::create_new`] does, first making each folder of it that is
+/// missing: the [`STATE`] directory a [`staged_name`] is in.
+pub(super) fn create_staged(dir: &FolderDir, name: &str) -> io::Result<File> {
+    parent_made(dir, name)?;
+    dir.create_new(name)
 }
 
 /// Removes the folder holding `rel`, a path relative to `dir`, if it is now empty: a loose folder a repair emptied, or a folder

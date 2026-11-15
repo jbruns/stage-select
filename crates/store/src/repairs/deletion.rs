@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
 use sha2::{Digest, Sha256};
-use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion};
+use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion, RETENTION};
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::repair::{
     KeptFileReviewed, SourceKeptDeletion, SourceKeptDeletionContent, SourceKeptFile,
@@ -18,7 +18,7 @@ use crate::additions::{additions_kept_reserved, set_of_system, source_kept_reser
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::kept::{
-    Scope, Unlinked, open_area_deleting, open_retention, reads_as_reviewed, review_kept,
+    DELETING, Scope, Unlinked, open_area_deleting, open_retention, reads_as_reviewed, review_kept,
     unlink_verified,
 };
 use crate::plans::{json, to_json};
@@ -812,7 +812,7 @@ impl Store {
             }
             Unlinked::Failed(e) => {
                 return Err(Error::Io(format!(
-                    ".title-select-retained/.deleting/{slot} could not be deleted ({e})"
+                    "{RETENTION}/{DELETING}/{slot} could not be deleted ({e})"
                 )));
             }
             Unlinked::NotTheFile | Unlinked::Changed => {}
@@ -836,7 +836,7 @@ impl Store {
                 Ok(outcome(file, false, Some(why)))
             }
             Err(e) => Err(Error::Io(format!(
-                "what was moved to be deleted, at .title-select-retained/.deleting/{slot}, is not kept file {} and \
+                "what was moved to be deleted, at {RETENTION}/{DELETING}/{slot}, is not kept file {} and \
                  could not be moved back ({e})",
                 file.id
             ))),

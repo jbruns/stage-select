@@ -130,9 +130,9 @@ pub trait PayloadReads: Sync {
     fn claimed(&self, _path: &str, _stamp: &FileStamp) {}
 }
 
-/// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes
-/// over: its marker, its kept files and private `.deleting` folders, and a file it is writing under a temporary
-/// name.
+/// Whether `name`, an entry anywhere in a Source Set, is the `.title-select` directory Title Select keeps there for
+/// itself, which an Audit passes over with all it holds: the marker, kept files, and any file being written under a
+/// temporary name.
 pub fn is_own_entry(name: &str) -> bool {
     title_select_api::storage::is_reserved_name(name)
 }
