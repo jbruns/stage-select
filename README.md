@@ -760,7 +760,9 @@ its own profile. A source set cannot be registered in a writable root, and nothi
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
 marker, `.title-select/marker`, holding the store's id, the folder's id and its build generation. Everything Title
 Select keeps in a folder it manages is inside `.title-select/`: the marker, the folder a build stages files in, and
-the kept files under `retained/`. Nothing else in the folder is Title Select's. Audits never read `.title-select/`,
+the kept files under `retained/`. It is made private to the service's user, and Title Select uses it only while it
+still is: a `.title-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
+until you move it out. Nothing else in the folder is Title Select's. Audits never read `.title-select/`,
 and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
