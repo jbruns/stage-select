@@ -21,7 +21,6 @@ use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::{Store, Workers};
 
 pub use auth::TOKEN_ACTOR;
-pub use notify::SECRET_FILE_ENV;
 pub use routes::UPLOAD_LIMIT;
 
 /// The environment variable naming the file that holds the Operator token.
@@ -36,8 +35,6 @@ pub struct Settings {
     pub listen: SocketAddr,
     /// The file holding the Operator token, if the token is enabled.
     pub token_file: Option<PathBuf>,
-    /// The file holding the webhook's HMAC secret, needed when `[notify] url` is set.
-    pub webhook_secret_file: Option<PathBuf>,
     /// The workbench's built bundle, served at `/` (ADR 0005).
     pub ui: Option<PathBuf>,
     /// The clone lists the selection engine reads; by default `$TITLE_SELECT_CLONE_LISTS`, else
@@ -61,8 +58,6 @@ pub enum StartError {
     Listen(SocketAddr, std::io::Error),
     #[error("cannot start the runtime: {0}")]
     Runtime(std::io::Error),
-    #[error("refusing to start: {0}")]
-    Notify(String),
 }
 
 /// A Service ready to serve: auth checked, the store open and its interrupted Jobs recovered, the address bound.
@@ -71,8 +66,8 @@ struct Prepared {
     app: axum::Router,
     state: routes::AppState,
     hold_jobs: bool,
-    /// The webhook's delivery, when a webhook is configured.
-    delivery: Option<notify::Delivery>,
+    /// The webhook's delivery.
+    delivery: notify::Delivery,
 }
 
 fn prepare(settings: Settings) -> Result<Prepared, StartError> {
@@ -81,7 +76,6 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         config,
         listen,
         token_file,
-        webhook_secret_file,
         ui,
         clone_lists,
         hold_jobs,
@@ -95,10 +89,10 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         }
     };
     let auth = auth::Auth::new(&config.auth, token_file.as_deref(), listen)?;
-    let (notifier, delivery) =
-        notify::Notifier::new(&config.notify, webhook_secret_file.as_deref())?;
     let store = Store::open(&store)?;
-    let workers: Workers = config.jobs.workers();
+    let (notifier, delivery) = notify::Notifier::new(&store.settings()?.notify);
+    // Each Job records the ceilings, the most threads it may use; the pace says how many of them work, file by file.
+    let workers: Workers = config.jobs.ceilings().workers();
     for interruption in store.recover_jobs(workers)? {
         let job = &interruption.job;
         match &interruption.requeued {
@@ -176,7 +170,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     }
     // Only what happens from here on is notified: the store reports each occurrence as it commits.
     let notifier = Arc::new(notifier);
-    if notifier.is_on() {
+    {
         let notifier = notifier.clone();
         store.set_observer(move |o| notifier.observed(o));
     }
@@ -214,9 +208,7 @@ impl Prepared {
     /// Serves until the process ends; must run inside the runtime.
     async fn serve(self) -> std::io::Result<()> {
         let state = self.state;
-        if let Some(delivery) = self.delivery {
-            tokio::spawn(notify::deliver(delivery));
-        }
+        tokio::spawn(notify::deliver(self.delivery));
         if !self.hold_jobs {
             tokio::spawn(jobs::schedule_ingest_scans(
                 state.store.clone(),
@@ -230,12 +222,10 @@ impl Prepared {
             ));
             tokio::spawn(jobs::schedule_stat_walks(
                 state.store.clone(),
-                state.config.clone(),
                 state.jobs.clone(),
             ));
             tokio::spawn(jobs::schedule_fetches(
                 state.store.clone(),
-                state.config.clone(),
                 state.fetcher.clone(),
             ));
             tokio::spawn(jobs::run(

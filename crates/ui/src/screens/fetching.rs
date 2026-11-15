@@ -55,7 +55,7 @@ pub fn Fetching() -> impl IntoView {
             <details>
                 <summary>"How fetching works"</summary>
                 <p>
-                    "For the systems your source sets follow, the service can fetch newer DAT revisions from Redump and from MAME's releases, and Redump's cue and SBI packs. Each provider is off until you turn it on in your configuration. Each system is fetched at most once a day, even when you fetch by hand. A fetch that fails keeps the last good DAT revision. A newer DAT revision makes the following source sets stale; fetching never starts an audit."
+                    "For the systems your source sets follow, the service can fetch newer DAT revisions from Redump and from MAME's releases, and Redump's cue and SBI packs. Each provider is off until you turn it on under Settings, then Operations. Each system is fetched at most once a day, even when you fetch by hand. A fetch that fails keeps the last good DAT revision. A newer DAT revision makes the following source sets stale; fetching never starts an audit."
                 </p>
                 <p>
                     "No-Intro DATs are never fetched: download them yourself and drop them into an ingest folder, or import them here."
@@ -100,8 +100,7 @@ fn ProviderPanel(
     });
     let note = if !provider.enabled {
         Some(format!(
-            "Off. To turn it on, set {} = true under [fetch] in your configuration file and restart the service.",
-            provider.provider.as_str()
+            "Off. To turn it on, go to Settings, then Operations, and turn on fetching from {name}."
         ))
     } else if provider.systems.is_empty() {
         Some(format!(

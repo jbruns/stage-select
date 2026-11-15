@@ -5,6 +5,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use common::*;
+use title_select_api::paths::PathTemplate;
+use title_select_api::settings::{
+    DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
+};
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
@@ -25,11 +29,24 @@ impl Env {
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[audits]\nkeep = {keep}\n",
+            "[roots.sets]\npath = {:?}\n",
             root.display().to_string()
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &SettingsUpdate {
+                    retention: Some(Retention {
+                        audits_keep: keep,
+                        selections_keep: DEFAULT_SELECTIONS_KEPT,
+                    }),
+                    ..SettingsUpdate::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         Env { tmp, store, config }
     }
 
@@ -251,7 +268,7 @@ fn the_source_set_template_proposes_a_path_that_registration_checks() {
 
     let proposed = env
         .store
-        .propose_source_set_path(&env.config, "No-Intro/Test - System", None)
+        .propose_source_set_path("No-Intro/Test - System", None)
         .unwrap();
     assert_eq!(proposed, SET, "the default is {{provider}}/{{dat}}");
     let set = env
@@ -265,7 +282,7 @@ fn the_source_set_template_proposes_a_path_that_registration_checks() {
 
     let overridden = env
         .store
-        .propose_source_set_path(&env.config, "No-Intro/Test - System", Some("Mine/{dat}"))
+        .propose_source_set_path("No-Intro/Test - System", Some("Mine/{dat}"))
         .unwrap();
     assert_eq!(overridden, "Mine/Test - System");
     for (dat, template) in [
@@ -274,9 +291,7 @@ fn the_source_set_template_proposes_a_path_that_registration_checks() {
         ("No-Intro/Test - System", Some("{system}")),
         ("No-Intro/Other", None),
     ] {
-        let refused = env
-            .store
-            .propose_source_set_path(&env.config, dat, template);
+        let refused = env.store.propose_source_set_path(dat, template);
         assert!(
             matches!(refused, Err(Error::Refused(_))),
             "{template:?}: {refused:?}"
@@ -298,15 +313,23 @@ fn a_changed_template_leaves_existing_source_sets_where_they_are() {
         )
         .unwrap();
     let before = env.store.source_sets().unwrap();
-    let changed = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n\n[path_templates]\nsource_set = \"Elsewhere/{{dat}}\"\n",
-        env.root().display().to_string()
-    ))
-    .unwrap();
+    env.store
+        .update_settings(
+            &env.config,
+            &SettingsUpdate {
+                path_templates: Some(PathTemplates {
+                    source_set: PathTemplate::parse("Elsewhere/{dat}").unwrap(),
+                    ..PathTemplates::default()
+                }),
+                ..SettingsUpdate::default()
+            },
+            "Operator",
+        )
+        .unwrap();
 
     let proposed = env
         .store
-        .propose_source_set_path(&changed, "No-Intro/Test - System", None)
+        .propose_source_set_path("No-Intro/Test - System", None)
         .unwrap();
     let (_tmp, store) = env.reopen();
 
@@ -1171,7 +1194,7 @@ mod profiles_and_selections {
         assert_eq!(job.id, saved.jobs[0].id);
         let id = env
             .store
-            .record_selection(&env.config, job.id, &selection(&sha256))
+            .record_selection(job.id, &selection(&sha256))
             .unwrap()
             .selection
             .unwrap();
@@ -1263,10 +1286,7 @@ mod profiles_and_selections {
         assert_eq!(input.dat_revision.sha256, sha256);
         assert!(input.dat.is_file());
         let made = selection(&sha256);
-        let done = env
-            .store
-            .record_selection(&env.config, claimed.id, &made)
-            .unwrap();
+        let done = env.store.record_selection(claimed.id, &made).unwrap();
         assert_eq!(done.state, JobState::Succeeded);
         let id = done.selection.unwrap();
 
@@ -1315,8 +1335,20 @@ mod profiles_and_selections {
 
     #[test]
     fn selections_beyond_the_kept_number_are_pruned_and_no_longer_hold_their_dat_revision() {
-        let mut env = Env::new(20);
-        env.config.selections.keep = 1;
+        let env = Env::new(20);
+        env.store
+            .update_settings(
+                &env.config,
+                &SettingsUpdate {
+                    retention: Some(Retention {
+                        audits_keep: 20,
+                        selections_keep: 1,
+                    }),
+                    ..SettingsUpdate::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         env.add_dat_and_set();
         let (old, _) = env.import(1);
         save(&env, &SelectionProfile::default(), None);
@@ -1329,7 +1361,7 @@ mod profiles_and_selections {
             env.store.claim_job().unwrap();
             let done = env
                 .store
-                .record_selection(&env.config, job.id, &selection(&old))
+                .record_selection(job.id, &selection(&old))
                 .unwrap();
             ids.push(done.selection.unwrap());
             // A newer revision would drop the old blob, were it not held.
@@ -1348,8 +1380,20 @@ mod profiles_and_selections {
     /// with its groups or releases gone.
     #[test]
     fn a_selection_read_while_it_is_pruned_is_whole_or_refused() {
-        let mut env = Env::new(20);
-        env.config.selections.keep = 1;
+        let env = Env::new(20);
+        env.store
+            .update_settings(
+                &env.config,
+                &SettingsUpdate {
+                    retention: Some(Retention {
+                        audits_keep: 20,
+                        selections_keep: 1,
+                    }),
+                    ..SettingsUpdate::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         env.add_dat_and_set();
         let (sha256, _) = env.import(1);
         save(&env, &SelectionProfile::default(), None);
@@ -1361,7 +1405,7 @@ mod profiles_and_selections {
                 .unwrap();
             env.store.claim_job().unwrap();
             env.store
-                .record_selection(&env.config, job.id, &expected)
+                .record_selection(job.id, &expected)
                 .unwrap()
                 .selection
                 .unwrap()
@@ -1441,7 +1485,7 @@ mod profiles_and_selections {
         env.store.claim_job().unwrap();
         let id = env
             .store
-            .record_selection(&env.config, job.id, &selection(&sha256))
+            .record_selection(job.id, &selection(&sha256))
             .unwrap()
             .selection
             .unwrap();
@@ -1495,7 +1539,7 @@ mod profiles_and_selections {
         env.store.claim_job().unwrap();
         let old = env
             .store
-            .record_selection(&env.config, job.id, &selection(&sha256))
+            .record_selection(job.id, &selection(&sha256))
             .unwrap()
             .selection
             .unwrap();
@@ -1787,7 +1831,7 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
 /// The configuration [`Env::new`] writes, for a store reopened without its `Env`.
 fn env_config(tmp: &tempfile::TempDir) -> Config {
     Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n\n[audits]\nkeep = 20\n",
+        "[roots.sets]\npath = {:?}\n",
         tmp.path().join("roots/sets").display().to_string()
     ))
     .unwrap()

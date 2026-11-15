@@ -1,13 +1,17 @@
 //! Reading payloads with bounded workers: `readers` threads open files and read (and decompress) their payloads,
 //! handing each payload's bytes in chunks to one of `hashers` threads that checksums it. A file whose earlier read
 //! passes the change test is not read again, and a quick Audit claims a ZIP archive's members from its directory.
+//!
+//! `workers` gives the threads started, the ceilings. A pace may hold some of them back: each reader and hash worker
+//! passes a [`Gate`] before each file or payload, which lets in only as many as the pace allows at that moment.
 
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::Duration;
 
 use crate::payload::{Checksums, Hasher};
 use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
@@ -69,15 +73,59 @@ struct HashJob {
     done: SyncSender<Checksums>,
 }
 
-/// Reads every file in `files`, returning one [`FileRead`] per file in the same order.
+/// How often a worker held back by a [`Gate`] looks at the pace again, so that a raised pace lets it in.
+const RECHECK: Duration = Duration::from_millis(50);
+
+/// Lets in as many workers at once as a limit, read again at each entry, allows. Lowering the limit stops no worker
+/// already in; it holds back the next ones until enough have left.
+#[derive(Default)]
+pub(crate) struct Gate {
+    inside: Mutex<usize>,
+    left: Condvar,
+}
+
+/// A worker's place inside a [`Gate`], given up when dropped.
+pub(crate) struct Pass<'g>(&'g Gate);
+
+impl Gate {
+    /// Waits until fewer than `limit()`, and at least one, are inside, then enters.
+    pub(crate) fn enter(&self, limit: impl Fn() -> usize) -> Pass<'_> {
+        let mut inside = self.inside.lock().unwrap_or_else(PoisonError::into_inner);
+        while *inside >= limit().max(1) {
+            inside = self
+                .left
+                .wait_timeout(inside, RECHECK)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        *inside += 1;
+        Pass(self)
+    }
+}
+
+impl Drop for Pass<'_> {
+    fn drop(&mut self) {
+        *self.0.inside.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        self.0.left.notify_one();
+    }
+}
+
+/// The counts a pace allows now, read at each file and payload.
+pub(crate) type Pace<'a> = &'a (dyn Fn() -> Workers + Sync);
+
+/// Reads every file in `files`, returning one [`FileRead`] per file in the same order. `workers` threads are
+/// started, and `pace`, when given, says how many of them may work at each moment.
 pub fn read_files(
     files: &[ToRead],
     how: How,
     workers: Workers,
+    pace: Option<Pace>,
     progress: Option<&(dyn Fn(Progress) + Sync)>,
 ) -> Vec<FileRead> {
     let readers = workers.readers.clamp(1, files.len().max(1));
     let hashers = workers.hashers.max(1);
+    let (reading, hashing) = (Gate::default(), Gate::default());
+    let allowed = |of: fn(Workers) -> usize, ceiling: usize| pace.map_or(ceiling, |p| of(p()));
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<FileRead>>> = Mutex::new(files.iter().map(|_| None).collect());
@@ -87,6 +135,7 @@ pub fn read_files(
         for _ in 0..hashers {
             s.spawn(|| {
                 loop {
+                    let _pass = hashing.enter(|| allowed(|w| w.hashers, hashers));
                     let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
                     let Ok(job) = job else { break };
                     let mut hasher = Hasher::with_header(job.header);
@@ -99,9 +148,11 @@ pub fn read_files(
         }
         for _ in 0..readers {
             let jobs = jobs.clone();
-            let (next, done, results) = (&next, &done, &results);
+            let (next, done, results, reading, allowed) =
+                (&next, &done, &results, &reading, &allowed);
             s.spawn(move || {
                 loop {
+                    let _pass = reading.enter(|| allowed(|w| w.readers, readers));
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(file) = files.get(i) else {
                         break;
@@ -361,6 +412,109 @@ mod tests {
             self.read.fetch_add(n, Ordering::Relaxed);
             Ok(n)
         }
+    }
+
+    /// Notes how many files are being read at once as each starts: from `prior`, called as a reader starts a file,
+    /// to `record`, called as it ends.
+    struct Overlap {
+        reading: AtomicUsize,
+        starts: Mutex<Vec<usize>>,
+    }
+
+    impl PayloadReads for Overlap {
+        fn prior(&self, _: &str) -> Option<PayloadRead> {
+            let now = self.reading.fetch_add(1, Ordering::SeqCst) + 1;
+            self.starts.lock().unwrap().push(now);
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            None
+        }
+
+        fn record(&self, _: &str, _: &PayloadRead) {
+            self.reading.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_change_of_pace_changes_how_many_files_are_read_at_once_from_the_next_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let files: Vec<ToRead> = (0..60)
+            .map(|i| {
+                let path = dir.path().join(format!("{i}.bin"));
+                std::fs::write(&path, [i as u8; 32]).unwrap();
+                ToRead {
+                    path,
+                    is_zip: false,
+                    rel: format!("{i}.bin"),
+                }
+            })
+            .collect();
+        let overlap = Overlap {
+            reading: AtomicUsize::new(0),
+            starts: Mutex::default(),
+        };
+        let how = How {
+            evidence: AuditEvidence::Full,
+            reads: Some(&overlap),
+            header: None,
+            might_be_headered: &|_| false,
+        };
+        let limit = AtomicUsize::new(4);
+        let pace = || Workers {
+            readers: limit.load(Ordering::SeqCst),
+            hashers: limit.load(Ordering::SeqCst),
+        };
+        // Four at once for the first 12 files, one at a time to the 36th, then three at once.
+        let progress = |p: Progress| match p.files_done {
+            12 => limit.store(1, Ordering::SeqCst),
+            36 => limit.store(3, Ordering::SeqCst),
+            _ => {}
+        };
+        let ceilings = Workers {
+            readers: 4,
+            hashers: 4,
+        };
+
+        let read = read_files(&files, how, ceilings, Some(&pace), Some(&progress));
+
+        assert!(read.iter().all(|r| r.error.is_none()));
+        let starts = overlap.starts.into_inner().unwrap();
+        let most = |range: std::ops::Range<usize>| starts[range].iter().copied().max().unwrap();
+        assert_eq!(most(0..12), 4, "{starts:?}");
+        // The files under way when the pace dropped finish; every file started after them is read alone.
+        assert_eq!(most(18..36), 1, "{starts:?}");
+        assert_eq!(most(42..60), 3, "{starts:?}");
+    }
+
+    #[test]
+    fn a_gate_lets_in_as_many_as_its_limit_says_now() {
+        let gate = Gate::default();
+        let limit = AtomicUsize::new(3);
+        let (inside, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let passes = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..6 {
+                s.spawn(|| {
+                    loop {
+                        let _pass = gate.enter(|| limit.load(Ordering::SeqCst));
+                        let n = passes.fetch_add(1, Ordering::SeqCst);
+                        if n >= 120 {
+                            break;
+                        }
+                        if n == 40 {
+                            limit.store(1, Ordering::SeqCst);
+                            most.store(0, Ordering::SeqCst);
+                        }
+                        let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                        if n >= 50 {
+                            most.fetch_max(now, Ordering::SeqCst);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        inside.fetch_sub(1, Ordering::SeqCst);
+                    }
+                });
+            }
+        });
+        assert_eq!(most.load(Ordering::SeqCst), 1);
     }
 
     #[test]

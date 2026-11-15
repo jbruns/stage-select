@@ -34,6 +34,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0023_drop_selection_shadows.sql"),
     include_str!("migrations/0024_headers.sql"),
     include_str!("migrations/0025_available_elsewhere.sql"),
+    include_str!("migrations/0026_settings.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {
@@ -85,6 +86,8 @@ fn apply(conn: &mut Connection, dir: &Path, migrations: &[&str], applied: usize)
 
 /// The migration, counted from 0, that orders each DAT's revisions by their headers.
 const HEADER_ORDER: usize = 18;
+/// How many migrations a store has once it has the settings table.
+pub(crate) const SETTINGS: usize = 26;
 /// How much of a DAT file is read for its header's date.
 const HEADER_BYTES: u64 = 1 << 20;
 

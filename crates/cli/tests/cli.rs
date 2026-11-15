@@ -539,35 +539,6 @@ fn the_engine_choice_and_the_conformance_command_are_gone() {
 }
 
 #[test]
-fn a_configuration_with_the_old_engine_keys_loads_with_a_warning() {
-    let f = Fixture::new();
-    let inbox = f.dat_dir.path().join("in");
-    std::fs::create_dir_all(&inbox).unwrap();
-    let config = f.dat_dir.path().join("title-select.toml");
-    std::fs::write(
-        &config,
-        format!(
-            "[selections]\nengine = \"bundled\"\nshadow = true\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            inbox.display().to_string()
-        ),
-    )
-    .unwrap();
-    let out = title_select()
-        .env("TITLE_SELECT_STORE", f.dat_dir.path().join("store"))
-        .env("TITLE_SELECT_CONFIG", &config)
-        .args(["ingest", "register", "in"])
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{out:?}");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("[selections] engine and shadow are ignored"),
-        "{stderr}"
-    );
-}
-
-#[test]
 fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     let f = Fixture::new();
     let inbox = f.dat_dir.path().join("in");
@@ -577,12 +548,32 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     std::fs::write(
         &config,
         format!(
-            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n",
+            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
             inbox.display().to_string()
         ),
     )
     .unwrap();
     let store = f.dat_dir.path().join("store");
+    title_select_store::Store::open(&store)
+        .unwrap()
+        .update_settings(
+            &title_select_store::config::Config::load(&config).unwrap(),
+            &title_select_api::settings::SettingsUpdate {
+                ingest_folders: Some(
+                    [(
+                        "in".to_owned(),
+                        title_select_api::settings::IngestCadence {
+                            settle_secs: 0,
+                            scan_every_minutes: None,
+                        },
+                    )]
+                    .into(),
+                ),
+                ..Default::default()
+            },
+            "test",
+        )
+        .unwrap();
     let ts = || {
         let mut cmd = title_select();
         cmd.env("TITLE_SELECT_STORE", &store)

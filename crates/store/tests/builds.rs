@@ -167,7 +167,7 @@ impl Env {
         let job = self.store.claim_job().unwrap().unwrap();
         assert_eq!(job.kind, JobKind::Selection);
         self.store
-            .record_selection(&self.config, job.id, selection)
+            .record_selection(job.id, selection)
             .unwrap()
             .selection
             .unwrap()
@@ -2645,14 +2645,20 @@ fn the_preview_attributes_each_change_to_settings_choices_or_the_dat_revision() 
 
 #[test]
 fn the_current_build_keeps_its_selection_and_audit_from_pruning_until_a_later_build() {
-    let mut env = Env::new();
-    env.config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n\n[audits]\nkeep = 1\n\n\
-         [selections]\nkeep = 1\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-        env.play().display().to_string(),
-    ))
-    .unwrap();
+    let env = Env::new();
+    env.store
+        .update_settings(
+            &env.config,
+            &title_select_api::settings::SettingsUpdate {
+                retention: Some(title_select_api::settings::Retention {
+                    audits_keep: 1,
+                    selections_keep: 1,
+                }),
+                ..Default::default()
+            },
+            "Operator",
+        )
+        .unwrap();
     env.audit();
     let first = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
@@ -3279,14 +3285,20 @@ fn recovery_waits_while_the_root_is_read_only() {
 
 #[test]
 fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released_when_it_fails() {
-    let mut env = Env::new();
-    env.config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n\n[audits]\nkeep = 1\n\n\
-         [selections]\nkeep = 1\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-        env.play().display().to_string(),
-    ))
-    .unwrap();
+    let env = Env::new();
+    env.store
+        .update_settings(
+            &env.config,
+            &title_select_api::settings::SettingsUpdate {
+                retention: Some(title_select_api::settings::Retention {
+                    audits_keep: 1,
+                    selections_keep: 1,
+                }),
+                ..Default::default()
+            },
+            "Operator",
+        )
+        .unwrap();
     env.audit();
     let first = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");

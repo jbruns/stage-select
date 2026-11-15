@@ -149,18 +149,36 @@ impl Env {
         std::fs::create_dir_all(tmp.path().join("roots/play")).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         std::fs::write(tmp.path().join("token"), format!("{TOKEN}\n")).unwrap();
-        std::fs::write(tmp.path().join("secret"), format!("{SECRET}\n")).unwrap();
         Env { tmp }
     }
 
-    /// A Service posting to `hook`, with `notify` added to its `[notify]` table, fetching from `provider`.
-    fn start(&self, hook: &Fake, notify: &str, provider: &Fake) -> Handle {
+    /// A Service fetching from `provider`, posting to `hook` as its settings say once `notify`'s fields are added to
+    /// them.
+    fn start(&self, hook: &Fake, notify: Value, provider: &Fake) -> Handle {
+        let service = self.spawn(provider);
+        let mut webhook = json!({
+            "url": {"set": format!("{}/hook", hook.url)},
+            "secret": {"set": SECRET},
+        });
+        webhook
+            .as_object_mut()
+            .unwrap()
+            .extend(notify.as_object().unwrap().clone());
+        let (status, body) = Client::new(&service).send(
+            "PATCH",
+            "/settings",
+            json!({"fetch": {"redump": true, "mame": false}, "notify": webhook}),
+        );
+        assert_eq!(status, 200, "{body}");
+        service
+    }
+
+    /// A Service fetching from `provider`, with no webhook set.
+    fn spawn(&self, provider: &Fake) -> Handle {
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n[roots.play]\npath = {:?}\nwritable = true\n[fetch]\nredump = true\n\
-             [notify]\nurl = \"{}/hook\"\n{notify}",
+            "[roots.sets]\npath = {:?}\n[roots.play]\npath = {:?}\nwritable = true\n",
             self.tmp.path().join("roots/sets").display().to_string(),
             self.tmp.path().join("roots/play").display().to_string(),
-            hook.url,
         ))
         .unwrap();
         title_select_server::spawn(Settings {
@@ -168,7 +186,6 @@ impl Env {
             config,
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
-            webhook_secret_file: Some(self.tmp.path().join("secret")),
             ui: None,
             clone_lists: None,
             hold_jobs: false,
@@ -215,6 +232,7 @@ impl Client {
         let url = format!("{}{path}", self.base);
         let request = match method {
             "PUT" => agent().put(url),
+            "PATCH" => agent().patch(url),
             _ => agent().post(url),
         };
         let mut response = request
@@ -338,7 +356,7 @@ fn samples(text: &str) -> BTreeMap<String, f64> {
 
 /// Runs a Service through one of each event: two new DAT revisions, a finished audit, a source set gone stale, a
 /// failed fetch, drift in a library folder and a failed check. Returns the Service and its client once all are done.
-fn every_event(env: &Env, hook: &Fake, notify: &str) -> (Handle, Client) {
+fn every_event(env: &Env, hook: &Fake, notify: Value) -> (Handle, Client) {
     let provider = Fake::start(503, Duration::ZERO);
     let service = env.start(hook, notify, &provider);
     let client = Client::new(&service);
@@ -407,8 +425,11 @@ fn every_event(env: &Env, hook: &Fake, notify: &str) -> (Handle, Client) {
 fn each_event_reaches_the_webhook_signed_with_the_documented_payload() {
     let env = Env::new();
     let hook = Fake::start(204, Duration::ZERO);
-    let (_service, _client) =
-        every_event(&env, &hook, &format!("workbench_url = \"{WORKBENCH}/\"\n"));
+    let (_service, _client) = every_event(
+        &env,
+        &hook,
+        json!({"workbench_url": format!("{WORKBENCH}/")}),
+    );
 
     let wanted = [
         "dat_revision.new",
@@ -529,7 +550,7 @@ fn each_event_reaches_the_webhook_signed_with_the_documented_payload() {
 fn only_the_events_you_choose_are_sent_and_a_link_needs_the_workbench_url() {
     let env = Env::new();
     let hook = Fake::start(200, Duration::ZERO);
-    let (_service, _client) = every_event(&env, &hook, "events = [\"job.failed\"]\n");
+    let (_service, _client) = every_event(&env, &hook, json!({"events": ["job.failed"]}));
 
     let seen = hook.wait_for("the failed job", |seen| !seen.is_empty());
     std::thread::sleep(Duration::from_millis(500));
@@ -544,7 +565,7 @@ fn a_failing_webhook_is_tried_three_times_then_dropped_and_jobs_run_on() {
     let env = Env::new();
     let hook = Fake::start(500, Duration::from_millis(500));
     let provider = Fake::start(503, Duration::ZERO);
-    let service = env.start(&hook, "events = [\"job.finished\"]\n", &provider);
+    let service = env.start(&hook, json!({"events": ["job.finished"]}), &provider);
     let client = Client::new(&service);
     client.upload(
         "No-Intro",
@@ -579,7 +600,7 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     let env = Env::new();
     let hook = Fake::start(204, Duration::ZERO);
     let provider = Fake::start(503, Duration::ZERO);
-    let service = env.start(&hook, "", &provider);
+    let service = env.start(&hook, json!({}), &provider);
     let (kind, text) = metrics(&service);
     assert_eq!(kind, "text/plain; version=0.0.4; charset=utf-8");
     let before = samples(&text);
@@ -598,7 +619,7 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     );
     drop(service);
 
-    let (service, client) = every_event(&env, &hook, "");
+    let (service, client) = every_event(&env, &hook, json!({}));
     // The fetch runs on after the request that started it.
     let deadline = Instant::now() + Duration::from_secs(30);
     let after = loop {
@@ -678,29 +699,47 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
 }
 
 #[test]
-fn a_webhook_without_its_secret_refuses_to_start() {
+fn the_webhook_is_set_and_changed_without_a_restart_and_its_url_and_secret_are_never_shown() {
     let env = Env::new();
-    let config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n[notify]\nurl = \"http://127.0.0.1:9/hook\"\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-    ))
-    .unwrap();
-    let started = title_select_server::spawn(Settings {
-        store: env.tmp.path().join("store"),
-        config,
-        listen: "127.0.0.1:0".parse().unwrap(),
-        token_file: Some(env.tmp.path().join("token")),
-        webhook_secret_file: None,
-        ui: None,
-        clone_lists: None,
-        hold_jobs: false,
-        fetch_endpoints: None,
-    });
-    let Err(err) = started else {
-        panic!("it started")
-    };
-    assert!(
-        err.to_string().contains("TITLE_SELECT_WEBHOOK_SECRET_FILE"),
-        "{err}"
+    let hook = Fake::start(204, Duration::ZERO);
+    let provider = Fake::start(503, Duration::ZERO);
+    let service = env.spawn(&provider);
+    let client = Client::new(&service);
+    let url = format!("{}/hook", hook.url);
+
+    let (status, body) = client.send(
+        "PATCH",
+        "/settings",
+        json!({"notify": {"url": {"set": url}}}),
     );
+    assert_eq!(status, 400, "a URL needs its secret: {body}");
+    assert!(!body.to_string().contains(&hook.url), "{body}");
+    let (status, body) = client.send(
+        "PATCH",
+        "/settings",
+        json!({"notify": {"url": {"set": url}, "secret": {"set": SECRET}, "events": ["dat_revision.new"]}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    for shown in [body, client.get("/settings")] {
+        assert_eq!(shown["notify"]["url_set"], true);
+        assert_eq!(shown["notify"]["secret_set"], true);
+        let text = shown.to_string();
+        assert!(
+            !text.contains(&hook.url) && !text.contains(SECRET),
+            "{text}"
+        );
+    }
+
+    client.upload("No-Intro", "Test - System (1).dat", &env.dat("1"));
+    hook.wait_for("the new DAT revision", |seen| seen.len() == 1);
+
+    let (status, _) = client.send(
+        "PATCH",
+        "/settings",
+        json!({"notify": {"url": "clear", "secret": "clear"}}),
+    );
+    assert_eq!(status, 200);
+    client.upload("No-Intro", "Test - System (2).dat", &env.dat("2"));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(hook.seen().len(), 1, "nothing is sent once it is cleared");
 }

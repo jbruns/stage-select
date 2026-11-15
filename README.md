@@ -295,7 +295,10 @@ first use. Only one Title Select process may have a store open at a time: it hol
 ## Configuration
 
 `title-select.toml`, passed with `--config <file>` or `TITLE_SELECT_CONFIG`, declares the roots Title Select may
-read. Without it there are no roots, so Title Select reads none of your folders.
+read, how the service knows it is you, and the most work it may do at once. Without it there are no roots, so Title
+Select reads none of your folders. Everything else you set in the workbench, under Settings, then Operations; see
+"Operations settings". A change to this file takes effect when you restart the service, and a key it doesn't know
+stops the service from starting, naming the key.
 
 ```toml
 [roots.sets]                # a root called `sets`
@@ -311,55 +314,52 @@ writable = true             # only library folders may live in a writable root
 path = "/data/downloads/games"
 writable = true             # an ingest root is always declared writable
 kind = "ingest"
-settle_secs = 60            # unchanged this long before an item is assessed (the default)
-# scan_every_minutes = 15   # scan on a schedule; by default when you ask, and once arriving items could settle
 
 [roots.additions]           # the additions sets, one folder per system; see "Additions"
 path = "/data/additions"
 writable = true             # required, with no kind and no writable_paths
-
-[audits]
-keep = 20                   # full audits kept per source set (the default)
-
-[selections]
-keep = 20                   # full selections kept per source set (the default)
-
-[source_sets]
-check_every_minutes = 360   # check each source set for changes this often (the default); 0 checks only when you ask
 
 [auth]                      # how the Service knows it is you; see "Service"
 identity_header = "Remote-User"
 trusted_proxies = ["10.0.0.0/8"]
 # dev_identity = "Developer"
 
-[jobs]
-concurrent = 1              # jobs run at once (the default)
-pace = "default"            # gentle | default | unthrottled
-# readers = 2               # overrides the pace's payload readers
-# hashers = 2               # overrides the pace's hash workers
+[jobs]                      # ceilings: the most the pace may use; each defaults to this computer's CPU count
+# concurrent = 8            # jobs run at once
+# readers = 8               # payload readers in each job
+# hashers = 8               # hash workers in each job
 
 [ingest]                    # how 7z archives in ingest folders are read; see "Ingest folders" and "Memory"
 archive_workers = 2         # 7z archives decoded at once, across every job (the default; 1 to 64)
 max_dictionary_mib = 128    # the largest dictionary a 7z may need (the default; 1 to 4096)
 
-[fetch]                     # fetch newer DATs for the systems you follow; see "Fetching DATs"
-redump = false              # the default
-mame = false                # the default
-
-[notify]                    # post an event to your webhook; see "Notifications and metrics"
-# url = "https://<domain>/hooks/title-select"
-# events = ["job.failed", "source_set.stale"]   # all six by default
-# workbench_url = "https://<domain>"            # each event then links to its workbench screen
-
 [chd]                       # see "Storage policy"
 # chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
-# timeout_seconds = 600             # the longest chdman may run for a disc: this much,
-# timeout_seconds_per_gib = 240     # plus this much for each GiB of the disc
-
-[path_templates]            # the paths registration proposes; see "Path templates"
-source_set = "{provider}/{dat}"     # the default
-library_folder = "{platform}"       # the default
 ```
+
+Each ceiling must be at least 1. The pace you choose in the workbench uses a share of each; see "Jobs".
+
+### Operations settings
+
+Settings, then Operations, in the workbench holds every setting that isn't in the file. Each applies as soon as you
+save it, without a restart, and is kept in the store, so a backup of the store keeps it too.
+
+| Setting | What it does | Default |
+| --- | --- | --- |
+| Job pace | the share of each `[jobs]` ceiling jobs use: gentle, default or unthrottled; see "Jobs" | default |
+| Retention | full audits and full selections each source set keeps, from 1 to 10,000 | 20 each |
+| Path templates | the paths registration proposes for a source set and a library folder; see "Path templates" | `{provider}/{dat}`, `{platform}` |
+| Checking source sets | how often each audited source set is checked for changed files, at most every 525,600 minutes (a year); 0 checks only when you ask | every 360 minutes |
+| Fetching DAT revisions | whether newer DAT revisions are fetched from Redump and from MAME; see "Fetching DATs" | off |
+| CHD time limits | the longest chdman may run on a disc: a limit, plus more for each GiB of its tracks, each at most 604,800 seconds (a week); see "Storage policy" | 600 seconds, plus 240 a GiB |
+| Ingest folders | for each ingest folder, how long an item stays unchanged before it is assessed, up to 86,400 seconds (a day), and how often it is scanned on its own, every 1 to 10,080 minutes (a week) | 60 seconds; only when you ask, and once arriving items could settle |
+| Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
+
+The webhook's URL and secret are write-only: once saved, the workbench and the API say only whether each is set, and
+you can replace or clear it, but not read it.
+
+The API reads them with `GET /api/v1/settings` and changes them with `PATCH /api/v1/settings`; see "HTTP API". When
+they change, every open workbench hears of it and shows them as they are now.
 
 ### Path templates
 
@@ -370,16 +370,15 @@ Its tokens are:
 - `{dat}`: the DAT's header name, such as `Atari - Atari 2600`;
 - `{platform}`: the front end's folder name for the system, such as `atari2600`.
 
-A source set's path is proposed from `path_templates.source_set`, by default `{provider}/{dat}`: the Atari 2600 DAT
-gives `No-Intro/Atari - Atari 2600`. `path_templates.library_folder`, by default `{platform}`, proposes the library folder
-a play library build writes to, in a writable root pointing at the front end's `roms/` folder: `atari2600`. You can change
-either default here, use another template when you register, or type the path yourself. A configuration that still
-uses the earlier name, `managed_folder`, keeps working.
+A source set's path is proposed from its path template, by default `{provider}/{dat}`: the Atari 2600 DAT gives
+`No-Intro/Atari - Atari 2600`. The library folder template, by default `{platform}`, proposes the library folder a play
+library build writes to, in a writable root pointing at the front end's `roms/` folder: `atari2600`. You can change
+either default under Settings, then Operations, use another template when you register, or type the path yourself.
 
 The proposed path keeps every character of the provider and DAT name as it is. It must be relative to the root, not
 empty and without `..`, and registration refuses a path that resolves outside the root. Folders are separated with
 `/`: a path with a `\` or a drive such as `C:` is refused. A template that could never give a valid path, such as an
-empty one or one starting with `/` or `../`, is refused when the configuration loads. A template only proposes: when
+empty one or one starting with `/` or `../`, is refused when you save it. A template only proposes: when
 you change it, source sets you already registered keep their paths.
 
 `{platform}` comes from a table in this repository, `crates/api/data/platforms.tsv`, of No-Intro and Redump DATs and
@@ -427,7 +426,7 @@ title-select set history <source set>
 
 `set add` registers a folder in a root, such as `sets "No-Intro/Atari - 2600"`, as a source set bound to an imported
 DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it registers the path the path template
-proposes for the DAT: `--template`, else `path_templates.source_set`, by default `{provider}/{dat}` (see "Path
+proposes for the DAT: `--template`, else your source set path template, by default `{provider}/{dat}` (see "Path
 templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `set list` prints each source set with the DAT revision it was last verified against:
 its latest audit's, the latest being the last to finish. `set history` lists a source set's audits, latest first, with
 the time, DAT revision, counts (with the games carrying each warning, such as `header_missing=2`, when any do),
@@ -442,7 +441,7 @@ Audits a registered source set, read-only, and records it. Unlike the stateless 
 that resolves outside the root: such a file or folder is an unreadable entry with that reason. Without `--revision`,
 the DAT revision is the latest audit's, else the newest revision of the bound DAT, so a newer DAT revision is
 adopted only when you name it. The entries and game statuses are written in one transaction when the audit finishes,
-and the report below is generated from them. Afterwards, audits beyond the newest `audits.keep` are pruned to a
+and the report below is generated from them. Afterwards, audits beyond the number your retention setting keeps are pruned to a
 one-row summary; the latest audit, and any audit cited as provenance, are never pruned.
 
 An audit is incremental unless you choose otherwise. The store records, for each file whose payloads were all read,
@@ -513,7 +512,7 @@ history (its audits, selections, builds and jobs) by the id `list` prints, and `
 ## Service
 
 ```sh
-title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>] [--webhook-secret-file <file>]
+title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>]
 ```
 
 Runs the Service: the `/api/v1` JSON API, and the jobs that run audits and selections. It listens on `--listen` or
@@ -555,26 +554,25 @@ reuses the reads the interrupted job made, and for an incremental audit or quick
 only for files that pass the change test above. Claims are not
 recorded; a resumed quick inventory takes them again.
 
-`[jobs] concurrent` jobs run at once, 1 by default. Each audit reads payloads on `readers` threads, which also
-decompress ZIP members, and checksums them on `hashers` threads. The pace sets both:
+`[jobs]` in the configuration file sets three ceilings: `concurrent`, the most jobs that run at once; `readers`, the
+most threads one audit reads payloads on, which also decompress ZIP members; and `hashers`, the most threads it
+checksums them on. Each defaults to this computer's CPU count. The pace, which you choose under Settings, then
+Operations, uses a share of each ceiling, rounded down and never less than 1:
 
-| `pace`        | readers | hashers | for                                                          |
-|---------------|---------|---------|--------------------------------------------------------------|
-| `gentle`      | 1       | 1       | one file at a time, leaving disks and CPUs to other services |
-| `default`     | 2       | 2       | the default: overlaps one file's reading with another's hash |
-| `unthrottled` | CPUs    | CPUs    | one of each per CPU, for an otherwise idle server            |
+| Pace          | share of each ceiling | for                                                     |
+|---------------|-----------------------|---------------------------------------------------------|
+| `gentle`      | a quarter             | leaving disks and CPUs to other services                |
+| `default`     | half                  | the default                                             |
+| `unthrottled` | all of it             | an otherwise idle server; the workbench's header says so while it is on |
 
-`[jobs] readers` or `hashers` overrides the pace's count. A job records the counts it was queued with.
+A new pace applies without a restart: to jobs not yet started, and to a running audit at each reader's and hash
+worker's next file. A lower pace never stops a running job; it only holds back the next one until fewer are running.
+A job records the ceilings it was queued with.
 
 A selection is a job too, of kind `selection`. It runs one version of a selection profile against the source set's
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
 may have one audit job and one selection job queued or running at once. Afterwards, selections beyond the newest
-`selections.keep` are pruned to their summary; the latest is never pruned.
-
-Title Select 0.6.0 had two selection engines, chosen with `[selections] engine`, and could compare them with
-`[selections] shadow` and `shadow_result_mib`. Selection has one engine now: these keys are still accepted, and
-ignored, and the log says so each time Title Select starts. You can remove them from your configuration; a later
-release will refuse them.
+number of selections your retention setting keeps are pruned to their summary; the latest is never pruned.
 
 ### Stale source sets
 
@@ -586,7 +584,7 @@ clears both:
   nothing, so it is cheap. A changed, added or removed file makes the source set stale, as does a file the audit
   stamped that can no longer be reached, such as a symlink whose target is gone or that now leaves the root. Its
   history records the check with how many files changed, were added and were removed. The Service checks each audited
-  source set once its last check, or else its latest audit, is older than `[source_sets] check_every_minutes` (360 by
+  source set once its last check, or else its latest audit, is older than your checking setting (360 minutes by
   default; 0 checks only when you ask), so a restart doesn't check everything again, and you can check one or more at
   any time. A check runs after every other queued job, never starts while a repair or build of its source set is
   queued or running, and stops, recording nothing, as soon as a repair or build is queued, or one of its source set
@@ -608,7 +606,7 @@ only way to bring in No-Intro DATs. Title Select never contacts No-Intro, not ev
 refuses any address there: download its DATs yourself and drop them in.
 
 **Fetching.** The service can fetch newer DAT revisions from Redump and from MAME's releases. Each provider is off
-until you turn it on under `[fetch]` (`redump = true`, `mame = true`) and restart the service. Then it fetches only
+until you turn it on under Settings, then Operations; it starts fetching within the hour. Then it fetches only
 for the systems a registered source set follows, and only those DATs:
 
 - **Redump**: the system's DAT, and its cue pack and SBI pack where Redump publishes them; nothing Redump doesn't
@@ -713,7 +711,7 @@ the configuration's `[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names
 image ships its own. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
 twice its CHD's size while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it
 into place. It removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each
-GiB of the disc, set by `timeout_seconds` and `timeout_seconds_per_gib` under `[chd]`; one that runs longer is stopped,
+GiB of the disc, set by the CHD time limits under Settings, then Operations; one that runs longer is stopped,
 and its disc fails. The discs of one game are put in place together: every disc is made and checked first, and if one
 fails, or you cancel before the last is checked, none is, and the game stays as it was. Once any file is kept aside or
 put in place for them, the rest follow, even if you cancel or the service stops. If one disc can't be put in place, its
@@ -914,14 +912,15 @@ An ingest folder is a writable root of kind `ingest` where new files arrive, suc
 or a folder you drop files into. There may be several. Registering one writes a marker naming this store; without it,
 scans and every write fail.
 
-A scan reads the folder and changes nothing in it. It is a job you start, or that `scan_every_minutes` queues; the
+A scan reads the folder and changes nothing in it. It is a job you start, or that the folder's scan every setting queues; the
 folder is not watched. When a scan leaves items arriving, the service scans that folder again once the earliest of them
-could have settled, `settle_secs` after it last changed, so you don't have to start another scan. An item that changed
+could have settled, its settle time after it last changed, so you don't have to start another scan. An item that changed
 again by then gets a further follow-up scan. A folder has at most one follow-up scan pending, and the ingest folder
 screen says when it is due. If a scan of the folder fails, the service tries again while items are arriving, waiting
-`settle_secs` at first and twice as long after each failure, up to 15 minutes. Follow-up scans are ordinary jobs,
+its settle time at first and twice as long after each failure, up to 15 minutes. Follow-up scans are ordinary jobs,
 started by `follow-up`. When the service restarts, it works out again which follow-ups your arriving items need. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
-changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
+changed item is arriving until its size, modification time and change time stay the same for its settle time, 60 seconds unless you set the folder's under Settings, then
+Operations; then it
 is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
 while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
 entry's. A ZIP is opened, here and in audits, only in the canonical layout TorrentZip and mainstream ZIP writers
@@ -1173,6 +1172,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?}`; only a disc system's play libraries take `layout` and `sbi` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
+| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`, the `ceilings` from the configuration file and the `active` counts the pace gives, each `{"concurrent", "readers", "hashers"}`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`) and `notify` (`url_set`, `secret_set`, `events`, `workbench_url`); never the webhook's URL or secret |
+| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace`; `notify` takes `url` and `secret` each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
 | `GET /api/v1/selections?source_set=&profile=`      | selections, newest first, of a source set, a profile or both; each names the library folders that use it |
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
@@ -1268,6 +1269,7 @@ Server-sent events carry JSON data, under one of these event names:
 | `state`    | the job                                | when a job's state changes; first on a job's own stream      |
 | `progress` | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second          |
 | `resync`   | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind |
+| `settings` | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again      |
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.
@@ -1346,11 +1348,11 @@ healthcheck: { test: ["CMD", "/title-select", "health"] }
 So that you don't have to watch the workbench, the Service can post each event to a webhook, and serves metrics for
 Prometheus.
 
-**Webhook.** Set `[notify] url` to an `http` or `https` URL, and name a file holding a secret with
-`TITLE_SELECT_WEBHOOK_SECRET_FILE` (or `--webhook-secret-file`). Like the operator token, the secret is trimmed of
-surrounding whitespace, and the Service refuses to start if the file is missing or empty, or if you set a URL without
-it. `events` lists the events to send, all six by default; an event you don't list is never sent. With
-`workbench_url` set to your workbench's address, each event links to the screen it concerns.
+**Webhook.** Under Settings, then Operations, set the webhook URL, an `http` or `https` URL, with a secret each event
+is signed with. The secret is trimmed of surrounding whitespace, and a URL without a secret, or an empty secret, is
+refused. Once saved, neither is shown again: the workbench says only whether each is set, and you can replace or clear
+it. Choose the events to send, all six by default; an event you don't choose is never sent. With your workbench's
+address set, each event links to the screen it concerns. A change applies to events from then on, without a restart.
 
 | Event | When | `subject` | `link` |
 |---|---|---|---|
@@ -1362,7 +1364,7 @@ it. `events` lists the events to send, all six by default; an event you don't li
 | `drift.found` | a check of a library folder finds more entries Title Select did not build than the check before | `<root>/<path>` | the library folder |
 
 Follow-up scans of ingest folders are jobs too, so each sends `job.finished` or `job.failed`. If that's too many events
-for you, leave `job.finished` out of `events`.
+for you, turn off `job.finished`.
 
 Each event is sent once, as it happens: a source set that stays stale isn't reported again until it has been audited
 and goes stale anew. Events from before the Service started are never sent.
@@ -1380,7 +1382,7 @@ Each event is one `POST` of a JSON object:
 ```
 
 `at` is when it happened, in RFC 3339. `summary` is a sentence for you to read; don't parse it. `link` is `null`
-without `workbench_url`. The request carries `Content-Type: application/json`, `X-Title-Select-Event: <event>`, and
+without your workbench's address. The request carries `Content-Type: application/json`, `X-Title-Select-Event: <event>`, and
 `X-Title-Select-Signature: sha256=<hex>`: the HMAC-SHA256 of the exact body under your secret. Check it before you trust
 the body, comparing in constant time, as in this Python:
 

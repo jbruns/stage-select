@@ -90,6 +90,8 @@ ICONS = [
     # Stale source sets: checking for changes, and a newer DAT revision of a followed DAT.
     "scan-search",
     "file-clock",
+    # The header's mark while Jobs run unthrottled.
+    "gauge",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

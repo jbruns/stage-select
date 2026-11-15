@@ -58,13 +58,32 @@ impl Env {
         }
         let config = Config::parse(&format!(
             "[roots.sets]\npath = {:?}\nwritable_paths = [\"Alpha\"]\n\n[roots.ro]\npath = {:?}\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n",
+             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
             tmp.path().join("roots/sets").display().to_string(),
             tmp.path().join("roots/ro").display().to_string(),
             tmp.path().join("in").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &title_select_api::settings::SettingsUpdate {
+                    ingest_folders: Some(
+                        [(
+                            "in".to_owned(),
+                            title_select_api::settings::IngestCadence {
+                                settle_secs: 0,
+                                scan_every_minutes: None,
+                            },
+                        )]
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", games);
         store.import_dat(&dat, provider, None).unwrap();
         let system = format!("{provider}/Test - System");

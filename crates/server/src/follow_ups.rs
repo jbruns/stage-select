@@ -188,7 +188,7 @@ fn follow_up(store: &Store, config: &Config, follow_ups: &FollowUps, root: &str,
     } else {
         Scan::Failed {
             arriving: settles_at.is_some(),
-            settle_secs: config.roots.get(root).map_or(0, |r| r.settle_secs()),
+            settle_secs: store.settings().map_or(0, |s| s.ingest(root).settle_secs),
         }
     };
     follow_ups.after_scan(root, scan, Timestamp::now());

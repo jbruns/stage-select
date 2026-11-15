@@ -11,6 +11,7 @@ mod jobs;
 mod library_folders;
 mod library_plan;
 pub mod lifecycle;
+mod operations;
 mod profiles;
 pub mod repair;
 mod roots;
@@ -32,6 +33,7 @@ pub use library_folders::{
     provide_planner,
 };
 pub use lifecycle::Unregistered;
+pub use operations::Operations;
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use roots::Roots;
 pub use selection::{NewSelection, SelectionScreen};

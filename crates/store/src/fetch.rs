@@ -24,7 +24,6 @@ use title_select_engine::dat::Dat;
 
 pub use http::{Allowed, FetchError, Fetched, Http, USER_AGENT, refusal, refusal_unnamed};
 
-use crate::config::Config;
 use crate::{Error, Result, Store, now};
 
 /// The least time between two requests to one provider, redirects included.
@@ -479,17 +478,15 @@ impl Store {
     /// the first that fails.
     pub fn fetch(
         &self,
-        config: &Config,
         fetcher: &Fetcher,
         provider: FetchProvider,
         trigger: FetchTrigger,
         actor: &str,
     ) -> Result<FetchReport> {
         let name = provider.dat_provider();
-        if !config.fetch.enabled(provider) {
+        if !self.settings()?.fetch.enabled(provider) {
             return Err(Error::Refused(format!(
-                "fetching from {name} is off; to turn it on, set `{} = true` under `[fetch]` in your configuration",
-                provider.as_str()
+                "fetching from {name} is off; to turn it on, go to Settings, then Operations, and turn on fetching from {name}"
             )));
         }
         let _running = fetcher.begin(provider)?;
@@ -930,8 +927,9 @@ impl Store {
     }
 
     /// Where fetching from each provider stands, for the systems a registered Source Set Follows.
-    pub fn fetch_status(&self, config: &Config, fetcher: &Fetcher) -> Result<FetchStatus> {
+    pub fn fetch_status(&self, fetcher: &Fetcher) -> Result<FetchStatus> {
         let systems = redump_systems();
+        let fetch = self.settings()?.fetch;
         self.read(|c| {
             let mut providers = Vec::new();
             for provider in FetchProvider::ALL {
@@ -972,7 +970,7 @@ impl Store {
                 };
                 providers.push(FetchProviderStatus {
                     provider,
-                    enabled: config.fetch.enabled(provider),
+                    enabled: fetch.enabled(provider),
                     running: fetcher.is_running(provider),
                     release,
                     systems: out,

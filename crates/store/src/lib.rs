@@ -25,6 +25,7 @@ mod repairs;
 mod sbi_packs;
 mod selections;
 mod sets;
+pub mod settings;
 mod stale;
 mod storage;
 
@@ -119,6 +120,10 @@ pub struct Store {
     observer: std::sync::OnceLock<observe::Observer>,
     /// How many 7z archives decode at once, across every Job; sized from the configuration on first use.
     archives: std::sync::OnceLock<title_select_engine::sevenz::Gate>,
+    /// The pace in the settings, which running Jobs read at each file.
+    pace: std::sync::RwLock<title_select_api::settings::Pace>,
+    /// Held across each settings update's commit and publication, so they happen in the same order.
+    settings_update: std::sync::Mutex<()>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -382,7 +387,14 @@ impl Store {
             lifecycle: Mutex::new(()),
             observer: std::sync::OnceLock::new(),
             archives: std::sync::OnceLock::new(),
+            pace: std::sync::RwLock::default(),
+            settings_update: std::sync::Mutex::default(),
         };
+        // A store opened by a test of an earlier migration has no settings.
+        if migrations.len() >= migrations::SETTINGS {
+            let pace = store.settings()?.pace;
+            *store.pace.write().unwrap_or_else(|e| e.into_inner()) = pace;
+        }
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
         store.discard_unfinished_audits()?;

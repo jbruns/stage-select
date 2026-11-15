@@ -48,7 +48,7 @@ impl Env {
         let config = Config::parse(&format!(
             "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n\
              [roots.play]\npath = {:?}\nwritable = true\n\n\
-             [roots.ingest]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n\n\
+             [roots.ingest]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
              [roots.additions]\npath = {:?}\nwritable = true\n",
             root.display().to_string(),
             tmp.path().join("roots/play").display().to_string(),
@@ -57,6 +57,25 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &title_select_api::settings::SettingsUpdate {
+                    ingest_folders: Some(
+                        [(
+                            "ingest".to_owned(),
+                            title_select_api::settings::IngestCadence {
+                                settle_secs: 0,
+                                scan_every_minutes: None,
+                            },
+                        )]
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         Env { tmp, store, config }
     }
 
@@ -392,7 +411,7 @@ fn build_with(
         .clone();
     let id = env
         .store
-        .record_selection(&env.config, job.id, &selection(&sha256, titles))
+        .record_selection(job.id, &selection(&sha256, titles))
         .unwrap()
         .selection
         .unwrap();

@@ -20,7 +20,6 @@ use super::jobs::{check_no_active, finish_running, job_by_id};
 use super::profiles::{profile_id, version_row};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 
 /// What a Running Selection Job needs to run the engine.
 #[derive(Debug, Clone)]
@@ -404,7 +403,7 @@ impl Store {
 
     /// Records the Selection the Running Selection Job `id` made and marks the Job Succeeded, in one transaction;
     /// then prunes the Source Set's Selections and drops unheld DAT blobs. Returns the Job as it ends.
-    pub fn record_selection(&self, config: &Config, id: i64, selection: &Selection) -> Result<Job> {
+    pub fn record_selection(&self, id: i64, selection: &Selection) -> Result<Job> {
         let set_id = self.write(|tx| {
             let (set_id, revision_id, version_id): (i64, i64, i64) = tx.query_row(
                 "SELECT source_set_id, dat_revision_id, profile_version_id FROM jobs
@@ -434,7 +433,7 @@ impl Store {
                 return Err(err);
             }
         };
-        self.prune_selections(set_id, config.selections.keep)?;
+        self.prune_selections(set_id, self.settings()?.retention.selections_keep)?;
         self.retain_blobs()?;
         self.job(id)
     }

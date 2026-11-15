@@ -1768,17 +1768,19 @@ impl Store {
             Ok(())
         };
         let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
+        let limits = self.settings()?.chd_limits();
+        let threads = self.pace().of(config.jobs.ceilings().hashers);
         let chd_work = ChdWork {
             chdman: match work.iter().any(|w| w.item.chd) {
                 true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
                     program,
-                    threads: config.jobs.workers().hashers,
-                    deadline: config.chd.limits().base,
+                    threads,
+                    deadline: limits.base,
                 }),
                 false => Err("no item is a CHD".into()),
             },
             store: self,
-            limits: config.chd.limits(),
+            limits,
             tmp: self.dir().join(crate::TMP),
             build: id,
             cancelled: &cancel_asked,

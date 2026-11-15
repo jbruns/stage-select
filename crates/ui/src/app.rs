@@ -5,11 +5,12 @@ use leptos_router::hooks::{use_location, use_navigate, use_params_map};
 use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
 use title_select_api::ingest::IngestFolder;
+use title_select_api::settings::{Pace, SettingsView};
 use title_select_api::{Job, JobState};
 
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
-use crate::parts::icon::{Glyph, LabelledIcon};
+use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::layout::{Tab, Tabs};
 use crate::parts::overlay::Tooltip;
 use crate::parts::theme::ThemeToggle;
@@ -18,8 +19,9 @@ use crate::screens::Bench;
 use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
-    NewLibraryFolder, NewProfile, NewSelection, ProfileScreen, Profiles, RepairRedirect, Roots,
-    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, provide_planner,
+    NewLibraryFolder, NewProfile, NewSelection, Operations, ProfileScreen, Profiles,
+    RepairRedirect, Roots, SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
+    Unregistered, provide_planner,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
 
@@ -43,6 +45,7 @@ pub fn App() -> impl IntoView {
                     <span class="brand-name">"Title Select"</span>
                 </a>
                 <Nav />
+                <PaceMark />
                 <StreamStatus />
                 <ThemeToggle />
             </header>
@@ -82,6 +85,7 @@ pub fn App() -> impl IntoView {
                     <ParentRoute path=path!("/settings") view=Settings>
                         <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" options=replace() /> } />
                         <Route path=path!("storage") view=StoragePolicyScreen />
+                        <Route path=path!("operations") view=Operations />
                         <Route path=path!("roots") view=Roots />
                         <Route path=path!("unregistered") view=Unregistered />
                         <Route path=path!("about") view=About />
@@ -216,6 +220,7 @@ fn Settings() -> impl IntoView {
             label="Settings"
             tabs=vec![
                 Tab { path: "/settings/storage", label: "Storage policy" },
+                Tab { path: "/settings/operations", label: "Operations" },
                 Tab { path: "/settings/roots", label: "Roots" },
                 Tab { path: "/settings/unregistered", label: "Unregistered" },
                 Tab { path: "/settings/about", label: "About" },
@@ -315,6 +320,32 @@ fn OldLibraryFolder() -> impl IntoView {
     let params = use_params_map();
     let id = params.with_untracked(|p| p.get("id").unwrap_or_default());
     view! { <Redirect path=format!("/libraries/{id}") options=replace() /> }
+}
+
+/// A mark in the header while jobs run unthrottled, linking to the setting.
+#[component]
+fn PaceMark() -> impl IntoView {
+    let live = use_live();
+    let pace = LocalResource::new(move || {
+        live.settings.track();
+        async {
+            api::get::<SettingsView>("/settings")
+                .await
+                .map(|s| s.jobs.pace)
+        }
+    });
+    move || {
+        (pace.get() == Some(Ok(Pace::Unthrottled))).then(|| {
+            view! {
+                <Tooltip label="Jobs run unthrottled, at every ceiling in full. Open the setting.".to_string()>
+                    <A href="/settings/operations" attr:class="pace-mark tone-review">
+                        <Svg glyph=Glyph::Gauge />
+                        <span class="pace-mark-text">"Unthrottled"</span>
+                    </A>
+                </Tooltip>
+            }
+        })
+    }
 }
 
 #[component]

@@ -71,10 +71,11 @@ pub enum Glyph {
     ArrowRight,
     ScanSearch,
     FileClock,
+    Gauge,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 67] = [
+    pub const ALL: [Glyph; 68] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -142,6 +143,7 @@ impl Glyph {
         Glyph::ArrowRight,
         Glyph::ScanSearch,
         Glyph::FileClock,
+        Glyph::Gauge,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -326,6 +328,7 @@ impl Glyph {
             Glyph::FileClock => {
                 "<path d='M16 22h2a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v2.85' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M8 14v2.2l1.6 1' /><circle cx='8' cy='16' r='6' />"
             }
+            Glyph::Gauge => "<path d='m12 14 4-4' /><path d='M3.34 19a10 10 0 1 1 17.32 0' />",
         }
     }
 
@@ -399,6 +402,7 @@ impl Glyph {
             Glyph::ArrowRight => "arrow-right",
             Glyph::ScanSearch => "scan-search",
             Glyph::FileClock => "file-clock",
+            Glyph::Gauge => "gauge",
         }
     }
 }

@@ -56,7 +56,6 @@ impl Env {
             config: self.config(extra),
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
-            webhook_secret_file: None,
             ui: None,
             clone_lists: None,
             hold_jobs: false,
@@ -123,6 +122,27 @@ impl Client {
             Some((name, value)) => request.header(name, value),
             None => request,
         }
+    }
+
+    /// Changes the settings as `body` says, and returns the status and the settings or refusal.
+    fn change_settings(&self, body: serde_json::Value) -> (u16, serde_json::Value) {
+        let (name, value) = self.auth.clone().unwrap();
+        let mut response = agent()
+            .patch(format!("{}/settings", self.base))
+            .header(name, value)
+            .send_json(body)
+            .unwrap();
+        (
+            response.status().as_u16(),
+            response.body_mut().read_json().unwrap(),
+        )
+    }
+
+    /// Has the ingest folder of Root `root` settle after `secs`.
+    fn settle_after(&self, root: &str, secs: u64) {
+        let (status, body) = self
+            .change_settings(serde_json::json!({"ingest_folders": {root: {"settle_secs": secs}}}));
+        assert_eq!(status, 200, "{body}");
     }
 
     fn json<T: DeserializeOwned>(&self, path: &str) -> T {
@@ -850,8 +870,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
         store.claim_job().unwrap();
     }
 
-    let service =
-        title_select_server::spawn(env.settings("[jobs]\npace = \"unthrottled\"\n")).unwrap();
+    let service = env.start();
     let client = Client::new(&service);
 
     let jobs: Vec<Job> = client.json("/jobs");
@@ -862,6 +881,79 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
     assert_eq!(again.workers.readers, cpus);
     let (_, done) = client.follow(again.id);
     assert_eq!(done.state, JobState::Succeeded);
+}
+
+#[test]
+fn every_watching_client_hears_that_the_settings_changed_without_their_secrets() {
+    let env = Env::new();
+    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let client = Client::new(&service);
+    let (mut events, _) = client.watch();
+
+    let (status, _) = client.change_settings(serde_json::json!({
+        "pace": "unthrottled",
+        "notify": {
+            "url": {"set": "https://hooks.example/very-secret-path"},
+            "secret": {"set": "s3cret-value"},
+        },
+    }));
+
+    assert_eq!(status, 200);
+    let (name, data) = events.next_event();
+    assert_eq!(name, "settings");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&data).unwrap(),
+        serde_json::json!({"pace": "unthrottled"})
+    );
+    assert!(!data.contains("very-secret-path") && !data.contains("s3cret-value"));
+}
+
+#[test]
+fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_configured_ceilings() {
+    use title_select_api::settings::{Ceilings, Pace, SettingsView};
+    let env = Env::new();
+    let service = title_select_server::spawn(
+        env.settings("[jobs]\nconcurrent = 2\nreaders = 8\nhashers = 5\n"),
+    )
+    .unwrap();
+    let client = Client::new(&service);
+    let ceilings = Ceilings {
+        concurrent: 2,
+        readers: 8,
+        hashers: 5,
+    };
+    let settings: SettingsView = client.json("/settings");
+    assert_eq!(settings.jobs.pace, Pace::Default);
+    assert_eq!(settings.jobs.ceilings, ceilings);
+    assert_eq!(
+        settings.jobs.active,
+        Ceilings {
+            concurrent: 1,
+            readers: 4,
+            hashers: 2
+        }
+    );
+
+    let (status, body) = client.change_settings(serde_json::json!({"pace": "unthrottled"}));
+    assert_eq!(status, 200, "{body}");
+    let settings: SettingsView = client.json("/settings");
+    assert_eq!(settings.jobs.active, ceilings);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(
+        (job.workers.readers, job.workers.hashers),
+        (8, 5),
+        "a job records the ceilings it may reach"
+    );
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+
+    let (status, _) = client.change_settings(
+        serde_json::json!({"retention": {"audits_keep": 0, "selections_keep": 1}}),
+    );
+    assert_eq!(status, 400);
+    let (status, _) = client.change_settings(serde_json::json!({"pace": "fast"}));
+    assert_eq!(status, 422);
 }
 
 #[test]
@@ -906,11 +998,12 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n",
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
         drop.display().to_string()
     )))
     .unwrap();
     let client = Client::new(&service);
+    client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
     assert_eq!(status, 201);
     client.add_set();
@@ -1018,10 +1111,11 @@ fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = {settle_secs}\n",
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
         drop.display().to_string()
     )))
     .unwrap();
+    Client::new(&service).settle_after("drop", settle_secs);
     let response = Client::new(&service)
         .post("/ingest-folders")
         .send_json(serde_json::json!({"root": "drop"}))
@@ -1178,13 +1272,14 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
     std::fs::create_dir_all(&drop).unwrap();
     std::fs::create_dir_all(&additions).unwrap();
     let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n\n\
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
          [roots.additions]\npath = {:?}\nwritable = true\n",
         drop.display().to_string(),
         additions.display().to_string(),
     )))
     .unwrap();
     let client = Client::new(&service);
+    client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
     assert_eq!(status, 201);
     client.add_set();
@@ -2030,33 +2125,6 @@ mod selections {
     }
 
     #[test]
-    fn a_configuration_that_still_sets_the_old_engine_keys_selects_as_before() {
-        let env = Env::new();
-        drop(ready(&env));
-        let service = title_select_server::spawn(env.settings(
-            "[selections]\nengine = \"bundled\"\nshadow = true\nshadow_result_mib = 8\n",
-        ))
-        .unwrap();
-        let client = Client::new(&service);
-        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
-        let selected = selection(&client, made.id);
-        assert_eq!(winners(&selected, "pong"), ["Pong (Europe)"]);
-        assert_eq!(selected.pins.retool_commit, None);
-        assert_eq!(
-            selected.pins.title_select_version.as_deref(),
-            Some(env!("CARGO_PKG_VERSION"))
-        );
-        assert_eq!(
-            status_of(
-                client
-                    .get(&format!("/selections/{}/shadow", made.id))
-                    .call()
-            ),
-            404
-        );
-    }
-
-    #[test]
     fn a_choice_is_recorded_as_the_rule_and_flagged_as_the_profile_and_dat_change() {
         let env = Env::new();
         let (_service, client) = ready(&env);
@@ -2546,13 +2614,17 @@ fn fetching_reports_its_state_and_refuses_before_any_request() {
     let mut off = client.post("/fetch/redump").send_empty().unwrap();
     assert_eq!(off.status(), 400);
     let body: ErrorBody = off.body_mut().read_json().unwrap();
-    assert!(body.error.contains("redump = true"), "{}", body.error);
+    assert!(
+        body.error.contains("turn on fetching from Redump"),
+        "{}",
+        body.error
+    );
     let no_intro = client.post("/fetch/no-intro").send_empty().unwrap();
     assert_eq!(no_intro.status(), 404);
-    drop(service);
 
-    let service = title_select_server::spawn(env.settings("[fetch]\nredump = true\n")).unwrap();
-    let client = Client::new(&service);
+    let (status, _) =
+        client.change_settings(serde_json::json!({"fetch": {"redump": true, "mame": false}}));
+    assert_eq!(status, 200);
     let mut nothing = client.post("/fetch/redump").send_empty().unwrap();
     assert_eq!(nothing.status(), 400);
     let body: ErrorBody = nothing.body_mut().read_json().unwrap();
