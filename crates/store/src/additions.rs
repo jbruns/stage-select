@@ -25,7 +25,7 @@ use title_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionTarget, AdditionsCheck, AdditionsEntry,
     AdditionsFinding, AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
 };
-use title_select_api::build::{ExpectedRom, FileStat, MARKER, invalid_name};
+use title_select_api::build::{ExpectedRom, FileStat, MARKER, STATE, invalid_name};
 use title_select_api::lifecycle::{AdditionsSetAside, RegistrationKind};
 use title_select_api::storage::{Storage, StorageScope, target_of};
 use title_select_api::{Job, JobKind, JobState};
@@ -35,7 +35,7 @@ use title_select_engine::build::{
 
 use crate::builds::{sha256_of, still_sha256};
 use crate::config::{ADDITIONS_ROOT, Config};
-use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
+use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::{folder_by_id, open_folder, store_id};
 use crate::ingest::moves::exactly;
 use crate::jobs::{finish_running, job_by_id};
@@ -1220,7 +1220,7 @@ impl Store {
         };
         let mut seen = std::collections::HashSet::new();
         for (name, _) in listed {
-            if name.starts_with(MARKER) || name.contains(".title-select-new-") {
+            if name == STATE {
                 continue;
             }
             let dir = dir.as_ref().expect("listed only from an open folder");
@@ -1457,12 +1457,12 @@ impl Store {
             store: self.read(store_id)?,
             additions_set: id,
         };
-        let written = made.create_new(MARKER).and_then(|mut file| {
+        let written = create_staged(&made, MARKER).and_then(|mut file| {
             use std::io::Write;
             file.write_all(&serde_json::to_vec(&marker).expect("a marker serializes"))?;
             file.sync_all()
         });
-        if let Err(e) = written.and_then(|()| made.sync()) {
+        if let Err(e) = written.and_then(|()| made.sync_holding(MARKER)) {
             return Ok(Err(format!(
                 "the additions set of {} cannot be created: {e}",
                 set.system
@@ -2356,7 +2356,11 @@ impl Store {
                 if at != file_name.as_str() {
                     return self.rename_staged(row, &held, at, dest);
                 }
-                dest.sync().map_err(io)?;
+                // The rename a stop may have left unsynced: from the staged name's folder into the destination's.
+                if let Some(staged_name) = row.staged_name.as_deref() {
+                    dest.sync_holding(staged_name).map_err(io)?;
+                }
+                dest.sync_holding(file_name).map_err(io)?;
                 return self.activate(row, &held, staged, dest);
             }
         }
@@ -2405,7 +2409,7 @@ impl Store {
                 ),
             );
         }
-        let staged_name = format!(".{file_name}.title-select-new-{}", unique());
+        let staged_name = staged_name(file_name);
         self.write(|tx| {
             tx.execute(
                 "UPDATE additions SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL
@@ -2414,7 +2418,7 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let staged = match dest.create_new(&staged_name) {
+        let staged = match create_staged(dest, &staged_name) {
             Ok(staged) => staged,
             Err(e) => return self.fail_addition(id, format!("its file cannot be written: {e}")),
         };
@@ -2471,7 +2475,9 @@ impl Store {
             );
         }
         self.fault_point(Fault::AdditionRenamed);
-        dest.sync().map_err(io)?;
+        dest.sync_holding(staged_name)
+            .and_then(|()| dest.sync_holding(file_name))
+            .map_err(io)?;
         self.activate(row, held, staged, dest)
     }
 

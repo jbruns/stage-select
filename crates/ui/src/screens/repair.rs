@@ -810,7 +810,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                 p.content.fingerprint.len()
             )}
             {p.content.creates_marker.then_some(
-                " It is this source set's first repair, so it writes the source set's .title-select marker.",
+                " It is this source set's first repair, so it writes the source set's marker, .title-select/marker.",
             )}
             " " {storage_line(&p.content.storage)}
         </p>

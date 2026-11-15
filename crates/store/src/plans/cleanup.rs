@@ -23,9 +23,10 @@ use super::{
 use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
-use crate::folders::{folder_by_id, is_own, open_folder};
+use crate::folders::{folder_by_id, open_folder};
 use crate::kept::{kept_where, name_key, open_retention};
 use crate::{Error, Fault, Result, Store};
+use title_select_api::storage::is_reserved_name;
 
 fn refuse(target: &str, message: String) -> Blocker {
     Blocker {
@@ -224,7 +225,7 @@ impl Names<'_> {
     /// case, or another of the cleanup's actions puts something there.
     fn claim(&mut self, name: &str) -> std::result::Result<(), String> {
         let lower = name_key(name);
-        if is_own(name) {
+        if name.split('/').next().is_some_and(is_reserved_name) {
             return Err(format!("{name} is a name Title Select keeps for itself"));
         }
         if self.claimed.contains(&lower) {

@@ -479,11 +479,12 @@ fn a_loose_ingest_item_is_added_and_its_original_deleted_once_the_copy_is_exactl
     assert!(env.store.ingest_kept_files("in").unwrap().is_empty());
     assert_eq!(
         files(&env.additions()),
-        BTreeSet::from([".title-select".to_owned(), "My Hack.zip".to_owned()])
+        BTreeSet::from([".title-select/marker".to_owned(), "My Hack.zip".to_owned()])
     );
-    let marker: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(env.additions().join(".title-select")).unwrap())
-            .unwrap();
+    let marker: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(env.additions().join(".title-select/marker")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         marker["additions_set"],
         env.store.additions_sets().unwrap()[0].id
@@ -982,7 +983,7 @@ fn a_stop_while_an_additions_set_is_created_or_an_addition_published_is_settled_
         assert!(!found.drifted(), "{fault:?}: {found:#?}");
         let leftover: Vec<String> = files(&env.additions())
             .into_iter()
-            .filter(|f| f.contains(".title-select-new-"))
+            .filter(|f| f.starts_with(".title-select/new-"))
             .collect();
         assert!(leftover.is_empty(), "{fault:?}: {leftover:?}");
         assert!(
@@ -1290,7 +1291,7 @@ fn a_retired_addition_moves_into_the_kept_files_from_where_it_is_restored_or_del
     assert!(additions_kept(&env).is_empty());
     assert_eq!(
         files(&env.additions()),
-        BTreeSet::from([".title-select".to_owned()])
+        BTreeSet::from([".title-select/marker".to_owned()])
     );
     assert!(
         env.store.restore_addition(a.id).is_err(),
@@ -1911,7 +1912,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
         "{:?}",
         plan.content.removals
     );
-    let retained = dir.join(".title-select-retained");
+    let retained = dir.join(".title-select/retained");
     let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = held.clone();
     let count = move |dir: &Path| -> usize {

@@ -38,7 +38,8 @@ use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{
-    FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of, remove_emptied,
+    FolderDir, Identity, create_staged, ctime_ns, file_stat, parent_made, parent_of,
+    remove_emptied, staged_name,
 };
 use crate::folders::{MARKER_LIMIT, MARKER_NEW, store_id};
 use crate::ingest::OwedAudits;
@@ -1328,7 +1329,7 @@ impl Store {
                 && is_file(&st, id)
                 && dir.read(MARKER, MARKER_LIMIT).map_err(io_err)? == json
             {
-                dir.sync().map_err(io_err)?;
+                dir.sync_holding(MARKER).map_err(io_err)?;
                 return self.record_marker(set).map(Ok);
             }
             // The temporary file recorded is gone, so what is there may be what the rename published in its place.
@@ -1394,13 +1395,14 @@ impl Store {
                     )?;
                     Ok(())
                 })?;
-                let file = match dir.create_new(MARKER_NEW) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        forget(self)?;
-                        return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
-                    }
-                };
+                let file =
+                    match parent_made(dir, MARKER_NEW).and_then(|_| dir.create_new(MARKER_NEW)) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            forget(self)?;
+                            return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
+                        }
+                    };
                 self.record_marker_temp(set, Identity::of_fd(&file).map_err(io_err)?)?;
                 file
             }
@@ -1432,7 +1434,7 @@ impl Store {
             }));
         }
         self.fault_point(Fault::RepairMarkerPublished);
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(MARKER).map_err(io_err)?;
         if !stat(MARKER)?.is_some_and(|st| is_file(&st, id)) {
             return self.unpublish_marker(set, dir);
         }
@@ -1453,7 +1455,7 @@ impl Store {
                  moved back to {MARKER_NEW} ({e}); move it out of the folder, then plan the repair again"
             )));
         }
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(MARKER).map_err(io_err)?;
         self.write(|tx| {
             tx.execute(
                 "UPDATE source_folders SET marker_temp_pending = 0, marker_temp_dev = NULL,
@@ -1825,7 +1827,7 @@ impl Store {
                     let file = dir.open_file(staged_name).map_err(io_err)?;
                     let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
                     if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
-                        dir.sync().map_err(io_err)?;
+                        dir.sync_holding(staged_name).map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
                         return self.build_staged(step, &file, None, None);
                     }
@@ -1851,7 +1853,7 @@ impl Store {
         if let Some(batch) = self.extraction_of(r, step, roms, sources, loose)? {
             return self.run_extraction(r, &batch, sources);
         }
-        let staged_name = format!(".{}.title-select-new-{}", base_name(target), unique());
+        let staged_name = staged_name(base_name(target));
         self.write(|tx| {
             tx.execute(
                 "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
@@ -1861,7 +1863,7 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let file = match dir.create_new(&staged_name) {
+        let file = match create_staged(dir, &staged_name) {
             Ok(file) => file,
             Err(e) => return self.step_failed(step, "failed", e.to_string()),
         };
@@ -1961,7 +1963,7 @@ impl Store {
                 return self.step_failed(step, "failed", why);
             }
         };
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(&staged_name).map_err(io_err)?;
         self.build_staged(step, &file, source_sha, reads)
     }
 
@@ -2041,7 +2043,7 @@ impl Store {
         let mut staged: Vec<(&Extracting, String, File, Identity)> = Vec::new();
         let mut failed: Option<String> = None;
         for one in batch {
-            let staged_name = format!(".{}.title-select-new-{}", base_name(&one.target), unique());
+            let staged_name = staged_name(base_name(&one.target));
             self.write(|tx| {
                 tx.execute(
                     "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL,
@@ -2051,7 +2053,7 @@ impl Store {
                 )?;
                 Ok(())
             })?;
-            let file = match dir.create_new(&staged_name) {
+            let file = match create_staged(dir, &staged_name) {
                 Ok(file) => file,
                 Err(e) => {
                     failed = Some(e.to_string());
@@ -2111,7 +2113,9 @@ impl Store {
                     serde_json::to_string(&BTreeMap::from([(path.as_str(), sha.as_str())]))
                         .expect("a map of strings")
                 });
-                dir.sync().map_err(io_err)?;
+                for (_, staged_name, _, _) in &staged {
+                    dir.sync_holding(staged_name).map_err(io_err)?;
+                }
                 for (one, _, file, _) in &staged {
                     if let Err(why) =
                         self.build_staged(&one.step, file, single.clone(), reads.clone())?
@@ -2281,7 +2285,7 @@ impl Store {
             self.fault_point(Fault::RepairDiscarding(step.seq));
         }
         // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(staged_name).map_err(io_err)?;
         deleting.sync().map_err(io_err)?;
         if let Some(kept) = kept {
             return self.keep_discarded(r, step, &deleting, &slot, staged_name, id, &kept);
@@ -2322,12 +2326,12 @@ impl Store {
                 if deleting.rename_new(&slot, dir, staged_name).is_err() {
                     return Ok(Err(format!(
                         "what was moved to be deleted from {}/{staged_name} is not the file Title Select staged, \
-                         and could not be put back; it was left at .title-select-retained/.deleting/{slot}",
+                         and could not be put back; it was left at .title-select/retained/.deleting/{slot}",
                         dir.path().display()
                     )));
                 }
                 deleting.sync().map_err(io_err)?;
-                dir.sync().map_err(io_err)?;
+                dir.sync_holding(staged_name).map_err(io_err)?;
             }
             None => {}
         }
@@ -2359,8 +2363,9 @@ impl Store {
                 Ok(Some(retention)) => retention.generation,
                 _ => return Err(Error::Io("the kept files folder is missing".into())),
             };
+        let leaf = staged_name.rsplit('/').next().unwrap_or(staged_name);
         let kept = (1..)
-            .map(|n| kept_name(staged_name, n))
+            .map(|n| kept_name(leaf, n))
             .find(|name| matches!(generation.stat(name), Ok(None)))
             .expect("a free name");
         self.write(|tx| {
@@ -2398,7 +2403,7 @@ impl Store {
         {
             return Ok(Err(format!(
                 "{}/{staged_name}, a file Title Select staged, changed since it was written, and could not be kept \
-                 aside ({e}); it was left at .title-select-retained/.deleting/{slot}",
+                 aside ({e}); it was left at .title-select/retained/.deleting/{slot}",
                 r.dir.path().display()
             )));
         }
@@ -2409,7 +2414,7 @@ impl Store {
             _ => {
                 return Ok(Err(format!(
                     "{}/{staged_name}, a file Title Select staged, changed since it was written, and is neither in \
-                     .title-select-retained/.deleting/{slot} nor kept as {kept}",
+                     .title-select/retained/.deleting/{slot} nor kept as {kept}",
                     r.dir.path().display()
                 )));
             }
@@ -2637,7 +2642,7 @@ impl Store {
             // Not a file, so never recorded kept: put back if its name is free, else left visible where it is.
             let why = match generation.rename_new(kept, parent, name) {
                 Ok(()) => {
-                    parent.sync().map_err(io_err)?;
+                    parent.sync_holding(name).map_err(io_err)?;
                     generation.sync().map_err(io_err)?;
                     format!(
                         "{path} was replaced by something else as it was kept aside; that was put back as {path}, \
@@ -2848,7 +2853,7 @@ impl Store {
             }
             self.fault_point(Fault::RepairMoved(step.seq));
         }
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(staged_name).map_err(io_err)?;
         let in_place = match parent_of(dir, target) {
             Ok((parent, name)) => {
                 let parent = parent.as_ref().unwrap_or(dir);
@@ -2947,7 +2952,7 @@ impl Store {
             }
         };
         // A stop may have left a rename unsynced: nothing is recorded, nor the step ended, until both are synced.
-        r.dir.sync().map_err(io_err)?;
+        r.dir.sync_holding(staged_name).map_err(io_err)?;
         generation.sync().map_err(io_err)?;
         self.fault_point(Fault::RepairFoundSynced(step.seq));
         if let Some(st) = generation.stat(kept).map_err(io_err)? {
@@ -2966,7 +2971,7 @@ impl Store {
                         ),
                     );
                 }
-                r.dir.sync().map_err(io_err)?;
+                r.dir.sync_holding(staged_name).map_err(io_err)?;
                 generation.sync().map_err(io_err)?;
                 match generation.stat(kept).map_err(io_err)? {
                     Some(st) => settle(&st),

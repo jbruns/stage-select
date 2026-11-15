@@ -7,13 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::report::{EvidenceLevel, Finding, HeaderRule};
 use crate::selection::Role;
 
+/// The one directory, inside every folder Title Select manages, that holds everything it keeps there for itself:
+/// the marker, a Build's staging folder, the retention area and any temporary name a write needs. Nothing else of
+/// Title Select's is ever left in the folder, and an Audit, a check or an Ingest assessment never reports it, or
+/// anything in it.
+pub const STATE: &str = ".title-select";
 /// The marker file every Library Folder holds: its [`Marker`] as JSON.
-pub const MARKER: &str = ".title-select";
+pub const MARKER: &str = ".title-select/marker";
 /// The folder, inside a Library Folder, that a Build stages its files in, so that renames never cross mounts.
-pub const STAGING: &str = ".title-select-staging";
+pub const STAGING: &str = ".title-select/staging";
 /// The directory, inside a Library Folder, where Kept Files are set aside under `<generation>/`, each renamed with
 /// [`kept_name`]. A check never reports it, or what is in it, as Drift.
-pub const RETENTION: &str = ".title-select-retained";
+pub const RETENTION: &str = ".title-select/retained";
 /// The suffix every Kept File's name ends with: no tool that scans a folder for games matches it.
 pub const KEPT_SUFFIX: &str = ".kept";
 

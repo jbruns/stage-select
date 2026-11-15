@@ -1012,7 +1012,7 @@ fn clear_staging(
         _ => return Err(not_ours(dir, STAGING)),
     }
     dir.rmdir(STAGING)
-        .and_then(|()| dir.sync())
+        .and_then(|()| dir.sync_holding(STAGING))
         .map_err(|e| e.to_string())
 }
 

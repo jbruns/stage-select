@@ -657,8 +657,8 @@ spelling the store keeps of its provider: one you save for `redump/<name>` befor
 keeping originals wins over following the default, and that wins over deleting them. Only a game with one ROM can be stored loose: a
 game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
-its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting
-`.title-select` or `.deleting`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
+its name or a ROM's name isn't a plain file name, is the name of the folder Title Select keeps its own work in
+(`.title-select`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
 stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
 disc layout says; any other system's play libraries store TorrentZip or loose.
 
@@ -743,7 +743,7 @@ audit verified, and moves the original into the folder's kept files.
 "Delete originals after conversion", set globally and for each system in each scope, is off by default. When it's on,
 a conversion deletes each original only once its converted file is verified: a TorrentZip is opened as canonical and
 its members' hashes and sizes match the ROMs exactly; a loose file's hashes match its ROM exactly. The original is
-kept aside first, then moved into `.title-select-retained/.deleting` and read back through the same open file, and
+kept aside first, then moved into `.title-select/retained/.deleting` and read back through the same open file, and
 deleted only when it still matches what the conversion read and recorded, before it put the converted file in place:
 its hash, size, modification time and change time. A check of the folder never changes that record. An original
 that changed in any way, even repacked with the same ROMs, or whose converted file doesn't verify, stays in the kept
@@ -758,7 +758,12 @@ from. It is bound to a source set and a selection profile, and so to a system; a
 its own profile. A source set cannot be registered in a writable root, and nothing else is ever written to one.
 
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
-`.title-select` marker holding the store's id, the folder's id and its build generation. A plan refuses a folder whose
+marker, `.title-select/marker`, holding the store's id, the folder's id and its build generation. Everything Title
+Select keeps in a folder it manages is inside `.title-select/`: the marker, the folder a build stages files in, and
+the kept files under `retained/`. It is made private to the service's user, and Title Select uses it only while it
+still is: a `.title-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
+until you move it out. Nothing else in the folder is Title Select's. Audits never read `.title-select/`,
+and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
 
@@ -798,7 +803,7 @@ A plan never deletes a file. A built file whose game is no longer selected is a 
 a check finds it as built, forgets its record when it is gone already, and leaves it when it changed since it was
 built. A built file the plan writes again from other ROMs, as when a newer DAT revision changes the game, is a
 replacement: the old file is kept aside and the new one written in the same build. Keeping a file aside moves it, by
-one rename that never replaces anything, into `.title-select-retained/<generation>/<name>.kept` in the same folder,
+one rename that never replaces anything, into `.title-select/retained/<generation>/<name>.kept` in the same folder,
 only while it is still the file the plan found. The retention area and each generation's folder are created under a
 temporary name the store records, made durable, renamed into place without replacing anything, and used only while
 they are still the empty folder made, owned by the service and private to it. One never renamed into place is left,
@@ -814,7 +819,7 @@ Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-file
 (`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
 file and the digest binds what it read, its change time and SHA-256 included. Each kept file is deleted
 only while it is still the file that was kept and still reads as you reviewed it: it is moved, without replacing anything, into the private folder
-`.title-select-retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
+`.title-select/retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
 you reviewed it is never deleted, and its outcome says so. Anything
 else, a symlink or a directory included, is left or moved back, and reported. Until it is moved back, it stays
 recorded where it is, and the deletion stays unfinished and blocks plans for the folder; when its name is taken, you
@@ -963,7 +968,7 @@ plan, whatever state it shows; an unsupported or dismissed item can still be dis
 dismissing an item never makes it movable. An item with other hard links to it cannot be in a plan. A plan lists each item, where it goes and why, and binds every
 entry of the folder by device, inode, size, modification time, change time and link count. Approving it is refused if
 anything changed.
-Discarding an item moves it into the folder's kept files, `.title-select-retained/<generation>/<name>.kept`. Importing
+Discarding an item moves it into the folder's kept files, `.title-select/retained/<generation>/<name>.kept`. Importing
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
 audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Within one filesystem a move is a rename that never replaces anything. What
@@ -979,7 +984,7 @@ A move cut off by a stop is finished when the service next starts, once the fold
 
 A repair changes a source set, and only through a plan you approve, separately from any build. The source set's root
 must list its path in `writable_paths`, which keeps the source set registered where it is, with its history; and its
-folder must be writable when the repair runs. The first repair of a source set writes a `.title-select` marker
+folder must be writable when the repair runs. The first repair of a source set writes a marker, `.title-select/marker`,
 holding the store's id and the source set's id, and says so in its plan; every later repair, and every move into the
 source set, is refused while the marker is missing or names another store or source set.
 
@@ -1029,8 +1034,8 @@ follow-up audit is queued, no audit of the source set starts and no build readin
 the step it is on finishes, every change of the item it started finishes, and the rest are skipped.
 
 A repair never deletes. A file it replaces or sets aside is moved, by a rename that never replaces anything, into the
-source set's kept files, `.title-select-retained/<generation>/<name>.kept`; a new file is written under a temporary
-name, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
+source set's kept files, `.title-select/retained/<generation>/<name>.kept`; a new file is written under a temporary
+name in `.title-select/`, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
 approved ingest move does: the item's original is deleted only when what was written is exactly the ROM it names, as
 for a loose file holding one ROM, and kept in the ingest folder's kept files otherwise. Once a repair finishes it
 queues an incremental audit of the source set, even if the service stops right after. A repair cut off by a stop
@@ -1040,8 +1045,7 @@ couldn't be deleted; until it finishes, the source set stays reserved for it. A 
 change, for example because the folder can't be written or a marker appeared in it, ends there instead, saying why,
 and you plan it again. Something that would stop a resumed repair the same way every time ends that change instead,
 saying what was left where: for example, if a file it put in place was replaced before its ingest original was dealt
-with, the fill fails and both are left as they are. Audits never read `.title-select` or
-`.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
+with, the fill fails and both are left as they are. Audits never read `.title-select/`. You delete a source set's kept files by picking them and approving the deletion.
 
 ### Additions
 
@@ -1088,7 +1092,7 @@ can restore a retired addition, which moves its file back, or delete its kept fi
 a source set's kept files. A name stays taken by its addition, even once it is retired. A check of an additions set,
 like that of a library folder, reads the folder and changes nothing: it reports each active addition as intact,
 missing or changed, and anything else as an unknown file. A file whose change time moved is re-hashed, and is
-intact only if it still holds what was published. It ignores `.title-select` entries and kept files.
+intact only if it still holds what was published. It ignores `.title-select/`, where its marker and kept files are.
 
 ### Unregistering
 

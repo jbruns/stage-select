@@ -13,7 +13,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat};
-use title_select_api::build::FileStat;
+use title_select_api::build::{FileStat, STATE};
 
 /// An open directory and the path it was opened at, for messages.
 pub(super) struct FolderDir {
@@ -157,15 +157,42 @@ impl FolderDir {
         Ok((owned, component(name)?))
     }
 
-    /// The directory `name` in this one, not followed if it is a symlink.
+    /// The directory `name` in this one, a `/`-separated path, no component of it followed if it is a symlink.
+    /// The folder's [`STATE`] directory, and so any path through it, opens only while it is private to this
+    /// service's user ([`FolderDir::private`]): its owner could otherwise replace the marker in it, or move a folder
+    /// Title Select writes into out of the folder.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
-        let name = component(name)?;
-        let fd = rustix::fs::openat(&self.fd, name, DIR_FLAGS, Mode::empty())
-            .map_err(|e| self.error(name, e))?;
-        Ok(FolderDir {
+        let (parent, leaf) = self.resolve(name)?;
+        let state = parent.is_none() && leaf == STATE;
+        let fd = rustix::fs::openat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            DIR_FLAGS,
+            Mode::empty(),
+        )
+        .map_err(|e| match e {
+            rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP if state => {
+                self.not_state("it is not a directory")
+            }
+            e => self.error(name, e),
+        })?;
+        let found = FolderDir {
             fd,
             path: self.at(name),
-        })
+        };
+        if state && let Err(why) = found.private(false)? {
+            return Err(self.not_state(&why));
+        }
+        Ok(found)
+    }
+
+    /// Why the folder's [`STATE`] directory, found as `why` says, is never used.
+    fn not_state(&self, why: &str) -> io::Error {
+        io::Error::other(format!(
+            "{} is not Title Select's own private folder: {why}; it was left as it is. Move it out of the folder, \
+             then try again",
+            self.at(STATE).display()
+        ))
     }
 
     /// Creates the directory `name`, failing if anything is there.
@@ -368,6 +395,15 @@ impl FolderDir {
         .map_err(|e| self.error(name, e))
     }
 
+    /// Makes the entries of the directory holding `rel`, a `/`-separated path relative to this one, durable: this
+    /// directory's for a single name, and for a name in [`STATE`](title_select_api::build::STATE), that directory's.
+    pub fn sync_holding(&self, rel: &str) -> io::Result<()> {
+        match self.resolve(rel)? {
+            (Some(parent), _) => parent.sync(),
+            (None, _) => self.sync(),
+        }
+    }
+
     /// Makes the directory's entries durable.
     pub fn sync(&self) -> io::Result<()> {
         #[cfg(test)]
@@ -444,14 +480,44 @@ pub(super) fn parent_made<'a>(
     let mut found: Option<FolderDir> = None;
     for part in parents.split('/') {
         let at = found.as_ref().unwrap_or(dir);
-        match at.mkdir(part) {
-            Ok(()) => at.sync()?,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        // The folder's own STATE directory is made private to this service's user, and used only while it is.
+        let state = found.is_none() && part == STATE;
+        let made = match if state {
+            at.mkdir_private(part)
+        } else {
+            at.mkdir(part)
+        } {
+            Ok(()) => true,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => false,
             Err(e) => return Err(e),
+        };
+        let sub = at.sub(part)?;
+        if made
+            && state
+            && let Err(why) = sub.private(true)?
+        {
+            return Err(at.not_state(&why));
         }
-        found = Some(at.sub(part)?);
+        // Synced even when it already existed: a stop after making it may have left it unsynced, and what is
+        // recorded inside it is durable only once it is.
+        at.sync()?;
+        found = Some(sub);
     }
     Ok((found, name))
+}
+
+/// The name, in a folder's [`STATE`] directory, that a new file meant for `name` is written under before one rename
+/// that never replaces anything puts it in place: on the folder's own filesystem, and never a name Title Select
+/// gives anything else there.
+pub(super) fn staged_name(name: &str) -> String {
+    format!("{STATE}/new-{}-{name}", super::kept::unique())
+}
+
+/// Creates the new file `name` in `dir` as [`FolderDir::create_new`] does, first making each folder of it that is
+/// missing: the [`STATE`] directory a [`staged_name`] is in.
+pub(super) fn create_staged(dir: &FolderDir, name: &str) -> io::Result<File> {
+    parent_made(dir, name)?;
+    dir.create_new(name)
 }
 
 /// Removes the folder holding `rel`, a path relative to `dir`, if it is now empty: a loose folder a repair emptied, or a folder
@@ -476,4 +542,23 @@ impl AsFd for FolderDir {
 
 fn with_path(path: &Path, e: io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_state_folder_made_before_a_stop_is_synced_into_its_folder_when_next_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = FolderDir::open(tmp.path(), "").unwrap();
+        // A stop between making `.title-select` and syncing the folder holding it.
+        dir.mkdir_private(STATE).unwrap();
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+
+        parent_made(&dir, &format!("{STATE}/marker")).unwrap();
+
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        assert!(synced.contains(&tmp.path().to_path_buf()), "{synced:?}");
+    }
 }

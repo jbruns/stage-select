@@ -1,5 +1,5 @@
 //! Kept files: files a Build moved out of a Library Folder into the folder's retention area,
-//! `.title-select-retained/<generation>/`, rather than deleting them. The retention area and each folder in it are
+//! `.title-select/retained/<generation>/`, rather than deleting them. The retention area and each folder in it are
 //! created under a temporary name recorded by identity, made durable, renamed into place without replacing anything,
 //! and recorded by identity before anything is moved into them; one found with another identity, or not recorded at
 //! all, is never used. A file is kept aside by one rename within the folder that never replaces anything, only while
@@ -23,7 +23,7 @@ use title_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_of};
+use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
@@ -150,8 +150,8 @@ const DIR_TEMP: &str = ".new-";
 /// to be deleted there once it is found to be the file that was kept.
 pub(super) const DELETING: &str = ".deleting";
 
-/// Whether `name`, in a Library Folder, is the temporary name its retention area or a Build's staging directory is
-/// created under.
+/// Whether `name`, a path in a Library Folder, is the temporary name its retention area or a Build's staging
+/// directory is created under.
 pub(super) fn is_dir_temp(name: &str) -> bool {
     [RETENTION, STAGING].into_iter().any(|dir| {
         name.strip_prefix(dir)
@@ -201,6 +201,13 @@ pub(super) fn create_dir(
     key: &str,
 ) -> Result<std::result::Result<FolderDir, String>> {
     let folder: Scope = folder.into();
+    // `name` may be a path in `parent`, such as the retention area in the folder's `.title-select` directory, which
+    // is made first if it is missing; the directory is then made, and renamed into place, in the one holding it.
+    let (holder, name) = match parent_made(parent, name) {
+        Ok(found) => found,
+        Err(e) => return Ok(Err(e.to_string())),
+    };
+    let parent = holder.as_ref().unwrap_or(parent);
     let temp = format!("{name}{DIR_TEMP}{}", unique());
     let temp_key = sibling(key, &temp);
     store.write(|tx| {
@@ -450,14 +457,19 @@ pub(super) fn settle_dir_temps(
     dir: &FolderDir,
 ) -> Result<std::result::Result<(), String>> {
     let folder: Scope = folder.into();
+    // The name in the retention area of a key for a directory made there.
+    let in_area = |key: &str| {
+        key.strip_prefix(RETENTION)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .map(str::to_owned)
+    };
     let is_pending = |key: &str| {
-        let (parent, last) = match key.split_once('/') {
-            Some((parent, last)) => (Some(parent), last),
-            None => (None, key),
+        let last = match in_area(key) {
+            Some(last) => last,
+            None if is_dir_temp(key) => key.rsplit('/').next().unwrap_or(key).to_owned(),
+            None => return false,
         };
-        parent.is_none_or(|p| p == RETENTION)
-            && !last.contains('/')
-            && (parent.is_some() || is_dir_temp(last))
+        !last.contains('/')
             && last
                 .split_once(DIR_TEMP)
                 .is_some_and(|(dest, _)| !dest.is_empty())
@@ -478,15 +490,16 @@ pub(super) fn settle_dir_temps(
         .filter(|(key, _)| is_pending(key))
         .collect();
     // The retention area before what is created in it.
-    pending.sort_by_key(|(key, _)| key.contains('/'));
+    pending.sort_by_key(|(key, _)| in_area(key).is_some());
     for (key, id) in pending {
         let area;
-        let (parent, last) = match key.split_once('/') {
+        let in_area = in_area(&key);
+        let (parent, last) = match &in_area {
             None => (dir, key.as_str()),
-            Some((_, last)) => match own_dir(store, folder, dir, RETENTION, RETENTION, false)? {
+            Some(last) => match own_dir(store, folder, dir, RETENTION, RETENTION, false)? {
                 Ok(Some(found)) => {
                     area = found;
-                    (&area, last)
+                    (&area, last.as_str())
                 }
                 Ok(None) => {
                     forget_temp(store, folder, &key)?;
@@ -519,7 +532,11 @@ pub(super) fn settle_dir_temps(
             .split_once(DIR_TEMP)
             .map(|(dest, _)| dest)
             .unwrap_or(last);
-        let dest_key = sibling(&key, dest);
+        let dest_key = if in_area.is_some() {
+            sibling(&key, dest)
+        } else {
+            dest.to_owned()
+        };
         match parent.stat(last) {
             Err(e) => return Ok(Err(e.to_string())),
             // Never renamed into place: left as this store's leftover, never removed by name.
@@ -537,7 +554,9 @@ pub(super) fn settle_dir_temps(
                     Ok(Some(st)) if is_dir(&st) && Identity::of(&st) == id
                 );
                 if made && recorded != Some(id) {
-                    parent.sync().map_err(|e| Error::Io(e.to_string()))?;
+                    parent
+                        .sync_holding(dest)
+                        .map_err(|e| Error::Io(e.to_string()))?;
                     store.write(|tx| record_made(tx, folder, &dest_key, id))?;
                 }
             }
