@@ -126,14 +126,25 @@ fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>,
     let (store, config, jobs) = (Arc::downgrade(store), config.clone(), jobs.clone());
     tokio::task::spawn_blocking(move || {
         let timing = jobs.romm_scan;
-        match Store::request_romm_scan(&store, &config, id, &timing, &jobs.romm_stop, &mut |job| {
-            jobs.changed(job.clone())
-        }) {
-            Ok(Some(job)) => reconcile_romm(&store, &config, &jobs, &job),
-            Ok(None) => {}
-            Err(err) => eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}"),
-        }
+        let ended = match Store::request_romm_scan(
+            &store,
+            &config,
+            id,
+            &timing,
+            &jobs.romm_stop,
+            &mut |job| jobs.changed(job.clone()),
+        ) {
+            Ok(ended) => ended,
+            Err(err) => {
+                eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
+                None
+            }
+        };
+        // The Additions sync is bounded and quick; the comparison may page through a large platform, so it goes last.
         sync_romm_additions(&store, &config, &jobs, id);
+        if let Some(job) = ended {
+            reconcile_romm(&store, &config, &jobs, &job);
+        }
     });
 }
 

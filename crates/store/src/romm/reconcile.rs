@@ -311,8 +311,9 @@ enum Halt {
 impl Store {
     /// Compares RomM's view of the Library Folder `folder` with the files its Builds made, and keeps it as the
     /// folder's latest reconciliation, replacing the one before; `job` is the Job whose RomM scan led to it, if one
-    /// did. It reads RomM's ROMs of the folder's platform `page` at a time. A request RomM refuses or doesn't answer
-    /// is kept as a reconciliation that says why. Returns `None`, recording nothing, when RomM is off or the folder
+    /// did. It reads RomM's ROMs of the folder's platform `page` at a time, for up to `timing.window`. A request RomM
+    /// refuses or doesn't answer, or a platform it doesn't list in that time, is kept as a reconciliation that says
+    /// why. Returns `None`, recording nothing, when RomM is off or the folder
     /// isn't a platform RomM scans; or when, before it ends, the Store is gone, `stop` is signalled, RomM is turned
     /// off or its address or root changes.
     ///
@@ -367,8 +368,16 @@ impl Store {
                     "RomM has no platform {fs_slug}. Scan your library in RomM so it finds the folder"
                 )));
             };
+            let deadline = std::time::Instant::now() + timing.window;
             let mut roms = Vec::new();
             loop {
+                if std::time::Instant::now() >= deadline {
+                    return Err(Halt::Failed(format!(
+                        "RomM didn't list every ROM of {fs_slug} within {} seconds ({} read)",
+                        timing.window.as_secs(),
+                        roms.len()
+                    )));
+                }
                 let path = format!(
                     "/api/roms?platform_ids={}&limit={page}&offset={}&with_files=true&with_char_index=false\
                      &with_filter_values=false&with_rom_id_index=false&order_by=id&order_dir=asc",
@@ -500,15 +509,24 @@ impl Store {
 
     /// The latest reconciliation of the Library Folder `folder` with RomM, if it has one.
     pub fn romm_reconciliation(&self, folder: i64) -> Result<Option<RommReconciliation>> {
+        Ok(self.bound_romm_reconciliation(folder)?.map(|(r, _)| r))
+    }
+
+    /// The latest reconciliation of `folder` and the RomM address it read, read together, so its ROM ids are always
+    /// checked against the address of that same reconciliation.
+    fn bound_romm_reconciliation(
+        &self,
+        folder: i64,
+    ) -> Result<Option<(RommReconciliation, String)>> {
         self.read(|c| {
             Ok(c.query_row(
                 "SELECT folder_id, job_id, fs_slug, reconciled_at, error, files, clean, unidentified,
-                        title_mismatch, hash_mismatch, rows
+                        title_mismatch, hash_mismatch, rows, base_url
                  FROM romm_reconciliations WHERE folder_id = ?1",
                 [folder],
                 |r| {
                     let count = |i: usize| r.get::<_, i64>(i).map(|n| n as u64);
-                    Ok(RommReconciliation {
+                    let reconciliation = RommReconciliation {
                         folder_id: r.get(0)?,
                         job_id: r.get(1)?,
                         fs_slug: r.get(2)?,
@@ -522,7 +540,8 @@ impl Store {
                             hash_mismatch: count(9)?,
                         },
                         rows: crate::plans::json(r, 10)?,
-                    })
+                    };
+                    Ok((reconciliation, r.get(11)?))
                 },
             )
             .optional()?)
@@ -545,28 +564,23 @@ impl Store {
                 "RomM is off. Turn it on in your settings to ask it to scan again.".into(),
             ));
         }
-        let latest = self.romm_reconciliation(folder)?;
-        let rows: Vec<_> = latest
-            .iter()
-            .flat_map(|r| &r.rows)
-            .filter(|r| r.rom_id == Some(rom_id))
-            .collect();
-        if rows.is_empty() {
+        let latest = self.bound_romm_reconciliation(folder)?;
+        let (rows, binding): (Vec<_>, _) = match &latest {
+            Some((r, base_url)) => (
+                r.rows.iter().filter(|r| r.rom_id == Some(rom_id)).collect(),
+                Some((base_url.as_str(), r.fs_slug.as_str())),
+            ),
+            None => (Vec::new(), None),
+        };
+        let Some((base_url, fs_slug)) = binding.filter(|_| !rows.is_empty()) else {
             return Err(Error::Refused(format!(
                 "RomM's ROM {rom_id} isn't one the latest comparison of this library folder flagged, so RomM wasn't \
                  asked to scan it again."
             )));
-        }
-        let (base_url, fs_slug): (String, String) = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT base_url, fs_slug FROM romm_reconciliations WHERE folder_id = ?1",
-                [folder],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )?)
-        })?;
+        };
         let (root, path) = self.folder_place(folder)?;
-        if romm.base_url.as_deref() != Some(base_url.as_str())
-            || romm.platform(config, &root, &path).fs_slug() != Some(fs_slug.as_str())
+        if romm.base_url.as_deref() != Some(base_url)
+            || romm.platform(config, &root, &path).fs_slug() != Some(fs_slug)
         {
             return Err(Error::Refused(
                 "RomM's address or this library folder's RomM platform changed since the latest comparison, so its \

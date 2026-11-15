@@ -1667,6 +1667,49 @@ mod scans {
             );
         }
 
+        /// A platform RomM pages through more slowly than the scan window ends with a comparison that says so,
+        /// instead of reading pages for ever.
+        #[test]
+        fn a_platform_too_slow_to_list_within_the_window_ends_saying_so() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let roms = (1..=20)
+                .map(|id| rom_of(id, "a26", &format!("Game {id}.zip"), Some("Game"), vec![]))
+                .collect();
+            let romm = library_then("a26", roms, |r| {
+                if r.path.starts_with("/api/roms?") {
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+            });
+            env.romm(true, &romm.url, "play");
+            let window = ScanTiming {
+                window: Duration::from_millis(150),
+                ..FAST
+            };
+
+            let ended = Store::reconcile_romm(
+                &Arc::downgrade(&env.store),
+                &env.config,
+                folder.id,
+                None,
+                1,
+                &window,
+                &ScanStop::default(),
+            )
+            .unwrap()
+            .unwrap();
+
+            let error = ended.error.expect("the comparison ran out of time");
+            assert!(error.contains("didn't list"), "{error}");
+            let pages = romm
+                .seen()
+                .iter()
+                .filter(|r| r.path.starts_with("/api/roms?"))
+                .count();
+            assert!(pages < 20, "it stopped paging: {pages} pages");
+        }
+
         /// [`library`], holding its answer to the first request for a page of ROMs until the test has done what it
         /// does then.
         fn held_library(fs_slug: &str, roms: Vec<Value>) -> (StubRomm, Hold) {
