@@ -1,5 +1,6 @@
 //! RomM, an optional integration that is off by default (ADR 0020): its connection as stored, a small client for its
-//! API, testing the connection, the RomM platform each Library Folder maps to, and the scan a Build requests.
+//! API, testing the connection, the RomM platform each Library Folder maps to, the scan a Build requests, and the
+//! comparison of RomM's view of a Library Folder with what its Builds made once that scan finishes.
 
 use std::path::{Component, Path};
 
@@ -22,6 +23,8 @@ use crate::fetch::{Http, Method, refusal_unnamed};
 use crate::{Error, Result, Store, now};
 
 pub use crate::romm_additions::Released;
+mod reconcile;
+pub use reconcile::PAGE;
 
 /// RomM's address as given, checked: plain `http` or `https` to a named host, with no credentials, query or fragment,
 /// and without a trailing `/`. A path is kept, for a RomM served under one.

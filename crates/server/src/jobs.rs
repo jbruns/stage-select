@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
+use title_select_api::romm::RommReconciliation;
 use title_select_api::{Job, JobEvent, JobKind, JobProgress};
 use title_select_engine::Progress;
 use title_select_selection::Engine;
@@ -16,7 +17,7 @@ use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
 use title_select_store::romm::Released;
-use title_select_store::romm::{ScanStop, ScanTiming};
+use title_select_store::romm::{PAGE, ScanStop, ScanTiming};
 use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
@@ -51,6 +52,25 @@ impl Jobs {
             romm_scan,
             romm_stop: ScanStop::default(),
         }
+    }
+
+    /// Compares RomM's view of the Library Folder `folder` with what its Builds made now, as you asked, waiting on
+    /// RomM as the scan an ended Build requests does. `None` when RomM is off or doesn't scan the folder.
+    pub fn reconcile_romm(
+        &self,
+        store: &Weak<Store>,
+        config: &Config,
+        folder: i64,
+    ) -> title_select_store::Result<Option<RommReconciliation>> {
+        Store::reconcile_romm(
+            store,
+            config,
+            folder,
+            None,
+            PAGE,
+            &self.romm_scan,
+            &self.romm_stop,
+        )
     }
 
     /// Stops following every RomM scan, now and from now on, and records each in `store` as no longer followed.
@@ -95,12 +115,12 @@ fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>,
     let (store, config, jobs) = (Arc::downgrade(store), config.clone(), jobs.clone());
     tokio::task::spawn_blocking(move || {
         let timing = jobs.romm_scan;
-        if let Err(err) =
-            Store::request_romm_scan(&store, &config, id, &timing, &jobs.romm_stop, &mut |job| {
-                jobs.changed(job.clone())
-            })
-        {
-            eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
+        match Store::request_romm_scan(&store, &config, id, &timing, &jobs.romm_stop, &mut |job| {
+            jobs.changed(job.clone())
+        }) {
+            Ok(Some(job)) => reconcile_romm(&store, &config, &jobs, &job),
+            Ok(None) => {}
+            Err(err) => eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}"),
         }
         sync_romm_additions(&store, &config, &jobs, id);
     });
@@ -138,6 +158,19 @@ pub fn delete_released_romm_collection(store: &Arc<Store>) {
             Ok(_) => {}
         },
     );
+}
+
+/// Compares RomM's view of the Library Folder the ended Build Job `job` changed with what its Builds made, once the
+/// scan it requested finished (#143). A comparison that fails is kept saying why; it never fails the Job.
+fn reconcile_romm(store: &Weak<Store>, config: &Config, jobs: &Jobs, job: &Job) {
+    if let Err(err) =
+        Store::reconcile_romm_scan(store, config, job, &jobs.romm_scan, &jobs.romm_stop)
+    {
+        eprintln!(
+            "title-select: job {}: RomM's view of its library folder wasn't compared: {err}",
+            job.id
+        );
+    }
 }
 
 /// Claims and runs Queued Jobs forever, starting one only while fewer run than the pace allows now. A slower pace

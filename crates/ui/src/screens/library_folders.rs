@@ -45,6 +45,7 @@ use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
 use crate::screens::library_plan::LibraryPlan;
+use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
     LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
 };
@@ -1163,6 +1164,7 @@ fn FolderPage(
                 .into_any()
             }
             FolderTab::Kept => view! { <KeptFiles folder=id busy refresh /> }.into_any(),
+            FolderTab::Romm => view! { <RommTab folder=id /> }.into_any(),
         }}
     }
 }

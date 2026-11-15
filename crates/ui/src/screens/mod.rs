@@ -10,6 +10,7 @@ mod ingest_plan;
 mod jobs;
 mod library_folders;
 mod library_plan;
+mod library_romm;
 pub mod lifecycle;
 mod operations;
 mod profiles;

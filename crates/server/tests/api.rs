@@ -909,8 +909,8 @@ fn every_watching_client_hears_that_the_settings_changed_without_their_secrets()
     assert!(!data.contains("very-secret-path") && !data.contains("s3cret-value"));
 }
 
-/// A stub RomM 5.4.1 on a local port: a heartbeat for anyone, and to the bearer of `rmm_good` its user `svc` and
-/// every scope. No test sends a request to a real RomM.
+/// A stub RomM 5.4.1 on a local port: a heartbeat for anyone, and to the bearer of `rmm_good` its user `svc`, every
+/// scope, and a platform gba with no ROMs. No test sends a request to a real RomM.
 fn stub_romm() -> String {
     stub_romm_with("finished")
 }
@@ -958,6 +958,10 @@ fn stub_romm_with(status: &'static str) -> String {
                 "/api/heartbeat" => (200, r#"{"SYSTEM": {"VERSION": "5.4.1"}}"#),
                 _ if !authorized => (401, r#"{"detail": "Not authenticated"}"#),
                 "/api/users/me" => (200, r#"{"username": "svc", "role": "editor"}"#),
+                "/api/platforms" => (
+                    200,
+                    r#"[{"id": 3, "slug": "gba", "fs_slug": "gba", "name": "GBA"}]"#,
+                ),
                 p if p.starts_with("/api/roms") => (200, r#"{"items": []}"#),
                 p if p.ends_with("/identifiers") => (200, "[]"),
                 "/api/tasks/scan" => (202, r#"{"task_id": "t1", "status": "queued"}"#),
@@ -2634,6 +2638,94 @@ mod selections {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    /// Once the scan a build requested finishes, RomM's view of the library folder is compared with what the build
+    /// made. You can compare it again, and ask RomM to scan again a ROM it flagged, but only while RomM is on and only
+    /// with your credential.
+    #[test]
+    fn a_finished_scan_leads_to_a_comparison_with_romm_you_can_repeat_and_act_on() {
+        use std::time::{Duration, Instant};
+        use title_select_api::romm::RommReconciliation;
+        let env = Env::new();
+        let (service, id) = built_where_romm_scans(
+            &env,
+            "finished",
+            title_select_store::romm::ScanTiming {
+                poll: Duration::from_millis(10),
+                backoff: Duration::from_millis(10),
+                backoff_max: Duration::from_millis(10),
+                window: Duration::from_secs(5),
+                request: Duration::from_secs(5),
+            },
+        );
+        let client = Client::new(&service);
+        let folder = client
+            .json::<Job>(&format!("/jobs/{id}"))
+            .library_folder
+            .unwrap();
+        let path = format!("/libraries/{folder}/romm");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let latest = loop {
+            let mut response = client.get(&path).call().unwrap();
+            match response.status().as_u16() {
+                200 => {
+                    break response
+                        .body_mut()
+                        .read_json::<RommReconciliation>()
+                        .unwrap();
+                }
+                404 if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                status => panic!("RomM's view was never compared: {status}"),
+            }
+        };
+        assert_eq!((latest.job_id, latest.error.as_deref()), (Some(id), None));
+        assert!(latest.counts.files > 0, "{latest:?}");
+        assert_eq!(
+            latest.counts.hash_mismatch, latest.counts.files,
+            "RomM lists no file the build made: {latest:?}"
+        );
+
+        let missing = Client {
+            auth: None,
+            ..Client::new(&service)
+        };
+        assert_eq!(status_of(missing.get(&path).call()), 401);
+        for post in ["reconciliations", "rescans"] {
+            let response = missing
+                .post(&format!("{path}/{post}"))
+                .send_json(json!({"rom_id": 1}));
+            assert_eq!(status_of(response), 401, "{post}");
+        }
+
+        let (status, again) = send(client.post(&format!("{path}/reconciliations")), json!({}));
+        assert_eq!(status, 200, "{again}");
+        let again: RommReconciliation = serde_json::from_value(again).unwrap();
+        assert_eq!((again.job_id, again.counts), (None, latest.counts));
+        let (status, body) = send(
+            client.post(&format!("{path}/rescans")),
+            json!({"rom_id": 9}),
+        );
+        assert_eq!(
+            status, 400,
+            "a ROM no comparison flagged isn't scanned again: {body}"
+        );
+
+        let settings: title_select_api::settings::SettingsView = client.json("/settings");
+        let (status, body) = client.change_settings(
+            json!({"romm": {"enabled": false, "base_url": settings.romm.base_url}}),
+        );
+        assert_eq!(status, 200, "{body}");
+        for post in ["reconciliations", "rescans"] {
+            let (status, body) = send(client.post(&format!("{path}/{post}")), json!({"rom_id": 9}));
+            assert_eq!(status, 400, "{post} while RomM is off: {body}");
+        }
+        assert_eq!(
+            client.json::<RommReconciliation>(&path),
+            again,
+            "the latest is still shown"
+        );
     }
 
     /// Stopping the Service stops following a RomM scan at once, records it as no longer followed, and frees the

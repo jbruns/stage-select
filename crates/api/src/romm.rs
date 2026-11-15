@@ -1,5 +1,6 @@
 //! RomM, an optional integration that is off by default (ADR 0020): its connection settings, the result of testing
-//! the connection, and the RomM platform each Library Folder maps to.
+//! the connection, the RomM platform each Library Folder maps to, the scan a Build requests, and the comparison of
+//! RomM's view of a Library Folder with what its Builds made.
 
 use serde::{Deserialize, Serialize};
 
@@ -265,6 +266,91 @@ pub struct RommFolderPlatform {
     /// Relative to its Root, with `/` separators.
     pub path: String,
     pub platform: RommPlatform,
+}
+
+/// A way RomM's view of a file a Build made disagrees with the Build. Title Select only shows these; it never writes
+/// identity into RomM (ADR 0020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RommFlag {
+    /// RomM matched the file's game to no metadata provider.
+    Unidentified,
+    /// RomM's matched name isn't the DAT Game's, once tags, case and punctuation are set aside.
+    TitleMismatch,
+    /// RomM's SHA-1 for the file isn't what was built, or RomM lacks the file.
+    HashMismatch,
+}
+
+impl RommFlag {
+    pub const ALL: [RommFlag; 3] = [
+        RommFlag::Unidentified,
+        RommFlag::TitleMismatch,
+        RommFlag::HashMismatch,
+    ];
+}
+
+/// One file a Build made in a Library Folder that RomM sees otherwise.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommReconcileRow {
+    /// The file's path in the folder, with `/` separators.
+    pub target: String,
+    /// The DAT Game it was built for, or the release, for an `.m3u`.
+    pub game: String,
+    /// Its flags, in [`RommFlag::ALL`] order.
+    pub flags: Vec<RommFlag>,
+    /// RomM's id for the ROM holding the file, when RomM has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rom_id: Option<i64>,
+    /// The name RomM matched the ROM to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub romm_name: Option<String>,
+    /// What the hash mismatch is, for a row that has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// How many files a reconciliation compared, and how many of them carry each flag. A file may carry more than one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommReconcileCounts {
+    pub files: u64,
+    pub clean: u64,
+    pub unidentified: u64,
+    pub title_mismatch: u64,
+    pub hash_mismatch: u64,
+}
+
+/// The latest comparison of RomM's view of a Library Folder with the files its Builds made. Only the latest is kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommReconciliation {
+    pub folder_id: i64,
+    /// The Job whose RomM scan it followed, if a scan led to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<i64>,
+    /// The RomM platform compared.
+    pub fs_slug: String,
+    pub reconciled_at: String,
+    /// Why it couldn't be done, if it couldn't: then it has no counts or rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub counts: RommReconcileCounts,
+    /// Each file with a flag, by target.
+    pub rows: Vec<RommReconcileRow>,
+}
+
+/// What `POST /libraries/{id}/romm/rescans` asks RomM to scan again: one ROM of the folder's latest reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RommRescanRequest {
+    pub rom_id: i64,
+}
+
+/// The rescan RomM accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommRescan {
+    pub rom_id: i64,
+    /// RomM's scan type: `unmatched` for an unidentified ROM, `update` otherwise.
+    pub scan_type: String,
+    pub task_id: String,
 }
 
 #[cfg(test)]
