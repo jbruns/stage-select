@@ -46,18 +46,33 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     let saving = RwSignal::new(false);
     // Settings someone saved elsewhere while you had changes here, shown once you discard yours.
     let newer = RwSignal::new(None::<SettingsView>);
+    // A change heard of while a save was under way, fetched once the save is done: the save's response may be older.
+    let missed = RwSignal::new(false);
+    // Goes up with each save, so a fetch that a save overtook is fetched again rather than applied.
+    let saves = RwSignal::new(0u64);
+    let refetch = RwSignal::new(0u64);
     let live = use_live();
     Effect::watch(
-        move || live.settings.get(),
+        move || (live.settings.get(), refetch.get()),
         move |_, _, _| {
             if saving.get_untracked() {
+                missed.set(true);
                 return;
             }
+            let started = saves.get_untracked();
             leptos::task::spawn_local(async move {
                 let Ok(now) = api::get::<SettingsView>("/settings").await else {
                     return;
                 };
-                if saving.get_untracked() || saved.with_untracked(|s| *s == now) {
+                if saving.get_untracked() {
+                    missed.set(true);
+                    return;
+                }
+                if saves.get_untracked() != started {
+                    refetch.update(|n| *n += 1);
+                    return;
+                }
+                if saved.with_untracked(|s| *s == now) {
                     return;
                 }
                 if dirty.get_untracked() {
@@ -75,6 +90,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
             Ok(update) => update,
             Err(message) => return outcome.set(Some(Err(message))),
         };
+        saves.update(|n| *n += 1);
         saving.set(true);
         leptos::task::spawn_local(async move {
             let result = api::patch::<_, SettingsView>("/settings", &update).await;
@@ -87,6 +103,10 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     outcome.set(Some(Ok(())));
                 }
                 Err(message) => outcome.set(Some(Err(message))),
+            }
+            if missed.get_untracked() {
+                missed.set(false);
+                refetch.update(|n| *n += 1);
             }
         });
     };
