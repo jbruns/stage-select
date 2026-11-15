@@ -18,6 +18,7 @@ use std::sync::Arc;
 use title_select_api::JobKind;
 use title_select_store::config::Config;
 use title_select_store::fetch::{Endpoints, Fetcher};
+use title_select_store::romm::ScanTiming;
 use title_select_store::{Store, Workers};
 
 pub use auth::TOKEN_ACTOR;
@@ -46,6 +47,9 @@ pub struct Settings {
     /// Where fetches are sent instead of the official endpoints, so tests can stand in for a provider.
     #[doc(hidden)]
     pub fetch_endpoints: Option<Endpoints>,
+    /// How a RomM scan a Build requests waits on RomM, so tests needn't wait minutes.
+    #[doc(hidden)]
+    pub romm_scan_timing: Option<ScanTiming>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +84,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         clone_lists,
         hold_jobs,
         fetch_endpoints,
+        romm_scan_timing,
     } = settings;
     let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
@@ -113,6 +118,11 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
                 job.id
             ),
         }
+    }
+    for job in store.recover_romm_scans()? {
+        eprintln!(
+            "title-select: job {job}: the RomM scan was still being followed at the last stop; check it in RomM"
+        );
     }
     for (build, reason) in store.recover_builds(&config)? {
         eprintln!(
@@ -182,7 +192,10 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     let state = routes::AppState {
         store: Arc::new(store),
         config: Arc::new(config),
-        jobs: Arc::new(jobs::Jobs::new(notifier)),
+        jobs: Arc::new(jobs::Jobs::new(
+            notifier,
+            romm_scan_timing.unwrap_or_default(),
+        )),
         workers,
         engine,
         previews: Arc::default(),

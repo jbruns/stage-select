@@ -390,6 +390,29 @@ lacks.
 store holds it too. Keep backups where only you can read them, and if one leaks, delete the token in RomM and create
 another.
 
+#### The scan after a build
+
+When a build, a library cleanup or a restore of a kept file changes files in a library folder, Title Select asks RomM
+to scan that folder's platform once the job ends, with a quick scan of that platform alone. A job that changed
+nothing asks for no scan, and neither do repairs, additions or unregistering. The scan needs the token's `tasks.run`
+scope.
+
+Title Select follows the scan for up to 10 minutes after the job ends; the library folder is free meanwhile. While
+RomM is busy with another scan, it asks again, waiting longer each time. If Title Select stops while it follows a
+scan, it doesn't follow it again: the job shows the scan timed out. The job's detail shows how the scan went
+under **RomM scan**:
+
+- **Scanning**: RomM is scanning now.
+- **Scanned**: RomM finished scanning.
+- **Scan failed**, **Scan timed out**, **RomM unavailable** (RomM has no scan worker running) or **Scan error**: RomM
+  didn't scan, or Title Select can't tell whether it did. The detail says why; scan the platform in RomM.
+- **No platform**: the folder isn't one RomM platform, being nested deeper than RomM reads or missing from disk, so
+  RomM wasn't asked.
+
+Each of these is a warning: the job keeps the state it ended in. A library folder outside RomM's root shows nothing.
+In the API, the job's `romm_scan` holds `{"platform", "outcome", "task_id"?, "detail"?, "requested_at", "ended_at"?}`,
+`outcome` being `requested`, `finished`, `failed`, `timed_out`, `unavailable`, `error` or `unmapped`.
+
 ### Path templates
 
 When you register a folder, a path template proposes its path in the root from the DAT, so you don't type it in full.

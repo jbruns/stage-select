@@ -667,6 +667,9 @@ pub struct Job {
     pub cancel_requested_at: Option<String>,
     /// Why a Job Failed or was Interrupted.
     pub error: Option<String>,
+    /// The RomM scan a Build Job requested once it ended, having changed files in a mapped Library Folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub romm_scan: Option<romm::RommScan>,
     pub workers: Workers,
     pub created_at: String,
     pub started_at: Option<String>,

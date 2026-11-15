@@ -15,6 +15,7 @@ use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
+use title_select_store::romm::ScanTiming;
 use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
@@ -33,15 +34,18 @@ pub struct Jobs {
     pub notifier: Arc<Notifier>,
     /// The follow-up scan pending for each Ingest Folder.
     pub follow_ups: FollowUps,
+    /// How the RomM scan an ended Build requests waits on RomM.
+    romm_scan: ScanTiming,
 }
 
 impl Jobs {
-    pub fn new(notifier: Arc<Notifier>) -> Jobs {
+    pub fn new(notifier: Arc<Notifier>, romm_scan: ScanTiming) -> Jobs {
         Jobs {
             wake: Notify::new(),
             events: broadcast::channel(1024).0,
             notifier,
             follow_ups: FollowUps::default(),
+            romm_scan,
         }
     }
 
@@ -68,6 +72,21 @@ impl Jobs {
     pub fn subscribe(&self) -> broadcast::Receiver<JobEvent> {
         self.events.subscribe()
     }
+}
+
+/// Requests the RomM scan the ended Build Job `id` owes, if any, on a task of its own: it may wait minutes on RomM,
+/// and neither holds the Library Folder nor counts against the Jobs that may run at once (#141). Each step of the
+/// scan is announced as a change of the Job.
+fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>, id: i64) {
+    let (store, config, jobs) = (store.clone(), config.clone(), jobs.clone());
+    tokio::task::spawn_blocking(move || {
+        let timing = jobs.romm_scan;
+        if let Err(err) =
+            store.request_romm_scan(&config, id, &timing, &mut |job| jobs.changed(job.clone()))
+        {
+            eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
+        }
+    });
 }
 
 /// Claims and runs Queued Jobs forever, starting one only while fewer run than the pace allows now. A slower pace
@@ -156,7 +175,11 @@ pub async fn run(
                     })
                     .await;
                 }
+                let build = job.kind == JobKind::Build;
                 jobs.changed(job);
+                if build {
+                    request_romm_scan(&store, &config, &jobs, id);
+                }
             }
             // An Audit a DAT imported from an Ingest Folder owes waits for the Job it met to end.
             let owed = {

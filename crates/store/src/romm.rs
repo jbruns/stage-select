@@ -1,21 +1,24 @@
 //! RomM, an optional integration that is off by default (ADR 0020): its connection as stored, a small client for its
-//! API, testing the connection, and the RomM platform each Library Folder maps to.
+//! API, testing the connection, the RomM platform each Library Folder maps to, and the scan a Build requests.
 
 use std::path::{Component, Path};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use rusqlite::{OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use title_select_api::build::{CleanupAction, ItemKind};
 use title_select_api::romm::{
-    RommCheck, RommFolderPlatform, RommPlatform, RommTestRequest, RommUpdate, RommUser, RommView,
-    version_tested,
+    RommCheck, RommFolderPlatform, RommPlatform, RommScan, RommScanOutcome, RommTestRequest,
+    RommUpdate, RommUser, RommView, version_tested,
 };
 use title_select_api::settings::SecretUpdate;
+use title_select_api::{Job, JobKind};
 
 use crate::config::Config;
 use crate::fetch::{Http, Method, refusal_unnamed};
-use crate::{Error, Result, Store};
+use crate::{Error, Result, Store, now};
 
 /// RomM's address as given, checked: plain `http` or `https` to a named host, with no credentials, query or fragment,
 /// and without a trailing `/`. A path is kept, for a RomM served under one.
@@ -428,7 +431,373 @@ impl RommClient {
     }
 }
 
+/// How a scan request waits on RomM: how often it polls the scan's task, how long it backs off while RomM is busy with
+/// another scan (doubling from `backoff` up to `backoff_max`), and how long it waits for both together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanTiming {
+    pub poll: Duration,
+    pub backoff: Duration,
+    pub backoff_max: Duration,
+    pub window: Duration,
+}
+
+impl Default for ScanTiming {
+    /// Polls every 5 seconds and backs off from 5 seconds to a minute, for up to 10 minutes (#136).
+    fn default() -> ScanTiming {
+        ScanTiming {
+            poll: Duration::from_secs(5),
+            backoff: Duration::from_secs(5),
+            backoff_max: Duration::from_secs(60),
+            window: Duration::from_secs(600),
+        }
+    }
+}
+
+/// How a scan ended: its outcome, RomM's id for its task if it accepted it, and why, for a warning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanEnd {
+    pub outcome: RommScanOutcome,
+    pub task_id: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// The fields of RomM's answer to a scan request, or to a poll of its task, that Title Select reads.
+#[derive(Deserialize)]
+struct Task {
+    task_id: String,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// A span of time as a person would say it: "10 minutes", "45 seconds", "300 ms".
+fn span(d: Duration) -> String {
+    match d.as_secs() {
+        0 => format!("{} ms", d.as_millis()),
+        s if s % 60 == 0 => match s / 60 {
+            1 => "1 minute".into(),
+            m => format!("{m} minutes"),
+        },
+        1 => "1 second".into(),
+        s => format!("{s} seconds"),
+    }
+}
+
+impl RommClient {
+    /// Requests a quick scan of the RomM platform `fs_slug` and waits for its task to end, within `timing`'s window.
+    /// While RomM is busy with another scan (HTTP 409), it asks again, backing off. While RomM can't be reached
+    /// during the wait, it keeps polling.
+    pub fn scan(&self, fs_slug: &str, timing: &ScanTiming) -> ScanEnd {
+        let deadline = Instant::now() + timing.window;
+        let end = |outcome, task_id: Option<&str>, detail: String| ScanEnd {
+            outcome,
+            task_id: task_id.map(str::to_owned),
+            detail: Some(detail),
+        };
+        let body = serde_json::json!({"type": "quick", "platform_fs_slugs": [fs_slug]});
+        let mut backoff = timing.backoff;
+        let task = loop {
+            match self.post::<_, Task>("/api/tasks/scan", &body) {
+                Ok(task) => break task,
+                Err(RommError::Status { status: 409, .. }) => {
+                    if Instant::now() + backoff > deadline {
+                        return end(
+                            RommScanOutcome::TimedOut,
+                            None,
+                            format!(
+                                "RomM was busy with another scan for {}, so {fs_slug} wasn't scanned. Scan it in RomM.",
+                                span(timing.window)
+                            ),
+                        );
+                    }
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(timing.backoff_max);
+                }
+                Err(RommError::Status { status: 503, .. }) => {
+                    return end(
+                        RommScanOutcome::Unavailable,
+                        None,
+                        format!(
+                            "RomM has no scan worker running, so {fs_slug} wasn't scanned. Start RomM's worker, then \
+                             scan it in RomM."
+                        ),
+                    );
+                }
+                Err(e) => {
+                    return end(
+                        RommScanOutcome::Error,
+                        None,
+                        format!("{e}. {fs_slug} wasn't scanned."),
+                    );
+                }
+            }
+        };
+        let id = task.task_id;
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+        {
+            return end(
+                RommScanOutcome::Error,
+                None,
+                "RomM accepted the scan, but named its task in a way Title Select can't follow. Check the scan in \
+                 RomM."
+                    .into(),
+            );
+        }
+        let path = format!("/api/tasks/{id}");
+        loop {
+            match self.get::<Task>(&path) {
+                Ok(task) => match task.status.as_deref() {
+                    Some("finished") => {
+                        return ScanEnd {
+                            outcome: RommScanOutcome::Finished,
+                            task_id: Some(id),
+                            detail: None,
+                        };
+                    }
+                    Some(status @ ("failed" | "stopped" | "canceled")) => {
+                        return end(
+                            RommScanOutcome::Failed,
+                            Some(&id),
+                            format!(
+                                "RomM's scan of {fs_slug} ended {status}. Look in RomM for why, and scan it there."
+                            ),
+                        );
+                    }
+                    _ => {}
+                },
+                Err(RommError::Unreachable(_)) => {}
+                Err(e) => {
+                    return end(
+                        RommScanOutcome::Error,
+                        Some(&id),
+                        format!(
+                            "{e}. Whether RomM scanned {fs_slug} isn't known; check it in RomM."
+                        ),
+                    );
+                }
+            }
+            if Instant::now() + timing.poll > deadline {
+                return end(
+                    RommScanOutcome::TimedOut,
+                    Some(&id),
+                    format!(
+                        "RomM was still scanning {fs_slug} after {}. It may yet finish; check it in RomM.",
+                        span(timing.window)
+                    ),
+                );
+            }
+            std::thread::sleep(timing.poll);
+        }
+    }
+}
+
+/// The RomM scan recorded on a Job, read from the six columns from `at` that `JOB_QUERY` selects.
+pub(crate) fn scan_from_row(row: &rusqlite::Row, at: usize) -> rusqlite::Result<Option<RommScan>> {
+    let Some(platform) = row.get::<_, Option<String>>(at)? else {
+        return Ok(None);
+    };
+    let bad = |i: usize, why: String| {
+        rusqlite::Error::FromSqlConversionFailure(i, rusqlite::types::Type::Text, why.into())
+    };
+    let platform = serde_json::from_str(&platform).map_err(|e| bad(at, e.to_string()))?;
+    let outcome: String = row.get(at + 1)?;
+    let outcome = RommScanOutcome::parse(&outcome)
+        .ok_or_else(|| bad(at + 1, format!("unknown RomM scan outcome {outcome}")))?;
+    Ok(Some(RommScan {
+        platform,
+        outcome,
+        task_id: row.get(at + 2)?,
+        detail: row.get(at + 3)?,
+        requested_at: row.get(at + 4)?,
+        ended_at: row.get(at + 5)?,
+    }))
+}
+
+/// Why RomM can't scan a changed Library Folder that maps to `platform`, or `None` when it can, or when the folder
+/// is none of RomM's business.
+fn unscannable(platform: &RommPlatform) -> Option<&'static str> {
+    Some(match platform {
+        RommPlatform::Mapped { .. } | RommPlatform::OutsideRoot => return None,
+        RommPlatform::Nested => {
+            "This folder is more than one level under the root RomM mounts as its library, so RomM can't scan it as a \
+             platform. Keep each library folder directly under that root."
+        }
+        RommPlatform::IsRoot => {
+            "This folder is the root RomM mounts as its library, so it isn't one RomM platform. Keep each library \
+             folder directly under that root."
+        }
+        RommPlatform::NoRoot => {
+            "The root RomM mounts as its library is no longer in your configuration, so RomM wasn't asked to scan. \
+             Choose it again in your RomM settings."
+        }
+        RommPlatform::Unresolved => {
+            "This folder or the root RomM mounts as its library can't be found on disk, so RomM wasn't asked to scan."
+        }
+    })
+}
+
 impl Store {
+    /// Whether the Build Job `job` changed any file in its Library Folder: put one in place, kept one aside, restored
+    /// one, or left its target uncertain. Adopting a file where it already is changes nothing.
+    fn build_changed_files(&self, job: i64) -> Result<bool> {
+        let Some((build, plan)) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT id, plan_id FROM builds WHERE job_id = ?1",
+                [job],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?)
+        })?
+        else {
+            return Ok(false);
+        };
+        let done: Vec<(String, String)> = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT kind, target FROM build_items
+                 WHERE build_id = ?1 AND state IN ('applied', 'uncertain') AND kind <> 'acknowledge'",
+            )?;
+            let rows = stmt.query_map([build], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })?;
+        let adopt = ItemKind::Adopt.as_str();
+        if done.iter().any(|(kind, _)| kind != adopt) {
+            return Ok(true);
+        }
+        // A cleanup may adopt a file under a new name, which moves it.
+        let Some(cleanup) = self.plan(plan)?.content.cleanup else {
+            return Ok(false);
+        };
+        Ok(cleanup.entries.iter().any(|e| {
+            e.action == Some(CleanupAction::Adopt)
+                && e.target.as_ref().is_some_and(|target| {
+                    *target != e.name && done.iter().any(|(_, t)| t == target)
+                })
+        }))
+    }
+
+    fn record_romm_scan(&self, job: i64, scan: &RommScan) -> Result<Job> {
+        self.write(|tx| {
+            tx.execute(
+                "INSERT INTO romm_scans (job_id, platform, outcome, task_id, detail, requested_at, ended_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (job_id) DO UPDATE SET outcome = ?3, task_id = ?4, detail = ?5, ended_at = ?7",
+                params![
+                    job,
+                    serde_json::to_string(&scan.platform).expect("JSON serializes"),
+                    scan.outcome.as_str(),
+                    scan.task_id,
+                    scan.detail,
+                    scan.requested_at,
+                    scan.ended_at,
+                ],
+            )?;
+            tx.execute(
+                "UPDATE jobs SET version = version + 1 WHERE id = ?1",
+                [job],
+            )?;
+            crate::jobs::job_by_id(tx, job)
+        })
+    }
+
+    /// Requests the RomM scan the ended Build Job `job` owes, if it owes one, and follows it to its end within
+    /// `timing`, recording each step on the Job and telling `changed` of the Job as it then is. A Build, Library
+    /// cleanup or Kept File restore owes one when RomM is on and it changed files in a Library Folder: RomM scans a
+    /// folder directly under its root, and a folder elsewhere under it is recorded as a warning with no request. No
+    /// other Job, nor one that changed nothing, owes a scan. Whatever RomM does, the Job's own state stays as it
+    /// ended. Returns the Job as its last step left it, or `None` when it owed no scan. Nothing is held while it
+    /// waits on RomM.
+    pub fn request_romm_scan(
+        &self,
+        config: &Config,
+        job: i64,
+        timing: &ScanTiming,
+        changed: &mut dyn FnMut(&Job),
+    ) -> Result<Option<Job>> {
+        let ended = self.job(job)?;
+        if ended.kind != JobKind::Build || !ended.state.is_final() || ended.romm_scan.is_some() {
+            return Ok(None);
+        }
+        let Some(folder) = ended.library_folder else {
+            return Ok(None);
+        };
+        let romm = self.settings()?.romm;
+        if !romm.is_on() || !self.build_changed_files(job)? {
+            return Ok(None);
+        }
+        let (root, path): (String, String) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT root, path FROM library_folders WHERE id = ?1",
+                [folder],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })?;
+        let platform = romm.platform(config, &root, &path);
+        let mut scan = RommScan {
+            platform: platform.clone(),
+            outcome: RommScanOutcome::Requested,
+            task_id: None,
+            detail: None,
+            requested_at: now(),
+            ended_at: None,
+        };
+        let mut step = |scan: &RommScan| -> Result<Job> {
+            let job = self.record_romm_scan(job, scan)?;
+            changed(&job);
+            Ok(job)
+        };
+        let Some(fs_slug) = platform.fs_slug() else {
+            let Some(why) = unscannable(&platform) else {
+                return Ok(None);
+            };
+            scan.outcome = RommScanOutcome::Unmapped;
+            scan.detail = Some(why.into());
+            scan.ended_at = Some(now());
+            return step(&scan).map(Some);
+        };
+        step(&scan)?;
+        let end = match RommClient::of(&romm).expect("RomM that is on has an address") {
+            Ok(client) => client.scan(fs_slug, timing),
+            Err(e) => ScanEnd {
+                outcome: RommScanOutcome::Error,
+                task_id: None,
+                detail: Some(format!("{e}. {fs_slug} wasn't scanned.")),
+            },
+        };
+        scan.outcome = end.outcome;
+        scan.task_id = end.task_id;
+        scan.detail = end.detail;
+        scan.ended_at = Some(now());
+        step(&scan).map(Some)
+    }
+
+    /// Records each RomM scan still followed when the Service stopped as no longer followed, as Title Select won't
+    /// follow it again, and returns their Jobs. Called once at start.
+    pub fn recover_romm_scans(&self) -> Result<Vec<i64>> {
+        self.write(|tx| {
+            let jobs: Vec<i64> = {
+                let mut stmt = tx.prepare(
+                    "UPDATE romm_scans SET outcome = 'timed_out', detail = ?1, ended_at = ?2
+                     WHERE outcome = 'requested' RETURNING job_id",
+                )?;
+                let rows = stmt.query_map(
+                    params![
+                        "Title Select stopped before RomM's scan ended, so whether it finished isn't known. Check \
+                         the platform in RomM.",
+                        now()
+                    ],
+                    |r| r.get(0),
+                )?;
+                rows.collect::<rusqlite::Result<_>>()?
+            };
+            for job in &jobs {
+                tx.execute("UPDATE jobs SET version = version + 1 WHERE id = ?1", [job])?;
+            }
+            Ok(jobs)
+        })
+    }
+
     /// Each Library Folder and the RomM platform it maps to, by the RomM root saved now.
     pub fn romm_platforms(&self, config: &Config) -> Result<Vec<RommFolderPlatform>> {
         let romm = self.settings()?.romm;
