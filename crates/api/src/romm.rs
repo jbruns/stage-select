@@ -126,6 +126,9 @@ pub enum RommScanOutcome {
     Requested,
     /// RomM's task finished.
     Finished,
+    /// Title Select stopped following the scan before it ended: the Service stopped, or RomM was turned off or its
+    /// address or root changed meanwhile.
+    Stopped,
     /// RomM's task failed, or was stopped or cancelled.
     Failed,
     /// RomM was still scanning, or still busy with another scan, when Title Select stopped waiting.
@@ -141,9 +144,10 @@ pub enum RommScanOutcome {
 }
 
 impl RommScanOutcome {
-    pub const ALL: [RommScanOutcome; 7] = [
+    pub const ALL: [RommScanOutcome; 8] = [
         RommScanOutcome::Requested,
         RommScanOutcome::Finished,
+        RommScanOutcome::Stopped,
         RommScanOutcome::Failed,
         RommScanOutcome::TimedOut,
         RommScanOutcome::Unavailable,
@@ -155,6 +159,7 @@ impl RommScanOutcome {
         match self {
             RommScanOutcome::Requested => "requested",
             RommScanOutcome::Finished => "finished",
+            RommScanOutcome::Stopped => "stopped",
             RommScanOutcome::Failed => "failed",
             RommScanOutcome::TimedOut => "timed_out",
             RommScanOutcome::Unavailable => "unavailable",

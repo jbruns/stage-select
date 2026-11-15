@@ -269,6 +269,7 @@ pub fn run(settings: Settings) -> Result<(), StartError> {
     let prepared = prepare(settings)?;
     let addr = prepared.addr();
     let runtime = runtime()?;
+    let jobs = prepared.state.jobs.clone();
     let served = runtime.block_on(async {
         eprintln!(
             "title-select: serving {} on http://{addr}",
@@ -279,6 +280,8 @@ pub fn run(settings: Settings) -> Result<(), StartError> {
             () = stop_signal() => Ok(()),
         }
     });
+    jobs.stop_romm_scans();
+    drop(jobs);
     runtime.shutdown_background();
     served.map_err(|e| StartError::Listen(addr, e))
 }
@@ -318,6 +321,7 @@ pub fn spawn(settings: Settings) -> Result<Handle, StartError> {
     let addr = prepared.addr();
     let runtime = runtime()?;
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let jobs = prepared.state.jobs.clone();
     let thread = std::thread::spawn(move || {
         runtime.block_on(async {
             tokio::select! {
@@ -329,6 +333,9 @@ pub fn spawn(settings: Settings) -> Result<Handle, StartError> {
                 _ = stopped => {}
             }
         });
+        // A RomM scan's task stops waiting at once; an Audit can't be stopped.
+        jobs.stop_romm_scans();
+        drop(jobs);
         // Lets a running Audit finish and release the store, so it can be opened again.
         runtime.shutdown_timeout(std::time::Duration::from_secs(60));
     });

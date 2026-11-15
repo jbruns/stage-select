@@ -15,7 +15,7 @@ use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
-use title_select_store::romm::ScanTiming;
+use title_select_store::romm::{ScanStop, ScanTiming};
 use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
@@ -36,6 +36,8 @@ pub struct Jobs {
     pub follow_ups: FollowUps,
     /// How the RomM scan an ended Build requests waits on RomM.
     romm_scan: ScanTiming,
+    /// Stops every RomM scan still followed, so the Service can stop without waiting on RomM.
+    romm_stop: ScanStop,
 }
 
 impl Jobs {
@@ -46,7 +48,14 @@ impl Jobs {
             notifier,
             follow_ups: FollowUps::default(),
             romm_scan,
+            romm_stop: ScanStop::default(),
         }
+    }
+
+    /// Stops following every RomM scan, now and from now on, recording each as no longer followed. Called as the
+    /// Service stops, so no scan's task keeps the Store open.
+    pub fn stop_romm_scans(&self) {
+        self.romm_stop.stop();
     }
 
     /// Announces a Job's new state, and wakes the runner in case it can claim one now: this one, Queued, or one
@@ -82,7 +91,9 @@ fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>,
     tokio::task::spawn_blocking(move || {
         let timing = jobs.romm_scan;
         if let Err(err) =
-            store.request_romm_scan(&config, id, &timing, &mut |job| jobs.changed(job.clone()))
+            store.request_romm_scan(&config, id, &timing, &jobs.romm_stop, &mut |job| {
+                jobs.changed(job.clone())
+            })
         {
             eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
         }

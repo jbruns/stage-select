@@ -299,7 +299,7 @@ mod scans {
 
     use super::common::*;
     use super::*;
-    use title_select_api::build::{AddLibraryFolder, LibraryFolder};
+    use title_select_api::build::{AddLibraryFolder, LibraryFolder, PlanCleanup};
     use title_select_api::romm::{RommPlatform, RommScanOutcome, RommUpdate};
     use title_select_api::selection::{
         CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -308,7 +308,7 @@ mod scans {
     use title_select_api::settings::{SecretUpdate, SettingsUpdate};
     use title_select_api::{Job, JobKind, JobState};
     use title_select_store::config::Config;
-    use title_select_store::romm::ScanTiming;
+    use title_select_store::romm::{ScanStop, ScanTiming};
     use title_select_store::{Store, Workers};
 
     const SET: &str = "Test - System";
@@ -391,6 +391,10 @@ mod scans {
 
         /// Turns RomM on at `url`, mounting the Root `root` as its library.
         fn romm(&self, enabled: bool, url: &str, root: &str) {
+            self.romm_with(enabled, url, SecretUpdate::Set("rmm_good".into()), root);
+        }
+
+        fn romm_with(&self, enabled: bool, url: &str, token: SecretUpdate, root: &str) {
             self.store
                 .update_settings(
                     &self.config,
@@ -398,7 +402,7 @@ mod scans {
                         romm: Some(RommUpdate {
                             enabled,
                             base_url: Some(url.into()),
-                            token: SecretUpdate::Set("rmm_good".into()),
+                            token,
                             root: Some(root.into()),
                         }),
                         ..SettingsUpdate::default()
@@ -425,11 +429,16 @@ mod scans {
 
         /// Records a Selection of every Game, then plans, approves and runs a Build of it into `folder`.
         fn build(&self, folder: &LibraryFolder) -> Job {
+            self.build_of(folder, &["Pong (USA)", "Combat (USA)"])
+        }
+
+        /// Records a Selection of the Games `titles`, then plans, approves and runs a Build of it into `folder`.
+        fn build_of(&self, folder: &LibraryFolder, titles: &[&str]) -> Job {
             self.store
                 .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
                 .unwrap();
             let job = self.store.claim_job().unwrap().unwrap();
-            let groups = ["Pong (USA)", "Combat (USA)"].map(group).to_vec();
+            let groups = titles.iter().map(|t| group(t)).collect();
             let selection = self
                 .store
                 .record_selection(job.id, &selection(&self.sha256, groups))
@@ -453,12 +462,38 @@ mod scans {
             job
         }
 
+        /// Plans, approves and runs the cleanup `request` of `folder`.
+        fn cleanup(&self, folder: &LibraryFolder, request: PlanCleanup) -> Job {
+            let plan = self
+                .store
+                .plan_cleanup(&self.config, folder.id, &request)
+                .unwrap();
+            assert!(plan.approvable(), "{:?}", plan.content.blockers);
+            let job = self
+                .store
+                .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .unwrap();
+            self.store.claim_job().unwrap().unwrap();
+            self.store
+                .run_build_job(&self.config, job.id, None)
+                .unwrap()
+        }
+
+        fn dir(&self, folder: &str) -> std::path::PathBuf {
+            self._tmp.path().join("roots/play").join(folder)
+        }
+
         /// Requests the scan the Job `job` owes RomM and follows it to its end. Returns the Job as each step left it.
         fn scan(&self, job: &Job, timing: &ScanTiming) -> Vec<Job> {
+            self.scan_until(job, timing, &ScanStop::default())
+        }
+
+        /// As [`Env::scan`], until `stop` is signalled.
+        fn scan_until(&self, job: &Job, timing: &ScanTiming, stop: &ScanStop) -> Vec<Job> {
             let mut seen = vec![];
             let ended = self
                 .store
-                .request_romm_scan(&self.config, job.id, timing, &mut |j: &Job| {
+                .request_romm_scan(&self.config, job.id, timing, stop, &mut |j: &Job| {
                     seen.push(j.clone())
                 })
                 .unwrap();
@@ -666,9 +701,13 @@ mod scans {
         let none = |env: &Env, job: &Job| {
             let ended = env
                 .store
-                .request_romm_scan(&env.config, job.id, &FAST, &mut |_: &Job| {
-                    panic!("nothing is recorded")
-                })
+                .request_romm_scan(
+                    &env.config,
+                    job.id,
+                    &FAST,
+                    &ScanStop::default(),
+                    &mut |_: &Job| panic!("nothing is recorded"),
+                )
                 .unwrap();
             assert_eq!(ended, None);
             assert_eq!(env.store.job(job.id).unwrap().romm_scan, None);
@@ -745,21 +784,254 @@ mod scans {
             s.spawn(|| {
                 let mut first = true;
                 env.store
-                    .request_romm_scan(&env.config, job.id, &timing, &mut |_: &Job| {
-                        if std::mem::take(&mut first) {
-                            following.wait();
-                        }
-                    })
+                    .request_romm_scan(
+                        &env.config,
+                        job.id,
+                        &timing,
+                        &ScanStop::default(),
+                        &mut |_: &Job| {
+                            if std::mem::take(&mut first) {
+                                following.wait();
+                            }
+                        },
+                    )
                     .unwrap();
             });
             following.wait();
-            env.store.recover_romm_scans().unwrap()
+            let recovered = env.store.recover_romm_scans().unwrap();
+            (recovered, env.store.job(job.id).unwrap().romm_scan.unwrap())
         });
 
+        let (recovered, scan) = recovered;
         assert_eq!(recovered, [job.id]);
-        let scan = env.store.job(job.id).unwrap().romm_scan.unwrap();
-        assert_eq!(scan.outcome, RommScanOutcome::TimedOut);
+        assert_eq!(scan.outcome, RommScanOutcome::Stopped);
         assert!(scan.ended_at.is_some());
         assert!(env.store.recover_romm_scans().unwrap().is_empty());
+    }
+
+    /// A stub RomM that accepts a scan as task `t1` and reports it started, or finished to the token `rmm_new`. It
+    /// holds its answer to the first request for `path` until the test has done what it does then.
+    fn held(path: &'static str, first: u16) -> (StubRomm, Hold) {
+        let (reached, wait_reached) = std::sync::mpsc::channel::<()>();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let (reached, released) = (Mutex::new(reached), Mutex::new(released));
+        let once = AtomicUsize::new(0);
+        let romm = StubRomm::start(move |r| {
+            let new = r.authorization.as_deref() == Some("Bearer rmm_new");
+            if !new && r.authorization.as_deref() != Some("Bearer rmm_good") {
+                return (401, r#"{"detail": "Not authenticated"}"#.into());
+            }
+            if r.path == path && once.fetch_add(1, Ordering::SeqCst) == 0 {
+                reached.lock().unwrap().send(()).unwrap();
+                released.lock().unwrap().recv().unwrap();
+                if first != 200 {
+                    return (first, r#"{"detail": "A scan is already running"}"#.into());
+                }
+            }
+            match r.path.as_str() {
+                "/api/tasks/scan" => (202, r#"{"task_id": "t1", "status": "queued"}"#.into()),
+                "/api/tasks/t1" => {
+                    let status = if new { "finished" } else { "started" };
+                    (200, format!(r#"{{"task_id": "t1", "status": "{status}"}}"#))
+                }
+                _ => (404, r#"{"detail": "Not Found"}"#.into()),
+            }
+        });
+        (romm, Hold(wait_reached, release))
+    }
+
+    /// The test's side of [`held`]: it waits for the held request, then lets the stub answer it.
+    struct Hold(std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>);
+
+    impl Hold {
+        fn when_reached(&self, then: impl FnOnce()) {
+            self.0.recv().unwrap();
+            then();
+            self.1.send(()).unwrap();
+        }
+    }
+
+    /// RomM turned off, or its address or root changed, while a scan is followed: Title Select stops following it
+    /// and sends RomM nothing more, the saved token least of all.
+    #[test]
+    fn turning_romm_off_or_changing_its_address_or_root_stops_following_the_scan() {
+        let env = Env::new();
+        let elsewhere = scanning(0, None, "finished");
+        type Change<'a> = Box<dyn Fn(&Env, &str) + 'a>;
+        let changes: [(&str, &str, Change); 4] = [
+            (
+                "/api/tasks/scan",
+                "off while busy",
+                Box::new(|env, url| env.romm(false, url, "play")),
+            ),
+            (
+                "/api/tasks/t1",
+                "off",
+                Box::new(|env, url| env.romm(false, url, "play")),
+            ),
+            (
+                "/api/tasks/t1",
+                "address",
+                Box::new(|env, _| env.romm(true, &elsewhere.url, "play")),
+            ),
+            (
+                "/api/tasks/t1",
+                "root",
+                Box::new(|env, url| env.romm(true, url, "sets")),
+            ),
+        ];
+        for (case, (path, name, change)) in changes.into_iter().enumerate() {
+            let (romm, hold) = held(path, if path == "/api/tasks/scan" { 409 } else { 200 });
+            env.romm(true, &romm.url, "play");
+            let job = env.build(&env.folder(&format!("gba-{case}")));
+
+            let steps = std::thread::scope(|s| {
+                let scanning = s.spawn(|| env.scan(&job, &FAST));
+                hold.when_reached(|| change(&env, &romm.url));
+                scanning.join().unwrap()
+            });
+
+            let scan = steps.last().unwrap().romm_scan.clone().unwrap();
+            assert_eq!(scan.outcome, RommScanOutcome::Stopped, "{name}: {scan:?}");
+            assert!(scan.detail.is_some(), "{name}");
+            assert_eq!(
+                romm.seen().len(),
+                1 + usize::from(path == "/api/tasks/t1"),
+                "{name}"
+            );
+            assert!(elsewhere.seen().is_empty(), "{name}");
+        }
+    }
+
+    /// A token replaced at the same address while a scan is followed is the one the next request sends.
+    #[test]
+    fn a_token_replaced_while_a_scan_is_followed_is_used_from_the_next_request() {
+        let env = Env::new();
+        let (romm, hold) = held("/api/tasks/t1", 200);
+        env.romm(true, &romm.url, "play");
+        let job = env.build(&env.folder("gba"));
+
+        let steps = std::thread::scope(|s| {
+            let scanning = s.spawn(|| env.scan(&job, &FAST));
+            hold.when_reached(|| {
+                env.romm_with(true, &romm.url, SecretUpdate::Set("rmm_new".into()), "play")
+            });
+            scanning.join().unwrap()
+        });
+
+        let scan = steps.last().unwrap().romm_scan.clone().unwrap();
+        assert_eq!(scan.outcome, RommScanOutcome::Finished, "{scan:?}");
+        let last = romm.seen().pop().unwrap();
+        assert_eq!(last.authorization.as_deref(), Some("Bearer rmm_new"));
+    }
+
+    /// Signalled to stop, as when the service stops, a scan's follower stops waiting at once and records the scan
+    /// as no longer followed, as the next start would; one signalled before it starts asks RomM for nothing.
+    #[test]
+    fn a_stop_ends_the_wait_at_once_and_records_the_scan_no_longer_followed() {
+        let env = Env::new();
+        let romm = scanning(0, None, "started");
+        env.romm(true, &romm.url, "play");
+        let long = ScanTiming {
+            poll: Duration::from_secs(30),
+            window: Duration::from_secs(600),
+            ..FAST
+        };
+        let job = env.build(&env.folder("gba"));
+        let stop = ScanStop::default();
+        let started = Instant::now();
+
+        let steps = std::thread::scope(|s| {
+            let scanning = s.spawn(|| env.scan_until(&job, &long, &stop));
+            while requests(&romm, "/api/tasks/t1").is_empty() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            stop.stop();
+            scanning.join().unwrap()
+        });
+
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let scan = steps.last().unwrap().romm_scan.clone().unwrap();
+        assert_eq!(scan.outcome, RommScanOutcome::Stopped);
+        assert!(scan.ended_at.is_some() && scan.detail.is_some());
+        assert!(env.store.recover_romm_scans().unwrap().is_empty());
+
+        let seen = romm.seen().len();
+        let job = env.build_of(&env.folder("snes"), &["Pong (USA)"]);
+        let steps = env.scan_until(&job, &long, &stop);
+        assert_eq!(
+            steps.last().unwrap().romm_scan.as_ref().unwrap().outcome,
+            RommScanOutcome::Stopped
+        );
+        assert_eq!(romm.seen().len(), seen, "nothing is asked once stopped");
+    }
+
+    /// A build that only forgets the records of files already gone changed nothing RomM could see; one that keeps a
+    /// file aside did.
+    #[test]
+    fn forgetting_files_already_gone_asks_for_no_scan_but_keeping_one_aside_does() {
+        let env = Env::new();
+        let romm = scanning(0, None, "finished");
+        env.romm(true, &romm.url, "play");
+        let (gone, kept) = (env.folder("gba"), env.folder("snes"));
+        env.build(&gone);
+        env.build(&kept);
+        std::fs::remove_file(env.dir("gba").join("Combat (USA).zip")).unwrap();
+
+        let forgot = env.build_of(&gone, &["Pong (USA)"]);
+        let kept_aside = env.build_of(&kept, &["Pong (USA)"]);
+
+        assert!(
+            env.scan(&forgot, &FAST).is_empty(),
+            "nothing changed on disk"
+        );
+        assert_eq!(
+            env.scan(&kept_aside, &FAST)
+                .last()
+                .unwrap()
+                .romm_scan
+                .as_ref()
+                .unwrap()
+                .outcome,
+            RommScanOutcome::Finished
+        );
+    }
+
+    /// A cleanup's repack that kept the old copy aside and then failed to put the new one in place still changed the
+    /// folder: it lost a file.
+    #[test]
+    fn a_repack_that_kept_the_old_copy_aside_and_then_failed_still_asks_for_a_scan() {
+        let env = Env::new();
+        let romm = scanning(0, None, "finished");
+        env.romm(true, &romm.url, "play");
+        let folder = env.folder("gba");
+        env.build(&folder);
+        let combat = env.dir("gba").join("Combat (USA).zip");
+        write_stored_zip(&combat, &[("Combat (USA).a26", b"combat")]);
+        let blocked = combat.clone();
+        env.store.hook_faults(Some(Arc::new(move |f| {
+            if matches!(f, title_select_store::Fault::AfterKeep(_)) && !blocked.exists() {
+                std::fs::create_dir(&blocked).unwrap();
+            }
+        })));
+
+        let job = env.cleanup(
+            &folder,
+            PlanCleanup {
+                repack: vec!["Combat (USA).zip".into()],
+                ..PlanCleanup::default()
+            },
+        );
+        env.store.hook_faults(None);
+
+        assert!(
+            combat.is_dir(),
+            "the new copy was never put in place: {job:?}"
+        );
+        let steps = env.scan(&job, &FAST);
+        assert_eq!(
+            steps.last().map(|j| j.romm_scan.as_ref().unwrap().outcome),
+            Some(RommScanOutcome::Finished)
+        );
     }
 }

@@ -3,12 +3,13 @@
 
 use std::path::{Component, Path};
 
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use rusqlite::{OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use title_select_api::build::{CleanupAction, ItemKind};
+use title_select_api::build::CleanupAction;
 use title_select_api::romm::{
     RommCheck, RommFolderPlatform, RommPlatform, RommScan, RommScanOutcome, RommTestRequest,
     RommUpdate, RommUser, RommView, version_tested,
@@ -482,21 +483,123 @@ fn span(d: Duration) -> String {
     }
 }
 
-impl RommClient {
-    /// Requests a quick scan of the RomM platform `fs_slug` and waits for its task to end, within `timing`'s window.
-    /// While RomM is busy with another scan (HTTP 409), it asks again, backing off. While RomM can't be reached
-    /// during the wait, it keeps polling.
-    pub fn scan(&self, fs_slug: &str, timing: &ScanTiming) -> ScanEnd {
+/// Tells a scan's follower to stop, as when the Service stops: it then stops waiting at once and records the scan as
+/// no longer followed.
+#[derive(Debug, Default)]
+pub struct ScanStop {
+    stopped: Mutex<bool>,
+    signal: Condvar,
+}
+
+impl ScanStop {
+    pub fn stop(&self) {
+        *self.stopped.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.signal.notify_all();
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        *self.stopped.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Waits `span`, or less if told to stop meanwhile. Returns whether it was told to stop.
+    pub fn wait(&self, span: Duration) -> bool {
+        let stopped = self.stopped.lock().unwrap_or_else(|e| e.into_inner());
+        let (stopped, _) = self
+            .signal
+            .wait_timeout_while(stopped, span, |stopped| !*stopped)
+            .unwrap_or_else(|e| e.into_inner());
+        *stopped
+    }
+}
+
+/// Why a scan stopped being followed, said of the platform `fs_slug`, before RomM accepted it or after.
+fn stopped(fs_slug: &str, accepted: bool, why: &str) -> String {
+    match accepted {
+        false => format!("{why}, so RomM wasn't asked to scan {fs_slug}. Scan it in RomM."),
+        true => format!(
+            "{why}, so whether RomM finished scanning {fs_slug} isn't known. Check it in RomM."
+        ),
+    }
+}
+
+impl Store {
+    /// Requests a quick scan of the RomM platform `fs_slug` of the RomM `was` and waits for its task to end, within
+    /// `timing`'s window or until `stop`. While RomM is busy with another scan (HTTP 409), it asks again, backing
+    /// off. While RomM can't be reached during the wait, it keeps polling. Each request reads the RomM settings as
+    /// they are then: one sends the token saved now, and none is sent once RomM is off or its address or root is no
+    /// longer `was`'s.
+    fn follow_romm_scan(
+        &self,
+        was: &Romm,
+        fs_slug: &str,
+        timing: &ScanTiming,
+        stop: &ScanStop,
+    ) -> ScanEnd {
         let deadline = Instant::now() + timing.window;
         let end = |outcome, task_id: Option<&str>, detail: String| ScanEnd {
             outcome,
             task_id: task_id.map(str::to_owned),
             detail: Some(detail),
         };
+        let halted = |task_id: Option<&str>| {
+            end(
+                RommScanOutcome::Stopped,
+                task_id,
+                stopped(fs_slug, task_id.is_some(), "Title Select stopped"),
+            )
+        };
+        let client = |task_id: Option<&str>| -> std::result::Result<RommClient, ScanEnd> {
+            if stop.is_stopped() {
+                return Err(halted(task_id));
+            }
+            let accepted = task_id.is_some();
+            let now = match self.settings() {
+                Ok(settings) => settings.romm,
+                Err(e) => {
+                    return Err(end(
+                        RommScanOutcome::Error,
+                        task_id,
+                        stopped(
+                            fs_slug,
+                            accepted,
+                            &format!("Your RomM settings can't be read: {e}"),
+                        ),
+                    ));
+                }
+            };
+            let why = if !now.is_on() {
+                Some("You turned RomM off meanwhile")
+            } else if now.base_url != was.base_url {
+                Some("You changed RomM's address meanwhile")
+            } else if now.root != was.root {
+                Some("You changed the root RomM mounts as its library meanwhile")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                return Err(end(
+                    RommScanOutcome::Stopped,
+                    task_id,
+                    stopped(fs_slug, accepted, why),
+                ));
+            }
+            match RommClient::of(&now).expect("RomM that is on has an address") {
+                Ok(client) => Ok(client),
+                Err(e) => Err(end(
+                    RommScanOutcome::Error,
+                    task_id,
+                    stopped(fs_slug, accepted, &e.to_string()),
+                )),
+            }
+        };
         let body = serde_json::json!({"type": "quick", "platform_fs_slugs": [fs_slug]});
         let mut backoff = timing.backoff;
         let task = loop {
-            match self.post::<_, Task>("/api/tasks/scan", &body) {
+            let romm = match client(None) {
+                Ok(romm) => romm,
+                Err(end) => return end,
+            };
+            match romm.post::<_, Task>("/api/tasks/scan", &body) {
                 Ok(task) => break task,
                 Err(RommError::Status { status: 409, .. }) => {
                     if Instant::now() + backoff > deadline {
@@ -509,7 +612,9 @@ impl RommClient {
                             ),
                         );
                     }
-                    std::thread::sleep(backoff);
+                    if stop.wait(backoff) {
+                        return halted(None);
+                    }
                     backoff = (backoff * 2).min(timing.backoff_max);
                 }
                 Err(RommError::Status { status: 503, .. }) => {
@@ -547,7 +652,11 @@ impl RommClient {
         }
         let path = format!("/api/tasks/{id}");
         loop {
-            match self.get::<Task>(&path) {
+            let romm = match client(Some(&id)) {
+                Ok(romm) => romm,
+                Err(end) => return end,
+            };
+            match romm.get::<Task>(&path) {
                 Ok(task) => match task.status.as_deref() {
                     Some("finished") => {
                         return ScanEnd {
@@ -588,7 +697,9 @@ impl RommClient {
                     ),
                 );
             }
-            std::thread::sleep(timing.poll);
+            if stop.wait(timing.poll) {
+                return halted(Some(&id));
+            }
         }
     }
 }
@@ -640,7 +751,8 @@ fn unscannable(platform: &RommPlatform) -> Option<&'static str> {
 
 impl Store {
     /// Whether the Build Job `job` changed any file in its Library Folder: put one in place, kept one aside, restored
-    /// one, or left its target uncertain. Adopting a file where it already is changes nothing.
+    /// one, renamed one, or left its target uncertain. Adopting a file where it already is, and forgetting one
+    /// already gone, change nothing.
     fn build_changed_files(&self, job: i64) -> Result<bool> {
         let Some((build, plan)) = self.read(|c| {
             Ok(c.query_row(
@@ -653,27 +765,40 @@ impl Store {
         else {
             return Ok(false);
         };
-        let done: Vec<(String, String)> = self.read(|c| {
-            let mut stmt = c.prepare(
-                "SELECT kind, target FROM build_items
-                 WHERE build_id = ?1 AND state IN ('applied', 'uncertain') AND kind <> 'acknowledge'",
-            )?;
-            let rows = stmt.query_map([build], |r| Ok((r.get(0)?, r.get(1)?)))?;
-            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        // A file kept aside is recorded before it is moved, and the record dropped if it is left in place, so a
+        // record means it left the folder, whatever became of its item: a repack that kept the old copy aside and
+        // then failed to put the new one in place still took a file away. A removal that only forgets the record of
+        // a file already gone keeps nothing aside, and changes nothing.
+        let moved: bool = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT EXISTS (SELECT 1 FROM kept_files WHERE build_id = ?1)
+                     OR EXISTS (SELECT 1 FROM build_items WHERE build_id = ?1
+                                AND state IN ('applied', 'uncertain', 'publishing')
+                                AND kind IN ('copy', 'repack', 'restore'))",
+                [build],
+                |r| r.get(0),
+            )?)
         })?;
-        let adopt = ItemKind::Adopt.as_str();
-        if done.iter().any(|(kind, _)| kind != adopt) {
+        if moved {
             return Ok(true);
         }
+        let done: Vec<String> = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT target FROM build_items
+                 WHERE build_id = ?1 AND state IN ('applied', 'uncertain') AND kind = 'adopt'",
+            )?;
+            let rows = stmt.query_map([build], |r| r.get(0))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })?;
         // A cleanup may adopt a file under a new name, which moves it.
         let Some(cleanup) = self.plan(plan)?.content.cleanup else {
             return Ok(false);
         };
         Ok(cleanup.entries.iter().any(|e| {
             e.action == Some(CleanupAction::Adopt)
-                && e.target.as_ref().is_some_and(|target| {
-                    *target != e.name && done.iter().any(|(_, t)| t == target)
-                })
+                && e.target
+                    .as_ref()
+                    .is_some_and(|target| *target != e.name && done.contains(target))
         }))
     }
 
@@ -702,7 +827,7 @@ impl Store {
     }
 
     /// Requests the RomM scan the ended Build Job `job` owes, if it owes one, and follows it to its end within
-    /// `timing`, recording each step on the Job and telling `changed` of the Job as it then is. A Build, Library
+    /// `timing` or until `stop`, recording each step on the Job and telling `changed` of the Job as it then is. A Build, Library
     /// cleanup or Kept File restore owes one when RomM is on and it changed files in a Library Folder: RomM scans a
     /// folder directly under its root, and a folder elsewhere under it is recorded as a warning with no request. No
     /// other Job, nor one that changed nothing, owes a scan. Whatever RomM does, the Job's own state stays as it
@@ -713,6 +838,7 @@ impl Store {
         config: &Config,
         job: i64,
         timing: &ScanTiming,
+        stop: &ScanStop,
         changed: &mut dyn FnMut(&Job),
     ) -> Result<Option<Job>> {
         let ended = self.job(job)?;
@@ -757,14 +883,7 @@ impl Store {
             return step(&scan).map(Some);
         };
         step(&scan)?;
-        let end = match RommClient::of(&romm).expect("RomM that is on has an address") {
-            Ok(client) => client.scan(fs_slug, timing),
-            Err(e) => ScanEnd {
-                outcome: RommScanOutcome::Error,
-                task_id: None,
-                detail: Some(format!("{e}. {fs_slug} wasn't scanned.")),
-            },
-        };
+        let end = self.follow_romm_scan(&romm, fs_slug, timing, stop);
         scan.outcome = end.outcome;
         scan.task_id = end.task_id;
         scan.detail = end.detail;
@@ -778,13 +897,13 @@ impl Store {
         self.write(|tx| {
             let jobs: Vec<i64> = {
                 let mut stmt = tx.prepare(
-                    "UPDATE romm_scans SET outcome = 'timed_out', detail = ?1, ended_at = ?2
+                    "UPDATE romm_scans SET outcome = 'stopped', detail = ?1, ended_at = ?2
                      WHERE outcome = 'requested' RETURNING job_id",
                 )?;
                 let rows = stmt.query_map(
                     params![
-                        "Title Select stopped before RomM's scan ended, so whether it finished isn't known. Check \
-                         the platform in RomM.",
+                        "Title Select stopped while it followed RomM's scan, so whether it finished isn't known. \
+                         Check the platform in RomM.",
                         now()
                     ],
                     |r| r.get(0),

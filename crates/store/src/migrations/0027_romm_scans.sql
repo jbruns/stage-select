@@ -5,7 +5,7 @@ CREATE TABLE romm_scans (
     job_id INTEGER PRIMARY KEY REFERENCES jobs (id),
     platform TEXT NOT NULL,
     outcome TEXT NOT NULL CHECK (outcome IN
-        ('requested', 'finished', 'failed', 'timed_out', 'unavailable', 'error', 'unmapped')),
+        ('requested', 'finished', 'stopped', 'failed', 'timed_out', 'unavailable', 'error', 'unmapped')),
     task_id TEXT,
     detail TEXT,
     requested_at TEXT NOT NULL,

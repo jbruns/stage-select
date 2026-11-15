@@ -1031,6 +1031,12 @@ impl Status for RommScanOutcome {
                 "Scanned",
                 "RomM scanned this folder's platform, so it shows what the build changed.",
             ),
+            RommScanOutcome::Stopped => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Scan not followed",
+                "Title Select stopped following the scan before it ended, so check the platform in RomM.",
+            ),
             RommScanOutcome::Failed => look(
                 Glyph::CircleX,
                 Tone::Review,
