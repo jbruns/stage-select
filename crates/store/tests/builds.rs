@@ -2300,6 +2300,58 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_title_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+    for tamper in ["a group-readable mode", "a symlink", "a file"] {
+        let env = Env::new();
+        env.audit();
+        let id = env.record(&everything(&env.sha256));
+        let folder = env.folder("atari2600");
+        let dir = env.play().join("atari2600");
+        let state = dir.join(".title-select");
+        assert_eq!(
+            std::fs::metadata(&state).unwrap().permissions().mode() & 0o777,
+            0o700,
+            "it is made private"
+        );
+        match tamper {
+            "a group-readable mode" => {
+                std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o750)).unwrap()
+            }
+            "a symlink" => {
+                let elsewhere = env.tmp.path().join("elsewhere");
+                std::fs::rename(&state, &elsewhere).unwrap();
+                std::os::unix::fs::symlink(&elsewhere, &state).unwrap();
+            }
+            _ => {
+                let marker = std::fs::read(state.join("marker")).unwrap();
+                std::fs::remove_dir_all(&state).unwrap();
+                std::fs::write(&state, marker).unwrap();
+            }
+        }
+        let plan = env.plan(&folder, id);
+        assert_eq!(
+            blockers(&plan),
+            BTreeSet::from([BlockerKind::Marker]),
+            "{tamper}: {:?}",
+            plan.content.blockers
+        );
+        assert!(
+            plan.content.blockers[0]
+                .message
+                .contains("is not Title Select's own private folder"),
+            "{tamper}: {:?}",
+            plan.content.blockers
+        );
+        assert!(
+            std::fs::symlink_metadata(&state).is_ok(),
+            "{tamper}: left as it is"
+        );
+    }
+}
+
 #[test]
 fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_marker() {
     let env = Env::new();

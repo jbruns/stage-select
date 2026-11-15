@@ -77,15 +77,7 @@ enum MarkerFound {
 
 fn read_set_marker(dir: &FolderDir) -> MarkerFound {
     match dir.read(MARKER, MARKER_LIMIT) {
-        // A folder with no `.title-select` directory, or only a file at that name, has no marker.
-        Err(e)
-            if matches!(
-                e.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-            ) =>
-        {
-            MarkerFound::Absent
-        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => MarkerFound::Absent,
         Err(e) => MarkerFound::Unreadable(e.to_string()),
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(marker) => MarkerFound::Present(marker),
@@ -1835,7 +1827,7 @@ impl Store {
                     let file = dir.open_file(staged_name).map_err(io_err)?;
                     let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
                     if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
-                        dir.sync().map_err(io_err)?;
+                        dir.sync_holding(staged_name).map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
                         return self.build_staged(step, &file, None, None);
                     }
@@ -1971,7 +1963,7 @@ impl Store {
                 return self.step_failed(step, "failed", why);
             }
         };
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(&staged_name).map_err(io_err)?;
         self.build_staged(step, &file, source_sha, reads)
     }
 
@@ -2121,7 +2113,9 @@ impl Store {
                     serde_json::to_string(&BTreeMap::from([(path.as_str(), sha.as_str())]))
                         .expect("a map of strings")
                 });
-                dir.sync().map_err(io_err)?;
+                for (_, staged_name, _, _) in &staged {
+                    dir.sync_holding(staged_name).map_err(io_err)?;
+                }
                 for (one, _, file, _) in &staged {
                     if let Err(why) =
                         self.build_staged(&one.step, file, single.clone(), reads.clone())?
@@ -2291,7 +2285,7 @@ impl Store {
             self.fault_point(Fault::RepairDiscarding(step.seq));
         }
         // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
-        dir.sync().map_err(io_err)?;
+        dir.sync_holding(staged_name).map_err(io_err)?;
         deleting.sync().map_err(io_err)?;
         if let Some(kept) = kept {
             return self.keep_discarded(r, step, &deleting, &slot, staged_name, id, &kept);
@@ -2337,7 +2331,7 @@ impl Store {
                     )));
                 }
                 deleting.sync().map_err(io_err)?;
-                dir.sync().map_err(io_err)?;
+                dir.sync_holding(staged_name).map_err(io_err)?;
             }
             None => {}
         }
@@ -2648,7 +2642,7 @@ impl Store {
             // Not a file, so never recorded kept: put back if its name is free, else left visible where it is.
             let why = match generation.rename_new(kept, parent, name) {
                 Ok(()) => {
-                    parent.sync().map_err(io_err)?;
+                    parent.sync_holding(name).map_err(io_err)?;
                     generation.sync().map_err(io_err)?;
                     format!(
                         "{path} was replaced by something else as it was kept aside; that was put back as {path}, \
@@ -2958,7 +2952,7 @@ impl Store {
             }
         };
         // A stop may have left a rename unsynced: nothing is recorded, nor the step ended, until both are synced.
-        r.dir.sync().map_err(io_err)?;
+        r.dir.sync_holding(staged_name).map_err(io_err)?;
         generation.sync().map_err(io_err)?;
         self.fault_point(Fault::RepairFoundSynced(step.seq));
         if let Some(st) = generation.stat(kept).map_err(io_err)? {
@@ -2977,7 +2971,7 @@ impl Store {
                         ),
                     );
                 }
-                r.dir.sync().map_err(io_err)?;
+                r.dir.sync_holding(staged_name).map_err(io_err)?;
                 generation.sync().map_err(io_err)?;
                 match generation.stat(kept).map_err(io_err)? {
                     Some(st) => settle(&st),

@@ -468,10 +468,9 @@ fn check_folder(
         if is_own(name) {
             let own = match dir.sub(STATE).and_then(|state| state.entries()) {
                 Ok(own) => own,
-                // Only a file at its name, which is not Title Select's and holds nothing.
-                Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Vec::new(),
+                // Not Title Select's own private folder: its marker cannot be trusted either.
                 Err(e) => {
-                    blockers.push(blocker(BlockerKind::FolderMissing, e.to_string()));
+                    blockers.push(blocker(BlockerKind::Marker, e.to_string()));
                     return None;
                 }
             };

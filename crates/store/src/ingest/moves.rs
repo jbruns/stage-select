@@ -25,7 +25,7 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{ExpectedRom, FileStat, kept_name};
+use title_select_api::build::{ExpectedRom, FileStat, STATE, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
@@ -40,10 +40,28 @@ use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::store_id;
-use crate::kept::{Scope, open_area_deleting, open_retention};
+use crate::kept::{Scope, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
 use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
+
+/// The name a copy into `dest` meant for `dest_name` is staged under: in the folder's own [`STATE`] directory when
+/// it has one, as a Source Set or Additions Set Title Select manages does, and otherwise beside `dest_name`, so that
+/// nothing is made in a folder Title Select doesn't manage but the hidden staged file itself.
+fn staged_in(dest: &FolderDir, dest_name: &str) -> io::Result<String> {
+    let (dir, leaf) = match dest_name.rsplit_once('/') {
+        Some((dir, leaf)) => (Some(dir), leaf),
+        None => (None, dest_name),
+    };
+    if dest.stat(STATE)?.is_some() {
+        return Ok(staged_name(leaf));
+    }
+    let beside = format!(".{leaf}.title-select-new-{}", unique());
+    Ok(match dir {
+        Some(dir) => format!("{dir}/{beside}"),
+        None => beside,
+    })
+}
 
 /// Where a move puts an entry.
 #[derive(Debug, Clone)]
@@ -1103,7 +1121,11 @@ impl Store {
             if let Some(stamp) = &m.staged_stamp
                 && is_file(dest, dest_name, staged, Some(stamp)).map_err(io)?
             {
-                dest.sync().map_err(io)?;
+                // The rename a stop may have left unsynced: from the staged name's folder into the destination's.
+                if let Some(staged_name) = &m.staged_name {
+                    dest.sync_holding(staged_name).map_err(io)?;
+                }
+                dest.sync_holding(dest_name).map_err(io)?;
                 let file = dest.open_file(dest_name).map_err(io)?;
                 let st = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
                 if Identity::of(&st) == staged && file_stat(&st) == *stamp {
@@ -1151,7 +1173,7 @@ impl Store {
                 m.name
             ));
         }
-        let staged_name = staged_name(dest_name);
+        let staged_name = staged_in(dest, dest_name).map_err(io)?;
         self.write(|tx| {
             tx.execute(
                 "UPDATE ingest_moves SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
@@ -1342,7 +1364,7 @@ impl Store {
             return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
         }
         dest.sync_holding(staged_name)
-            .and_then(|()| dest.sync())
+            .and_then(|()| dest.sync_holding(dest_name))
             .map_err(io)?;
         self.fault_point(Fault::IngestRenamed);
         if is_file(dest, dest_name, staged, Some(&stamp)).map_err(io)? {
@@ -2071,12 +2093,48 @@ mod tests {
 
             assert_eq!(env.listing(), ["lib/Atari/Pong (USA).a26"], "{fault:?}");
             assert_eq!(
+                std::fs::read_dir(env.tmp.path().join("lib/Atari"))
+                    .unwrap()
+                    .count(),
+                1,
+                "{fault:?}: nothing of Title Select's is left in a folder it doesn't manage"
+            );
+            assert_eq!(
                 std::fs::read(env.tmp.path().join("lib/Atari/Pong (USA).a26")).unwrap(),
                 b"pong"
             );
             assert_eq!(env.unfinished(), 0);
         }
         FORCE_COPY.with(|f| f.set(false));
+    }
+
+    #[test]
+    fn a_copy_published_before_a_stop_ends_only_once_its_staged_and_destination_folders_are_synced()
+    {
+        let env = env();
+        env.put("pong.a26", b"pong");
+        // A folder Title Select manages, whose copies are staged in its own private folder.
+        let state = env.tmp.path().join("lib/Atari/.title-select");
+        std::fs::create_dir(&state).unwrap();
+        std::fs::set_permissions(&state, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .unwrap();
+        let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+        mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+        FORCE_COPY.with(|f| f.set(true));
+        let synced = synced_on_recovery(&env, mv, Fault::IngestRenamed, |_, _| {});
+        FORCE_COPY.with(|f| f.set(false));
+
+        for dir in ["lib/Atari/.title-select", "lib/Atari"] {
+            assert!(synced.iter().any(|s| s == dir), "{dir} not in {synced:?}");
+        }
+        // No change time read after a stop is trusted, so its original is kept.
+        assert_eq!(
+            env.listing(),
+            [
+                "in/.title-select/retained/1/pong.a26.kept",
+                "lib/Atari/Pong (USA).a26"
+            ]
+        );
     }
 
     /// A kill during a 7z repack leaves its scratch behind, which no drop removes: recovery does, whatever becomes of

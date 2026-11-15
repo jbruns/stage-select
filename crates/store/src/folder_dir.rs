@@ -158,19 +158,41 @@ impl FolderDir {
     }
 
     /// The directory `name` in this one, a `/`-separated path, no component of it followed if it is a symlink.
+    /// The folder's [`STATE`] directory, and so any path through it, opens only while it is private to this
+    /// service's user ([`FolderDir::private`]): its owner could otherwise replace the marker in it, or move a folder
+    /// Title Select writes into out of the folder.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
         let (parent, leaf) = self.resolve(name)?;
+        let state = parent.is_none() && leaf == STATE;
         let fd = rustix::fs::openat(
             &parent.as_ref().unwrap_or(self).fd,
             leaf,
             DIR_FLAGS,
             Mode::empty(),
         )
-        .map_err(|e| self.error(name, e))?;
-        Ok(FolderDir {
+        .map_err(|e| match e {
+            rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP if state => {
+                self.not_state("it is not a directory")
+            }
+            e => self.error(name, e),
+        })?;
+        let found = FolderDir {
             fd,
             path: self.at(name),
-        })
+        };
+        if state && let Err(why) = found.private(false)? {
+            return Err(self.not_state(&why));
+        }
+        Ok(found)
+    }
+
+    /// Why the folder's [`STATE`] directory, found as `why` says, is never used.
+    fn not_state(&self, why: &str) -> io::Error {
+        io::Error::other(format!(
+            "{} is not Title Select's own private folder: {why}; it was left as it is. Move it out of the folder, \
+             then try again",
+            self.at(STATE).display()
+        ))
     }
 
     /// Creates the directory `name`, failing if anything is there.
@@ -458,12 +480,25 @@ pub(super) fn parent_made<'a>(
     let mut found: Option<FolderDir> = None;
     for part in parents.split('/') {
         let at = found.as_ref().unwrap_or(dir);
-        match at.mkdir(part) {
-            Ok(()) => at.sync()?,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        // The folder's own STATE directory is made private to this service's user, and used only while it is.
+        let state = found.is_none() && part == STATE;
+        let made = match if state {
+            at.mkdir_private(part)
+        } else {
+            at.mkdir(part)
+        } {
+            Ok(()) => true,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => false,
             Err(e) => return Err(e),
+        };
+        let sub = at.sub(part)?;
+        if made {
+            if state && let Err(why) = sub.private(true)? {
+                return Err(at.not_state(&why));
+            }
+            at.sync()?;
         }
-        found = Some(at.sub(part)?);
+        found = Some(sub);
     }
     Ok((found, name))
 }

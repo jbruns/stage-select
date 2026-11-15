@@ -1151,6 +1151,7 @@ fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out()
         .unwrap();
     // The marker as the approval's own check of the folder saw it, before the unregistering removed it.
     copy_all(&saved, &marker);
+    std::fs::set_permissions(&marker, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
 
     let refused =
         env.store

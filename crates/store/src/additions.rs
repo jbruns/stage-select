@@ -2356,7 +2356,11 @@ impl Store {
                 if at != file_name.as_str() {
                     return self.rename_staged(row, &held, at, dest);
                 }
-                dest.sync().map_err(io)?;
+                // The rename a stop may have left unsynced: from the staged name's folder into the destination's.
+                if let Some(staged_name) = row.staged_name.as_deref() {
+                    dest.sync_holding(staged_name).map_err(io)?;
+                }
+                dest.sync_holding(file_name).map_err(io)?;
                 return self.activate(row, &held, staged, dest);
             }
         }
@@ -2472,7 +2476,7 @@ impl Store {
         }
         self.fault_point(Fault::AdditionRenamed);
         dest.sync_holding(staged_name)
-            .and_then(|()| dest.sync())
+            .and_then(|()| dest.sync_holding(file_name))
             .map_err(io)?;
         self.activate(row, held, staged, dest)
     }

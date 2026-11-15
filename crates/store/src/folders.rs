@@ -557,10 +557,7 @@ pub(super) enum MarkerState {
 
 pub(super) fn read_marker(dir: &FolderDir) -> MarkerState {
     match dir.read(MARKER, MARKER_LIMIT) {
-        // A folder with no `.title-select` directory, or only a file at that name, has no marker.
-        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
-            MarkerState::Absent
-        }
+        Err(e) if e.kind() == ErrorKind::NotFound => MarkerState::Absent,
         Err(e) => MarkerState::Unreadable(e.to_string()),
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(marker) => MarkerState::Present(marker),
