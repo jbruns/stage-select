@@ -10,6 +10,7 @@ pub mod lifecycle;
 pub mod paths;
 pub mod repair;
 pub mod report;
+pub mod romm;
 pub mod selection;
 pub mod settings;
 pub mod storage;

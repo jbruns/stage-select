@@ -1,14 +1,17 @@
 //! The Operations settings as the Operator edits them: a draft of every field, as typed, turned into the change
 //! `PATCH /settings` takes. Only the sections that changed are sent, so a save never touches a section someone else
-//! changed meanwhile, and the webhook's URL and secret are sent only when replaced or cleared.
+//! changed meanwhile, and the webhook's URL and secret and the RomM token are sent only when replaced or cleared.
 
 use std::collections::BTreeMap;
 
 use title_select_api::paths::PathTemplate;
+use title_select_api::romm::{RommCheck, RommPlatform, RommUpdate, TESTED_RELEASES};
 use title_select_api::settings::{
     ChdTimeouts, FetchSettings, IngestCadence, NotifyEvent, NotifyUpdate, Pace, PathTemplates,
     Retention, SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
 };
+
+use crate::parts::status::Tone;
 
 /// An Ingest Folder's cadence as typed: an empty `scan_every_minutes` scans only when asked.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +37,11 @@ pub struct Draft {
     pub secret: SecretUpdate,
     pub events: Vec<NotifyEvent>,
     pub workbench_url: String,
+    pub romm_enabled: bool,
+    pub romm_base_url: String,
+    pub romm_token: SecretUpdate,
+    /// The Root RomM's library is in, or empty for none.
+    pub romm_root: String,
 }
 
 impl Draft {
@@ -69,6 +77,10 @@ impl Draft {
             secret: SecretUpdate::Keep,
             events: saved.notify.events.clone(),
             workbench_url: saved.notify.workbench_url.clone().unwrap_or_default(),
+            romm_enabled: saved.romm.enabled,
+            romm_base_url: saved.romm.base_url.clone().unwrap_or_default(),
+            romm_token: SecretUpdate::Keep,
+            romm_root: saved.romm.root.clone().unwrap_or_default(),
         }
     }
 
@@ -129,6 +141,20 @@ impl Draft {
             || notify.secret != SecretUpdate::Keep
             || notify.events != saved.notify.events
             || notify.workbench_url != saved.notify.workbench_url;
+        let romm = RommUpdate {
+            enabled: self.romm_enabled,
+            base_url: Some(self.romm_base_url.trim().trim_end_matches('/'))
+                .filter(|u| !u.is_empty())
+                .map(str::to_owned),
+            token: self.romm_token.clone(),
+            root: Some(self.romm_root.trim())
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned),
+        };
+        let romm_changed = romm.token != SecretUpdate::Keep
+            || romm.enabled != saved.romm.enabled
+            || romm.base_url != saved.romm.base_url
+            || romm.root != saved.romm.root;
         Ok(SettingsUpdate {
             pace: (self.pace != saved.jobs.pace).then_some(self.pace),
             retention: (retention != saved.retention).then_some(retention),
@@ -138,6 +164,7 @@ impl Draft {
             chd: (chd != saved.chd).then_some(chd),
             ingest_folders: (!ingest_folders.is_empty()).then_some(ingest_folders),
             notify: notify_changed.then_some(notify),
+            romm: romm_changed.then_some(romm),
         })
     }
 }
@@ -163,6 +190,80 @@ pub fn secret_state(set: bool, update: &SecretUpdate) -> &'static str {
     }
 }
 
+/// What a test of the RomM connection found, a line each, in the tone it deserves: the release, the user the token
+/// signs in as, its scopes, and what stopped the test if anything did.
+pub fn romm_check_lines(check: &RommCheck) -> Vec<(Tone, String)> {
+    let mut lines = Vec::new();
+    if let Some(version) = &check.version {
+        lines.push(if check.version_tested {
+            (Tone::Good, format!("RomM {version}, a tested release."))
+        } else {
+            (
+                Tone::Review,
+                format!(
+                    "RomM {version}, a release not yet tested: title-select is tested with RomM \
+                     {TESTED_RELEASES}."
+                ),
+            )
+        });
+    }
+    if check.failure.is_none() {
+        lines.push(match &check.user {
+            Some(user) if user.admin => (
+                Tone::Review,
+                format!(
+                    "Signed in as {}, an admin: a user with only the scopes title-select needs is safer.",
+                    user.username
+                ),
+            ),
+            Some(user) => (Tone::Good, format!("Signed in as {}.", user.username)),
+            None => (
+                Tone::Neutral,
+                "Add the me.read scope to your token to see which user it signs in as.".into(),
+            ),
+        });
+        lines.extend(check.missing_scopes.iter().map(|scope| {
+            (
+                Tone::Failed,
+                format!("Your token is missing the {scope} scope."),
+            )
+        }));
+        if check.missing_scopes.is_empty() {
+            lines.push((
+                Tone::Good,
+                "Your token has every scope title-select needs.".into(),
+            ));
+        }
+    }
+    if let Some(failure) = &check.failure {
+        lines.push((Tone::Failed, failure.clone()));
+    }
+    lines
+}
+
+/// The RomM platform a library folder maps to, terse for its cell, and why it maps to none for its tooltip.
+pub fn romm_platform_label(platform: &RommPlatform) -> (String, Option<&'static str>) {
+    let none = |why| ("No platform".to_owned(), Some(why));
+    match platform {
+        RommPlatform::Mapped { fs_slug } => (fs_slug.clone(), None),
+        RommPlatform::NoRoot => {
+            none("Choose the root RomM's library is in to map your library folders.")
+        }
+        RommPlatform::OutsideRoot => {
+            none("This library folder is outside the root RomM's library is in.")
+        }
+        RommPlatform::Nested => {
+            none("RomM sees only the folders directly in its library; this one is nested deeper.")
+        }
+        RommPlatform::IsRoot => {
+            none("This library folder is RomM's whole library, not a platform folder in it.")
+        }
+        RommPlatform::Unresolved => {
+            none("This library folder or the root RomM's library is in can't be found on disk.")
+        }
+    }
+}
+
 /// How `pace` reads.
 pub fn pace_label(pace: Pace) -> &'static str {
     match pace {
@@ -174,6 +275,7 @@ pub fn pace_label(pace: Pace) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use title_select_api::romm::{RommUser, RommView};
     use title_select_api::settings::{Ceilings, JobsView, NotifyView};
 
     use super::*;
@@ -201,6 +303,12 @@ mod tests {
                 secret_set: true,
                 events: NotifyEvent::ALL.to_vec(),
                 workbench_url: Some("https://ts.example".into()),
+            },
+            romm: RommView {
+                enabled: false,
+                base_url: Some("http://romm.example:8080".into()),
+                token_set: true,
+                root: Some("romm".into()),
             },
         }
     }
@@ -292,6 +400,113 @@ mod tests {
                 .unwrap_err()
                 .starts_with("The source set path template: ")
         );
+    }
+
+    #[test]
+    fn romm_is_sent_whole_when_changed_but_its_token_only_when_replaced_or_cleared() {
+        let saved = saved();
+        let mut draft = Draft::of(&saved);
+        draft.romm_enabled = true;
+        draft.romm_base_url = " http://romm.example:8080/ ".into();
+        assert_eq!(
+            draft.update(&saved).unwrap().romm,
+            Some(RommUpdate {
+                enabled: true,
+                base_url: Some("http://romm.example:8080".into()),
+                token: SecretUpdate::Keep,
+                root: Some("romm".into()),
+            })
+        );
+
+        let mut draft = Draft::of(&saved);
+        draft.romm_root = String::new();
+        draft.romm_token = SecretUpdate::Set("rmm_new".into());
+        let romm = draft.update(&saved).unwrap().romm.unwrap();
+        assert_eq!(romm.root, None, "no root chosen");
+        assert_eq!(romm.token, SecretUpdate::Set("rmm_new".into()));
+    }
+
+    #[test]
+    fn a_romm_test_says_what_it_found_and_what_to_fix() {
+        let check = RommCheck {
+            version: Some("5.5.0".into()),
+            version_tested: false,
+            user: Some(RommUser {
+                username: "svc".into(),
+                admin: true,
+            }),
+            missing_scopes: vec!["tasks.run".into()],
+            failure: None,
+        };
+        let lines = romm_check_lines(&check);
+        assert_eq!(
+            lines[0],
+            (
+                Tone::Review,
+                "RomM 5.5.0, a release not yet tested: title-select is tested with RomM 5.4."
+                    .into()
+            )
+        );
+        assert_eq!(lines[1], (Tone::Review, "Signed in as svc, an admin: a user with only the scopes title-select needs is safer.".into()));
+        assert_eq!(
+            lines[2],
+            (
+                Tone::Failed,
+                "Your token is missing the tasks.run scope.".into()
+            )
+        );
+
+        let fine = RommCheck {
+            version: Some("5.4.1".into()),
+            version_tested: true,
+            user: None,
+            missing_scopes: vec![],
+            failure: None,
+        };
+        assert_eq!(
+            romm_check_lines(&fine),
+            [
+                (Tone::Good, "RomM 5.4.1, a tested release.".into()),
+                (
+                    Tone::Neutral,
+                    "Add the me.read scope to your token to see which user it signs in as.".into()
+                ),
+                (
+                    Tone::Good,
+                    "Your token has every scope title-select needs.".into()
+                ),
+            ]
+        );
+        let failed = RommCheck {
+            failure: Some("RomM refused the token.".into()),
+            ..fine
+        };
+        assert_eq!(
+            romm_check_lines(&failed).last(),
+            Some(&(Tone::Failed, "RomM refused the token.".into()))
+        );
+    }
+
+    #[test]
+    fn each_mapping_names_its_platform_or_says_why_it_has_none() {
+        let label = |p| romm_platform_label(&p);
+        assert_eq!(
+            label(RommPlatform::Mapped {
+                fs_slug: "gba".into()
+            }),
+            ("gba".into(), None)
+        );
+        for none in [
+            RommPlatform::NoRoot,
+            RommPlatform::OutsideRoot,
+            RommPlatform::Nested,
+            RommPlatform::IsRoot,
+            RommPlatform::Unresolved,
+        ] {
+            let (cell, why) = label(none);
+            assert_eq!(cell, "No platform");
+            assert!(why.is_some_and(|w| w.ends_with('.')));
+        }
     }
 
     #[test]

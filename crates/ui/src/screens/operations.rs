@@ -1,14 +1,20 @@
 //! The Operations settings (#139): the Job pace, retention, Path Templates, checks, fetching, chdman's time limits,
-//! each Ingest Folder's cadence and the webhook. They apply when saved, without a restart; the webhook's URL and
-//! secret are write-only.
+//! each Ingest Folder's cadence, the webhook and the RomM connection (#140). They apply when saved, without a
+//! restart; the webhook's URL and secret and the RomM token are write-only.
 
 use leptos::prelude::*;
+use title_select_api::Root;
+use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
 use title_select_api::settings::{NotifyEvent, Pace, SecretUpdate, SettingsView};
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
-use crate::settings_model::{CadenceDraft, Draft, pace_label, secret_state};
+use crate::parts::overlay::Tooltip;
+use crate::parts::pending::{ActionPending, Pending};
+use crate::settings_model::{
+    CadenceDraft, Draft, pace_label, romm_check_lines, romm_platform_label, secret_state,
+};
 
 fn event_label(event: NotifyEvent) -> &'static str {
     match event {
@@ -27,7 +33,7 @@ pub fn Operations() -> impl IntoView {
     view! {
         <h1>"Operations"</h1>
         <p class="lede">
-            "How hard jobs work, what is kept, how folders are named, and what is checked, fetched and sent. Each change applies as soon as you save it, without a restart."
+            "How hard jobs work, what is kept, how folders are named, what is checked, fetched and sent, and how to reach RomM. Each change applies as soon as you save it, without a restart."
         </p>
         {move || match loaded.get() {
             None => view! { <Loading what="your settings" /> }.into_any(),
@@ -182,6 +188,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
             </fieldset>
             <IngestSection draft />
             <WebhookSection saved draft />
+            <RommSection saved draft />
         </div>
         <section class="staged" aria-labelledby="save-title">
             <h2 id="save-title">"Save"</h2>
@@ -452,6 +459,170 @@ fn WebhookSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl
                 get=|d| d.workbench_url.clone()
                 set=|d, v| d.workbench_url = v
             />
+        </fieldset>
+    }
+}
+
+#[component]
+fn RommSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl IntoView {
+    let roots = LocalResource::new(|| api::get::<Vec<Root>>("/roots"));
+    let live = use_live();
+    let platforms = LocalResource::new(move || {
+        saved.track();
+        live.settled.track();
+        api::get::<Vec<RommFolderPlatform>>("/romm/platforms")
+    });
+    let test = Action::new_local(|request: &RommTestRequest| {
+        let request = request.clone();
+        async move { api::post::<_, RommCheck>("/romm/test", &request).await }
+    });
+    let run_test = move |_| {
+        let request = draft.with_untracked(|d| RommTestRequest {
+            base_url: Some(d.romm_base_url.trim().to_owned()).filter(|u| !u.is_empty()),
+            token: d.romm_token.clone(),
+        });
+        test.dispatch_local(request);
+    };
+    view! {
+        <fieldset class="setting">
+            <legend>"RomM"</legend>
+            <p class="note small">
+                "How Title Select reaches your RomM. It is off until you turn it on, and a RomM that can't be reached never stops anything else. The token is never shown again once saved: you can only replace or clear it. A backup of the store holds the token."
+            </p>
+            <p>
+                <label class="inline">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || draft.with(|d| d.romm_enabled)
+                        on:change=move |ev| {
+                            let on = event_target_checked(&ev);
+                            draft.update(|d| d.romm_enabled = on);
+                        }
+                    />
+                    "Use RomM"
+                </label>
+            </p>
+            <TextField
+                draft
+                id="romm-url"
+                label="RomM's address, with its scheme and port, as this server reaches it"
+                get=|d| d.romm_base_url.clone()
+                set=|d, v| d.romm_base_url = v
+            />
+            <SecretField
+                draft
+                id="romm-token"
+                label="RomM token"
+                kind="password"
+                is_set=Signal::derive(move || saved.with(|s| s.romm.token_set))
+                get=|d| d.romm_token.clone()
+                set=|d, v| d.romm_token = v
+            />
+            <details>
+                <summary>"Which token to create"</summary>
+                <p>
+                    "In RomM, create a client token for a user that isn't an admin, with the scopes roms.read, platforms.read, collections.read, collections.write and tasks.run. Add me.read to see here which user it signs in as."
+                </p>
+            </details>
+            <label class="stacked" for="romm-root">"The root RomM's library is in"</label>
+            <select
+                id="romm-root"
+                prop:value=move || draft.with(|d| d.romm_root.clone())
+                on:change=move |ev| {
+                    let root = event_target_value(&ev);
+                    draft.update(|d| d.romm_root = root);
+                }
+            >
+                <option value="">"None chosen"</option>
+                {move || {
+                    roots
+                        .get()
+                        .and_then(Result::ok)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|r| !r.ingest)
+                        .map(|r| {
+                            let selected = draft.with_untracked(|d| d.romm_root == r.name);
+                            let label = r.name.clone();
+                            view! { <option value=r.name selected=selected>{label}</option> }
+                        })
+                        .collect_view()
+                }}
+            </select>
+            <div class="actions">
+                <button type="button" disabled=move || test.pending().get() on:click=run_test>
+                    "Test the connection"
+                </button>
+            </div>
+            <ActionPending action=test status="Testing the connection…".to_string()>
+                {move || {
+                    test.value()
+                        .get()
+                        .and_then(Result::ok)
+                        .map(|check| {
+                            view! {
+                                <ul class="checks" role="status" aria-label="What the test found">
+                                    {romm_check_lines(&check)
+                                        .into_iter()
+                                        .map(|(tone, line)| view! { <li class=tone.class()>{line}</li> })
+                                        .collect_view()}
+                                </ul>
+                            }
+                        })
+                }}
+            </ActionPending>
+            <p>"The RomM platform each library folder builds:"</p>
+            <Pending
+                pending=Signal::derive(move || platforms.get().is_none())
+                status="Loading the platforms…"
+                problem=Signal::derive(move || platforms.get().and_then(Result::err))
+            >
+                {move || {
+                    let rows = platforms.get().and_then(Result::ok).unwrap_or_default();
+                    if rows.is_empty() {
+                        return view! { <p>"You have no library folders."</p> }.into_any();
+                    }
+                    view! {
+                        <div class="table-scroll">
+                            <table aria-label="RomM platforms">
+                                <thead>
+                                    <tr>
+                                        <th scope="col"><span class="label">"Library folder"</span></th>
+                                        <th scope="col"><span class="label">"RomM platform"</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows
+                                        .into_iter()
+                                        .map(|row| {
+                                            let (cell, why) = romm_platform_label(&row.platform);
+                                            view! {
+                                                <tr>
+                                                    <th scope="row">{format!("{}: {}", row.root, row.path)}</th>
+                                                    <td>
+                                                        {match why {
+                                                            Some(why) => {
+                                                                view! {
+                                                                    <Tooltip label=why.to_string() focusable=true>
+                                                                        {cell}
+                                                                    </Tooltip>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                            None => view! { <code>{cell}</code> }.into_any(),
+                                                        }}
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                        .into_any()
+                }}
+            </Pending>
         </fieldset>
     }
 }

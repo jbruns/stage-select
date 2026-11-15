@@ -1,0 +1,151 @@
+//! RomM, an optional integration that is off by default (ADR 0020): its connection settings, the result of testing
+//! the connection, and the RomM platform each Library Folder maps to.
+
+use serde::{Deserialize, Serialize};
+
+use crate::settings::SecretUpdate;
+
+/// The scopes a RomM Client API Token needs (research 0136 §2).
+pub const REQUIRED_SCOPES: [&str; 5] = [
+    "roms.read",
+    "platforms.read",
+    "collections.read",
+    "collections.write",
+    "tasks.run",
+];
+
+/// The RomM releases Title Select is tested against, as `major.minor`.
+pub const TESTED_RELEASES: &str = "5.4";
+
+/// Whether a RomM version is in the tested range ([`TESTED_RELEASES`]): `5.4`, `5.4.1` or `v5.4.2` are, while
+/// `5.5.0-alpha.1`, `5.40.0` and `development` aren't.
+pub fn version_tested(version: &str) -> bool {
+    let version = version.trim().trim_start_matches('v');
+    let Some(rest) = version.strip_prefix(TESTED_RELEASES) else {
+        return false;
+    };
+    match rest.strip_prefix('.') {
+        None => rest.is_empty(),
+        Some(patch) => !patch.is_empty() && patch.bytes().all(|b| b.is_ascii_digit()),
+    }
+}
+
+/// The RomM connection, without its token: whether it is on, RomM's address, whether a token is set, and which Root
+/// RomM mounts as its library (`roms/`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommView {
+    pub enabled: bool,
+    pub base_url: Option<String>,
+    pub token_set: bool,
+    pub root: Option<String>,
+}
+
+/// A change to the RomM connection, given whole. The token is write-only, and must be given again when the address
+/// changes, so that a saved token is never sent to an address it wasn't saved with.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RommUpdate {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub token: SecretUpdate,
+    #[serde(default)]
+    pub root: Option<String>,
+}
+
+/// What `POST /romm/test` tests: the saved connection, or the address and token given in its place. A saved token is
+/// tested only at its saved address.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RommTestRequest {
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub token: SecretUpdate,
+}
+
+/// The RomM user a token belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommUser {
+    pub username: String,
+    pub admin: bool,
+}
+
+/// What testing the RomM connection found. A check that stopped part way says why in `failure`, and keeps what it
+/// had found by then.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommCheck {
+    /// The version RomM's heartbeat reports.
+    pub version: Option<String>,
+    /// Whether that version is one Title Select is tested against.
+    pub version_tested: bool,
+    /// Who the token belongs to; absent unless the token may read its own profile (`me.read`).
+    pub user: Option<RommUser>,
+    /// Each of [`REQUIRED_SCOPES`] the token lacks, in that order.
+    pub missing_scopes: Vec<String>,
+    /// Why the check stopped, if it did.
+    pub failure: Option<String>,
+}
+
+/// The RomM platform a Library Folder maps to, or why it maps to none. RomM scans a folder exactly one level under
+/// the Root it mounts at `roms/`, and names its platform by that folder's name, its `fs_slug`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mapping", rename_all = "snake_case")]
+pub enum RommPlatform {
+    /// The folder is `<root>/<fs_slug>`.
+    Mapped { fs_slug: String },
+    /// No RomM root is set, or the configuration no longer has it.
+    NoRoot,
+    /// The folder isn't under the RomM root.
+    OutsideRoot,
+    /// The folder is under the RomM root, but more than one level down.
+    Nested,
+    /// The folder is the RomM root itself.
+    IsRoot,
+    /// The Library Folder or the RomM root can't be found on disk, so where it really is isn't known.
+    Unresolved,
+}
+
+impl RommPlatform {
+    pub fn fs_slug(&self) -> Option<&str> {
+        match self {
+            RommPlatform::Mapped { fs_slug } => Some(fs_slug),
+            _ => None,
+        }
+    }
+}
+
+/// One Library Folder and the RomM platform it maps to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommFolderPlatform {
+    pub folder_id: i64,
+    pub root: String,
+    /// Relative to its Root, with `/` separators.
+    pub path: String,
+    pub platform: RommPlatform,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_5_4_releases_are_tested() {
+        for tested in ["5.4", "5.4.0", "5.4.1", "v5.4.12", " 5.4.1\n"] {
+            assert!(version_tested(tested), "{tested}");
+        }
+        for untested in [
+            "5.5.0-alpha.1",
+            "5.40.0",
+            "5.3.9",
+            "5.4.1-rc.1",
+            "5.4.",
+            "development",
+            "",
+        ] {
+            assert!(!version_tested(untested), "{untested}");
+        }
+    }
+}

@@ -372,6 +372,7 @@ pub struct SettingsView {
     /// Each Ingest Folder's cadence, by its Root's name: every ingest Root, set or not.
     pub ingest_folders: BTreeMap<String, IngestCadence>,
     pub notify: NotifyView,
+    pub romm: crate::romm::RommView,
 }
 
 /// A change to some settings, as `PATCH /settings` takes it: each section given replaces that section, and the rest
@@ -396,6 +397,8 @@ pub struct SettingsUpdate {
     pub ingest_folders: Option<BTreeMap<String, IngestCadence>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify: Option<NotifyUpdate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub romm: Option<crate::romm::RommUpdate>,
 }
 
 #[cfg(test)]

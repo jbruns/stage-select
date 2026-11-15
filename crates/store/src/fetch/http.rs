@@ -1,7 +1,7 @@
 //! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: a fetch
 //! must address one of its provider's own hosts ([`Allowed`]), and no request ever addresses a No-Intro host,
-//! whatever any allowlist says (ADR 0012). The one other request is a webhook notification's POST ([`Http::post`]),
-//! to the URL the Operator configured, which follows no redirect.
+//! whatever any allowlist says (ADR 0012). The other requests go to addresses the Operator configured, and follow no
+//! redirect: a webhook notification's POST ([`Http::post`]) and RomM's API ([`Http::send`], ADR 0020).
 
 use std::time::Duration;
 
@@ -309,6 +309,65 @@ impl Http {
         })?;
         Ok(response.status().as_u16())
     }
+
+    /// Sends one `method` request to `url` with `headers`, and `body` if given, taking at most `timeout` and reading
+    /// at most `limit` bytes of the response, and returns its status and body. It follows no redirect. The error
+    /// never names `url` or any header, which may carry a token.
+    pub fn send(
+        &self,
+        method: Method,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&[u8]>,
+        timeout: Duration,
+        limit: u64,
+    ) -> Result<(u16, Vec<u8>), String> {
+        if let Some(why) = refusal_unnamed(url) {
+            return Err(why.into());
+        }
+        let builder = match method {
+            Method::Get => self.agent.get(url).force_send_body(),
+            Method::Post => self.agent.post(url),
+            Method::Put => self.agent.put(url),
+            Method::Delete => self.agent.delete(url).force_send_body(),
+        };
+        let mut request = builder.config().timeout_global(Some(timeout)).build();
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let sent = match body {
+            Some(body) => request.send(body),
+            None => request.send_empty(),
+        };
+        let failed = |e: ureq::Error| match e {
+            ureq::Error::Timeout(_) => {
+                format!("no answer within {} seconds", timeout.as_secs_f32())
+            }
+            ureq::Error::Io(e) => e.kind().to_string(),
+            ureq::Error::HostNotFound => "its host was not found".into(),
+            ureq::Error::ConnectionFailed => "the connection failed".into(),
+            ureq::Error::BodyExceedsLimit(_) => format!("its answer is larger than {limit} bytes"),
+            _ => "the request failed".into(),
+        };
+        let mut response = sent.map_err(failed)?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(limit)
+            .read_to_vec()
+            .map_err(failed)?;
+        Ok((status, bytes))
+    }
+}
+
+/// The methods [`Http::send`] sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+    Put,
+    Delete,
 }
 
 /// The URL a redirect's `location` names, relative to `from`.

@@ -908,6 +908,128 @@ fn every_watching_client_hears_that_the_settings_changed_without_their_secrets()
     assert!(!data.contains("very-secret-path") && !data.contains("s3cret-value"));
 }
 
+/// A stub RomM 5.4.1 on a local port: a heartbeat for anyone, and to the bearer of `rmm_good` its user `svc` and
+/// every scope. No test sends a request to a real RomM.
+fn stub_romm() -> String {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let (mut line, mut authorized, mut length) = (String::new(), false, 0usize);
+            reader.read_line(&mut line).unwrap();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                    break;
+                }
+                let lower = header.to_ascii_lowercase();
+                authorized |= lower.trim() == "authorization: bearer rmm_good";
+                if let Some(n) = lower.strip_prefix("content-length:") {
+                    length = n.trim().parse().unwrap();
+                }
+            }
+            std::io::Read::read_exact(&mut reader, &mut vec![0; length]).unwrap();
+            let path = line.split_whitespace().nth(1).unwrap_or("");
+            let (status, body) = match path {
+                "/api/heartbeat" => (200, r#"{"SYSTEM": {"VERSION": "5.4.1"}}"#),
+                _ if !authorized => (401, r#"{"detail": "Not authenticated"}"#),
+                "/api/users/me" => (200, r#"{"username": "svc", "role": "editor"}"#),
+                p if p.starts_with("/api/roms") => (200, r#"{"items": []}"#),
+                p if p.ends_with("/identifiers") => (200, "[]"),
+                _ => (404, r#"{"detail": "Not found"}"#),
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    url
+}
+
+#[test]
+fn romm_is_off_until_you_turn_it_on_and_its_token_is_tested_but_never_shown() {
+    use title_select_api::romm::{RommCheck, RommUser};
+    use title_select_api::settings::SettingsView;
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let romm = stub_romm();
+    let settings: SettingsView = client.json("/settings");
+    assert!(!settings.romm.enabled && !settings.romm.token_set);
+    let test = |body: serde_json::Value| {
+        let mut response = client.post("/romm/test").send_json(body).unwrap();
+        let status = response.status().as_u16();
+        (
+            status,
+            response
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .unwrap(),
+        )
+    };
+    let (status, check) = test(serde_json::json!({"base_url": romm, "token": {"set": "rmm_good"}}));
+    assert_eq!(
+        status, 200,
+        "a connection is tested before it is saved: {check}"
+    );
+    assert_eq!(check["failure"], serde_json::Value::Null, "{check}");
+    let (mut events, _) = client.watch();
+
+    let (status, body) = client.change_settings(serde_json::json!({"romm": {
+        "enabled": true, "base_url": romm, "token": {"set": "rmm_good"}, "root": "sets",
+    }}));
+
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["romm"]["token_set"], true);
+    assert!(!body.to_string().contains("rmm_good"));
+    let (name, data) = events.next_event();
+    assert_eq!(name, "settings");
+    assert!(!data.contains("rmm_good"));
+    let settings: SettingsView = client.json("/settings");
+    assert!(settings.romm.enabled && settings.romm.token_set);
+    assert!(
+        !serde_json::to_string(&settings)
+            .unwrap()
+            .contains("rmm_good")
+    );
+    let (status, check) = test(serde_json::json!({}));
+    assert_eq!(status, 200, "{check}");
+    let check: RommCheck = serde_json::from_value(check).unwrap();
+    assert_eq!(
+        check,
+        RommCheck {
+            version: Some("5.4.1".into()),
+            version_tested: true,
+            user: Some(RommUser {
+                username: "svc".into(),
+                admin: false
+            }),
+            missing_scopes: vec![],
+            failure: None,
+        }
+    );
+    let (status, refused) = test(serde_json::json!({"base_url": "http://192.0.2.1:8080"}));
+    assert_eq!(
+        status, 400,
+        "the saved token goes only to the saved address: {refused}"
+    );
+    let (status, check) = test(serde_json::json!({"token": {"set": "rmm_wrong"}}));
+    assert_eq!(status, 200);
+    assert!(
+        check["failure"]
+            .as_str()
+            .unwrap()
+            .contains("refused the token"),
+        "{check}"
+    );
+}
+
 #[test]
 fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_configured_ceilings() {
     use title_select_api::settings::{Ceilings, Pace, SettingsView};
@@ -2280,6 +2402,74 @@ mod selections {
         );
         assert_eq!(status, 503, "{body}");
         assert_eq!(client.start_audit().status(), 202);
+    }
+
+    /// Each Library Folder maps to the RomM platform named by its folder directly under the RomM root, even where
+    /// the RomM root lies inside another Root, and to none when it is outside or nested deeper.
+    #[test]
+    fn each_library_folder_maps_to_the_romm_platform_its_folder_names_under_the_romm_root() {
+        use title_select_api::romm::{RommFolderPlatform, RommPlatform};
+        let env = Env::new();
+        let play = env.tmp.path().join("roots/play");
+        let other = env.tmp.path().join("roots/other");
+        for dir in [play.join("library"), other.clone()] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let service = title_select_server::spawn(env.settings(&format!(
+            "\n[roots.play]\npath = {:?}\nwritable = true\n\
+             [roots.romm]\npath = {:?}\nwritable = true\n\
+             [roots.other]\npath = {:?}\nwritable = true\n",
+            play.display().to_string(),
+            play.join("library").display().to_string(),
+            other.display().to_string(),
+        )))
+        .unwrap();
+        let client = Client::new(&service);
+        client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
+        client.add_set();
+        let job: Job = client.start_audit().body_mut().read_json().unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        save(&client, json!({}));
+        let mut ids = vec![];
+        for (root, path) in [
+            ("romm", "gba"),
+            ("play", "library/snes"),
+            ("play", "library/n64/hacks"),
+            ("other", "gb"),
+        ] {
+            let (status, folder) = send(
+                client.post("/libraries"),
+                json!({"root": root, "path": path, "source_set": SET, "profile": "Everyday"}),
+            );
+            assert_eq!(status, 201, "{folder}");
+            ids.push(folder["id"].as_i64().unwrap());
+        }
+        let mapped = |client: &Client| {
+            client
+                .json::<Vec<RommFolderPlatform>>("/romm/platforms")
+                .into_iter()
+                .map(|f| (f.folder_id, f.platform))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert!(
+            mapped(&client).values().all(|p| *p == RommPlatform::NoRoot),
+            "with no RomM root, no folder maps"
+        );
+
+        let (status, body) = client.change_settings(json!({"romm": {"root": "romm"}}));
+
+        assert_eq!(status, 200, "{body}");
+        let slug = |s: &str| RommPlatform::Mapped { fs_slug: s.into() };
+        assert_eq!(
+            mapped(&client),
+            [
+                (ids[0], slug("gba")),
+                (ids[1], slug("snes")),
+                (ids[2], RommPlatform::Nested),
+                (ids[3], RommPlatform::OutsideRoot),
+            ]
+            .into()
+        );
     }
 
     /// A library folder in a writable root: a plan of the selection, an approval bound to its digest, and the build
