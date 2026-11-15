@@ -817,7 +817,7 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
         JobState::Succeeded
     );
     if foreign {
-        std::fs::create_dir_all(env.dir().join(".multidisc")).unwrap();
+        std::fs::create_dir_all(env.dir().join("Saga (USA).m3u")).unwrap();
         for (n, chd) in SAGA_CHDS.iter().enumerate() {
             std::fs::write(env.dir().join(chd), noise(90 + n as u64, 4096)).unwrap();
         }
@@ -862,7 +862,7 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
     (folder, selection, plan)
 }
 
-/// Which formats Saga's discs are in the folder as: in it, or in its `.multidisc` folder.
+/// Which formats Saga's discs are in the folder as: in it, or in its release's `.m3u` folder.
 fn saga_files(env: &Env) -> Vec<String> {
     let names = |dir: &Path, prefix: &str| -> Vec<String> {
         std::fs::read_dir(dir)
@@ -874,16 +874,16 @@ fn saga_files(env: &Env) -> Vec<String> {
             .collect()
     };
     let mut found = names(&env.dir(), "");
-    found.extend(names(&env.dir().join(".multidisc"), ".multidisc/"));
+    found.extend(names(&env.dir().join("Saga (USA).m3u"), "Saga (USA).m3u/"));
     found.sort();
     found
 }
 
 const SAGA_ZIPS: [&str; 2] = ["Saga (USA) (Disc 1).zip", "Saga (USA) (Disc 2).zip"];
-/// A game of two discs goes in the folder's `.multidisc` folder, listed by its `.m3u`.
+/// A game of two discs goes in a folder named for its `.m3u`, which it holds beside them.
 const SAGA_CHDS: [&str; 2] = [
-    ".multidisc/Saga (USA) (Disc 1).chd",
-    ".multidisc/Saga (USA) (Disc 2).chd",
+    "Saga (USA).m3u/Saga (USA) (Disc 1).chd",
+    "Saga (USA).m3u/Saga (USA) (Disc 2).chd",
 ];
 
 #[cfg(unix)]
@@ -1165,7 +1165,7 @@ fn a_build_that_stops_between_two_keeps_finishes_its_game_on_recovery() {
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err(), "{ran:?}");
-    assert_eq!(saga_files(&env), [SAGA_CHDS[1], SAGA_ZIPS[0], SAGA_ZIPS[1]]);
+    assert_eq!(saga_files(&env), [SAGA_ZIPS[0], SAGA_ZIPS[1], SAGA_CHDS[1]]);
 
     let env = env.restart();
     let mut kept = env.kept(&folder);

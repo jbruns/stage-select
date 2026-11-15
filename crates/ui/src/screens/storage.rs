@@ -23,7 +23,7 @@ const DELETE_WARNING: &str = "With this on, a conversion deletes each original a
 
 const CHD_NOTE: &str = "As CHD, a build makes each disc's CHD with chdman, extracts it once and checks every track against the DAT before it puts it in place. A disc whose CHD doesn't give back the DAT's files is never put in place. A disc that isn't one .cue with its .bin tracks, or one .iso, stays TorrentZip, with every other disc of its game.";
 
-const LAYOUT_NOTE: &str = "In the ES-DE layout, a disc stored as one file, a CHD or an ISO, goes directly in the system folder; a disc stored as a .cue with its tracks goes in a folder named exactly for its .cue; and every file of a game on several discs goes in .multidisc, with an .m3u named for the game, without its disc number, in the system folder listing each disc in order. In the flat layout every file goes directly in the system folder, with no .m3u. A disc stored as TorrentZip is one ZIP in the system folder in either layout.";
+const LAYOUT_NOTE: &str = "In the ES-DE layout, a disc stored as one file, a CHD or an ISO, goes directly in the system folder; a disc stored as a .cue with its tracks goes in a folder named exactly for its .cue; and a game on several discs goes in a folder named for its .m3u, which is named for the game without its disc number and lists each disc in order, with every file of every disc beside it. In the flat layout every file goes directly in the system folder, with no .m3u. A disc stored as TorrentZip is one ZIP in the system folder in either layout.";
 
 const SBI_NOTE: &str = "With this on, a build puts each disc's SBI file, from the system's latest SBI pack, beside its .cue or .chd, named for it. Emulators read it to play discs whose copy protection they otherwise can't.";
 
@@ -31,7 +31,7 @@ const LAYOUTS: [DiscLayout; 2] = [DiscLayout::EsDe, DiscLayout::Flat];
 
 fn layout_label(layout: DiscLayout) -> &'static str {
     match layout {
-        DiscLayout::EsDe => "ES-DE: .cue folders and .multidisc, with an .m3u",
+        DiscLayout::EsDe => "ES-DE: .cue and .m3u folders",
         DiscLayout::Flat => "Flat: every file in the system folder",
     }
 }

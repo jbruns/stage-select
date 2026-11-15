@@ -3,7 +3,7 @@
 //! to that handle with the `*at` calls: a folder or staging directory swapped for a symlink after it was checked
 //! cannot redirect a write. Files are created exclusively and opened without following a symlink, and a file is
 //! renamed into place only by a rename that refuses to replace anything. A file's name may be a path within the
-//! folder, such as a disc layout's `.multidisc/<file>`: each directory of it is opened without following a symlink.
+//! folder, such as a disc layout's `<release>.m3u/<file>`: each directory of it is opened without following a symlink.
 
 use std::ffi::OsStr;
 use std::fs::File;

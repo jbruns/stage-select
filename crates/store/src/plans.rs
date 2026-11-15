@@ -17,7 +17,7 @@ use title_select_api::build::{
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
 use title_select_api::storage::{
-    Laid, MULTIDISC, Storage, StorageFormat, StorageScope, lay_out, playlist, playlist_name,
+    Laid, Storage, StorageFormat, StorageScope, lay_out, multidisc_dir, playlist, playlist_name,
     release_of, sbi_beside,
 };
 use title_select_api::{DatRevisionRecord, Job, Workers};
@@ -1683,7 +1683,7 @@ fn invalid_game(game: &str) -> Option<String> {
 }
 
 /// Why `target`, a path in the folder, cannot be written: why one of its names cannot, or why it is in a folder no
-/// disc layout makes. A disc layout makes only `.multidisc/` and `<game>.cue/`, one level deep.
+/// disc layout makes. A disc layout makes only `<game>.cue/` and `<release>.m3u/`, one level deep.
 fn invalid_path(target: &str) -> Option<String> {
     let reserved = |name: &str| {
         title_select_api::storage::is_reserved_name(name)
@@ -1697,7 +1697,7 @@ fn invalid_path(target: &str) -> Option<String> {
     }
     match target.split('/').collect::<Vec<_>>().as_slice() {
         [_] => None,
-        [dir, _] if *dir == MULTIDISC || dir.to_ascii_lowercase().ends_with(".cue") => None,
+        [dir, _] if crate::checks::is_layout_dir(dir) => None,
         _ => Some(format!("{target} is in a folder no disc layout makes")),
     }
 }
@@ -2021,12 +2021,11 @@ fn playlists<'a>(
         let Some(entry) = laid.get(title).and_then(|l| l.entry.as_ref()) else {
             continue;
         };
-        if entry.starts_with(&format!("{MULTIDISC}/"))
+        let release = release_of(title);
+        if entry.starts_with(&format!("{}/", multidisc_dir(&release)))
             && let Some(disc) = title_select_api::discs::disc(title)
         {
-            out.entry(release_of(title))
-                .or_default()
-                .push((disc.number, title));
+            out.entry(release).or_default().push((disc.number, title));
         }
     }
     for discs in out.values_mut() {
