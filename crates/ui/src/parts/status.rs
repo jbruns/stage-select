@@ -957,7 +957,7 @@ impl Status for FetchState {
                 Glyph::CircleOff,
                 Tone::Neutral,
                 "Fetching off",
-                "Fetching from this provider is off until you turn it on in your configuration.",
+                "Fetching from this provider is off until you turn it on under Settings, then Operations.",
             ),
             FetchState::NotFetched => look(
                 Glyph::Clock,

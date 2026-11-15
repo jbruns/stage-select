@@ -784,7 +784,7 @@ impl Store {
         evidence: AuditEvidence,
     ) -> Result<StoredAudit> {
         let running = self.begin_audit(config, name, revision, evidence)?;
-        self.complete_audit(config, running, None)
+        self.complete_audit(running, None)
     }
 
     fn begin_audit(
@@ -864,13 +864,12 @@ impl Store {
     /// Finishes a running Audit, then prunes the Source Set's Audits and drops unheld DAT blobs.
     pub(super) fn complete_audit(
         &self,
-        config: &Config,
         running: RunningAudit,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<StoredAudit> {
         let set_id = running.set_id;
         let stored = self.finish(running, progress)?;
-        self.prune(set_id, config.audits.keep)?;
+        self.prune(set_id, self.settings()?.retention.audits_keep)?;
         self.retain_blobs()?;
         Ok(stored)
     }
@@ -920,6 +919,8 @@ impl Store {
         let revision = &running.revision;
         let blob = self.blob_path(&revision.sha256);
         let reads = StoredReads::new(self, running);
+        // A Job's workers are its ceilings: the pace in the settings, read at each file, says how many of them work.
+        let paced = || self.pace().workers(running.workers);
         let report = title_select_engine::audit_with(
             &blob,
             &running.resolved.path,
@@ -927,6 +928,7 @@ impl Store {
                 file: revision.file.clone(),
                 confine: Some(&running.resolved.canonical_root),
                 workers: running.workers,
+                pace: running.job.map(|_| &paced as &(dyn Fn() -> Workers + Sync)),
                 progress,
                 evidence: running.evidence,
                 reads: Some(&reads),
@@ -1198,11 +1200,24 @@ mod tests {
         )
         .unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[audits]\nkeep = 1\n",
+            "[roots.sets]\npath = {:?}\n",
             root.display().to_string()
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &title_select_api::settings::SettingsUpdate {
+                    retention: Some(title_select_api::settings::Retention {
+                        audits_keep: 1,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         store.import_dat(&dat, "Test", None).unwrap();
         store
             .add_source_set(&config, "sets", "Test", "Test/Test")
@@ -1221,8 +1236,8 @@ mod tests {
             .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
             .unwrap();
         let (first_id, second_id) = (first.id, second.id);
-        store.complete_audit(&config, second, None).unwrap();
-        let completed = store.complete_audit(&config, first, None).unwrap();
+        store.complete_audit(second, None).unwrap();
+        let completed = store.complete_audit(first, None).unwrap();
 
         assert_eq!(completed.id, first_id);
         let history = store.history("Test").unwrap();
@@ -1249,8 +1264,10 @@ mod tests {
         let (first_id, set_id) = (first.id, first.set_id);
 
         let finished = store.finish(first, None).unwrap();
-        store.complete_audit(&config, second, None).unwrap();
-        store.prune(set_id, config.audits.keep).unwrap();
+        store.complete_audit(second, None).unwrap();
+        store
+            .prune(set_id, store.settings().unwrap().retention.audits_keep)
+            .unwrap();
 
         assert_eq!(finished.id, first_id);
         assert_eq!(finished.report.dat_revision.name, "Test");

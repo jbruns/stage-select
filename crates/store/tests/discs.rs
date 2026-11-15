@@ -255,7 +255,7 @@ impl Env {
             stale_choices: Default::default(),
         };
         self.store
-            .record_selection(&self.config, job.id, &selection)
+            .record_selection(job.id, &selection)
             .unwrap()
             .selection
             .unwrap()

@@ -11,6 +11,7 @@ pub mod paths;
 pub mod repair;
 pub mod report;
 pub mod selection;
+pub mod settings;
 pub mod storage;
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -29,6 +29,7 @@ use title_select_api::ingest::{
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
+use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
 use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
@@ -95,6 +96,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
                 .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
         .route("/path-templates", get(path_templates))
+        .route("/settings", get(settings).patch(change_settings))
         .route("/source-sets", get(source_sets).post(add_source_set))
         .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
@@ -515,12 +517,38 @@ async fn upload_cue_pack(
     ))
 }
 
-async fn path_templates(State(state): State<AppState>) -> Json<PathTemplateDefaults> {
-    let templates = &state.config.path_templates;
-    Json(PathTemplateDefaults {
+async fn path_templates(State(state): State<AppState>) -> ApiResult<Json<PathTemplateDefaults>> {
+    let templates = blocking(&state, Store::settings).await?.path_templates;
+    Ok(Json(PathTemplateDefaults {
         source_set: templates.source_set.to_string(),
         library_folder: templates.library_folder.to_string(),
+    }))
+}
+
+/// Every operational setting, without its secrets.
+async fn settings(State(state): State<AppState>) -> ApiResult<Json<SettingsView>> {
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| Ok(store.settings()?.view(&config))).await?,
+    ))
+}
+
+/// Replaces each section of the settings the body gives, and applies it at once: a new pace to running Jobs at
+/// their next file and to the next Job to start, a webhook to the next event.
+async fn change_settings(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    body: Result<Json<SettingsUpdate>, JsonRejection>,
+) -> ApiResult<Json<SettingsView>> {
+    let Json(update) = body?;
+    let config = state.config.clone();
+    let settings = blocking(&state, move |store| {
+        store.update_settings(&config, &update, &actor)
     })
+    .await?;
+    state.jobs.notifier.reconfigure(&settings.notify);
+    state.jobs.wake();
+    Ok(Json(settings.view(&state.config)))
 }
 
 async fn source_sets(
@@ -547,9 +575,7 @@ async fn add_source_set(
                 return Err(Error::Refused("give a path or a template, not both".into()));
             }
             (Some(path), None) => path,
-            (None, template) => {
-                store.propose_source_set_path(&config, &add.dat, template.as_deref())?
-            }
+            (None, template) => store.propose_source_set_path(&add.dat, template.as_deref())?,
         };
         store.add_source_set(&config, &add.root, &path, &add.dat)
     })
@@ -1265,9 +1291,9 @@ async fn followed_revisions(
 }
 
 async fn fetch_status(State(state): State<AppState>) -> ApiResult<Json<FetchStatus>> {
-    let (config, fetcher) = (state.config.clone(), state.fetcher.clone());
+    let fetcher = state.fetcher.clone();
     Ok(Json(
-        blocking(&state, move |store| store.fetch_status(&config, &fetcher)).await?,
+        blocking(&state, move |store| store.fetch_status(&fetcher)).await?,
     ))
 }
 
@@ -1290,15 +1316,11 @@ async fn start_fetch(
             None,
         )
     })?;
-    let (store, config, fetcher) = (
-        state.store.clone(),
-        state.config.clone(),
-        state.fetcher.clone(),
-    );
+    let (store, fetcher) = (state.store.clone(), state.fetcher.clone());
     let fetch = tokio::task::spawn_blocking(move || {
         crate::jobs::log_fetch(
             provider,
-            store.fetch(&config, &fetcher, provider, FetchTrigger::Manual, &actor),
+            store.fetch(&fetcher, provider, FetchTrigger::Manual, &actor),
         )
     });
     let status = match tokio::time::timeout(FETCH_ANSWER_WITHIN, fetch).await {
@@ -1309,8 +1331,8 @@ async fn start_fetch(
         }
         Err(_) => StatusCode::ACCEPTED,
     };
-    let (config, fetcher) = (state.config.clone(), state.fetcher.clone());
-    let now = blocking(&state, move |store| store.fetch_status(&config, &fetcher)).await?;
+    let fetcher = state.fetcher.clone();
+    let now = blocking(&state, move |store| store.fetch_status(&fetcher)).await?;
     Ok((status, Json(now)))
 }
 
@@ -2050,7 +2072,9 @@ mod tests {
         AppState {
             store: Arc::new(Store::open(&dir.join("store")).unwrap()),
             config: Arc::new(Config::parse("").unwrap()),
-            jobs: Arc::new(Jobs::new(Arc::new(crate::notify::Notifier::off()))),
+            jobs: Arc::new(Jobs::new(Arc::new(
+                crate::notify::Notifier::new(&Default::default()).0,
+            ))),
             workers: Workers {
                 readers: 1,
                 hashers: 1,

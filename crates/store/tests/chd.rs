@@ -119,23 +119,23 @@ struct Env {
 impl Env {
     /// An Env whose configuration names `chdman`, or leaves it to be found.
     fn new(chdman: Option<&Path>) -> Env {
-        Env::with(chdman, "")
+        Env::with(chdman)
     }
 
     /// As [`Env::new`], with `chd` added to the configuration's `[chd]` table.
-    fn with(chdman: Option<&Path>, chd: &str) -> Env {
-        Env::setup(chdman, chd, &[])
+    fn with(chdman: Option<&Path>) -> Env {
+        Env::setup(chdman, &[])
     }
 
     /// As [`Env::with`], with the games `zipped` in the source set as ZIPs rather than loose folders.
-    fn setup(chdman: Option<&Path>, chd: &str, zipped: &[&str]) -> Env {
+    fn setup(chdman: Option<&Path>, zipped: &[&str]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("roots/sets");
         let play = tmp.path().join("roots/play");
         std::fs::create_dir_all(sets.join(SET)).unwrap();
         std::fs::create_dir_all(&play).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        let config = config_with(tmp.path(), chdman, chd);
+        let config = config_with(tmp.path(), chdman);
         let store = Store::open(&tmp.path().join("store")).unwrap();
         let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &games());
         let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
@@ -328,7 +328,7 @@ impl Env {
         };
         let id = self
             .store
-            .record_selection(&self.config, job.id, &selection)
+            .record_selection(job.id, &selection)
             .unwrap()
             .selection
             .unwrap();
@@ -373,18 +373,17 @@ impl Env {
 }
 
 fn config(root: &Path, chdman: Option<&Path>) -> Config {
-    config_with(root, chdman, "")
+    config_with(root, chdman)
 }
 
-fn config_with(root: &Path, chdman: Option<&Path>, chd: &str) -> Config {
+fn config_with(root: &Path, chdman: Option<&Path>) -> Config {
     let mut text = format!(
         "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
         root.join("roots/sets").display().to_string(),
         root.join("roots/play").display().to_string(),
     );
-    text += &format!("\n[chd]\n{chd}\n");
     if let Some(chdman) = chdman {
-        text += &format!("chdman = {:?}\n", chdman.display().to_string());
+        text += &format!("\n[chd]\nchdman = {:?}\n", chdman.display().to_string());
     }
     Config::parse(&text).unwrap()
 }
@@ -674,7 +673,7 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
 #[test]
 fn a_disc_zipped_in_its_source_set_is_read_once_for_all_its_tracks() {
     let Some(_) = chdman() else { return };
-    let env = Env::setup(None, "", &[CD]);
+    let env = Env::setup(None, &[CD]);
     let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = reads.clone();
     env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
@@ -1307,10 +1306,20 @@ fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
 fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
     let root = tempfile::tempdir().unwrap();
     let fake = fake_chdman(root.path(), "exec sleep 30");
-    let env = Env::with(
-        Some(&fake),
-        "timeout_seconds = 1\ntimeout_seconds_per_gib = 0",
-    );
+    let env = Env::with(Some(&fake));
+    env.store
+        .update_settings(
+            &env.config,
+            &title_select_api::settings::SettingsUpdate {
+                chd: Some(title_select_api::settings::ChdTimeouts {
+                    seconds: 1,
+                    seconds_per_gib: 0,
+                }),
+                ..Default::default()
+            },
+            "Operator",
+        )
+        .unwrap();
     let (folder, selection) = env.folder(&[CD]);
     let started = std::time::Instant::now();
     let ended = env.build(&env.plan(&folder, selection));

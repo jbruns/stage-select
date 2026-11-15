@@ -1,24 +1,21 @@
 //! Webhook notifications: one signed JSON POST per event, sent by one delivery task from a bounded queue, so that no
 //! Job ever waits on the webhook. Job events come from [`crate::jobs::Jobs::changed`]; the rest from the store as each
-//! write that makes one commits ([`title_select_store::Store::set_observer`]).
+//! write that makes one commits ([`title_select_store::Store::set_observer`]). The webhook is set in the workbench's
+//! settings, and a change applies to the next event: one already queued goes where it was queued for.
 
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use title_select_api::settings::NotifyEvent;
 use title_select_api::{Job, JobKind, JobState, SourceSetStale};
-use title_select_store::config::{Notify as NotifyConfig, NotifyEvent};
 use title_select_store::fetch::Http;
 use title_select_store::observe::Observed;
+use title_select_store::settings::Notify;
 use tokio::sync::mpsc;
 
-use crate::StartError;
-
-/// The environment variable naming the file that holds the webhook's HMAC secret.
-pub const SECRET_FILE_ENV: &str = "TITLE_SELECT_WEBHOOK_SECRET_FILE";
 /// The most events waiting for delivery; one more is dropped.
 const QUEUE: usize = 256;
 /// How many times one event is sent before it is dropped.
@@ -40,78 +37,75 @@ pub struct Payload {
     pub link: Option<String>,
 }
 
-/// Turns what happens into webhook events, and queues them for delivery. Inert while no webhook is configured.
+/// Turns what happens into webhook events, and queues them for delivery. Inert while no webhook is set.
 pub struct Notifier {
-    inner: Option<Inner>,
-}
-
-struct Inner {
-    events: HashSet<NotifyEvent>,
-    workbench: Option<String>,
-    queue: mpsc::Sender<Payload>,
+    webhook: RwLock<Option<Webhook>>,
+    queue: mpsc::Sender<Queued>,
     /// The ended Jobs already notified, oldest first.
     jobs: Mutex<(HashSet<i64>, VecDeque<i64>)>,
 }
 
+/// The webhook as set now.
+struct Webhook {
+    url: Arc<str>,
+    secret: Arc<[u8]>,
+    events: HashSet<NotifyEvent>,
+    workbench: Option<String>,
+}
+
+/// An event waiting for delivery, with where it goes and how it is signed.
+struct Queued {
+    payload: Payload,
+    url: Arc<str>,
+    secret: Arc<[u8]>,
+}
+
 /// What the delivery task needs, until the Service starts it.
 pub struct Delivery {
-    url: String,
-    secret: Vec<u8>,
-    queue: mpsc::Receiver<Payload>,
+    queue: mpsc::Receiver<Queued>,
 }
 
 impl Notifier {
-    /// A Notifier that sends nothing.
-    pub fn off() -> Notifier {
-        Notifier { inner: None }
-    }
-
-    /// A Notifier for `config`, with the secret read from `secret_file`, and its delivery; inert without a URL. A URL
-    /// with no secret file refuses to start.
-    pub fn new(
-        config: &NotifyConfig,
-        secret_file: Option<&Path>,
-    ) -> Result<(Notifier, Option<Delivery>), StartError> {
-        let Some(url) = &config.url else {
-            return Ok((Notifier::off(), None));
-        };
-        let secret_file = secret_file.ok_or_else(|| {
-            StartError::Notify(format!(
-                "[notify] url is set, so the webhook secret is needed: name its file with {SECRET_FILE_ENV} or \
-                 --webhook-secret-file"
-            ))
-        })?;
-        let secret = read_secret(secret_file)?;
+    /// A Notifier for the webhook `notify`, inert while it has no URL and secret, and its delivery.
+    pub fn new(notify: &Notify) -> (Notifier, Delivery) {
         let (send, receive) = mpsc::channel(QUEUE);
         let notifier = Notifier {
-            inner: Some(Inner {
-                events: config.events.iter().copied().collect(),
-                workbench: config.workbench_url.clone(),
-                queue: send,
-                jobs: Mutex::default(),
-            }),
+            webhook: RwLock::new(None),
+            queue: send,
+            jobs: Mutex::default(),
         };
-        let delivery = Delivery {
-            url: url.clone(),
-            secret,
-            queue: receive,
-        };
-        Ok((notifier, Some(delivery)))
+        notifier.reconfigure(notify);
+        (notifier, Delivery { queue: receive })
     }
 
-    /// Whether a webhook is configured.
-    pub fn is_on(&self) -> bool {
-        self.inner.is_some()
+    /// Sends each later event as `notify` says.
+    pub fn reconfigure(&self, notify: &Notify) {
+        let webhook = match (&notify.url, &notify.secret) {
+            (Some(url), Some(secret)) => Some(Webhook {
+                url: url.as_str().into(),
+                secret: secret.as_bytes().into(),
+                events: notify.events.iter().copied().collect(),
+                workbench: notify.workbench_url.clone(),
+            }),
+            _ => None,
+        };
+        *self.webhook.write().unwrap_or_else(|e| e.into_inner()) = webhook;
+    }
+
+    fn is_on(&self) -> bool {
+        self.webhook
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 
     /// Notifies a Job's end, once.
     pub fn job_changed(&self, job: &Job) {
-        let Some(inner) = &self.inner else { return };
-        if !job.state.is_final() {
+        if !job.state.is_final() || !self.is_on() {
             return;
         }
         {
-            let mut jobs = inner.jobs.lock().unwrap();
+            let mut jobs = self.jobs.lock().unwrap();
             if !jobs.0.insert(job.id) {
                 return;
             }
@@ -122,24 +116,34 @@ impl Notifier {
                 jobs.0.remove(&old);
             }
         }
-        self.send(job_payload(job, inner.workbench.as_deref()));
+        self.send(|workbench| job_payload(job, workbench));
     }
 
     /// Notifies what the store reports as it commits.
     pub fn observed(&self, observed: Observed) {
-        let Some(inner) = &self.inner else { return };
-        self.send(observed_payload(observed, inner.workbench.as_deref()));
+        self.send(|workbench| observed_payload(observed, workbench));
     }
 
-    /// Queues `payload` if its event was chosen, dropping it with a log line if the queue is full.
-    fn send(&self, payload: Payload) {
-        let Some(inner) = &self.inner else { return };
-        let chosen = inner.events.iter().any(|e| e.as_str() == payload.event);
-        if !chosen {
-            return;
-        }
-        let event = payload.event;
-        if inner.queue.try_send(payload).is_err() {
+    /// Queues the payload `make` gives if a webhook is set and its event was chosen, dropping it with a log line if
+    /// the queue is full.
+    fn send(&self, make: impl FnOnce(Option<&str>) -> Payload) {
+        let queued = {
+            let webhook = self.webhook.read().unwrap_or_else(|e| e.into_inner());
+            let Some(webhook) = webhook.as_ref() else {
+                return;
+            };
+            let payload = make(webhook.workbench.as_deref());
+            if !webhook.events.iter().any(|e| e.as_str() == payload.event) {
+                return;
+            }
+            Queued {
+                payload,
+                url: webhook.url.clone(),
+                secret: webhook.secret.clone(),
+            }
+        };
+        let event = queued.payload.event;
+        if self.queue.try_send(queued).is_err() {
             eprintln!(
                 "title-select: dropped a {event} notification: {QUEUE} are already waiting for your webhook"
             );
@@ -147,29 +151,16 @@ impl Notifier {
     }
 }
 
-fn read_secret(path: &Path) -> Result<Vec<u8>, StartError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| StartError::Notify(format!("webhook secret file {}: {e}", path.display())))?;
-    let secret = text.trim();
-    if secret.is_empty() {
-        return Err(StartError::Notify(format!(
-            "webhook secret file {} is empty",
-            path.display()
-        )));
-    }
-    Ok(secret.as_bytes().to_vec())
-}
-
 /// Sends each queued event, signed, until the queue closes: up to [`ATTEMPTS`] times, then drops it with a log line.
 pub async fn deliver(delivery: Delivery) {
-    let Delivery {
+    let Delivery { mut queue } = delivery;
+    let http = Arc::new(Http::new());
+    while let Some(Queued {
+        payload,
         url,
         secret,
-        mut queue,
-    } = delivery;
-    let http = Arc::new(Http::new());
-    let url: Arc<str> = url.into();
-    while let Some(payload) = queue.recv().await {
+    }) = queue.recv().await
+    {
         let body: Arc<[u8]> = serde_json::to_vec(&payload)
             .expect("a payload serializes")
             .into();

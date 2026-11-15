@@ -48,8 +48,11 @@ pub struct Options<'a> {
     /// A canonical path every file and directory must resolve inside. One that resolves outside is an Unreadable
     /// Entry and is not read, and the file read is the one its resolved path names.
     pub confine: Option<&'a Path>,
-    /// At least one of each: `readers` files are read at once, and `hashers` threads checksum their payloads.
+    /// At least one of each: `readers` threads read files, and `hashers` threads checksum their payloads.
     pub workers: Workers,
+    /// How many of `workers` may work at each moment, read again before each file and payload; all of them when
+    /// absent. A lower count holds back the next file, and stops no read under way.
+    pub pace: Option<&'a (dyn Fn() -> Workers + Sync)>,
     /// Called as each file's Entries are read, from the reader threads.
     pub progress: Option<&'a (dyn Fn(Progress) + Sync)>,
     /// Whether ZIP archives are claimed from their directories ([`AuditEvidence::Quick`]), as the report records.
@@ -154,6 +157,7 @@ pub fn audit(dat_path: &Path, root: &Path) -> Result<Report, Error> {
             file,
             confine: None,
             workers: ONE_WORKER_EACH,
+            pace: None,
             progress: None,
             evidence: AuditEvidence::Full,
             reads: None,
@@ -328,7 +332,8 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         header,
         might_be_headered: &might_be_headered,
     };
-    let mut reads = read::read_files(&files, how, options.workers, options.progress).into_iter();
+    let mut reads =
+        read::read_files(&files, how, options.workers, options.pace, options.progress).into_iter();
     let game_index: HashMap<&str, usize> = dat
         .games
         .iter()

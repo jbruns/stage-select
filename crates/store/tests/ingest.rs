@@ -73,14 +73,33 @@ impl Env {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\
-             settle_secs = 0\n\n[roots.slow]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
+            "[roots.sets]\npath = {:?}\n\n[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
+             [roots.slow]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
             sets.display().to_string(),
             tmp.path().join("in").display().to_string(),
             tmp.path().join("slow").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &title_select_api::settings::SettingsUpdate {
+                    ingest_folders: Some(
+                        [(
+                            "in".to_owned(),
+                            title_select_api::settings::IngestCadence {
+                                settle_secs: 0,
+                                scan_every_minutes: None,
+                            },
+                        )]
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         let dats = tmp.path().join("dats");
         let alpha = write_named_dat(&dats, "alpha.dat", "Alpha System", "1", &alpha_games());
         let beta = write_named_dat(&dats, "beta.dat", "Beta System", "1", &beta_games());

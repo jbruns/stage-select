@@ -1,5 +1,8 @@
-//! Runs queued Jobs on blocking threads, at most `[jobs] concurrent` at once, and broadcasts their progress and states.
+//! Runs queued Jobs on blocking threads, at most as many at once as the pace allows of `[jobs] concurrent`, and
+//! broadcasts their progress and states.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,7 +15,7 @@ use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
-use tokio::sync::{Notify, Semaphore, broadcast};
+use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
 use crate::notify::Notifier;
@@ -53,6 +56,11 @@ impl Jobs {
         }
     }
 
+    /// Wakes the runner, as when the pace changes, in case it may start another Job now.
+    pub fn wake(&self) {
+        self.wake.notify_one();
+    }
+
     pub fn publish(&self, event: JobEvent) {
         let _ = self.events.send(event);
     }
@@ -62,16 +70,22 @@ impl Jobs {
     }
 }
 
-/// Claims and runs Queued Jobs forever.
+/// Claims and runs Queued Jobs forever, starting one only while fewer run than the pace allows now. A slower pace
+/// never stops a running Job: the runner waits for enough to end.
 pub async fn run(
     store: Arc<Store>,
     config: Arc<Config>,
     jobs: Arc<Jobs>,
     engine: Option<Arc<Engine>>,
 ) {
-    let slots = Arc::new(Semaphore::new(config.jobs.concurrent));
+    let ceiling = config.jobs.ceilings().concurrent;
+    let running = Arc::new(AtomicUsize::new(0));
     loop {
-        let slot = slots.clone().acquire_owned().await.expect("never closed");
+        if running.load(Ordering::SeqCst) >= store.pace().of(ceiling) {
+            jobs.wake.notified().await;
+            continue;
+        }
+        let slot = Slot::take(&running);
         let claimed = {
             let store = store.clone();
             tokio::task::spawn_blocking(move || store.claim_job()).await
@@ -114,7 +128,7 @@ pub async fn run(
                         run_one(&store, &config, &jobs, kind, id, version)
                     }
                     JobKind::Additions => run_additions(&store, &config, id),
-                    JobKind::Selection => run_selection(&store, &config, engine, id),
+                    JobKind::Selection => run_selection(&store, engine, id),
                     JobKind::IngestScan => run_ingest_scan(&store, &config, id),
                     JobKind::StatWalk => run_stat_walk(&store, &config, id),
                 })
@@ -185,6 +199,22 @@ pub async fn run(
             drop(slot);
             jobs.wake.notify_one();
         });
+    }
+}
+
+/// One Job counted as running until dropped.
+struct Slot(Arc<AtomicUsize>);
+
+impl Slot {
+    fn take(running: &Arc<AtomicUsize>) -> Slot {
+        running.fetch_add(1, Ordering::SeqCst);
+        Slot(running.clone())
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -274,21 +304,23 @@ fn run_stat_walk(store: &Store, config: &Config, id: i64) -> Option<Job> {
 /// How often the schedule looks for Source Sets due a stat walk.
 const CHECK_DUE_EVERY: Duration = Duration::from_secs(60);
 
-/// Queues a stat walk of each audited Source Set last checked, or else last audited, more than `check_every_minutes`
-/// ago, looking every minute from now; none when it is 0. A walk still queued or running is left to finish.
-pub async fn schedule_stat_walks(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
-    let minutes = config.source_sets.check_every_minutes;
-    if minutes == 0 {
-        return;
-    }
-    let every = Duration::from_secs(minutes * 60);
+/// Queues a stat walk of each audited Source Set last checked, or else last audited, more than the settings'
+/// `check_every_minutes` ago, looking every minute from now; none while it is 0. A walk still queued or running is
+/// left to finish.
+pub async fn schedule_stat_walks(store: Arc<Store>, jobs: Arc<Jobs>) {
     let mut tick = tokio::time::interval(CHECK_DUE_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
         let store = store.clone();
-        let queued =
-            tokio::task::spawn_blocking(move || store.enqueue_stat_walks("schedule", every)).await;
+        let queued = tokio::task::spawn_blocking(move || {
+            let minutes = store.settings()?.source_sets.check_every_minutes;
+            if minutes == 0 {
+                return Ok(Vec::new());
+            }
+            store.enqueue_stat_walks("schedule", Duration::from_secs(minutes * 60))
+        })
+        .await;
         match queued {
             Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
             Ok(Err(err)) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
@@ -300,33 +332,35 @@ pub async fn schedule_stat_walks(store: Arc<Store>, config: Arc<Config>, jobs: A
 /// How often the schedule looks for fetches due, from a minute after the Service starts.
 const FETCH_DUE_EVERY: Duration = Duration::from_secs(60 * 60);
 
-/// Fetches, from each DAT Provider you turned on, what is due for the systems your Source Sets Follow: each at most
-/// once a day (ADR 0012). A fetch runs alongside Jobs, and never queues one.
-pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: Arc<Fetcher>) {
-    let providers: Vec<_> = FetchProvider::ALL
-        .into_iter()
-        .filter(|p| config.fetch.enabled(*p))
-        .collect();
-    if providers.is_empty() {
-        return;
-    }
+/// Fetches, from each DAT Provider turned on in the settings then, what is due for the systems your Source Sets
+/// Follow: each at most once a day (ADR 0012). A fetch runs alongside Jobs, and never queues one.
+pub async fn schedule_fetches(store: Arc<Store>, fetcher: Arc<Fetcher>) {
     let start = tokio::time::Instant::now() + Duration::from_secs(60);
     let mut tick = tokio::time::interval_at(start, FETCH_DUE_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
-        for &provider in &providers {
-            let (store, config, fetcher) = (store.clone(), config.clone(), fetcher.clone());
+        let settings = {
+            let store = store.clone();
+            tokio::task::spawn_blocking(move || store.settings()).await
+        };
+        let fetch = match settings {
+            Ok(Ok(settings)) => settings.fetch,
+            Ok(Err(err)) => {
+                eprintln!("title-select: cannot read the settings to fetch: {err}");
+                continue;
+            }
+            Err(err) => {
+                eprintln!("title-select: cannot read the settings to fetch: {err}");
+                continue;
+            }
+        };
+        for provider in FetchProvider::ALL.into_iter().filter(|p| fetch.enabled(*p)) {
+            let (store, fetcher) = (store.clone(), fetcher.clone());
             let fetched = tokio::task::spawn_blocking(move || {
                 log_fetch(
                     provider,
-                    store.fetch(
-                        &config,
-                        &fetcher,
-                        provider,
-                        FetchTrigger::Schedule,
-                        "schedule",
-                    ),
+                    store.fetch(&fetcher, provider, FetchTrigger::Schedule, "schedule"),
                 )
             })
             .await;
@@ -375,47 +409,60 @@ pub fn log_fetch(
     fetched
 }
 
-/// Queues a scan of each Ingest Folder with a schedule, every `scan_every_minutes`. A scan still queued or running
-/// is left to finish.
+/// How often the schedule looks for Ingest Folders due a scan.
+const SCAN_DUE_EVERY: Duration = Duration::from_secs(60);
+
+/// Queues a scan of each Ingest Folder with a schedule in the settings, every `scan_every_minutes` from the Service's
+/// start or the schedule's. A scan still queued or running is left to finish.
 pub async fn schedule_ingest_scans(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
-    for (root, settings) in &config.roots {
-        let Some(minutes) = settings.scan_every_minutes.filter(|m| *m > 0) else {
-            continue;
+    let mut last = HashMap::<String, Instant>::new();
+    let mut tick = tokio::time::interval(SCAN_DUE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        let settings = {
+            let store = store.clone();
+            tokio::task::spawn_blocking(move || store.settings()).await
         };
-        if !settings.is_ingest() {
-            continue;
-        }
-        let (store, jobs, root) = (store.clone(), jobs.clone(), root.clone());
-        tokio::spawn(async move {
-            let mut every = tokio::time::interval(Duration::from_secs(minutes * 60));
-            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                every.tick().await;
-                let (store, root) = (store.clone(), root.clone());
-                let queued = tokio::task::spawn_blocking(move || {
-                    store.enqueue_ingest_scan(&root, "schedule")
-                })
-                .await;
-                match queued {
-                    Ok(Ok(job)) => jobs.changed(job),
-                    Ok(Err(title_select_store::Error::JobActive { .. }))
-                    | Ok(Err(title_select_store::Error::Conflict(_))) => {}
-                    Ok(Err(err)) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
-                    Err(err) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
-                }
+        let settings = match settings {
+            Ok(Ok(settings)) => settings,
+            Ok(Err(err)) => {
+                eprintln!("title-select: cannot read the settings to scan: {err}");
+                continue;
             }
-        });
+            Err(err) => {
+                eprintln!("title-select: cannot read the settings to scan: {err}");
+                continue;
+            }
+        };
+        for (root, _) in config.roots.iter().filter(|(_, r)| r.is_ingest()) {
+            let Some(minutes) = settings.ingest(root).scan_every_minutes else {
+                last.remove(root);
+                continue;
+            };
+            let every = Duration::from_secs(minutes * 60);
+            if last.get(root).is_some_and(|at| at.elapsed() < every) {
+                continue;
+            }
+            last.insert(root.clone(), Instant::now());
+            let (store, root) = (store.clone(), root.clone());
+            let queued =
+                tokio::task::spawn_blocking(move || store.enqueue_ingest_scan(&root, "schedule"))
+                    .await;
+            match queued {
+                Ok(Ok(job)) => jobs.changed(job),
+                Ok(Err(title_select_store::Error::JobActive { .. }))
+                | Ok(Err(title_select_store::Error::Conflict(_))) => {}
+                Ok(Err(err)) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
+                Err(err) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
+            }
+        }
     }
 }
 
 /// Runs one claimed Selection Job: the engine on its DAT Revision with its Profile version. Returns the Job as it
 /// ended.
-fn run_selection(
-    store: &Arc<Store>,
-    config: &Config,
-    engine: Option<Arc<Engine>>,
-    id: i64,
-) -> Option<Job> {
+fn run_selection(store: &Arc<Store>, engine: Option<Arc<Engine>>, id: i64) -> Option<Job> {
     let made = (|| {
         let engine = engine.ok_or_else(|| crate::selections::UNAVAILABLE.to_owned())?;
         let input = store.selection_input(id).map_err(|e| e.to_string())?;
@@ -432,7 +479,7 @@ fn run_selection(
     })();
     let ended = match made {
         Ok(selection) => store
-            .record_selection(config, id, &selection)
+            .record_selection(id, &selection)
             .map_err(|e| e.to_string()),
         Err(message) => Err(message),
     };

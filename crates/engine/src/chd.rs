@@ -629,7 +629,7 @@ impl Chdman {
                     let _ = child.wait();
                     return Err(Stop::Failed(format!(
                         "chdman {verb} took longer than {}, the most this disc is given, and was stopped. If your \
-                         host needs longer, raise timeout_seconds under [chd] in the configuration",
+                         host needs longer, raise the CHD time limits under Settings, then Operations",
                         match self.deadline.as_secs() {
                             1 => "1 second".to_string(),
                             n => format!("{n} seconds"),

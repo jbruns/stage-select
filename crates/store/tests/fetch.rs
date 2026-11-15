@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
+use title_select_api::settings::{FetchSettings, SettingsUpdate};
 use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
 use title_select_store::config::Config;
 use title_select_store::fetch::{Allowed, Endpoints, FetchError, Fetcher, Http};
@@ -284,16 +285,35 @@ struct Env {
     fetcher: Fetcher,
 }
 
+const REDUMP: FetchSettings = FetchSettings {
+    redump: true,
+    mame: false,
+};
+const MAME: FetchSettings = FetchSettings {
+    redump: false,
+    mame: true,
+};
+
 impl Env {
-    fn new(fetch: &str) -> Env {
+    fn new(fetch: FetchSettings) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("sets/PSX")).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[fetch]\n{fetch}\n",
+            "[roots.sets]\npath = {:?}\n",
             tmp.path().join("sets").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &SettingsUpdate {
+                    fetch: Some(fetch),
+                    ..SettingsUpdate::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         let fake = FakeProvider::start();
         let fetcher = Fetcher::new(Endpoints::at(&fake.url));
         let env = Env {
@@ -324,7 +344,7 @@ impl Env {
 
     fn fetch(&self, provider: FetchProvider, trigger: FetchTrigger) -> Result<FetchReport, Error> {
         self.store
-            .fetch(&self.config, &self.fetcher, provider, trigger, "Operator")
+            .fetch(&self.fetcher, provider, trigger, "Operator")
     }
 
     fn serve_psx(&self, version: &str) {
@@ -408,7 +428,7 @@ fn outcomes(report: &FetchReport) -> Vec<(String, FetchArtifact, Option<FetchOut
 
 #[test]
 fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_audit() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let (jobs, audits) = (env.store.jobs(100).unwrap(), env.audits());
 
@@ -494,7 +514,7 @@ impl Env {
 
 #[test]
 fn a_new_fetcher_waits_a_second_after_the_last_request_any_service_recorded() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     env.record_request("redump", Duration::from_millis(300));
     let waited = env.first_request_after();
@@ -504,7 +524,7 @@ fn a_new_fetcher_waits_a_second_after_the_last_request_any_service_recorded() {
 
 #[test]
 fn a_new_fetcher_with_no_request_recorded_waits_a_second_first() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let waited = env.first_request_after();
     assert!(waited >= Duration::from_millis(950), "{waited:?}");
@@ -512,7 +532,7 @@ fn a_new_fetcher_with_no_request_recorded_waits_a_second_first() {
 
 #[test]
 fn a_new_fetcher_whose_last_recorded_request_is_long_past_sends_at_once() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     env.record_request("redump", Duration::from_secs(10));
     env.record_request("mame", Duration::ZERO);
@@ -522,7 +542,7 @@ fn a_new_fetcher_whose_last_recorded_request_is_long_past_sends_at_once() {
 
 #[test]
 fn each_system_is_fetched_at_most_once_a_day_even_by_hand() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
         .unwrap();
@@ -554,7 +574,7 @@ fn each_system_is_fetched_at_most_once_a_day_even_by_hand() {
 
 #[test]
 fn a_failed_request_stops_the_fetch_and_keeps_the_last_good_revision() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.follow("PS2", "Redump", "Sony - PlayStation 2");
     env.serve_psx("2");
     env.fake.reply("/datfile/psx/", Reply::Status(503));
@@ -576,7 +596,7 @@ fn a_failed_request_stops_the_fetch_and_keeps_the_last_good_revision() {
         "version 1 of each DAT"
     );
 
-    let status = env.store.fetch_status(&env.config, &env.fetcher).unwrap();
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
     let redump = &status.providers[0];
     assert_eq!(redump.provider, FetchProvider::Redump);
     let psx = redump
@@ -597,7 +617,7 @@ fn a_failed_request_stops_the_fetch_and_keeps_the_last_good_revision() {
 
 #[test]
 fn a_redirect_off_its_providers_hosts_fails_the_step_and_stops_the_fetch() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     let elsewhere = FakeProvider::start();
     env.serve_psx("2");
     env.fake.reply(
@@ -619,7 +639,7 @@ fn a_redirect_off_its_providers_hosts_fails_the_step_and_stops_the_fetch() {
 
 #[test]
 fn a_dat_for_another_system_fails_the_fetch() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     let other = zip_of(&[("x.dat", &dat_xml("Sega - Saturn", "2"))]);
     env.fake.reply("/datfile/psx/", Reply::Body(other));
 
@@ -632,16 +652,16 @@ fn a_dat_for_another_system_fails_the_fetch() {
 
 #[test]
 fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
-    let env = Env::new("");
+    let env = Env::new(FetchSettings::default());
     env.serve_psx("2");
     match env.fetch(FetchProvider::Redump, FetchTrigger::Manual) {
-        Err(Error::Refused(why)) => assert!(why.contains("redump = true"), "{why}"),
+        Err(Error::Refused(why)) => assert!(why.contains("turn on fetching from Redump"), "{why}"),
         other => panic!("{other:?}"),
     }
-    let status = env.store.fetch_status(&env.config, &env.fetcher).unwrap();
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
     assert!(status.providers.iter().all(|p| !p.enabled));
 
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     env.store.set_follow("PSX", false).unwrap();
     match env.fetch(FetchProvider::Redump, FetchTrigger::Manual) {
@@ -654,7 +674,7 @@ fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
         env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
             .is_err()
     );
-    let status = env.store.fetch_status(&env.config, &env.fetcher).unwrap();
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
     assert_eq!(
         status.providers[0].systems,
         [],
@@ -665,7 +685,7 @@ fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
 
 #[test]
 fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
     env.store
         .add_source_set(&env.config, "sets", "PSX2", "Redump/Sony - PlayStation")
@@ -682,7 +702,7 @@ fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
 
 #[test]
 fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_requested_once() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
     let mut other = dat_xml("Sony - PlayStation", "1");
     other.push(b'\n');
@@ -716,7 +736,7 @@ fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_request
 
 #[test]
 fn two_fetchers_at_once_send_each_request_once() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let other = Fetcher::new(Endpoints::at(&env.fake.url));
 
@@ -725,7 +745,6 @@ fn two_fetchers_at_once_send_each_request_once() {
             let env = &env;
             scope.spawn(move || {
                 let _ = env.store.fetch(
-                    &env.config,
                     fetcher,
                     FetchProvider::Redump,
                     FetchTrigger::Schedule,
@@ -741,7 +760,7 @@ fn two_fetchers_at_once_send_each_request_once() {
 
 #[test]
 fn only_what_redump_publishes_for_a_system_is_requested() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.store.set_follow("PSX", false).unwrap();
     env.follow("PS2", "Redump", "Sony - PlayStation 2");
     env.follow("GC", "Redump", "Nintendo - GameCube");
@@ -773,7 +792,7 @@ fn only_what_redump_publishes_for_a_system_is_requested() {
 
 #[test]
 fn a_newer_pack_releases_the_last_ones_file_and_the_latest_is_kept() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let first = env
         .fetch(FetchProvider::Redump, FetchTrigger::Manual)
@@ -804,7 +823,7 @@ fn a_newer_pack_releases_the_last_ones_file_and_the_latest_is_kept() {
 
 #[test]
 fn the_sbi_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let a = env
         .fetch(FetchProvider::Redump, FetchTrigger::Manual)
@@ -831,7 +850,7 @@ fn the_sbi_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before(
 
 #[test]
 fn the_cue_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before() {
-    let env = Env::new("redump = true");
+    let env = Env::new(REDUMP);
     env.serve_psx("2");
     let a = env
         .fetch(FetchProvider::Redump, FetchTrigger::Manual)
@@ -912,7 +931,7 @@ impl Env {
 
 #[test]
 fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lists() {
-    let env = Env::new("mame = true");
+    let env = Env::new(MAME);
     env.store
         .import_dat_bytes(&listxml("mame0001"), "mame.xml", "MAME", None)
         .unwrap();
@@ -989,7 +1008,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
 
 #[test]
 fn a_mame_release_asset_outside_the_official_release_downloads_is_refused() {
-    let env = Env::new("mame = true");
+    let env = Env::new(MAME);
     env.store
         .import_dat_bytes(&listxml("mame0001"), "mame.xml", "MAME", None)
         .unwrap();

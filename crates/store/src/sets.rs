@@ -166,15 +166,10 @@ pub(super) fn resolve(config: &Config, root: &str, rel: &str) -> Result<Resolved
 impl Store {
     /// The path a Path Template proposes for a Source Set bound to `dat` (`<provider>/<name>`): `template` if given,
     /// else the configured default. The path is not checked against any Root: registering it does that.
-    pub fn propose_source_set_path(
-        &self,
-        config: &Config,
-        dat: &str,
-        template: Option<&str>,
-    ) -> Result<String> {
+    pub fn propose_source_set_path(&self, dat: &str, template: Option<&str>) -> Result<String> {
         let template = match template {
             Some(text) => PathTemplate::parse(text).map_err(|e| Error::Refused(e.to_string()))?,
-            None => config.path_templates.source_set.clone(),
+            None => self.settings()?.path_templates.source_set,
         };
         split_dat(dat)?;
         let dat = self.read(|c| crate::dats::canonical_dat(c, dat))?;

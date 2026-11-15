@@ -825,13 +825,12 @@ impl Store {
     /// given, else the configured default.
     pub fn propose_library_folder_path(
         &self,
-        config: &Config,
         source_set: &str,
         template: Option<&str>,
     ) -> Result<String> {
         let template = match template {
             Some(text) => PathTemplate::parse(text).map_err(|e| Error::Refused(e.to_string()))?,
-            None => config.path_templates.library_folder.clone(),
+            None => self.settings()?.path_templates.library_folder,
         };
         let set = self.read(|c| set_by_name(c, source_set))?;
         let (provider, dat_name) = split_dat(&set.record.dat)?;
@@ -866,7 +865,7 @@ impl Store {
             }
             (Some(path), None) => path.clone(),
             (None, template) => {
-                self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
+                self.propose_library_folder_path(&add.source_set, template.as_deref())?
             }
         };
         // Held from the check of its path until it is recorded, so that nothing registered or reserved meanwhile

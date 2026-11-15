@@ -1,22 +1,14 @@
-//! The Operator's configuration: `title-select.toml` (ADR 0006).
+//! The Operator's configuration: `title-select.toml` (ADR 0006). It holds only what bootstraps the Service and bounds
+//! what it may do: Roots, auth, chdman, Job ceilings and archive limits. Operational settings live in the store
+//! ([`crate::settings`]), edited in the workbench.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ipnet::IpNet;
 use serde::Deserialize;
-use serde::de::IgnoredAny;
-use title_select_api::Workers;
-use title_select_api::paths::{
-    DEFAULT_LIBRARY_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
-};
-
-/// How many full Audits a Source Set keeps when the configuration does not say.
-pub const DEFAULT_AUDITS_KEPT: usize = 20;
-/// How many full Selections a Source Set keeps when the configuration does not say.
-pub const DEFAULT_SELECTIONS_KEPT: usize = 20;
-/// How often each audited Source Set is checked for changes when the configuration does not say: every six hours.
-pub const DEFAULT_CHECK_EVERY_MINUTES: u64 = 360;
+use title_select_api::paths::relative_path;
+use title_select_api::settings::Ceilings;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,23 +17,11 @@ pub struct Config {
     #[serde(default)]
     pub roots: BTreeMap<String, Root>,
     #[serde(default)]
-    pub audits: Audits,
-    #[serde(default)]
-    pub selections: Selections,
-    #[serde(default)]
     pub auth: Auth,
     #[serde(default)]
     pub jobs: Jobs,
     #[serde(default)]
-    pub path_templates: PathTemplates,
-    #[serde(default)]
-    pub source_sets: SourceSets,
-    #[serde(default)]
-    pub fetch: Fetch,
-    #[serde(default)]
     pub chd: Chd,
-    #[serde(default)]
-    pub notify: Notify,
     #[serde(default)]
     pub ingest: Ingest,
 }
@@ -72,97 +52,12 @@ impl Default for Ingest {
     }
 }
 
-/// Where the Service posts a webhook for each event, signed with the secret read from the file named by
-/// `TITLE_SELECT_WEBHOOK_SECRET_FILE`. Off while `url` is absent.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Notify {
-    pub url: Option<String>,
-    /// The events to send; all of them by default.
-    #[serde(default = "all_notify_events")]
-    pub events: Vec<NotifyEvent>,
-    /// The workbench's base URL, such as `https://<domain>`: each event then links to the screen it concerns.
-    pub workbench_url: Option<String>,
-}
-
-impl Default for Notify {
-    fn default() -> Self {
-        Notify {
-            url: None,
-            events: all_notify_events(),
-            workbench_url: None,
-        }
-    }
-}
-
-fn all_notify_events() -> Vec<NotifyEvent> {
-    NotifyEvent::ALL.to_vec()
-}
-
-/// An event the Service can post to the webhook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-pub enum NotifyEvent {
-    #[serde(rename = "job.finished")]
-    JobFinished,
-    #[serde(rename = "job.failed")]
-    JobFailed,
-    #[serde(rename = "source_set.stale")]
-    SourceSetStale,
-    #[serde(rename = "dat_revision.new")]
-    DatRevisionNew,
-    #[serde(rename = "fetch.failed")]
-    FetchFailed,
-    #[serde(rename = "drift.found")]
-    DriftFound,
-}
-
-impl NotifyEvent {
-    pub const ALL: [NotifyEvent; 6] = [
-        NotifyEvent::JobFinished,
-        NotifyEvent::JobFailed,
-        NotifyEvent::SourceSetStale,
-        NotifyEvent::DatRevisionNew,
-        NotifyEvent::FetchFailed,
-        NotifyEvent::DriftFound,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotifyEvent::JobFinished => "job.finished",
-            NotifyEvent::JobFailed => "job.failed",
-            NotifyEvent::SourceSetStale => "source_set.stale",
-            NotifyEvent::DatRevisionNew => "dat_revision.new",
-            NotifyEvent::FetchFailed => "fetch.failed",
-            NotifyEvent::DriftFound => "drift.found",
-        }
-    }
-}
-
 /// How a Build makes a CHD.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Chd {
     /// The chdman to run. When absent, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
     pub chdman: Option<PathBuf>,
-    /// How long, in seconds, each run of chdman on a disc may take before it is stopped and the disc fails, before
-    /// [`Chd::timeout_seconds_per_gib`] is added. Defaults to 600.
-    pub timeout_seconds: Option<u64>,
-    /// The seconds added to [`Chd::timeout_seconds`] for each GiB of the disc's tracks. Defaults to 240.
-    pub timeout_seconds_per_gib: Option<u64>,
-}
-
-impl Chd {
-    /// How long chdman may run on a disc. The defaults are generous, so that only a stuck chdman reaches them:
-    /// chdman 0.289 compressed a GiB of incompressible CD tracks in about a minute on one fast desktop core, its worst
-    /// case, and extracted it in seconds. 4 minutes a GiB allows a host core four times slower, compressing on one
-    /// thread; 10 minutes covers starting up, and a small disc on a busy host. An 8.5 GB DVD is given about 42
-    /// minutes.
-    pub fn limits(&self) -> title_select_engine::chd::Limits {
-        title_select_engine::chd::Limits {
-            base: std::time::Duration::from_secs(self.timeout_seconds.unwrap_or(600)),
-            per_gib: std::time::Duration::from_secs(self.timeout_seconds_per_gib.unwrap_or(240)),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -180,18 +75,10 @@ pub struct Root {
     /// Library Folder.
     #[serde(default)]
     pub kind: RootKind,
-    /// For an Ingest Folder: how long, in seconds, an item's size and times must stay unchanged before it is
-    /// assessed.
-    pub settle_secs: Option<u64>,
-    /// For an Ingest Folder: how often, in minutes, it is scanned on its own. Off when absent.
-    pub scan_every_minutes: Option<u64>,
 }
 
 /// The Root that holds the Additions Sets, one folder per system.
 pub const ADDITIONS_ROOT: &str = "additions";
-
-/// How long an item in an Ingest Folder must stay unchanged before it is assessed, when the Root does not say.
-pub const DEFAULT_SETTLE_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -217,146 +104,6 @@ impl Root {
                     .any(|p| relative_path(p).is_ok_and(|p| p == rel))
             })
     }
-
-    /// For an Ingest Folder, the settle interval in seconds.
-    pub fn settle_secs(&self) -> u64 {
-        self.settle_secs.unwrap_or(DEFAULT_SETTLE_SECS)
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Audits {
-    /// The latest full Audits kept per Source Set; older ones are pruned to a summary.
-    #[serde(default = "default_keep")]
-    pub keep: usize,
-}
-
-fn default_keep() -> usize {
-    DEFAULT_AUDITS_KEPT
-}
-
-impl Default for Audits {
-    fn default() -> Self {
-        Audits {
-            keep: DEFAULT_AUDITS_KEPT,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Selections {
-    /// The latest full Selections kept per Source Set; older ones are pruned to their record.
-    #[serde(default = "default_selections_keep")]
-    pub keep: usize,
-    /// Keys from before the cutover to the one engine (ADR 0015), accepted with any value and ignored, so a
-    /// configuration that still sets them loads; `Config::warnings` names them. Remove them in a later release.
-    #[serde(default)]
-    engine: Option<IgnoredAny>,
-    #[serde(default)]
-    shadow: Option<IgnoredAny>,
-    #[serde(default)]
-    shadow_result_mib: Option<IgnoredAny>,
-}
-
-impl Selections {
-    /// The ignored keys this configuration sets, in the order the file documented them.
-    pub fn ignored_keys(&self) -> Vec<&'static str> {
-        [
-            ("engine", self.engine.is_some()),
-            ("shadow", self.shadow.is_some()),
-            ("shadow_result_mib", self.shadow_result_mib.is_some()),
-        ]
-        .into_iter()
-        .filter_map(|(key, set)| set.then_some(key))
-        .collect()
-    }
-}
-
-fn default_selections_keep() -> usize {
-    DEFAULT_SELECTIONS_KEPT
-}
-
-impl Default for Selections {
-    fn default() -> Self {
-        Selections {
-            keep: DEFAULT_SELECTIONS_KEPT,
-            engine: None,
-            shadow: None,
-            shadow_result_mib: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SourceSets {
-    /// How often, in minutes, a stat walk checks each audited Source Set for files changed since its latest Audit;
-    /// 0 checks only when you ask.
-    #[serde(default = "default_check_every_minutes")]
-    pub check_every_minutes: u64,
-}
-
-fn default_check_every_minutes() -> u64 {
-    DEFAULT_CHECK_EVERY_MINUTES
-}
-
-/// Which DAT Providers Title Select fetches newer DAT Revisions from, for the systems a Source Set Follows. Each is
-/// off until the Operator turns it on (ADR 0012). No-Intro is never fetched from.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Fetch {
-    #[serde(default)]
-    pub redump: bool,
-    #[serde(default)]
-    pub mame: bool,
-}
-
-impl Fetch {
-    pub fn enabled(&self, provider: title_select_api::fetch::FetchProvider) -> bool {
-        match provider {
-            title_select_api::fetch::FetchProvider::Redump => self.redump,
-            title_select_api::fetch::FetchProvider::Mame => self.mame,
-        }
-    }
-}
-
-impl Default for SourceSets {
-    fn default() -> Self {
-        SourceSets {
-            check_every_minutes: DEFAULT_CHECK_EVERY_MINUTES,
-        }
-    }
-}
-
-/// The default Path Templates that propose a registration's path. Each can be overridden at registration.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PathTemplates {
-    /// For a Source Set, relative to its Root.
-    #[serde(default = "default_source_set_template")]
-    pub source_set: PathTemplate,
-    /// For a Library Folder, relative to its Play Library Root. `managed_folder`, its name before #73, is still read.
-    #[serde(default = "default_library_folder_template", alias = "managed_folder")]
-    pub library_folder: PathTemplate,
-}
-
-fn default_source_set_template() -> PathTemplate {
-    PathTemplate::parse(DEFAULT_SOURCE_SET_TEMPLATE).expect("the default template parses")
-}
-
-fn default_library_folder_template() -> PathTemplate {
-    PathTemplate::parse(DEFAULT_LIBRARY_FOLDER_TEMPLATE).expect("the default template parses")
-}
-
-impl Default for PathTemplates {
-    fn default() -> Self {
-        PathTemplates {
-            source_set: default_source_set_template(),
-            library_folder: default_library_folder_template(),
-        }
-    }
 }
 
 /// How the Service knows a request comes from the Operator. The Operator token, read from the file named by
@@ -374,89 +121,36 @@ pub struct Auth {
     pub dev_identity: Option<String>,
 }
 
-/// How the Service runs Jobs.
-#[derive(Debug, Clone, Deserialize)]
+/// The most the Service may work at once: Jobs running, and each Job's payload readers and hash workers. Each
+/// defaults to the number of CPUs; the pace chosen in the workbench is a fraction of them.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Jobs {
-    /// How many Jobs run at once.
-    #[serde(default = "one")]
-    pub concurrent: usize,
-    /// How hard an Audit works the disks and CPUs; `readers` and `hashers` override its counts.
-    #[serde(default)]
-    pub pace: Pace,
-    /// Threads reading and decompressing payloads.
+    pub concurrent: Option<usize>,
     pub readers: Option<usize>,
-    /// Threads hashing payloads.
     pub hashers: Option<usize>,
 }
 
-fn one() -> usize {
-    1
-}
-
-impl Default for Jobs {
-    fn default() -> Self {
-        Jobs {
-            concurrent: 1,
-            pace: Pace::default(),
-            readers: None,
-            hashers: None,
-        }
-    }
-}
-
 impl Jobs {
-    /// The worker counts for an Audit: the pace's, with each explicit count overriding.
-    pub fn workers(&self) -> Workers {
-        let pace = self.pace.workers();
-        Workers {
-            readers: self.readers.unwrap_or(pace.readers),
-            hashers: self.hashers.unwrap_or(pace.hashers),
-        }
-    }
-}
-
-/// A preset for an Audit's worker counts.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Pace {
-    /// One reader and one hasher: one file at a time, for a disk shared with other work.
-    Gentle,
-    /// Two readers and two hashers.
-    #[default]
-    Default,
-    /// One reader and one hasher per CPU.
-    Unthrottled,
-}
-
-impl Pace {
-    pub fn workers(self) -> Workers {
-        let n = match self {
-            Pace::Gentle => 1,
-            Pace::Default => 2,
-            Pace::Unthrottled => std::thread::available_parallelism().map_or(1, |n| n.get()),
-        };
-        Workers {
-            readers: n,
-            hashers: n,
+    /// Each ceiling, as configured or else the number of CPUs.
+    pub fn ceilings(&self) -> Ceilings {
+        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+        Ceilings {
+            concurrent: self.concurrent.unwrap_or(cpus),
+            readers: self.readers.unwrap_or(cpus),
+            hashers: self.hashers.unwrap_or(cpus),
         }
     }
 }
 
 impl Default for Config {
-    /// No Roots, the default Audit history, Job limits and Path Templates, no auth, no fetching and no webhook.
+    /// No Roots, no auth, Job ceilings from the CPUs, chdman found as usual and the default archive limits.
     fn default() -> Self {
         Config {
             roots: BTreeMap::new(),
-            audits: Audits::default(),
-            selections: Selections::default(),
             auth: Auth::default(),
             jobs: Jobs::default(),
-            path_templates: PathTemplates::default(),
-            source_sets: SourceSets::default(),
-            fetch: Fetch::default(),
             chd: Chd::default(),
-            notify: Notify::default(),
             ingest: Ingest::default(),
         }
     }
@@ -466,7 +160,7 @@ impl Default for Config {
 #[error("invalid configuration: {0}")]
 pub struct Error(String);
 
-/// Where `text` fails to parse, and why, never quoting it: any line may hold a secret, such as a webhook's token.
+/// Where `text` fails to parse, and why, never quoting it: any line may hold a secret.
 fn parse_error(text: &str, e: &toml::de::Error) -> Error {
     let reason = e.message().trim();
     let Some(span) = e.span() else {
@@ -493,20 +187,6 @@ fn parse_error(text: &str, e: &toml::de::Error) -> Error {
 }
 
 impl Config {
-    /// What to tell you at startup about this configuration: keys it sets that are ignored.
-    pub fn warnings(&self) -> Vec<String> {
-        let keys = self.selections.ignored_keys();
-        let (names, verb, it) = match keys.as_slice() {
-            [] => return Vec::new(),
-            [one] => (one.to_string(), "is", "it"),
-            [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "are", "them"),
-        };
-        vec![format!(
-            "[selections] {names} {verb} ignored: selection has one engine now. You can remove {it} from your \
-             configuration."
-        )]
-    }
-
     pub fn load(path: &Path) -> Result<Config, Error> {
         let text =
             std::fs::read_to_string(path).map_err(|e| Error(format!("{}: {e}", path.display())))?;
@@ -515,18 +195,10 @@ impl Config {
 
     pub fn parse(text: &str) -> Result<Config, Error> {
         let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
-        if config.audits.keep == 0 {
-            return Err(Error("audits.keep must be at least 1".into()));
-        }
-        if config.selections.keep == 0 {
-            return Err(Error("selections.keep must be at least 1".into()));
-        }
-        if config.jobs.concurrent == 0 {
-            return Err(Error("jobs.concurrent must be at least 1".into()));
-        }
-        if config.jobs.readers == Some(0) || config.jobs.hashers == Some(0) {
+        let jobs = &config.jobs;
+        if [jobs.concurrent, jobs.readers, jobs.hashers].contains(&Some(0)) {
             return Err(Error(
-                "jobs.readers and jobs.hashers must be at least 1".into(),
+                "jobs.concurrent, jobs.readers and jobs.hashers must be at least 1".into(),
             ));
         }
         if !(1..=Ingest::MAX_ARCHIVE_WORKERS).contains(&config.ingest.archive_workers) {
@@ -568,30 +240,6 @@ impl Config {
         {
             return Err(Error("auth.dev_identity is empty".into()));
         }
-        let mut config = config;
-        let notify = &mut config.notify;
-        match &notify.url {
-            Some(url) => {
-                // The URL may carry a token, so the error never names it.
-                if let Some(why) = crate::fetch::refusal_unnamed(url) {
-                    return Err(Error(format!("notify.url: {why}")));
-                }
-            }
-            None if notify.workbench_url.is_some() || notify.events != NotifyEvent::ALL => {
-                return Err(Error(
-                    "notify.events and notify.workbench_url need notify.url".into(),
-                ));
-            }
-            None => {}
-        }
-        if let Some(base) = &mut notify.workbench_url {
-            if !(base.starts_with("http://") || base.starts_with("https://")) {
-                return Err(Error(format!(
-                    "notify.workbench_url {base:?} is not an http or https URL"
-                )));
-            }
-            base.truncate(base.trim_end_matches('/').len());
-        }
         for (name, root) in &config.roots {
             if name.is_empty() {
                 return Err(Error("a root has an empty name".into()));
@@ -599,13 +247,6 @@ impl Config {
             if root.is_ingest() && !root.writable {
                 return Err(Error(format!(
                     "roots.{name} is an ingest folder, which needs writable = true"
-                )));
-            }
-            if !root.is_ingest()
-                && (root.settle_secs.is_some() || root.scan_every_minutes.is_some())
-            {
-                return Err(Error(format!(
-                    "roots.{name}: settle_secs and scan_every_minutes are only for a root with kind = \"ingest\""
                 )));
             }
             if !root.writable_paths.is_empty() && (root.writable || root.is_ingest()) {
@@ -628,11 +269,6 @@ impl Config {
                      writable_paths"
                 )));
             }
-            if root.scan_every_minutes == Some(0) {
-                return Err(Error(format!(
-                    "roots.{name}.scan_every_minutes must be at least 1; leave it out to scan only when you ask"
-                )));
-            }
         }
         Ok(config)
     }
@@ -653,27 +289,6 @@ fn is_header_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_pace_preset_sets_the_worker_counts() {
-        let config = Config::parse("[jobs]\npace = \"gentle\"").unwrap();
-
-        assert_eq!(
-            config.jobs.workers(),
-            Workers {
-                readers: 1,
-                hashers: 1
-            }
-        );
-        assert_eq!(
-            Config::default().jobs.workers(),
-            Workers {
-                readers: 2,
-                hashers: 2
-            }
-        );
-        assert_eq!(Config::default().jobs.concurrent, 1);
-    }
 
     #[test]
     fn ingest_archive_limits_default_to_two_workers_and_128_mib_and_refuse_nonsense() {
@@ -721,57 +336,15 @@ mod tests {
     }
 
     #[test]
-    fn source_sets_are_checked_for_changes_every_six_hours_unless_configured() {
-        assert_eq!(
-            Config::default().source_sets.check_every_minutes,
-            DEFAULT_CHECK_EVERY_MINUTES
-        );
-        let off = Config::parse("[source_sets]\ncheck_every_minutes = 0").unwrap();
-        assert_eq!(off.source_sets.check_every_minutes, 0);
-        assert!(Config::parse("[source_sets]\ncheck_every = 5").is_err());
-    }
-
-    #[test]
-    fn notify_sends_every_event_unless_you_list_some_and_refuses_unknown_ones() {
-        assert!(Config::default().notify.url.is_none());
-        let all = Config::parse("[notify]\nurl = \"https://hooks.example/x\"").unwrap();
-        assert_eq!(all.notify.events, NotifyEvent::ALL);
-        let some = Config::parse(
-            "[notify]\nurl = \"http://127.0.0.1:9/x\"\nevents = [\"job.failed\", \"drift.found\"]\n\
-             workbench_url = \"https://ts.example/\"",
-        )
-        .unwrap();
-        assert_eq!(
-            some.notify.events,
-            [NotifyEvent::JobFailed, NotifyEvent::DriftFound]
-        );
-        assert_eq!(
-            some.notify.workbench_url.as_deref(),
-            Some("https://ts.example")
-        );
-        for bad in [
-            "[notify]\nurl = \"https://hooks.example/x\"\nevents = [\"job.started\"]",
-            "[notify]\nurl = \"ftp://hooks.example/x\"",
-            "[notify]\nurl = \"https://user:pw@hooks.example/x\"",
-            "[notify]\nevents = [\"job.failed\"]",
-            "[notify]\nurl = \"https://hooks.example/x\"\nworkbench_url = \"ts.example\"",
-        ] {
-            assert!(Config::parse(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
     fn a_config_that_does_not_parse_is_named_by_line_and_reason_never_quoted() {
-        let err = Config::parse(
-            "[jobs]\nconcurrent = 2\n\n[notify]\nurl = \"https://hooks.example/secret-token\n",
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("line 5, column 42, `url`: "), "{err}");
+        let err =
+            Config::parse("[jobs]\nconcurrent = 2\n\n[auth]\ndev_identity = \"secret-token\n")
+                .unwrap_err()
+                .to_string();
+        assert!(err.contains("line 5, column 29, `dev_identity`: "), "{err}");
         assert!(err.contains("string"), "{err}");
         assert!(!err.contains("secret-token"), "{err}");
-        assert!(!err.contains("hooks.example"), "{err}");
-        let err = Config::parse("[notify]\nurl = \"https://hooks.example/secret-token\"\nx = 1")
+        let err = Config::parse("[auth]\ndev_identity = \"secret-token\"\nx = 1")
             .unwrap_err()
             .to_string();
         assert!(err.contains("line 3, column 1"), "{err}");
@@ -780,77 +353,25 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_notify_url_is_never_echoed() {
-        for url in [
-            "ftp://hooks.example/secret-token",
-            "https://user:secret-token@hooks.example/x",
-            "not a url secret-token",
-            "https://hooks.no-intro.org/secret-token",
-        ] {
-            let err = Config::parse(&format!("[notify]\nurl = {url:?}"))
-                .unwrap_err()
-                .to_string();
-            assert!(err.contains("notify.url: it "), "{err}");
-            assert!(!err.contains("secret-token"), "{err}");
-            assert!(!err.contains("hooks."), "{err}");
-        }
-    }
-
-    #[test]
-    fn the_old_engine_keys_load_and_are_named_in_a_warning() {
-        assert!(Config::default().warnings().is_empty());
-        let config = Config::parse(
-            "[selections]\nkeep = 3\nengine = \"python\"\nshadow = true\nshadow_result_mib = 8",
-        )
-        .unwrap();
-        assert_eq!(config.selections.keep, 3);
-        assert_eq!(
-            config.warnings(),
-            [
-                "[selections] engine, shadow and shadow_result_mib are ignored: selection has one engine now. \
-              You can remove them from your configuration."
-            ]
-        );
-        let one = Config::parse("[selections]\nshadow = false").unwrap();
-        assert_eq!(
-            one.warnings(),
-            [
-                "[selections] shadow is ignored: selection has one engine now. You can remove it from your \
-              configuration."
-            ]
-        );
-    }
-
-    #[test]
-    fn an_explicit_worker_count_overrides_the_pace() {
-        let config = Config::parse("[jobs]\npace = \"gentle\"\nhashers = 6").unwrap();
-
-        assert_eq!(
-            config.jobs.workers(),
-            Workers {
-                readers: 1,
-                hashers: 6
-            }
-        );
-    }
-
-    #[test]
-    fn unthrottled_uses_every_cpu() {
+    fn job_ceilings_default_to_the_cpus_and_zero_is_refused() {
         let cpus = std::thread::available_parallelism().unwrap().get();
-
-        let config = Config::parse("[jobs]\npace = \"unthrottled\"").unwrap();
-
         assert_eq!(
-            config.jobs.workers(),
-            Workers {
+            Config::default().jobs.ceilings(),
+            Ceilings {
+                concurrent: cpus,
                 readers: cpus,
                 hashers: cpus
             }
         );
-    }
-
-    #[test]
-    fn zero_workers_or_jobs_are_refused() {
+        let set = Config::parse("[jobs]\nconcurrent = 2\nhashers = 6").unwrap();
+        assert_eq!(
+            set.jobs.ceilings(),
+            Ceilings {
+                concurrent: 2,
+                readers: cpus,
+                hashers: 6
+            }
+        );
         for text in [
             "[jobs]\nconcurrent = 0",
             "[jobs]\nreaders = 0",
@@ -861,76 +382,32 @@ mod tests {
     }
 
     #[test]
-    fn path_templates_default_when_absent_and_are_checked_when_given() {
-        let defaults = Config::parse("").unwrap().path_templates;
-        assert_eq!(defaults.source_set.as_str(), "{provider}/{dat}");
-        assert_eq!(defaults.library_folder.as_str(), "{platform}");
-
-        let config =
-            Config::parse("[path_templates]\nsource_set = \"Sets/{platform}/{dat}\"").unwrap();
-        assert_eq!(
-            config.path_templates.source_set.as_str(),
-            "Sets/{platform}/{dat}"
-        );
-        assert_eq!(config.path_templates.library_folder.as_str(), "{platform}");
-
+    fn settings_edited_in_the_workbench_are_not_read_from_the_file() {
         for text in [
-            "[path_templates]\nsource_set = \"{system}\"",
-            "[path_templates]\nlibrary_folder = \"{platform\"",
-            "[path_templates]\nother = \"{dat}\"",
+            "[jobs]\npace = \"gentle\"",
+            "[audits]\nkeep = 3",
+            "[selections]\nkeep = 3",
+            "[path_templates]\nsource_set = \"{dat}\"",
+            "[source_sets]\ncheck_every_minutes = 5",
+            "[fetch]\nredump = true",
+            "[notify]\nurl = \"https://hooks.example/x\"",
+            "[chd]\ntimeout_seconds = 5",
+            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nsettle_secs = 5",
+            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 5",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
         }
-        for (template, reason) in [
-            ("", "the template must name a folder inside its root"),
-            ("../{dat}", "the template must not contain `..`"),
-            ("/{dat}", "the template must be relative to its root"),
-            ("C:/{dat}", "the template must be relative to its root"),
-            ("./C:/{dat}", "the template must be relative to its root"),
-            (
-                r"{provider}\{dat}",
-                "the template must separate folders with /",
-            ),
-        ] {
-            for key in ["source_set", "library_folder"] {
-                let text = format!("[path_templates]\n{key} = {template:?}");
-                let error = Config::parse(&text).unwrap_err().to_string();
-                assert!(
-                    error.contains(reason) && error.contains(key),
-                    "{text}: {error}"
-                );
-            }
-        }
     }
 
     #[test]
-    fn the_library_folder_template_is_still_read_under_its_old_key() {
+    fn an_ingest_root_is_writable() {
         let config =
-            Config::parse("[path_templates]\nmanaged_folder = \"Games/{platform}\"").unwrap();
-        assert_eq!(
-            config.path_templates.library_folder.as_str(),
-            "Games/{platform}"
-        );
-
-        let both = "[path_templates]\nlibrary_folder = \"{platform}\"\nmanaged_folder = \"{dat}\"";
-        assert!(Config::parse(both).is_err());
-    }
-
-    #[test]
-    fn an_ingest_root_is_writable_and_only_it_takes_ingest_settings() {
-        let config = Config::parse(
-            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 5",
-        )
-        .unwrap();
-        let root = config.root("in").unwrap();
-        assert!(root.is_ingest());
-        assert_eq!(root.settle_secs(), DEFAULT_SETTLE_SECS);
-        assert_eq!(root.scan_every_minutes, Some(5));
+            Config::parse("[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"")
+                .unwrap();
+        assert!(config.root("in").unwrap().is_ingest());
 
         for text in [
             "[roots.in]\npath = \"/in\"\nkind = \"ingest\"",
-            "[roots.in]\npath = \"/in\"\nsettle_secs = 5",
-            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 0",
             "[roots.in]\npath = \"/in\"\nkind = \"other\"",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");

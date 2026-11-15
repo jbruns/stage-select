@@ -315,7 +315,7 @@ impl Store {
         }
         let outcome = self
             .begin_job_audit(config, &row)
-            .and_then(|running| self.complete_audit(config, running, progress));
+            .and_then(|running| self.complete_audit(running, progress));
         if let Err(err) = &outcome {
             // A failure before the Audit's row existed leaves the Job Running; one after has Failed it already.
             let message = err.to_string();

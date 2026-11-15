@@ -436,16 +436,18 @@ impl Run<'_> {
         };
         let cancelled = || self.store.cancel_requested(self.job).unwrap_or(false);
         let config = self.config;
+        let limits = self.store.settings()?.chd_limits();
+        let threads = self.store.pace().of(config.jobs.ceilings().hashers);
         let work = super::ChdWork {
             store: self.store,
             chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
                 title_select_engine::chd::Chdman {
                     program,
-                    threads: config.jobs.workers().hashers,
-                    deadline: config.chd.limits().base,
+                    threads,
+                    deadline: limits.base,
                 }
             }),
-            limits: config.chd.limits(),
+            limits,
             tmp: self.store.dir().join(crate::TMP),
             build: self.build,
             cancelled: &cancelled,

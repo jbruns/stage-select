@@ -60,7 +60,7 @@ impl Env {
         }
         let config = Config::parse(&format!(
             "[roots.sets]\npath = {:?}\nwritable_paths = [\"{SET}\"]\n\n[roots.in]\npath = {:?}\nwritable = true\n\
-             kind = \"ingest\"\nsettle_secs = 0\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
+             kind = \"ingest\"\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
              [roots.additions]\npath = {:?}\nwritable = true\n",
             tmp.path().join("sets").display().to_string(),
             tmp.path().join("in").display().to_string(),
@@ -69,6 +69,25 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store
+            .update_settings(
+                &config,
+                &title_select_api::settings::SettingsUpdate {
+                    ingest_folders: Some(
+                        [(
+                            "in".to_owned(),
+                            title_select_api::settings::IngestCadence {
+                                settle_secs: 0,
+                                scan_every_minutes: None,
+                            },
+                        )]
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         let dat = write_dat_version(&tmp.path().join("dats"), "test.dat", "1", &games());
         let (revision, _) = store.import_dat(&dat, "Test", None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
@@ -245,7 +264,7 @@ impl Env {
         let job = self.store.claim_job().unwrap().unwrap();
         assert_eq!(job.kind, JobKind::Selection);
         self.store
-            .record_selection(&self.config, job.id, selection)
+            .record_selection(job.id, selection)
             .unwrap()
             .selection
             .unwrap()

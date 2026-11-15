@@ -146,10 +146,6 @@ enum Command {
         /// `/opt/clone-lists`. Without them the service still runs audits.
         #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
-        /// The file holding the secret your webhook notifications are signed with. Needed when your configuration
-        /// sets `[notify] url`.
-        #[arg(long, env = title_select_server::SECRET_FILE_ENV)]
-        webhook_secret_file: Option<PathBuf>,
     },
     /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
     /// as JSON: every group's winner, alternatives and exclusions with the rule responsible for each.
@@ -239,8 +235,8 @@ enum SetCommand {
         /// The DAT to audit it against, as `<provider>/<name>`.
         #[arg(long)]
         dat: String,
-        /// The path template to propose the path from, instead of `path_templates.source_set` in your
-        /// configuration. Its tokens are `{provider}`, `{dat}` and `{platform}`.
+        /// The path template to propose the path from, instead of the source set path template in your
+        /// settings. Its tokens are `{provider}`, `{dat}` and `{platform}`.
         #[arg(long, conflicts_with = "path")]
         template: Option<String>,
     },
@@ -365,14 +361,10 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
 
 /// The configuration file, or no roots when none is given.
 fn load_config(path: Option<&Path>) -> Result<Config, String> {
-    let config = match path {
-        Some(path) => Config::load(path).map_err(|e| e.to_string())?,
-        None => Config::default(),
-    };
-    for warning in config.warnings() {
-        eprintln!("title-select: {warning}");
+    match path {
+        Some(path) => Config::load(path).map_err(|e| e.to_string()),
+        None => Ok(Config::default()),
     }
-    Ok(config)
 }
 
 fn read_profile(path: &Path) -> Result<SelectionProfile, String> {
@@ -505,6 +497,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     file,
                     confine: None,
                     workers: title_select_engine::ONE_WORKER_EACH,
+                    pace: None,
                     progress: None,
                     evidence,
                     reads: None,
@@ -544,7 +537,6 @@ fn run(cli: Cli) -> Result<(), String> {
             listen,
             ui,
             clone_lists,
-            webhook_secret_file,
         } => {
             let store = store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
             title_select_server::run(Settings {
@@ -552,7 +544,6 @@ fn run(cli: Cli) -> Result<(), String> {
                 config: load_config(config)?,
                 listen,
                 token_file: cli.token_file,
-                webhook_secret_file,
                 ui,
                 clone_lists,
                 hold_jobs: false,
@@ -670,7 +661,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let path = match path {
                 Some(path) => path,
                 None => store
-                    .propose_source_set_path(&config, &dat, template.as_deref())
+                    .propose_source_set_path(&dat, template.as_deref())
                     .map_err(|e| e.to_string())?,
             };
             let set = store

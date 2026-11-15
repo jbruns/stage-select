@@ -393,6 +393,7 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
             file: "test.dat".into(),
             confine: None,
             workers,
+            pace: None,
             progress: Some(&progress),
             evidence: title_select_engine::AuditEvidence::Full,
             reads: None,

@@ -1280,9 +1280,8 @@ impl Store {
 
     fn scan_ingest(&self, config: &Config, folder: i64) -> Result<()> {
         let row = self.read(|c| ingest_by_id(c, folder))?;
-        let settle = ingest_root(config, &row.root)
-            .map_err(Error::Refused)?
-            .settle_secs();
+        ingest_root(config, &row.root).map_err(Error::Refused)?;
+        let settle = self.settings()?.ingest(&row.root).settle_secs;
         let dir = open_checked(self, config, &row)?.map_err(Error::Refused)?;
         let entries = dir.entries().map_err(|e| Error::Io(e.to_string()))?;
         let mut items = self.read(|c| present_items(c, folder))?;
@@ -1510,9 +1509,8 @@ impl Store {
         config: &Config,
         root: &str,
     ) -> Result<Option<jiff::Timestamp>> {
-        let settle = ingest_root(config, root)
-            .map_err(Error::NotFound)?
-            .settle_secs();
+        ingest_root(config, root).map_err(Error::NotFound)?;
+        let settle = self.settings()?.ingest(root).settle_secs;
         let earliest: Option<String> = self.read(|c| {
             let Some(row) = ingest_by_root(c, root)? else {
                 return Ok(None);
@@ -2426,6 +2424,7 @@ fn current_id(c: &Connection, folder: i64, name: &str) -> Result<i64> {
 
 fn ingest_record(c: &Connection, name: &str, root: &Root) -> Result<IngestFolder> {
     let row = ingest_by_root(c, name)?;
+    let cadence = crate::settings::load(c)?.ingest(name);
     let mut counts = Vec::new();
     if let Some(row) = &row {
         let mut stmt = c.prepare(
@@ -2446,8 +2445,8 @@ fn ingest_record(c: &Connection, name: &str, root: &Root) -> Result<IngestFolder
         root: name.to_owned(),
         path: root.path.display().to_string(),
         id: row.as_ref().map(|r| r.id),
-        settle_secs: root.settle_secs(),
-        scan_every_minutes: root.scan_every_minutes,
+        settle_secs: cadence.settle_secs,
+        scan_every_minutes: cadence.scan_every_minutes,
         last_scan_at: row.and_then(|r| r.last_scan_at),
         next_check_at: None,
         counts,

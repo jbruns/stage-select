@@ -48,7 +48,6 @@ impl Env {
             config,
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(fx.dat_dir.path().join("token")),
-            webhook_secret_file: None,
             ui: None,
             clone_lists: None,
             hold_jobs: false,
