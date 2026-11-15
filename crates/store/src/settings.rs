@@ -268,13 +268,29 @@ impl Store {
         actor: &str,
         publish: impl FnOnce(&Settings),
     ) -> Result<Settings> {
+        Ok(self
+            .update_settings_and_release(config, update, actor, publish)?
+            .0)
+    }
+
+    /// As [`Store::update_settings_and_publish`], and says whether the update left RomM's "Additions" collection to
+    /// delete, having turned RomM off or changed its address: it is recorded, with the connection it was made through,
+    /// for [`Store::delete_released_romm_collection`], which is never part of saving.
+    pub fn update_settings_and_release(
+        &self,
+        config: &Config,
+        update: &SettingsUpdate,
+        actor: &str,
+        publish: impl FnOnce(&Settings),
+    ) -> Result<(Settings, bool)> {
         check(config, update)?;
         let _one_at_a_time = self
             .settings_update
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let settings = self.write(|tx| {
+        let (settings, release) = self.write(|tx| {
             let mut settings = load(tx)?;
+            let was = settings.romm.clone();
             if let Some(notify) = &update.notify {
                 settings.notify = settings.notify.updated(notify)?;
                 put(tx, NOTIFY, &settings.notify, actor)?;
@@ -311,11 +327,12 @@ impl Store {
                 settings.ingest_folders.extend(folders.clone());
                 put(tx, INGEST_FOLDERS, &settings.ingest_folders, actor)?;
             }
-            Ok(settings)
+            let release = crate::romm_additions::release(tx, &was, &settings.romm)?;
+            Ok((settings, release))
         })?;
         *self.pace.write().unwrap_or_else(|e| e.into_inner()) = settings.pace;
         publish(&settings);
-        Ok(settings)
+        Ok((settings, release))
     }
 }
 

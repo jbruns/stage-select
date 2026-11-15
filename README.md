@@ -414,6 +414,31 @@ Each of these is a warning: the job keeps the state it ended in. A library folde
 In the API, the job's `romm_scan` holds `{"platform", "outcome", "task_id"?, "detail"?, "requested_at", "ended_at"?}`,
 `outcome` being `requested`, `finished`, `stopped`, `failed`, `timed_out`, `unavailable`, `error` or `unmapped`.
 
+#### The Additions collection
+
+Once RomM finishes a scan a build asked for, Title Select updates a public collection in RomM named **Additions**. It
+holds every addition built into a library folder that is a RomM platform: each is found in RomM by its SHA-1, then
+added, and anything else in the collection is removed. Title Select makes the collection the first time, and again
+if you delete it in RomM. If your token's user already has a collection named **Additions** that Title Select doesn't
+know, it uses that one. It knows the collection by RomM's id, not its name, so renaming it in RomM is fine, but
+other changes you make to it are undone at the next build, and a collection you make private is shared again.
+
+An addition RomM hasn't indexed can't be added. The job lists it as unresolved, which is a warning: RomM may not
+have scanned it yet, or may not hash files on that platform. Updating the collection needs the token's `roms.read`,
+`collections.read` and `collections.write` scopes. Without `collections.write`, Title Select doesn't touch any
+collection, and the warning names the missing scope. If you turn RomM off or change its address meanwhile, or Title
+Select stops, the update stops, and the next build RomM scans brings the collection up to date.
+
+Turning RomM off, or changing its address, deletes the collection. Title Select uses the address and token you had
+saved before, in the background: saving your settings never waits for RomM. If RomM can't delete it then, Title
+Select keeps that address and token in the store, like your saved token, and tries again each time the service
+starts and before the next update, until RomM deletes it or says it is already gone.
+
+The job's detail shows how the update went under **RomM collection**: **Collection updated**, **Update stopped** or
+**Collection error**, with the detail for a warning. In the API, the job's `romm_scan.additions` holds
+`{"outcome", "collection_id"?, "members", "added", "removed", "unresolved"?, "detail"?, "synced_at"}`, `outcome`
+being `synced`, `stopped` or `error`, and `unresolved` the names of the additions RomM hasn't indexed.
+
 ### Path templates
 
 When you register a folder, a path template proposes its path in the root from the DAT, so you don't type it in full.

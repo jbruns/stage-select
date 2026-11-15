@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use title_select_api::fetch::{
@@ -15,6 +15,7 @@ use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
+use title_select_store::romm::Released;
 use title_select_store::romm::{ScanStop, ScanTiming};
 use tokio::sync::{Notify, broadcast};
 
@@ -101,7 +102,42 @@ fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>,
         {
             eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
         }
+        sync_romm_additions(&store, &config, &jobs, id);
     });
+}
+
+/// Once the scan the Build Job `id` requested has finished, keeps RomM's "Additions" collection in step (#142), on
+/// the scan's own task. Each step is announced as a change of the Job.
+fn sync_romm_additions(store: &Weak<Store>, config: &Config, jobs: &Arc<Jobs>, id: i64) {
+    let timing = jobs.romm_scan;
+    if let Err(err) =
+        Store::sync_romm_additions(store, config, id, &timing, &jobs.romm_stop, &mut |job| {
+            jobs.changed(job.clone())
+        })
+    {
+        eprintln!("title-select: job {id}: RomM's Additions collection wasn't kept in step: {err}");
+    }
+}
+
+/// Deletes, on a task of its own, RomM's "Additions" collection a settings update left to delete, if any (#142). One
+/// RomM refuses stays recorded, and is tried again at the next start and before the next sync.
+pub fn delete_released_romm_collection(store: &Arc<Store>) {
+    let store = Arc::downgrade(store);
+    tokio::task::spawn_blocking(
+        move || match Store::delete_released_romm_collection(&store) {
+            Ok(Released::Failed {
+                collection_id,
+                error,
+            }) => eprintln!(
+                "title-select: RomM's Additions collection {collection_id} wasn't deleted: {error}. It is tried again \
+                 at the next start and before the next sync"
+            ),
+            Err(err) => {
+                eprintln!("title-select: RomM's Additions collection wasn't deleted: {err}")
+            }
+            Ok(_) => {}
+        },
+    );
 }
 
 /// Claims and runs Queued Jobs forever, starting one only while fewer run than the pace allows now. A slower pace
@@ -112,6 +148,7 @@ pub async fn run(
     jobs: Arc<Jobs>,
     engine: Option<Arc<Engine>>,
 ) {
+    delete_released_romm_collection(&store);
     let ceiling = config.jobs.ceilings().concurrent;
     let running = Arc::new(AtomicUsize::new(0));
     loop {

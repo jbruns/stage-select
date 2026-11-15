@@ -11,7 +11,7 @@ use title_select_api::additions::AdditionsSet;
 use title_select_api::build::{KeptFile, LibraryFolder};
 use title_select_api::ingest::{IngestFolder, IngestKeptFile};
 use title_select_api::repair::SourceKeptFile;
-use title_select_api::romm::RommScan;
+use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScan};
 use title_select_api::{Job, JobKind, JobState, SourceSetRecord};
 
 use crate::activity_model::{
@@ -593,6 +593,39 @@ fn romm_scan_fact(scan: RommScan) -> impl IntoView {
             {platform}
             {format!(", {}", when(&at))}
             {scan
+                .detail
+                .map(|detail| view! { <p>{detail}</p> })}
+        </dd>
+        {scan.additions.map(romm_additions_fact)}
+    }
+}
+
+/// How RomM's "Additions" collection was kept in step once the scan finished: how it went, what changed, the
+/// additions RomM hasn't indexed, and why, for a warning.
+fn romm_additions_fact(additions: RommAdditions) -> impl IntoView {
+    let counts = (additions.outcome == RommAdditionsOutcome::Synced).then(|| {
+        format!(
+            ", {} in it, {} added, {} removed",
+            additions.members, additions.added, additions.removed
+        )
+    });
+    let unresolved = (!additions.unresolved.is_empty()).then(|| {
+        view! {
+            <p>
+                "RomM hasn't indexed these additions, so they aren't in the collection: "
+                {additions.unresolved.join(", ")}
+                ". RomM finds them by SHA-1, so check that RomM hashes this platform."
+            </p>
+        }
+    });
+    view! {
+        <dt>"RomM collection"</dt>
+        <dd>
+            <StatusBadge status=additions.outcome />
+            {counts}
+            {format!(", {}", when(&additions.synced_at))}
+            {unresolved}
+            {additions
                 .detail
                 .map(|detail| view! { <p>{detail}</p> })}
         </dd>

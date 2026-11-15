@@ -915,13 +915,19 @@ fn stub_romm() -> String {
     stub_romm_with("finished")
 }
 
-/// `stub_romm`, whose scan task always answers `status`.
+/// Each request each stub RomM saw, as `METHOD /path`, by its address.
+static ROMM_SEEN: std::sync::Mutex<std::collections::BTreeMap<String, Vec<String>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// `stub_romm`, whose scan task always answers `status`, and which makes the collection 7 when asked for one.
 fn stub_romm_with(status: &'static str) -> String {
     use std::io::Write;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let task = format!(r#"{{"task_id": "t1", "status": "{status}"}}"#);
+    let at = url.clone();
     std::thread::spawn(move || {
+        let url = at;
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
@@ -940,6 +946,14 @@ fn stub_romm_with(status: &'static str) -> String {
             }
             std::io::Read::read_exact(&mut reader, &mut vec![0; length]).unwrap();
             let path = line.split_whitespace().nth(1).unwrap_or("");
+            let method = line.split_whitespace().next().unwrap_or("");
+            ROMM_SEEN
+                .lock()
+                .unwrap()
+                .entry(url.clone())
+                .or_default()
+                .push(format!("{method} {path}"));
+            let collection = r#"{"id": 7, "name": "Additions", "rom_ids": [], "is_public": true}"#;
             let (status, body) = match path {
                 "/api/heartbeat" => (200, r#"{"SYSTEM": {"VERSION": "5.4.1"}}"#),
                 _ if !authorized => (401, r#"{"detail": "Not authenticated"}"#),
@@ -948,6 +962,7 @@ fn stub_romm_with(status: &'static str) -> String {
                 p if p.ends_with("/identifiers") => (200, "[]"),
                 "/api/tasks/scan" => (202, r#"{"task_id": "t1", "status": "queued"}"#),
                 "/api/tasks/t1" => (200, task.as_str()),
+                "/api/collections?is_public=true" | "/api/collections/7" => (200, collection),
                 _ => (404, r#"{"detail": "Not found"}"#),
             };
             let _ = write!(
@@ -2568,6 +2583,57 @@ mod selections {
             }
         );
         assert_eq!(scan.task_id.as_deref(), Some("t1"));
+    }
+
+    /// Once RomM's scan finishes, its "Additions" collection is made and tracked; turning RomM off saves at once and
+    /// deletes the collection in the background.
+    #[test]
+    fn turning_romm_off_deletes_the_additions_collection_a_build_made() {
+        use std::time::{Duration, Instant};
+        use title_select_api::romm::RommAdditionsOutcome;
+        let env = Env::new();
+        let (service, id) = built_where_romm_scans(
+            &env,
+            "finished",
+            title_select_store::romm::ScanTiming {
+                poll: Duration::from_millis(10),
+                backoff: Duration::from_millis(10),
+                backoff_max: Duration::from_millis(10),
+                window: Duration::from_secs(5),
+                request: Duration::from_secs(5),
+            },
+        );
+        let client = Client::new(&service);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let additions = loop {
+            let job: Job = client.json(&format!("/jobs/{id}"));
+            match job.romm_scan.and_then(|scan| scan.additions) {
+                Some(additions) => break additions,
+                None if Instant::now() > deadline => panic!("the collection was never synced"),
+                None => std::thread::sleep(Duration::from_millis(20)),
+            }
+        };
+        assert_eq!(
+            additions.outcome,
+            RommAdditionsOutcome::Synced,
+            "{additions:?}"
+        );
+        assert_eq!(additions.collection_id, Some(7));
+        let settings: serde_json::Value = client.json("/settings");
+        let url = settings["romm"]["base_url"].as_str().unwrap().to_owned();
+
+        let (status, body) = client.change_settings(json!({"romm": {
+            "enabled": false, "base_url": url, "token": "clear", "root": "play",
+        }}));
+        assert_eq!(status, 200, "{body}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ROMM_SEEN.lock().unwrap()[&url].contains(&"DELETE /api/collections/7".into()) {
+            assert!(
+                Instant::now() < deadline,
+                "the collection was never deleted"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     /// Stopping the Service stops following a RomM scan at once, records it as no longer followed, and frees the
