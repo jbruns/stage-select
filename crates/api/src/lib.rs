@@ -701,8 +701,8 @@ pub struct SettingsChanged {
     pub pace: settings::Pace,
 }
 
-/// A server-sent event: the SSE event name is `state`, `progress`, `resync` or `settings`, and its data is this, as
-/// JSON.
+/// A server-sent event: the SSE event name is `state`, `progress`, `resync`, `settings` or `romm_reconciled`, and its
+/// data is this, as JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JobEvent {
@@ -712,6 +712,7 @@ pub enum JobEvent {
     /// replace what the client knew.
     Resync(JobSnapshot),
     Settings(SettingsChanged),
+    RommReconciled(romm::RommReconciled),
 }
 
 impl JobEvent {
@@ -722,15 +723,16 @@ impl JobEvent {
             JobEvent::Progress(_) => "progress",
             JobEvent::Resync(_) => "resync",
             JobEvent::Settings(_) => "settings",
+            JobEvent::RommReconciled(_) => "romm_reconciled",
         }
     }
 
-    /// The Job the event is about; none for a `resync` or `settings`.
+    /// The Job the event is about; none for a `resync`, `settings` or `romm_reconciled`.
     pub fn job_id(&self) -> Option<i64> {
         match self {
             JobEvent::State(job) => Some(job.id),
             JobEvent::Progress(p) => Some(p.job),
-            JobEvent::Resync(_) | JobEvent::Settings(_) => None,
+            JobEvent::Resync(_) | JobEvent::Settings(_) | JobEvent::RommReconciled(_) => None,
         }
     }
 }

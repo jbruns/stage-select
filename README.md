@@ -439,6 +439,30 @@ The job's detail shows how the update went under **RomM collection**: **Collecti
 `{"outcome", "collection_id"?, "members", "added", "removed", "unresolved"?, "detail"?, "synced_at"}`, `outcome`
 being `synced`, `stopped` or `error`, and `unresolved` the names of the additions RomM hasn't indexed.
 
+#### Comparing RomM's view with your library folder
+
+Once the scan a build asked for finishes, Title Select reads every ROM RomM lists for that folder's platform, with
+their files, and compares them with the files your builds made there. It needs the token's `roms.read` and
+`platforms.read` scopes. The library folder's **RomM** tab shows the latest comparison: how many files agree, and each
+file RomM sees otherwise, flagged as one or more of:
+
+- **Unidentified**: RomM matched the file's game to no game.
+- **Title differs**: RomM's name for it isn't the DAT's, once tags such as `(USA)`, case, punctuation and an article
+  moved to the end (`Legend of Zelda, The`) are set aside.
+- **Hash differs**: RomM's SHA-1 for the file isn't what the build wrote, or RomM doesn't list the file. A ZIP is
+  compared by the files inside it, a CHD by the SHA-1 in its header, and each file of a game of several files, such
+  as a disc's tracks or an `.m3u` folder's discs, on its own. A hash RomM didn't compute isn't a difference.
+
+Title Select never changes what RomM matched: fix a match in RomM, or use a file's **Ask RomM to scan again**, which
+scans an unidentified ROM for a match and any other ROM again whole. It needs the `tasks.run` scope, and RomM turned
+on; if RomM refuses, the tab says why. Once you change RomM's address, or the folder's RomM platform, a comparison's
+ROMs may not be the ones RomM lists now, so a rescan from it is refused until you compare again. **Compare again**
+compares now, without waiting for a build. Files your builds didn't make aren't compared: checking the folder covers
+them. Only the latest comparison of each folder is kept; one that couldn't read RomM says why, as does one that ran
+out of time because RomM took more than 10 minutes to list the platform's ROMs. One read while you turned RomM off or
+changed its address or root is discarded. The tab shows a new comparison as soon as it is kept. In the API,
+`GET /api/v1/libraries/{id}/romm` returns it.
+
 ### Path templates
 
 When you register a folder, a path template proposes its path in the root from the DAT, so you don't type it in full.
@@ -1275,6 +1299,9 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/libraries/{id}/incomplete`            | what its current build lacks, by reason                      |
 | `GET /api/v1/libraries/{id}/kept-files`            | the files builds kept aside in it, newest generation first   |
 | `POST /api/v1/libraries/{id}/kept-deletions`       | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
+| `GET /api/v1/libraries/{id}/romm`                  | its latest comparison with RomM: `{"folder_id", "job_id"?, "fs_slug", "reconciled_at", "error"?, "counts" ({"files", "clean", "unidentified", "title_mismatch", "hash_mismatch"}), "rows"}`, each row `{"target", "game", "flags" (`unidentified`, `title_mismatch`, `hash_mismatch`), "rom_id"?, "romm_name"?, "detail"?}`; `404` when never compared |
+| `POST /api/v1/libraries/{id}/romm/reconciliations` | compare it with RomM now and return the comparison; `400` while RomM is off or doesn't scan it |
+| `POST /api/v1/libraries/{id}/romm/rescans`         | ask RomM to scan one ROM its latest comparison flagged: `{"rom_id"}`; returns `{"rom_id", "scan_type" (`unmatched` or `update`), "task_id"}`; `400` while RomM is off or when RomM refuses |
 | `GET /api/v1/kept-deletions/{id}`                  | a plan to delete kept files, with its digest and outcomes    |
 | `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest"}`; deletes them and answers with each outcome, `409` when they changed |
 | `GET /api/v1/ingest-folders`                       | every ingest root, with its counts of items by state once registered |
@@ -1344,12 +1371,13 @@ quick inventory, availability's `claimed` names the games whose status rests on 
 
 Server-sent events carry JSON data, under one of these event names:
 
-| Event      | Data                                   | Sent                                                         |
-| ---------- | -------------------------------------- | ------------------------------------------------------------ |
-| `state`    | the job                                | when a job's state changes; first on a job's own stream      |
-| `progress` | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second          |
-| `resync`   | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind |
-| `settings` | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again      |
+| Event             | Data                                   | Sent                                                                      |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------- |
+| `state`           | the job                                | when a job's state changes; first on a job's own stream                   |
+| `progress`        | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second                       |
+| `resync`          | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind              |
+| `settings`        | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again                   |
+| `romm_reconciled` | `{"folder_id"}`                        | by `/events` when a folder's comparison with RomM is kept; fetch it again |
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.

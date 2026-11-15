@@ -1,7 +1,8 @@
 //! The `/events` stream: every Job's `state` and `progress`, a `resync` on connecting or after falling behind, and
-//! `settings` when the settings change.
+//! `settings` when the settings change, and `romm_reconciled` when a library folder's comparison with RomM is kept.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -41,6 +42,8 @@ pub struct Live {
     /// Goes up when the settings change, here or elsewhere, and when the stream resyncs, since a change may have been
     /// missed; screens showing settings fetch again.
     pub settings: RwSignal<u64>,
+    /// By Library Folder, goes up each time a comparison of it with RomM is kept, so its RomM tab fetches again.
+    pub romm: RwSignal<BTreeMap<i64, u64>>,
 }
 
 pub fn use_live() -> Live {
@@ -54,6 +57,7 @@ pub fn provide_live() -> Live {
         stream: RwSignal::new(Stream::Connecting),
         settled: RwSignal::new(0),
         settings: RwSignal::new(0),
+        romm: RwSignal::new(BTreeMap::new()),
     };
     provide_context(live);
     connect(live);
@@ -91,6 +95,9 @@ fn apply(live: Live, name: &str, data: &str) {
             live.settings.update(|n| *n += 1);
         }
         Some(Applied::Settings) => live.settings.update(|n| *n += 1),
+        Some(Applied::RommReconciled(folder)) => {
+            live.romm.update(|m| *m.entry(folder).or_default() += 1)
+        }
     }
 }
 
@@ -100,7 +107,7 @@ fn connect(live: Live) {
         return;
     };
     let mut listeners = Vec::new();
-    for name in ["state", "progress", "resync", "settings"] {
+    for name in ["state", "progress", "resync", "settings", "romm_reconciled"] {
         let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
             if let Some(data) = event.unchecked_into::<MessageEvent>().data().as_string() {
                 apply(live, name, &data);

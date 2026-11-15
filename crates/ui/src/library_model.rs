@@ -138,16 +138,18 @@ pub enum FolderTab {
     Builds,
     Drift,
     Kept,
+    Romm,
 }
 
 impl FolderTab {
-    pub const ALL: [FolderTab; 6] = [
+    pub const ALL: [FolderTab; 7] = [
         FolderTab::Overview,
         FolderTab::Selection,
         FolderTab::Plan,
         FolderTab::Builds,
         FolderTab::Drift,
         FolderTab::Kept,
+        FolderTab::Romm,
     ];
 
     /// The tab a URL's `tab` names; Overview for none, or for one it doesn't know.
@@ -166,6 +168,7 @@ impl FolderTab {
             FolderTab::Builds => "builds",
             FolderTab::Drift => "drift",
             FolderTab::Kept => "kept",
+            FolderTab::Romm => "romm",
         }
     }
 
@@ -177,6 +180,7 @@ impl FolderTab {
             FolderTab::Builds => "Builds",
             FolderTab::Drift => "Drift",
             FolderTab::Kept => "Kept files",
+            FolderTab::Romm => "RomM",
         }
     }
 }

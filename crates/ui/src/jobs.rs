@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use title_select_api::romm::RommReconciled;
 use title_select_api::{Job, JobEvent, JobProgress, JobSnapshot, JobState, SettingsChanged};
 
 /// Parses one server-sent event by its SSE event name, since the JSON alone does not say which it is.
@@ -11,6 +12,9 @@ pub fn parse_event(name: &str, data: &str) -> Result<JobEvent, String> {
         "progress" => serde_json::from_str::<JobProgress>(data).map(JobEvent::Progress),
         "resync" => serde_json::from_str::<JobSnapshot>(data).map(JobEvent::Resync),
         "settings" => serde_json::from_str::<SettingsChanged>(data).map(JobEvent::Settings),
+        "romm_reconciled" => {
+            serde_json::from_str::<RommReconciled>(data).map(JobEvent::RommReconciled)
+        }
         other => return Err(format!("unknown event `{other}`")),
     };
     parsed.map_err(|e| format!("`{name}` event: {e}"))
@@ -35,6 +39,8 @@ pub enum Applied {
     Resynced,
     /// The settings changed; the book is unchanged.
     Settings,
+    /// This Library Folder has a new latest comparison with RomM; the book is unchanged.
+    RommReconciled(i64),
 }
 
 /// The Jobs, by ID, as the latest events left them.
@@ -81,6 +87,7 @@ impl JobBook {
                 Applied::Resynced
             }
             JobEvent::Settings(_) => Applied::Settings,
+            JobEvent::RommReconciled(r) => Applied::RommReconciled(r.folder_id),
         }
     }
 
@@ -355,5 +362,15 @@ mod tests {
         assert_eq!(book, before, "a settings event leaves the jobs alone");
         assert!(parse_event("progress", &data).is_err());
         assert!(parse_event("other", "{}").is_err());
+    }
+
+    #[test]
+    fn a_new_comparison_with_romm_names_its_folder_and_leaves_the_jobs_alone() {
+        let mut book = JobBook::default();
+        book.apply(JobEvent::State(Box::new(job(4, JobState::Running, 1))));
+        let before = book.clone();
+        let event = parse_event("romm_reconciled", r#"{"folder_id":7}"#).unwrap();
+        assert_eq!(book.apply(event), Applied::RommReconciled(7));
+        assert_eq!(book, before);
     }
 }

@@ -28,7 +28,10 @@ use title_select_api::ingest::{
     RegisterIngestFolder,
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
-use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
+use title_select_api::romm::{
+    RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
+    RommTestRequest,
+};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
@@ -159,6 +162,9 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/libraries/{id}/incomplete", get(incomplete))
         .route("/libraries/{id}/kept-files", get(kept_files))
         .route("/libraries/{id}/kept-deletions", post(plan_kept_deletion))
+        .route("/libraries/{id}/romm", get(romm_reconciliation))
+        .route("/libraries/{id}/romm/reconciliations", post(reconcile_romm))
+        .route("/libraries/{id}/romm/rescans", post(request_romm_rescan))
         .route("/kept-deletions/{id}", get(kept_deletion))
         .route("/kept-deletions/{id}/approval", post(approve_kept_deletion))
         .route(
@@ -581,6 +587,65 @@ async fn romm_platforms(State(state): State<AppState>) -> ApiResult<Json<Vec<Rom
     let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| store.romm_platforms(&config)).await?,
+    ))
+}
+
+/// The latest comparison of RomM's view of a Library Folder with what its Builds made.
+async fn romm_reconciliation(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<RommReconciliation>> {
+    let Path(id) = id?;
+    blocking(&state, move |store| store.romm_reconciliation(id))
+        .await?
+        .map(Json)
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "RomM's view of library folder {id} was never compared with it"
+            ))
+            .into()
+        })
+}
+
+/// Compares RomM's view of a Library Folder with what its Builds made now, and keeps it as the folder's latest.
+async fn reconcile_romm(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<RommReconciliation>> {
+    let Path(id) = id?;
+    let (store, config, jobs) = (
+        Arc::downgrade(&state.store),
+        state.config.clone(),
+        state.jobs.clone(),
+    );
+    tokio::task::spawn_blocking(move || jobs.reconcile_romm(&store, &config, id))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??
+        .map(Json)
+        .ok_or_else(|| {
+            Error::Refused(
+                "RomM is off, doesn't scan this library folder, or its settings changed while it was read, so its \
+                 view of it wasn't compared."
+                    .into(),
+            )
+            .into()
+        })
+}
+
+/// Asks RomM to scan again one ROM the Library Folder's latest comparison flagged.
+async fn request_romm_rescan(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<RommRescanRequest>, JsonRejection>,
+) -> ApiResult<Json<RommRescan>> {
+    let Path(id) = id?;
+    let Json(request) = body?;
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.request_romm_rescan(&config, id, request.rom_id)
+        })
+        .await?,
     ))
 }
 
@@ -1991,7 +2056,7 @@ impl Sent {
                 }
                 true
             }
-            JobEvent::Settings(_) => true,
+            JobEvent::Settings(_) | JobEvent::RommReconciled(_) => true,
         }
     }
 

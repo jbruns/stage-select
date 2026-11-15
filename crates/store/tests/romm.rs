@@ -307,6 +307,7 @@ mod scans {
         SelectionSummary, Winner,
     };
     use title_select_api::settings::{SecretUpdate, SettingsUpdate};
+    use title_select_api::storage::SystemStorage;
     use title_select_api::{Job, JobKind, JobState};
     use title_select_store::config::Config;
     use title_select_store::romm::{ScanStop, ScanTiming};
@@ -338,6 +339,34 @@ mod scans {
 
     impl Env {
         fn new() -> Env {
+            Env::of(
+                "No-Intro",
+                vec![
+                    ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+                    ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+                ],
+                None,
+            )
+        }
+
+        /// A store with an audited Source Set of `games` from the DAT provider `provider`, each a file of its one
+        /// ROM or a folder of its ROMs, stored in play libraries as `storage` says.
+        pub(super) fn of(
+            provider: &str,
+            games: Vec<(&'static str, Vec<RomSpec>)>,
+            storage: Option<SystemStorage>,
+        ) -> Env {
+            Env::headered(provider, games, storage, None)
+        }
+
+        /// As [`Env::of`], with a DAT naming the Header Rule `header.0`, whose dumps in the Source Set start with the
+        /// Header `header.1`.
+        pub(super) fn headered(
+            provider: &str,
+            games: Vec<(&'static str, Vec<RomSpec>)>,
+            storage: Option<SystemStorage>,
+            header: Option<(&str, &[u8])>,
+        ) -> Env {
             let tmp = tempfile::tempdir().unwrap();
             let (sets, play) = (tmp.path().join("roots/sets"), tmp.path().join("roots/play"));
             std::fs::create_dir_all(sets.join(SET)).unwrap();
@@ -350,19 +379,23 @@ mod scans {
             ))
             .unwrap();
             let store = Store::open(&tmp.path().join("store")).unwrap();
-            let dat = write_dat_version(
-                &tmp.path().join("in"),
-                "Test - System (1).dat",
-                "20260101-000000",
-                &[
-                    ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
-                    ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
-                ],
-            );
-            let (revision, _) = store.import_dat(&dat, "No-Intro", None).unwrap();
-            store
-                .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
-                .unwrap();
+            let dat = match header {
+                Some((rule, _)) => write_dat_with_header(&tmp.path().join("in"), rule, &games),
+                None => write_dat_version(
+                    &tmp.path().join("in"),
+                    "Test - System (1).dat",
+                    "20260101-000000",
+                    &games,
+                ),
+            };
+            let (revision, _) = store.import_dat(&dat, provider, None).unwrap();
+            let system = format!("{provider}/{SET}");
+            store.add_source_set(&config, "sets", SET, &system).unwrap();
+            if let Some(storage) = storage {
+                let mut policy = store.storage_policy().unwrap();
+                policy.play_libraries.systems.insert(system, storage);
+                store.set_storage_policy(&policy, "Operator").unwrap();
+            }
             store
                 .save_profile(
                     PROFILE,
@@ -373,8 +406,16 @@ mod scans {
                     WORKERS,
                 )
                 .unwrap();
-            write_file(&sets.join(SET).join("Pong (USA).a26"), b"pong");
-            write_file(&sets.join(SET).join("Combat (USA).a26"), b"combat");
+            let prefix = header.map(|(_, bytes)| bytes).unwrap_or_default();
+            for (game, roms) in &games {
+                match &roms[..] {
+                    [one] => write_file(
+                        &sets.join(SET).join(one.name),
+                        &[prefix, &one.payload].concat(),
+                    ),
+                    _ => write_loose_folder(&sets.join(SET), game, roms),
+                }
+            }
             store
                 .audit_source_set(
                     &config,
@@ -1111,5 +1152,764 @@ mod scans {
             steps.last().map(|j| j.romm_scan.as_ref().unwrap().outcome),
             Some(RommScanOutcome::Finished)
         );
+    }
+
+    /// Comparing RomM's view of a Library Folder with the files its Builds made, after a scan (#143).
+    mod reconcile {
+        use super::*;
+        use serde_json::{Value, json};
+        use sha1::Digest;
+        use title_select_api::romm::{RommFlag, RommReconcileCounts, RommReconciliation};
+        use title_select_api::storage::{DiscLayout, StorageFormat};
+
+        /// RomM's internal id for the platform the tests map, which isn't its `fs_slug`.
+        const PLATFORM: i64 = 7;
+
+        fn sha1(bytes: &[u8]) -> String {
+            sha1::Sha1::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        }
+
+        /// A file of a ROM as RomM 5.4.1 lists it in `files[]`: `path` is under the platform folder `roms/<fs_slug>`.
+        fn file(fs_slug: &str, path: &str, sha1: &str) -> Value {
+            let full = format!("roms/{fs_slug}/{path}");
+            let (dir, name) = full.rsplit_once('/').unwrap();
+            json!({
+                "id": 100, "rom_id": 1, "file_name": name, "file_path": dir, "full_path": full,
+                "file_size_bytes": 4, "is_top_level": !path.contains('/'), "crc_hash": "", "md5_hash": "",
+                "sha1_hash": sha1, "chd_sha1_hash": "", "archive_members": null, "category": null,
+            })
+        }
+
+        /// A zip as RomM lists it: its own composite hash, and each member's.
+        fn zip(fs_slug: &str, name: &str, members: &[(&str, &[u8])]) -> Value {
+            let mut file = file(fs_slug, name, "c0ffee");
+            file["archive_members"] = members
+                .iter()
+                .map(|(n, payload)| {
+                    json!({"name": n, "size": payload.len(), "crc_hash": "", "md5_hash": "", "sha1_hash": sha1(payload)})
+                })
+                .collect();
+            file
+        }
+
+        /// A ROM as RomM 5.4.1's `SimpleRomSchema` has it, with its files: `name` is the name a provider matched,
+        /// and `None` for one no provider matched.
+        fn rom_of(
+            id: i64,
+            fs_slug: &str,
+            fs_name: &str,
+            name: Option<&str>,
+            files: Vec<Value>,
+        ) -> Value {
+            json!({
+                "id": id, "platform_id": PLATFORM, "platform_fs_slug": fs_slug, "fs_name": fs_name,
+                "fs_path": format!("roms/{fs_slug}"), "full_path": format!("roms/{fs_slug}/{fs_name}"),
+                "name": name.unwrap_or(fs_name), "is_unidentified": name.is_none(), "is_identified": name.is_some(),
+                "missing_from_fs": false, "files": files,
+            })
+        }
+
+        /// A stub RomM whose platform `fs_slug` holds `roms`, paged as RomM pages `GET /api/roms`, that accepts a
+        /// rescan as task `t9`.
+        fn library(fs_slug: &str, roms: Vec<Value>) -> StubRomm {
+            library_then(fs_slug, roms, |_| {})
+        }
+
+        /// [`library`], which does `first` with each request before it answers it.
+        fn library_then(
+            fs_slug: &str,
+            roms: Vec<Value>,
+            first: impl Fn(&Seen) + Send + Sync + 'static,
+        ) -> StubRomm {
+            let fs_slug = fs_slug.to_owned();
+            StubRomm::start(move |r| {
+                first(r);
+                if r.authorization.as_deref() != Some("Bearer rmm_good") {
+                    return (401, r#"{"detail": "Not authenticated"}"#.into());
+                }
+                let (path, query) = r.path.split_once('?').unwrap_or((&r.path, ""));
+                let param = |name: &str| {
+                    query
+                        .split('&')
+                        .filter_map(|p| p.split_once('='))
+                        .filter(|(k, _)| *k == name)
+                        .map(|(_, v)| v.to_owned())
+                        .collect::<Vec<_>>()
+                };
+                match (r.method.as_str(), path) {
+                    ("GET", "/api/platforms") => (
+                        200,
+                        json!([
+                            {"id": 3, "slug": "nes", "fs_slug": "nes", "name": "NES"},
+                            {"id": PLATFORM, "slug": "x", "fs_slug": fs_slug, "name": "X"},
+                        ])
+                        .to_string(),
+                    ),
+                    ("GET", "/api/roms") => {
+                        if param("platform_ids") != [PLATFORM.to_string()] || param("with_files") != ["true"] {
+                            return (200, json!({"items": [], "total": 0, "limit": 50, "offset": 0}).to_string());
+                        }
+                        let limit: usize = param("limit")[0].parse().unwrap();
+                        let offset: usize = param("offset")[0].parse().unwrap();
+                        let items: Vec<_> = roms.iter().skip(offset).take(limit).cloned().collect();
+                        (
+                            200,
+                            json!({"items": items, "total": roms.len(), "limit": limit, "offset": offset,
+                                   "char_index": {}, "rom_id_index": [], "filter_values": {}})
+                            .to_string(),
+                        )
+                    }
+                    ("POST", "/api/tasks/scan") => (
+                        202,
+                        r#"{"task_name": "Scan", "task_id": "t9", "status": "queued", "created_at": "x"}"#.into(),
+                    ),
+                    _ => (404, r#"{"detail": "Not Found"}"#.into()),
+                }
+            })
+        }
+
+        fn reconcile(env: &Env, folder: &LibraryFolder, page: usize) -> Option<RommReconciliation> {
+            Store::reconcile_romm(
+                &Arc::downgrade(&env.store),
+                &env.config,
+                folder.id,
+                None,
+                page,
+                &FAST,
+                &ScanStop::default(),
+            )
+            .unwrap()
+        }
+
+        /// The flags of each row, by target.
+        fn flags(reconciled: &RommReconciliation) -> Vec<(&str, Vec<RommFlag>, Option<i64>)> {
+            reconciled
+                .rows
+                .iter()
+                .map(|r| (r.target.as_str(), r.flags.clone(), r.rom_id))
+                .collect()
+        }
+
+        fn atari() -> Env {
+            Env::of(
+                "No-Intro",
+                vec![
+                    ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+                    ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+                    (
+                        "Adventure (USA)",
+                        vec![rom("Adventure (USA).a26", b"adventure")],
+                    ),
+                    (
+                        "Breakout (USA)",
+                        vec![rom("Breakout (USA).a26", b"breakout")],
+                    ),
+                    ("Outlaw (USA)", vec![rom("Outlaw (USA).a26", b"outlaw")]),
+                ],
+                None,
+            )
+        }
+
+        const ATARI: [&str; 5] = [
+            "Pong (USA)",
+            "Combat (USA)",
+            "Adventure (USA)",
+            "Breakout (USA)",
+            "Outlaw (USA)",
+        ];
+
+        #[test]
+        fn each_disagreement_is_flagged_on_the_file_the_build_made_across_every_page() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let romm = library(
+                "a26",
+                vec![
+                    rom_of(
+                        1,
+                        "a26",
+                        "Pong (USA).zip",
+                        Some("Pong"),
+                        vec![zip("a26", "Pong (USA).zip", &[("Pong (USA).a26", b"pong")])],
+                    ),
+                    rom_of(
+                        2,
+                        "a26",
+                        "Combat (USA).zip",
+                        None,
+                        vec![zip(
+                            "a26",
+                            "Combat (USA).zip",
+                            &[("Combat (USA).a26", b"combat")],
+                        )],
+                    ),
+                    rom_of(
+                        3,
+                        "a26",
+                        "Adventure (USA).zip",
+                        Some("Haunted House"),
+                        vec![zip(
+                            "a26",
+                            "Adventure (USA).zip",
+                            &[("Adventure (USA).a26", b"adventure")],
+                        )],
+                    ),
+                    rom_of(
+                        4,
+                        "a26",
+                        "Breakout (USA).zip",
+                        Some("Breakout"),
+                        vec![zip(
+                            "a26",
+                            "Breakout (USA).zip",
+                            &[("Breakout (USA).a26", b"breakout!")],
+                        )],
+                    ),
+                    // Made by no build: drift covers it, so it isn't reported.
+                    rom_of(
+                        5,
+                        "a26",
+                        "Stray (USA).zip",
+                        None,
+                        vec![zip(
+                            "a26",
+                            "Stray (USA).zip",
+                            &[("Stray (USA).a26", b"stray")],
+                        )],
+                    ),
+                ],
+            );
+            env.romm(true, &romm.url, "play");
+
+            let reconciled =
+                reconcile(&env, &folder, 2).expect("RomM is on and the folder is its platform");
+
+            assert_eq!(reconciled.error, None);
+            assert_eq!(
+                flags(&reconciled),
+                [
+                    (
+                        "Adventure (USA).zip",
+                        vec![RommFlag::TitleMismatch],
+                        Some(3)
+                    ),
+                    ("Breakout (USA).zip", vec![RommFlag::HashMismatch], Some(4)),
+                    ("Combat (USA).zip", vec![RommFlag::Unidentified], Some(2)),
+                    ("Outlaw (USA).zip", vec![RommFlag::HashMismatch], None),
+                ]
+            );
+            assert_eq!(
+                reconciled.counts,
+                RommReconcileCounts {
+                    files: 5,
+                    clean: 1,
+                    unidentified: 1,
+                    title_mismatch: 1,
+                    hash_mismatch: 2
+                }
+            );
+            assert_eq!(
+                reconciled.rows[0].romm_name.as_deref(),
+                Some("Haunted House")
+            );
+            assert_eq!(reconciled.rows[0].game, "Adventure (USA)");
+            let offsets: Vec<_> = romm
+                .seen()
+                .into_iter()
+                .filter(|r| r.path.starts_with("/api/roms?"))
+                .map(|r| {
+                    let offset = r
+                        .path
+                        .split('&')
+                        .find_map(|p| p.strip_prefix("offset="))
+                        .unwrap()
+                        .to_owned();
+                    assert!(r.path.contains("limit=2"), "{}", r.path);
+                    offset
+                })
+                .collect();
+            assert_eq!(offsets, ["0", "2", "4"], "every page is read, and no more");
+            assert_eq!(
+                env.store.romm_reconciliation(folder.id).unwrap(),
+                Some(reconciled)
+            );
+            assert!(
+                romm.seen().iter().all(|r| r.method == "GET"),
+                "nothing is written to RomM"
+            );
+        }
+
+        /// Discs in the ES-DE layout: a disc of several files in `<game>.cue/` and a Multi-disc Game in
+        /// `<release>.m3u/`, its `.m3u` beside its discs. RomM sees each folder as one ROM, and each file in it is
+        /// compared on its own.
+        #[test]
+        fn a_game_of_several_files_is_compared_file_by_file() {
+            let orbit_cue = "FILE \"Orbit (USA) (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n";
+            let saga_cue = |n: u8| {
+                format!(
+                    "FILE \"Saga (USA) (Disc {n}) (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
+                )
+            };
+            let (saga1, saga2) = (saga_cue(1), saga_cue(2));
+            let (orbit_bin, saga1_bin, saga2_bin) =
+                (noise(1, 2352 * 4), noise(2, 2352 * 4), noise(3, 2352 * 4));
+            let env = Env::of(
+                "Redump",
+                vec![
+                    (
+                        "Orbit (USA)",
+                        vec![
+                            rom("Orbit (USA).cue", orbit_cue.as_bytes()),
+                            rom("Orbit (USA) (Track 1).bin", &orbit_bin),
+                        ],
+                    ),
+                    (
+                        "Saga (USA) (Disc 1)",
+                        vec![
+                            rom("Saga (USA) (Disc 1).cue", saga1.as_bytes()),
+                            rom("Saga (USA) (Disc 1) (Track 1).bin", &saga1_bin),
+                        ],
+                    ),
+                    (
+                        "Saga (USA) (Disc 2)",
+                        vec![
+                            rom("Saga (USA) (Disc 2).cue", saga2.as_bytes()),
+                            rom("Saga (USA) (Disc 2) (Track 1).bin", &saga2_bin),
+                        ],
+                    ),
+                ],
+                Some(SystemStorage {
+                    format: Some(StorageFormat::LooseFolder),
+                    layout: Some(DiscLayout::EsDe),
+                    ..Default::default()
+                }),
+            );
+            let folder = env.folder("psx");
+            env.build_of(
+                &folder,
+                &["Orbit (USA)", "Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"],
+            );
+            let m3u = std::fs::read(env.dir("psx").join("Saga (USA).m3u/Saga (USA).m3u")).unwrap();
+            let romm = library(
+                "psx",
+                vec![
+                    rom_of(
+                        1,
+                        "psx",
+                        "Orbit (USA).cue",
+                        Some("Orbit"),
+                        vec![
+                            file(
+                                "psx",
+                                "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
+                                "0000000000000000000000000000000000000000",
+                            ),
+                            file(
+                                "psx",
+                                "Orbit (USA).cue/Orbit (USA).cue",
+                                &sha1(orbit_cue.as_bytes()),
+                            ),
+                        ],
+                    ),
+                    rom_of(
+                        2,
+                        "psx",
+                        "Saga (USA).m3u",
+                        Some("Saga"),
+                        vec![
+                            file(
+                                "psx",
+                                "Saga (USA).m3u/Saga (USA) (Disc 1) (Track 1).bin",
+                                &sha1(&saga1_bin),
+                            ),
+                            file(
+                                "psx",
+                                "Saga (USA).m3u/Saga (USA) (Disc 1).cue",
+                                &sha1(saga1.as_bytes()),
+                            ),
+                            file(
+                                "psx",
+                                "Saga (USA).m3u/Saga (USA) (Disc 2) (Track 1).bin",
+                                &sha1(&saga2_bin),
+                            ),
+                            file("psx", "Saga (USA).m3u/Saga (USA).m3u", &sha1(&m3u)),
+                        ],
+                    ),
+                ],
+            );
+            env.romm(true, &romm.url, "play");
+
+            let reconciled = reconcile(&env, &folder, 50).unwrap();
+
+            assert_eq!(reconciled.error, None);
+            assert_eq!(
+                flags(&reconciled),
+                [
+                    (
+                        "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
+                        vec![RommFlag::HashMismatch],
+                        Some(1)
+                    ),
+                    (
+                        "Saga (USA).m3u/Saga (USA) (Disc 2).cue",
+                        vec![RommFlag::HashMismatch],
+                        Some(2)
+                    ),
+                ]
+            );
+            assert_eq!(
+                reconciled.counts,
+                RommReconcileCounts {
+                    files: 7,
+                    clean: 5,
+                    unidentified: 0,
+                    title_mismatch: 0,
+                    hash_mismatch: 2
+                }
+            );
+            assert!(
+                reconciled.rows[1]
+                    .detail
+                    .as_deref()
+                    .unwrap()
+                    .contains("RomM doesn't list"),
+                "{:?}",
+                reconciled.rows[1]
+            );
+        }
+
+        /// RomM hashes each member of a zip whole, so a ROM built with its Header agrees with RomM when RomM's hash is
+        /// of the member with its Header, not of the DAT's headerless dump.
+        #[test]
+        fn a_rom_built_with_its_header_in_a_zip_is_compared_whole() {
+            let mut ines = b"NES\x1a".to_vec();
+            ines.resize(16, 0x01);
+            let (zelda, mario) = (noise(1, 64), noise(2, 64));
+            let env = Env::headered(
+                "No-Intro",
+                vec![
+                    ("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)]),
+                    ("Mario (USA)", vec![rom("Mario (USA).nes", &mario)]),
+                ],
+                None,
+                Some(("No-Intro_NES.xml", &ines)),
+            );
+            let folder = env.folder("famicom");
+            env.build_of(&folder, &["Zelda (USA)", "Mario (USA)"]);
+            let whole = [ines.clone(), zelda].concat();
+            let romm = library(
+                "famicom",
+                vec![
+                    rom_of(
+                        1,
+                        "famicom",
+                        "Zelda (USA).zip",
+                        Some("Zelda"),
+                        vec![zip(
+                            "famicom",
+                            "Zelda (USA).zip",
+                            &[("Zelda (USA).nes", &whole)],
+                        )],
+                    ),
+                    rom_of(
+                        2,
+                        "famicom",
+                        "Mario (USA).zip",
+                        Some("Mario"),
+                        vec![zip(
+                            "famicom",
+                            "Mario (USA).zip",
+                            &[("Mario (USA).nes", &mario)],
+                        )],
+                    ),
+                ],
+            );
+            env.romm(true, &romm.url, "play");
+
+            let reconciled = reconcile(&env, &folder, 50).unwrap();
+
+            assert_eq!(
+                flags(&reconciled),
+                [("Mario (USA).zip", vec![RommFlag::HashMismatch], Some(2))],
+                "{reconciled:?}"
+            );
+            assert_eq!((reconciled.counts.files, reconciled.counts.clean), (2, 1));
+        }
+
+        #[test]
+        fn only_the_latest_reconciliation_of_a_folder_is_kept_and_one_that_fails_says_why() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let romm = library("a26", vec![]);
+            env.romm(true, &romm.url, "play");
+            let first = reconcile(&env, &folder, 50).unwrap();
+            assert_eq!(first.counts.hash_mismatch, 5);
+
+            let elsewhere = library("nes", vec![]);
+            env.romm(true, &elsewhere.url, "play");
+            let failed = reconcile(&env, &folder, 50).unwrap();
+
+            let error = failed.error.clone().expect("RomM has no platform a26");
+            assert!(error.contains("a26"), "{error}");
+            assert!(!error.contains("rmm_good"), "{error}");
+            assert_eq!(
+                (failed.counts, failed.rows.len()),
+                (RommReconcileCounts::default(), 0)
+            );
+            assert_eq!(
+                env.store.romm_reconciliation(folder.id).unwrap(),
+                Some(failed)
+            );
+        }
+
+        /// A platform RomM pages through more slowly than the scan window ends with a comparison that says so,
+        /// instead of reading pages for ever.
+        #[test]
+        fn a_platform_too_slow_to_list_within_the_window_ends_saying_so() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let roms = (1..=20)
+                .map(|id| rom_of(id, "a26", &format!("Game {id}.zip"), Some("Game"), vec![]))
+                .collect();
+            let romm = library_then("a26", roms, |r| {
+                if r.path.starts_with("/api/roms?") {
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+            });
+            env.romm(true, &romm.url, "play");
+            let window = ScanTiming {
+                window: Duration::from_millis(150),
+                ..FAST
+            };
+
+            let ended = Store::reconcile_romm(
+                &Arc::downgrade(&env.store),
+                &env.config,
+                folder.id,
+                None,
+                1,
+                &window,
+                &ScanStop::default(),
+            )
+            .unwrap()
+            .unwrap();
+
+            let error = ended.error.expect("the comparison ran out of time");
+            assert!(error.contains("didn't list"), "{error}");
+            let pages = romm
+                .seen()
+                .iter()
+                .filter(|r| r.path.starts_with("/api/roms?"))
+                .count();
+            assert!(pages < 20, "it stopped paging: {pages} pages");
+        }
+
+        /// [`library`], holding its answer to the first request for a page of ROMs until the test has done what it
+        /// does then.
+        fn held_library(fs_slug: &str, roms: Vec<Value>) -> (StubRomm, Hold) {
+            let (reached, wait_reached) = std::sync::mpsc::channel::<()>();
+            let (release, released) = std::sync::mpsc::channel::<()>();
+            let (reached, released) = (Mutex::new(reached), Mutex::new(released));
+            let once = AtomicUsize::new(0);
+            let romm = library_then(fs_slug, roms, move |r| {
+                if r.path.starts_with("/api/roms?") && once.fetch_add(1, Ordering::SeqCst) == 0 {
+                    reached.lock().unwrap().send(()).unwrap();
+                    released.lock().unwrap().recv().unwrap();
+                }
+            });
+            (romm, Hold(wait_reached, release))
+        }
+
+        /// RomM turned off, or its address or root changed, while its last page of ROMs is read: the comparison is
+        /// of RomM as you no longer have it, so it is discarded and the one before stays the latest.
+        #[test]
+        fn a_comparison_whose_romm_changed_while_it_read_the_last_page_is_discarded() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let elsewhere = library("a26", vec![]);
+            type Change<'a> = Box<dyn Fn(&Env, &str) + 'a>;
+            let changes: [(&str, Change); 3] = [
+                ("off", Box::new(|env, url| env.romm(false, url, "play"))),
+                (
+                    "address",
+                    Box::new(|env, _| env.romm(true, &elsewhere.url, "play")),
+                ),
+                ("root", Box::new(|env, url| env.romm(true, url, "sets"))),
+            ];
+            for (name, change) in changes {
+                let (romm, hold) = held_library("a26", vec![]);
+                let before = library("a26", vec![]);
+                env.romm(true, &before.url, "play");
+                let latest = reconcile(&env, &folder, 50).unwrap();
+                env.romm(true, &romm.url, "play");
+
+                let reconciled = std::thread::scope(|s| {
+                    let reconciling = s.spawn(|| reconcile(&env, &folder, 50));
+                    hold.when_reached(|| change(&env, &romm.url));
+                    reconciling.join().unwrap()
+                });
+
+                assert_eq!(reconciled, None, "{name}");
+                assert_eq!(
+                    env.store.romm_reconciliation(folder.id).unwrap(),
+                    Some(latest),
+                    "{name}"
+                );
+            }
+            assert!(elsewhere.seen().is_empty());
+        }
+
+        /// A comparison's ROM ids are RomM's at the address it read, for the platform the folder was then: once
+        /// either changes, a rescan is refused rather than sent where the id may name another ROM.
+        #[test]
+        fn a_rescan_is_refused_once_romm_s_address_or_the_folder_s_platform_changed() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let roms = vec![rom_of(
+                2,
+                "a26",
+                "Combat (USA).zip",
+                None,
+                vec![zip(
+                    "a26",
+                    "Combat (USA).zip",
+                    &[("Combat (USA).a26", b"combat")],
+                )],
+            )];
+            let (romm, elsewhere) = (library("a26", roms.clone()), library("a26", roms));
+            env.romm(true, &romm.url, "play");
+            reconcile(&env, &folder, 50).unwrap();
+
+            for (name, url, root) in [
+                ("address", &elsewhere.url, "play"),
+                ("platform", &romm.url, "sets"),
+            ] {
+                env.romm(true, url, root);
+                let refused = env
+                    .store
+                    .request_romm_rescan(&env.config, folder.id, 2)
+                    .unwrap_err();
+                let title_select_store::Error::Refused(why) = &refused else {
+                    panic!("{name}: {refused}");
+                };
+                assert!(why.contains("Compare again"), "{name}: {why}");
+            }
+            env.romm(true, &romm.url, "play");
+            env.store
+                .request_romm_rescan(&env.config, folder.id, 2)
+                .unwrap();
+
+            let posts = |r: &StubRomm| r.seen().iter().filter(|s| s.method == "POST").count();
+            assert_eq!((posts(&romm), posts(&elsewhere)), (1, 0));
+        }
+
+        #[test]
+        fn nothing_is_reconciled_while_romm_is_off_or_for_a_folder_romm_does_not_scan() {
+            let env = atari();
+            let romm = library("a26", vec![]);
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            env.romm(false, &romm.url, "play");
+            assert_eq!(reconcile(&env, &folder, 50), None);
+
+            env.romm(true, &romm.url, "play");
+            let nested = env.folder("arcade/a26");
+            env.build_of(&nested, &ATARI);
+            assert_eq!(reconcile(&env, &nested, 50), None);
+
+            assert!(romm.seen().is_empty(), "{:?}", romm.seen());
+            assert_eq!(env.store.romm_reconciliation(folder.id).unwrap(), None);
+        }
+
+        #[test]
+        fn a_rescan_asks_romm_to_scan_one_rom_of_the_latest_reconciliation_again() {
+            let env = atari();
+            let folder = env.folder("a26");
+            env.build_of(&folder, &ATARI);
+            let romm = library(
+                "a26",
+                vec![
+                    rom_of(
+                        2,
+                        "a26",
+                        "Combat (USA).zip",
+                        None,
+                        vec![zip(
+                            "a26",
+                            "Combat (USA).zip",
+                            &[("Combat (USA).a26", b"combat")],
+                        )],
+                    ),
+                    rom_of(
+                        4,
+                        "a26",
+                        "Breakout (USA).zip",
+                        Some("Breakout"),
+                        vec![zip(
+                            "a26",
+                            "Breakout (USA).zip",
+                            &[("Breakout (USA).a26", b"x")],
+                        )],
+                    ),
+                ],
+            );
+            env.romm(true, &romm.url, "play");
+            reconcile(&env, &folder, 50).unwrap();
+
+            let unmatched = env
+                .store
+                .request_romm_rescan(&env.config, folder.id, 2)
+                .unwrap();
+            let update = env
+                .store
+                .request_romm_rescan(&env.config, folder.id, 4)
+                .unwrap();
+
+            assert_eq!(
+                (unmatched.scan_type.as_str(), unmatched.task_id.as_str()),
+                ("unmatched", "t9")
+            );
+            assert_eq!(update.scan_type, "update");
+            let posted: Vec<Value> = romm
+                .seen()
+                .into_iter()
+                .filter(|r| r.path == "/api/tasks/scan")
+                .map(|r| serde_json::from_str(&r.body).unwrap())
+                .collect();
+            assert_eq!(
+                posted,
+                [
+                    json!({"type": "unmatched", "roms_ids": [2]}),
+                    json!({"type": "update", "roms_ids": [4]})
+                ]
+            );
+
+            let not_flagged = env
+                .store
+                .request_romm_rescan(&env.config, folder.id, 99)
+                .unwrap_err();
+            assert!(
+                matches!(not_flagged, title_select_store::Error::Refused(_)),
+                "{not_flagged}"
+            );
+            env.romm(false, &romm.url, "play");
+            let off = env
+                .store
+                .request_romm_rescan(&env.config, folder.id, 2)
+                .unwrap_err();
+            assert!(
+                matches!(off, title_select_store::Error::Refused(_)),
+                "{off}"
+            );
+            assert_eq!(romm.seen().iter().filter(|r| r.method == "POST").count(), 2);
+        }
     }
 }

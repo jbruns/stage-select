@@ -8,7 +8,7 @@ use title_select_api::build::ItemKind;
 use title_select_api::ingest::IngestAction;
 use title_select_api::repair::RepairKind;
 use title_select_api::report::{Finding, GameStatus};
-use title_select_api::romm::{RommAdditionsOutcome, RommScanOutcome};
+use title_select_api::romm::{RommAdditionsOutcome, RommFlag, RommScanOutcome};
 
 use super::icon::{Glyph, Icon};
 
@@ -1012,6 +1012,35 @@ impl Status for JobState {
     }
 }
 
+/// How RomM's view of a file a build made disagrees with the build. Title Select only shows it: RomM's matches are
+/// changed in RomM.
+impl Status for RommFlag {
+    const ALL: &'static [Self] = &RommFlag::ALL;
+
+    fn look(self) -> Look {
+        match self {
+            RommFlag::Unidentified => look(
+                Glyph::FileQuestionMark,
+                Tone::Review,
+                "Unidentified",
+                "RomM matched it to no game, so you can match it in RomM or ask RomM to scan it again.",
+            ),
+            RommFlag::TitleMismatch => look(
+                Glyph::EqualNot,
+                Tone::Review,
+                "Title differs",
+                "RomM matched it to a game whose name isn't the DAT's, so you can check the match in RomM.",
+            ),
+            RommFlag::HashMismatch => look(
+                Glyph::FileExclamationPoint,
+                Tone::Review,
+                "Hash differs",
+                "RomM's SHA-1 for it isn't what the build wrote, or RomM doesn't list it, so you can ask RomM to scan it again.",
+            ),
+        }
+    }
+}
+
 /// How the RomM scan a build asked for once it ended went. Anything but scanning or scanned is a warning: the build
 /// still succeeded.
 impl Status for RommScanOutcome {
@@ -1149,6 +1178,7 @@ mod tests {
             ("jobs", vocabulary::<JobState>()),
             ("RomM scans", vocabulary::<RommScanOutcome>()),
             ("RomM additions", vocabulary::<RommAdditionsOutcome>()),
+            ("RomM comparisons", vocabulary::<RommFlag>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
             ("selection groups", vocabulary::<GroupStatus>()),
