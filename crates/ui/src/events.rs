@@ -1,4 +1,5 @@
-//! The `/events` stream: every Job's `state` and `progress`, and a `resync` on connecting or after falling behind.
+//! The `/events` stream: every Job's `state` and `progress`, a `resync` on connecting or after falling behind, and
+//! `settings` when the settings change.
 
 use std::cell::RefCell;
 
@@ -37,6 +38,9 @@ pub struct Live {
     pub stream: RwSignal<Stream>,
     /// Goes up when a Job reaches a final state or the stream resyncs, so screens showing Audits fetch again.
     pub settled: RwSignal<u64>,
+    /// Goes up when the settings change, here or elsewhere, and when the stream resyncs, since a change may have been
+    /// missed; screens showing settings fetch again.
+    pub settings: RwSignal<u64>,
 }
 
 pub fn use_live() -> Live {
@@ -49,6 +53,7 @@ pub fn provide_live() -> Live {
         book: RwSignal::new(JobBook::default()),
         stream: RwSignal::new(Stream::Connecting),
         settled: RwSignal::new(0),
+        settings: RwSignal::new(0),
     };
     provide_context(live);
     connect(live);
@@ -76,10 +81,16 @@ fn apply(live: Live, name: &str, data: &str) {
     match applied {
         None | Some(Applied::Ignored) => {}
         Some(Applied::Changed) => live.book.notify(),
-        Some(Applied::Finished | Applied::Resynced) => {
+        Some(Applied::Finished) => {
             live.book.notify();
             live.settled.update(|n| *n += 1);
         }
+        Some(Applied::Resynced) => {
+            live.book.notify();
+            live.settled.update(|n| *n += 1);
+            live.settings.update(|n| *n += 1);
+        }
+        Some(Applied::Settings) => live.settings.update(|n| *n += 1),
     }
 }
 
@@ -89,7 +100,7 @@ fn connect(live: Live) {
         return;
     };
     let mut listeners = Vec::new();
-    for name in ["state", "progress", "resync"] {
+    for name in ["state", "progress", "resync", "settings"] {
         let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
             if let Some(data) = event.unchecked_into::<MessageEvent>().data().as_string() {
                 apply(live, name, &data);

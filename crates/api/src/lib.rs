@@ -690,7 +690,15 @@ pub struct JobSnapshot {
     pub jobs: Vec<Job>,
 }
 
-/// A server-sent event: the SSE event name is `state`, `progress` or `resync`, and its data is this, as JSON.
+/// Sent by `/events` when the settings change, so a client can fetch them again. It carries nothing secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsChanged {
+    /// The pace running Jobs follow now.
+    pub pace: settings::Pace,
+}
+
+/// A server-sent event: the SSE event name is `state`, `progress`, `resync` or `settings`, and its data is this, as
+/// JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JobEvent {
@@ -699,6 +707,7 @@ pub enum JobEvent {
     /// Sent by `/events` when a client connects and whenever it fell behind and missed events: the Jobs now, to
     /// replace what the client knew.
     Resync(JobSnapshot),
+    Settings(SettingsChanged),
 }
 
 impl JobEvent {
@@ -708,15 +717,16 @@ impl JobEvent {
             JobEvent::State(_) => "state",
             JobEvent::Progress(_) => "progress",
             JobEvent::Resync(_) => "resync",
+            JobEvent::Settings(_) => "settings",
         }
     }
 
-    /// The Job the event is about; none for a `resync`.
+    /// The Job the event is about; none for a `resync` or `settings`.
     pub fn job_id(&self) -> Option<i64> {
         match self {
             JobEvent::State(job) => Some(job.id),
             JobEvent::Progress(p) => Some(p.job),
-            JobEvent::Resync(_) => None,
+            JobEvent::Resync(_) | JobEvent::Settings(_) => None,
         }
     }
 }

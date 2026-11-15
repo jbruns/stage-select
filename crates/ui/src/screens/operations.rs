@@ -6,7 +6,8 @@ use leptos::prelude::*;
 use title_select_api::settings::{NotifyEvent, Pace, SecretUpdate, SettingsView};
 
 use crate::api;
-use crate::app::{Loading, Problem, use_settings_changed};
+use crate::app::{Loading, Problem};
+use crate::events::use_live;
 use crate::settings_model::{CadenceDraft, Draft, pace_label, secret_state};
 
 fn event_label(event: NotifyEvent) -> &'static str {
@@ -43,7 +44,32 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     let dirty = Memo::new(move |_| saved.with(|s| draft.with(|d| *d != Draft::of(s))));
     let outcome = RwSignal::new(None::<Result<(), String>>);
     let saving = RwSignal::new(false);
-    let changed = use_settings_changed();
+    // Settings someone saved elsewhere while you had changes here, shown once you discard yours.
+    let newer = RwSignal::new(None::<SettingsView>);
+    let live = use_live();
+    Effect::watch(
+        move || live.settings.get(),
+        move |_, _, _| {
+            if saving.get_untracked() {
+                return;
+            }
+            leptos::task::spawn_local(async move {
+                let Ok(now) = api::get::<SettingsView>("/settings").await else {
+                    return;
+                };
+                if saving.get_untracked() || saved.with_untracked(|s| *s == now) {
+                    return;
+                }
+                if dirty.get_untracked() {
+                    newer.set(Some(now));
+                } else {
+                    draft.set(Draft::of(&now));
+                    saved.set(now);
+                }
+            });
+        },
+        false,
+    );
     let save = move |_| {
         let update = match saved.with_untracked(|s| draft.with_untracked(|d| d.update(s))) {
             Ok(update) => update,
@@ -57,8 +83,8 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                 Ok(now) => {
                     draft.set(Draft::of(&now));
                     saved.set(now);
+                    newer.set(None);
                     outcome.set(Some(Ok(())));
-                    changed.update(|n| *n += 1);
                 }
                 Err(message) => outcome.set(Some(Err(message))),
             }
@@ -152,6 +178,9 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     type="button"
                     disabled=move || !dirty.get() || saving.get()
                     on:click=move |_| {
+                        if let Some(now) = newer.try_update(Option::take).flatten() {
+                            saved.set(now);
+                        }
                         draft.set(saved.with_untracked(Draft::of));
                         outcome.set(None);
                     }
@@ -159,6 +188,17 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     "Discard changes"
                 </button>
             </div>
+            {move || {
+                newer
+                    .with(Option::is_some)
+                    .then(|| {
+                        view! {
+                            <p class="note" role="status">
+                                "Your settings were changed elsewhere since you opened them. Save to replace them with yours, or discard your changes to see them."
+                            </p>
+                        }
+                    })
+            }}
             {move || match outcome.get() {
                 Some(Ok(())) if !dirty.get() => {
                     view! { <p class="done" role="status">"Saved your settings. They apply now."</p> }.into_any()

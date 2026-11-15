@@ -92,6 +92,17 @@ pub struct Retention {
     pub selections_keep: usize,
 }
 
+/// The most full Audits or Selections a Source Set may keep.
+pub const MAX_KEPT: usize = 10_000;
+/// The longest a check-for-changes interval may be, in minutes: a year.
+pub const MAX_CHECK_EVERY_MINUTES: u64 = 525_600;
+/// The longest chdman's time limit may be, in seconds, before or for each GiB: a week.
+pub const MAX_CHD_SECONDS: u64 = 604_800;
+/// The longest an Ingest Folder's settle time may be, in seconds: a day.
+pub const MAX_SETTLE_SECS: u64 = 86_400;
+/// The longest an Ingest Folder's scan schedule may be, in minutes: a week.
+pub const MAX_SCAN_EVERY_MINUTES: u64 = 10_080;
+
 /// How many full Audits a Source Set keeps unless the Operator says otherwise.
 pub const DEFAULT_AUDITS_KEPT: usize = 20;
 /// How many full Selections a Source Set keeps unless the Operator says otherwise.

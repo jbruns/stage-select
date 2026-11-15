@@ -347,18 +347,19 @@ save it, without a restart, and is kept in the store, so a backup of the store k
 | Setting | What it does | Default |
 | --- | --- | --- |
 | Job pace | the share of each `[jobs]` ceiling jobs use: gentle, default or unthrottled; see "Jobs" | default |
-| Retention | full audits and full selections each source set keeps | 20 each |
+| Retention | full audits and full selections each source set keeps, from 1 to 10,000 | 20 each |
 | Path templates | the paths registration proposes for a source set and a library folder; see "Path templates" | `{provider}/{dat}`, `{platform}` |
-| Checking source sets | how often each audited source set is checked for changed files; 0 checks only when you ask | every 360 minutes |
+| Checking source sets | how often each audited source set is checked for changed files, at most every 525,600 minutes (a year); 0 checks only when you ask | every 360 minutes |
 | Fetching DAT revisions | whether newer DAT revisions are fetched from Redump and from MAME; see "Fetching DATs" | off |
-| CHD time limits | the longest chdman may run on a disc: a limit, plus more for each GiB of its tracks; see "Storage policy" | 600 seconds, plus 240 a GiB |
-| Ingest folders | for each ingest folder, how long an item stays unchanged before it is assessed, and how often it is scanned on its own | 60 seconds; only when you ask, and once arriving items could settle |
+| CHD time limits | the longest chdman may run on a disc: a limit, plus more for each GiB of its tracks, each at most 604,800 seconds (a week); see "Storage policy" | 600 seconds, plus 240 a GiB |
+| Ingest folders | for each ingest folder, how long an item stays unchanged before it is assessed, up to 86,400 seconds (a day), and how often it is scanned on its own, every 1 to 10,080 minutes (a week) | 60 seconds; only when you ask, and once arriving items could settle |
 | Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
 
 The webhook's URL and secret are write-only: once saved, the workbench and the API say only whether each is set, and
 you can replace or clear it, but not read it.
 
-The API reads them with `GET /api/v1/settings` and changes them with `PATCH /api/v1/settings`; see "HTTP API".
+The API reads them with `GET /api/v1/settings` and changes them with `PATCH /api/v1/settings`; see "HTTP API". When
+they change, every open workbench hears of it and shows them as they are now.
 
 ### Path templates
 
@@ -1268,6 +1269,7 @@ Server-sent events carry JSON data, under one of these event names:
 | `state`    | the job                                | when a job's state changes; first on a job's own stream      |
 | `progress` | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second          |
 | `resync`   | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind |
+| `settings` | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again      |
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.

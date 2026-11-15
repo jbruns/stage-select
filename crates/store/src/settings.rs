@@ -13,8 +13,9 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use title_select_api::settings::{
-    ChdTimeouts, FetchSettings, IngestCadence, JobsView, NotifyEvent, NotifyUpdate, NotifyView,
-    Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
+    ChdTimeouts, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS, MAX_CHECK_EVERY_MINUTES,
+    MAX_KEPT, MAX_SCAN_EVERY_MINUTES, MAX_SETTLE_SECS, NotifyEvent, NotifyUpdate, NotifyView, Pace,
+    PathTemplates, Retention, SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
 };
 
 use crate::config::Config;
@@ -249,34 +250,24 @@ impl Store {
         update: &SettingsUpdate,
         actor: &str,
     ) -> Result<Settings> {
-        if let Some(retention) = &update.retention
-            && (retention.audits_keep == 0 || retention.selections_keep == 0)
-        {
-            return Err(Error::Refused(
-                "Keep at least 1 audit and 1 selection of each source set.".into(),
-            ));
-        }
-        if let Some(chd) = &update.chd
-            && chd.seconds == 0
-        {
-            return Err(Error::Refused(
-                "Give chdman at least 1 second for each disc.".into(),
-            ));
-        }
-        if let Some(folders) = &update.ingest_folders {
-            for (name, cadence) in folders {
-                if !config.root(name).is_some_and(|r| r.is_ingest()) {
-                    return Err(Error::Refused(format!(
-                        "{name} is not an ingest folder in your configuration."
-                    )));
-                }
-                if cadence.scan_every_minutes == Some(0) {
-                    return Err(Error::Refused(format!(
-                        "Scan {name} at most every minute, or turn its schedule off."
-                    )));
-                }
-            }
-        }
+        self.update_settings_and_publish(config, update, actor, |_| {})
+    }
+
+    /// As [`Store::update_settings`], then `publish`es the settings now to whatever applies them, such as the
+    /// webhook. Each update's commit and publication run together, one update at a time, so a slower update never
+    /// publishes its settings after a later one's.
+    pub fn update_settings_and_publish(
+        &self,
+        config: &Config,
+        update: &SettingsUpdate,
+        actor: &str,
+        publish: impl FnOnce(&Settings),
+    ) -> Result<Settings> {
+        check(config, update)?;
+        let _one_at_a_time = self
+            .settings_update
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let settings = self.write(|tx| {
             let mut settings = load(tx)?;
             if let Some(notify) = &update.notify {
@@ -314,8 +305,70 @@ impl Store {
             Ok(settings)
         })?;
         *self.pace.write().unwrap_or_else(|e| e.into_inner()) = settings.pace;
+        publish(&settings);
         Ok(settings)
     }
+}
+
+/// Refuses an update whose values are out of range, before anything is changed.
+fn check(config: &Config, update: &SettingsUpdate) -> Result<()> {
+    let refuse = |why: String| Err(Error::Refused(why));
+    if let Some(retention) = &update.retention {
+        for (what, keep) in [
+            ("audits", retention.audits_keep),
+            ("selections", retention.selections_keep),
+        ] {
+            if !(1..=MAX_KEPT).contains(&keep) {
+                return refuse(format!(
+                    "Keep from 1 to {MAX_KEPT} {what} of each source set."
+                ));
+            }
+        }
+    }
+    if let Some(checks) = &update.source_sets
+        && checks.check_every_minutes > MAX_CHECK_EVERY_MINUTES
+    {
+        return refuse(format!(
+            "Check source sets for changes at least every {MAX_CHECK_EVERY_MINUTES} minutes (a year), or set 0 to \
+             check only when you ask."
+        ));
+    }
+    if let Some(chd) = &update.chd {
+        if !(1..=MAX_CHD_SECONDS).contains(&chd.seconds) {
+            return refuse(format!(
+                "Give chdman from 1 to {MAX_CHD_SECONDS} seconds (a week) for each disc."
+            ));
+        }
+        if chd.seconds_per_gib > MAX_CHD_SECONDS {
+            return refuse(format!(
+                "Add at most {MAX_CHD_SECONDS} seconds (a week) for each GiB of a disc."
+            ));
+        }
+    }
+    if let Some(folders) = &update.ingest_folders {
+        for (name, cadence) in folders {
+            if !config.root(name).is_some_and(|r| r.is_ingest()) {
+                return Err(Error::Refused(format!(
+                    "{name} is not an ingest folder in your configuration."
+                )));
+            }
+            if cadence.settle_secs > MAX_SETTLE_SECS {
+                return Err(Error::Refused(format!(
+                    "Let items in {name} settle for at most {MAX_SETTLE_SECS} seconds (a day)."
+                )));
+            }
+            if cadence
+                .scan_every_minutes
+                .is_some_and(|m| !(1..=MAX_SCAN_EVERY_MINUTES).contains(&m))
+            {
+                return Err(Error::Refused(format!(
+                    "Scan {name} every 1 to {MAX_SCAN_EVERY_MINUTES} minutes (a week), or leave its \
+                         schedule empty to scan only when you ask."
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -423,14 +476,110 @@ mod tests {
                 }),
                 ..SettingsUpdate::default()
             },
+            SettingsUpdate {
+                ingest_folders: Some(cadence(Some(MAX_SCAN_EVERY_MINUTES + 1))),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                ingest_folders: Some(cadence(Some(u64::MAX / 4))),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                ingest_folders: Some(BTreeMap::from([(
+                    "in".to_owned(),
+                    IngestCadence {
+                        settle_secs: u64::MAX,
+                        scan_every_minutes: None,
+                    },
+                )])),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                source_sets: Some(SourceSetChecks {
+                    check_every_minutes: u64::MAX,
+                }),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                retention: Some(Retention {
+                    audits_keep: usize::MAX,
+                    selections_keep: 1,
+                }),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                chd: Some(ChdTimeouts {
+                    seconds: 1,
+                    seconds_per_gib: u64::MAX,
+                }),
+                ..SettingsUpdate::default()
+            },
         ] {
+            let refused = store.update_settings(&config, &bad, "Operator");
             assert!(
-                store.update_settings(&config, &bad, "Operator").is_err(),
-                "{bad:?}"
+                matches!(refused, Err(Error::Refused(_))),
+                "{bad:?}: {refused:?}"
             );
         }
+        let longest = BTreeMap::from([(
+            "in".to_owned(),
+            IngestCadence {
+                settle_secs: MAX_SETTLE_SECS,
+                scan_every_minutes: Some(MAX_SCAN_EVERY_MINUTES),
+            },
+        )]);
+        let (_dir2, other) = self::store();
+        other
+            .update_settings(
+                &config,
+                &SettingsUpdate {
+                    ingest_folders: Some(longest),
+                    ..SettingsUpdate::default()
+                },
+                "Operator",
+            )
+            .unwrap();
         assert_eq!(store.settings().unwrap(), Settings::default());
         assert_eq!(store.pace(), Pace::Default);
+    }
+
+    #[test]
+    fn concurrent_updates_publish_in_the_order_they_commit() {
+        let (_dir, store) = store();
+        let config = Config::default();
+        let published = std::sync::Mutex::new(None::<bool>);
+        let set = |s: &str| SecretUpdate::Set(s.to_owned());
+        std::thread::scope(|scope| {
+            for i in 0..8 {
+                let (store, config, published) = (&store, &config, &published);
+                scope.spawn(move || {
+                    for j in 0..25 {
+                        let update = if (i + j) % 2 == 0 {
+                            notify(set("https://hooks.example/x"), set("s"))
+                        } else {
+                            notify(SecretUpdate::Clear, SecretUpdate::Clear)
+                        };
+                        store
+                            .update_settings_and_publish(config, &update, "Operator", |now| {
+                                // Widens the window between commit and publication.
+                                std::thread::sleep(std::time::Duration::from_micros(200));
+                                assert_eq!(
+                                    store.settings().unwrap().notify,
+                                    now.notify,
+                                    "nothing commits while a publication is under way"
+                                );
+                                *published.lock().unwrap() = Some(now.notify.is_on());
+                            })
+                            .unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            *published.lock().unwrap(),
+            Some(store.settings().unwrap().notify.is_on()),
+            "the last publication is the settings as stored"
+        );
     }
 
     fn notify(url: SecretUpdate, secret: SecretUpdate) -> SettingsUpdate {

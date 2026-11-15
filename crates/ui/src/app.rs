@@ -35,7 +35,6 @@ pub fn App() -> impl IntoView {
     provide_live();
     provide_seen_jobs();
     provide_context(IngestChanged(RwSignal::new(0)));
-    provide_context(SettingsChanged(RwSignal::new(0)));
     provide_planner();
     view! {
         <Router>
@@ -323,22 +322,12 @@ fn OldLibraryFolder() -> impl IntoView {
     view! { <Redirect path=format!("/libraries/{id}") options=replace() /> }
 }
 
-/// Bumped when you save your settings, so the header's pace mark reloads.
-#[derive(Clone, Copy)]
-struct SettingsChanged(RwSignal<u64>);
-
-pub fn use_settings_changed() -> RwSignal<u64> {
-    expect_context::<SettingsChanged>().0
-}
-
 /// A mark in the header while jobs run unthrottled, linking to the setting.
 #[component]
 fn PaceMark() -> impl IntoView {
     let live = use_live();
-    let changed = use_settings_changed();
     let pace = LocalResource::new(move || {
-        live.settled.track();
-        changed.track();
+        live.settings.track();
         async {
             api::get::<SettingsView>("/settings")
                 .await

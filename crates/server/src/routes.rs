@@ -35,8 +35,8 @@ use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
     ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, Preview,
     PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, Root, SSE_KEEP_ALIVE, SaveProfile,
-    SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow, SourceSetSystem, StartAudit,
-    StartSelection, Vocabulary,
+    SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow, SettingsChanged,
+    SourceSetSystem, StartAudit, StartSelection, Vocabulary,
 };
 use title_select_selection::Engine;
 use title_select_store::config::Config;
@@ -542,11 +542,14 @@ async fn change_settings(
 ) -> ApiResult<Json<SettingsView>> {
     let Json(update) = body?;
     let config = state.config.clone();
+    let jobs = state.jobs.clone();
     let settings = blocking(&state, move |store| {
-        store.update_settings(&config, &update, &actor)
+        store.update_settings_and_publish(&config, &update, &actor, |now| {
+            jobs.notifier.reconfigure(&now.notify);
+            jobs.publish(JobEvent::Settings(SettingsChanged { pace: now.pace }));
+        })
     })
     .await?;
-    state.jobs.notifier.reconfigure(&settings.notify);
     state.jobs.wake();
     Ok(Json(settings.view(&state.config)))
 }
@@ -1958,6 +1961,7 @@ impl Sent {
                 }
                 true
             }
+            JobEvent::Settings(_) => true,
         }
     }
 

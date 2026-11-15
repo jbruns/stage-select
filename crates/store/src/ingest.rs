@@ -1304,7 +1304,8 @@ impl Store {
                             .stable_since
                             .parse()
                             .map_err(|e: jiff::Error| Error::Io(e.to_string()))?;
-                        started.duration_since(since).as_secs() >= settle as i64
+                        started.duration_since(since).as_secs()
+                            >= i64::try_from(settle).unwrap_or(i64::MAX)
                     }
                 }
                 _ => false,
@@ -1527,7 +1528,9 @@ impl Store {
                 let since: jiff::Timestamp = since
                     .parse()
                     .map_err(|e: jiff::Error| Error::Io(e.to_string()))?;
-                Ok(since + jiff::SignedDuration::from_secs(settle as i64))
+                let settle =
+                    jiff::SignedDuration::from_secs(i64::try_from(settle).unwrap_or(i64::MAX));
+                Ok(since.checked_add(settle).unwrap_or(jiff::Timestamp::MAX))
             })
             .transpose()
     }

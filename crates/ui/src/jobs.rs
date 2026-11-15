@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use title_select_api::{Job, JobEvent, JobProgress, JobSnapshot, JobState};
+use title_select_api::{Job, JobEvent, JobProgress, JobSnapshot, JobState, SettingsChanged};
 
 /// Parses one server-sent event by its SSE event name, since the JSON alone does not say which it is.
 pub fn parse_event(name: &str, data: &str) -> Result<JobEvent, String> {
@@ -10,6 +10,7 @@ pub fn parse_event(name: &str, data: &str) -> Result<JobEvent, String> {
         "state" => serde_json::from_str::<Job>(data).map(|job| JobEvent::State(Box::new(job))),
         "progress" => serde_json::from_str::<JobProgress>(data).map(JobEvent::Progress),
         "resync" => serde_json::from_str::<JobSnapshot>(data).map(JobEvent::Resync),
+        "settings" => serde_json::from_str::<SettingsChanged>(data).map(JobEvent::Settings),
         other => return Err(format!("unknown event `{other}`")),
     };
     parsed.map_err(|e| format!("`{name}` event: {e}"))
@@ -32,6 +33,8 @@ pub enum Applied {
     Finished,
     /// The book was replaced by a snapshot.
     Resynced,
+    /// The settings changed; the book is unchanged.
+    Settings,
 }
 
 /// The Jobs, by ID, as the latest events left them.
@@ -77,6 +80,7 @@ impl JobBook {
                 self.replace(snapshot.jobs);
                 Applied::Resynced
             }
+            JobEvent::Settings(_) => Applied::Settings,
         }
     }
 
@@ -336,6 +340,18 @@ mod tests {
         assert!(
             matches!(parse_event("resync", &r).unwrap(), JobEvent::Resync(s) if s.jobs == [job])
         );
+        let mut book = JobBook::default();
+        book.apply(parse_event("state", &data).unwrap());
+        let settings = parse_event("settings", r#"{"pace":"unthrottled"}"#).unwrap();
+        assert_eq!(
+            settings,
+            JobEvent::Settings(SettingsChanged {
+                pace: title_select_api::settings::Pace::Unthrottled
+            })
+        );
+        let before = book.clone();
+        assert_eq!(book.apply(settings), Applied::Settings);
+        assert_eq!(book, before, "a settings event leaves the jobs alone");
         assert!(parse_event("progress", &data).is_err());
         assert!(parse_event("other", "{}").is_err());
     }

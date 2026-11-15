@@ -884,6 +884,31 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
 }
 
 #[test]
+fn every_watching_client_hears_that_the_settings_changed_without_their_secrets() {
+    let env = Env::new();
+    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let client = Client::new(&service);
+    let (mut events, _) = client.watch();
+
+    let (status, _) = client.change_settings(serde_json::json!({
+        "pace": "unthrottled",
+        "notify": {
+            "url": {"set": "https://hooks.example/very-secret-path"},
+            "secret": {"set": "s3cret-value"},
+        },
+    }));
+
+    assert_eq!(status, 200);
+    let (name, data) = events.next_event();
+    assert_eq!(name, "settings");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&data).unwrap(),
+        serde_json::json!({"pace": "unthrottled"})
+    );
+    assert!(!data.contains("very-secret-path") && !data.contains("s3cret-value"));
+}
+
+#[test]
 fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_configured_ceilings() {
     use title_select_api::settings::{Ceilings, Pace, SettingsView};
     let env = Env::new();

@@ -318,7 +318,7 @@ pub async fn schedule_stat_walks(store: Arc<Store>, jobs: Arc<Jobs>) {
             if minutes == 0 {
                 return Ok(Vec::new());
             }
-            store.enqueue_stat_walks("schedule", Duration::from_secs(minutes * 60))
+            store.enqueue_stat_walks("schedule", Duration::from_secs(minutes.saturating_mul(60)))
         })
         .await;
         match queued {
@@ -440,7 +440,7 @@ pub async fn schedule_ingest_scans(store: Arc<Store>, config: Arc<Config>, jobs:
                 last.remove(root);
                 continue;
             };
-            let every = Duration::from_secs(minutes * 60);
+            let every = Duration::from_secs(minutes.saturating_mul(60));
             if last.get(root).is_some_and(|at| at.elapsed() < every) {
                 continue;
             }

@@ -122,6 +122,8 @@ pub struct Store {
     archives: std::sync::OnceLock<title_select_engine::sevenz::Gate>,
     /// The pace in the settings, which running Jobs read at each file.
     pace: std::sync::RwLock<title_select_api::settings::Pace>,
+    /// Held across each settings update's commit and publication, so they happen in the same order.
+    settings_update: std::sync::Mutex<()>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -386,6 +388,7 @@ impl Store {
             observer: std::sync::OnceLock::new(),
             archives: std::sync::OnceLock::new(),
             pace: std::sync::RwLock::default(),
+            settings_update: std::sync::Mutex::default(),
         };
         // A store opened by a test of an earlier migration has no settings.
         if migrations.len() >= migrations::SETTINGS {
