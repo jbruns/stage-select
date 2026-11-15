@@ -90,7 +90,9 @@ Two Title Select layouts must change first, because RomM misreads them (§4). De
     ([rommapp/romm#4079](https://github.com/rommapp/romm/issues/4079)).
   - Hasheous skips `.m3u` files
     ([R handler/metadata/hasheous_handler.py L361-366](https://github.com/rommapp/romm/blob/5.4.1/backend/handler/metadata/hasheous_handler.py#L361-L366)).
-  - *Inference:* a CHD's hash appears in no Redump DAT, so CHD libraries rely on name matching.
+  - A CHD's container hash appears in no Redump DAT, but RomM's lookup hashes use the SHA-1 embedded in a CHD
+    ([R models/rom.py L455-465](https://github.com/rommapp/romm/blob/5.4.1/backend/models/rom.py#L455-L465)).
+    *Inference:* how well a CHD library matches depends on each enabled provider's support for that hash.
 - **Writes into the library.** Uploads, `gamelist.xml`/Pegasus exports and conversions all write into the library, so
   they fail under `:ro` and stay off ([D reference/exports.md L10-62](https://github.com/rommapp/docs/blob/main/docs/reference/exports.md#L10-L62)).
   `gamelist.xml` is read as a provider ([D metadata-providers.md L184-287](https://github.com/rommapp/docs/blob/main/docs/getting-started/metadata-providers.md#L184-L287)).
@@ -105,9 +107,10 @@ Two Title Select layouts must change first, because RomM misreads them (§4). De
 - **Dot-folders are skipped.** Dot-folders inside a platform folder are skipped
   ([R handler/filesystem/roms_handler.py L530-544](https://github.com/rommapp/romm/blob/5.4.1/backend/handler/filesystem/roms_handler.py#L530-L544)).
   Fix: all folder state moves under `.title-select/` (#137).
-- **`.multidisc/` discs are never indexed.** The `.m3u` becomes a standalone ROM whose download is the playlist alone,
-  and RomM doesn't follow an `.m3u` to files outside its own game folder
-  ([R utils/m3u.py L49-70](https://github.com/rommapp/romm/blob/5.4.1/backend/utils/m3u.py#L49-L70)).
+- **`.multidisc/` discs are never indexed.** Discovery skips the dot-folder, so the `.m3u` becomes a standalone ROM
+  whose own files, and so its download, are the playlist alone. RomM's playlist resolver does follow paths outside the
+  game folder ([R utils/m3u.py L49-83](https://github.com/rommapp/romm/blob/5.4.1/backend/utils/m3u.py#L49-L83)), but
+  only for hashing (RAHasher); the referenced discs never become files of the ROM.
   A folder such as `<game>.cue/` is one multi-file game
   ([roms_handler.py L1212-1217](https://github.com/rommapp/romm/blob/5.4.1/backend/handler/filesystem/roms_handler.py#L1212-L1217)).
   Fix: `<release>.m3u/` (ADR 0019, #138).
