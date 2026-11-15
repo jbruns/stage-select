@@ -558,11 +558,15 @@ pub fn playlist_name(release: &str) -> String {
 }
 
 /// What an `.m3u` holds: each disc's entry file `entries`, given relative to the system folder, by its bare name,
-/// one to a line, in disc order. The `.m3u` sits beside them.
+/// one to a line, in disc order. The `.m3u` sits beside them. A name starting with `#` is written as `./<name>`, so
+/// that no player reads its line as a comment.
 pub fn playlist(entries: &[&str]) -> String {
     entries
         .iter()
-        .map(|e| format!("{}\n", e.rsplit('/').next().unwrap_or(e)))
+        .map(|e| match e.rsplit('/').next().unwrap_or(e) {
+            name if name.starts_with('#') => format!("./{name}\n"),
+            name => format!("{name}\n"),
+        })
         .collect()
 }
 
@@ -1017,6 +1021,11 @@ mod tests {
             "A (Disc 1).cue\nA (Disc 2).chd\n"
         );
         assert_eq!(playlist_name("A"), "A.m3u/A.m3u");
+        assert_eq!(
+            playlist(&["#A.m3u/#A (Disc 1).cue", "#A.m3u/A# (Disc 2).cue"]),
+            "./#A (Disc 1).cue\nA# (Disc 2).cue\n",
+            "an entry starting with # would be read as a comment"
+        );
         assert_eq!(sbi_beside("X.cue/X.cue").as_deref(), Some("X.cue/X.sbi"));
         assert_eq!(sbi_beside("A.m3u/X.CHD").as_deref(), Some("A.m3u/X.sbi"));
         assert_eq!(sbi_beside("X.iso"), None);

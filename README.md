@@ -671,7 +671,8 @@ each system. The default is the ES-DE layout:
 - A game released on several discs goes in a folder named for its `.m3u`, `<game>.m3u/`, where `<game>` is the
   game's name without its `(Disc …)` tag. The folder holds `<game>.m3u`, listing each disc's `.cue`, `.chd` or `.iso`
   by its bare file name, one per line in disc order, and every file of every disc flat beside it: each disc's CHD,
-  `.iso`, or `.cue` and tracks, and any SBI file. Front ends and RomM each see the folder as one game.
+  `.iso`, or `.cue` and tracks, and any SBI file. A name starting with `#` is listed as `./<file>`, so that no
+  emulator reads its line as a comment. Front ends and RomM each see the folder as one game.
 
 The flat layout puts every file of every disc directly in the system folder, and writes no `.m3u`. A disc stored as
 TorrentZip is `<game>.zip` in the system folder in either layout. Under the ES-DE layout, a disc of several files that
