@@ -52,10 +52,14 @@ impl Jobs {
         }
     }
 
-    /// Stops following every RomM scan, now and from now on, recording each as no longer followed. Called as the
-    /// Service stops, so no scan's task keeps the Store open.
-    pub fn stop_romm_scans(&self) {
+    /// Stops following every RomM scan, now and from now on, and records each in `store` as no longer followed.
+    /// Called as the Service stops: a scan's task never holds the Store while it waits on RomM, so it may be gone
+    /// before the task could record the stop itself.
+    pub fn stop_romm_scans(&self, store: &Store) {
         self.romm_stop.stop();
+        if let Err(err) = store.recover_romm_scans() {
+            eprintln!("title-select: the RomM scans followed weren't recorded as stopped: {err}");
+        }
     }
 
     /// Announces a Job's new state, and wakes the runner in case it can claim one now: this one, Queued, or one
@@ -87,11 +91,11 @@ impl Jobs {
 /// and neither holds the Library Folder nor counts against the Jobs that may run at once (#141). Each step of the
 /// scan is announced as a change of the Job.
 fn request_romm_scan(store: &Arc<Store>, config: &Arc<Config>, jobs: &Arc<Jobs>, id: i64) {
-    let (store, config, jobs) = (store.clone(), config.clone(), jobs.clone());
+    let (store, config, jobs) = (Arc::downgrade(store), config.clone(), jobs.clone());
     tokio::task::spawn_blocking(move || {
         let timing = jobs.romm_scan;
         if let Err(err) =
-            store.request_romm_scan(&config, id, &timing, &jobs.romm_stop, &mut |job| {
+            Store::request_romm_scan(&store, &config, id, &timing, &jobs.romm_stop, &mut |job| {
                 jobs.changed(job.clone())
             })
         {

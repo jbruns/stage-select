@@ -295,6 +295,7 @@ fn the_client_refuses_an_address_it_must_not_send_a_token_to() {
 
 mod scans {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::common::*;
@@ -324,12 +325,13 @@ mod scans {
         backoff: Duration::from_millis(10),
         backoff_max: Duration::from_millis(40),
         window: Duration::from_secs(5),
+        request: Duration::from_secs(5),
     };
 
     /// A store with an audited Source Set of two Games, and a writable Root `play` that RomM mounts as its library.
     struct Env {
         _tmp: tempfile::TempDir,
-        store: Store,
+        store: Arc<Store>,
         config: Config,
         sha256: String,
     }
@@ -383,7 +385,7 @@ mod scans {
                 .unwrap();
             Env {
                 _tmp: tmp,
-                store,
+                store: Arc::new(store),
                 config,
                 sha256: revision.sha256,
             }
@@ -491,12 +493,15 @@ mod scans {
         /// As [`Env::scan`], until `stop` is signalled.
         fn scan_until(&self, job: &Job, timing: &ScanTiming, stop: &ScanStop) -> Vec<Job> {
             let mut seen = vec![];
-            let ended = self
-                .store
-                .request_romm_scan(&self.config, job.id, timing, stop, &mut |j: &Job| {
-                    seen.push(j.clone())
-                })
-                .unwrap();
+            let ended = Store::request_romm_scan(
+                &Arc::downgrade(&self.store),
+                &self.config,
+                job.id,
+                timing,
+                stop,
+                &mut |j: &Job| seen.push(j.clone()),
+            )
+            .unwrap();
             assert_eq!(ended.as_ref(), seen.last(), "the end is the last step told");
             seen
         }
@@ -699,16 +704,15 @@ mod scans {
         let env = Env::new();
         let romm = scanning(0, None, "finished");
         let none = |env: &Env, job: &Job| {
-            let ended = env
-                .store
-                .request_romm_scan(
-                    &env.config,
-                    job.id,
-                    &FAST,
-                    &ScanStop::default(),
-                    &mut |_: &Job| panic!("nothing is recorded"),
-                )
-                .unwrap();
+            let ended = Store::request_romm_scan(
+                &Arc::downgrade(&env.store),
+                &env.config,
+                job.id,
+                &FAST,
+                &ScanStop::default(),
+                &mut |_: &Job| panic!("nothing is recorded"),
+            )
+            .unwrap();
             assert_eq!(ended, None);
             assert_eq!(env.store.job(job.id).unwrap().romm_scan, None);
         };
@@ -783,19 +787,19 @@ mod scans {
         let recovered = std::thread::scope(|s| {
             s.spawn(|| {
                 let mut first = true;
-                env.store
-                    .request_romm_scan(
-                        &env.config,
-                        job.id,
-                        &timing,
-                        &ScanStop::default(),
-                        &mut |_: &Job| {
-                            if std::mem::take(&mut first) {
-                                following.wait();
-                            }
-                        },
-                    )
-                    .unwrap();
+                Store::request_romm_scan(
+                    &Arc::downgrade(&env.store),
+                    &env.config,
+                    job.id,
+                    &timing,
+                    &ScanStop::default(),
+                    &mut |_: &Job| {
+                        if std::mem::take(&mut first) {
+                            following.wait();
+                        }
+                    },
+                )
+                .unwrap();
             });
             following.wait();
             let recovered = env.store.recover_romm_scans().unwrap();
@@ -964,6 +968,80 @@ mod scans {
             RommScanOutcome::Stopped
         );
         assert_eq!(romm.seen().len(), seen, "nothing is asked once stopped");
+    }
+
+    /// A stub RomM that accepts each connection, says so on the channel, and never answers.
+    fn silent() -> (String, std::sync::mpsc::Receiver<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (accepted, told) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut open = vec![];
+            for stream in listener.incoming() {
+                open.push(stream);
+                let _ = accepted.send(());
+            }
+        });
+        (url, told)
+    }
+
+    /// While RomM leaves a request unanswered, the follower holds no Store: one stopped meanwhile is recorded as
+    /// stopped once the request gives up, not as an error, and one whose Store is gone meanwhile records nothing.
+    #[test]
+    fn a_request_romm_never_answers_holds_no_store_and_a_stop_meanwhile_wins() {
+        let env = Env::new();
+        let (url, accepted) = silent();
+        env.romm(true, &url, "play");
+        let timing = ScanTiming {
+            request: Duration::from_millis(300),
+            ..FAST
+        };
+        let job = env.build(&env.folder("gba"));
+        let stop = ScanStop::default();
+
+        let steps = std::thread::scope(|s| {
+            let scanning = s.spawn(|| env.scan_until(&job, &timing, &stop));
+            accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(
+                Arc::strong_count(&env.store),
+                1,
+                "the store isn't held while RomM is asked"
+            );
+            stop.stop();
+            scanning.join().unwrap()
+        });
+
+        let scan = steps.last().unwrap().romm_scan.clone().unwrap();
+        assert_eq!(scan.outcome, RommScanOutcome::Stopped, "{scan:?}");
+        assert!(scan.detail.unwrap().contains("isn't known"));
+
+        let job = env.build(&env.folder("snes"));
+        let Env {
+            _tmp: tmp,
+            store,
+            config,
+            ..
+        } = env;
+        let weak = Arc::downgrade(&store);
+        let scanning = std::thread::spawn(move || {
+            Store::request_romm_scan(
+                &weak,
+                &config,
+                job.id,
+                &timing,
+                &ScanStop::default(),
+                &mut |_: &Job| {},
+            )
+        });
+        accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(store);
+        let reopened = Store::open(&tmp.path().join("store")).unwrap();
+        assert_eq!(scanning.join().unwrap().unwrap(), None);
+        assert_eq!(
+            reopened.job(job.id).unwrap().romm_scan.unwrap().outcome,
+            RommScanOutcome::Requested,
+            "left for the next start to record as stopped"
+        );
     }
 
     /// A build that only forgets the records of files already gone changed nothing RomM could see; one that keeps a

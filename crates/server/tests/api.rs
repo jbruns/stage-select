@@ -2544,6 +2544,7 @@ mod selections {
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
                 window: Duration::from_secs(5),
+                request: Duration::from_secs(5),
             },
         );
         let client = Client::new(&service);
@@ -2584,6 +2585,7 @@ mod selections {
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
                 window: Duration::from_secs(600),
+                request: Duration::from_secs(600),
             },
         );
         let client = Client::new(&service);

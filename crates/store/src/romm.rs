@@ -3,7 +3,7 @@
 
 use std::path::{Component, Path};
 
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use rusqlite::{OptionalExtension, params};
@@ -433,13 +433,15 @@ impl RommClient {
 }
 
 /// How a scan request waits on RomM: how often it polls the scan's task, how long it backs off while RomM is busy with
-/// another scan (doubling from `backoff` up to `backoff_max`), and how long it waits for both together.
+/// another scan (doubling from `backoff` up to `backoff_max`), how long it waits for both together, and how long it
+/// waits for RomM to answer each request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanTiming {
     pub poll: Duration,
     pub backoff: Duration,
     pub backoff_max: Duration,
     pub window: Duration,
+    pub request: Duration,
 }
 
 impl Default for ScanTiming {
@@ -450,6 +452,7 @@ impl Default for ScanTiming {
             backoff: Duration::from_secs(5),
             backoff_max: Duration::from_secs(60),
             window: Duration::from_secs(600),
+            request: TIMEOUT,
         }
     }
 }
@@ -522,184 +525,184 @@ fn stopped(fs_slug: &str, accepted: bool, why: &str) -> String {
     }
 }
 
-impl Store {
-    /// Requests a quick scan of the RomM platform `fs_slug` of the RomM `was` and waits for its task to end, within
-    /// `timing`'s window or until `stop`. While RomM is busy with another scan (HTTP 409), it asks again, backing
-    /// off. While RomM can't be reached during the wait, it keeps polling. Each request reads the RomM settings as
-    /// they are then: one sends the token saved now, and none is sent once RomM is off or its address or root is no
-    /// longer `was`'s.
-    fn follow_romm_scan(
-        &self,
-        was: &Romm,
-        fs_slug: &str,
-        timing: &ScanTiming,
-        stop: &ScanStop,
-    ) -> ScanEnd {
-        let deadline = Instant::now() + timing.window;
-        let end = |outcome, task_id: Option<&str>, detail: String| ScanEnd {
+/// Requests a quick scan of the RomM platform `fs_slug` of the RomM `was` and waits for its task to end, within
+/// `timing`'s window or until `stop`. While RomM is busy with another scan (HTTP 409), it asks again, backing off.
+/// While RomM can't be reached during the wait, it keeps polling. Each request reads the RomM settings as they are
+/// then: one sends the token saved now, and none is sent once RomM is off or its address or root is no longer `was`'s.
+/// It holds the Store only to read the settings, never while it waits on RomM, and returns `None` once the Store is
+/// gone.
+fn follow_romm_scan(
+    store: &Weak<Store>,
+    was: &Romm,
+    fs_slug: &str,
+    timing: &ScanTiming,
+    stop: &ScanStop,
+) -> Option<ScanEnd> {
+    let deadline = Instant::now() + timing.window;
+    let end = |outcome, task_id: Option<&str>, detail: String| {
+        Some(ScanEnd {
             outcome,
             task_id: task_id.map(str::to_owned),
             detail: Some(detail),
-        };
-        let halted = |task_id: Option<&str>| {
-            end(
-                RommScanOutcome::Stopped,
-                task_id,
-                stopped(fs_slug, task_id.is_some(), "Title Select stopped"),
-            )
-        };
-        let client = |task_id: Option<&str>| -> std::result::Result<RommClient, ScanEnd> {
-            if stop.is_stopped() {
-                return Err(halted(task_id));
-            }
-            let accepted = task_id.is_some();
-            let now = match self.settings() {
-                Ok(settings) => settings.romm,
-                Err(e) => {
-                    return Err(end(
-                        RommScanOutcome::Error,
-                        task_id,
-                        stopped(
-                            fs_slug,
-                            accepted,
-                            &format!("Your RomM settings can't be read: {e}"),
-                        ),
-                    ));
-                }
-            };
-            let why = if !now.is_on() {
-                Some("You turned RomM off meanwhile")
-            } else if now.base_url != was.base_url {
-                Some("You changed RomM's address meanwhile")
-            } else if now.root != was.root {
-                Some("You changed the root RomM mounts as its library meanwhile")
-            } else {
-                None
-            };
-            if let Some(why) = why {
+        })
+    };
+    let halted = |task_id: Option<&str>| {
+        end(
+            RommScanOutcome::Stopped,
+            task_id,
+            stopped(fs_slug, task_id.is_some(), "Title Select stopped"),
+        )
+    };
+    let client = |task_id: Option<&str>| -> std::result::Result<RommClient, Option<ScanEnd>> {
+        if stop.is_stopped() {
+            return Err(halted(task_id));
+        }
+        let accepted = task_id.is_some();
+        let settings = store.upgrade().ok_or(None)?.settings();
+        let now = match settings {
+            Ok(settings) => settings.romm,
+            Err(e) => {
                 return Err(end(
-                    RommScanOutcome::Stopped,
-                    task_id,
-                    stopped(fs_slug, accepted, why),
-                ));
-            }
-            match RommClient::of(&now).expect("RomM that is on has an address") {
-                Ok(client) => Ok(client),
-                Err(e) => Err(end(
                     RommScanOutcome::Error,
                     task_id,
-                    stopped(fs_slug, accepted, &e.to_string()),
-                )),
+                    stopped(
+                        fs_slug,
+                        accepted,
+                        &format!("Your RomM settings can't be read: {e}"),
+                    ),
+                ));
             }
         };
-        let body = serde_json::json!({"type": "quick", "platform_fs_slugs": [fs_slug]});
-        let mut backoff = timing.backoff;
-        let task = loop {
-            let romm = match client(None) {
-                Ok(romm) => romm,
-                Err(end) => return end,
-            };
-            match romm.post::<_, Task>("/api/tasks/scan", &body) {
-                Ok(task) => break task,
-                Err(RommError::Status { status: 409, .. }) => {
-                    if Instant::now() + backoff > deadline {
-                        return end(
-                            RommScanOutcome::TimedOut,
-                            None,
-                            format!(
-                                "RomM was busy with another scan for {}, so {fs_slug} wasn't scanned. Scan it in RomM.",
-                                span(timing.window)
-                            ),
-                        );
-                    }
-                    if stop.wait(backoff) {
-                        return halted(None);
-                    }
-                    backoff = (backoff * 2).min(timing.backoff_max);
-                }
-                Err(RommError::Status { status: 503, .. }) => {
+        let why = if !now.is_on() {
+            Some("You turned RomM off meanwhile")
+        } else if now.base_url != was.base_url {
+            Some("You changed RomM's address meanwhile")
+        } else if now.root != was.root {
+            Some("You changed the root RomM mounts as its library meanwhile")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            return Err(end(
+                RommScanOutcome::Stopped,
+                task_id,
+                stopped(fs_slug, accepted, why),
+            ));
+        }
+        match RommClient::of(&now).expect("RomM that is on has an address") {
+            Ok(client) => Ok(client.with_timeout(timing.request)),
+            Err(e) => Err(end(
+                RommScanOutcome::Error,
+                task_id,
+                stopped(fs_slug, accepted, &e.to_string()),
+            )),
+        }
+    };
+    let body = serde_json::json!({"type": "quick", "platform_fs_slugs": [fs_slug]});
+    let mut backoff = timing.backoff;
+    let task = loop {
+        let romm = match client(None) {
+            Ok(romm) => romm,
+            Err(end) => return end,
+        };
+        match romm.post::<_, Task>("/api/tasks/scan", &body) {
+            Ok(task) => break task,
+            Err(RommError::Status { status: 409, .. }) => {
+                if Instant::now() + backoff > deadline {
                     return end(
-                        RommScanOutcome::Unavailable,
+                        RommScanOutcome::TimedOut,
                         None,
                         format!(
-                            "RomM has no scan worker running, so {fs_slug} wasn't scanned. Start RomM's worker, then \
-                             scan it in RomM."
+                            "RomM was busy with another scan for {}, so {fs_slug} wasn't scanned. Scan it in RomM.",
+                            span(timing.window)
                         ),
                     );
                 }
-                Err(e) => {
-                    return end(
-                        RommScanOutcome::Error,
-                        None,
-                        format!("{e}. {fs_slug} wasn't scanned."),
-                    );
+                if stop.wait(backoff) {
+                    return halted(None);
                 }
+                backoff = (backoff * 2).min(timing.backoff_max);
             }
-        };
-        let id = task.task_id;
-        if id.is_empty()
-            || !id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
-        {
-            return end(
+            Err(RommError::Status { status: 503, .. }) => {
+                return end(
+                    RommScanOutcome::Unavailable,
+                    None,
+                    format!(
+                        "RomM has no scan worker running, so {fs_slug} wasn't scanned. Start RomM's worker, then \
+                             scan it in RomM."
+                    ),
+                );
+            }
+            Err(e) => {
+                return end(
+                    RommScanOutcome::Error,
+                    None,
+                    format!("{e}. {fs_slug} wasn't scanned."),
+                );
+            }
+        }
+    };
+    let id = task.task_id;
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+    {
+        return end(
                 RommScanOutcome::Error,
                 None,
                 "RomM accepted the scan, but named its task in a way Title Select can't follow. Check the scan in \
                  RomM."
                     .into(),
             );
-        }
-        let path = format!("/api/tasks/{id}");
-        loop {
-            let romm = match client(Some(&id)) {
-                Ok(romm) => romm,
-                Err(end) => return end,
-            };
-            match romm.get::<Task>(&path) {
-                Ok(task) => match task.status.as_deref() {
-                    Some("finished") => {
-                        return ScanEnd {
-                            outcome: RommScanOutcome::Finished,
-                            task_id: Some(id),
-                            detail: None,
-                        };
-                    }
-                    Some(status @ ("failed" | "stopped" | "canceled")) => {
-                        return end(
-                            RommScanOutcome::Failed,
-                            Some(&id),
-                            format!(
-                                "RomM's scan of {fs_slug} ended {status}. Look in RomM for why, and scan it there."
-                            ),
-                        );
-                    }
-                    _ => {}
-                },
-                Err(RommError::Unreachable(_)) => {}
-                Err(e) => {
+    }
+    let path = format!("/api/tasks/{id}");
+    loop {
+        let romm = match client(Some(&id)) {
+            Ok(romm) => romm,
+            Err(end) => return end,
+        };
+        match romm.get::<Task>(&path) {
+            Ok(task) => match task.status.as_deref() {
+                Some("finished") => {
+                    return Some(ScanEnd {
+                        outcome: RommScanOutcome::Finished,
+                        task_id: Some(id),
+                        detail: None,
+                    });
+                }
+                Some(status @ ("failed" | "stopped" | "canceled")) => {
                     return end(
-                        RommScanOutcome::Error,
+                        RommScanOutcome::Failed,
                         Some(&id),
                         format!(
-                            "{e}. Whether RomM scanned {fs_slug} isn't known; check it in RomM."
+                            "RomM's scan of {fs_slug} ended {status}. Look in RomM for why, and scan it there."
                         ),
                     );
                 }
-            }
-            if Instant::now() + timing.poll > deadline {
+                _ => {}
+            },
+            Err(RommError::Unreachable(_)) => {}
+            Err(e) => {
                 return end(
-                    RommScanOutcome::TimedOut,
+                    RommScanOutcome::Error,
                     Some(&id),
-                    format!(
-                        "RomM was still scanning {fs_slug} after {}. It may yet finish; check it in RomM.",
-                        span(timing.window)
-                    ),
+                    format!("{e}. Whether RomM scanned {fs_slug} isn't known; check it in RomM."),
                 );
             }
-            if stop.wait(timing.poll) {
-                return halted(Some(&id));
-            }
+        }
+        if Instant::now() + timing.poll > deadline {
+            return end(
+                RommScanOutcome::TimedOut,
+                Some(&id),
+                format!(
+                    "RomM was still scanning {fs_slug} after {}. It may yet finish; check it in RomM.",
+                    span(timing.window)
+                ),
+            );
+        }
+        if stop.wait(timing.poll) {
+            return halted(Some(&id));
         }
     }
 }
@@ -827,72 +830,104 @@ impl Store {
     }
 
     /// Requests the RomM scan the ended Build Job `job` owes, if it owes one, and follows it to its end within
-    /// `timing` or until `stop`, recording each step on the Job and telling `changed` of the Job as it then is. A Build, Library
-    /// cleanup or Kept File restore owes one when RomM is on and it changed files in a Library Folder: RomM scans a
-    /// folder directly under its root, and a folder elsewhere under it is recorded as a warning with no request. No
-    /// other Job, nor one that changed nothing, owes a scan. Whatever RomM does, the Job's own state stays as it
-    /// ended. Returns the Job as its last step left it, or `None` when it owed no scan. Nothing is held while it
-    /// waits on RomM.
+    /// `timing` or until `stop`, recording each step on the Job and telling `changed` of the Job as it then is. A
+    /// Build, Library cleanup or Kept File restore owes one when RomM is on and it changed files in a Library Folder:
+    /// RomM scans a folder directly under its root, and a folder elsewhere under it is recorded as a warning with no
+    /// request. No other Job, nor one that changed nothing, owes a scan. Whatever RomM does, the Job's own state stays
+    /// as it ended. Returns the Job as its last step left it, or `None` when it owed no scan.
+    ///
+    /// Nothing is held while it waits on RomM, the Store least of all: it is upgraded from `store` only to read and
+    /// record, so a request RomM never answers doesn't keep it open. Once the Store is gone, it records nothing more
+    /// and returns `None`. A scan that ends any way but finished after `stop` is recorded as stopped.
     pub fn request_romm_scan(
-        &self,
+        store: &Weak<Store>,
         config: &Config,
         job: i64,
         timing: &ScanTiming,
         stop: &ScanStop,
         changed: &mut dyn FnMut(&Job),
     ) -> Result<Option<Job>> {
-        let ended = self.job(job)?;
-        if ended.kind != JobKind::Build || !ended.state.is_final() || ended.romm_scan.is_some() {
-            return Ok(None);
-        }
-        let Some(folder) = ended.library_folder else {
-            return Ok(None);
-        };
-        let romm = self.settings()?.romm;
-        if !romm.is_on() || !self.build_changed_files(job)? {
-            return Ok(None);
-        }
-        let (root, path): (String, String) = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT root, path FROM library_folders WHERE id = ?1",
-                [folder],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )?)
-        })?;
-        let platform = romm.platform(config, &root, &path);
-        let mut scan = RommScan {
-            platform: platform.clone(),
-            outcome: RommScanOutcome::Requested,
-            task_id: None,
-            detail: None,
-            requested_at: now(),
-            ended_at: None,
-        };
-        let mut step = |scan: &RommScan| -> Result<Job> {
-            let job = self.record_romm_scan(job, scan)?;
-            changed(&job);
-            Ok(job)
-        };
-        let Some(fs_slug) = platform.fs_slug() else {
-            let Some(why) = unscannable(&platform) else {
+        let step = |scan: &RommScan, changed: &mut dyn FnMut(&Job)| -> Result<Option<Job>> {
+            let Some(store) = store.upgrade() else {
                 return Ok(None);
             };
-            scan.outcome = RommScanOutcome::Unmapped;
-            scan.detail = Some(why.into());
-            scan.ended_at = Some(now());
-            return step(&scan).map(Some);
+            let job = store.record_romm_scan(job, scan)?;
+            changed(&job);
+            Ok(Some(job))
         };
-        step(&scan)?;
-        let end = self.follow_romm_scan(&romm, fs_slug, timing, stop);
+        let (romm, fs_slug, mut scan) = {
+            let Some(store) = store.upgrade() else {
+                return Ok(None);
+            };
+            let ended = store.job(job)?;
+            if ended.kind != JobKind::Build || !ended.state.is_final() || ended.romm_scan.is_some()
+            {
+                return Ok(None);
+            }
+            let Some(folder) = ended.library_folder else {
+                return Ok(None);
+            };
+            let romm = store.settings()?.romm;
+            if !romm.is_on() || !store.build_changed_files(job)? {
+                return Ok(None);
+            }
+            let (root, path): (String, String) = store.read(|c| {
+                Ok(c.query_row(
+                    "SELECT root, path FROM library_folders WHERE id = ?1",
+                    [folder],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })?;
+            let platform = romm.platform(config, &root, &path);
+            let mut scan = RommScan {
+                platform: platform.clone(),
+                outcome: RommScanOutcome::Requested,
+                task_id: None,
+                detail: None,
+                requested_at: now(),
+                ended_at: None,
+            };
+            let Some(fs_slug) = platform.fs_slug() else {
+                let Some(why) = unscannable(&platform) else {
+                    return Ok(None);
+                };
+                scan.outcome = RommScanOutcome::Unmapped;
+                scan.detail = Some(why.into());
+                scan.ended_at = Some(now());
+                drop(store);
+                return step(&scan, changed);
+            };
+            (romm, fs_slug.to_owned(), scan)
+        };
+        if step(&scan, changed)?.is_none() {
+            return Ok(None);
+        }
+        let Some(mut end) = follow_romm_scan(store, &romm, &fs_slug, timing, stop) else {
+            return Ok(None);
+        };
+        if stop.is_stopped()
+            && !matches!(
+                end.outcome,
+                RommScanOutcome::Finished | RommScanOutcome::Stopped
+            )
+        {
+            end.outcome = RommScanOutcome::Stopped;
+            end.detail = Some(stopped(
+                &fs_slug,
+                true,
+                "Title Select stopped while it waited on RomM",
+            ));
+        }
         scan.outcome = end.outcome;
         scan.task_id = end.task_id;
         scan.detail = end.detail;
         scan.ended_at = Some(now());
-        step(&scan).map(Some)
+        step(&scan, changed)
     }
 
-    /// Records each RomM scan still followed when the Service stopped as no longer followed, as Title Select won't
-    /// follow it again, and returns their Jobs. Called once at start.
+    /// Records each RomM scan still followed as no longer followed, as Title Select won't follow it again, and
+    /// returns their Jobs. Called as the Service stops, and once at start for the scans of a Service that stopped
+    /// without it.
     pub fn recover_romm_scans(&self) -> Result<Vec<i64>> {
         self.write(|tx| {
             let jobs: Vec<i64> = {
