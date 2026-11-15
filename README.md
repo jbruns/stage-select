@@ -668,18 +668,19 @@ each system. The default is the ES-DE layout:
 - A disc stored as one file, a CHD or an `.iso`, goes directly in the system folder: `<game>.chd`, `<game>.iso`.
 - A single disc stored as a `.cue` sheet and its tracks, as a loose folder, goes in a folder named exactly for its
   `.cue`, the file you point an emulator at: `<game>.cue/` holding `<game>.cue` and its `.bin` tracks.
-- Every file of a game released on several discs, each disc's CHD, `.iso`, or `.cue` and tracks, goes flat in
-  `.multidisc/`, and an `.m3u` named for the game without its `(Disc …)` tag, `<game>.m3u`, sits in the system folder
-  listing each disc's `.cue`, `.chd` or `.iso` as `.multidisc/<file>`, one per line in disc order.
+- A game released on several discs goes in a folder named for its `.m3u`, `<game>.m3u/`, where `<game>` is the
+  game's name without its `(Disc …)` tag. The folder holds `<game>.m3u`, listing each disc's `.cue`, `.chd` or `.iso`
+  by its bare file name, one per line in disc order, and every file of every disc flat beside it: each disc's CHD,
+  `.iso`, or `.cue` and tracks, and any SBI file. Front ends and RomM each see the folder as one game.
 
 The flat layout puts every file of every disc directly in the system folder, and writes no `.m3u`. A disc stored as
 TorrentZip is `<game>.zip` in the system folder in either layout. Under the ES-DE layout, a disc of several files that
 isn't one `.cue` with its tracks stays TorrentZip, with every other disc of its game, and the plan says why. A game's
 name must be one plain name, not a path and not a name Title Select keeps its own work under: the plan refuses any
-other, so the only folders a layout makes are `.multidisc/` and `<game>.cue/`. Names that differ only in case or
+other, so the only folders a layout makes are `<game>.cue/` and `<game>.m3u/`. Names that differ only in case or
 Unicode form are the same name, so a plan refuses two files, or a file and a folder, that would share one.
 
-The `.multidisc/` and `<game>.cue/` folders and each `.m3u` belong to the library folder: a check reads every file in
+The `<game>.cue/` and `<game>.m3u/` folders and each `.m3u` belong to the library folder: a check reads every file in
 them, an `.m3u` that changed since it was built is drift and is never written over, and a file a build no longer needs
 there, an `.m3u` or SBI file too, goes to your kept files like any other. A build removes a layout folder it left
 empty only if a build made it and it is still that folder: one you made stays.
@@ -780,7 +781,7 @@ against the selection's DAT revision:
   game is not in the DAT;
 - **adopt**: you chose to adopt a conflict whose file, at exactly the game's name, holds exactly the ROMs the DAT
   expects, or, for an `.m3u` or an SBI file, is exactly the file a build writes there. Nothing is written; the build checks the file
-  again and records it as built. A disc file adopted inside `.multidisc/` or a `<game>.cue/` folder records that
+  again and records it as built. A disc file adopted inside a `<game>.cue/` or `<game>.m3u/` folder records that
   folder as made by a build, so it is removed once empty;
 - **unresolved**: you chose to build resolved groups only, and the game's group is unresolved. Whatever is at its
   target is left untouched.
@@ -843,7 +844,7 @@ service stops after the old file is kept aside and before the new one is in plac
 the folder shows as incomplete until you put the kept copy back or build again. A kept folder is put back
 as it was, never adopted or deleted by Title Select. A disc layout you laid out yourself, the way a build lays out
 the play library, can be adopted file by file where it is, with nothing rebuilt: each disc's `.cue` and tracks in
-`.multidisc/` or a `<game>.cue/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
+a `<game>.cue/` or `<game>.m3u/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
 extracted once to check every track, or the image, against the DAT, then recorded by the SHA-1 its header holds, as a
 build records the CHDs it writes; each `.m3u`, only when its text is exactly what a build writes for that release; and
 each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. A
@@ -852,7 +853,7 @@ or POSTGAP, compared with the cue sheet your source set holds for that disc, whi
 sheet in the latest audit, the CHD isn't adopted. A CHD whose header, or a CD's track list, says it holds more than
 the disc is refused before it is copied; a GD-ROM's padding up to its high-density area is allowed for. While a CHD is
 extracted, it is stopped as soon as it writes more than the DAT's files take. An `.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a
-conflict. The `.multidisc/` and `<game>.cue/` folders a cleanup adopts files in are recorded as made by a build, so
+conflict. The `<game>.cue/` and `<game>.m3u/` folders a cleanup adopts files in are recorded as made by a build, so
 they are removed once empty. Once
 you adopt the whole layout, the next plan has nothing to change. Every entry the cleanup found is part of its digest, chosen or
 not, along with the built files, acknowledged entries and kept files as they were: if anything in the folder changes

@@ -426,7 +426,7 @@ pub struct PlanItem {
     /// The DAT's Game name.
     pub game: String,
     /// The file's path in the Library Folder: `<game>.zip`, `<game>.chd` stored as CHD, or, stored loose, its one
-    /// ROM's name. A disc system's layout may put it in a folder of the Library Folder, as `.multidisc/<file>` or
+    /// ROM's name. A disc system's layout may put it in a folder of the Library Folder, as `<release>.m3u/<file>` or
     /// `<cue>/<file>`; a disc of several files stored loose is an item per file.
     pub target: String,
     pub kind: ItemKind,

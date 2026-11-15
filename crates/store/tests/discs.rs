@@ -1,6 +1,6 @@
 //! The disc layout of Play Libraries: a disc stored as one file directly in the system folder, a single disc of
-//! several files in a folder named for its `.cue`, and every file of a Multi-disc Game in `.multidisc/`, listed in
-//! disc order by an `.m3u` named for the release; or every file flat. SBI files go beside their disc's `.cue` or
+//! several files in a folder named for its `.cue`, and a Multi-disc Game in `<release>.m3u/`, holding an `.m3u`
+//! named for the release that lists its discs in disc order, and every file of every disc beside it; or every file flat. SBI files go beside their disc's `.cue` or
 //! `.chd` when the system opts in.
 //!
 //! The CHD test finds chdman as the store does; where it is missing it is skipped, except in CI, where it fails.
@@ -38,7 +38,9 @@ const CD: &str = "Orbit (USA)";
 const DVD: &str = "Atlas (USA)";
 /// A game released on two CDs.
 const SAGA: [&str; 2] = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
-const M3U: &str = "Saga (USA).m3u";
+/// The folder Saga's discs and `.m3u` go in, in the ES-DE layout.
+const MULTIDISC: &str = "Saga (USA).m3u";
+const M3U: &str = "Saga (USA).m3u/Saga (USA).m3u";
 
 fn leak(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
@@ -112,14 +114,14 @@ fn duo() -> Vec<(&'static str, Vec<RomSpec>)> {
 
 /// The files of the ES-DE layout, loose.
 const ES_DE_LOOSE: [&str; 9] = [
-    ".multidisc/Saga (USA) (Disc 1) (Track 1).bin",
-    ".multidisc/Saga (USA) (Disc 1).cue",
-    ".multidisc/Saga (USA) (Disc 2) (Track 1).bin",
-    ".multidisc/Saga (USA) (Disc 2).cue",
     "Atlas (USA).iso",
     "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
     "Orbit (USA).cue/Orbit (USA) (Track 2).bin",
     "Orbit (USA).cue/Orbit (USA).cue",
+    "Saga (USA).m3u/Saga (USA) (Disc 1) (Track 1).bin",
+    "Saga (USA).m3u/Saga (USA) (Disc 1).cue",
+    "Saga (USA).m3u/Saga (USA) (Disc 2) (Track 1).bin",
+    "Saga (USA).m3u/Saga (USA) (Disc 2).cue",
     M3U,
 ];
 
@@ -467,7 +469,7 @@ fn a_loose_build_lays_discs_out_as_es_de_reads_them_with_an_m3u_listing_each_dis
     assert_eq!(env.files(), ES_DE_LOOSE);
     assert_eq!(
         read(&env, M3U),
-        ".multidisc/Saga (USA) (Disc 1).cue\n.multidisc/Saga (USA) (Disc 2).cue\n"
+        "Saga (USA) (Disc 1).cue\nSaga (USA) (Disc 2).cue\n"
     );
     // Every file, the m3u too, is the folder's: a check finds each as it was built, and a plan again changes nothing.
     let check = env.check(&folder);
@@ -509,21 +511,41 @@ fn a_chd_build_lays_each_disc_out_as_one_file_with_an_m3u_listing_its_chds() {
     assert_eq!(
         env.files(),
         [
-            ".multidisc/Saga (USA) (Disc 1).chd",
-            ".multidisc/Saga (USA) (Disc 2).chd",
             "Atlas (USA).chd",
             "Orbit (USA).chd",
+            "Saga (USA).m3u/Saga (USA) (Disc 1).chd",
+            "Saga (USA).m3u/Saga (USA) (Disc 2).chd",
             M3U,
         ]
     );
     assert_eq!(
         read(&env, M3U),
-        ".multidisc/Saga (USA) (Disc 1).chd\n.multidisc/Saga (USA) (Disc 2).chd\n"
+        "Saga (USA) (Disc 1).chd\nSaga (USA) (Disc 2).chd\n"
     );
     let found = outcomes(&env.check(&folder));
     assert!(
         found.values().all(|o| *o == FileOutcome::Unchanged),
         "{found:?}"
+    );
+}
+
+#[test]
+fn a_loose_build_puts_a_release_of_isos_in_its_m3u_folder_listing_each_disc_in_order() {
+    let env = Env::with(StorageFormat::LooseFolder, duo);
+    let folder = env.folder();
+    env.built(&folder, env.selection(&DUO));
+
+    assert_eq!(
+        env.files(),
+        [
+            "Duo (USA).m3u/Duo (USA) (Disc 1).iso",
+            "Duo (USA).m3u/Duo (USA) (Disc 2).iso",
+            "Duo (USA).m3u/Duo (USA).m3u",
+        ]
+    );
+    assert_eq!(
+        read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
+        "Duo (USA) (Disc 1).iso\nDuo (USA) (Disc 2).iso\n"
     );
 }
 
@@ -562,7 +584,7 @@ fn a_changed_m3u_is_drift_and_is_never_overwritten() {
     env.built(&folder, selection);
     std::fs::write(
         env.dir().join(M3U),
-        ".multidisc/Saga (USA) (Disc 2).cue\n.multidisc/Saga (USA) (Disc 1).cue\n",
+        "Saga (USA) (Disc 2).cue\nSaga (USA) (Disc 1).cue\n",
     )
     .unwrap();
 
@@ -579,11 +601,14 @@ fn a_file_added_to_a_disc_layout_folder_is_found_by_a_check() {
     let folder = env.folder();
     let selection = env.selection(&ALL);
     env.built(&folder, selection);
-    std::fs::write(env.dir().join(".multidisc/stray.txt"), b"stray").unwrap();
+    std::fs::write(env.dir().join("Saga (USA).m3u/stray.txt"), b"stray").unwrap();
 
     let check = env.check(&folder);
     assert!(
-        check.drift.iter().any(|d| d.name == ".multidisc/stray.txt"),
+        check
+            .drift
+            .iter()
+            .any(|d| d.name == "Saga (USA).m3u/stray.txt"),
         "{:?}",
         check.drift
     );
@@ -613,7 +638,7 @@ fn a_release_no_longer_selected_has_its_discs_and_m3u_kept_and_its_folders_remov
     expected.sort();
     assert_eq!(env.kept(&folder), expected);
     assert!(env.dir().join(RETENTION).is_dir());
-    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join(MULTIDISC).exists());
     assert!(!env.dir().join("Orbit (USA).cue").exists());
 }
 
@@ -672,14 +697,14 @@ fn sbi_files_go_beside_their_cue_when_the_system_opts_in() {
     env.built(&folder, selection);
     let mut expected: Vec<&str> = ES_DE_LOOSE.to_vec();
     expected.extend([
-        ".multidisc/Saga (USA) (Disc 1).sbi",
+        "Saga (USA).m3u/Saga (USA) (Disc 1).sbi",
         "Orbit (USA).cue/Orbit (USA).sbi",
     ]);
     expected.sort();
     assert_eq!(env.files(), expected);
     assert_eq!(read(&env, "Orbit (USA).cue/Orbit (USA).sbi"), "SBI\0orbit");
     assert_eq!(
-        read(&env, ".multidisc/Saga (USA) (Disc 1).sbi"),
+        read(&env, "Saga (USA).m3u/Saga (USA) (Disc 1).sbi"),
         "SBI\0saga"
     );
     let found = outcomes(&env.check(&folder));
@@ -699,8 +724,8 @@ fn sbi_files_go_beside_their_cue_when_the_system_opts_in() {
     assert_eq!(
         env.kept(&folder),
         [
-            ".multidisc/Saga (USA) (Disc 1).sbi",
             "Orbit (USA).cue/Orbit (USA).sbi",
+            "Saga (USA).m3u/Saga (USA) (Disc 1).sbi",
         ]
     );
 }
@@ -726,7 +751,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
         .items
         .iter()
         .enumerate()
-        .filter(|(_, i)| i.target.starts_with(".multidisc/"))
+        .filter(|(_, i)| i.target.starts_with("Saga (USA).m3u/"))
         .map(|(seq, _)| seq as i64)
         .collect();
     env.store
@@ -756,7 +781,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     drop(store);
     let store = Store::open(&path).unwrap();
     store.recover_jobs(WORKERS).unwrap();
-    // Recovery syncs the folder the file was renamed into, `.multidisc/`, before it records it.
+    // Recovery syncs the folder the file was renamed into, `Saga (USA).m3u/`, before it records it.
     let synced = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = synced.clone();
     store.hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -782,7 +807,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     let saga: Vec<&str> = ES_DE_LOOSE
         .iter()
         .copied()
-        .filter(|f| f.starts_with(".multidisc/") || *f == M3U)
+        .filter(|f| f.starts_with("Saga (USA).m3u/") || *f == M3U)
         .collect();
     let files = env.files();
     for file in &saga {
@@ -893,7 +918,7 @@ fn a_release_whose_disc_2_fails_keeps_its_originals_and_publishes_none_of_its_fi
     assert!(
         !files
             .iter()
-            .any(|f| f.starts_with(".multidisc/") || f == M3U),
+            .any(|f| f.starts_with("Saga (USA).m3u/") || f == M3U),
         "{files:?}"
     );
     assert!(
@@ -902,7 +927,7 @@ fn a_release_whose_disc_2_fails_keeps_its_originals_and_publishes_none_of_its_fi
         env.kept(&folder)
     );
     for item in env.items(&ended) {
-        if item.target.starts_with("Saga (USA)") || item.target.starts_with(".multidisc/") {
+        if item.target.starts_with("Saga (USA)") {
             assert!(item.error.is_some(), "{item:?}");
         }
     }
@@ -944,6 +969,7 @@ fn a_plan_whose_sbi_pack_changed_before_you_run_it_is_stale() {
 fn a_file_in_the_way_of_one_member_stops_its_whole_release_and_names_it() {
     let env = Env::new(StorageFormat::LooseFolder);
     let folder = env.folder();
+    std::fs::create_dir_all(env.dir().join(MULTIDISC)).unwrap();
     std::fs::write(env.dir().join(M3U), "mine\n").unwrap();
     let plan = env.plan(&folder, env.selection(&ALL));
 
@@ -959,7 +985,9 @@ fn a_file_in_the_way_of_one_member_stops_its_whole_release_and_names_it() {
     let run = env.run(&plan);
     let files = env.files();
     assert!(
-        !files.iter().any(|f| f.starts_with(".multidisc/")),
+        !files
+            .iter()
+            .any(|f| f.starts_with("Saga (USA).m3u/") && f != M3U),
         "{files:?}"
     );
     assert_eq!(read(&env, M3U), "mine\n");
@@ -1148,7 +1176,7 @@ fn a_layout_folder_you_made_is_never_removed_even_once_empty() {
     env.built(&folder, env.selection(&[DVD]));
     assert_eq!(env.files(), ["Atlas (USA).iso"]);
     assert!(env.dir().join("Orbit (USA).cue").is_dir());
-    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join(MULTIDISC).exists());
 }
 
 /// Orbit's files in the ES-DE layout, and in the flat one.
@@ -1535,7 +1563,7 @@ fn adopts_all(env: &Env, folder: &LibraryFolder, selection: i64, expected: &[&st
 
     // The folders adopted are recorded as a build's: emptied, they go.
     env.built(folder, env.selection(&[DVD]));
-    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join(MULTIDISC).exists());
     assert!(!env.dir().join("Orbit (USA).cue").exists());
 }
 
@@ -1569,10 +1597,10 @@ fn a_disc_file_adopted_under_the_dats_header_rule_is_recorded_under_it() {
 }
 
 const ES_DE_CHD: [&str; 5] = [
-    ".multidisc/Saga (USA) (Disc 1).chd",
-    ".multidisc/Saga (USA) (Disc 2).chd",
     "Atlas (USA).chd",
     "Orbit (USA).chd",
+    "Saga (USA).m3u/Saga (USA) (Disc 1).chd",
+    "Saga (USA).m3u/Saga (USA) (Disc 2).chd",
     M3U,
 ];
 
@@ -1645,7 +1673,7 @@ fn a_chd_that_does_not_hold_its_disc_is_not_adopted_and_stays_drift() {
 fn a_hand_edited_m3u_is_never_adopted_and_never_overwritten() {
     let env = Env::new(StorageFormat::LooseFolder);
     let (folder, selection) = laid_out_by_hand(&env);
-    let edited = ".multidisc/Saga (USA) (Disc 2).cue\n.multidisc/Saga (USA) (Disc 1).cue\n";
+    let edited = "Saga (USA) (Disc 2).cue\nSaga (USA) (Disc 1).cue\n";
     std::fs::write(env.dir().join(M3U), edited).unwrap();
 
     let check = env.check(&folder);
@@ -1733,7 +1761,7 @@ fn a_plan_adopts_a_loose_es_de_tree_you_laid_out_with_its_m3u_and_its_folders() 
     );
     env.built(&folder, env.selection(&[DVD]));
     assert_eq!(env.files(), ["Atlas (USA).iso"]);
-    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join(MULTIDISC).exists());
     assert!(!env.dir().join("Orbit (USA).cue").exists());
 }
 
@@ -1748,7 +1776,7 @@ fn laid_out_with_sbi_by_hand(env: &Env) -> (LibraryFolder, i64, Vec<&'static str
     let (folder, selection) = laid_out_by_hand(env);
     let mut expected: Vec<&str> = ES_DE_LOOSE.to_vec();
     expected.extend([
-        ".multidisc/Saga (USA) (Disc 1).sbi",
+        "Saga (USA).m3u/Saga (USA) (Disc 1).sbi",
         "Orbit (USA).cue/Orbit (USA).sbi",
     ]);
     expected.sort();

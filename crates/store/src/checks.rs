@@ -11,7 +11,7 @@ use rustix::fs::{FileType, Stat};
 use title_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
 };
-use title_select_api::storage::{MULTIDISC, Storage, StorageFormat, playlist_name, release_of};
+use title_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
 use title_select_api::{HeaderRule, Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
@@ -126,10 +126,11 @@ pub(super) fn listing(dir: &FolderDir) -> std::io::Result<Vec<String>> {
     Ok(names)
 }
 
-/// Whether `name`, at the top of a Library Folder, is a folder a disc layout puts files in: [`MULTIDISC`], or one
-/// named for the `.cue` it holds.
+/// Whether `name`, at the top of a Library Folder, is a folder a disc layout puts files in: one named for the `.cue`
+/// or the `.m3u` it holds.
 pub(super) fn is_layout_dir(name: &str) -> bool {
-    name == MULTIDISC || name.to_lowercase().ends_with(".cue")
+    let name = name.to_lowercase();
+    name.ends_with(".cue") || name.ends_with(".m3u")
 }
 
 /// `names`, a folder's top-level entries, with each disc layout folder that is a directory replaced by its entries,
@@ -273,11 +274,11 @@ pub(crate) fn storage_targets(
                 for target in targets {
                     out.insert(target.to_lowercase(), game.clone());
                 }
+                let release = release_of(game);
                 if targets
                     .first()
-                    .is_some_and(|t| t.starts_with(&format!("{MULTIDISC}/")))
+                    .is_some_and(|t| t.starts_with(&format!("{}/", multidisc_dir(&release))))
                 {
-                    let release = release_of(game);
                     out.insert(playlist_name(&release).to_lowercase(), release);
                 }
             }

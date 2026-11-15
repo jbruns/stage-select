@@ -81,8 +81,9 @@ impl StorageScope {
 pub enum DiscLayout {
     /// The layout ES-DE reads: a disc stored as one file, `.chd` or `.iso`, directly in the system folder; a
     /// single disc of several files, a `.cue` and its tracks, in a folder named exactly for its `.cue`,
-    /// `<cue>/`; and every file of a Multi-disc Game flat in [`MULTIDISC`], with an `.m3u` named for the release,
-    /// without its disc tag, in the system folder listing each disc's entry file in disc order.
+    /// `<cue>/`; and a Multi-disc Game in a folder named for its `.m3u`, `<release>.m3u/` (see
+    /// [`multidisc_dir`]), holding that `.m3u`, named for the release without its disc tag and listing each disc's
+    /// entry file by bare name in disc order, and every file of every disc flat beside it.
     #[default]
     EsDe,
     /// Every file of every disc directly in the system folder, and no `.m3u`.
@@ -113,9 +114,11 @@ impl DiscLayout {
     }
 }
 
-/// The folder, in a disc system's Play Library folder, that holds every file of its Multi-disc Games in the ES-DE
-/// layout.
-pub const MULTIDISC: &str = ".multidisc";
+/// The folder, in a disc system's Play Library folder, that holds the `.m3u` and every file of the Multi-disc Game
+/// of release `release` in the ES-DE layout: `<release>.m3u`, named for the `.m3u` it holds (ADR 0019).
+pub fn multidisc_dir(release: &str) -> String {
+    format!("{release}.m3u")
+}
 
 /// One system's overrides of its scope's defaults; `None` follows the default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -538,7 +541,8 @@ pub fn lay_out<'a>(
     if storage.layout == Some(DiscLayout::EsDe) {
         for (game, laid) in out.iter_mut() {
             if laid.format != StorageFormat::TorrentZip && multidisc(game) {
-                let within = |name: &String| format!("{MULTIDISC}/{name}");
+                let dir = multidisc_dir(&release_of(game));
+                let within = |name: &String| format!("{dir}/{name}");
                 laid.files = laid.files.iter().map(within).collect();
                 laid.entry = laid.entry.as_ref().map(within);
             }
@@ -547,14 +551,19 @@ pub fn lay_out<'a>(
     out
 }
 
-/// The `.m3u` a Multi-disc Game's release is listed by in the ES-DE layout, in the system folder.
+/// The `.m3u` a Multi-disc Game's release is listed by in the ES-DE layout, relative to the system folder: in its
+/// [`multidisc_dir`], beside its discs.
 pub fn playlist_name(release: &str) -> String {
-    format!("{release}.m3u")
+    format!("{}/{release}.m3u", multidisc_dir(release))
 }
 
-/// What an `.m3u` holds: each disc's entry file, relative to the system folder, one to a line, in disc order.
+/// What an `.m3u` holds: each disc's entry file `entries`, given relative to the system folder, by its bare name,
+/// one to a line, in disc order. The `.m3u` sits beside them.
 pub fn playlist(entries: &[&str]) -> String {
-    entries.iter().map(|e| format!("{e}\n")).collect()
+    entries
+        .iter()
+        .map(|e| format!("{}\n", e.rsplit('/').next().unwrap_or(e)))
+        .collect()
 }
 
 /// Where a disc's SBI file goes: beside its entry file `entry`, a `.cue` or a `.chd`, named for it.
@@ -860,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn the_es_de_layout_puts_a_cue_folder_in_a_folder_named_for_its_cue_and_every_disc_of_a_release_in_multidisc()
+    fn the_es_de_layout_puts_a_cue_folder_in_a_folder_named_for_its_cue_and_every_disc_of_a_release_in_its_m3u_folder()
      {
         let laid = lay_out(play(StorageFormat::LooseFolder, DiscLayout::EsDe), psx());
         assert_eq!(
@@ -888,16 +897,16 @@ mod tests {
             (
                 StorageFormat::Loose,
                 owned(&[
-                    ".multidisc/Saga (USA) (Disc 2).cue",
-                    ".multidisc/Saga (USA) (Disc 2).bin"
+                    "Saga (USA).m3u/Saga (USA) (Disc 2).cue",
+                    "Saga (USA).m3u/Saga (USA) (Disc 2).bin"
                 ]),
-                Some(".multidisc/Saga (USA) (Disc 2).cue".into())
+                Some("Saga (USA).m3u/Saga (USA) (Disc 2).cue".into())
             )
         );
     }
 
     #[test]
-    fn the_es_de_layout_puts_a_chd_in_the_system_folder_or_in_multidisc() {
+    fn the_es_de_layout_puts_a_chd_in_the_system_folder_or_in_its_release_m3u_folder() {
         let laid = lay_out(play(StorageFormat::Chd, DiscLayout::EsDe), psx());
         assert_eq!(
             files(&laid, "Orbit (USA)"),
@@ -911,8 +920,31 @@ mod tests {
             files(&laid, "Saga (USA) (Disc 1)"),
             (
                 StorageFormat::Chd,
-                owned(&[".multidisc/Saga (USA) (Disc 1).chd"]),
-                Some(".multidisc/Saga (USA) (Disc 1).chd".into())
+                owned(&["Saga (USA).m3u/Saga (USA) (Disc 1).chd"]),
+                Some("Saga (USA).m3u/Saga (USA) (Disc 1).chd".into())
+            )
+        );
+    }
+
+    #[test]
+    fn the_es_de_layout_puts_an_iso_of_a_release_in_its_m3u_folder() {
+        let games = vec![
+            (
+                "Epic (USA) (Disc 1)",
+                vec![("Epic (USA) (Disc 1).iso", DVD_SECTOR)],
+            ),
+            (
+                "Epic (USA) (Disc 2)",
+                vec![("Epic (USA) (Disc 2).iso", DVD_SECTOR)],
+            ),
+        ];
+        let laid = lay_out(play(StorageFormat::LooseFolder, DiscLayout::EsDe), games);
+        assert_eq!(
+            files(&laid, "Epic (USA) (Disc 2)"),
+            (
+                StorageFormat::Loose,
+                owned(&["Epic (USA).m3u/Epic (USA) (Disc 2).iso"]),
+                Some("Epic (USA).m3u/Epic (USA) (Disc 2).iso".into())
             )
         );
     }
@@ -979,16 +1011,14 @@ mod tests {
     }
 
     #[test]
-    fn a_playlist_lists_each_entry_on_its_own_line() {
+    fn a_playlist_lists_each_entry_by_its_bare_name_on_its_own_line() {
         assert_eq!(
-            playlist(&[".multidisc/A (Disc 1).cue", ".multidisc/A (Disc 2).chd"]),
-            ".multidisc/A (Disc 1).cue\n.multidisc/A (Disc 2).chd\n"
+            playlist(&["A.m3u/A (Disc 1).cue", "A.m3u/A (Disc 2).chd"]),
+            "A (Disc 1).cue\nA (Disc 2).chd\n"
         );
+        assert_eq!(playlist_name("A"), "A.m3u/A.m3u");
         assert_eq!(sbi_beside("X.cue/X.cue").as_deref(), Some("X.cue/X.sbi"));
-        assert_eq!(
-            sbi_beside(".multidisc/X.CHD").as_deref(),
-            Some(".multidisc/X.sbi")
-        );
+        assert_eq!(sbi_beside("A.m3u/X.CHD").as_deref(), Some("A.m3u/X.sbi"));
         assert_eq!(sbi_beside("X.iso"), None);
     }
 
