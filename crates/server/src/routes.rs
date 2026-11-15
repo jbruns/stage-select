@@ -28,6 +28,7 @@ use title_select_api::ingest::{
     RegisterIngestFolder,
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
+use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
@@ -97,6 +98,8 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/path-templates", get(path_templates))
         .route("/settings", get(settings).patch(change_settings))
+        .route("/romm/test", post(test_romm))
+        .route("/romm/platforms", get(romm_platforms))
         .route("/source-sets", get(source_sets).post(add_source_set))
         .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
@@ -552,6 +555,28 @@ async fn change_settings(
     .await?;
     state.jobs.wake();
     Ok(Json(settings.view(&state.config)))
+}
+
+/// Tests the RomM connection saved, or the address and token the body gives in its place, without saving it.
+async fn test_romm(
+    State(state): State<AppState>,
+    body: Result<Json<RommTestRequest>, JsonRejection>,
+) -> ApiResult<Json<RommCheck>> {
+    let Json(request) = body?;
+    let client = blocking(&state, move |store| store.settings()?.romm.tester(&request)).await?;
+    Ok(Json(
+        tokio::task::spawn_blocking(move || client.check())
+            .await
+            .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?,
+    ))
+}
+
+/// Each Library Folder and the RomM platform it maps to.
+async fn romm_platforms(State(state): State<AppState>) -> ApiResult<Json<Vec<RommFolderPlatform>>> {
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| store.romm_platforms(&config)).await?,
+    ))
 }
 
 async fn source_sets(

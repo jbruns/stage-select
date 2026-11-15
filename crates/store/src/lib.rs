@@ -22,6 +22,7 @@ pub mod observe;
 mod plans;
 mod profiles;
 mod repairs;
+pub mod romm;
 mod sbi_packs;
 mod selections;
 mod sets;

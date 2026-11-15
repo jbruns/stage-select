@@ -22,7 +22,7 @@ use title_select_api::fetch::{
 use title_select_api::{CuePackOrigin, ImportOutcome};
 use title_select_engine::dat::Dat;
 
-pub use http::{Allowed, FetchError, Fetched, Http, USER_AGENT, refusal, refusal_unnamed};
+pub use http::{Allowed, FetchError, Fetched, Http, Method, USER_AGENT, refusal, refusal_unnamed};
 
 use crate::{Error, Result, Store, now};
 

@@ -19,6 +19,7 @@ use title_select_api::settings::{
 };
 
 use crate::config::Config;
+use crate::romm::Romm;
 use crate::{Error, Result, Store, now};
 
 /// The webhook as stored, secrets included.
@@ -137,6 +138,7 @@ pub struct Settings {
     /// The cadence set for each Ingest Folder, by its Root's name. One not here has the defaults.
     pub ingest_folders: BTreeMap<String, IngestCadence>,
     pub notify: Notify,
+    pub romm: Romm,
 }
 
 impl Settings {
@@ -175,6 +177,7 @@ impl Settings {
                 .map(|(name, _)| (name.clone(), self.ingest(name)))
                 .collect(),
             notify: self.notify.view(),
+            romm: self.romm.view(),
         }
     }
 }
@@ -187,6 +190,7 @@ const FETCH: &str = "fetch";
 const CHD: &str = "chd";
 const INGEST_FOLDERS: &str = "ingest_folders";
 const NOTIFY: &str = "notify";
+const ROMM: &str = "romm";
 
 fn parse<T: serde::de::DeserializeOwned>(section: &str, value: &str) -> Result<T> {
     serde_json::from_str(value)
@@ -210,6 +214,7 @@ pub(crate) fn load(c: &Connection) -> Result<Settings> {
             CHD => settings.chd = parse(&section, &value)?,
             INGEST_FOLDERS => settings.ingest_folders = parse(&section, &value)?,
             NOTIFY => settings.notify = parse(&section, &value)?,
+            ROMM => settings.romm = parse(&section, &value)?,
             _ => {}
         }
     }
@@ -273,6 +278,10 @@ impl Store {
             if let Some(notify) = &update.notify {
                 settings.notify = settings.notify.updated(notify)?;
                 put(tx, NOTIFY, &settings.notify, actor)?;
+            }
+            if let Some(romm) = &update.romm {
+                settings.romm = settings.romm.updated(config, romm)?;
+                put(tx, ROMM, &settings.romm, actor)?;
             }
             if let Some(pace) = update.pace {
                 settings.pace = pace;
@@ -373,6 +382,8 @@ fn check(config: &Config, update: &SettingsUpdate) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use title_select_api::romm::{RommUpdate, RommView};
+
     use super::*;
 
     fn store() -> (tempfile::TempDir, Store) {
@@ -677,6 +688,196 @@ mod tests {
             assert!(!err.contains("secret-token"), "{err}");
             assert!(!err.contains("hooks."), "{err}");
         }
+    }
+
+    fn romm_config() -> Config {
+        Config::parse(
+            "[roots.library]\npath = \"/library\"\nwritable = true\n\n\
+             [roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"",
+        )
+        .unwrap()
+    }
+
+    fn romm(
+        enabled: bool,
+        base_url: Option<&str>,
+        token: SecretUpdate,
+        root: Option<&str>,
+    ) -> SettingsUpdate {
+        SettingsUpdate {
+            romm: Some(RommUpdate {
+                enabled,
+                base_url: base_url.map(str::to_owned),
+                token,
+                root: root.map(str::to_owned),
+            }),
+            ..SettingsUpdate::default()
+        }
+    }
+
+    #[test]
+    fn romm_is_off_by_default_and_its_token_is_set_replaced_and_cleared_but_never_shown() {
+        let (_dir, store) = store();
+        let config = romm_config();
+        let set = |s: &str| SecretUpdate::Set(s.to_owned());
+        assert_eq!(
+            store.settings().unwrap().view(&config).romm,
+            RommView::default()
+        );
+
+        let on = store
+            .update_settings(
+                &config,
+                &romm(
+                    true,
+                    Some(" https://romm.example/ "),
+                    set(" rmm_first-token \n"),
+                    Some("library"),
+                ),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!(on.romm.token.as_deref(), Some("rmm_first-token"));
+        assert_eq!(
+            on.view(&config).romm,
+            RommView {
+                enabled: true,
+                base_url: Some("https://romm.example".into()),
+                token_set: true,
+                root: Some("library".into()),
+            }
+        );
+
+        let kept = store
+            .update_settings(
+                &config,
+                &romm(
+                    false,
+                    Some("https://romm.example"),
+                    SecretUpdate::Keep,
+                    Some("library"),
+                ),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!(kept.romm.token.as_deref(), Some("rmm_first-token"));
+        assert!(!kept.romm.enabled, "turning RomM off keeps its connection");
+
+        let replaced = store
+            .update_settings(
+                &config,
+                &romm(
+                    true,
+                    Some("https://romm.example"),
+                    set("rmm_second-token"),
+                    Some("library"),
+                ),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!(replaced.romm.token.as_deref(), Some("rmm_second-token"));
+        let shown = serde_json::to_string(&replaced.view(&config)).unwrap();
+        assert!(!shown.contains("rmm_"), "{shown}");
+        assert!(!format!("{replaced:?}").contains("rmm_"));
+
+        let cleared = store
+            .update_settings(
+                &config,
+                &romm(
+                    false,
+                    Some("https://romm.example"),
+                    SecretUpdate::Clear,
+                    None,
+                ),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!(cleared.romm.token, None);
+        assert!(!cleared.view(&config).romm.token_set);
+        assert_eq!(store.settings().unwrap().romm, cleared.romm);
+    }
+
+    #[test]
+    fn an_incomplete_or_unsafe_romm_connection_is_refused_and_changes_nothing() {
+        let (_dir, store) = store();
+        let config = romm_config();
+        let set = |s: &str| SecretUpdate::Set(s.to_owned());
+        let url = Some("https://romm.example");
+        for (bad, why) in [
+            (romm(true, None, set("rmm_t"), Some("library")), "address"),
+            (
+                romm(true, url, SecretUpdate::Keep, Some("library")),
+                "token",
+            ),
+            (romm(true, url, set("rmm_t"), None), "root"),
+            (romm(false, url, set("  "), None), "empty"),
+            (romm(false, url, set("rmm_t"), Some("nowhere")), "nowhere"),
+            (romm(false, url, set("rmm_t"), Some("in")), "ingest"),
+            (
+                romm(false, Some("ftp://romm.example"), set("rmm_t"), None),
+                "http",
+            ),
+            (
+                romm(false, Some("https://u:p@romm.example"), set("rmm_t"), None),
+                "credentials",
+            ),
+            (
+                romm(false, Some("https://romm.example/?q=1"), set("rmm_t"), None),
+                "query",
+            ),
+        ] {
+            let refused = store.update_settings(&config, &bad, "Operator");
+            match refused {
+                Err(Error::Refused(message)) => assert!(message.contains(why), "{why}: {message}"),
+                other => panic!("{bad:?}: {other:?}"),
+            }
+        }
+        assert_eq!(store.settings().unwrap(), Settings::default());
+
+        store
+            .update_settings(
+                &config,
+                &romm(true, url, set("rmm_t"), Some("library")),
+                "Operator",
+            )
+            .unwrap();
+        for (bad, why) in [
+            (
+                romm(
+                    true,
+                    Some("https://elsewhere.example"),
+                    SecretUpdate::Keep,
+                    Some("library"),
+                ),
+                "token again",
+            ),
+            (
+                romm(true, url, SecretUpdate::Clear, Some("library")),
+                "token",
+            ),
+        ] {
+            let refused = store.update_settings(&config, &bad, "Operator");
+            match refused {
+                Err(Error::Refused(message)) => assert!(message.contains(why), "{why}: {message}"),
+                other => panic!("{bad:?}: {other:?}"),
+            }
+        }
+        let moved = store
+            .update_settings(
+                &config,
+                &romm(
+                    true,
+                    Some("https://elsewhere.example"),
+                    set("rmm_u"),
+                    Some("library"),
+                ),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!(
+            moved.romm.base_url.as_deref(),
+            Some("https://elsewhere.example")
+        );
     }
 
     #[test]

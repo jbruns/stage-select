@@ -354,12 +354,41 @@ save it, without a restart, and is kept in the store, so a backup of the store k
 | CHD time limits | the longest chdman may run on a disc: a limit, plus more for each GiB of its tracks, each at most 604,800 seconds (a week); see "Storage policy" | 600 seconds, plus 240 a GiB |
 | Ingest folders | for each ingest folder, how long an item stays unchanged before it is assessed, up to 86,400 seconds (a day), and how often it is scanned on its own, every 1 to 10,080 minutes (a week) | 60 seconds; only when you ask, and once arriving items could settle |
 | Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
+| RomM | whether to use RomM, its address, a RomM token, and the root RomM's library is in; see "RomM" | off |
 
 The webhook's URL and secret are write-only: once saved, the workbench and the API say only whether each is set, and
 you can replace or clear it, but not read it.
 
 The API reads them with `GET /api/v1/settings` and changes them with `PATCH /api/v1/settings`; see "HTTP API". When
 they change, every open workbench hears of it and shows them as they are now.
+
+### RomM
+
+Title Select can work alongside a [RomM](https://github.com/rommapp/romm) that serves your play library. It is off
+until you turn it on, and a RomM that is down or refuses a request never stops an audit, a selection or a build.
+Title Select is tested with RomM 5.4; another release may work, and testing the connection says
+when yours is untested.
+
+Under Settings, then Operations, the RomM section holds:
+
+- **Address.** RomM's address, such as `http://<domain>:8080`, with no path after it. Use `https` unless RomM is on
+  your own network: the token is sent with every request.
+- **Token.** In RomM, create a client token for a user that isn't an admin, with the scopes `roms.read`,
+  `platforms.read`, `collections.read`, `collections.write` and `tasks.run`. Add `me.read` to see which user it
+  signs in as. The token is write-only, like the webhook's secret. Your saved token is sent only to the address you
+  saved it with: to change the address, enter the token again.
+- **Root.** The root that is RomM's library folder, the folder whose subfolders RomM reads as platforms. Each library
+  folder directly in it is the RomM platform its folder name gives, such as `gba`; the table under the section shows
+  each library folder's platform, or why it has none: it is outside that root, nested deeper than RomM reads, or missing from disk. Folders are compared
+  where they really are, so a root reached through a symlink still matches.
+
+Turning RomM on needs all three. **Test the connection** checks the address and token without saving them: it shows
+RomM's version, the user the token signs in as, warns when that user is an admin, and names each scope the token
+lacks.
+
+**The store holds the token.** Like the webhook's secret, the RomM token is kept in the store, so every backup of the
+store holds it too. Keep backups where only you can read them, and if one leaks, delete the token in RomM and create
+another.
 
 ### Path templates
 
@@ -1172,8 +1201,10 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?}`; only a disc system's play libraries take `layout` and `sbi` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
-| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`, the `ceilings` from the configuration file and the `active` counts the pace gives, each `{"concurrent", "readers", "hashers"}`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`) and `notify` (`url_set`, `secret_set`, `events`, `workbench_url`); never the webhook's URL or secret |
-| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace`; `notify` takes `url` and `secret` each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
+| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`, the `ceilings` from the configuration file and the `active` counts the pace gives, each `{"concurrent", "readers", "hashers"}`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
+| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace`; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
+| `POST /api/v1/romm/test`                           | test the RomM connection without saving it: `{"base_url"?, "token"?}`, each by default the saved one; returns `{"version", "version_tested", "user" ({"username", "admin"}, with `me.read`), "missing_scopes", "failure"}`; `400` for a new address with the saved token |
+| `GET /api/v1/romm/platforms`                       | each library folder's RomM platform: `{"folder_id", "root", "path", "platform"}`, `platform` being `{"mapping": "mapped", "fs_slug"}` or a `mapping` of `no_root`, `outside_root`, `nested`, `is_root` or `unresolved` (the folder or the RomM root can't be found on disk) |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
 | `GET /api/v1/selections?source_set=&profile=`      | selections, newest first, of a source set, a profile or both; each names the library folders that use it |
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
