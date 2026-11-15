@@ -367,7 +367,7 @@ they change, every open workbench hears of it and shows them as they are now.
 Title Select can work alongside a [RomM](https://github.com/rommapp/romm) that serves your play library. It is off
 until you turn it on, and a RomM that is down or refuses a request never stops an audit, a selection or a build.
 Title Select is tested with RomM 5.4; another release may work, and testing the connection says
-when yours is untested.
+when yours is untested. To set RomM up beside Title Select, see "Using with RomM".
 
 Under Settings, then Operations, the RomM section holds:
 
@@ -1745,9 +1745,82 @@ python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwrigh
 .venv/bin/python crates/ui/bench/filter.py
 ```
 
-## Development
+## Using with RomM
 
-Decisions are recorded in [docs/adr/](docs/adr/). A Cargo workspace: `crates/api` (the API's and the report's types), `crates/engine` (the Audit), `crates/store`
+[RomM](https://github.com/rommapp/romm) can serve your play library beside Title Select. Title Select verifies,
+selects and builds your files. RomM finds their metadata and artwork and serves them to your players. This section
+sets RomM up so that only Title Select writes your library. It is written for RomM 5.4. To turn RomM on in Title
+Select and fill in its settings, see "RomM".
+
+**Mount your play library read-only.** Mount the root you named under **Root** in the RomM settings at
+`/romm/library/roms`, read-only:
+
+```yaml
+services:
+  romm:
+    volumes:
+      - /data/roms:/romm/library/roms:ro   # the path of that root in title-select.toml
+```
+
+Each library folder directly in that root is a RomM platform, named for its folder, such as `gba`. Title Select keeps
+its own state in each folder's `.title-select/` folder, and RomM skips it. Under the ES-DE disc layout, the default, a
+multi-disc game's `<game>.m3u/` folder is one game in RomM, with every disc.
+
+**Give Title Select its own RomM user.** In RomM, create a user that isn't an admin, in a group that grants Tasks
+write, so that it can start scans. Signed in as that user, create a client API token with the scopes "RomM" lists,
+and enter it in the RomM settings. If you sign in to RomM with OIDC, create the token while you are signed in: an OIDC
+sign-in can't call RomM's API itself.
+
+**Leave RomM's own rescans off.** Title Select asks RomM to scan a platform when a job changes that platform's files,
+so RomM needs no watcher or schedule. Leave `ENABLE_RESCAN_ON_FILESYSTEM_CHANGE` and `ENABLE_SCHEDULED_RESCAN` unset or
+`false`, as they are by default. RomM's docs say its watcher can be unreliable over SMB or NFS, and warn against it
+while another tool writes the library.
+
+**Metadata.** Title Select names each file as its DAT names it, so RomM can match a game by its name as well as its
+hash. Turn Hasheous off: leave `HASHEOUS_API_ENABLED` unset or `false`. Use ScreenScraper instead, which matches by
+hash and by name: set `SCREENSCRAPER_USER` and `SCREENSCRAPER_PASSWORD`. For artwork, add libretro's thumbnails,
+which need no account: RomM looks them up by exact file name first, then by a close name. Put both first in
+RomM's `config.yml`, at `/romm/config/config.yml`:
+
+```yaml
+scan:
+  priority:
+    metadata:   # where RomM takes titles and descriptions from, best first
+      - ss      # ScreenScraper
+    artwork:    # where RomM takes covers and screenshots from, best first
+      - ss
+      - libretro
+```
+
+If you store disc games as CHD, expect them to match mostly by name. A CHD's own hash is in no Redump DAT, and how
+well a provider matches the hash of the disc inside a CHD varies.
+
+**Leave RomM's writing features off.** These write into your library, so they fail on a read-only mount and would
+change files Title Select built:
+
+- the `gamelist.xml` and Pegasus exports: leave `scan.gamelist.export` and `scan.pegasus.export` at `false`, the
+  default;
+- the **Convert library** task: leave `ROM_CONVERTO_ENABLED` unset or `false`;
+- uploads: add games through Title Select, not through RomM.
+
+**Arcade.** RomM 5.5 splits arcade into separate platforms, such as `mame`, `fbneo` and `fba`. When you upgrade RomM,
+check that each arcade library folder's name is still the platform you want.
+
+**What Title Select does in RomM.** With RomM turned on, Title Select:
+**What Title Select does in RomM.** With RomM turned on, Title Select:
+
+- asks RomM for a quick scan of a platform when a build, a library cleanup or a restore of a kept file changes its
+  library folder, and shows how the scan went on the job; see "The scan after a build";
+- keeps one public collection in RomM, **Additions**, of the additions built into your library folders, updated after
+  each of those scans and deleted when you turn RomM off or change its address; see "The Additions collection";
+- reads back what RomM matched in each library folder after each of those scans, shows where it disagrees with what
+  your builds made, and asks RomM to scan a file again when you choose; see "Comparing RomM's view with your library
+  folder".
+
+It changes nothing else in RomM. It never edits a game's name, metadata or match, and never writes into your library
+for RomM. A RomM that is down or refuses a request leaves a warning on the job, never a failure.
+
+go workspace: `crates/api` (the API's and the report's types), `crates/engine` (the Audit), `crates/store`
 (the store and configuration), `crates/server` (the Service), `crates/cli` (the `title-select` binary) and
 `crates/ui` (the workbench). The workbench's filtering, sorting, derived states and Job event handling are plain Rust,
 tested on the host with `cargo test`; `cargo clippy --package title-select-ui --target wasm32-unknown-unknown` checks
