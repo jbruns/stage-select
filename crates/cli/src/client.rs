@@ -204,7 +204,7 @@ impl Client {
                     }
                 }
                 Ok(JobEvent::Progress(progress)) => show_progress(progress, shown),
-                Ok(JobEvent::Resync(_) | JobEvent::Settings(_)) => {}
+                Ok(JobEvent::Resync(_) | JobEvent::Settings(_) | JobEvent::RommReconciled(_)) => {}
                 Err(err) => return Err(format!("unexpected event from the service: {err}")),
             }
         }

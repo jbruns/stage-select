@@ -2501,12 +2501,13 @@ mod selections {
     }
 
     /// A Service whose RomM, a stub whose scan task answers `status`, maps the library folder play/gba, and the
-    /// succeeded build job that changed it, whose scan is then followed at `timing`.
+    /// succeeded build job that changed it, whose scan is then followed at `timing`; and its events, from before the
+    /// build.
     fn built_where_romm_scans(
         env: &Env,
         status: &'static str,
         timing: title_select_store::romm::ScanTiming,
-    ) -> (Handle, i64) {
+    ) -> (Handle, i64, Events) {
         use title_select_api::build::{LibraryFolder, Plan};
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
@@ -2538,6 +2539,7 @@ mod selections {
             json!({"selection": selection.id}),
         );
         let plan: Plan = serde_json::from_value(plan).unwrap();
+        let (events, _) = client.watch();
         let (status, job) = send(
             client.post(&format!("/plans/{}/approval", plan.id)),
             json!({"digest": plan.digest}),
@@ -2545,7 +2547,7 @@ mod selections {
         assert_eq!(status, 202, "{job}");
         let job: Job = serde_json::from_value(job).unwrap();
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
-        (service, job.id)
+        (service, job.id, events)
     }
 
     /// A build that changes a library folder RomM maps to a platform asks RomM to scan it once the build ends, and
@@ -2555,7 +2557,7 @@ mod selections {
         use std::time::{Duration, Instant};
         use title_select_api::romm::{RommPlatform, RommScanOutcome};
         let env = Env::new();
-        let (service, id) = built_where_romm_scans(
+        let (service, id, _) = built_where_romm_scans(
             &env,
             "finished",
             title_select_store::romm::ScanTiming {
@@ -2596,7 +2598,7 @@ mod selections {
         use std::time::{Duration, Instant};
         use title_select_api::romm::RommAdditionsOutcome;
         let env = Env::new();
-        let (service, id) = built_where_romm_scans(
+        let (service, id, _) = built_where_romm_scans(
             &env,
             "finished",
             title_select_store::romm::ScanTiming {
@@ -2648,7 +2650,7 @@ mod selections {
         use std::time::{Duration, Instant};
         use title_select_api::romm::RommReconciliation;
         let env = Env::new();
-        let (service, id) = built_where_romm_scans(
+        let (service, id, mut events) = built_where_romm_scans(
             &env,
             "finished",
             title_select_store::romm::ScanTiming {
@@ -2665,6 +2667,17 @@ mod selections {
             .library_folder
             .unwrap();
         let path = format!("/libraries/{folder}/romm");
+        let mut compared = move || loop {
+            let (name, data) = events.next_event();
+            if name == "romm_reconciled" {
+                break serde_json::from_str::<serde_json::Value>(&data).unwrap();
+            }
+        };
+        assert_eq!(
+            compared(),
+            json!({"folder_id": folder}),
+            "you hear that the comparison after the scan is ready"
+        );
 
         let deadline = Instant::now() + Duration::from_secs(10);
         let latest = loop {
@@ -2703,6 +2716,11 @@ mod selections {
         assert_eq!(status, 200, "{again}");
         let again: RommReconciliation = serde_json::from_value(again).unwrap();
         assert_eq!((again.job_id, again.counts), (None, latest.counts));
+        assert_eq!(
+            compared(),
+            json!({"folder_id": folder}),
+            "and when you compare again"
+        );
         let (status, body) = send(
             client.post(&format!("{path}/rescans")),
             json!({"rom_id": 9}),
@@ -2735,7 +2753,7 @@ mod selections {
         use std::time::{Duration, Instant};
         use title_select_api::romm::RommScanOutcome;
         let env = Env::new();
-        let (service, id) = built_where_romm_scans(
+        let (service, id, _) = built_where_romm_scans(
             &env,
             "started",
             title_select_store::romm::ScanTiming {

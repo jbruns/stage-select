@@ -624,7 +624,9 @@ async fn reconcile_romm(
         .map(Json)
         .ok_or_else(|| {
             Error::Refused(
-                "RomM is off, or doesn't scan this library folder, so its view of it wasn't compared.".into(),
+                "RomM is off, doesn't scan this library folder, or its settings changed while it was read, so its \
+                 view of it wasn't compared."
+                    .into(),
             )
             .into()
         })
@@ -638,9 +640,10 @@ async fn request_romm_rescan(
 ) -> ApiResult<Json<RommRescan>> {
     let Path(id) = id?;
     let Json(request) = body?;
+    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.request_romm_rescan(id, request.rom_id)
+            store.request_romm_rescan(&config, id, request.rom_id)
         })
         .await?,
     ))
@@ -2053,7 +2056,7 @@ impl Sent {
                 }
                 true
             }
-            JobEvent::Settings(_) => true,
+            JobEvent::Settings(_) | JobEvent::RommReconciled(_) => true,
         }
     }
 

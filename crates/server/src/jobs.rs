@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
-use title_select_api::romm::RommReconciliation;
+use title_select_api::romm::{RommReconciled, RommReconciliation};
 use title_select_api::{Job, JobEvent, JobKind, JobProgress};
 use title_select_engine::Progress;
 use title_select_selection::Engine;
@@ -62,7 +62,7 @@ impl Jobs {
         config: &Config,
         folder: i64,
     ) -> title_select_store::Result<Option<RommReconciliation>> {
-        Store::reconcile_romm(
+        let kept = Store::reconcile_romm(
             store,
             config,
             folder,
@@ -70,7 +70,18 @@ impl Jobs {
             PAGE,
             &self.romm_scan,
             &self.romm_stop,
-        )
+        )?;
+        if let Some(kept) = &kept {
+            self.reconciled(kept);
+        }
+        Ok(kept)
+    }
+
+    /// Announces that `kept` is now its Library Folder's latest comparison with RomM.
+    fn reconciled(&self, kept: &RommReconciliation) {
+        self.publish(JobEvent::RommReconciled(RommReconciled {
+            folder_id: kept.folder_id,
+        }));
     }
 
     /// Stops following every RomM scan, now and from now on, and records each in `store` as no longer followed.
@@ -163,13 +174,13 @@ pub fn delete_released_romm_collection(store: &Arc<Store>) {
 /// Compares RomM's view of the Library Folder the ended Build Job `job` changed with what its Builds made, once the
 /// scan it requested finished (#143). A comparison that fails is kept saying why; it never fails the Job.
 fn reconcile_romm(store: &Weak<Store>, config: &Config, jobs: &Jobs, job: &Job) {
-    if let Err(err) =
-        Store::reconcile_romm_scan(store, config, job, &jobs.romm_scan, &jobs.romm_stop)
-    {
-        eprintln!(
+    match Store::reconcile_romm_scan(store, config, job, &jobs.romm_scan, &jobs.romm_stop) {
+        Ok(Some(kept)) => jobs.reconciled(&kept),
+        Ok(None) => {}
+        Err(err) => eprintln!(
             "title-select: job {}: RomM's view of its library folder wasn't compared: {err}",
             job.id
-        );
+        ),
     }
 }
 

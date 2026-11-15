@@ -353,6 +353,13 @@ pub struct RommRescan {
     pub task_id: String,
 }
 
+/// Sent by `/events` each time a comparison of RomM's view of a Library Folder is kept, so a client showing it can
+/// fetch it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommReconciled {
+    pub folder_id: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

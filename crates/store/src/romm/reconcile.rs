@@ -138,25 +138,39 @@ fn same_title(game: &str, romm: &str) -> bool {
     title_key(game) == title_key(romm)
 }
 
-/// The SHA-1 of the file at `path` as it is now, if it is still the file the Build recorded: one changed since is
-/// Drift's to report.
-fn sha1_on_disk(path: &Path, built: &Built) -> Option<String> {
-    use std::io::Read;
-    let meta = std::fs::metadata(path).ok()?;
-    if crate::plans::stat(&meta) != built.file {
-        return None;
-    }
-    let mut file = std::fs::File::open(path).ok()?;
+/// Whether the file at `path` is still the file the Build recorded: one changed since is Drift's to report.
+fn unchanged(path: &Path, built: &Built) -> bool {
+    std::fs::metadata(path).is_ok_and(|meta| crate::plans::stat(&meta) == built.file)
+}
+
+fn sha1_of(mut read: impl std::io::Read) -> Option<String> {
     let mut hasher = title_select_engine::payload::Hasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
+        match read.read(&mut buf) {
+            Ok(0) => return Some(hasher.finish().sha1),
             Ok(n) => hasher.update(&buf[..n]),
             Err(_) => return None,
         }
     }
-    Some(hasher.finish().sha1)
+}
+
+/// The SHA-1 of the file at `path` as it is now, if it is still the file the Build recorded.
+fn sha1_on_disk(path: &Path, built: &Built) -> Option<String> {
+    unchanged(path, built)
+        .then(|| std::fs::File::open(path).ok())
+        .flatten()
+        .and_then(sha1_of)
+}
+
+/// The SHA-1 of the whole member `name` of the zip at `path`, Header and all, if the zip is still the file the Build
+/// recorded.
+fn member_sha1_on_disk(path: &Path, built: &Built, name: &str) -> Option<String> {
+    if !unchanged(path, built) {
+        return None;
+    }
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+    sha1_of(zip.by_name(name).ok()?)
 }
 
 /// What the file built at `path` should hash to as a whole, when that is known: the DAT's SHA-1 of a ROM built loose
@@ -199,8 +213,13 @@ fn hash_disagreement(path: &Path, built: &Built, file: &RommFile) -> Option<Stri
         match members.iter().find(|m| m.name == rom.name) {
             None => wrong.push(format!("RomM doesn't list {} in it.", rom.name)),
             Some(member) => {
-                if let (Some(theirs), Some(ours)) = (hashed(&member.sha1_hash), rom.sha1.as_deref())
-                    && theirs != ours.to_ascii_lowercase()
+                // RomM hashes a member whole, so a ROM written with its Header is compared as it was written.
+                let ours = match rom.header {
+                    Some(_) => member_sha1_on_disk(path, built, &rom.name),
+                    None => rom.sha1.as_deref().map(str::to_ascii_lowercase),
+                };
+                if let (Some(theirs), Some(ours)) = (hashed(&member.sha1_hash), ours)
+                    && theirs != ours
                 {
                     wrong.push(format!(
                         "RomM's SHA-1 for {} in it is {theirs}; it was built as {ours}.",
@@ -393,8 +412,8 @@ impl Store {
                 (reconciliation.counts, reconciliation.rows) = compare(&dir, &built, &roms);
             }
         }
-        store.record_romm_reconciliation(&reconciliation)?;
-        Ok(Some(reconciliation))
+        let recorded = store.record_romm_reconciliation(config, &reconciliation, &was)?;
+        Ok(recorded.then_some(reconciliation))
     }
 
     /// Compares RomM's view of the Library Folder the ended Build Job `job` changed, once the scan it requested
@@ -430,15 +449,36 @@ impl Store {
         })
     }
 
-    fn record_romm_reconciliation(&self, r: &RommReconciliation) -> Result<()> {
+    /// Keeps `r`, read from RomM as `was` set it, as its folder's latest, unless RomM's settings or the folder's
+    /// platform changed since: then it is of RomM as you no longer have it, and is discarded. Returns whether it was
+    /// kept. Settings updates wait while it checks and records, so none commits between the two.
+    fn record_romm_reconciliation(
+        &self,
+        config: &Config,
+        r: &RommReconciliation,
+        was: &super::Romm,
+    ) -> Result<bool> {
+        let _settings = self
+            .settings_update
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let now = self.settings()?.romm;
+        let (root, path) = self.folder_place(r.folder_id)?;
+        if !now.is_on()
+            || now.base_url != was.base_url
+            || now.root != was.root
+            || now.platform(config, &root, &path).fs_slug() != Some(r.fs_slug.as_str())
+        {
+            return Ok(false);
+        }
         self.write(|tx| {
             tx.execute(
                 "INSERT INTO romm_reconciliations (folder_id, job_id, fs_slug, reconciled_at, error, files, clean,
-                                                   unidentified, title_mismatch, hash_mismatch, rows)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                                                   unidentified, title_mismatch, hash_mismatch, rows, base_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT (folder_id) DO UPDATE SET
                      job_id = ?2, fs_slug = ?3, reconciled_at = ?4, error = ?5, files = ?6, clean = ?7,
-                     unidentified = ?8, title_mismatch = ?9, hash_mismatch = ?10, rows = ?11",
+                     unidentified = ?8, title_mismatch = ?9, hash_mismatch = ?10, rows = ?11, base_url = ?12",
                 params![
                     r.folder_id,
                     r.job_id,
@@ -451,9 +491,10 @@ impl Store {
                     r.counts.title_mismatch as i64,
                     r.counts.hash_mismatch as i64,
                     serde_json::to_string(&r.rows).expect("JSON serializes"),
+                    was.base_url,
                 ],
             )?;
-            Ok(())
+            Ok(true)
         })
     }
 
@@ -490,8 +531,14 @@ impl Store {
 
     /// Asks RomM to scan again the ROM `rom_id`, one the Library Folder `folder`'s latest reconciliation flagged: an
     /// unidentified ROM is scanned for a match (`unmatched`), any other is scanned again whole (`update`). Refused
-    /// while RomM is off; a request RomM refuses or doesn't answer is refused saying why.
-    pub fn request_romm_rescan(&self, folder: i64, rom_id: i64) -> Result<RommRescan> {
+    /// while RomM is off, and once RomM's address or the folder's platform is no longer the one the comparison read,
+    /// as its ROM ids may then name other ROMs; a request RomM refuses or doesn't answer is refused saying why.
+    pub fn request_romm_rescan(
+        &self,
+        config: &Config,
+        folder: i64,
+        rom_id: i64,
+    ) -> Result<RommRescan> {
         let romm = self.settings()?.romm;
         if !romm.is_on() {
             return Err(Error::Refused(
@@ -509,6 +556,23 @@ impl Store {
                 "RomM's ROM {rom_id} isn't one the latest comparison of this library folder flagged, so RomM wasn't \
                  asked to scan it again."
             )));
+        }
+        let (base_url, fs_slug): (String, String) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT base_url, fs_slug FROM romm_reconciliations WHERE folder_id = ?1",
+                [folder],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })?;
+        let (root, path) = self.folder_place(folder)?;
+        if romm.base_url.as_deref() != Some(base_url.as_str())
+            || romm.platform(config, &root, &path).fs_slug() != Some(fs_slug.as_str())
+        {
+            return Err(Error::Refused(
+                "RomM's address or this library folder's RomM platform changed since the latest comparison, so its \
+                 ROMs may not be the ones RomM lists now. Compare again, then ask RomM to scan again."
+                    .into(),
+            ));
         }
         let scan_type = match rows
             .iter()

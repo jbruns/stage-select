@@ -140,8 +140,10 @@ pub fn RommTab(folder: i64) -> impl IntoView {
             api::post::<_, RommRescan>(&format!("/libraries/{folder}/romm/rescans"), &body).await
         }
     });
+    let reconciled = Memo::new(move |_| live.romm.with(|m| m.get(&folder).copied()));
     let loaded = LocalResource::new(move || {
         live.settled.track();
+        reconciled.track();
         compare.version().track();
         let path = path.clone();
         async move { Ok::<_, String>(api::get::<RommReconciliation>(&path).await.ok()) }

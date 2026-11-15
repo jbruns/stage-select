@@ -455,9 +455,12 @@ file RomM sees otherwise, flagged as one or more of:
 
 Title Select never changes what RomM matched: fix a match in RomM, or use a file's **Ask RomM to scan again**, which
 scans an unidentified ROM for a match and any other ROM again whole. It needs the `tasks.run` scope, and RomM turned
-on; if RomM refuses, the tab says why. **Compare again** compares now, without waiting for a build. Files your builds
-didn't make aren't compared: checking the folder covers them. Only the latest comparison of each folder is kept; one
-that couldn't read RomM says why. In the API, `GET /api/v1/libraries/{id}/romm` returns it.
+on; if RomM refuses, the tab says why. Once you change RomM's address, or the folder's RomM platform, a comparison's
+ROMs may not be the ones RomM lists now, so a rescan from it is refused until you compare again. **Compare again**
+compares now, without waiting for a build. Files your builds didn't make aren't compared: checking the folder covers
+them. Only the latest comparison of each folder is kept; one that couldn't read RomM says why, and one read while you
+turned RomM off or changed its address or root is discarded. The tab shows a new comparison as soon as it is kept. In
+the API, `GET /api/v1/libraries/{id}/romm` returns it.
 
 ### Path templates
 
@@ -1367,12 +1370,13 @@ quick inventory, availability's `claimed` names the games whose status rests on 
 
 Server-sent events carry JSON data, under one of these event names:
 
-| Event      | Data                                   | Sent                                                         |
-| ---------- | -------------------------------------- | ------------------------------------------------------------ |
-| `state`    | the job                                | when a job's state changes; first on a job's own stream      |
-| `progress` | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second          |
-| `resync`   | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind |
-| `settings` | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again      |
+| Event             | Data                                   | Sent                                                                      |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------- |
+| `state`           | the job                                | when a job's state changes; first on a job's own stream                   |
+| `progress`        | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second                       |
+| `resync`          | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind              |
+| `settings`        | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again                   |
+| `romm_reconciled` | `{"folder_id"}`                        | by `/events` when a folder's comparison with RomM is kept; fetch it again |
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.
