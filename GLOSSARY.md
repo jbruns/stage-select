@@ -238,9 +238,9 @@ _Avoid_: Format setting, compression
 
 **Disc Layout**:
 A Storage Policy setting of a disc system's Play Libraries, global with per-system overrides: where its discs' files
-go. The ES-DE layout, the default, puts a disc of one file in the system folder, a single disc's `.cue` and tracks in
-`<game>.cue/`, and every file of a Multi-disc Game in `.multidisc/`, listed by a generated `.m3u` in the system
-folder. The flat layout puts every file in the system folder, with no `.m3u`.
+go. The ES-DE layout, the default, puts a disc of one file in the system folder, and gathers a disc Game of several
+files, or a Multi-disc Game with its generated `.m3u`, into one folder that front ends treat as a single entry. The
+flat layout puts every file in the system folder, with no `.m3u`.
 
 **Conversion**:
 Rewriting a Game stored in one format into the one the Storage Policy now gives its folder, with exactly the same

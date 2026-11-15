@@ -4,7 +4,7 @@ Date: 2026-11-03
 
 ## Status
 
-Accepted
+Accepted. The layout of Multi-disc Games in `.multidisc/` is superseded by ADR 0019.
 
 ## Context
 
