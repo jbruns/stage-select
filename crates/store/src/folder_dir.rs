@@ -492,12 +492,15 @@ pub(super) fn parent_made<'a>(
             Err(e) => return Err(e),
         };
         let sub = at.sub(part)?;
-        if made {
-            if state && let Err(why) = sub.private(true)? {
-                return Err(at.not_state(&why));
-            }
-            at.sync()?;
+        if made
+            && state
+            && let Err(why) = sub.private(true)?
+        {
+            return Err(at.not_state(&why));
         }
+        // Synced even when it already existed: a stop after making it may have left it unsynced, and what is
+        // recorded inside it is durable only once it is.
+        at.sync()?;
         found = Some(sub);
     }
     Ok((found, name))
@@ -539,4 +542,23 @@ impl AsFd for FolderDir {
 
 fn with_path(path: &Path, e: io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_state_folder_made_before_a_stop_is_synced_into_its_folder_when_next_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = FolderDir::open(tmp.path(), "").unwrap();
+        // A stop between making `.title-select` and syncing the folder holding it.
+        dir.mkdir_private(STATE).unwrap();
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+
+        parent_made(&dir, &format!("{STATE}/marker")).unwrap();
+
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        assert!(synced.contains(&tmp.path().to_path_buf()), "{synced:?}");
+    }
 }
