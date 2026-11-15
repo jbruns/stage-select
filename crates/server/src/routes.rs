@@ -546,13 +546,18 @@ async fn change_settings(
     let Json(update) = body?;
     let config = state.config.clone();
     let jobs = state.jobs.clone();
-    let settings = blocking(&state, move |store| {
-        store.update_settings_and_publish(&config, &update, &actor, |now| {
+    let (settings, released) = blocking(&state, move |store| {
+        store.update_settings_and_release(&config, &update, &actor, |now| {
             jobs.notifier.reconfigure(&now.notify);
             jobs.publish(JobEvent::Settings(SettingsChanged { pace: now.pace }));
         })
     })
     .await?;
+    // Turning RomM off, or changing its address, deletes its "Additions" collection on a task of its own, best
+    // effort: the settings are saved whatever RomM does (#142).
+    if released {
+        crate::jobs::delete_released_romm_collection(&state.store);
+    }
     state.jobs.wake();
     Ok(Json(settings.view(&state.config)))
 }

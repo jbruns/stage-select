@@ -8,7 +8,7 @@ use title_select_api::build::ItemKind;
 use title_select_api::ingest::IngestAction;
 use title_select_api::repair::RepairKind;
 use title_select_api::report::{Finding, GameStatus};
-use title_select_api::romm::RommScanOutcome;
+use title_select_api::romm::{RommAdditionsOutcome, RommScanOutcome};
 
 use super::icon::{Glyph, Icon};
 
@@ -1071,6 +1071,35 @@ impl Status for RommScanOutcome {
     }
 }
 
+/// How keeping RomM's "Additions" collection in step went once the scan finished. Anything but updated is a warning:
+/// the build still succeeded.
+impl Status for RommAdditionsOutcome {
+    const ALL: &'static [Self] = &RommAdditionsOutcome::ALL;
+
+    fn look(self) -> Look {
+        match self {
+            RommAdditionsOutcome::Synced => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Collection updated",
+                "RomM's Additions collection holds every addition RomM has indexed.",
+            ),
+            RommAdditionsOutcome::Stopped => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Update stopped",
+                "Title Select stopped before the collection was in step; the next build RomM scans tries again.",
+            ),
+            RommAdditionsOutcome::Error => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Collection error",
+                "Updating the collection went wrong; the detail says why.",
+            ),
+        }
+    }
+}
+
 /// A status as its icon alone, for a table cell: its label is the icon's tooltip and accessible name. In a
 /// `parts::list` row, set `tab_stop` false: the row's detail pane names it too.
 #[component]
@@ -1119,6 +1148,7 @@ mod tests {
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
             ("jobs", vocabulary::<JobState>()),
             ("RomM scans", vocabulary::<RommScanOutcome>()),
+            ("RomM additions", vocabulary::<RommAdditionsOutcome>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
             ("selection groups", vocabulary::<GroupStatus>()),

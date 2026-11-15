@@ -193,6 +193,68 @@ pub struct RommScan {
     pub requested_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<String>,
+    /// How RomM's "Additions" collection was kept in step once the scan finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<RommAdditions>,
+}
+
+/// How keeping RomM's "Additions" collection in step went. Anything but `synced` is a warning on the Job, never its
+/// failure (ADR 0020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RommAdditionsOutcome {
+    /// The collection holds exactly the Additions RomM has indexed.
+    Synced,
+    /// Title Select stopped before it finished: the Service stopped, or RomM was turned off or its address or root
+    /// changed meanwhile.
+    Stopped,
+    /// A request was refused or went unanswered: RomM unreachable, the token refused or lacking a scope, or an
+    /// answer that doesn't read.
+    Error,
+}
+
+impl RommAdditionsOutcome {
+    pub const ALL: [RommAdditionsOutcome; 3] = [
+        RommAdditionsOutcome::Synced,
+        RommAdditionsOutcome::Stopped,
+        RommAdditionsOutcome::Error,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RommAdditionsOutcome::Synced => "synced",
+            RommAdditionsOutcome::Stopped => "stopped",
+            RommAdditionsOutcome::Error => "error",
+        }
+    }
+}
+
+/// RomM's "Additions" collection kept in step with every Addition built into a Library Folder RomM maps, after the
+/// scan a Build Job requested finished (#142).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommAdditions {
+    pub outcome: RommAdditionsOutcome,
+    /// RomM's id for the collection, once it was found or created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<i64>,
+    /// How many of RomM's ROMs the collection holds now.
+    pub members: u64,
+    pub added: u64,
+    pub removed: u64,
+    /// The name of each built Addition RomM hasn't indexed, so isn't in the collection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved: Vec<String>,
+    /// What went wrong, for an outcome that is a warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub synced_at: String,
+}
+
+impl RommAdditions {
+    /// Whether it is a warning on its Job: it didn't finish, or an Addition is unresolved.
+    pub fn is_warning(&self) -> bool {
+        self.outcome != RommAdditionsOutcome::Synced || !self.unresolved.is_empty()
+    }
 }
 
 /// One Library Folder and the RomM platform it maps to.

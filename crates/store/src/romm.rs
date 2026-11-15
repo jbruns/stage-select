@@ -21,6 +21,8 @@ use crate::config::Config;
 use crate::fetch::{Http, Method, refusal_unnamed};
 use crate::{Error, Result, Store, now};
 
+pub use crate::romm_additions::Released;
+
 /// RomM's address as given, checked: plain `http` or `https` to a named host, with no credentials, query or fragment,
 /// and without a trailing `/`. A path is kept, for a RomM served under one.
 pub fn base_url(url: &str) -> std::result::Result<String, String> {
@@ -328,26 +330,34 @@ impl RommClient {
         path: &str,
         body: Option<&serde_json::Value>,
     ) -> std::result::Result<Vec<u8>, RommError> {
+        let body = body.map(|b| serde_json::to_vec(b).expect("JSON serializes"));
+        self.send_body(
+            method,
+            path,
+            body.as_deref().map(|b| ("application/json", b)),
+        )
+    }
+
+    /// Sends `method` to `path` with `body`, of its content type, if given, and returns the body of a success.
+    pub fn send_body(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<(&str, &[u8])>,
+    ) -> std::result::Result<Vec<u8>, RommError> {
         let url = format!("{}{path}", self.base_url);
         let bearer = self.token.as_ref().map(|t| format!("Bearer {t}"));
         let mut headers = vec![("Accept", "application/json")];
         if let Some(bearer) = &bearer {
             headers.push(("Authorization", bearer));
         }
-        let body = body.map(|b| serde_json::to_vec(b).expect("JSON serializes"));
-        if body.is_some() {
-            headers.push(("Content-Type", "application/json"));
+        if let Some((content_type, _)) = body {
+            headers.push(("Content-Type", content_type));
         }
+        let body = body.map(|(_, b)| b);
         let (status, bytes) = self
             .http
-            .send(
-                method,
-                &url,
-                &headers,
-                body.as_deref(),
-                self.timeout,
-                self.limit,
-            )
+            .send(method, &url, &headers, body, self.timeout, self.limit)
             .map_err(RommError::Unreachable)?;
         match status {
             200..=299 => Ok(bytes),
@@ -360,7 +370,10 @@ impl RommClient {
         }
     }
 
-    fn read<T: DeserializeOwned>(path: &str, bytes: &[u8]) -> std::result::Result<T, RommError> {
+    pub(crate) fn read<T: DeserializeOwned>(
+        path: &str,
+        bytes: &[u8],
+    ) -> std::result::Result<T, RommError> {
         serde_json::from_slice(bytes).map_err(|e| RommError::Malformed {
             path: path.into(),
             why: e.to_string(),
@@ -399,6 +412,21 @@ impl RommClient {
         }
     }
 
+    /// Whether the token lacks `scope`, one of [`title_select_api::romm::REQUIRED_SCOPES`], by the request that
+    /// tests it while changing nothing.
+    pub fn lacks(&self, scope: &str) -> std::result::Result<bool, RommError> {
+        let (_, method, path) = PROBES
+            .into_iter()
+            .find(|(s, ..)| *s == scope)
+            .expect("a required scope");
+        let body = (method == Method::Post).then(|| serde_json::json!({"rom_ids": []}));
+        match self.send(method, path, body.as_ref()) {
+            Ok(_) | Err(RommError::Status { status: 404, .. }) => Ok(false),
+            Err(RommError::Forbidden { .. }) => Ok(true),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Tests the connection: RomM's version, who the token belongs to, and which required scopes it lacks. It stops
     /// at the first failure, keeping what it found until then.
     pub fn check(&self) -> RommCheck {
@@ -411,12 +439,9 @@ impl RommClient {
                 return Err(RommError::Unauthorized);
             }
             check.user = self.user()?;
-            for (scope, method, path) in PROBES {
-                let body = (method == Method::Post).then(|| serde_json::json!({"rom_ids": []}));
-                match self.send(method, path, body.as_ref()) {
-                    Ok(_) | Err(RommError::Status { status: 404, .. }) => {}
-                    Err(RommError::Forbidden { .. }) => check.missing_scopes.push(scope.into()),
-                    Err(e) => return Err(e),
+            for (scope, ..) in PROBES {
+                if self.lacks(scope)? {
+                    check.missing_scopes.push(scope.into());
                 }
             }
             Ok(())
@@ -707,7 +732,7 @@ fn follow_romm_scan(
     }
 }
 
-/// The RomM scan recorded on a Job, read from the six columns from `at` that `JOB_QUERY` selects.
+/// The RomM scan recorded on a Job, read from the seven columns from `at` that `JOB_QUERY` selects.
 pub(crate) fn scan_from_row(row: &rusqlite::Row, at: usize) -> rusqlite::Result<Option<RommScan>> {
     let Some(platform) = row.get::<_, Option<String>>(at)? else {
         return Ok(None);
@@ -726,6 +751,7 @@ pub(crate) fn scan_from_row(row: &rusqlite::Row, at: usize) -> rusqlite::Result<
         detail: row.get(at + 3)?,
         requested_at: row.get(at + 4)?,
         ended_at: row.get(at + 5)?,
+        additions: crate::romm_additions::from_column(row, at + 6)?,
     }))
 }
 
@@ -886,6 +912,7 @@ impl Store {
                 detail: None,
                 requested_at: now(),
                 ended_at: None,
+                additions: None,
             };
             let Some(fs_slug) = platform.fs_slug() else {
                 let Some(why) = unscannable(&platform) else {

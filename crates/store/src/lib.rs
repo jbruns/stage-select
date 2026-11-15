@@ -23,6 +23,7 @@ mod plans;
 mod profiles;
 mod repairs;
 pub mod romm;
+mod romm_additions;
 mod sbi_packs;
 mod selections;
 mod sets;

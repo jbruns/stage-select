@@ -46,7 +46,7 @@ pub(super) const JOB_QUERY: &str =
             j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
             j.kind, p.name, v.version, j.selection_id, j.library_folder_id, j.plan_id, i.root, j.evidence,
             j.repair_plan_id, j.cancel_requested_at, ad.provider || '/' || ad.name, rs.platform, rs.outcome,
-            rs.task_id, rs.detail, rs.requested_at, rs.ended_at
+            rs.task_id, rs.detail, rs.requested_at, rs.ended_at, rs.additions
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
      LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
