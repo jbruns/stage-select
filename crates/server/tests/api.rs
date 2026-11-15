@@ -60,6 +60,7 @@ impl Env {
             clone_lists: None,
             hold_jobs: false,
             fetch_endpoints: None,
+            romm_scan_timing: None,
         }
     }
 
@@ -911,9 +912,15 @@ fn every_watching_client_hears_that_the_settings_changed_without_their_secrets()
 /// A stub RomM 5.4.1 on a local port: a heartbeat for anyone, and to the bearer of `rmm_good` its user `svc` and
 /// every scope. No test sends a request to a real RomM.
 fn stub_romm() -> String {
+    stub_romm_with("finished")
+}
+
+/// `stub_romm`, whose scan task always answers `status`.
+fn stub_romm_with(status: &'static str) -> String {
     use std::io::Write;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = format!(r#"{{"task_id": "t1", "status": "{status}"}}"#);
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -939,6 +946,8 @@ fn stub_romm() -> String {
                 "/api/users/me" => (200, r#"{"username": "svc", "role": "editor"}"#),
                 p if p.starts_with("/api/roms") => (200, r#"{"items": []}"#),
                 p if p.ends_with("/identifiers") => (200, "[]"),
+                "/api/tasks/scan" => (202, r#"{"task_id": "t1", "status": "queued"}"#),
+                "/api/tasks/t1" => (200, task.as_str()),
                 _ => (404, r#"{"detail": "Not found"}"#),
             };
             let _ = write!(
@@ -2470,6 +2479,138 @@ mod selections {
             ]
             .into()
         );
+    }
+
+    /// A Service whose RomM, a stub whose scan task answers `status`, maps the library folder play/gba, and the
+    /// succeeded build job that changed it, whose scan is then followed at `timing`.
+    fn built_where_romm_scans(
+        env: &Env,
+        status: &'static str,
+        timing: title_select_store::romm::ScanTiming,
+    ) -> (Handle, i64) {
+        use title_select_api::build::{LibraryFolder, Plan};
+        let play = env.tmp.path().join("roots/play");
+        std::fs::create_dir_all(&play).unwrap();
+        let service = title_select_server::spawn(Settings {
+            romm_scan_timing: Some(timing),
+            ..env.settings(&format!(
+                "\n[roots.play]\npath = {:?}\nwritable = true\n",
+                play.display().to_string()
+            ))
+        })
+        .unwrap();
+        let client = Client::new(&service);
+        client.upload("Test - System (20260101).dat", &dat(env, "20260101", true));
+        client.add_set();
+        let job: Job = client.start_audit().body_mut().read_json().unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let (_, selection) = save(&client, json!({}));
+        let (status, body) = client.change_settings(json!({"romm": {
+            "enabled": true, "base_url": stub_romm_with(status), "token": {"set": "rmm_good"}, "root": "play",
+        }}));
+        assert_eq!(status, 200, "{body}");
+        let (_, folder) = send(
+            client.post("/libraries"),
+            json!({"root": "play", "path": "gba", "source_set": SET, "profile": "Everyday"}),
+        );
+        let folder: LibraryFolder = serde_json::from_value(folder).unwrap();
+        let (_, plan) = send(
+            client.post(&format!("/libraries/{}/plans", folder.id)),
+            json!({"selection": selection.id}),
+        );
+        let plan: Plan = serde_json::from_value(plan).unwrap();
+        let (status, job) = send(
+            client.post(&format!("/plans/{}/approval", plan.id)),
+            json!({"digest": plan.digest}),
+        );
+        assert_eq!(status, 202, "{job}");
+        let job: Job = serde_json::from_value(job).unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        (service, job.id)
+    }
+
+    /// A build that changes a library folder RomM maps to a platform asks RomM to scan it once the build ends, and
+    /// the job, which succeeded, shows how the scan ended.
+    #[test]
+    fn a_build_into_a_folder_romm_maps_asks_romm_to_scan_it_and_shows_how_the_scan_ended() {
+        use std::time::{Duration, Instant};
+        use title_select_api::romm::{RommPlatform, RommScanOutcome};
+        let env = Env::new();
+        let (service, id) = built_where_romm_scans(
+            &env,
+            "finished",
+            title_select_store::romm::ScanTiming {
+                poll: Duration::from_millis(10),
+                backoff: Duration::from_millis(10),
+                backoff_max: Duration::from_millis(10),
+                window: Duration::from_secs(5),
+                request: Duration::from_secs(5),
+            },
+        );
+        let client = Client::new(&service);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let job = loop {
+            let job: Job = client.json(&format!("/jobs/{id}"));
+            match &job.romm_scan {
+                Some(scan) if scan.outcome != RommScanOutcome::Requested => break job,
+                _ if Instant::now() > deadline => panic!("the scan never ended: {job:?}"),
+                _ => std::thread::sleep(Duration::from_millis(20)),
+            }
+        };
+        assert_eq!(job.state, JobState::Succeeded);
+        let scan = job.romm_scan.unwrap();
+        assert_eq!(scan.outcome, RommScanOutcome::Finished, "{scan:?}");
+        assert_eq!(
+            scan.platform,
+            RommPlatform::Mapped {
+                fs_slug: "gba".into()
+            }
+        );
+        assert_eq!(scan.task_id.as_deref(), Some("t1"));
+    }
+
+    /// Stopping the Service stops following a RomM scan at once, records it as no longer followed, and frees the
+    /// store to open again.
+    #[test]
+    fn stopping_the_service_stops_following_a_scan_at_once_and_frees_the_store() {
+        use std::time::{Duration, Instant};
+        use title_select_api::romm::RommScanOutcome;
+        let env = Env::new();
+        let (service, id) = built_where_romm_scans(
+            &env,
+            "started",
+            title_select_store::romm::ScanTiming {
+                poll: Duration::from_millis(10),
+                backoff: Duration::from_millis(10),
+                backoff_max: Duration::from_millis(10),
+                window: Duration::from_secs(600),
+                request: Duration::from_secs(600),
+            },
+        );
+        let client = Client::new(&service);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while client
+            .json::<Job>(&format!("/jobs/{id}"))
+            .romm_scan
+            .is_none()
+        {
+            assert!(Instant::now() < deadline, "the scan was never requested");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let stopping = Instant::now();
+        drop(service);
+
+        assert!(
+            stopping.elapsed() < Duration::from_secs(10),
+            "the service waited {:?} on RomM",
+            stopping.elapsed()
+        );
+        let store = title_select_store::Store::open(&env.store()).unwrap();
+        let scan = store.job(id).unwrap().romm_scan.unwrap();
+        assert_eq!(scan.outcome, RommScanOutcome::Stopped, "{scan:?}");
+        assert!(scan.ended_at.is_some() && scan.detail.is_some(), "{scan:?}");
     }
 
     /// A library folder in a writable root: a plan of the selection, an approval bound to its digest, and the build

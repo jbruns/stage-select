@@ -190,6 +190,7 @@ impl Env {
             clone_lists: None,
             hold_jobs: false,
             fetch_endpoints: Some(Endpoints::at(&provider.url)),
+            romm_scan_timing: None,
         })
         .unwrap()
     }

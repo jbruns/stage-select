@@ -52,6 +52,7 @@ impl Env {
             clone_lists: None,
             hold_jobs: false,
             fetch_endpoints: None,
+            romm_scan_timing: None,
         })
         .unwrap();
         Env { fx, service }

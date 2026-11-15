@@ -2101,9 +2101,10 @@ mod tests {
         AppState {
             store: Arc::new(Store::open(&dir.join("store")).unwrap()),
             config: Arc::new(Config::parse("").unwrap()),
-            jobs: Arc::new(Jobs::new(Arc::new(
-                crate::notify::Notifier::new(&Default::default()).0,
-            ))),
+            jobs: Arc::new(Jobs::new(
+                Arc::new(crate::notify::Notifier::new(&Default::default()).0),
+                Default::default(),
+            )),
             workers: Workers {
                 readers: 1,
                 hashers: 1,

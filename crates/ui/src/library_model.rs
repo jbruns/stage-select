@@ -416,6 +416,7 @@ mod tests {
             plan: None,
             evidence: None,
             error: None,
+            romm_scan: None,
             workers: Workers {
                 readers: 1,
                 hashers: 1,

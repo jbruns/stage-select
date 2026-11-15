@@ -548,6 +548,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 clone_lists,
                 hold_jobs: false,
                 fetch_endpoints: None,
+                romm_scan_timing: None,
             })
             .map_err(|e| e.to_string())
         }

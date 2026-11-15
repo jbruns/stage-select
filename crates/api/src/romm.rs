@@ -117,6 +117,84 @@ impl RommPlatform {
     }
 }
 
+/// How a RomM scan requested after a Build Job ended, or stands now. Anything but `requested` and `finished` is a
+/// warning on the Job, never its failure (ADR 0020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RommScanOutcome {
+    /// Asked for, and not yet seen to end.
+    Requested,
+    /// RomM's task finished.
+    Finished,
+    /// Title Select stopped following the scan before it ended: the Service stopped, or RomM was turned off or its
+    /// address or root changed meanwhile.
+    Stopped,
+    /// RomM's task failed, or was stopped or cancelled.
+    Failed,
+    /// RomM was still scanning, or still busy with another scan, when Title Select stopped waiting.
+    TimedOut,
+    /// RomM has no scan worker running (HTTP 503).
+    Unavailable,
+    /// The request or its follow-up was refused or went unanswered: RomM unreachable, the token refused or lacking a
+    /// scope, or an answer that doesn't read.
+    Error,
+    /// The Library Folder changed, but RomM can't scan it on its own: it is nested deeper than one level under the
+    /// RomM root, is the RomM root itself, or it or the RomM root can't be found.
+    Unmapped,
+}
+
+impl RommScanOutcome {
+    pub const ALL: [RommScanOutcome; 8] = [
+        RommScanOutcome::Requested,
+        RommScanOutcome::Finished,
+        RommScanOutcome::Stopped,
+        RommScanOutcome::Failed,
+        RommScanOutcome::TimedOut,
+        RommScanOutcome::Unavailable,
+        RommScanOutcome::Error,
+        RommScanOutcome::Unmapped,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RommScanOutcome::Requested => "requested",
+            RommScanOutcome::Finished => "finished",
+            RommScanOutcome::Stopped => "stopped",
+            RommScanOutcome::Failed => "failed",
+            RommScanOutcome::TimedOut => "timed_out",
+            RommScanOutcome::Unavailable => "unavailable",
+            RommScanOutcome::Error => "error",
+            RommScanOutcome::Unmapped => "unmapped",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<RommScanOutcome> {
+        RommScanOutcome::ALL.into_iter().find(|o| o.as_str() == s)
+    }
+
+    /// Whether the outcome is a warning on its Job.
+    pub fn is_warning(self) -> bool {
+        !matches!(self, RommScanOutcome::Requested | RommScanOutcome::Finished)
+    }
+}
+
+/// The RomM scan a Build Job requested of the Library Folder it changed, recorded on the Job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RommScan {
+    /// The RomM platform the folder maps to: the `fs_slug` scanned, or why none was.
+    pub platform: RommPlatform,
+    pub outcome: RommScanOutcome,
+    /// RomM's id for its scan task, once RomM accepted the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// What went wrong, for an outcome that is a warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub requested_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+}
+
 /// One Library Folder and the RomM platform it maps to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RommFolderPlatform {

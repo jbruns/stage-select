@@ -11,6 +11,7 @@ use title_select_api::additions::AdditionsSet;
 use title_select_api::build::{KeptFile, LibraryFolder};
 use title_select_api::ingest::{IngestFolder, IngestKeptFile};
 use title_select_api::repair::SourceKeptFile;
+use title_select_api::romm::RommScan;
 use title_select_api::{Job, JobKind, JobState, SourceSetRecord};
 
 use crate::activity_model::{
@@ -557,6 +558,7 @@ fn job_detail(row: JobRow) -> AnyView {
             <dd>{job.started_at.as_deref().map(when)}</dd>
             <dt>"Finished"</dt>
             <dd>{job.finished_at.as_deref().map(when)}</dd>
+            {job.romm_scan.clone().map(romm_scan_fact)}
             {job
                 .error
                 .clone()
@@ -569,6 +571,32 @@ fn job_detail(row: JobRow) -> AnyView {
         </dl>
     }
     .into_any()
+}
+
+/// The RomM scan a build asked for once it ended: how it went, the platform, and why, for a warning.
+fn romm_scan_fact(scan: RommScan) -> impl IntoView {
+    let platform = scan.platform.fs_slug().map(|slug| {
+        view! {
+            ", platform "
+            <code>{slug.to_owned()}</code>
+        }
+    });
+    let at = scan
+        .ended_at
+        .as_deref()
+        .unwrap_or(&scan.requested_at)
+        .to_owned();
+    view! {
+        <dt>"RomM scan"</dt>
+        <dd>
+            <StatusBadge status=scan.outcome />
+            {platform}
+            {format!(", {}", when(&at))}
+            {scan
+                .detail
+                .map(|detail| view! { <p>{detail}</p> })}
+        </dd>
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

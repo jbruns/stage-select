@@ -8,6 +8,7 @@ use title_select_api::build::ItemKind;
 use title_select_api::ingest::IngestAction;
 use title_select_api::repair::RepairKind;
 use title_select_api::report::{Finding, GameStatus};
+use title_select_api::romm::RommScanOutcome;
 
 use super::icon::{Glyph, Icon};
 
@@ -1011,6 +1012,65 @@ impl Status for JobState {
     }
 }
 
+/// How the RomM scan a build asked for once it ended went. Anything but scanning or scanned is a warning: the build
+/// still succeeded.
+impl Status for RommScanOutcome {
+    const ALL: &'static [Self] = &RommScanOutcome::ALL;
+
+    fn look(self) -> Look {
+        match self {
+            RommScanOutcome::Requested => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Scanning",
+                "RomM is scanning this folder's platform now.",
+            ),
+            RommScanOutcome::Finished => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Scanned",
+                "RomM scanned this folder's platform, so it shows what the build changed.",
+            ),
+            RommScanOutcome::Stopped => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Scan not followed",
+                "Title Select stopped following the scan before it ended, so check the platform in RomM.",
+            ),
+            RommScanOutcome::Failed => look(
+                Glyph::CircleX,
+                Tone::Review,
+                "Scan failed",
+                "RomM's scan ended without finishing, so scan the platform in RomM.",
+            ),
+            RommScanOutcome::TimedOut => look(
+                Glyph::ClockAlert,
+                Tone::Review,
+                "Scan timed out",
+                "RomM didn't finish the scan in time, so check the platform in RomM.",
+            ),
+            RommScanOutcome::Unavailable => look(
+                Glyph::CircleOff,
+                Tone::Review,
+                "RomM unavailable",
+                "RomM had no scan worker running, so scan the platform in RomM once it does.",
+            ),
+            RommScanOutcome::Error => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Scan error",
+                "Asking RomM to scan went wrong; the detail says why.",
+            ),
+            RommScanOutcome::Unmapped => look(
+                Glyph::CircleDashed,
+                Tone::Review,
+                "No platform",
+                "This folder isn't one RomM platform, so RomM wasn't asked to scan it.",
+            ),
+        }
+    }
+}
+
 /// A status as its icon alone, for a table cell: its label is the icon's tooltip and accessible name. In a
 /// `parts::list` row, set `tab_stop` false: the row's detail pane names it too.
 #[component]
@@ -1058,6 +1118,7 @@ mod tests {
             ("ingest items", vocabulary::<IngestStatus>()),
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
             ("jobs", vocabulary::<JobState>()),
+            ("RomM scans", vocabulary::<RommScanOutcome>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
             ("selection groups", vocabulary::<GroupStatus>()),
