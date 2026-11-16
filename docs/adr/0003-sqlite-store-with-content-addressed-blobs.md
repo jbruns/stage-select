@@ -69,4 +69,6 @@ Implementation notes (#168): the blockers, and which references are only history
 tables refer to a revision through non-null foreign keys, so a deleted revision that history still names keeps its
 row, marked `deleted_at` and holding no blob: it is in no catalogue listing, never the newest of its DAT, never
 chosen for new work, and history keeps its identity. One nothing names is deleted outright. Importing its bytes again
-is a fresh import into the same row. Eligibility is checked again in the writer transaction that deletes.
+is a fresh import into the same row, taking a new `import_seq`, so among revisions whose headers order them equally it
+is the newest, as any fresh import is. A MAME release whose fetched revision was deleted no longer counts as fetched.
+Eligibility is checked again in the writer transaction that deletes.

@@ -204,21 +204,23 @@ pub(crate) fn canonical_dat(c: &Connection, dat: &str) -> Result<String> {
     })
 }
 
-/// Renumbers `header_order` within the DAT `dat_id`'s catalogued revisions by [`OrderKey`], then import, from 1; a
-/// deleted revision keeps 0, below them all.
+/// Renumbers `header_order` within the DAT `dat_id`'s catalogued revisions by [`OrderKey`], then import order
+/// (`import_seq`, which a revision imported again after deletion takes afresh), from 1; a deleted revision keeps 0,
+/// below them all.
 pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
     reorder(
         c,
-        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 AND deleted_at IS NULL ORDER BY id",
+        "SELECT id, version, header_date, import_seq FROM dat_revisions
+         WHERE dat_id = ?1 AND deleted_at IS NULL",
         dat_id,
     )
 }
 
-/// As [`reorder_revisions`], for a schema from before any revision could be deleted.
+/// As [`reorder_revisions`], for a schema from before any revision could be deleted, when import order was id order.
 pub(crate) fn reorder_revisions_before_deletion(c: &Connection, dat_id: i64) -> Result<()> {
     reorder(
         c,
-        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 ORDER BY id",
+        "SELECT id, version, header_date, id FROM dat_revisions WHERE dat_id = ?1",
         dat_id,
     )
 }
@@ -231,15 +233,16 @@ fn reorder(c: &Connection, select: &str, dat_id: i64) -> Result<()> {
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut ordered: Vec<(OrderKey, i64)> = revisions
+    let mut ordered: Vec<(OrderKey, i64, i64)> = revisions
         .into_iter()
-        .map(|(id, version, date)| (OrderKey::new(&version, &date), id))
+        .map(|(id, version, date, seq)| (OrderKey::new(&version, &date), seq, id))
         .collect();
     ordered.sort();
-    for (order, (_, id)) in ordered.iter().enumerate() {
+    for (order, (_, _, id)) in ordered.iter().enumerate() {
         c.execute(
             "UPDATE dat_revisions SET header_order = ?2 WHERE id = ?1",
             params![id, order as i64 + 1],
@@ -387,12 +390,15 @@ impl Store {
                     "UPDATE dat_revisions
                      SET dat_id = ?1, version = ?3, header_date = ?4, file_name = ?5, imported_at = ?6,
                          source_url = ?7, format = ?8, description = ?9, author = ?10, homepage = ?11,
-                         header_url = ?12, blob_dropped_at = NULL, restored_at = NULL, deleted_at = NULL
+                         header_url = ?12, blob_dropped_at = NULL, restored_at = NULL, deleted_at = NULL,
+                         import_seq = (SELECT max(import_seq) + 1 FROM dat_revisions)
                      WHERE sha256 = ?2"
             } else {
                     "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at,
-                                                source_url, format, description, author, homepage, header_url)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+                                                source_url, format, description, author, homepage, header_url,
+                                                import_seq)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                             (SELECT coalesce(max(import_seq), 0) + 1 FROM dat_revisions))"
             };
             tx.execute(
                 sql,
@@ -464,23 +470,22 @@ impl Store {
     pub fn dat_revisions(&self) -> Result<Vec<DatRevisionRecord>> {
         self.read(|c| {
             let sql = format!(
-                "SELECT {REVISION_COLUMNS}, r.dat_id FROM dat_revisions r JOIN dats d ON d.id = r.dat_id
+                "SELECT {REVISION_COLUMNS} FROM dat_revisions r JOIN dats d ON d.id = r.dat_id
                  WHERE r.deleted_at IS NULL
                  ORDER BY d.id, r.header_order, r.id"
             );
             let mut stmt = c.prepare(&sql)?;
             let rows = stmt
-                .query_map([], |r| {
-                    let (id, rev) = revision_from_row(r)?;
-                    Ok((id, r.get::<_, i64>(15)?, rev))
-                })?
+                .query_map([], revision_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
-            rows.into_iter()
-                .map(|(id, dat_id, mut rev)| {
-                    rev.blockers = Some(crate::dat_deletion::blockers(c, id, dat_id, &rev.sha256)?);
-                    Ok(rev)
+            let mut blockers = crate::dat_deletion::blockers_of(c, None)?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, mut rev)| {
+                    rev.blockers = Some(blockers.remove(&id).unwrap_or_default());
+                    rev
                 })
-                .collect()
+                .collect())
         })
     }
 

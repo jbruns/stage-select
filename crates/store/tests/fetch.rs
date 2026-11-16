@@ -807,6 +807,37 @@ fn two_fetchers_at_once_send_each_request_once() {
 }
 
 #[test]
+fn a_deleted_redump_revision_fetched_again_is_added_not_unchanged() {
+    let env = Env::new(REDUMP);
+    env.serve_psx("2");
+    let first = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let fetched = first.attempts[0].dat_revision.clone().unwrap();
+    env.store.unregister_source_set(&env.config, "PSX").unwrap();
+    env.store.delete_dat_revision(&fetched).unwrap();
+    env.follow("PSX again", "Sony - PlayStation");
+
+    env.backdate(25);
+    let again = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(again.attempts[0].artifact, FetchArtifact::Dat);
+    assert_eq!(again.attempts[0].outcome, Some(FetchOutcome::Added));
+    assert_eq!(
+        again.attempts[0].dat_revision.as_deref(),
+        Some(fetched.as_str())
+    );
+    assert!(
+        env.store
+            .dat_revisions()
+            .unwrap()
+            .iter()
+            .any(|r| r.sha256 == fetched && r.blob_present)
+    );
+}
+
+#[test]
 fn only_what_redump_publishes_for_a_system_is_requested() {
     let env = Env::new(REDUMP);
     env.store.set_follow("PSX", false).unwrap();
@@ -1051,6 +1082,60 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
             FetchArtifact::Release,
             Some(FetchOutcome::Unchanged)
         )]
+    );
+}
+
+#[test]
+fn a_deleted_software_list_revision_is_fetched_again_for_the_release_it_came_from() {
+    let env = Env::new(MAME);
+    env.store
+        .import_dat_bytes(&software_list("nes", "0"), "nes.xml", None)
+        .unwrap();
+    for set in ["NES", "NES again"] {
+        std::fs::create_dir_all(env._tmp.path().join("sets").join(set)).unwrap();
+    }
+    env.store
+        .add_source_set(&env.config, "sets", "NES", "MAME/nes")
+        .unwrap();
+    env.store.set_follow("NES", true).unwrap();
+    env.serve_mame("mame0270");
+    let first = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    let fetched = first.attempts[1].dat_revision.clone().unwrap();
+    env.store.unregister_source_set(&env.config, "NES").unwrap();
+    env.store.delete_dat_revision(&fetched).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "NES again", "MAME/nes")
+        .unwrap();
+    env.store.set_follow("NES again", true).unwrap();
+
+    // A day later the release is unchanged, but the software list it brought was deleted, so it is brought again.
+    env.backdate(25);
+    let again = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(
+        outcomes(&again),
+        [
+            (
+                "mame".into(),
+                FetchArtifact::Release,
+                Some(FetchOutcome::Unchanged)
+            ),
+            ("nes".into(), FetchArtifact::Dat, Some(FetchOutcome::Added)),
+        ]
+    );
+    assert_eq!(
+        again.attempts[1].dat_revision.as_deref(),
+        Some(fetched.as_str())
+    );
+    assert!(
+        env.store
+            .dat_revisions()
+            .unwrap()
+            .iter()
+            .any(|r| r.sha256 == fetched && r.blob_present)
     );
 }
 

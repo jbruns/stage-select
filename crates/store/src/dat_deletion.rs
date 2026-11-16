@@ -26,108 +26,135 @@
 //! is its DAT's row once nothing names that. A hidden DAT Revision is in no catalogue listing, never the newest of its
 //! DAT, and never chosen for new work. Importing its bytes again brings it back as a fresh import.
 
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::blobs::remove_blob;
 use super::{Error, Result, Store, now};
 use title_select_api::{DeletedDatRevision, DeletionBlocker, DeletionBlockerKind};
 
-/// What still depends on the DAT Revision `id` of the DAT `dat_id`, whose SHA-256 is `sha256`, by kind, in
-/// [`DeletionBlockerKind`] order; empty when it may be deleted.
-pub(crate) fn blockers(
+/// What still depends on the catalogued DAT Revision `id`, by kind, in [`DeletionBlockerKind`] order; empty when it
+/// may be deleted.
+pub(crate) fn blockers(c: &Connection, id: i64) -> Result<Vec<DeletionBlocker>> {
+    Ok(blockers_of(c, Some(id))?.remove(&id).unwrap_or_default())
+}
+
+/// What still depends on each catalogued DAT Revision, or only on `only`, keyed by revision id, each as [`blockers`];
+/// a revision nothing depends on has no entry. Each kind is one query over every revision at once, so listing every
+/// revision's blockers costs no more queries than one revision's.
+pub(crate) fn blockers_of(
     c: &Connection,
-    id: i64,
-    dat_id: i64,
-    sha256: &str,
-) -> Result<Vec<DeletionBlocker>> {
+    only: Option<i64>,
+) -> Result<HashMap<i64, Vec<DeletionBlocker>>> {
     use DeletionBlockerKind as K;
-    // Each query yields one row per name (a null name counting without naming) with how many it stands for.
+    const TARGETS: &str = "WITH t (id, dat_id, sha256) AS MATERIALIZED (
+             SELECT id, dat_id, sha256 FROM dat_revisions
+             WHERE deleted_at IS NULL AND (?1 IS NULL OR id = ?1))";
+    // Each query yields one row per revision and name (a null name counting without naming) with how many it stands
+    // for, ordered by revision then name.
     let queries: [(K, &str); 10] = [
         (
             K::SourceSet,
-            "SELECT name, 1 FROM source_sets WHERE dat_id = ?2 AND unregistered_at IS NULL ORDER BY name",
+            "SELECT t.id, s.name, 1 FROM t JOIN source_sets s ON s.dat_id = t.dat_id
+             WHERE s.unregistered_at IS NULL ORDER BY t.id, s.name",
         ),
         (
             K::AdditionsSet,
-            "SELECT root || '/' || path, 1 FROM additions_sets
-             WHERE dat_id = ?2 AND unregistered_at IS NULL ORDER BY root, path",
+            "SELECT t.id, a.root || '/' || a.path, 1 FROM t JOIN additions_sets a ON a.dat_id = t.dat_id
+             WHERE a.unregistered_at IS NULL ORDER BY t.id, a.root, a.path",
         ),
         (
             K::Audit,
-            "SELECT s.name, count(*) FROM audits a JOIN source_sets s ON s.id = a.source_set_id
-             WHERE a.dat_revision_id = ?1 AND a.pruned_at IS NULL GROUP BY s.name ORDER BY s.name",
+            "SELECT t.id, s.name, count(*) FROM t JOIN audits a ON a.dat_revision_id = t.id
+             JOIN source_sets s ON s.id = a.source_set_id
+             WHERE a.pruned_at IS NULL GROUP BY t.id, s.name ORDER BY t.id, s.name",
         ),
         (
             K::Selection,
-            "SELECT s.name, count(*) FROM selections sel JOIN source_sets s ON s.id = sel.source_set_id
-             WHERE sel.dat_revision_id = ?1 AND sel.pruned_at IS NULL GROUP BY s.name ORDER BY s.name",
+            "SELECT t.id, s.name, count(*) FROM t JOIN selections sel ON sel.dat_revision_id = t.id
+             JOIN source_sets s ON s.id = sel.source_set_id
+             WHERE sel.pruned_at IS NULL GROUP BY t.id, s.name ORDER BY t.id, s.name",
         ),
         (
             K::ChangePlan,
-            "SELECT name, count(*) FROM (
-                 SELECT s.name AS name FROM repair_plans p
-                 JOIN audits a ON a.id = p.audit_id JOIN source_sets s ON s.id = p.source_set_id
-                 WHERE a.dat_revision_id = ?1 AND p.finished_at IS NULL
+            "SELECT id, name, count(*) FROM (
+                 SELECT t.id AS id, s.name AS name FROM t JOIN audits a ON a.dat_revision_id = t.id
+                 JOIN repair_plans p ON p.audit_id = a.id JOIN source_sets s ON s.id = p.source_set_id
+                 WHERE p.finished_at IS NULL
                  UNION ALL
-                 SELECT f.root || '/' || f.path FROM plans p JOIN library_folders f ON f.id = p.folder_id
-                 WHERE f.unregistered_at IS NULL AND p.generation = f.generation
+                 SELECT t.id, f.root || '/' || f.path
+                 FROM plans p JOIN library_folders f ON f.id = p.folder_id AND p.generation = f.generation
+                 JOIN t
+                 WHERE f.unregistered_at IS NULL
                    AND NOT EXISTS (SELECT 1 FROM builds b WHERE b.plan_id = p.id)
                    AND (EXISTS (SELECT 1 FROM selections sel
                                 WHERE sel.id IN (p.selection_id, p.previous_selection_id)
-                                  AND sel.dat_revision_id = ?1)
-                        OR EXISTS (SELECT 1 FROM audits a WHERE a.id = p.audit_id AND a.dat_revision_id = ?1)))
-             GROUP BY name ORDER BY name",
+                                  AND sel.dat_revision_id = t.id)
+                        OR EXISTS (SELECT 1 FROM audits a WHERE a.id = p.audit_id AND a.dat_revision_id = t.id)))
+             GROUP BY id, name ORDER BY id, name",
         ),
         (
             K::Build,
-            "SELECT f.root || '/' || f.path, count(*) FROM builds b LEFT JOIN library_folders f ON f.id = b.folder_id
-             WHERE b.dat_revision_id = ?1
-               AND (b.state = 'running' OR b.cleaned_at IS NULL
-                    OR (f.current_build_id = b.id AND f.unregistered_at IS NULL))
-             GROUP BY f.id ORDER BY f.root, f.path",
+            "SELECT t.id, f.root || '/' || f.path, count(*) FROM t JOIN builds b ON b.dat_revision_id = t.id
+             LEFT JOIN library_folders f ON f.id = b.folder_id
+             WHERE b.state = 'running' OR b.cleaned_at IS NULL
+                   OR (f.current_build_id = b.id AND f.unregistered_at IS NULL)
+             GROUP BY t.id, f.id ORDER BY t.id, f.root, f.path",
         ),
         (
             K::BuiltFile,
-            "SELECT f.root || '/' || f.path, count(*) FROM built_files b LEFT JOIN library_folders f ON f.id = b.folder_id
-             WHERE b.dat_revision_id = ?1 AND f.unregistered_at IS NULL
-             GROUP BY b.folder_id ORDER BY f.root, f.path",
+            "SELECT t.id, f.root || '/' || f.path, count(*) FROM t JOIN built_files b ON b.dat_revision_id = t.id
+             LEFT JOIN library_folders f ON f.id = b.folder_id
+             WHERE f.unregistered_at IS NULL
+             GROUP BY t.id, b.folder_id ORDER BY t.id, f.root, f.path",
         ),
         (
             K::KeptFile,
-            "SELECT f.root || '/' || f.path, count(*) FROM kept_files k LEFT JOIN library_folders f ON f.id = k.folder_id
-             WHERE k.dat_revision_id = ?1 AND f.unregistered_at IS NULL
+            "SELECT t.id, f.root || '/' || f.path, count(*) FROM t JOIN kept_files k ON k.dat_revision_id = t.id
+             LEFT JOIN library_folders f ON f.id = k.folder_id
+             WHERE f.unregistered_at IS NULL
                AND k.state IN ('keeping', 'kept', 'deleting', 'quarantined', 'restoring')
-             GROUP BY k.folder_id ORDER BY f.root, f.path",
+             GROUP BY t.id, k.folder_id ORDER BY t.id, f.root, f.path",
         ),
         (
             K::Job,
-            "SELECT NULL, count(*) FROM jobs WHERE dat_revision_id = ?1 AND state IN ('queued', 'running')
-             HAVING count(*) > 0",
+            "SELECT t.id, NULL, count(*) FROM t JOIN jobs j ON j.dat_revision_id = t.id
+             WHERE j.state IN ('queued', 'running') GROUP BY t.id ORDER BY t.id",
         ),
         (
             K::IngestReaudit,
-            "SELECT s.name, count(*) FROM ingest_reaudits o JOIN source_sets s ON s.id = o.source_set_id
-             WHERE o.sha256 = ?3 AND o.fulfilled_at IS NULL GROUP BY s.name ORDER BY s.name",
+            "SELECT t.id, s.name, count(*) FROM t JOIN ingest_reaudits o ON o.sha256 = t.sha256
+             JOIN source_sets s ON s.id = o.source_set_id
+             WHERE o.fulfilled_at IS NULL GROUP BY t.id, s.name ORDER BY t.id, s.name",
         ),
     ];
-    let mut found = Vec::new();
+    let mut found: HashMap<i64, Vec<DeletionBlocker>> = HashMap::new();
     for (kind, sql) in queries {
-        let mut stmt = c.prepare_cached(sql)?;
-        // Each query binds the leading parameters up to the last it names.
-        let all = params![id, dat_id, sha256];
-        let bound = &all[..stmt.parameter_count()];
-        let rows = stmt
-            .query_map(bound, |r| {
-                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let count: i64 = rows.iter().map(|(_, n)| n).sum();
-        if count > 0 {
-            found.push(DeletionBlocker {
-                kind,
-                count: count as u64,
-                names: rows.into_iter().filter_map(|(name, _)| name).collect(),
-            });
+        let mut stmt = c.prepare_cached(&format!("{TARGETS} {sql}"))?;
+        let rows = stmt.query_map([only], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, name, count) = row?;
+            let blockers = found.entry(id).or_default();
+            let blocker = match blockers.last_mut() {
+                Some(b) if b.kind == kind => b,
+                _ => {
+                    blockers.push(DeletionBlocker {
+                        kind,
+                        count: 0,
+                        names: Vec::new(),
+                    });
+                    blockers.last_mut().expect("just pushed")
+                }
+            };
+            blocker.count += count as u64;
+            blocker.names.extend(name);
         }
     }
     Ok(found)
@@ -182,7 +209,7 @@ impl Store {
                 )
                 .optional()?
                 .ok_or_else(|| Error::NotFound(format!("no DAT revision {sha256}")))?;
-            let found = blockers(&tx, id, dat_id, sha256)?;
+            let found = blockers(&tx, id)?;
             if !found.is_empty() {
                 let named = if version.is_empty() {
                     dat

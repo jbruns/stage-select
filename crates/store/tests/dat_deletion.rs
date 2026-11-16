@@ -555,3 +555,89 @@ fn blocked_free(fixture: &str) {
         .unwrap();
     assert_eq!(hidden, 1);
 }
+
+#[test]
+fn a_deleted_revision_imported_again_is_newer_than_one_with_the_same_header() {
+    let env = Env::new();
+    let same = |name: &str, games: &[(&str, Vec<RomSpec>)]| {
+        write_dat_version(&env.tmp.path().join("in"), name, "20260101-000000", games)
+    };
+    let first = same(
+        "first.dat",
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+    let second = same(
+        "second.dat",
+        &[("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")])],
+    );
+    let first = env.store.import_dat(&first, None).unwrap().0.sha256;
+    env.add_set();
+    env.audit(&first);
+    let second_sha = env.store.import_dat(&second, None).unwrap().0.sha256;
+    env.audit(&second_sha);
+    env.unregister_set();
+    // The pruned audit of the first keeps its row, hidden, once deleted.
+    env.store.delete_dat_revision(&first).unwrap();
+
+    let path = same(
+        "first.dat",
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+    let (again, outcome) = env.store.import_dat(&path, None).unwrap();
+    assert_eq!(
+        (again.sha256.as_str(), outcome),
+        (first.as_str(), ImportOutcome::Added)
+    );
+
+    let order: Vec<String> = env.listed().into_iter().map(|r| r.sha256).collect();
+    assert_eq!(
+        order,
+        [second_sha, first.clone()],
+        "imported last, it is the newest"
+    );
+    env.store.retain_blobs().unwrap();
+    assert!(env.blob(&first), "the newest revision keeps its file");
+}
+
+#[test]
+fn listing_what_blocks_each_revision_stays_quick_as_build_history_grows() {
+    let env = Env::new();
+    env.import(1);
+    env.add_set();
+    env.unregister_set();
+    let db = env.db();
+    let set: i64 = db
+        .query_row("SELECT id FROM source_sets", [], |r| r.get(0))
+        .unwrap();
+    let mut sql = String::from("BEGIN;");
+    for i in 0..199 {
+        sql += &format!(
+            "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at, format)
+             SELECT dat_id, printf('%064d', {i}), 'v{i}', header_date, file_name, imported_at, format
+             FROM dat_revisions LIMIT 1;"
+        );
+    }
+    sql += &REGISTERED_FOLDER.replace(":set", &set.to_string());
+    // A thousand finished, cleaned-up builds, each of its own plan: history, blocking nothing.
+    for i in 1..=1000 {
+        sql += &format!(
+            "INSERT INTO plans (id, folder_id, selection_id, generation, content, digest, changes, created_at)
+             VALUES ({i}, 50, 60, 3, '{{}}', 'd', '{{}}', 'now');
+             INSERT INTO builds (folder_id, plan_id, job_id, selection_id, audit_id, dat_revision_id, state,
+                                 generation, started_at, cleaned_at)
+             VALUES (50, {i}, {i}, 1, 1, 1, 'succeeded', 3, 'now', 'now');"
+        );
+    }
+    sql += "COMMIT;";
+    db.execute_batch(&sql).unwrap();
+    drop(db);
+
+    let started = std::time::Instant::now();
+    let listed = env.listed();
+    let took = started.elapsed();
+
+    assert_eq!(listed.len(), 200);
+    assert!(listed.iter().all(|r| r.blockers == Some(vec![])));
+    // Per-revision lookups of each plan's builds took over a second here; one set-based pass takes milliseconds.
+    assert!(took < std::time::Duration::from_millis(250), "{took:?}");
+}

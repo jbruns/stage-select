@@ -40,6 +40,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0029_romm_reconciliations.sql"),
     include_str!("migrations/0030_dat_metadata.sql"),
     include_str!("migrations/0031_dat_revision_deletion.sql"),
+    include_str!("migrations/0032_dat_revision_import_order.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {
