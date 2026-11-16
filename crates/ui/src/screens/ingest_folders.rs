@@ -111,10 +111,8 @@ fn evidence(a: &Assessment) -> AnyView {
             }
         })
         .collect_view();
-    let sha = a
-        .sha256
-        .as_ref()
-        .map(|sha| view! { <li>"SHA-256 " <code class="hash">{sha.clone()}</code></li> });
+    let sha = crate::ingest_model::item_checksum(a)
+        .map(|sha| view! { <li>"SHA-256 " <code class="hash">{sha.to_string()}</code></li> });
     view! { <ul class="plain">{sha} {dat} {matches}</ul> }.into_any()
 }
 

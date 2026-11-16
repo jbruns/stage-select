@@ -160,9 +160,9 @@ fn row_detail(row: IngestRow) -> AnyView {
                     {t.loose.then_some(", loose")}
                 </dd>
             })}
-            {item.sha256.clone().map(|sha| view! {
+            {crate::ingest_model::plan_checksum(&item).map(|sha| view! {
                 <dt>"SHA-256"</dt>
-                <dd><code class="hash">{sha}</code></dd>
+                <dd><code class="hash">{sha.to_string()}</code></dd>
             })}
             <dt>"Result"</dt>
             <dd>
