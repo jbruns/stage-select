@@ -32,7 +32,8 @@ const SET_QUERY: &str =
                            AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
      LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
                                AND n.id = (SELECT id FROM dat_revisions
-                                           WHERE dat_id = s.dat_id ORDER BY header_order DESC LIMIT 1)
+                                           WHERE dat_id = s.dat_id AND deleted_at IS NULL
+                                           ORDER BY header_order DESC LIMIT 1)
                                AND n.header_order > r.header_order";
 
 /// Each registered Source Set that is Stale, by name, with why.
@@ -175,7 +176,7 @@ impl Store {
         let dat = self.read(|c| crate::dats::canonical_dat(c, dat))?;
         let (provider, dat_name) = split_dat(&dat)?;
         self.read(|c| {
-            crate::dats::find_dat(c, provider, dat_name)?
+            crate::dats::catalogued_dat(c, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))
         })?;
         template
@@ -222,7 +223,7 @@ impl Store {
             }
             let dat = crate::dats::canonical_dat(tx, dat)?;
             let (provider, dat_name) = split_dat(&dat)?;
-            let dat_id: i64 = crate::dats::find_dat(tx, provider, dat_name)?
+            let dat_id: i64 = crate::dats::catalogued_dat(tx, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))?;
             let clash: Option<String> = tx
                 .query_row(

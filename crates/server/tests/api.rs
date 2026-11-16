@@ -641,6 +641,54 @@ fn the_api_downloads_a_dat_revisions_kept_file_byte_for_byte_under_its_recorded_
 }
 
 #[test]
+fn the_api_refuses_to_delete_a_dat_revision_in_use_saying_why_and_deletes_it_once_nothing_is() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let (_, uploaded) = client.upload("Test - System (20260101).dat", &env.dat());
+    let sha = uploaded.dat_revision.sha256;
+    client.add_set();
+    let auth = client.auth.clone().unwrap();
+    let delete = || {
+        agent()
+            .delete(format!("{}/dat-revisions/{sha}", client.base))
+            .header(&auth.0, &auth.1)
+            .call()
+            .unwrap()
+    };
+
+    let mut response = delete();
+    assert_eq!(response.status(), 409);
+    let refused: ErrorBody = response.body_mut().read_json().unwrap();
+    let blockers = refused.blockers.unwrap();
+    assert_eq!(
+        (blockers[0].kind, blockers[0].names.clone()),
+        (
+            title_select_api::DeletionBlockerKind::SourceSet,
+            vec![SET.to_string()]
+        )
+    );
+    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    assert_eq!(dats[0].revisions[0].blockers.as_ref(), Some(&blockers));
+
+    let response = client
+        .post(&format!(
+            "/source-sets/{}/unregistration",
+            "Test%20-%20System"
+        ))
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let mut response = delete();
+    assert_eq!(response.status(), 200);
+    let deleted: title_select_api::DeletedDatRevision = response.body_mut().read_json().unwrap();
+    assert!(deleted.dat_removed);
+    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    assert!(dats.is_empty());
+    assert_eq!(delete().status(), 404);
+}
+
+#[test]
 fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     let env = Env::new();
     let service = env.start();

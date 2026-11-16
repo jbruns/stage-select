@@ -39,6 +39,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0028_romm_additions.sql"),
     include_str!("migrations/0029_romm_reconciliations.sql"),
     include_str!("migrations/0030_dat_metadata.sql"),
+    include_str!("migrations/0031_dat_revision_deletion.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {
@@ -128,7 +129,7 @@ fn after(tx: &rusqlite::Transaction, dir: &Path, version: usize) -> Result<()> {
         .query_map([], |r| r.get::<_, i64>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for dat in dats {
-        crate::dats::reorder_revisions(tx, dat)?;
+        crate::dats::reorder_revisions_before_deletion(tx, dat)?;
     }
     Ok(())
 }

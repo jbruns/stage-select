@@ -1060,6 +1060,7 @@ mod tests {
             imported_at: "2026-01-01T00:00:00Z".into(),
             source_url: None,
             blob_present: true,
+            blockers: None,
         }
     }
 

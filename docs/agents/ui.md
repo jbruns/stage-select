@@ -149,7 +149,9 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      icons at the row's end, shown on hover, on the keyboard cursor and on the open row; the rest are under the
      row's ⋯ menu. The detail shows them all, labelled. `RowAction::go(glyph, label, href)`,
      `RowAction::run(glyph, label, || ..)`, `RowAction::download(glyph, label, api::url(..))` (a plain link the
-     browser saves, not a route) or `RowAction::unavailable(glyph, label)` (disabled; its label says why). Labels are full ("Open its latest audit, #12").
+     browser saves, not a route) or `RowAction::unavailable(glyph, label)` (disabled; its label says why). Labels are full ("Open its latest audit, #12"). A destructive action is
+     `RowAction::destructive(glyph, label, || ..)`: never a quick icon (it, and any action after it, stays under ⋯),
+     and its `run` only opens a confirmation, such as a `Drawer`, never acts at once ("Delete revision" on DATs).
    - `filters: ViewFn` adds controls beside the filter text; `keep: Signal<Keep<T>>` is the matching predicate
      (`Option<Arc<dyn Fn(&T) -> bool>>`), applied with the filter text. Changing it clears an "every match"
      selection.

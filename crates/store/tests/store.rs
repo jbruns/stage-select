@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use common::*;
-use title_select_api::DatFormat;
 use title_select_api::paths::PathTemplate;
 use title_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
 };
+use title_select_api::{DatFormat, DatRevisionRecord};
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
@@ -1937,7 +1937,15 @@ fn a_no_intro_dat_is_known_by_its_header_and_its_metadata_is_kept() {
     assert_eq!(r.version, "20261107-215159");
     assert_eq!(r.date, None, "No-Intro's header has no date");
     assert_eq!(r.source_url.as_deref(), Some("https://<domain>/atari.dat"));
-    assert_eq!(env.store.dat_revisions().unwrap(), [r]);
+    let listed = DatRevisionRecord {
+        blockers: Some(Vec::new()),
+        ..r
+    };
+    assert_eq!(
+        env.store.dat_revisions().unwrap(),
+        [listed],
+        "the listing adds what blocks deleting it"
+    );
 }
 
 #[test]

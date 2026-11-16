@@ -45,6 +45,7 @@ pub(super) fn revision_from_row(row: &Row) -> rusqlite::Result<(i64, DatRevision
             imported_at: row.get(6)?,
             source_url: row.get(7)?,
             blob_present: row.get(8)?,
+            blockers: None,
         },
     ))
 }
@@ -58,11 +59,22 @@ pub(super) fn revision_by_id(c: &Connection, id: i64) -> Result<(i64, DatRevisio
         .ok_or_else(|| Error::NotFound(format!("no DAT revision {id}")))
 }
 
+/// The catalogued DAT Revision with this SHA-256; a deleted one is not catalogued.
 fn revision_by_sha(c: &Connection, sha256: &str) -> Result<Option<(i64, DatRevisionRecord)>> {
     let sql = format!(
-        "SELECT {REVISION_COLUMNS} FROM dat_revisions r JOIN dats d ON d.id = r.dat_id WHERE r.sha256 = ?1"
+        "SELECT {REVISION_COLUMNS} FROM dat_revisions r JOIN dats d ON d.id = r.dat_id
+         WHERE r.sha256 = ?1 AND r.deleted_at IS NULL"
     );
     Ok(c.query_row(&sql, [sha256], revision_from_row).optional()?)
+}
+
+/// Whether a deleted DAT Revision with this SHA-256 keeps its row for history.
+fn deleted_by_sha(c: &Connection, sha256: &str) -> Result<bool> {
+    Ok(c.query_row(
+        "SELECT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?1 AND deleted_at IS NOT NULL)",
+        [sha256],
+        |r| r.get(0),
+    )?)
 }
 
 /// A run of digits, compared by the number it writes, however long: its digits without leading zeros, by count and
@@ -158,6 +170,18 @@ pub(crate) fn find_dat(c: &Connection, provider: &str, name: &str) -> Result<Opt
     .optional()?)
 }
 
+/// The DAT `<provider>/<name>`, spelled exactly so, if any revision of it is catalogued: one whose every revision was
+/// deleted has left the catalogue, though history may still name it.
+pub(crate) fn catalogued_dat(c: &Connection, provider: &str, name: &str) -> Result<Option<i64>> {
+    Ok(c.query_row(
+        "SELECT d.id FROM dats d WHERE d.provider = ?1 AND d.name = ?2
+           AND EXISTS (SELECT 1 FROM dat_revisions r WHERE r.dat_id = d.id AND r.deleted_at IS NULL)",
+        params![provider, name],
+        |r| r.get(0),
+    )
+    .optional()?)
+}
+
 /// The one spelling the store keeps of `provider`: that of the DATs already imported from a provider of that name
 /// whatever its case, else `provider` as given. Every provider that comes in, from an import, a registration, a fetch
 /// or a request, is spelled so before it is stored or looked up, so that every other match is exact.
@@ -180,11 +204,27 @@ pub(crate) fn canonical_dat(c: &Connection, dat: &str) -> Result<String> {
     })
 }
 
-/// Renumbers `header_order` within the DAT `dat_id` by [`OrderKey`], then import.
+/// Renumbers `header_order` within the DAT `dat_id`'s catalogued revisions by [`OrderKey`], then import, from 1; a
+/// deleted revision keeps 0, below them all.
 pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
-    let mut stmt = c.prepare(
+    reorder(
+        c,
+        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 AND deleted_at IS NULL ORDER BY id",
+        dat_id,
+    )
+}
+
+/// As [`reorder_revisions`], for a schema from before any revision could be deleted.
+pub(crate) fn reorder_revisions_before_deletion(c: &Connection, dat_id: i64) -> Result<()> {
+    reorder(
+        c,
         "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 ORDER BY id",
-    )?;
+        dat_id,
+    )
+}
+
+fn reorder(c: &Connection, select: &str, dat_id: i64) -> Result<()> {
+    let mut stmt = c.prepare(select)?;
     let revisions = stmt
         .query_map([dat_id], |r| {
             Ok((
@@ -221,7 +261,7 @@ pub(crate) fn would_be_newest(
     let key = OrderKey::new(version, date);
     let mut stmt = c.prepare(
         "SELECT r.version, r.header_date FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-         WHERE d.provider = ?1 AND d.name = ?2",
+         WHERE d.provider = ?1 AND d.name = ?2 AND r.deleted_at IS NULL",
     )?;
     let headers = stmt
         .query_map(params![provider, name], |r| {
@@ -321,6 +361,8 @@ impl Store {
             }
             write_blob(&dats, &dat.sha256, bytes)?;
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            // Bytes whose revision was deleted come back as a fresh import, in the row history still names.
+            let deleted = deleted_by_sha(&tx, &dat.sha256)?;
             let watch = crate::observe::StaleWatch::start(&tx)?;
             let provider = dat_provider_part(&tx, dat, fetched)?;
             let dat_id = match find_dat(&tx, &provider, &dat.name)? {
@@ -341,10 +383,19 @@ impl Store {
                 "UPDATE dat_revisions SET restored_at = NULL WHERE dat_id = ?1",
                 [dat_id],
             )?;
+            let sql = if deleted {
+                    "UPDATE dat_revisions
+                     SET dat_id = ?1, version = ?3, header_date = ?4, file_name = ?5, imported_at = ?6,
+                         source_url = ?7, format = ?8, description = ?9, author = ?10, homepage = ?11,
+                         header_url = ?12, blob_dropped_at = NULL, restored_at = NULL, deleted_at = NULL
+                     WHERE sha256 = ?2"
+            } else {
+                    "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at,
+                                                source_url, format, description, author, homepage, header_url)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+            };
             tx.execute(
-                "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at, source_url,
-                                            format, description, author, homepage, header_url)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                sql,
                 params![
                     dat_id,
                     dat.sha256,
@@ -408,16 +459,28 @@ impl Store {
         }
     }
 
-    /// Every DAT Revision, oldest first by header version within each DAT, the DATs in import order.
+    /// Every catalogued DAT Revision, oldest first by header version within each DAT, the DATs in import order,
+    /// each with what stops you deleting it.
     pub fn dat_revisions(&self) -> Result<Vec<DatRevisionRecord>> {
         self.read(|c| {
             let sql = format!(
-                "SELECT {REVISION_COLUMNS} FROM dat_revisions r JOIN dats d ON d.id = r.dat_id
+                "SELECT {REVISION_COLUMNS}, r.dat_id FROM dat_revisions r JOIN dats d ON d.id = r.dat_id
+                 WHERE r.deleted_at IS NULL
                  ORDER BY d.id, r.header_order, r.id"
             );
             let mut stmt = c.prepare(&sql)?;
-            let rows = stmt.query_map([], |r| revision_from_row(r).map(|(_, rev)| rev))?;
-            Ok(rows.collect::<Result<_, _>>()?)
+            let rows = stmt
+                .query_map([], |r| {
+                    let (id, rev) = revision_from_row(r)?;
+                    Ok((id, r.get::<_, i64>(15)?, rev))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.into_iter()
+                .map(|(id, dat_id, mut rev)| {
+                    rev.blockers = Some(crate::dat_deletion::blockers(c, id, dat_id, &rev.sha256)?);
+                    Ok(rev)
+                })
+                .collect()
         })
     }
 
@@ -433,7 +496,8 @@ impl Store {
                 .prepare(
                     "SELECT r.sha256 FROM dat_revisions r
                      WHERE r.blob_dropped_at IS NULL AND r.restored_at IS NULL
-                       AND r.id <> (SELECT n.id FROM dat_revisions n WHERE n.dat_id = r.dat_id
+                       AND r.id <> (SELECT n.id FROM dat_revisions n
+                                    WHERE n.dat_id = r.dat_id AND n.deleted_at IS NULL
                                     ORDER BY n.header_order DESC LIMIT 1)
                        AND NOT EXISTS (
                            SELECT 1 FROM audits a WHERE a.dat_revision_id = r.id AND a.pruned_at IS NULL)

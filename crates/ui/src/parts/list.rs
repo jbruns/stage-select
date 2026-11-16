@@ -107,12 +107,15 @@ pub enum Act {
 }
 
 /// An action on one row: the first `quick` of a row's actions are icons at the row's end, shown on hover or when the
-/// row has the keyboard cursor, and the rest are under ⋯. The detail shows them all, labelled.
+/// row has the keyboard cursor, and the rest are under ⋯. A destructive action is never an icon: it and every action
+/// after it stay under ⋯. The detail shows them all, labelled.
 #[derive(Clone)]
 pub struct RowAction {
     pub glyph: Glyph,
     pub label: String,
     pub act: Act,
+    /// Labelled only, under ⋯ and in the detail, never a quick icon.
+    pub destructive: bool,
 }
 
 impl RowAction {
@@ -121,6 +124,7 @@ impl RowAction {
             glyph,
             label: label.into(),
             act: Act::Go(href.into()),
+            destructive: false,
         }
     }
 
@@ -133,6 +137,7 @@ impl RowAction {
             glyph,
             label: label.into(),
             act: Act::Run(Callback::new(move |()| run())),
+            destructive: false,
         }
     }
 
@@ -142,6 +147,7 @@ impl RowAction {
             glyph,
             label: label.into(),
             act: Act::Download(url.into()),
+            destructive: false,
         }
     }
 
@@ -151,8 +157,30 @@ impl RowAction {
             glyph,
             label: label.into(),
             act: Act::Unavailable,
+            destructive: false,
         }
     }
+
+    /// An action that removes something, run only through a confirmation `run` opens; never a quick icon.
+    pub fn destructive(
+        glyph: Glyph,
+        label: impl Into<String>,
+        run: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        RowAction {
+            destructive: true,
+            ..RowAction::run(glyph, label, run)
+        }
+    }
+}
+
+/// How many of `actions` lead as quick icons: up to `quick`, stopping at the first destructive one.
+fn quick_count(actions: &[RowAction], quick: usize) -> usize {
+    actions
+        .iter()
+        .take(quick)
+        .take_while(|a| !a.destructive)
+        .count()
 }
 
 /// The checked rows a toolbar action acts on.
@@ -689,7 +717,7 @@ pub fn List<T: ListRow>(
             .collect_view();
         let actions = row_actions.map(|ra| {
             let all = untrack(|| ra.run(item.clone()));
-            let (icons, rest) = all.split_at(all.len().min(quick));
+            let (icons, rest) = all.split_at(quick_count(&all, quick));
             let icons = icons
                 .iter()
                 .cloned()
@@ -704,7 +732,9 @@ pub fn List<T: ListRow>(
                             .get_value()
                             .into_iter()
                             .map(|a| {
-                                let RowAction { glyph, label, act } = a;
+                                let RowAction {
+                                    glyph, label, act, ..
+                                } = a;
                                 let disabled = matches!(act, Act::Unavailable);
                                 view! {
                                     <MenuItem
@@ -961,7 +991,9 @@ fn run_act(act: &Act, go: Callback<String>) {
 
 /// A row action as an icon at the row's end.
 fn quick_icon(action: RowAction, go: Callback<String>) -> AnyView {
-    let RowAction { glyph, label, act } = action;
+    let RowAction {
+        glyph, label, act, ..
+    } = action;
     match act {
         Act::Go(href) => view! {
             <Tooltip label=label.clone()>
@@ -991,7 +1023,9 @@ fn quick_icon(action: RowAction, go: Callback<String>) -> AnyView {
 
 /// A row action as a labelled button, in the detail.
 fn labelled_act(action: RowAction, go: Callback<String>) -> AnyView {
-    let RowAction { glyph, label, act } = action;
+    let RowAction {
+        glyph, label, act, ..
+    } = action;
     match act {
         Act::Go(href) => view! {
             <A href=href attr:class="button">
@@ -1196,5 +1230,20 @@ fn toolbar<T: ListRow>(
                 {move || format!("{} of {}", count.get(), total.get())}
             </p>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_destructive_action_is_never_a_quick_icon_and_keeps_those_after_it_under_the_menu() {
+        let open = || RowAction::go(Glyph::ClipboardList, "Open", "/x");
+        let delete = || RowAction::destructive(Glyph::Trash2, "Delete revision", || {});
+        assert_eq!(quick_count(&[open(), open()], 1), 1);
+        assert_eq!(quick_count(&[open(), open(), open()], 2), 2);
+        assert_eq!(quick_count(&[delete()], 1), 0);
+        assert_eq!(quick_count(&[open(), delete(), open()], 2), 1);
     }
 }

@@ -608,3 +608,43 @@ fn dat_import_takes_no_provider_and_says_when_the_header_names_none() {
         .unwrap();
     assert!(!refused.status.success());
 }
+
+#[test]
+fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does() {
+    let (f, dat) = pong_fixture();
+    let config = f.dat_dir.path().join("title-select.toml");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        &config,
+        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+    let imported = run_ok(ts().args(["dat", "import"]).arg(&dat));
+    let sha = imported
+        .split_whitespace()
+        .find(|w| w.len() == 64)
+        .unwrap()
+        .to_string();
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
+
+    let refused = ts().args(["dat", "delete", &sha]).output().unwrap();
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains("1 source set uses its DAT") && stderr.contains("Nothing was changed"),
+        "{stderr}"
+    );
+
+    run_ok(ts().args(["set", "unregister", rel]));
+    let deleted = run_ok(ts().args(["dat", "delete", &sha]));
+    assert!(deleted.contains("deleted"), "{deleted}");
+    assert!(deleted.contains("no longer listed"), "{deleted}");
+}

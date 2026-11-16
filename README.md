@@ -279,7 +279,8 @@ first use. Only one Title Select process may have a store open at a time: it hol
 - A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest revision
   of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a
-  newer revision of its DAT is imported.
+  newer revision of its DAT is imported. Only `dat delete` (or **Delete revision**) removes a DAT revision from the
+  list, and only while nothing depends on it; history that still names it keeps its row, hidden.
 - A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it. A
   fetched cue pack is kept instead while it is the one the latest successful fetch of its system brought.
   Otherwise the file is deleted after the next import or audit; its row stays, and so does the index of its cue
@@ -517,6 +518,19 @@ policy for `redump/<name>` means `Redump/<name>`. If your store holds one DAT un
 it merges them into the first spelling, with every revision and source set; if each spelling had an additions set,
 the earlier stays registered and the other is unregistered, its folder left as it is. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
+
+```sh
+title-select dat delete <SHA-256>
+```
+
+Deletes a DAT revision nothing depends on, even the newest, last or a restored one: it leaves the list of DAT
+revisions and the store deletes its copy of the DAT file. No game file is touched. While anything depends on it, the
+delete is refused, saying what, and changes nothing: a registered source set or additions set for its DAT (which
+blocks every revision of the DAT), an audit or selection not yet pruned, a plan not yet built or finished, a build
+that is running, needs recovery or is a folder's current build, a file built from it in your play library or kept
+aside from it, a queued or running job, or an ingest folder's DAT import still owed an audit. Nothing is pruned,
+forgotten or unregistered to make it deletable. Past audits that are history still name it. A DAT whose last
+revision you delete leaves the list; importing the same file again adds it back as a new import.
 
 ```sh
 title-select cue-pack import <ZIP file> --dat <provider>/<name> [--source-url <url>]
@@ -1251,9 +1265,10 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/health`                               | `{"status": "ok"}`, unauthenticated                          |
 | `GET /api/v1/roots`                                | the configured roots                                         |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
-| `GET /api/v1/dat-revisions`                        | every DAT revision                                           |
+| `GET /api/v1/dat-revisions`                        | every DAT revision, each with `blockers`: what stops you deleting it, empty when nothing does |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `source_url`?, `file`; its provider, name and metadata come from the DAT |
 | `GET /api/v1/dat-revisions/{sha256}/file`          | the DAT revision's kept file, byte for byte, as an attachment under its recorded filename; `410` once its file is no longer kept |
+| `DELETE /api/v1/dat-revisions/{sha256}`            | delete a DAT revision nothing depends on: `{"sha256", "dat", "blob_deleted", "dat_removed"}`; `409` while anything does, changing nothing, with `blockers`, each `{"kind", "count", "names"}` (`kind` one of `source_set`, `additions_set`, `audit`, `selection`, `change_plan`, `build`, `built_file`, `kept_file`, `job`, `ingest_reaudit`); `404` for none catalogued |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
@@ -1612,7 +1627,9 @@ Its screens:
   version (or its date, when it has no version), never by its SHA-256. **Download DAT**, among each row's actions and in its
   detail, saves the exact file kept for that DAT revision under the filename it was imported with; once its file is
   deleted, the action is disabled and says so, and importing the same file again restores it. It uploads a DAT
-  file as a new DAT revision, saying the name, provider and version it read from the DAT, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
+  file as a new DAT revision, saying the name, provider and version it read from the DAT, and a cue pack for a DAT.
+  **Delete revision**, in a revision's ⋯ menu and its detail, deletes a DAT revision nothing depends on after you
+  confirm; while something does, its detail says what, linking the source sets that use its DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
   **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, the DAT's header rule and how many games

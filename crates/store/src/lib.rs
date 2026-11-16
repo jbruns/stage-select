@@ -7,6 +7,7 @@ mod builds;
 mod checks;
 pub mod config;
 mod cue_packs;
+mod dat_deletion;
 mod dats;
 mod exports;
 pub mod fetch;
@@ -46,8 +47,8 @@ pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
 pub use title_select_api::{
-    AuditSummary, DatRevisionRecord, ImportOutcome, Job, JobState, LastVerified, SourceSetRecord,
-    Workers,
+    AuditSummary, DatRevisionRecord, DeletedDatRevision, DeletionBlocker, DeletionBlockerKind,
+    ImportOutcome, Job, JobState, LastVerified, SourceSetRecord, Workers,
 };
 
 /// The database's file name in the store directory.
@@ -87,6 +88,12 @@ pub enum Error {
         source_set: String,
         job: i64,
         kind: title_select_api::JobKind,
+    },
+    /// A DAT Revision can't be deleted while something still depends on it: `message` says what, for you to read.
+    #[error("{message}")]
+    RevisionInUse {
+        message: String,
+        blockers: Vec<title_select_api::DeletionBlocker>,
     },
     #[error(transparent)]
     Audit(#[from] title_select_engine::Error),
