@@ -93,6 +93,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
                 .post(upload_dat)
                 .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
+        .route("/dat-revisions/{sha256}/file", get(dat_file))
         .route(
             "/cue-packs",
             get(cue_packs)
@@ -1471,18 +1472,29 @@ async fn have_miss(
     Ok(download(export, "text/csv; charset=utf-8"))
 }
 
-/// An exported file, to be saved under its name: an ASCII fallback, and the name itself as RFC 5987 gives it.
+/// An exported file, to be saved under its name.
 fn download(export: title_select_store::Export, content_type: &'static str) -> Response {
-    let fallback: String = export
-        .file_name
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (header::CONTENT_DISPOSITION, attachment(&export.file_name)),
+        ],
+        export.content,
+    )
+        .into_response()
+}
+
+/// A `Content-Disposition` that saves a download as `file_name`: an ASCII fallback, and the name itself as RFC 5987
+/// gives it.
+fn attachment(file_name: &str) -> HeaderValue {
+    let fallback: String = file_name
         .chars()
         .map(|c| match c {
             ' '..='~' if c != '"' && c != '\\' => c,
             _ => '_',
         })
         .collect();
-    let encoded: String = export
-        .file_name
+    let encoded: String = file_name
         .bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
@@ -1492,17 +1504,81 @@ fn download(export: title_select_store::Export, content_type: &'static str) -> R
         })
         .collect();
     let disposition = format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}");
-    (
-        [
-            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
-            (
-                header::CONTENT_DISPOSITION,
-                HeaderValue::from_str(&disposition).expect("visible ASCII"),
+    HeaderValue::from_str(&disposition).expect("visible ASCII")
+}
+
+/// A recorded filename made safe to save under: its last path component, without control characters. `None` when
+/// nothing is left of it but dots and spaces.
+fn safe_file_name(recorded: &str) -> Option<String> {
+    let base = recorded.rsplit(['/', '\\']).next().unwrap_or_default();
+    let name: String = base.chars().filter(|c| !c.is_control()).collect();
+    let name = name.trim();
+    (!name.chars().all(|c| c == '.' || c.is_whitespace())).then(|| name.to_owned())
+}
+
+/// A DAT Revision's kept file, byte for byte, saved under its recorded filename, or its DAT's name when nothing safe is
+/// left of that. A file no longer kept (ADR 0003) is gone: it is never rebuilt from what was read of it, nor fetched.
+async fn dat_file(
+    State(state): State<AppState>,
+    sha256: Result<Path<String>, PathRejection>,
+) -> ApiResult<Response> {
+    let Path(sha256) = sha256?;
+    let (record, file) = blocking(&state, move |store| store.open_dat_file(&sha256)).await?;
+    let Some(mut file) = file else {
+        let revision = [record.name.as_str(), record.version.as_str()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        return Err(ApiError(
+            StatusCode::GONE,
+            format!(
+                "the file of DAT revision {revision} isn't kept any more, so it can't be downloaded; \
+                 import the same file again to keep it"
             ),
+            None,
+        ));
+    };
+    let name = safe_file_name(&record.file)
+        .or_else(|| safe_file_name(&format!("{}.dat", record.name.replace(['/', '\\'], "_"))))
+        .unwrap_or_else(|| "dat".to_owned());
+    let length = file.metadata().map(|m| m.len()).ok();
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        loop {
+            let mut chunk = vec![0; NDJSON_CHUNK];
+            let sent = match file.read(&mut chunk) {
+                Ok(0) => return,
+                Ok(n) => {
+                    chunk.truncate(n);
+                    tx.blocking_send(Ok(chunk.into()))
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => tx.blocking_send(Err(e)),
+            };
+            if sent.is_err() {
+                return;
+            }
+        }
+    });
+    let mut response = (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/octet-stream"),
+            ),
+            (header::CONTENT_DISPOSITION, attachment(&name)),
         ],
-        export.content,
+        Body::from_stream(ReceiverStream::new(rx)),
     )
-        .into_response()
+        .into_response();
+    if let Some(length) = length {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_LENGTH, HeaderValue::from(length));
+    }
+    Ok(response)
 }
 
 /// The approved ingest plans that changed a Source Set: DAT imports that queued an Audit of it, and additions to its

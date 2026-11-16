@@ -147,8 +147,9 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      action can apply to the filter rather than to a list of keys. Buttons that don't fit go under a ⋯ menu.
    - `row_actions: Callback<T, Vec<RowAction>>` and `quick` (1 or 2, default 1): the first `quick` actions are
      icons at the row's end, shown on hover, on the keyboard cursor and on the open row; the rest are under the
-     row's ⋯ menu. The detail shows them all, labelled. `RowAction::go(glyph, label, href)` or
-     `RowAction::run(glyph, label, || ..)`. Labels are full ("Open its latest audit, #12").
+     row's ⋯ menu. The detail shows them all, labelled. `RowAction::go(glyph, label, href)`,
+     `RowAction::run(glyph, label, || ..)`, `RowAction::download(glyph, label, api::url(..))` (a plain link the
+     browser saves, not a route) or `RowAction::unavailable(glyph, label)` (disabled; its label says why). Labels are full ("Open its latest audit, #12").
    - `filters: ViewFn` adds controls beside the filter text; `keep: Signal<Keep<T>>` is the matching predicate
      (`Option<Arc<dyn Fn(&T) -> bool>>`), applied with the filter text. Changing it clears an "every match"
      selection.

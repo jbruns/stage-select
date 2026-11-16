@@ -1253,6 +1253,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision                                           |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `source_url`?, `file`; its provider, name and metadata come from the DAT |
+| `GET /api/v1/dat-revisions/{sha256}/file`          | the DAT revision's kept file, byte for byte, as an attachment under its recorded filename; `410` once its file is no longer kept |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
@@ -1608,7 +1609,9 @@ Its screens:
   detail adds what the header says (description, author, homepage, URL, format), where the file came from (file,
   source URL, import time), the source sets and audits that use it, and the cue packs imported for its DAT. A field
   the DAT doesn't give shows as "Not given". Here and on every other screen, a DAT revision is named by its DAT and
-  version (or its date, when it has no version), never by its SHA-256. It uploads a DAT
+  version (or its date, when it has no version), never by its SHA-256. **Download DAT**, among each row's actions and in its
+  detail, saves the exact file kept for that DAT revision under the filename it was imported with; once its file is
+  deleted, the action is disabled and says so, and importing the same file again restores it. It uploads a DAT
   file as a new DAT revision, saying the name, provider and version it read from the DAT, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
   **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.

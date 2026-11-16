@@ -377,6 +377,37 @@ impl Store {
         Ok((record, outcome))
     }
 
+    /// The DAT Revision whose SHA-256 is `sha256`, and its kept blob opened for reading, or `None` when the blob was
+    /// dropped (ADR 0003). The blob is opened before anything reads it, so retention dropping it meanwhile can't cut
+    /// the read short; one dropped before it is opened is not kept. A `sha256` that is not 64 lowercase hex digits is
+    /// refused before any file is touched.
+    pub fn open_dat_file(
+        &self,
+        sha256: &str,
+    ) -> Result<(DatRevisionRecord, Option<std::fs::File>)> {
+        if sha256.len() != 64
+            || !sha256
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(Error::Refused(
+                "a DAT revision is named by its SHA-256, 64 lowercase hex digits".into(),
+            ));
+        }
+        let (_, record) = self
+            .read(|c| revision_by_sha(c, sha256))?
+            .ok_or_else(|| Error::NotFound("no such DAT revision".into()))?;
+        if !record.blob_present {
+            return Ok((record, None));
+        }
+        let path = self.blob_path(sha256);
+        match std::fs::File::open(&path) {
+            Ok(file) => Ok((record, Some(file))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((record, None)),
+            Err(e) => Err(io_error(&path, e)),
+        }
+    }
+
     /// Every DAT Revision, oldest first by header version within each DAT, the DATs in import order.
     pub fn dat_revisions(&self) -> Result<Vec<DatRevisionRecord>> {
         self.read(|c| {
