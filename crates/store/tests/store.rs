@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use common::*;
+use title_select_api::DatFormat;
 use title_select_api::paths::PathTemplate;
 use title_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
@@ -85,10 +86,7 @@ impl Env {
     }
 
     fn import(&self, revision: u32) -> (String, ImportOutcome) {
-        let (rev, outcome) = self
-            .store
-            .import_dat(&self.dat(revision), "No-Intro", None)
-            .unwrap();
+        let (rev, outcome) = self.store.import_dat(&self.dat(revision), None).unwrap();
         (rev.sha256, outcome)
     }
 
@@ -136,7 +134,7 @@ fn importing_the_same_bytes_again_returns_the_existing_dat_revision() {
     let path = env.dat(1);
     let (first, outcome) = env
         .store
-        .import_dat(&path, "No-Intro", Some("https://<domain>/dat"))
+        .import_dat(&path, Some("https://<domain>/dat"))
         .unwrap();
     assert_eq!(outcome, ImportOutcome::Added);
     assert_eq!(first.name, "Test - System");
@@ -144,7 +142,7 @@ fn importing_the_same_bytes_again_returns_the_existing_dat_revision() {
     assert_eq!(first.file, "Test - System (1).dat");
     assert_eq!(first.source_url.as_deref(), Some("https://<domain>/dat"));
 
-    let (again, outcome) = env.store.import_dat(&path, "No-Intro", None).unwrap();
+    let (again, outcome) = env.store.import_dat(&path, None).unwrap();
 
     assert_eq!(outcome, ImportOutcome::AlreadyImported);
     assert_eq!(again, first);
@@ -725,7 +723,7 @@ fn an_ambiguous_revision_prefix_is_refused() {
             &format!("v{n}"),
             &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
         );
-        let (rev, _) = env.store.import_dat(&path, "No-Intro", None).unwrap();
+        let (rev, _) = env.store.import_dat(&path, None).unwrap();
         let first = rev.sha256.chars().next().unwrap();
         if seen.insert(first, rev.sha256).is_some() {
             shared = Some(first);
@@ -1835,4 +1833,183 @@ fn env_config(tmp: &tempfile::TempDir) -> Config {
         tmp.path().join("roots/sets").display().to_string()
     ))
     .unwrap()
+}
+
+/// A Logiqx DAT named `name` at `version` whose header also holds `extra`, with one Game.
+fn logiqx(name: &str, version: &str, extra: &str) -> Vec<u8> {
+    format!(
+        r#"<?xml version="1.0"?>
+<datafile>
+  <header><name>{name}</name><version>{version}</version>{extra}</header>
+  <game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="d87f7e0c"/></game>
+</datafile>
+"#
+    )
+    .into_bytes()
+}
+
+fn listxml(build: &str) -> Vec<u8> {
+    format!(
+        r#"<?xml version="1.0"?>
+<mame build="{build}">
+  <machine name="pong"><rom name="pong.bin" size="4" crc="d87f7e0c"/></machine>
+</mame>
+"#
+    )
+    .into_bytes()
+}
+
+fn software_list(name: &str, game: &str) -> Vec<u8> {
+    format!(
+        r#"<?xml version="1.0"?>
+<softwarelist name="{name}" description="Nintendo Entertainment System cartridges">
+  <software name="{game}"><description>Game</description>
+    <part name="cart" interface="cart"><dataarea name="rom" size="4">
+      <rom name="game.bin" size="4" crc="d87f7e0c"/>
+    </dataarea></part>
+  </software>
+</softwarelist>
+"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_no_intro_dat_is_known_by_its_header_and_its_metadata_is_kept() {
+    let env = Env::new(20);
+    let xml = logiqx(
+        "Atari - Atari 2600",
+        "20261107-215159",
+        "<id>88</id><description>Atari - Atari 2600</description><author>one, two, three</author>\
+         <homepage>No-Intro</homepage><url>https://www.no-intro.org</url><clrmamepro forcenodump=\"required\"/>",
+    );
+
+    let (r, _) = env
+        .store
+        .import_dat_bytes(&xml, "atari.dat", Some("https://<domain>/atari.dat"))
+        .unwrap();
+
+    assert_eq!(r.dat, "No-Intro/Atari - Atari 2600");
+    assert_eq!(r.format, DatFormat::Logiqx);
+    assert_eq!(r.provider.as_deref(), Some("No-Intro"));
+    assert_eq!(r.name, "Atari - Atari 2600");
+    assert_eq!(r.description.as_deref(), Some("Atari - Atari 2600"));
+    assert_eq!(r.author.as_deref(), Some("one, two, three"));
+    assert_eq!(r.homepage.as_deref(), Some("No-Intro"));
+    assert_eq!(r.header_url.as_deref(), Some("https://www.no-intro.org"));
+    assert_eq!(r.version, "20261107-215159");
+    assert_eq!(r.date, None, "No-Intro's header has no date");
+    assert_eq!(r.source_url.as_deref(), Some("https://<domain>/atari.dat"));
+    assert_eq!(env.store.dat_revisions().unwrap(), [r]);
+}
+
+#[test]
+fn a_redump_dat_is_known_by_its_header_and_keeps_its_date() {
+    let env = Env::new(20);
+    let xml = logiqx(
+        "Sony - PlayStation",
+        "2026-01-02 03-04-05",
+        "<date>2026-01-02 03-04-05</date><author>redump.org</author><homepage>redump.org</homepage>\
+         <url>http://redump.org/</url>",
+    );
+
+    let (r, _) = env.store.import_dat_bytes(&xml, "psx.dat", None).unwrap();
+
+    assert_eq!(r.dat, "Redump/Sony - PlayStation");
+    assert_eq!(r.provider.as_deref(), Some("Redump"));
+    assert_eq!(r.date.as_deref(), Some("2026-01-02 03-04-05"));
+    assert_eq!(r.header_url.as_deref(), Some("http://redump.org/"));
+    assert_eq!(r.source_url, None);
+}
+
+#[test]
+fn a_dat_whose_header_names_no_provider_or_two_is_kept_by_its_format_and_name_across_revisions() {
+    let env = Env::new(20);
+    let import = |xml: Vec<u8>| env.store.import_dat_bytes(&xml, "x.dat", None).unwrap().0;
+
+    let first = import(logiqx("Homebrew", "1", "<author>someone</author>"));
+    let second = import(logiqx("Homebrew", "2", "<homepage>somewhere</homepage>"));
+    let both = import(logiqx(
+        "Mixed",
+        "1",
+        "<homepage>No-Intro</homepage><url>http://redump.org/</url>",
+    ));
+
+    for r in [&first, &second] {
+        assert_eq!(
+            (r.dat.as_str(), r.provider.as_deref()),
+            ("unknown-logiqx/Homebrew", None)
+        );
+    }
+    assert_eq!(
+        (both.dat.as_str(), both.provider.as_deref()),
+        ("unknown-logiqx/Mixed", None)
+    );
+    let dats = env.store.dat_revisions().unwrap();
+    assert_eq!(
+        dats.iter()
+            .filter(|r| r.dat == "unknown-logiqx/Homebrew")
+            .count(),
+        2,
+        "two revisions of one DAT"
+    );
+}
+
+#[test]
+fn mame_dats_are_kept_by_their_own_names_and_apart_from_a_logiqx_dat_of_the_same_name() {
+    let env = Env::new(20);
+    let import = |xml: Vec<u8>| env.store.import_dat_bytes(&xml, "x.xml", None).unwrap().0;
+
+    let builds = [import(listxml("0.270")), import(listxml("0.271"))];
+    let lists = [
+        import(software_list("nes", "a")),
+        import(software_list("nes", "b")),
+    ];
+    let logiqx = import(logiqx("nes", "1", ""));
+
+    for r in &builds {
+        assert_eq!(
+            (r.dat.as_str(), r.format),
+            ("MAME/MAME", DatFormat::Listxml)
+        );
+        assert_eq!(r.provider.as_deref(), Some("MAME"));
+    }
+    assert_eq!(
+        (builds[0].version.as_str(), builds[1].version.as_str()),
+        ("0.270", "0.271")
+    );
+    for r in &lists {
+        assert_eq!(
+            (r.dat.as_str(), r.format),
+            ("MAME/nes", DatFormat::SoftwareList)
+        );
+        assert_eq!(
+            r.description.as_deref(),
+            Some("Nintendo Entertainment System cartridges")
+        );
+    }
+    assert_eq!(
+        (logiqx.dat.as_str(), logiqx.format),
+        ("unknown-logiqx/nes", DatFormat::Logiqx)
+    );
+}
+
+#[test]
+fn a_dat_with_no_name_is_refused_naming_the_file_and_what_is_missing() {
+    let env = Env::new(20);
+    let nameless = br#"<?xml version="1.0"?>
+<datafile>
+  <header><version>1</version><homepage>No-Intro</homepage></header>
+  <game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="d87f7e0c"/></game>
+</datafile>
+"#;
+
+    let refused = env.store.import_dat_bytes(nameless, "nameless.dat", None);
+
+    let message = refused.unwrap_err().to_string();
+    assert!(
+        message.contains("nameless.dat") && message.contains("<name>"),
+        "{message}"
+    );
+    assert!(env.store.dat_revisions().unwrap().is_empty());
 }

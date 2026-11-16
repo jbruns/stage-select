@@ -468,7 +468,8 @@ changed its address or root is discarded. The tab shows a new comparison as soon
 When you register a folder, a path template proposes its path in the root from the DAT, so you don't type it in full.
 Its tokens are:
 
-- `{provider}`: the DAT's provider, such as `No-Intro` or `Redump`;
+- `{provider}`: the DAT's provider, such as `No-Intro` or `Redump`; a DAT whose provider is unknown has none, so you
+  type the path;
 - `{dat}`: the DAT's header name, such as `Atari - Atari 2600`;
 - `{platform}`: the front end's folder name for the system, such as `atari2600`.
 
@@ -492,15 +493,27 @@ you type the path.
 ## Commands
 
 ```sh
-title-select dat import <DAT file> --provider <name> [--source-url <url>]
+title-select dat import <DAT file> [--source-url <url>]
 ```
 
-Imports an unmodified DAT file as a DAT revision, recording its SHA-256, header `name` and `version`, original
-filename, import time, provider and source URL. A DAT is identified by its provider and header name, written
-`<provider>/<name>`; each import of new bytes adds a DAT revision of it. The store keeps one spelling of each provider, the
-first you imported under: if you have DATs from `Redump`, importing under `redump` adds a revision of
-`Redump/<name>`, and registering a source set, importing a cue pack or setting a storage policy for
-`redump/<name>` means `Redump/<name>`. If your store holds one DAT under two spellings of its provider, upgrading
+Imports an unmodified DAT file as a DAT revision, recording its SHA-256, original filename, import time and source
+URL, and what the DAT says about itself: its format (Logiqx XML, MAME ListXML or a MAME software list), name,
+description, author, homepage, URL, version and date. You don't say who publishes it; the DAT does:
+
+- a Logiqx DAT whose header gives its homepage as `No-Intro`, or a URL on `no-intro.org`, is from No-Intro;
+- a Logiqx DAT whose homepage, URL or author names `redump.org` is from Redump;
+- a MAME ListXML or software list is from MAME, the ListXML named `MAME` with its build as its version, and a
+  software list named as its list, such as `nes`;
+- a DAT the service fetches is from the provider it fetched it from.
+
+A Logiqx DAT whose header names neither provider, or both, has an unknown provider. A DAT is identified by its
+provider and name, written `<provider>/<name>`, such as `No-Intro/Atari - Atari 2600`; a DAT of unknown provider is
+identified by its format instead, such as `unknown-logiqx/<name>`, so a Logiqx DAT named `nes` is never mistaken for
+MAME's `nes` software list. Each import of new bytes adds a DAT revision of it. A DAT with no name to know it by is
+refused, saying what is missing.
+
+The store keeps one spelling of each provider: registering a source set, importing a cue pack or setting a storage
+policy for `redump/<name>` means `Redump/<name>`. If your store holds one DAT under two spellings of its provider, upgrading
 it merges them into the first spelling, with every revision and source set; if each spelling had an additions set,
 the earlier stays registered and the other is unregistered, its folder left as it is. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
@@ -713,10 +726,10 @@ for the systems a registered source set follows, and only those DATs:
 
 - **Redump**: the system's DAT, and its cue pack and SBI pack where Redump publishes them; nothing Redump doesn't
   publish for a system is asked for. A source set follows a
-  Redump DAT when it is bound to one imported with provider `Redump`, in any case, under the DAT's own header name (such as
+  Redump DAT when it is bound to a DAT from Redump, under the DAT's own header name (such as
   `Sony - PlayStation`).
 - **MAME**: it checks for MAME's latest release, then fetches the ListXML (the DAT named `MAME`) and the software
-  lists your source sets follow (imported with provider `MAME`, each named as its list, such as `nes`) from that
+  lists your source sets follow (each named as its list, such as `MAME/nes`) from that
   release. A software list takes the release's version, such as `mame0270`. A system already fetched from the latest release is not fetched again.
 
 Each system's DAT, cue pack and SBI pack is fetched at most once a day, counting every attempt, whether scheduled or
@@ -1061,7 +1074,7 @@ Each item is one of:
   imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further;
+  never read further; or a DAT with no name to know it by, which can't be imported and is never a candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
@@ -1239,7 +1252,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/roots`                                | the configured roots                                         |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision                                           |
-| `POST /api/v1/dat-revisions`                       | import a DAT: multipart `provider`, `source_url`?, `file`    |
+| `POST /api/v1/dat-revisions`                       | import a DAT: multipart `source_url`?, `file`; its provider, name and metadata come from the DAT |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
@@ -1310,7 +1323,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
 | `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
-| `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "provider"?, "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
+| `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
 | `POST /api/v1/ingest-folders/{root}/dismissals`    | dismiss several of its items until they change: `{"items": [id]}`; all of them or none |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
@@ -1592,7 +1605,7 @@ Its screens:
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it, and the cue packs imported for its DAT. It uploads a DAT
-  file as a new DAT revision, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
+  file as a new DAT revision, saying the name, provider and version it read from the DAT, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
   **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, the DAT's header rule and how many games
@@ -1670,8 +1683,7 @@ Its screens:
   can also check items, or select every item matching the filter, and decide for those from the toolbar, or decide
   for one item from its row; an item a decision doesn't apply to is left out, and the page says how many. Opening an
   item shows the evidence its assessment found, what is proposed, and its last move; for a candidate addition, the
-  system, name and parent game to add it as; for a DAT no source set uses yet, the provider to import it under (a
-  DAT whose provider is known is imported under its own). Adding, discarding or importing makes a plan, which shows
+  system, name and parent game to add it as; for a DAT, the DAT it is a revision of, read from its header. Adding, discarding or importing makes a plan, which shows
   in place of the items as a list of each item and where it goes, with its reason and outcome when you open it; you
   approve it before anything moves. Dismissing moves nothing. While a plan you approved is moving items, the page says so and links to its job, and each item
   being moved shows as moving, then as done or with what went wrong, without reloading. The folder's kept files

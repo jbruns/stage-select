@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use title_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel,
-    Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, NamedHeaderRule, Reuse,
+    Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, ImportOutcome, NamedHeaderRule,
+    Reuse,
 };
 
 /// The glossary's name for a Finding.
@@ -528,6 +529,24 @@ pub fn audit_choices<'a>(
     }
 }
 
+/// What importing a DAT did, naming the DAT, its provider and its version as the DAT gives them.
+pub fn imported_message(outcome: ImportOutcome, r: &DatRevisionRecord) -> String {
+    let what = match outcome {
+        ImportOutcome::Added => "Imported ",
+        ImportOutcome::AlreadyImported => "Already imported: ",
+        ImportOutcome::Restored => "Restored the kept file of ",
+    };
+    let provider = match &r.provider {
+        Some(provider) => format!(" from {provider}"),
+        None => ", provider unknown".to_owned(),
+    };
+    let version = match r.version.as_str() {
+        "" => "no version".to_owned(),
+        version => format!("version {version}"),
+    };
+    format!("{what}{}{provider}, {version}.", r.name)
+}
+
 /// The first 12 hex digits of a SHA-256, enough to tell DAT Revisions apart on screen.
 pub fn short_sha(sha256: &str) -> &str {
     sha256.get(..12).unwrap_or(sha256)
@@ -1002,14 +1021,44 @@ mod tests {
     fn revision(sha: &str) -> DatRevisionRecord {
         DatRevisionRecord {
             sha256: sha.repeat(64),
-            provider: "No-Intro".into(),
+            dat: "No-Intro/Atari - 2600".into(),
+            format: title_select_api::DatFormat::Logiqx,
+            provider: Some("No-Intro".into()),
             name: "Atari - 2600".into(),
+            description: None,
+            author: None,
+            homepage: None,
+            header_url: None,
             version: sha.into(),
+            date: None,
             file: format!("{sha}.dat"),
             imported_at: "2026-01-01T00:00:00Z".into(),
             source_url: None,
             blob_present: true,
         }
+    }
+
+    #[test]
+    fn an_import_names_the_dat_its_provider_and_version_and_says_what_is_unknown() {
+        let known = revision("a");
+        assert_eq!(
+            imported_message(ImportOutcome::Added, &known),
+            "Imported Atari - 2600 from No-Intro, version a."
+        );
+        let unknown = DatRevisionRecord {
+            dat: "unknown-logiqx/Atari - 2600".into(),
+            provider: None,
+            version: String::new(),
+            ..revision("b")
+        };
+        assert_eq!(
+            imported_message(ImportOutcome::AlreadyImported, &unknown),
+            "Already imported: Atari - 2600, provider unknown, no version."
+        );
+        assert_eq!(
+            imported_message(ImportOutcome::Restored, &known),
+            "Restored the kept file of Atari - 2600 from No-Intro, version a."
+        );
     }
 
     fn audit(sha: &str) -> AuditSummary {

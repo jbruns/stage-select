@@ -250,7 +250,15 @@ fn a_redirect_off_its_providers_hosts_is_refused_before_it_is_followed() {
     assert!(elsewhere.seen().is_empty());
 }
 
-/// A Logiqx DAT named `name` at `version`, with one Game.
+/// As [`dat_xml`], with a header that names Redump, as a DAT downloaded from Redump has.
+fn redump_dat_xml(name: &str, version: &str) -> Vec<u8> {
+    String::from_utf8(dat_xml(name, version))
+        .unwrap()
+        .replace("</version>", "</version><homepage>redump.org</homepage>")
+        .into_bytes()
+}
+
+/// A Logiqx DAT named `name` at `version`, with one Game, whose header names no provider.
 fn dat_xml(name: &str, version: &str) -> Vec<u8> {
     format!(
         r#"<?xml version="1.0"?>
@@ -323,18 +331,18 @@ impl Env {
             fake,
             fetcher,
         };
-        env.follow("PSX", "Redump", "Sony - PlayStation");
+        env.follow("PSX", "Sony - PlayStation");
         env
     }
 
-    /// Imports version 1 of `<provider>/<dat>` and registers, audits and follows the Source Set `name` bound to it.
-    fn follow(&self, name: &str, provider: &str, dat: &str) {
+    /// Imports version 1 of `Redump/<dat>` and registers, audits and follows the Source Set `name` bound to it.
+    fn follow(&self, name: &str, dat: &str) {
         std::fs::create_dir_all(self._tmp.path().join("sets").join(name)).unwrap();
         self.store
-            .import_dat_bytes(&dat_xml(dat, "1"), "v1.dat", provider, None)
+            .import_dat_bytes(&redump_dat_xml(dat, "1"), "v1.dat", None)
             .unwrap();
         self.store
-            .add_source_set(&self.config, "sets", name, &format!("{provider}/{dat}"))
+            .add_source_set(&self.config, "sets", name, &format!("Redump/{dat}"))
             .unwrap();
         self.store
             .audit_source_set(&self.config, name, None, AuditEvidence::Incremental)
@@ -444,6 +452,18 @@ fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_
             ("psx".into(), FetchArtifact::Cues, added),
             ("psx".into(), FetchArtifact::Sbi, added),
         ]
+    );
+    let fetched = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.version == "2")
+        .unwrap();
+    assert_eq!(
+        (fetched.dat.as_str(), fetched.provider.as_deref()),
+        ("Redump/Sony - PlayStation", Some("Redump")),
+        "its header names no provider, so it takes the fetch's"
     );
     let seen = env.fake.seen();
     let paths: Vec<_> = seen.iter().map(|s| s.path.as_str()).collect();
@@ -575,7 +595,7 @@ fn each_system_is_fetched_at_most_once_a_day_even_by_hand() {
 #[test]
 fn a_failed_request_stops_the_fetch_and_keeps_the_last_good_revision() {
     let env = Env::new(REDUMP);
-    env.follow("PS2", "Redump", "Sony - PlayStation 2");
+    env.follow("PS2", "Sony - PlayStation 2");
     env.serve_psx("2");
     env.fake.reply("/datfile/psx/", Reply::Status(503));
 
@@ -651,6 +671,36 @@ fn a_dat_for_another_system_fails_the_fetch() {
 }
 
 #[test]
+fn a_fetch_of_bytes_already_imported_under_another_dat_fails_naming_both_and_moves_nothing() {
+    let env = Env::new(REDUMP);
+    let bytes = dat_xml("Sony - PlayStation", "2");
+    let (manual, _) = env.store.import_dat_bytes(&bytes, "psx.dat", None).unwrap();
+    assert_eq!(manual.dat, "unknown-logiqx/Sony - PlayStation");
+    env.fake.reply(
+        "/datfile/psx/",
+        Reply::Body(zip_of(&[("Sony - PlayStation (2026).dat", &bytes)])),
+    );
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let attempt = &report.attempts[0];
+    assert_eq!(attempt.outcome, Some(FetchOutcome::Failed));
+    let error = attempt.error.as_deref().unwrap();
+    assert!(
+        error.contains("unknown-logiqx/Sony - PlayStation")
+            && error.contains("Redump/Sony - PlayStation"),
+        "{error}"
+    );
+    let revisions = env.store.dat_revisions().unwrap();
+    let kept = revisions
+        .iter()
+        .find(|r| r.sha256 == manual.sha256)
+        .unwrap();
+    assert_eq!(kept.dat, "unknown-logiqx/Sony - PlayStation", "not moved");
+}
+
+#[test]
 fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
     let env = Env::new(FetchSettings::default());
     env.serve_psx("2");
@@ -704,11 +754,9 @@ fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
 fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_requested_once() {
     let env = Env::new(REDUMP);
     std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
-    let mut other = dat_xml("Sony - PlayStation", "1");
+    let mut other = redump_dat_xml("Sony - PlayStation", "1");
     other.push(b'\n');
-    env.store
-        .import_dat_bytes(&other, "v1.dat", "redump", None)
-        .unwrap();
+    env.store.import_dat_bytes(&other, "v1.dat", None).unwrap();
     env.store
         .add_source_set(&env.config, "sets", "PSX2", "redump/Sony - PlayStation")
         .unwrap();
@@ -762,8 +810,8 @@ fn two_fetchers_at_once_send_each_request_once() {
 fn only_what_redump_publishes_for_a_system_is_requested() {
     let env = Env::new(REDUMP);
     env.store.set_follow("PSX", false).unwrap();
-    env.follow("PS2", "Redump", "Sony - PlayStation 2");
-    env.follow("GC", "Redump", "Nintendo - GameCube");
+    env.follow("PS2", "Sony - PlayStation 2");
+    env.follow("GC", "Nintendo - GameCube");
     env.fake.reply(
         "/datfile/ps2/",
         Reply::Body(zip_of(&[("x.dat", &dat_xml("Sony - PlayStation 2", "2"))])),
@@ -933,7 +981,7 @@ impl Env {
 fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lists() {
     let env = Env::new(MAME);
     env.store
-        .import_dat_bytes(&listxml("mame0001"), "mame.xml", "MAME", None)
+        .import_dat_bytes(&listxml("mame0001"), "mame.xml", None)
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/Arcade")).unwrap();
     env.store
@@ -944,7 +992,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         .unwrap();
     env.store.set_follow("Arcade", true).unwrap();
     env.store
-        .import_dat_bytes(&software_list("nes", "0"), "nes.xml", "MAME", None)
+        .import_dat_bytes(&software_list("nes", "0"), "nes.xml", None)
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/NES")).unwrap();
     env.store
@@ -1010,7 +1058,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
 fn a_mame_release_asset_outside_the_official_release_downloads_is_refused() {
     let env = Env::new(MAME);
     env.store
-        .import_dat_bytes(&listxml("mame0001"), "mame.xml", "MAME", None)
+        .import_dat_bytes(&listxml("mame0001"), "mame.xml", None)
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/Arcade")).unwrap();
     env.store

@@ -95,6 +95,8 @@ pub enum TemplateError {
     UnmatchedBrace,
     /// The template uses `{platform}`, and the platform table has no folder name for this DAT.
     NoPlatform { provider: String, dat: String },
+    /// The template uses `{provider}`, and the DAT's provider is unknown.
+    NoProvider { dat: String },
     /// The rendered path is not a valid relative path.
     Path { path: String, error: PathError },
     /// The template's literal text makes every path it could render invalid, whatever the DAT.
@@ -114,6 +116,10 @@ impl fmt::Display for TemplateError {
             TemplateError::NoPlatform { provider, dat } => write!(
                 f,
                 "no platform folder name is known for {provider}/{dat}, so {{platform}} has no value; type the path"
+            ),
+            TemplateError::NoProvider { dat } => write!(
+                f,
+                "the provider of {dat} is unknown, so {{provider}} has no value; type the path"
             ),
             TemplateError::Path { path, error } => write!(f, "{path:?}: the path {error}"),
             TemplateError::Unusable(error) => write!(f, "the template {error}"),
@@ -167,7 +173,7 @@ impl PathTemplate {
     /// literal text can fail; token values are checked when the template renders.
     fn check_literals(&self) -> Result<(), TemplateError> {
         let stand_in = TokenValues {
-            provider: "provider".into(),
+            provider: Some("provider".into()),
             dat: "dat".into(),
             platform: Some("platform".into()),
         };
@@ -192,13 +198,20 @@ impl PathTemplate {
         for part in &self.parts {
             match part {
                 Part::Literal(text) => path.push_str(text),
-                Part::Token(Token::Provider) => path.push_str(&values.provider),
+                Part::Token(Token::Provider) => match &values.provider {
+                    Some(provider) => path.push_str(provider),
+                    None => {
+                        return Err(TemplateError::NoProvider {
+                            dat: values.dat.clone(),
+                        });
+                    }
+                },
                 Part::Token(Token::Dat) => path.push_str(&values.dat),
                 Part::Token(Token::Platform) => match &values.platform {
                     Some(platform) => path.push_str(platform),
                     None => {
                         return Err(TemplateError::NoPlatform {
-                            provider: values.provider.clone(),
+                            provider: values.provider.clone().unwrap_or_default(),
                             dat: values.dat.clone(),
                         });
                     }
@@ -239,19 +252,26 @@ impl<'de> Deserialize<'de> for PathTemplate {
 /// The values a template's tokens take for one DAT.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenValues {
-    pub provider: String,
+    /// `None` when the DAT's provider is unknown.
+    pub provider: Option<String>,
     pub dat: String,
     /// `None` when the platform table has no folder name for the DAT.
     pub platform: Option<String>,
 }
 
 impl TokenValues {
-    /// The values for the DAT `provider`/`dat`, with `{platform}` from the platform table.
+    /// The values for the DAT `provider`/`dat`, with `{platform}` from the platform table. A provider part
+    /// reserved for an unknown provider gives `{provider}` and `{platform}` no value.
     pub fn for_dat(provider: &str, dat: &str) -> TokenValues {
+        TokenValues::for_provider(crate::dat::known_provider(provider), dat)
+    }
+
+    /// The values for the DAT named `dat` whose DAT Provider is `provider`, or unknown.
+    pub fn for_provider(provider: Option<&str>, dat: &str) -> TokenValues {
         TokenValues {
-            provider: provider.to_owned(),
+            provider: provider.map(str::to_owned),
             dat: dat.to_owned(),
-            platform: platform(provider, dat).map(str::to_owned),
+            platform: provider.and_then(|p| platform(p, dat)).map(str::to_owned),
         }
     }
 }
@@ -416,6 +436,28 @@ mod tests {
             platform("Redump", "Atari - Atari 2600"),
             None,
             "the provider is part of the key"
+        );
+    }
+
+    #[test]
+    fn a_dat_of_unknown_provider_has_no_provider_or_platform_token_but_its_name_works() {
+        let provider = crate::dat::DatFormat::Logiqx.unknown_provider();
+        let missing = render(DEFAULT_SOURCE_SET_TEMPLATE, provider, "Nintendo - Game Boy");
+
+        assert_eq!(
+            missing,
+            Err(TemplateError::NoProvider {
+                dat: "Nintendo - Game Boy".into()
+            })
+        );
+        assert!(missing.unwrap_err().to_string().contains("type the path"));
+        assert!(matches!(
+            render("{platform}", provider, "Nintendo - Game Boy"),
+            Err(TemplateError::NoPlatform { .. })
+        ));
+        assert_eq!(
+            render("sets/{dat}", provider, "Nintendo - Game Boy").unwrap(),
+            "sets/Nintendo - Game Boy"
         );
     }
 

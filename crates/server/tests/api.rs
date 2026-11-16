@@ -153,12 +153,7 @@ impl Client {
     }
 
     fn upload(&self, file: &str, bytes: &[u8]) -> (u16, ImportedDatRevision) {
-        let (status, body) = self.upload_form(
-            "/dat-revisions",
-            &[("provider", "No-Intro"), ("source_url", "")],
-            file,
-            bytes,
-        );
+        let (status, body) = self.upload_form("/dat-revisions", &[("source_url", "")], file, bytes);
         (status, serde_json::from_value(body).unwrap())
     }
 
@@ -523,6 +518,35 @@ fn the_api_uploads_a_cue_pack_for_a_dat_and_lists_it() {
 }
 
 #[test]
+fn an_uploaded_dat_of_no_known_provider_is_kept_by_its_format_and_name_and_a_provider_field_is_refused()
+ {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let dat = br#"<?xml version="1.0"?>
+<datafile><header><name>Homebrew</name><version>1</version></header>
+<game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
+
+    let (status, uploaded) = client.upload("homebrew.dat", dat);
+    assert_eq!(status, 201);
+    assert_eq!(uploaded.dat_revision.dat, "unknown-logiqx/Homebrew");
+    assert_eq!(uploaded.dat_revision.provider, None);
+    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    assert_eq!(
+        (dats[0].dat.as_str(), dats[0].provider.as_deref()),
+        ("unknown-logiqx/Homebrew", None)
+    );
+
+    let (status, body) = client.upload_form(
+        "/dat-revisions",
+        &[("provider", "Mine")],
+        "homebrew.dat",
+        dat,
+    );
+    assert_eq!(status, 400, "{body}");
+}
+
+#[test]
 fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     let env = Env::new();
     let service = env.start();
@@ -538,9 +562,18 @@ fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
         (status, again.outcome),
         (200, ImportOutcome::AlreadyImported)
     );
+    assert_eq!(
+        uploaded.dat_revision.provider.as_deref(),
+        Some("No-Intro"),
+        "read from the DAT's header"
+    );
     let dats: Vec<title_select_api::Dat> = client.json("/dats");
     assert_eq!(dats.len(), 1);
     assert_eq!(dats[0].dat, "No-Intro/Test - System");
+    assert_eq!(
+        (dats[0].format, dats[0].provider.as_deref()),
+        (title_select_api::DatFormat::Logiqx, Some("No-Intro"))
+    );
     let roots: Vec<title_select_api::Root> = client.json("/roots");
     assert_eq!(roots[0].name, "sets");
 
@@ -851,7 +884,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
         let store = title_select_store::Store::open(&env.store()).unwrap();
         let dat = env.tmp.path().join("in/Test - System.dat");
         std::fs::write(&dat, env.dat()).unwrap();
-        store.import_dat(&dat, "No-Intro", None).unwrap();
+        store.import_dat(&dat, None).unwrap();
         store
             .add_source_set(&env.config(""), "sets", SET, "No-Intro/Test - System")
             .unwrap();

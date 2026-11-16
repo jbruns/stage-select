@@ -30,7 +30,7 @@ use title_select_store::romm::{Released, ScanStop, ScanTiming};
 use title_select_store::{Store, Workers};
 
 const SET: &str = "Test - System";
-const SYSTEM: &str = "Test/Test - System";
+const SYSTEM: &str = "No-Intro/Test - System";
 const PROFILE: &str = "Mine";
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -441,7 +441,7 @@ impl Env {
             "1",
             &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
         );
-        let (revision, _) = store.import_dat(&dat, "Test", None).unwrap();
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         let mut profile = SelectionProfile::default();
         profile.systems.insert(
@@ -526,7 +526,6 @@ impl Env {
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![item],
-                    provider: None,
                     additions: BTreeMap::from([(
                         item,
                         NewAddition {

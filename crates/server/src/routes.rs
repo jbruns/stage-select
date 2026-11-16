@@ -408,15 +408,16 @@ async fn dats(State(state): State<AppState>) -> ApiResult<Json<Vec<Dat>>> {
     let revisions = blocking(&state, Store::dat_revisions).await?;
     let mut dats: BTreeMap<String, Dat> = BTreeMap::new();
     for revision in revisions {
-        dats.entry(revision.dat())
-            .or_insert_with(|| Dat {
-                dat: revision.dat(),
-                provider: revision.provider.clone(),
-                name: revision.name.clone(),
-                revisions: Vec::new(),
-            })
-            .revisions
-            .push(revision);
+        let dat = dats.entry(revision.dat.clone()).or_insert_with(|| Dat {
+            dat: revision.dat.clone(),
+            format: revision.format,
+            provider: revision.provider.clone(),
+            name: revision.name.clone(),
+            revisions: Vec::new(),
+        });
+        // The revisions come oldest first, so the newest gives the DAT its format.
+        dat.format = revision.format;
+        dat.revisions.push(revision);
     }
     Ok(Json(dats.into_values().collect()))
 }
@@ -427,16 +428,16 @@ async fn dat_revisions(
     Ok(Json(blocking(&state, Store::dat_revisions).await?))
 }
 
-/// A multipart form: `provider`, an optional `source_url`, and the DAT as `file`, with its original filename.
+/// A multipart form: an optional `source_url`, and the DAT as `file`, with its original filename. What the DAT is,
+/// and who provides it, is read from the file.
 async fn upload_dat(
     State(state): State<AppState>,
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
 ) -> ApiResult<(StatusCode, Json<ImportedDatRevision>)> {
     let mut multipart = multipart?;
-    let (mut provider, mut source_url, mut file) = (None, None, None);
+    let (mut source_url, mut file) = (None, None);
     while let Some(field) = multipart.next_field().await? {
         match field.name() {
-            Some("provider") => provider = Some(field.text().await?),
             Some("source_url") => source_url = Some(field.text().await?).filter(|s| !s.is_empty()),
             Some("file") => {
                 let name = field.file_name().unwrap_or_default().to_owned();
@@ -450,13 +451,12 @@ async fn upload_dat(
             }
         }
     }
-    let provider = provider.ok_or_else(|| ApiError::bad_request("the form has no provider"))?;
     let (name, bytes) = file.ok_or_else(|| ApiError::bad_request("the form has no file"))?;
     if name.is_empty() {
         return Err(ApiError::bad_request("the file has no filename"));
     }
     let (dat_revision, outcome) = blocking(&state, move |store| {
-        store.import_dat_bytes(&bytes, &name, &provider, source_url.as_deref())
+        store.import_dat_bytes(&bytes, &name, source_url.as_deref())
     })
     .await?;
     let status = match outcome {
@@ -2210,11 +2210,11 @@ mod tests {
             .unwrap(),
         );
         let dat = r#"<?xml version="1.0"?>
-<datafile><header><name>Test - System</name><version>1</version></header>
+<datafile><header><name>Test - System</name><version>1</version><homepage>No-Intro</homepage></header>
 <game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
         let store = &state.store;
         store
-            .import_dat_bytes(dat.as_bytes(), "test.dat", "No-Intro", None)
+            .import_dat_bytes(dat.as_bytes(), "test.dat", None)
             .unwrap();
         store
             .add_source_set(

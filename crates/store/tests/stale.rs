@@ -41,7 +41,7 @@ impl Env {
         env.import("1", &games());
         for set in ["Alpha", "Beta"] {
             env.store
-                .add_source_set(&env.config, "sets", set, "Test/Test - System")
+                .add_source_set(&env.config, "sets", set, "No-Intro/Test - System")
                 .unwrap();
             write_file(&env.set(set).join("Pong (USA).a26"), b"pong");
             write_zip(
@@ -63,7 +63,7 @@ impl Env {
             version,
             games,
         );
-        self.store.import_dat(&dat, "Test", None).unwrap();
+        self.store.import_dat(&dat, None).unwrap();
     }
 
     fn audit(&self, name: &str, evidence: AuditEvidence) {
@@ -265,13 +265,13 @@ fn a_newer_revision_makes_only_the_source_sets_that_follow_their_dat_stale() {
     assert_eq!(env.stale("Beta"), []);
 }
 
-/// A one-Game revision of `Test/Test - System` at `version`, dated `date`, as bytes; `salt` tells apart revisions
-/// whose header is the same.
+/// A one-Game revision of `No-Intro/Test - System` at `version`, dated `date`, as bytes; `salt` tells apart
+/// revisions whose header is the same.
 fn dated(version: &str, date: &str, salt: &str) -> Vec<u8> {
     format!(
         r#"<?xml version="1.0"?>
 <datafile>
-  <header><name>Test - System</name><version>{version}</version><date>{date}</date></header>
+  <header><name>Test - System</name><version>{version}</version><date>{date}</date><homepage>No-Intro</homepage></header>
   <game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="00000000"/></game>
 </datafile>
 <!-- {salt} -->
@@ -287,11 +287,11 @@ fn revisions_of_one_version_order_by_their_headers_date() {
     env.store.set_follow("Alpha", true).unwrap();
     let (february, _) = env
         .store
-        .import_dat_bytes(&dated("2", "2024-02-01", "a"), "feb.dat", "Test", None)
+        .import_dat_bytes(&dated("2", "2024-02-01", "a"), "feb.dat", None)
         .unwrap();
     let (january, _) = env
         .store
-        .import_dat_bytes(&dated("2", "2024-01-01", "b"), "jan.dat", "Test", None)
+        .import_dat_bytes(&dated("2", "2024-01-01", "b"), "jan.dat", None)
         .unwrap();
 
     assert!(
@@ -314,16 +314,20 @@ fn revisions_of_one_version_order_by_their_headers_date() {
 }
 
 #[test]
-fn a_dat_imported_under_another_spelling_of_its_provider_is_a_revision_of_the_same_dat() {
+fn a_dat_whose_header_names_its_provider_another_way_is_a_revision_of_the_same_dat() {
     let env = Env::new();
     env.audit("Alpha", AuditEvidence::Incremental);
     env.store.set_follow("Alpha", true).unwrap();
+    let xml = String::from_utf8(dated("2", "", "a")).unwrap().replace(
+        "<homepage>No-Intro</homepage>",
+        "<url>https://datomatic.no-intro.org/</url>",
+    );
     let (newer, _) = env
         .store
-        .import_dat_bytes(&dated("2", "", "a"), "v2.dat", "test", None)
+        .import_dat_bytes(xml.as_bytes(), "v2.dat", None)
         .unwrap();
 
-    assert_eq!(newer.provider, "Test", "imported under the spelling it has");
+    assert_eq!(newer.dat, "No-Intro/Test - System");
     assert!(
         matches!(&env.stale("Alpha")[..], [SourceSetStale::NewerRevision { sha256, .. }] if *sha256 == newer.sha256),
         "{:?}",
@@ -336,7 +340,7 @@ fn three_revisions_that_each_tell_apart_only_some_of_the_others_still_order_by_o
     let env = Env::new();
     let import = |xml: Vec<u8>| {
         env.store
-            .import_dat_bytes(&xml, "x.dat", "Test", None)
+            .import_dat_bytes(&xml, "x.dat", None)
             .unwrap()
             .0
             .sha256

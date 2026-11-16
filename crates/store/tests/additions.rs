@@ -29,7 +29,7 @@ use title_select_store::config::Config;
 use title_select_store::{Fault, Store, Workers};
 
 const SET: &str = "Test - System";
-const SYSTEM: &str = "Test/Test - System";
+const SYSTEM: &str = "No-Intro/Test - System";
 const PROFILE: &str = "Mine";
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -89,7 +89,7 @@ impl Env {
             )
             .unwrap();
         let dat = write_dat_version(&tmp.path().join("dats"), "test.dat", "1", &games());
-        let (revision, _) = store.import_dat(&dat, "Test", None).unwrap();
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
             .save_profile(
@@ -168,7 +168,6 @@ impl Env {
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
-                    provider: None,
                     additions: BTreeMap::from([(id, new)]),
                 },
             )
@@ -553,7 +552,6 @@ fn an_ingest_addition_needs_a_system_a_valid_unique_name_and_an_unmatched_item()
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![id],
-                provider: None,
                 additions: BTreeMap::from([(id, new)]),
             },
         )
@@ -562,7 +560,7 @@ fn an_ingest_addition_needs_a_system_a_valid_unique_name_and_an_unmatched_item()
         plan(
             "My Hack.a26",
             NewAddition {
-                system: "Test/Nope".into(),
+                system: "No-Intro/Nope".into(),
                 ..new("x")
             }
         )
@@ -580,7 +578,6 @@ fn an_ingest_addition_needs_a_system_a_valid_unique_name_and_an_unmatched_item()
         &PlanIngest {
             action: IngestAction::Addition,
             items: vec![env.item_id("My Hack.a26")],
-            provider: None,
             additions: BTreeMap::new(),
         },
     );
@@ -1422,7 +1419,6 @@ fn a_stop_while_an_ingest_plan_is_approved_records_none_of_it() {
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
-                provider: None,
                 additions: BTreeMap::from([(a, new("Hack A")), (b, new("Hack B"))]),
             },
         )
@@ -1589,7 +1585,6 @@ fn work_given_to_a_member_while_its_job_runs_goes_to_a_fresh_job_when_it_ends() 
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
-                provider: None,
                 additions: BTreeMap::from([(a, new("Hack A")), (b, new("Hack B"))]),
             },
         )
@@ -1728,7 +1723,6 @@ fn a_restore_asked_again_while_its_job_runs_is_handed_to_a_fresh_job() {
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
-                provider: None,
                 additions: BTreeMap::from([(a, new("Hack A")), (b, new("Hack B"))]),
             },
         )
@@ -2043,9 +2037,15 @@ fn an_ingest_addition_is_published_only_where_its_plan_said() {
 fn a_repair_addition_of_another_system_is_published_only_where_its_plan_said() {
     use title_select_api::storage::StorageFormat;
     let env = Env::new();
-    let dat = write_dat_version(&env.tmp.path().join("dats"), "other.dat", "other", &games());
-    env.store.import_dat(&dat, "Other", None).unwrap();
-    const OTHER: &str = "Other/Test - System";
+    let dat = write_dat_from(
+        &env.tmp.path().join("dats"),
+        "other.dat",
+        "other",
+        "Other",
+        &games(),
+    );
+    env.store.import_dat(&dat, None).unwrap();
+    const OTHER: &str = "unknown-logiqx/Test - System";
     write_file(&env.set().join("Homebrew.a26"), b"homebrew");
     env.audit();
     let plan = env.plan_repair(

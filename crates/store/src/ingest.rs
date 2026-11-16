@@ -214,12 +214,24 @@ fn fingerprint(dir: &FolderDir) -> std::io::Result<Vec<FolderEntry>> {
     Ok(found)
 }
 
-/// What a scan read from an item: its hashes and payloads, and, for a DAT file, its header name and version.
+/// What a scan read from an item: its hashes and payloads, and, for a DAT file, what it says of itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ItemRead {
     probe: Probe,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    dat: Option<(String, String)>,
+    dat: Option<ReadDat>,
+    /// Why a file read as a DAT cannot be imported, such as having no name to know it by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refused_dat: Option<String>,
+}
+
+/// A DAT file's native name and version, and the provider part of its key as it reads, not yet spelled as the store
+/// keeps it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ReadDat {
+    name: String,
+    version: String,
+    provider: String,
 }
 
 struct ItemRow {
@@ -781,11 +793,9 @@ fn audit_index(c: &Connection, set: i64, revision: i64) -> Result<Option<AuditIn
     Ok(Some(AuditIndex { games, bad }))
 }
 
-fn found_dat(c: &Connection, name: &str, version: &str, sha256: &str) -> Result<FoundDat> {
-    let mut stmt = c.prepare("SELECT provider FROM dats WHERE name = ?1 ORDER BY provider")?;
-    let providers = stmt
-        .query_map([name], |r| r.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+fn found_dat(c: &Connection, read: &ReadDat, sha256: &str) -> Result<FoundDat> {
+    let provider = crate::dats::canonical_provider(c, &read.provider)?;
+    let known = crate::dats::find_dat(c, &provider, &read.name)?.is_some();
     let imported = c
         .query_row(
             "SELECT 1 FROM dat_revisions WHERE sha256 = ?1",
@@ -795,10 +805,12 @@ fn found_dat(c: &Connection, name: &str, version: &str, sha256: &str) -> Result<
         .optional()?
         .is_some();
     Ok(FoundDat {
-        name: name.to_owned(),
-        version: version.to_owned(),
+        name: read.name.clone(),
+        version: read.version.clone(),
         sha256: sha256.to_owned(),
-        providers,
+        dat: format!("{provider}/{}", read.name),
+        provider: title_select_api::dat::known_provider(&provider).map(str::to_owned),
+        known,
         imported,
     })
 }
@@ -849,8 +861,11 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             Some(format!("a member cannot be read: {error}")),
         ));
     }
-    if let Some((dat_name, version)) = &read.dat {
-        let dat = store.read(|c| found_dat(c, dat_name, version, &probe.sha256))?;
+    if let Some(why) = &read.refused_dat {
+        return Ok(found(ItemState::Unsupported, assessment, Some(why.clone())));
+    }
+    if let Some(read_dat) = &read.dat {
+        let dat = store.read(|c| found_dat(c, read_dat, &probe.sha256))?;
         let imported = dat.imported;
         assessment.dat = Some(dat);
         return Ok(if imported {
@@ -945,7 +960,7 @@ fn read_item(
             };
         }
     };
-    let mut dat = None;
+    let (mut dat, mut refused_dat) = (None, None);
     if !probe.zip
         && !probe.sevenz
         && probe.size <= DAT_LIMIT
@@ -955,17 +970,29 @@ fn read_item(
         file.seek(SeekFrom::Start(0))
             .and_then(|_| (&file).take(DAT_LIMIT + 1).read_to_end(&mut bytes))
             .map_err(|e| e.to_string())?;
-        if let Ok(parsed) = Dat::parse(&bytes, Path::new(name))
-            && !parsed.name.is_empty()
-        {
-            dat = Some((parsed.name, parsed.version));
+        if let Ok(parsed) = Dat::parse(&bytes, Path::new(name)) {
+            match parsed.check_name(Path::new(name)) {
+                Ok(()) => {
+                    dat = Some(ReadDat {
+                        provider: title_select_api::dat::provider_part(
+                            parsed.provider(),
+                            parsed.format,
+                        ),
+                        name: parsed.name,
+                        version: parsed.version,
+                    })
+                }
+                Err(why) => refused_dat = Some(why.to_string()),
+            }
         }
     }
     let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     match dir.stat(name) {
-        Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => {
-            Ok(Ok(ItemRead { probe, dat }))
-        }
+        Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => Ok(Ok(ItemRead {
+            probe,
+            dat,
+            refused_dat,
+        })),
         _ => Err(changed()),
     }
 }
@@ -1642,7 +1669,7 @@ impl Store {
             let mut addition = None;
             let mut addition_target = None;
             let mut destination = format!("{RETENTION}/{generation}/{kept}");
-            let (reason, provider) = match request.action {
+            let (reason, dat) = match request.action {
                 IngestAction::Discard => ("you discarded it".to_owned(), None),
                 IngestAction::Addition => {
                     if !matches!(item.assessment.proposal, Some(Proposal::Addition { .. })) {
@@ -1690,40 +1717,19 @@ impl Store {
                 }
                 IngestAction::DatImport => {
                     let Some(dat) = &item.assessment.dat else {
-                        return Err(Error::Refused(format!(
-                            "{} is not a DAT file that can be imported",
-                            item.name
-                        )));
+                        return Err(Error::Refused(match &item.reason {
+                            Some(why) if item.state == ItemState::Unsupported => {
+                                format!("{} can't be imported: {why}", item.name)
+                            }
+                            _ => format!("{} is not a DAT file that can be imported", item.name),
+                        }));
                     };
-                    // A DAT's own provider wins: the request's is for DATs no one registered DAT names.
-                    let provider = match (&request.provider, dat.providers.as_slice()) {
-                        (_, [only]) => only.clone(),
-                        (Some(provider), _) => provider.clone(),
-                        (None, []) => {
-                            return Err(Error::Refused(format!(
-                                "no registered DAT is named {}; choose the provider to import it under",
-                                dat.name
-                            )));
-                        }
-                        (None, _) => {
-                            return Err(Error::Refused(format!(
-                                "more than one provider has a DAT named {}; choose the provider to import it \
-                                 under",
-                                dat.name
-                            )));
-                        }
-                    };
-                    if provider.is_empty() || provider.contains('/') {
-                        return Err(Error::Refused(format!(
-                            "{provider:?}: a provider is a non-empty name without `/`"
-                        )));
-                    }
                     (
                         format!(
-                            "imported as a DAT revision of {provider}/{} ({}), then kept",
-                            dat.name, dat.version
+                            "imported as a DAT revision of {} ({}), then kept",
+                            dat.dat, dat.version
                         ),
-                        Some(provider),
+                        Some(dat.dat.clone()),
                     )
                 }
             };
@@ -1736,7 +1742,7 @@ impl Store {
                 sha256: item.assessment.sha256.clone(),
                 destination,
                 reason,
-                provider,
+                dat,
                 addition,
                 addition_target,
             });
@@ -2036,13 +2042,11 @@ impl Store {
         if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
             return Err(changed());
         }
-        let provider = item.provider.as_deref().ok_or_else(|| {
-            Error::Refused(format!("{} has no provider to import it under", item.name))
-        })?;
         let parsed = Dat::parse(&bytes, Path::new(&item.name))?;
-        let name = parsed.name;
+        parsed.check_name(Path::new(&item.name))?;
+        let name = parsed.name.clone();
         self.write(|tx| {
-            let provider = &crate::dats::canonical_provider(tx, provider)?;
+            let provider = &crate::dats::dat_provider_part(tx, &parsed, None)?;
             // An older revision dropped in is recorded, but is not the newest, so it owes no Audit.
             let newest =
                 crate::dats::would_be_newest(tx, provider, &name, &parsed.version, &parsed.date)?;
@@ -2076,7 +2080,7 @@ impl Store {
             Ok(())
         })?;
         self.fault_point(crate::Fault::IngestDatOwed);
-        let imported = self.import_dat_bytes(&bytes, &item.name, provider, None);
+        let imported = self.import_parsed_dat(&parsed, &bytes, &item.name, None, None);
         if let Err(err) = &imported {
             let why = format!("the import failed: {err}");
             self.write(|tx| {
@@ -2091,17 +2095,15 @@ impl Store {
         let (revision, outcome) = imported?;
         let mut done = vec![match outcome {
             ImportOutcome::Added => {
-                format!("imported {} revision {}", revision.dat(), revision.version)
+                format!("imported {} revision {}", revision.dat, revision.version)
             }
             ImportOutcome::AlreadyImported => format!(
                 "{} revision {} was already imported",
-                revision.dat(),
-                revision.version
+                revision.dat, revision.version
             ),
             ImportOutcome::Restored => format!(
                 "{} revision {} was imported before; its file is kept again",
-                revision.dat(),
-                revision.version
+                revision.dat, revision.version
             ),
         }];
         self.fulfil_ingest_reaudits()?;

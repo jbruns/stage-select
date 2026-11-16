@@ -799,7 +799,7 @@ impl Store {
             ));
         }
         let (record, outcome) = self
-            .import_parsed_dat(&dat, bytes, file, &step.provider, Some(url))
+            .import_parsed_dat(&dat, bytes, file, Some(&step.provider), Some(url))
             .map_err(|e| e.to_string())?;
         let id = self
             .read(|c| {
@@ -1064,10 +1064,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         let dat = br#"<?xml version="1.0"?><datafile><header><name>Sony - PlayStation</name>
-            <version>1</version></header></datafile>"#;
-        store
-            .import_dat_bytes(dat, "psx.dat", "Redump", None)
-            .unwrap();
+            <version>1</version><homepage>redump.org</homepage></header></datafile>"#;
+        store.import_dat_bytes(dat, "psx.dat", None).unwrap();
         let keep = |artifact, version: &str, fetch| -> String {
             let dat = "Redump/Sony - PlayStation";
             match artifact {
@@ -1136,10 +1134,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         let dat = br#"<?xml version="1.0"?><datafile><header><name>Sony - PlayStation</name>
-            <version>1</version></header></datafile>"#;
-        store
-            .import_dat_bytes(dat, "psx.dat", "Redump", None)
-            .unwrap();
+            <version>1</version><homepage>redump.org</homepage></header></datafile>"#;
+        store.import_dat_bytes(dat, "psx.dat", None).unwrap();
         let dat = "Redump/Sony - PlayStation";
         let a = zip_of("A.cue", b"FILE \"A.bin\" BINARY");
         let (imported, _) = store

@@ -149,12 +149,8 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
-    run_ok(
-        ts().args(["dat", "import"])
-            .arg(&dat)
-            .args(["--provider", "Test"]),
-    );
-    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
 
     let report: serde_json::Value =
         serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
@@ -184,12 +180,8 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
         cmd
     };
 
-    let imported = run_ok(
-        ts().args(["dat", "import"])
-            .arg(&dat)
-            .args(["--provider", "Test"]),
-    );
-    assert!(imported.contains("Test/Test - System"), "{imported}");
+    let imported = run_ok(ts().args(["dat", "import"]).arg(&dat));
+    assert!(imported.contains("No-Intro/Test - System"), "{imported}");
     let pack = f.dat_dir.path().join("cues.zip");
     write_zip(
         &pack,
@@ -198,15 +190,15 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     let cues = run_ok(
         ts().args(["cue-pack", "import"])
             .arg(&pack)
-            .args(["--dat", "Test/Test - System"]),
+            .args(["--dat", "No-Intro/Test - System"]),
     );
     assert!(cues.contains("(1 cue sheet) imported"), "{cues}");
     let listed = run_ok(ts().args(["cue-pack", "list"]));
     assert!(
-        listed.starts_with("Test/Test - System\tcues.zip\t1 cue sheet"),
+        listed.starts_with("No-Intro/Test - System\tcues.zip\t1 cue sheet"),
         "{listed}"
     );
-    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     let report: serde_json::Value =
         serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
     assert_eq!(report["schema"], 5);
@@ -274,12 +266,8 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
-    run_ok(
-        ts().args(["dat", "import"])
-            .arg(&dat)
-            .args(["--provider", "Test"]),
-    );
-    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     let unaudited = ts().args(["fixdat", rel]).output().unwrap();
     assert!(!unaudited.status.success());
     assert!(
@@ -348,12 +336,8 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
-    run_ok(
-        ts().args(["dat", "import"])
-            .arg(&dat)
-            .args(["--provider", "Test"]),
-    );
-    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     run_ok(ts().args(["audit", "--set", rel]));
     let holds = run_ok(ts().args(["root", "holds", "sets"]));
     assert!(holds.contains(rel), "{holds}");
@@ -394,7 +378,7 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
 fn set_add_with_no_path_registers_the_path_the_template_proposes() {
     let (f, dat) = pong_fixture();
     let root = f.dat_dir.path().join("sets");
-    std::fs::create_dir_all(root.join("Test/Test - System")).unwrap();
+    std::fs::create_dir_all(root.join("No-Intro/Test - System")).unwrap();
     std::fs::create_dir_all(root.join("Mine/Test - System")).unwrap();
     let config = f.dat_dir.path().join("title-select.toml");
     std::fs::write(
@@ -409,11 +393,7 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
-    run_ok(
-        ts().args(["dat", "import"])
-            .arg(&dat)
-            .args(["--provider", "Test"]),
-    );
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
 
     let out = ts()
         .args([
@@ -421,7 +401,7 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
             "add",
             "sets",
             "--dat",
-            "Test/Test - System",
+            "No-Intro/Test - System",
             "--template",
             "{platform}",
         ])
@@ -433,9 +413,9 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let added = run_ok(ts().args(["set", "add", "sets", "--dat", "Test/Test - System"]));
+    let added = run_ok(ts().args(["set", "add", "sets", "--dat", "No-Intro/Test - System"]));
 
-    assert!(added.contains("sets:Test/Test - System"), "{added}");
+    assert!(added.contains("sets:No-Intro/Test - System"), "{added}");
     let both = ts()
         .args([
             "set",
@@ -443,7 +423,7 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
             "sets",
             "Mine/Test - System",
             "--dat",
-            "Test/Test - System",
+            "No-Intro/Test - System",
         ])
         .args(["--template", "Mine/{dat}"])
         .output()
@@ -593,4 +573,38 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
         assessed.contains("\tassessed\tmystery.bin\taddition"),
         "{assessed}"
     );
+}
+
+#[test]
+fn dat_import_takes_no_provider_and_says_when_the_header_names_none() {
+    let f = Fixture::new();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store);
+        cmd
+    };
+    let help = run_ok(ts().args(["dat", "import", "--help"]));
+    assert!(!help.contains("--provider"), "{help}");
+    let dat = write_dat_from(
+        f.dat_dir.path(),
+        "homebrew.dat",
+        "1",
+        "Mine",
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+
+    let imported = run_ok(ts().args(["dat", "import"]).arg(&dat));
+
+    assert!(
+        imported.contains("unknown-logiqx/Test - System")
+            && imported.contains("doesn't say which provider"),
+        "{imported}"
+    );
+    let refused = ts()
+        .args(["dat", "import", "--provider", "Mine"])
+        .arg(&dat)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
 }

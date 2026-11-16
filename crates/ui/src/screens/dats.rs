@@ -13,7 +13,7 @@ use title_select_api::{
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::model::{imported_message, when};
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -106,12 +106,12 @@ impl ListRow for RevisionItem {
     }
 
     fn title(&self) -> String {
-        format!("{} {}", self.revision.dat(), self.revision.version)
+        format!("{} {}", self.revision.dat, self.revision.version)
     }
 
     fn search(&self) -> String {
         let r = &self.revision;
-        format!("{} {} {} {}", r.dat(), r.version, r.file, r.sha256)
+        format!("{} {} {} {}", r.dat, r.version, r.file, r.sha256)
     }
 
     fn cell(&self, col: RevisionCol) -> AnyView {
@@ -120,7 +120,7 @@ impl ListRow for RevisionItem {
             RevisionCol::File => {
                 view! { <StatusIcon status=self.file_status() tab_stop=false /> }.into_any()
             }
-            RevisionCol::Dat => view! { <Clip text=r.dat() /> }.into_any(),
+            RevisionCol::Dat => view! { <Clip text=r.dat.clone() /> }.into_any(),
             RevisionCol::Version => view! { <Clip text=r.version.clone() /> }.into_any(),
             RevisionCol::Imported => view! { <Clip text=when(&r.imported_at) /> }.into_any(),
             RevisionCol::Audits => self.used_by.len().to_string().into_any(),
@@ -131,7 +131,7 @@ impl ListRow for RevisionItem {
         let (a, b) = (&self.revision, &other.revision);
         match col {
             RevisionCol::File => a.blob_present.cmp(&b.blob_present),
-            RevisionCol::Dat => a.dat().cmp(&b.dat()),
+            RevisionCol::Dat => a.dat.cmp(&b.dat),
             RevisionCol::Version => a.version.cmp(&b.version),
             RevisionCol::Imported => a.imported_at.cmp(&b.imported_at),
             RevisionCol::Audits => self.used_by.len().cmp(&other.used_by.len()),
@@ -166,7 +166,7 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
             used_by: used_by.remove(&revision.sha256).unwrap_or_default(),
             cue_packs: packs
                 .iter()
-                .filter(|p| p.dat == revision.dat())
+                .filter(|p| p.dat == revision.dat)
                 .cloned()
                 .collect(),
             revision,
@@ -384,7 +384,7 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                 <code class="path">{r.file.clone()}</code>
             </dd>
             <dt>"Provider"</dt>
-            <dd>{r.provider.clone()}</dd>
+            <dd>{r.provider.clone().unwrap_or_else(|| "Unknown".into())}</dd>
             <dt>"Source URL"</dt>
             <dd>
                 {match r.source_url.clone() {
@@ -496,10 +496,6 @@ fn Upload(on_done: Callback<()>) -> impl IntoView {
         <section aria-label="Import a DAT">
             <form class="form" node_ref=form on:submit=submit>
                 <label>
-                    "Provider"
-                    <input type="text" name="provider" required placeholder="No-Intro" />
-                </label>
-                <label>
                     "Source URL"
                     <input type="url" name="source_url" placeholder="Where the DAT came from" />
                 </label>
@@ -516,15 +512,9 @@ fn Upload(on_done: Callback<()>) -> impl IntoView {
                     .get()
                     .map(|outcome| match outcome {
                         Ok(imported) => {
-                            let r = imported.dat_revision;
-                            let what = match imported.outcome {
-                                ImportOutcome::Added => "Added DAT revision",
-                                ImportOutcome::AlreadyImported => "Already imported: DAT revision",
-                                ImportOutcome::Restored => "Restored the kept file of DAT revision",
-                            };
                             view! {
                                 <p class="done" role="status">
-                                    {format!("{what} {} {} ({}).", r.dat(), r.version, short_sha(&r.sha256))}
+                                    {imported_message(imported.outcome, &imported.dat_revision)}
                                 </p>
                             }
                                 .into_any()

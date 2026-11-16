@@ -321,10 +321,10 @@ mod tests {
 
         for name in ["PSX", "PS2"] {
             let dat = format!(
-                "<?xml version=\"1.0\"?><datafile><header><name>{name}</name><version>1</version></header></datafile>"
+                "<?xml version=\"1.0\"?><datafile><header><name>{name}</name><version>1</version><homepage>redump.org</homepage></header></datafile>"
             );
             store
-                .import_dat_bytes(dat.as_bytes(), "x.dat", "Redump", None)
+                .import_dat_bytes(dat.as_bytes(), "x.dat", None)
                 .unwrap();
         }
 

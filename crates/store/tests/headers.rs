@@ -113,7 +113,6 @@ impl Env {
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
-                    provider: None,
                     additions: BTreeMap::from([(
                         id,
                         NewAddition {
@@ -146,7 +145,7 @@ impl Env {
 
     fn add(&self, rule: &str, games: &[(&str, Vec<RomSpec>)]) {
         let dat = write_dat_with_header(&self.tmp.path().join("in"), rule, games);
-        self.store.import_dat(&dat, "No-Intro", None).unwrap();
+        self.store.import_dat(&dat, None).unwrap();
         self.store
             .add_source_set(&self.config, "sets", SET, "No-Intro/Test - System")
             .unwrap();
