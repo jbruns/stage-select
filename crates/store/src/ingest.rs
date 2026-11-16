@@ -1743,6 +1743,7 @@ impl Store {
                 destination,
                 reason,
                 dat,
+                dat_file: item.assessment.dat.is_some(),
                 addition,
                 addition_target,
             });

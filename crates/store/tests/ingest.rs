@@ -533,6 +533,39 @@ fn several_items_are_dismissed_at_once_or_none_are() {
 }
 
 #[test]
+fn a_plan_marks_a_dat_file_whatever_it_does_with_it_and_not_a_game_file() {
+    let env = Env::new();
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &alpha_games(),
+    );
+    env.put("mystery.a26", b"homebrew");
+    env.scan();
+    env.scan();
+    let plan = env.plan(
+        IngestAction::Discard,
+        &["Alpha System (2).dat", "mystery.a26"],
+    );
+    let item = |name: &str| {
+        plan.content
+            .items
+            .iter()
+            .find(|i| i.name == name)
+            .unwrap()
+            .clone()
+    };
+    let dat = item("Alpha System (2).dat");
+    assert!(dat.dat_file && dat.dat.is_none(), "{dat:?}");
+    assert!(dat.sha256.is_some(), "approval still checks it");
+    assert!(!item("mystery.a26").dat_file);
+    let import = env.plan(IngestAction::DatImport, &["Alpha System (2).dat"]);
+    assert!(import.content.items[0].dat_file);
+}
+
+#[test]
 fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     let env = Env::new();
     env.put("mystery.a26", b"homebrew");

@@ -20,9 +20,11 @@ pub fn item_checksum(a: &Assessment) -> Option<&str> {
     a.sha256.as_deref().filter(|_| a.dat.is_none())
 }
 
-/// The checksum to show for a plan item: none for a DAT import, as [`item_checksum`].
+/// The checksum to show for a plan item: none for a DAT file, whatever the plan does with it, as [`item_checksum`].
 pub fn plan_checksum(item: &IngestPlanItem) -> Option<&str> {
-    item.sha256.as_deref().filter(|_| item.dat.is_none())
+    item.sha256
+        .as_deref()
+        .filter(|_| !item.dat_file && item.dat.is_none())
 }
 
 /// Whether a move of the item out of the folder is under way.
@@ -411,6 +413,7 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use title_select_api::ingest::ItemMove;
 
     #[test]
     fn a_dat_shows_its_name_not_its_checksum_but_a_game_file_keeps_its_own() {
@@ -427,24 +430,22 @@ mod tests {
         .unwrap();
         assert_eq!(item_checksum(&dat), None);
 
-        let plan_item = |dat: Option<&str>| -> IngestPlanItem {
+        let plan_item = |dat: Option<&str>, dat_file: bool| -> IngestPlanItem {
             serde_json::from_value(serde_json::json!({
                 "item": 1, "name": "x", "identity": {"dev": 1, "ino": 1},
                 "file": {"size": 1, "mtime_ns": 1, "nlink": 1}, "ctime_ns": 1,
                 "sha256": "ef".repeat(32), "destination": "d", "reason": "r", "dat": dat,
+                "dat_file": dat_file,
             }))
             .unwrap()
         };
-        assert_eq!(
-            plan_checksum(&plan_item(None)),
-            Some("ef".repeat(32).as_str())
-        );
-        assert_eq!(
-            plan_checksum(&plan_item(Some("No-Intro/Atari - 2600"))),
-            None
-        );
+        let game = plan_item(None, false);
+        assert_eq!(plan_checksum(&game), Some("ef".repeat(32).as_str()));
+        let import = plan_item(Some("No-Intro/Atari - 2600"), true);
+        assert_eq!(plan_checksum(&import), None);
+        let discarded_dat = plan_item(None, true);
+        assert_eq!(plan_checksum(&discarded_dat), None);
     }
-    use title_select_api::ingest::ItemMove;
 
     fn item(id: i64, name: &str, state: &str, assessment: serde_json::Value) -> IngestItem {
         serde_json::from_value(serde_json::json!({
