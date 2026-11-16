@@ -238,6 +238,7 @@ fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
             format!("/audits/{}", latest.audit),
         ));
     }
+    actions.push(download_action(&item.revision));
     actions.extend(audits.iter().skip(1).map(|u| {
         RowAction::go(
             Glyph::ClipboardList,
@@ -246,6 +247,19 @@ fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
         )
     }));
     actions
+}
+
+/// Downloads the DAT Revision's kept file, or says it can't because the file is no longer kept.
+fn download_action(r: &DatRevisionRecord) -> RowAction {
+    if r.blob_present {
+        RowAction::download(
+            Glyph::Download,
+            "Download DAT",
+            api::url(&format!("/dat-revisions/{}/file", r.sha256)),
+        )
+    } else {
+        RowAction::unavailable(Glyph::Download, "Can't download DAT: its file was deleted")
+    }
 }
 
 /// Every DAT and its DAT Revisions, to name a DAT Revision by.
@@ -730,5 +744,44 @@ mod tests {
             ),
             vec!["gb".to_string(), "gb2".to_string()]
         );
+    }
+
+    #[test]
+    fn a_kept_file_downloads_from_the_api_after_the_latest_audit_and_a_deleted_one_says_why_not() {
+        let mut item = revision("Nintendo - Game Boy", Some("No-Intro"), "1", None);
+        item.used_by = vec![
+            UsedBy {
+                audit: 3,
+                source_set: "gb".into(),
+                pruned: false,
+            },
+            UsedBy {
+                audit: 7,
+                source_set: "gb".into(),
+                pruned: false,
+            },
+        ];
+        let actions = revision_actions(&item);
+        let labels: Vec<&str> = actions.iter().map(|a| a.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Open its latest audit, #7",
+                "Download DAT",
+                "Open audit #3 of gb"
+            ]
+        );
+        assert!(
+            matches!(&actions[1].act, crate::parts::list::Act::Download(url)
+                if url == "/api/v1/dat-revisions/254e0123456789abcdef/file"),
+        );
+
+        item.revision.blob_present = false;
+        let actions = revision_actions(&item);
+        assert_eq!(actions[1].label, "Can't download DAT: its file was deleted");
+        assert!(matches!(
+            actions[1].act,
+            crate::parts::list::Act::Unavailable
+        ));
     }
 }

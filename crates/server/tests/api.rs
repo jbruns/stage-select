@@ -547,6 +547,100 @@ fn an_uploaded_dat_of_no_known_provider_is_kept_by_its_format_and_name_and_a_pro
 }
 
 #[test]
+fn the_api_downloads_a_dat_revisions_kept_file_byte_for_byte_under_its_recorded_name() {
+    use sha2::Digest;
+
+    let env = Env::new();
+    let dat = env.dat();
+    let homebrew = br#"<?xml version="1.0"?>
+<datafile><header><name>Homebrew</name><version>1</version></header>
+<game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
+    // The upload form can't carry these names, so they are recorded through the store before the Service starts.
+    let (hostile, nameless) = {
+        let store = title_select_store::Store::open(&env.store()).unwrap();
+        let hostile = store
+            .import_dat_bytes(&dat, "..\\up/\"evil\";\r\nname é.dat", None)
+            .unwrap()
+            .0;
+        let nameless = store.import_dat_bytes(homebrew, "../", None).unwrap().0;
+        (hostile, nameless)
+    };
+    let service = env.start();
+    let client = Client::new(&service);
+
+    let file = |sha: &str| format!("/dat-revisions/{sha}/file");
+    let mut response = client.get(&file(&hostile.sha256)).call().unwrap();
+    assert_eq!(response.status(), 200);
+    let header = |response: &ureq::http::Response<ureq::Body>, name: &str| {
+        response.headers()[name].to_str().unwrap().to_owned()
+    };
+    assert_eq!(
+        header(&response, "content-disposition"),
+        "attachment; filename=\"_evil_;name _.dat\"; filename*=UTF-8''%22evil%22%3Bname%20%C3%A9.dat"
+    );
+    let bytes = response.body_mut().read_to_vec().unwrap();
+    assert_eq!(bytes, dat);
+    assert_eq!(
+        sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+        hostile.sha256
+    );
+
+    let response = client.get(&file(&nameless.sha256)).call().unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        header(&response, "content-disposition"),
+        "attachment; filename=\"Homebrew.dat\"; filename*=UTF-8''Homebrew.dat",
+        "a recorded name with nothing left once sanitised falls back to the DAT's"
+    );
+
+    // An older revision is not the newest, and nothing holds it, so its file is dropped as it is imported.
+    let older = write_dat_version(
+        &env.tmp.path().join("in"),
+        "older.dat",
+        "20250101-000000",
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+    let (status, older) = client.upload("older.dat", &std::fs::read(older).unwrap());
+    assert_eq!(status, 201);
+    let revisions: Vec<title_select_api::DatRevisionRecord> = client.json("/dat-revisions");
+    let kept = |sha: &str| {
+        revisions
+            .iter()
+            .find(|r| r.sha256 == sha)
+            .unwrap()
+            .blob_present
+    };
+    assert!(!kept(&older.dat_revision.sha256));
+    let mut response = client
+        .get(&file(&older.dat_revision.sha256))
+        .call()
+        .unwrap();
+    assert_eq!(response.status(), 410);
+    let body: ErrorBody = response.body_mut().read_json().unwrap();
+    assert!(body.error.contains("isn't kept"), "{}", body.error);
+
+    let unknown = "0".repeat(64);
+    assert_eq!(status_of(client.get(&file(&unknown)).call()), 404);
+    for bad in [
+        hostile.sha256.to_uppercase(),
+        hostile.sha256[..63].to_owned(),
+        "%2E%2E%2Ftoken".to_owned(),
+        format!("{}g", &hostile.sha256[..63]),
+    ] {
+        assert_eq!(status_of(client.get(&file(&bad)).call()), 400, "{bad}");
+    }
+
+    let missing = Client {
+        auth: None,
+        ..Client::new(&service)
+    };
+    assert_eq!(status_of(missing.get(&file(&hostile.sha256)).call()), 401);
+}
+
+#[test]
 fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     let env = Env::new();
     let service = env.start();

@@ -95,11 +95,15 @@ pub trait ListRow: Clone + PartialEq + Send + Sync + 'static {
     }
 }
 
-/// What a row or toolbar action does: go to a page, or run.
+/// What a row or toolbar action does: go to a page, run, download a file, or nothing, its label saying why.
 #[derive(Clone)]
 pub enum Act {
     Go(String),
     Run(Callback<()>),
+    /// Downloads the file at this URL, outside the workbench's routes.
+    Download(String),
+    /// Shown, but disabled.
+    Unavailable,
 }
 
 /// An action on one row: the first `quick` of a row's actions are icons at the row's end, shown on hover or when the
@@ -129,6 +133,24 @@ impl RowAction {
             glyph,
             label: label.into(),
             act: Act::Run(Callback::new(move |()| run())),
+        }
+    }
+
+    /// Downloads the file at `url`, an API URL (`api::url`).
+    pub fn download(glyph: Glyph, label: impl Into<String>, url: impl Into<String>) -> Self {
+        RowAction {
+            glyph,
+            label: label.into(),
+            act: Act::Download(url.into()),
+        }
+    }
+
+    /// An action that can't be taken now: `label` says why.
+    pub fn unavailable(glyph: Glyph, label: impl Into<String>) -> Self {
+        RowAction {
+            glyph,
+            label: label.into(),
+            act: Act::Unavailable,
         }
     }
 }
@@ -683,10 +705,12 @@ pub fn List<T: ListRow>(
                             .into_iter()
                             .map(|a| {
                                 let RowAction { glyph, label, act } = a;
+                                let disabled = matches!(act, Act::Unavailable);
                                 view! {
                                     <MenuItem
                                         label
                                         glyph
+                                        disabled
                                         on_select=move |()| run_act(&act, go)
                                     />
                                 }
@@ -927,6 +951,11 @@ fn run_act(act: &Act, go: Callback<String>) {
     match act {
         Act::Go(href) => go.run(href.clone()),
         Act::Run(run) => run.run(()),
+        // The Service answers with an attachment, so the browser saves it and stays on this page.
+        Act::Download(url) => {
+            let _ = window().location().set_href(url);
+        }
+        Act::Unavailable => {}
     }
 }
 
@@ -945,6 +974,17 @@ fn quick_icon(action: RowAction, go: Callback<String>) -> AnyView {
         Act::Run(run) => {
             let _ = go;
             view! { <IconButton glyph label on_click=run /> }.into_any()
+        }
+        Act::Download(url) => view! {
+            <Tooltip label=label.clone()>
+                <a href=url download="" class="icon-button" aria-label=label>
+                    <Svg glyph />
+                </a>
+            </Tooltip>
+        }
+        .into_any(),
+        Act::Unavailable => {
+            view! { <IconButton glyph label on_click=|()| {} disabled=true /> }.into_any()
         }
     }
 }
@@ -968,6 +1008,18 @@ fn labelled_act(action: RowAction, go: Callback<String>) -> AnyView {
             }
             .into_any()
         }
+        Act::Download(url) => view! {
+            <a href=url download="" class="button">
+                <LabelledIcon glyph label />
+            </a>
+        }
+        .into_any(),
+        Act::Unavailable => view! {
+            <button type="button" disabled>
+                <LabelledIcon glyph label />
+            </button>
+        }
+        .into_any(),
     }
 }
 

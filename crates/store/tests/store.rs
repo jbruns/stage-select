@@ -154,6 +154,43 @@ fn importing_the_same_bytes_again_returns_the_existing_dat_revision() {
 }
 
 #[test]
+fn a_dat_file_opened_before_retention_drops_it_reads_whole_and_one_gone_first_is_not_kept() {
+    use std::io::Read;
+
+    let env = Env::new(20);
+    let (old, _) = env.import(1);
+    env.import(2);
+    let (_, file) = env.store.open_dat_file(&old).unwrap();
+    assert!(file.is_none(), "a dropped file is not kept");
+
+    let (restored, _) = env.import(1);
+    let expected = std::fs::read(env.store.blob_path(&restored)).unwrap();
+    let (_, file) = env.store.open_dat_file(&restored).unwrap();
+    let mut file = file.expect("a restored file is kept");
+    std::fs::remove_file(env.store.blob_path(&restored)).unwrap();
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).unwrap();
+    assert_eq!(
+        bytes, expected,
+        "the open file reads whole after it is removed"
+    );
+    let (record, file) = env.store.open_dat_file(&restored).unwrap();
+    assert!(
+        record.blob_present && file.is_none(),
+        "removed under its row"
+    );
+
+    assert!(matches!(
+        env.store.open_dat_file("../dats"),
+        Err(Error::Refused(_))
+    ));
+    assert!(matches!(
+        env.store.open_dat_file(&"0".repeat(64)),
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[test]
 fn an_unheld_blob_is_dropped_and_importing_its_bytes_again_restores_it() {
     let env = Env::new(20);
     let (old, _) = env.import(1);
