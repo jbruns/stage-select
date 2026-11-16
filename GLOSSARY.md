@@ -9,9 +9,13 @@ Library. "Title Select" is the product's name, not a domain term.
 A published inventory of expected game files and their identifying checksums (e.g. No-Intro, Redump, MAME).
 _Avoid_: datfile, database
 
+**DAT Format**:
+The structure used to express a DAT, such as Logiqx XML, MAME ListXML or a MAME software list. A DAT Format does not
+establish its DAT Provider.
+
 **DAT Provider**:
-The group that publishes a DAT, such as No-Intro, Redump or MAME. Each states, or leaves unstated, whether tools may
-fetch its DATs; Title Select fetches only from a DAT Provider that permits it, and only when the Operator turns
+The group that publishes a DAT, such as No-Intro, Redump or MAME; an author or a DAT Format alone does not establish
+it. Title Select fetches only from a DAT Provider that permits automated fetching, and only when the Operator turns
 fetching on.
 _Avoid_: Source (alone), group
 

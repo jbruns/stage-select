@@ -41,3 +41,25 @@ Postgres, which adds a Service to run and back up for a single-Operator applicat
 - One process at a time opens the store, holding an exclusive lock on `<store>/lock`: the Service (#10).
 - A blob restored by importing its bytes again is also kept until an Audit using it finishes or a newer revision of
   its DAT is imported.
+
+## Amendment (2026-11-15): explicit DAT Revision deletion
+
+Accepted design; implementation is pending.
+
+Automatic blob pruning alone leaves unused DAT Revisions in the catalogue, including the newest revision of a DAT
+that no Source Set uses. The Operator may explicitly delete an individual DAT Revision after confirmation, subject
+to these constraints:
+
+- Any registered Source Set for its DAT blocks explicit deletion of every revision of that DAT, not only the
+  revision of its latest Audit.
+- Retained Audits, Selections, Change Plans, Builds and active work that still need the revision also block deletion.
+  The Service reports the blockers; deletion never purges dependencies to make a revision eligible.
+- An eligible deletion removes the revision from the catalogue and deletes its blob if present, even when it is the
+  newest, final or restored revision. Historical metadata stays where needed; no game files are touched. A DAT with
+  no remaining catalogue revisions disappears from the catalogue.
+- Automatic pruning otherwise remains unchanged: it removes eligible blobs, not catalogue entries. A browser
+  download serves only the unmodified retained blob; a pruned file is unavailable, never regenerated or fetched as
+  a substitute.
+
+This makes explicit deletion an exception to the newest-revision and restored-blob holds above, without weakening
+the retention required by dependent work or history.
