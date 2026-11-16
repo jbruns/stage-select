@@ -367,6 +367,10 @@ pub struct IngestPlanItem {
     /// For a DAT import: the DAT it is imported as a revision of, as `<provider>/<name>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat: Option<String>,
+    /// Whether assessment read it as a DAT, whatever the plan does with it: its `sha256` is then a DAT Revision's
+    /// identity, which the workbench doesn't show. Absent when false, so plans made before it keep their digest.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dat_file: bool,
     /// For an Addition: its system, name and parent Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<NewAddition>,

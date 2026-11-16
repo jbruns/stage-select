@@ -13,7 +13,7 @@ use title_select_api::{
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
-use crate::model::{imported_message, when};
+use crate::model::{imported_message, revision_named, when};
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -36,6 +36,8 @@ struct RevisionItem {
     used_by: Vec<UsedBy>,
     /// The cue packs imported for its DAT.
     cue_packs: Vec<CuePackRecord>,
+    /// The Source Sets bound to its DAT, by name.
+    source_sets: Vec<String>,
 }
 
 impl RevisionItem {
@@ -55,23 +57,50 @@ impl RevisionItem {
     }
 }
 
+const NOT_GIVEN: &str = "Not given";
+
+/// Its DAT Provider, or "Unknown": never its author or format.
+fn provider_label(r: &DatRevisionRecord) -> &str {
+    r.provider.as_deref().unwrap_or("Unknown")
+}
+
+/// A header claim the DAT may leave empty.
+fn given(text: &str) -> &str {
+    if text.is_empty() { NOT_GIVEN } else { text }
+}
+
+/// A header claim the DAT may leave out.
+fn given_or(text: Option<&str>) -> &str {
+    given(text.unwrap_or_default())
+}
+
+/// The names of the Source Sets, given as `(name, dat)`, bound to `dat`.
+fn using<'a>(dat: &str, sets: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    sets.into_iter()
+        .filter(|&(_, d)| d == dat)
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RevisionCol {
     File,
-    Dat,
+    Name,
+    Provider,
     Version,
-    Imported,
-    Audits,
+    Date,
+    SourceSets,
 }
 
 impl ListRow for RevisionItem {
     type Col = RevisionCol;
     const COLUMNS: &'static [RevisionCol] = &[
         RevisionCol::File,
-        RevisionCol::Dat,
+        RevisionCol::Name,
+        RevisionCol::Provider,
         RevisionCol::Version,
-        RevisionCol::Imported,
-        RevisionCol::Audits,
+        RevisionCol::Date,
+        RevisionCol::SourceSets,
     ];
 
     fn column(col: RevisionCol) -> Column {
@@ -79,25 +108,31 @@ impl ListRow for RevisionItem {
             RevisionCol::File => Column::new("file", "File", Width::Fixed(3.5))
                 .sortable()
                 .hint("Whether the store still keeps its DAT file"),
-            RevisionCol::Dat => Column::new(
-                "dat",
+            RevisionCol::Name => Column::new(
+                "name",
                 "DAT",
                 Width::Flex {
                     min: 12.0,
                     share: 3,
                 },
             )
-            .sortable(),
+            .sortable()
+            .hint("The name the DAT gives itself"),
+            RevisionCol::Provider => {
+                Column::new("provider", "Provider", Width::Flex { min: 7.0, share: 1 })
+                    .sortable()
+                    .hint("Who publishes the DAT, when its header shows it")
+            }
             RevisionCol::Version => {
                 Column::new("version", "Version", Width::Flex { min: 7.0, share: 1 }).sortable()
             }
-            RevisionCol::Imported => {
-                Column::new("imported", "Imported", Width::Fixed(13.0)).sortable()
-            }
-            RevisionCol::Audits => Column::new("audits", "Audits", Width::Fixed(5.5))
+            RevisionCol::Date => Column::new("date", "Date", Width::Flex { min: 6.5, share: 1 })
+                .sortable()
+                .hint("The date its header gives"),
+            RevisionCol::SourceSets => Column::new("source-sets", "Source sets", Width::Fixed(6.5))
                 .sortable()
                 .numeric()
-                .hint("How many audits refer to it"),
+                .hint("How many source sets use its DAT"),
         }
     }
 
@@ -106,12 +141,17 @@ impl ListRow for RevisionItem {
     }
 
     fn title(&self) -> String {
-        format!("{} {}", self.revision.dat, self.revision.version)
+        let r = &self.revision;
+        if r.version.is_empty() {
+            r.name.clone()
+        } else {
+            format!("{} {}", r.name, r.version)
+        }
     }
 
     fn search(&self) -> String {
         let r = &self.revision;
-        format!("{} {} {} {}", r.dat, r.version, r.file, r.sha256)
+        format!("{} {} {} {}", r.name, provider_label(r), r.version, r.file)
     }
 
     fn cell(&self, col: RevisionCol) -> AnyView {
@@ -120,10 +160,17 @@ impl ListRow for RevisionItem {
             RevisionCol::File => {
                 view! { <StatusIcon status=self.file_status() tab_stop=false /> }.into_any()
             }
-            RevisionCol::Dat => view! { <Clip text=r.dat.clone() /> }.into_any(),
-            RevisionCol::Version => view! { <Clip text=r.version.clone() /> }.into_any(),
-            RevisionCol::Imported => view! { <Clip text=when(&r.imported_at) /> }.into_any(),
-            RevisionCol::Audits => self.used_by.len().to_string().into_any(),
+            RevisionCol::Name => view! { <Clip text=r.name.clone() /> }.into_any(),
+            RevisionCol::Provider => {
+                view! { <Clip text=provider_label(r).to_string() /> }.into_any()
+            }
+            RevisionCol::Version => {
+                view! { <Clip text=given(&r.version).to_string() /> }.into_any()
+            }
+            RevisionCol::Date => {
+                view! { <Clip text=given_or(r.date.as_deref()).to_string() /> }.into_any()
+            }
+            RevisionCol::SourceSets => self.source_sets.len().to_string().into_any(),
         }
     }
 
@@ -131,21 +178,23 @@ impl ListRow for RevisionItem {
         let (a, b) = (&self.revision, &other.revision);
         match col {
             RevisionCol::File => a.blob_present.cmp(&b.blob_present),
-            RevisionCol::Dat => a.dat.cmp(&b.dat),
+            RevisionCol::Name => a.name.cmp(&b.name),
+            RevisionCol::Provider => a.provider.cmp(&b.provider),
             RevisionCol::Version => a.version.cmp(&b.version),
-            RevisionCol::Imported => a.imported_at.cmp(&b.imported_at),
-            RevisionCol::Audits => self.used_by.len().cmp(&other.used_by.len()),
+            RevisionCol::Date => a.date.cmp(&b.date),
+            RevisionCol::SourceSets => self.source_sets.len().cmp(&other.source_sets.len()),
         }
     }
 }
 
-/// Every DAT Revision, with the Audits of every Source Set's history that refer to it.
+/// Every DAT Revision, with the Source Sets bound to its DAT and the Audits of every Source Set's history that refer
+/// to it.
 async fn revisions() -> Result<Vec<RevisionItem>, String> {
     let dats: Vec<Dat> = api::get("/dats").await?;
     let sets: Vec<SourceSetRecord> = api::get("/source-sets").await?;
     let packs: Vec<CuePackRecord> = api::get("/cue-packs").await?;
     let mut used_by: BTreeMap<String, Vec<UsedBy>> = BTreeMap::new();
-    for set in sets {
+    for set in &sets {
         let history: Vec<AuditSummary> =
             api::get(&format!("/source-sets/{}/history", api::segment(&set.name))).await?;
         for audit in history {
@@ -169,28 +218,17 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
                 .filter(|p| p.dat == revision.dat)
                 .cloned()
                 .collect(),
+            source_sets: using(
+                &revision.dat,
+                sets.iter().map(|s| (s.name.as_str(), s.dat.as_str())),
+            ),
             revision,
         })
         .collect())
 }
 
-/// Puts `text` on the clipboard, then says so in `said`.
-fn copy(text: String, what: String, said: RwSignal<Option<String>>) {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let promise = window.navigator().clipboard().write_text(&text);
-    leptos::task::spawn_local(async move {
-        let message = match wasm_bindgen_futures::JsFuture::from(promise).await {
-            Ok(_) => format!("Copied {what}."),
-            Err(_) => format!("Couldn't copy {what}: the browser didn't allow it."),
-        };
-        said.set(Some(message));
-    });
-}
-
-/// The actions on one DAT Revision: open its newest Audit, copy its SHA-256, and open its other Audits.
-fn revision_actions(item: &RevisionItem, said: RwSignal<Option<String>>) -> Vec<RowAction> {
+/// The actions on one DAT Revision: open its newest Audit, then its other Audits.
+fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
     let audits = item.audits_newest_first();
     let mut actions = Vec::new();
     if let Some(latest) = audits.first() {
@@ -200,10 +238,6 @@ fn revision_actions(item: &RevisionItem, said: RwSignal<Option<String>>) -> Vec<
             format!("/audits/{}", latest.audit),
         ));
     }
-    let sha = item.revision.sha256.clone();
-    actions.push(RowAction::run(Glyph::Copy, "Copy its SHA-256", move || {
-        copy(sha.clone(), "the SHA-256".to_string(), said)
-    }));
     actions.extend(audits.iter().skip(1).map(|u| {
         RowAction::go(
             Glyph::ClipboardList,
@@ -212,6 +246,36 @@ fn revision_actions(item: &RevisionItem, said: RwSignal<Option<String>>) -> Vec<
         )
     }));
     actions
+}
+
+/// Every DAT and its DAT Revisions, to name a DAT Revision by.
+pub fn dats_resource() -> LocalResource<Result<Vec<Dat>, String>> {
+    LocalResource::new(|| api::get::<Vec<Dat>>("/dats"))
+}
+
+/// The text naming the DAT Revision `sha256` once `dats` loads: its DAT and version, never its SHA-256. `version` is
+/// what a record gave with it, shown until then or if it can't be found.
+pub fn revision_text(
+    dats: LocalResource<Result<Vec<Dat>, String>>,
+    sha256: String,
+    version: Option<String>,
+) -> impl Fn() -> String + Send + Sync + 'static {
+    move || match dats.get() {
+        Some(Ok(dats)) => revision_named(Some(&dats), &sha256, version.as_deref()),
+        Some(Err(_)) if version.as_deref().is_none_or(str::is_empty) => {
+            "a DAT revision".to_string()
+        }
+        _ => revision_named(None, &sha256, version.as_deref()),
+    }
+}
+
+/// A DAT Revision, named by its DAT and version.
+#[component]
+pub fn RevisionName(
+    #[prop(into)] sha256: String,
+    #[prop(optional, into)] version: Option<String>,
+) -> impl IntoView {
+    revision_text(dats_resource(), sha256, version)
 }
 
 /// The DATs and their DAT Revisions, with their provenance, and the form to import another.
@@ -229,33 +293,18 @@ pub fn DatRevisions() -> impl IntoView {
         Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
     let importing = RwSignal::new(false);
     let importing_cues = RwSignal::new(false);
-    let said = RwSignal::new(None::<String>);
     let actions = vec![
         ToolAction::page(Glyph::Upload, "Import", move || importing.set(true)),
         ToolAction::page(Glyph::Upload, "Import cue pack", move || {
             importing_cues.set(true)
-        }),
-        ToolAction::checked(Glyph::Copy, "Copy SHA-256s", move |chosen| {
-            let n = chosen.rows.len();
-            let text = chosen
-                .rows
-                .iter()
-                .map(|r: &RevisionItem| r.revision.sha256.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
-            let what = if n == 1 {
-                "1 SHA-256".to_string()
-            } else {
-                format!("{n} SHA-256s")
-            };
-            copy(text, what, said);
         }),
     ];
 
     view! {
         <h1>"DAT revisions"</h1>
         <p class="lede">
-            "Each import of a DAT file is a DAT revision, named by its SHA-256. Newest import first within each DAT. \
+            "Each import of a DAT file is a DAT revision, shown as its header describes it. Newest import first within \
+             each DAT. When the header doesn't show who publishes the DAT, its provider is unknown. \
              Import a cue pack, a ZIP of a disc system's cue sheets, and a repair can fill a missing cue sheet, or \
              replace one that doesn't match, from it."
         </p>
@@ -264,18 +313,14 @@ pub fn DatRevisions() -> impl IntoView {
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        <p class="done" role="status">
-            {move || said.get()}
-        </p>
         <List
             id="dat-revisions"
             label="DAT revisions"
             rows
             empty="No DAT revisions yet. Choose Import to add a DAT."
-            placeholder="Filter by DAT, version, file or SHA-256"
+            placeholder="Filter by DAT, provider, version or file"
             actions
-            row_actions=Callback::new(move |item: RevisionItem| revision_actions(&item, said))
-            quick=2
+            row_actions=Callback::new(|item: RevisionItem| revision_actions(&item))
             detail=Callback::new(revision_detail)
             legend=move || view! { <Legend statuses list="dat-revisions" /> }
         />
@@ -294,7 +339,7 @@ fn CuePackUpload(on_done: Callback<()>) -> impl IntoView {
     let form = NodeRef::<Form>::new();
     let outcome = RwSignal::new(None::<Result<CuePackImport, String>>);
     let busy = RwSignal::new(false);
-    let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
+    let dats = dats_resource();
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let Some(el) = form.get_untracked() else {
@@ -373,18 +418,38 @@ fn CuePackUpload(on_done: Callback<()>) -> impl IntoView {
 
 fn revision_detail(item: RevisionItem) -> AnyView {
     let r = item.revision;
+    let claim = |text: Option<String>| match text {
+        Some(text) if !text.is_empty() => text.into_any(),
+        _ => NOT_GIVEN.into_any(),
+    };
+    let link = |text: Option<String>| match text {
+        Some(text) if !text.is_empty() => view! { <code class="path">{text}</code> }.into_any(),
+        _ => NOT_GIVEN.into_any(),
+    };
     view! {
         <dl class="facts">
-            <dt>"SHA-256"</dt>
-            <dd>
-                <code class="hash">{r.sha256.clone()}</code>
-            </dd>
+            <dt>"DAT"</dt>
+            <dd>{r.name.clone()}</dd>
+            <dt>"Description"</dt>
+            <dd>{claim(r.description.clone())}</dd>
+            <dt>"Provider"</dt>
+            <dd>{provider_label(&r).to_string()}</dd>
+            <dt>"Author"</dt>
+            <dd>{claim(r.author.clone())}</dd>
+            <dt>"Version"</dt>
+            <dd>{given(&r.version).to_string()}</dd>
+            <dt>"Date"</dt>
+            <dd>{given_or(r.date.as_deref()).to_string()}</dd>
+            <dt>"Homepage"</dt>
+            <dd>{claim(r.homepage.clone())}</dd>
+            <dt>"URL in the DAT"</dt>
+            <dd>{link(r.header_url.clone())}</dd>
+            <dt>"Format"</dt>
+            <dd>{r.format.label()}</dd>
             <dt>"File"</dt>
             <dd>
                 <code class="path">{r.file.clone()}</code>
             </dd>
-            <dt>"Provider"</dt>
-            <dd>{r.provider.clone().unwrap_or_else(|| "Unknown".into())}</dd>
             <dt>"Source URL"</dt>
             <dd>
                 {match r.source_url.clone() {
@@ -400,6 +465,30 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                     "Kept in the store"
                 } else {
                     "Deleted from the store; the DAT revision is still recorded, and importing the same file again restores it"
+                }}
+            </dd>
+            <dt>"Source sets"</dt>
+            <dd>
+                {if item.source_sets.is_empty() {
+                    view! { "No source set uses this DAT" }.into_any()
+                } else {
+                    view! {
+                        <ul>
+                            {item
+                                .source_sets
+                                .into_iter()
+                                .map(|name| {
+                                    let href = format!("/source-sets/{}", api::segment(&name));
+                                    view! {
+                                        <li>
+                                            <A href=href>{name}</A>
+                                        </li>
+                                    }
+                                })
+                                .collect_view()}
+                        </ul>
+                    }
+                        .into_any()
                 }}
             </dd>
             <dt>"Audits"</dt>
@@ -523,5 +612,123 @@ fn Upload(on_done: Callback<()>) -> impl IntoView {
                     })
             }}
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use title_select_api::DatFormat;
+
+    use super::*;
+
+    fn revision(
+        name: &str,
+        provider: Option<&str>,
+        version: &str,
+        date: Option<&str>,
+    ) -> RevisionItem {
+        RevisionItem {
+            revision: DatRevisionRecord {
+                sha256: "254e0123456789abcdef".into(),
+                dat: format!("{}/{name}", provider.unwrap_or("unknown-logiqx")),
+                format: DatFormat::Logiqx,
+                provider: provider.map(Into::into),
+                name: name.into(),
+                description: None,
+                author: Some("Contributor".into()),
+                homepage: None,
+                header_url: None,
+                version: version.into(),
+                date: date.map(Into::into),
+                file: format!("{name} ({version}).dat"),
+                imported_at: "2026-11-01T10:00:00Z".into(),
+                source_url: None,
+                blob_present: true,
+            },
+            used_by: Vec::new(),
+            cue_packs: Vec::new(),
+            source_sets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn search_matches_name_provider_version_and_file_but_not_the_sha256() {
+        let item = revision(
+            "Nintendo - Game Boy",
+            Some("No-Intro"),
+            "20261101-101010",
+            None,
+        );
+        let text = item.search().to_lowercase();
+        for word in [
+            "game boy",
+            "no-intro",
+            "20261101-101010",
+            "(20261101-101010).dat",
+        ] {
+            assert!(text.contains(word), "{word} in {text}");
+        }
+        assert!(!text.contains("254e"), "{text}");
+        assert!(
+            !text.contains("contributor"),
+            "the author is not the provider: {text}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_provider_and_missing_date_and_version_say_so() {
+        let item = revision("Homebrew", None, "", None);
+        assert_eq!(provider_label(&item.revision), "Unknown");
+        assert_eq!(given(&item.revision.version), "Not given");
+        assert_eq!(given_or(item.revision.date.as_deref()), "Not given");
+        assert!(item.search().to_lowercase().contains("unknown"));
+        assert_eq!(item.title(), "Homebrew");
+
+        let dated = revision(
+            "Sony - PlayStation",
+            Some("Redump"),
+            "2026-11-01",
+            Some("2026-11-01"),
+        );
+        assert_eq!(provider_label(&dated.revision), "Redump");
+        assert_eq!(given_or(dated.revision.date.as_deref()), "2026-11-01");
+        assert_eq!(dated.title(), "Sony - PlayStation 2026-11-01");
+    }
+
+    #[test]
+    fn columns_sort_by_name_provider_date_and_source_sets() {
+        let a = revision("A", Some("Redump"), "1", Some("2026-01-01"));
+        let mut b = revision("B", None, "2", None);
+        b.source_sets = vec!["gb".into(), "gbc".into()];
+        assert_eq!(a.compare(&b, RevisionCol::Name), Ordering::Less);
+        assert_eq!(a.compare(&b, RevisionCol::Provider), Ordering::Greater);
+        assert_eq!(a.compare(&b, RevisionCol::Date), Ordering::Greater);
+        assert_eq!(a.compare(&b, RevisionCol::SourceSets), Ordering::Less);
+    }
+
+    #[test]
+    fn the_columns_fit_the_list_budget() {
+        let widths: Vec<Width> = RevisionItem::COLUMNS
+            .iter()
+            .map(|&c| RevisionItem::column(c).width)
+            .collect();
+        let (_, min) = crate::parts::list_model::template(2.5, &widths, 2.25);
+        assert!(min <= 50.0, "{min}rem");
+    }
+
+    #[test]
+    fn the_source_sets_using_a_dat_are_those_bound_to_it() {
+        let sets = [
+            ("gb", "No-Intro/Nintendo - Game Boy"),
+            ("psx", "Redump/Sony - PlayStation"),
+            ("gb2", "No-Intro/Nintendo - Game Boy"),
+        ];
+        assert_eq!(
+            using(
+                "No-Intro/Nintendo - Game Boy",
+                sets.iter().map(|&(n, d)| (n, d))
+            ),
+            vec!["gb".to_string(), "gb2".to_string()]
+        );
     }
 }

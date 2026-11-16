@@ -13,7 +13,7 @@ use title_select_api::{
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
-use crate::model::{needs_review_from_counts, short_sha, when};
+use crate::model::{needs_review_from_counts, when};
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -396,7 +396,10 @@ fn set_detail(row: SetRow) -> AnyView {
                 {s.set
                     .last_verified_against
                     .as_ref()
-                    .map_or("Never".to_string(), |l| format!("{} ({})", l.version, short_sha(&l.sha256)))}
+                    .map(|l| view! {
+                        <super::dats::RevisionName sha256=l.sha256.clone() version=l.version.clone() />
+                    }.into_any())
+                    .unwrap_or_else(|| "Never".into_any())}
             </dd>
             <dt>"Repair"</dt>
             <dd>

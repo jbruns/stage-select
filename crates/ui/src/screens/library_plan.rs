@@ -21,7 +21,7 @@ use crate::build_model::{
     keep_reason_label, plan_kinds, restore_kind_label, with_conflict_choices,
 };
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
 use crate::parts::plan::{Change, PlanReview, PlanRow, apply_to_all, set_actions};
@@ -517,7 +517,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                     </dd>
                     <dt>"DAT revision"</dt>
                     <dd>
-                        <code class="hash">{short_sha(&plan.content.dat_revision).to_string()}</code>
+                        <super::dats::RevisionName sha256=plan.content.dat_revision.clone() />
                     </dd>
                     <dt>"Storage"</dt>
                     <dd>{crate::screens::repair::storage_line(&plan.content.storage)}</dd>

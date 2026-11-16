@@ -2290,7 +2290,7 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             </dd>
             <dt>"DAT revision"</dt>
             <dd>
-                <code class="hash">{b.dat_revision.clone()}</code>
+                <super::dats::RevisionName sha256=b.dat_revision.clone() />
             </dd>
             <dt>"Generation"</dt>
             <dd>{b.generation}</dd>

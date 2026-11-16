@@ -18,7 +18,7 @@ use title_select_api::{
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::model::{revision_label, short_sha, when};
 use crate::parts::pending::Pending;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
@@ -833,8 +833,7 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
         <dl class="facts">
             <dt>"DAT revision"</dt>
             <dd>
-                {preview.dat_revision.version.clone()} " "
-                <code class="hash">{short_sha(&preview.dat_revision.sha256).to_string()}</code>
+                {revision_label(&preview.dat_revision)}
             </dd>
             <dt>"System"</dt>
             <dd>
