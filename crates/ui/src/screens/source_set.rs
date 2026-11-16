@@ -23,7 +23,7 @@ use crate::build_model::build_state_label;
 use crate::events::use_live;
 use crate::library_model::live_status;
 use crate::model::{
-    EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, short_sha,
+    EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, revision_label,
     warning_counts, when,
 };
 use crate::parts::icon::Glyph;
@@ -368,8 +368,10 @@ fn Overview(
             </dd>
             <dt>"Against"</dt>
             <dd>
-                {format!("DAT revision {} ", a.dat_revision_version)}
-                <code class="hash">{short_sha(&a.dat_revision_sha256).to_string()}</code>
+                <super::dats::RevisionName
+                    sha256=a.dat_revision_sha256.clone()
+                    version=a.dat_revision_version.clone()
+                />
             </dd>
             <dt>"Evidence"</dt>
             <dd>{audit_evidence_label(a.evidence)}</dd>
@@ -504,7 +506,7 @@ fn StartAuditForm(
 ) -> impl IntoView {
     let (default, newer) = audit_choices(latest.as_slice(), &revisions);
     let default = match default {
-        Some(r) => format!("{} ({}), the default", r.version, short_sha(&r.sha256)),
+        Some(r) => format!("{}, the default", revision_label(r)),
         None => "The default".to_string(),
     };
     let newer: Vec<_> = newer.into_iter().cloned().collect();
@@ -535,7 +537,7 @@ fn StartAuditForm(
                         {newer
                             .into_iter()
                             .map(|r| {
-                                let label = format!("{} ({}), newer", r.version, short_sha(&r.sha256));
+                                let label = format!("{}, newer", revision_label(&r));
                                 view! { <option value=r.sha256>{label}</option> }
                             })
                             .collect_view()}

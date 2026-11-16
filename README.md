@@ -1607,7 +1607,8 @@ Its screens:
   its header doesn't show one), version, date, whether its file is kept and how many source sets use its DAT. Its
   detail adds what the header says (description, author, homepage, URL, format), where the file came from (file,
   source URL, import time), the source sets and audits that use it, and the cue packs imported for its DAT. A field
-  the DAT doesn't give shows as "Not given". It uploads a DAT
+  the DAT doesn't give shows as "Not given". Here and on every other screen, a DAT revision is named by its DAT and
+  version (or its date, when it has no version), never by its SHA-256. It uploads a DAT
   file as a new DAT revision, saying the name, provider and version it read from the DAT, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
   **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.

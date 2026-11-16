@@ -19,7 +19,7 @@ use crate::api;
 use crate::app::{Loading, Problem, use_ingest_changed};
 use crate::events::use_live;
 use crate::ingest_model::{self, Choices, Count, Decision};
-use crate::model::{earlier, short_sha, when};
+use crate::model::{earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -79,6 +79,7 @@ fn evidence(a: &Assessment) -> AnyView {
         };
         view! { <li>{format!("DAT {} version {}{imported}", d.name, d.version)}</li> }
     });
+    let dats = (!a.matches.is_empty()).then(super::dats::dats_resource);
     let matches = a
         .matches
         .iter()
@@ -99,14 +100,15 @@ fn evidence(a: &Assessment) -> AnyView {
             if m.extra {
                 notes.push("with other members".into());
             }
-            let text = format!(
-                "{} in {} (DAT revision {}): {roms}; {}",
-                m.game,
-                m.source_set,
-                short_sha(&m.dat_revision),
-                notes.join(", ")
-            );
-            view! { <li>{text}</li> }
+            let revision =
+                dats.map(|dats| super::dats::revision_text(dats, m.dat_revision.clone(), None));
+            view! {
+                <li>
+                    {format!("{} in {} (", m.game, m.source_set)}
+                    {revision}
+                    {format!("): {roms}; {}", notes.join(", "))}
+                </li>
+            }
         })
         .collect_view();
     let sha = a

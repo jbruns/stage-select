@@ -508,7 +508,7 @@ fn job_detail(row: JobRow) -> AnyView {
                     view! {
                         <dt>"DAT revision"</dt>
                         <dd>
-                            <code class="hash">{job.dat_revision.clone()}</code>
+                            <super::dats::RevisionName sha256=job.dat_revision.clone() />
                         </dd>
                     }
                 })}

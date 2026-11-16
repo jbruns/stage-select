@@ -19,7 +19,7 @@ use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
     game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
-    parse_ndjson, payload_read_text, short_sha, warning_counts, warning_text, when,
+    parse_ndjson, payload_read_text, warning_counts, warning_text, when,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
@@ -124,8 +124,10 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             </dd>
             <dt>"DAT revision"</dt>
             <dd>
-                {audit.dat_revision_version.clone()} " "
-                <code class="hash">{audit.dat_revision_sha256.clone()}</code>
+                <super::dats::RevisionName
+                    sha256=audit.dat_revision_sha256.clone()
+                    version=audit.dat_revision_version.clone()
+                />
             </dd>
             <dt>"Started"</dt>
             <dd>{when(&audit.started_at)}</dd>
@@ -335,12 +337,9 @@ impl ReAudit {
 pub fn queued(job: &Job) -> impl IntoView + use<> {
     view! {
         <p class="done" role="status">
-            {format!(
-                "Job #{} is queued to audit {} against DAT revision {}. ",
-                job.id,
-                job.source_set,
-                short_sha(&job.dat_revision),
-            )}
+            {format!("Job #{} is queued to audit {} against ", job.id, job.source_set)}
+            <super::dats::RevisionName sha256=job.dat_revision.clone() />
+            ". "
             <A href="/activity">"Follow it in Activity"</A>
         </p>
     }

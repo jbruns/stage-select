@@ -13,7 +13,7 @@ use title_select_api::{
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
-use crate::model::{imported_message, when};
+use crate::model::{imported_message, revision_named, when};
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -248,6 +248,36 @@ fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
     actions
 }
 
+/// Every DAT and its DAT Revisions, to name a DAT Revision by.
+pub fn dats_resource() -> LocalResource<Result<Vec<Dat>, String>> {
+    LocalResource::new(|| api::get::<Vec<Dat>>("/dats"))
+}
+
+/// The text naming the DAT Revision `sha256` once `dats` loads: its DAT and version, never its SHA-256. `version` is
+/// what a record gave with it, shown until then or if it can't be found.
+pub fn revision_text(
+    dats: LocalResource<Result<Vec<Dat>, String>>,
+    sha256: String,
+    version: Option<String>,
+) -> impl Fn() -> String + Send + Sync + 'static {
+    move || match dats.get() {
+        Some(Ok(dats)) => revision_named(Some(&dats), &sha256, version.as_deref()),
+        Some(Err(_)) if version.as_deref().is_none_or(str::is_empty) => {
+            "a DAT revision".to_string()
+        }
+        _ => revision_named(None, &sha256, version.as_deref()),
+    }
+}
+
+/// A DAT Revision, named by its DAT and version.
+#[component]
+pub fn RevisionName(
+    #[prop(into)] sha256: String,
+    #[prop(optional, into)] version: Option<String>,
+) -> impl IntoView {
+    revision_text(dats_resource(), sha256, version)
+}
+
 /// The DATs and their DAT Revisions, with their provenance, and the form to import another.
 #[component]
 pub fn DatRevisions() -> impl IntoView {
@@ -309,7 +339,7 @@ fn CuePackUpload(on_done: Callback<()>) -> impl IntoView {
     let form = NodeRef::<Form>::new();
     let outcome = RwSignal::new(None::<Result<CuePackImport, String>>);
     let busy = RwSignal::new(false);
-    let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
+    let dats = dats_resource();
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let Some(el) = form.get_untracked() else {

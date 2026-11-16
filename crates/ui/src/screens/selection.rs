@@ -801,8 +801,10 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             </dd>
             <dt>"DAT revision"</dt>
             <dd>
-                {r.dat_revision_version.clone()} " "
-                <code class="hash">{r.dat_revision_sha256.clone()}</code>
+                <super::dats::RevisionName
+                    sha256=r.dat_revision_sha256.clone()
+                    version=r.dat_revision_version.clone()
+                />
             </dd>
             <dt>"Selection profile"</dt>
             <dd>

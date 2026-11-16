@@ -5,9 +5,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 use title_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel,
-    Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, ImportOutcome, NamedHeaderRule,
-    Reuse,
+    ALGORITHMS, AuditEvidence, AuditSummary, Dat, DatRevisionRecord, Entry, EntryRow,
+    EvidenceLevel, Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, ImportOutcome,
+    NamedHeaderRule, Reuse,
 };
 
 /// The glossary's name for a Finding.
@@ -547,6 +547,31 @@ pub fn imported_message(outcome: ImportOutcome, r: &DatRevisionRecord) -> String
     format!("{what}{}{provider}, {version}.", r.name)
 }
 
+/// A DAT Revision as the Operator knows it: its DAT's name and version, or else the header's date, or else when it was
+/// imported. Never its SHA-256, which stays an internal identity.
+pub fn revision_label(r: &DatRevisionRecord) -> String {
+    match (r.version.as_str(), r.date.as_deref()) {
+        ("", Some(date)) if !date.is_empty() => format!("{}, dated {date}", r.name),
+        ("", _) => format!("{}, imported {}", r.name, when(&r.imported_at)),
+        (version, _) => format!("{} {version}", r.name),
+    }
+}
+
+/// The DAT Revision `sha256` names, found in `dats` once loaded, or else by the `version` a record gave with it.
+pub fn revision_named(dats: Option<&[Dat]>, sha256: &str, version: Option<&str>) -> String {
+    let found = dats.and_then(|dats| {
+        dats.iter()
+            .flat_map(|d| &d.revisions)
+            .find(|r| r.sha256 == sha256)
+    });
+    match (found, version) {
+        (Some(r), _) => revision_label(r),
+        (None, Some(v)) if !v.is_empty() => format!("version {v}"),
+        (None, _) if dats.is_some() => "a DAT revision no longer in the store".to_string(),
+        (None, _) => "…".to_string(),
+    }
+}
+
 /// The first 12 hex digits of a SHA-256, enough to tell DAT Revisions apart on screen.
 pub fn short_sha(sha256: &str) -> &str {
     sha256.get(..12).unwrap_or(sha256)
@@ -1059,6 +1084,53 @@ mod tests {
             imported_message(ImportOutcome::Restored, &known),
             "Restored the kept file of Atari - 2600 from No-Intro, version a."
         );
+    }
+
+    #[test]
+    fn a_dat_revision_is_named_by_its_dat_and_version_or_date_never_its_sha256() {
+        let versioned = revision("a");
+        assert_eq!(revision_label(&versioned), "Atari - 2600 a");
+        let dated = DatRevisionRecord {
+            version: String::new(),
+            date: Some("2026-02-03".into()),
+            ..revision("b")
+        };
+        assert_eq!(revision_label(&dated), "Atari - 2600, dated 2026-02-03");
+        let bare = DatRevisionRecord {
+            version: String::new(),
+            ..revision("c")
+        };
+        assert_eq!(
+            revision_label(&bare),
+            "Atari - 2600, imported 2026-01-01 00:00:00 UTC"
+        );
+    }
+
+    #[test]
+    fn a_dat_revision_found_by_its_sha256_or_else_its_version() {
+        let dats = vec![Dat {
+            dat: "No-Intro/Atari - 2600".into(),
+            format: title_select_api::DatFormat::Logiqx,
+            provider: Some("No-Intro".into()),
+            name: "Atari - 2600".into(),
+            revisions: vec![revision("a"), revision("b")],
+        }];
+        let b = "b".repeat(64);
+        let z = "z".repeat(64);
+        assert_eq!(revision_named(Some(&dats), &b, Some("b")), "Atari - 2600 b");
+        assert_eq!(revision_named(Some(&dats), &z, Some("9")), "version 9");
+        assert_eq!(
+            revision_named(Some(&dats), &z, None),
+            "a DAT revision no longer in the store"
+        );
+        assert_eq!(revision_named(None, &b, Some("b")), "version b");
+        assert_eq!(revision_named(None, &b, None), "…");
+        for text in [
+            revision_named(Some(&dats), &z, None),
+            revision_named(None, &b, None),
+        ] {
+            assert!(!text.contains(&z) && !text.contains(&b[..12]), "{text}");
+        }
     }
 
     fn audit(sha: &str) -> AuditSummary {
