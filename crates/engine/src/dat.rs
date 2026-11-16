@@ -7,6 +7,7 @@ use std::path::Path;
 use quick_xml::events::{BytesStart, Event};
 use sha2::Digest;
 use title_select_api::HeaderRule;
+use title_select_api::dat::{DatFormat, HeaderClaims, recognise_provider};
 
 use crate::Error;
 
@@ -20,17 +21,17 @@ pub struct Rom {
     pub sha256: Option<String>,
 }
 
-/// The root element a DAT is read by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Root {
-    Logiqx,
-    ListXml,
-    SoftwareList,
-}
-
 pub struct Dat {
     pub sha256: String,
+    pub format: DatFormat,
+    /// Its native name: the Logiqx header's, a software list's, or `MAME` for ListXML; empty if it gives none.
     pub name: String,
+    /// The Logiqx header's or software list's description; none if it gives none.
+    pub description: Option<String>,
+    /// The Logiqx header's author, homepage and URL, as written; none if it gives none.
+    pub author: Option<String>,
+    pub homepage: Option<String>,
+    pub url: Option<String>,
     pub version: String,
     /// The header's date, as the provider writes it; empty if it gives none.
     pub date: String,
@@ -86,7 +87,12 @@ impl Dat {
         let mut buf = Vec::new();
         let mut dat = Dat {
             sha256,
+            format: DatFormat::Logiqx,
             name: String::new(),
+            description: None,
+            author: None,
+            homepage: None,
+            url: None,
             version: String::new(),
             date: String::new(),
             header_rule: None,
@@ -110,15 +116,16 @@ impl Dat {
                     let tag = e.local_name().as_ref().to_string();
                     let a = attrs(&e)?;
                     root = match tag.as_str() {
-                        "datafile" => Some(Root::Logiqx),
+                        "datafile" => Some(DatFormat::Logiqx),
                         "mame" => {
                             dat.name = "MAME".into();
                             dat.version = a.get("build").cloned().unwrap_or_default();
-                            Some(Root::ListXml)
+                            Some(DatFormat::Listxml)
                         }
                         "softwarelist" => {
                             dat.name = a.get("name").cloned().unwrap_or_default();
-                            Some(Root::SoftwareList)
+                            dat.description = a.get("description").cloned();
+                            Some(DatFormat::SoftwareList)
                         }
                         _ => None,
                     };
@@ -142,7 +149,7 @@ impl Dat {
                         },
                         _ => unreachable!("matched above"),
                     };
-                    let in_header = root == Some(Root::Logiqx)
+                    let in_header = root == Some(DatFormat::Logiqx)
                         && stack.len() >= 2
                         && stack[stack.len() - 2] == "header";
                     let in_game = stack.len() >= 2
@@ -159,6 +166,16 @@ impl Dat {
                         Some("name") if in_header => dat.name.push_str(&text),
                         Some("version") if in_header => dat.version.push_str(&text),
                         Some("date") if in_header => dat.date.push_str(&text),
+                        Some("description") if in_header => {
+                            dat.description.get_or_insert_default().push_str(&text)
+                        }
+                        Some("author") if in_header => {
+                            dat.author.get_or_insert_default().push_str(&text)
+                        }
+                        Some("homepage") if in_header => {
+                            dat.homepage.get_or_insert_default().push_str(&text)
+                        }
+                        Some("url") if in_header => dat.url.get_or_insert_default().push_str(&text),
                         _ => {}
                     }
                 }
@@ -170,13 +187,52 @@ impl Dat {
             }
             buf.clear();
         }
-        if root.is_none() {
+        let Some(format) = root else {
             return Err(Error::Dat(format!(
                 "{}: not a Logiqx XML DAT, MAME ListXML or MAME software list",
                 path.display()
             )));
+        };
+        dat.format = format;
+        for claim in [
+            &mut dat.description,
+            &mut dat.author,
+            &mut dat.homepage,
+            &mut dat.url,
+        ] {
+            if claim.as_ref().is_some_and(|c| c.trim().is_empty()) {
+                *claim = None;
+            }
         }
         Ok(dat)
+    }
+
+    /// The DAT Provider its format and header signal, or `None` when unknown.
+    pub fn provider(&self) -> Option<&'static str> {
+        recognise_provider(
+            self.format,
+            HeaderClaims {
+                homepage: self.homepage.as_deref(),
+                url: self.url.as_deref(),
+                author: self.author.as_deref(),
+            },
+        )
+    }
+
+    /// Refuses a DAT whose format gives it no native name, naming the file at `path` and the missing field.
+    pub fn check_name(&self, path: &Path) -> Result<(), Error> {
+        if !self.name.trim().is_empty() {
+            return Ok(());
+        }
+        let missing = match self.format {
+            DatFormat::Logiqx => "its header has no <name>",
+            DatFormat::Listxml => "it has no name",
+            DatFormat::SoftwareList => "its <softwarelist> has no name attribute",
+        };
+        Err(Error::Dat(format!(
+            "{}: the DAT has no name to know it by: {missing}",
+            path.display()
+        )))
     }
 
     /// The date in the Logiqx header at the start of `bytes`, read no further than the header's end: empty if there is
@@ -213,16 +269,18 @@ impl Dat {
     }
 
     /// Handles an opening or empty tag inside the root and returns its name.
-    fn open(&mut self, e: &BytesStart, root: Option<Root>) -> Result<String, Error> {
+    fn open(&mut self, e: &BytesStart, root: Option<DatFormat>) -> Result<String, Error> {
         let tag = e.local_name().as_ref().to_string();
         match (root, tag.as_str()) {
-            (Some(Root::Logiqx | Root::ListXml), "game" | "machine") => self.start_game(e)?,
-            (Some(Root::SoftwareList), "software") => self.start_game(e)?,
+            (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
+                self.start_game(e)?
+            }
+            (Some(DatFormat::SoftwareList), "software") => self.start_game(e)?,
             // A software list's unnamed ROM has no file of its own: it reads on in the file of the named ROM before
             // it. As MAME's rom_file_size measures that file, one that continues or skips reads on from where the
             // last read ended, and one that reloads reads again from the start; the file is as large as the
             // furthest any read reaches. Any other, such as a fill, reads no file, and ends the run.
-            (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {
+            (Some(DatFormat::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {
                 let a = attrs(e)?;
                 let read = |pos: u64| -> Result<u64, Error> {
                     a.get("size")
@@ -245,7 +303,7 @@ impl Dat {
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
-            (Some(Root::Logiqx), "clrmamepro") if self.games.is_empty() => {
+            (Some(DatFormat::Logiqx), "clrmamepro") if self.games.is_empty() => {
                 if let Some(rule) = attrs(e)?.remove("header") {
                     self.header_rule = Some(rule);
                 }

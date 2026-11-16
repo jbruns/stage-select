@@ -6,21 +6,41 @@ use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use super::blobs::{remove_blob, write_blob};
 use super::{DATS, Error, Result, Store, io_error, now};
+use title_select_api::dat::{known_provider, provider_part};
 use title_select_engine::dat::Dat;
 
-pub use title_select_api::{DatRevisionRecord, ImportOutcome};
+pub use title_select_api::{DatFormat, DatRevisionRecord, ImportOutcome};
 
 pub(super) const REVISION_COLUMNS: &str = "r.id, r.sha256, d.provider, d.name, r.version, r.file_name, \
-     r.imported_at, r.source_url, r.blob_dropped_at IS NULL";
+     r.imported_at, r.source_url, r.blob_dropped_at IS NULL, r.format, r.description, r.author, r.homepage, \
+     r.header_url, r.header_date";
 
 pub(super) fn revision_from_row(row: &Row) -> rusqlite::Result<(i64, DatRevisionRecord)> {
+    let provider: String = row.get(2)?;
+    let name: String = row.get(3)?;
+    let format: String = row.get(9)?;
+    let format = DatFormat::parse(&format).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            9,
+            rusqlite::types::Type::Text,
+            format!("{format:?} is not a DAT format").into(),
+        )
+    })?;
+    let date: String = row.get(14)?;
     Ok((
         row.get(0)?,
         DatRevisionRecord {
             sha256: row.get(1)?,
-            provider: row.get(2)?,
-            name: row.get(3)?,
+            dat: format!("{provider}/{name}"),
+            format,
+            provider: known_provider(&provider).map(str::to_owned),
+            name,
+            description: row.get(10)?,
+            author: row.get(11)?,
+            homepage: row.get(12)?,
+            header_url: row.get(13)?,
             version: row.get(4)?,
+            date: (!date.is_empty()).then_some(date),
             file: row.get(5)?,
             imported_at: row.get(6)?,
             source_url: row.get(7)?,
@@ -212,6 +232,17 @@ pub(crate) fn would_be_newest(
     Ok(headers.iter().all(|(v, d)| OrderKey::new(v, d) <= key))
 }
 
+/// The provider part of the key `dat` is a revision of, its provider spelled as the store keeps it: `fetched`, the
+/// provider a fetch took it from, else the one its format and header signal, else the part reserved for its format.
+pub(crate) fn dat_provider_part(
+    c: &Connection,
+    dat: &Dat,
+    fetched: Option<&str>,
+) -> Result<String> {
+    let part = provider_part(fetched.or_else(|| dat.provider()), dat.format);
+    canonical_provider(c, &part)
+}
+
 /// Splits `<provider>/<name>`. A provider never contains `/`; a DAT's name may.
 pub(super) fn split_dat(dat: &str) -> Result<(&str, &str)> {
     dat.split_once('/')
@@ -220,25 +251,20 @@ pub(super) fn split_dat(dat: &str) -> Result<(&str, &str)> {
 }
 
 impl Store {
-    /// Imports the DAT file at `path` as a DAT Revision of the DAT named by `provider` and its header name.
-    /// Importing bytes already imported returns the existing DAT Revision, restoring its blob if it was dropped.
+    /// Imports the DAT file at `path` as a DAT Revision, reading its DAT Format, native name, provider and header
+    /// claims from the file itself. `source_url` records where it was downloaded from. Importing bytes already
+    /// imported returns the existing DAT Revision, restoring its blob if it was dropped.
     pub fn import_dat(
         &self,
         path: &Path,
-        provider: &str,
         source_url: Option<&str>,
     ) -> Result<(DatRevisionRecord, ImportOutcome)> {
-        if provider.is_empty() || provider.contains('/') {
-            return Err(Error::Refused(format!(
-                "{provider:?}: a provider is a non-empty name without `/`"
-            )));
-        }
         let bytes = std::fs::read(path).map_err(|e| io_error(path, e))?;
         let file = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.import_dat_bytes(&bytes, &file, provider, source_url)
+        self.import_dat_bytes(&bytes, &file, source_url)
     }
 
     /// Imports the unmodified bytes of a DAT file whose original filename is `file`, like [`Store::import_dat`].
@@ -246,32 +272,23 @@ impl Store {
         &self,
         bytes: &[u8],
         file: &str,
-        provider: &str,
         source_url: Option<&str>,
     ) -> Result<(DatRevisionRecord, ImportOutcome)> {
-        if provider.is_empty() || provider.contains('/') {
-            return Err(Error::Refused(format!(
-                "{provider:?}: a provider is a non-empty name without `/`"
-            )));
-        }
         let dat = Dat::parse(bytes, Path::new(file))?;
-        self.import_parsed_dat(&dat, bytes, file, provider, source_url)
+        self.import_parsed_dat(&dat, bytes, file, None, source_url)
     }
 
-    /// As [`Store::import_dat_bytes`], for `bytes` already parsed as `dat`.
+    /// As [`Store::import_dat_bytes`], for `bytes` already parsed as `dat`. A revision fetched from a DAT Provider
+    /// (ADR 0012) passes it as `fetched`, and takes that provider rather than its header's.
     pub(crate) fn import_parsed_dat(
         &self,
         dat: &Dat,
         bytes: &[u8],
         file: &str,
-        provider: &str,
+        fetched: Option<&str>,
         source_url: Option<&str>,
     ) -> Result<(DatRevisionRecord, ImportOutcome)> {
-        if dat.name.is_empty() {
-            return Err(Error::Refused(format!(
-                "{file}: the DAT header has no name"
-            )));
-        }
+        dat.check_name(Path::new(file))?;
         let dats = self.dir.join(DATS);
         // Holding the writer keeps the blob and its row consistent against retention and garbage collection.
         let (record, outcome) = self.with_writer(|conn| {
@@ -294,7 +311,7 @@ impl Store {
             write_blob(&dats, &dat.sha256, bytes)?;
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let watch = crate::observe::StaleWatch::start(&tx)?;
-            let provider = canonical_provider(&tx, provider)?;
+            let provider = dat_provider_part(&tx, dat, fetched)?;
             let dat_id = match find_dat(&tx, &provider, &dat.name)? {
                 Some(id) => id,
                 None => {
@@ -314,15 +331,29 @@ impl Store {
                 [dat_id],
             )?;
             tx.execute(
-                "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at, source_url)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![dat_id, dat.sha256, dat.version, dat.date, file, now(), source_url],
+                "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at, source_url,
+                                            format, description, author, homepage, header_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    dat_id,
+                    dat.sha256,
+                    dat.version,
+                    dat.date,
+                    file,
+                    now(),
+                    source_url,
+                    dat.format.as_str(),
+                    dat.description,
+                    dat.author,
+                    dat.homepage,
+                    dat.url
+                ],
             )?;
             reorder_revisions(&tx, dat_id)?;
             let record = revision_by_sha(&tx, &dat.sha256)?.expect("just inserted").1;
             crate::stale::note_followed_revisions(&tx)?;
             crate::observe::note(crate::observe::Observed::DatRevision {
-                dat: format!("{}/{}", record.provider, record.name),
+                dat: record.dat.clone(),
                 version: record.version.clone(),
             });
             watch.finish(&tx)?;

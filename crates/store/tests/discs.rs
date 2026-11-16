@@ -178,10 +178,12 @@ impl Env {
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
         let dat = match rule {
-            Some(rule) => write_dat_with_header(&tmp.path().join("in"), rule, &all()),
-            None => write_dat_version(&tmp.path().join("in"), "test.dat", "1", &all()),
+            Some(rule) => {
+                write_dat_with_header_from(&tmp.path().join("in"), rule, "Redump", &all())
+            }
+            None => write_dat_from(&tmp.path().join("in"), "test.dat", "1", "Redump", &all()),
         };
-        let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
             .save_profile(

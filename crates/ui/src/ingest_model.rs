@@ -139,8 +139,8 @@ impl Decision {
                 "items can't be added as additions: they matched a DAT, hold more than one file, or have no system yet",
             ),
             Decision::Import => (
-                "1 item isn't a DAT to import, or needs a provider",
-                "items aren't DATs to import, or need a provider",
+                "1 item isn't a DAT to import",
+                "items aren't DATs to import",
             ),
             Decision::Discard => (
                 "1 item can't be discarded yet: it's still arriving, being moved or gone",
@@ -158,12 +158,10 @@ impl Decision {
     }
 }
 
-/// What you chose beyond the decision: what each item is added as, where you changed it, and the provider to import
-/// DATs under when no registered DAT names one.
+/// What you chose beyond the decision: what each item is added as, where you changed it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Choices {
     pub additions: BTreeMap<i64, NewAddition>,
-    pub provider: String,
 }
 
 impl Choices {
@@ -197,9 +195,7 @@ pub fn applies(decision: Decision, item: &IngestItem, choices: &Choices) -> bool
         }
         Decision::Import => {
             state == ItemState::Assessed
-                && item.assessment.dat.as_ref().is_some_and(|d| {
-                    !d.imported && (d.providers.len() == 1 || !choices.provider.trim().is_empty())
-                })
+                && item.assessment.dat.as_ref().is_some_and(|d| !d.imported)
         }
         Decision::Discard => matches!(
             state,
@@ -254,12 +250,9 @@ pub fn request(
     if bulk.items.is_empty() {
         return None;
     }
-    let provider = choices.provider.trim();
     Some(PlanIngest {
         action,
         items: bulk.items.clone(),
-        provider: (action == IngestAction::DatImport && !provider.is_empty())
-            .then(|| provider.to_owned()),
         additions: match action {
             IngestAction::Addition => items
                 .iter()
@@ -445,13 +438,14 @@ mod tests {
         )
     }
 
-    fn dat(id: i64, providers: &[&str], imported: bool) -> IngestItem {
+    fn dat(id: i64, provider: Option<&str>, imported: bool) -> IngestItem {
+        let key = format!("{}/Atari", provider.unwrap_or("unknown-logiqx"));
         item(
             id,
             "new.dat",
             if imported { "already_held" } else { "assessed" },
             serde_json::json!({"dat": {"name": "Atari", "version": "2", "sha256": "d",
-                "providers": providers, "imported": imported},
+                "dat": key, "provider": provider, "imported": imported},
                 "proposal": {"kind": "dat_import"}}),
         )
     }
@@ -480,7 +474,7 @@ mod tests {
         let cases = [
             (fill(1), Some(IngestStatus::MatchesSourceSet)),
             (homebrew(2, None), Some(IngestStatus::NoDatMatch)),
-            (dat(3, &[], false), Some(IngestStatus::DatFile)),
+            (dat(3, None, false), Some(IngestStatus::DatFile)),
             (duplicate(4), Some(IngestStatus::Duplicate)),
             (
                 item(5, "x.7z", "unsupported", serde_json::json!({})),
@@ -557,29 +551,20 @@ mod tests {
     }
 
     #[test]
-    fn importing_dats_needs_a_provider_when_no_one_dat_names_one() {
+    fn importing_dats_asks_for_no_provider_whether_or_not_the_header_names_one() {
         let items = [
-            dat(1, &["No-Intro"], false),
-            dat(2, &[], false),
-            dat(3, &["No-Intro"], true),
+            dat(1, Some("No-Intro"), false),
+            dat(2, None, false),
+            dat(3, Some("No-Intro"), true),
             homebrew(4, Some("Atari")),
         ];
         let bulk = choose(Decision::Import, &items, &Choices::default());
-        assert_eq!(bulk.items, [1]);
+        assert_eq!(bulk.items, [1, 2]);
         let plan = request(Decision::Import, &bulk, &items, &Choices::default()).unwrap();
         assert_eq!(
-            (plan.action, plan.provider),
-            (IngestAction::DatImport, None)
+            (plan.action, plan.items),
+            (IngestAction::DatImport, vec![1, 2])
         );
-
-        let choices = Choices {
-            provider: " Mine ".into(),
-            ..Choices::default()
-        };
-        let bulk = choose(Decision::Import, &items, &choices);
-        assert_eq!(bulk.items, [1, 2]);
-        let plan = request(Decision::Import, &bulk, &items, &choices).unwrap();
-        assert_eq!(plan.provider.as_deref(), Some("Mine"));
     }
 
     #[test]

@@ -539,7 +539,7 @@ mod tests {
         let store = Store::open_with(dir.path(), current).unwrap();
         let blob = store.dir().join("dat.dat");
         std::fs::write(&blob, DAT).unwrap();
-        store.import_dat(&blob, "Test", None).unwrap();
+        store.import_dat(&blob, None).unwrap();
         drop(store);
         assert!(!dir.path().join(BACKUPS).exists());
 
@@ -1086,7 +1086,7 @@ mod tests {
             .dat_revisions()
             .unwrap()
             .into_iter()
-            .map(|r| (format!("{}/{}", r.provider, r.name), r.sha256))
+            .map(|r| (r.dat, r.sha256))
             .collect();
         let psx = |sha: &str| ("Redump/PSX".to_owned(), sha.to_owned());
         assert_eq!(

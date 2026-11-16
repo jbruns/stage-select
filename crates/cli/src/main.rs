@@ -192,13 +192,11 @@ struct ExportArgs {
 
 #[derive(Subcommand)]
 enum DatCommand {
-    /// Import an unmodified DAT file as a DAT revision. Importing the same bytes again changes nothing,
-    /// except to restore the file if the store had dropped it.
+    /// Import an unmodified DAT file as a DAT revision. Its name, provider, version and other details are read from
+    /// the file. Importing the same bytes again changes nothing, except to restore the file if the store had
+    /// dropped it.
     Import {
         file: PathBuf,
-        /// Who publishes the DAT, for example `No-Intro`.
-        #[arg(long)]
-        provider: String,
         /// Where the file was downloaded from.
         #[arg(long)]
         source_url: Option<String>,
@@ -581,15 +579,10 @@ fn run(cli: Cli) -> Result<(), String> {
             client::health(&url, std::time::Duration::from_secs(timeout))
         }
         Command::Dat {
-            command:
-                DatCommand::Import {
-                    file,
-                    provider,
-                    source_url,
-                },
+            command: DatCommand::Import { file, source_url },
         } => {
             let (revision, outcome) = open_store(store)?
-                .import_dat(&file, &provider, source_url.as_deref())
+                .import_dat(&file, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
             let what = match outcome {
                 ImportOutcome::Added => "imported",
@@ -598,10 +591,14 @@ fn run(cli: Cli) -> Result<(), String> {
             };
             println!(
                 "{}: DAT revision {} (version {}) {what}",
-                revision.dat(),
-                revision.sha256,
-                revision.version
+                revision.dat, revision.sha256, revision.version
             );
+            if revision.provider.is_none() {
+                println!(
+                    "Its header doesn't say which provider publishes it, so it is kept by its format and name as {}.",
+                    revision.dat
+                );
+            }
             Ok(())
         }
         Command::CuePack {

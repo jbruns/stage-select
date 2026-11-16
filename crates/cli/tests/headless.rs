@@ -36,7 +36,7 @@ impl Env {
         let store = fx.dat_dir.path().join("store");
         {
             let store = Store::open(&store).unwrap();
-            store.import_dat(&dat, "No-Intro", None).unwrap();
+            store.import_dat(&dat, None).unwrap();
             store
                 .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
                 .unwrap();

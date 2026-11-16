@@ -95,7 +95,7 @@ impl Env {
             "20260101-000000",
             &games(),
         );
-        let (revision, _) = store.import_dat(&dat, "No-Intro", None).unwrap();
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store
             .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
             .unwrap();
@@ -630,7 +630,7 @@ fn a_dat_revision_mismatch_and_an_unresolved_group_block_the_plan() {
         "20260102-000000",
         &newer,
     );
-    env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    env.store.import_dat(&dat, None).unwrap();
     env.audit();
     let mismatched = env.plan(&folder, id);
     assert_eq!(
@@ -961,7 +961,7 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
         "20260102-000000",
         &newer,
     );
-    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
         .audit_source_set(
@@ -3844,7 +3844,7 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
         "20260102-000000",
         &newer,
     );
-    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     env.store
         .audit_source_set(
             &env.config,
@@ -3912,7 +3912,7 @@ fn with_saga(env: &Env) -> String {
         "20260102-000000",
         &newer,
     );
-    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("Saga (USA) (Disc 1).a26"), b"saga u1");
     env.store
         .audit_source_set(
@@ -5871,7 +5871,7 @@ fn a_game_whose_roms_changed_is_replaced_not_converted_and_its_original_is_never
         "20260102-000000",
         &newer,
     );
-    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
         .audit_source_set(

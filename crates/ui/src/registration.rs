@@ -7,7 +7,12 @@ use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 /// The path `template` proposes for `dat`, or why it proposes none, as a sentence for the form.
 pub fn propose(template: &str, dat: &Dat) -> Result<String, String> {
     PathTemplate::parse(template)
-        .and_then(|t| t.render(&TokenValues::for_dat(&dat.provider, &dat.name)))
+        .and_then(|t| {
+            t.render(&TokenValues::for_provider(
+                dat.provider.as_deref(),
+                &dat.name,
+            ))
+        })
         .map_err(|e| sentence(&e.to_string()))
 }
 
@@ -47,7 +52,8 @@ mod tests {
     fn dat(provider: &str, name: &str) -> Dat {
         Dat {
             dat: format!("{provider}/{name}"),
-            provider: provider.into(),
+            format: title_select_api::DatFormat::Logiqx,
+            provider: Some(provider.into()),
             name: name.into(),
             revisions: Vec::new(),
         }

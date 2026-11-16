@@ -255,11 +255,10 @@ impl Client {
             .unwrap()
     }
 
-    fn upload(&self, provider: &str, file: &str, bytes: &[u8]) {
+    fn upload(&self, file: &str, bytes: &[u8]) {
         let boundary = "title-select-test-boundary";
         let mut body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"provider\"\r\n\r\n{provider}\r\n\
-             --{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file}\"\r\n\
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file}\"\r\n\
              Content-Type: application/xml\r\n\r\n"
         )
         .into_bytes();
@@ -361,11 +360,7 @@ fn every_event(env: &Env, hook: &Fake, notify: Value) -> (Handle, Client) {
     let provider = Fake::start(503, Duration::ZERO);
     let service = env.start(hook, notify, &provider);
     let client = Client::new(&service);
-    client.upload(
-        "No-Intro",
-        "Test - System (20260101).dat",
-        &env.dat("20260101"),
-    );
+    client.upload("Test - System (20260101).dat", &env.dat("20260101"));
     assert_eq!(
         client
             .register_and_audit(SET, "No-Intro/Test - System")
@@ -378,19 +373,15 @@ fn every_event(env: &Env, hook: &Fake, notify: Value) -> (Handle, Client) {
         json!({"follow": true}),
     );
     assert_eq!(status, 200);
-    client.upload(
-        "No-Intro",
-        "Test - System (20260201).dat",
-        &env.dat("20260201"),
-    );
+    client.upload("Test - System (20260201).dat", &env.dat("20260201"));
 
     let psx = br#"<?xml version="1.0"?>
 <datafile>
-  <header><name>Sony - PlayStation</name><version>1</version></header>
+  <header><name>Sony - PlayStation</name><version>1</version><homepage>redump.org</homepage></header>
   <game name="Game (USA)"><rom name="Game (USA).bin" size="4" crc="d87f7e0c"/></game>
 </datafile>
 "#;
-    client.upload("Redump", "Sony - PlayStation.dat", psx);
+    client.upload("Sony - PlayStation.dat", psx);
     client.register_and_audit("PSX", "Redump/Sony - PlayStation");
     let (status, _) = client.send("PUT", "/source-sets/PSX/follow", json!({"follow": true}));
     assert_eq!(status, 200);
@@ -568,11 +559,7 @@ fn a_failing_webhook_is_tried_three_times_then_dropped_and_jobs_run_on() {
     let provider = Fake::start(503, Duration::ZERO);
     let service = env.start(&hook, json!({"events": ["job.finished"]}), &provider);
     let client = Client::new(&service);
-    client.upload(
-        "No-Intro",
-        "Test - System (20260101).dat",
-        &env.dat("20260101"),
-    );
+    client.upload("Test - System (20260101).dat", &env.dat("20260101"));
     let started = Instant::now();
     assert_eq!(
         client
@@ -731,7 +718,7 @@ fn the_webhook_is_set_and_changed_without_a_restart_and_its_url_and_secret_are_n
         );
     }
 
-    client.upload("No-Intro", "Test - System (1).dat", &env.dat("1"));
+    client.upload("Test - System (1).dat", &env.dat("1"));
     hook.wait_for("the new DAT revision", |seen| seen.len() == 1);
 
     let (status, _) = client.send(
@@ -740,7 +727,7 @@ fn the_webhook_is_set_and_changed_without_a_restart_and_its_url_and_secret_are_n
         json!({"notify": {"url": "clear", "secret": "clear"}}),
     );
     assert_eq!(status, 200);
-    client.upload("No-Intro", "Test - System (2).dat", &env.dat("2"));
+    client.upload("Test - System (2).dat", &env.dat("2"));
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(hook.seen().len(), 1, "nothing is sent once it is cleared");
 }

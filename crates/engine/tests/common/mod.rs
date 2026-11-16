@@ -68,31 +68,61 @@ pub fn write_dat(dir: &Path, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
     write_dat_version(dir, "test.dat", "20260101-000000", games)
 }
 
-/// Writes a revision of the `Test - System` DAT, with its header `version`, to `dir/file`.
+/// Writes a No-Intro revision of the `Test - System` DAT, with its header `version`, to `dir/file`.
 pub fn write_dat_version(
     dir: &Path,
     file: &str,
     version: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
-    write_dat_full(dir, file, version, None, games)
+    write_dat_from(dir, file, version, "No-Intro", games)
 }
 
-/// Writes a DAT whose header names the Header Rule `rule` (`<clrmamepro header="…"/>`), as No-Intro's headerless
-/// DATs do.
+/// As [`write_dat_version`], with a header that names `provider` the way its DATs do: `No-Intro` and `Redump` are
+/// recognised, and any other provider leaves the header naming none.
+pub fn write_dat_from(
+    dir: &Path,
+    file: &str,
+    version: &str,
+    provider: &str,
+    games: &[(&str, Vec<RomSpec>)],
+) -> PathBuf {
+    write_dat_full(dir, file, version, provider, None, games)
+}
+
+/// Writes a No-Intro DAT whose header names the Header Rule `rule` (`<clrmamepro header="…"/>`), as No-Intro's
+/// headerless DATs do.
 pub fn write_dat_with_header(dir: &Path, rule: &str, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
-    write_dat_full(dir, "test.dat", "20260101-000000", Some(rule), games)
+    write_dat_with_header_from(dir, rule, "No-Intro", games)
+}
+
+/// As [`write_dat_with_header`], from `provider` as [`write_dat_from`] names it.
+pub fn write_dat_with_header_from(
+    dir: &Path,
+    rule: &str,
+    provider: &str,
+    games: &[(&str, Vec<RomSpec>)],
+) -> PathBuf {
+    write_dat_full(
+        dir,
+        "test.dat",
+        "20260101-000000",
+        provider,
+        Some(rule),
+        games,
+    )
 }
 
 /// Writes a DAT whose Games may each name a parent (`cloneof`), as MAME and No-Intro's parent/clone DATs do.
 pub fn write_dat_with_clones(dir: &Path, games: &[(&str, Option<&str>, Vec<RomSpec>)]) -> PathBuf {
-    write_dat_xml(dir, "test.dat", "20260101-000000", None, games)
+    write_dat_xml(dir, "test.dat", "20260101-000000", "No-Intro", None, games)
 }
 
 fn write_dat_full(
     dir: &Path,
     file: &str,
     version: &str,
+    provider: &str,
     rule: Option<&str>,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
@@ -100,26 +130,32 @@ fn write_dat_full(
         .iter()
         .map(|(game, roms)| (*game, None, roms.as_slice()))
         .collect();
-    write_dat_xml(dir, file, version, rule, &games)
+    write_dat_xml(dir, file, version, provider, rule, &games)
 }
 
 fn write_dat_xml<R: AsRef<[RomSpec]>>(
     dir: &Path,
     file: &str,
     version: &str,
+    provider: &str,
     rule: Option<&str>,
     games: &[(&str, Option<&str>, R)],
 ) -> PathBuf {
     let clrmamepro = rule
         .map(|r| format!("    <clrmamepro header=\"{r}\"/>\n"))
         .unwrap_or_default();
+    let homepage = match provider {
+        "No-Intro" => "    <homepage>No-Intro</homepage>\n",
+        "Redump" => "    <homepage>redump.org</homepage>\n",
+        _ => "",
+    };
     let mut xml = format!(
         r#"<?xml version="1.0"?>
 <datafile>
   <header>
     <name>Test - System</name>
     <version>{version}</version>
-{clrmamepro}  </header>
+{homepage}{clrmamepro}  </header>
 "#
     );
     for (game, parent, roms) in games {

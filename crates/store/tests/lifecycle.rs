@@ -25,7 +25,7 @@ use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
-const SYSTEM: &str = "Test/Test - System";
+const SYSTEM: &str = "No-Intro/Test - System";
 const PROFILE: &str = "Mine";
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -85,7 +85,7 @@ impl Env {
             )
             .unwrap();
         let dat = write_dat_version(&tmp.path().join("dats"), "test.dat", "1", &games());
-        let (revision, _) = store.import_dat(&dat, "Test", None).unwrap();
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
             .save_profile(
@@ -215,7 +215,6 @@ impl Env {
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
-                    provider: None,
                     additions: BTreeMap::from([(
                         id,
                         NewAddition {
@@ -963,7 +962,7 @@ fn forgetting_an_unregistered_source_set_purges_its_history_and_the_dat_revision
     env.audit();
     // A newer revision, so the one the Audit read is no longer the newest and only the Audit holds it.
     let dat = write_dat_version(&env.tmp.path().join("dats"), "test2.dat", "2", &games());
-    env.store.import_dat(&dat, "Test", None).unwrap();
+    env.store.import_dat(&dat, None).unwrap();
     let old = env.set_id();
     assert!(
         matches!(
@@ -1157,7 +1156,6 @@ fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out()
             &PlanIngest {
                 action: IngestAction::Discard,
                 items: vec![item],
-                provider: None,
                 additions: BTreeMap::new(),
             },
         )
@@ -1533,7 +1531,7 @@ fn a_rebound_library_folders_built_files_are_removed_whatever_its_old_source_set
     let mut newer = games();
     newer.push(("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]));
     let dat = write_dat_version(&env.tmp.path().join("dats"), "test-2.dat", "2", &newer);
-    let (revision, _) = env.store.import_dat(&dat, "Test", None).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     env.store
         .audit_source_set(
             &env.config,

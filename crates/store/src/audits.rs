@@ -1178,9 +1178,7 @@ pub(super) fn check_blob_present(revision: &DatRevisionRecord) -> Result<()> {
     }
     Err(Error::Refused(format!(
         "DAT revision {} of {} is no longer kept; import its file ({}) again to restore it",
-        revision.sha256,
-        revision.dat(),
-        revision.file
+        revision.sha256, revision.dat, revision.file
     )))
 }
 
@@ -1218,9 +1216,9 @@ mod tests {
                 "Operator",
             )
             .unwrap();
-        store.import_dat(&dat, "Test", None).unwrap();
+        store.import_dat(&dat, None).unwrap();
         store
-            .add_source_set(&config, "sets", "Test", "Test/Test")
+            .add_source_set(&config, "sets", "Test", "unknown-logiqx/Test")
             .unwrap();
 
         (tmp, store, config)

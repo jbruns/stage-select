@@ -29,7 +29,19 @@ fn write_named_dat(
     version: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
-    let path = write_dat_version(dir, file, version, games);
+    write_named_dat_from(dir, file, name, version, "No-Intro", games)
+}
+
+/// As [`write_named_dat`], from `provider` as [`write_dat_from`] names it.
+fn write_named_dat_from(
+    dir: &Path,
+    file: &str,
+    name: &str,
+    version: &str,
+    provider: &str,
+    games: &[(&str, Vec<RomSpec>)],
+) -> PathBuf {
+    let path = write_dat_from(dir, file, version, provider, games);
     let xml = std::fs::read_to_string(&path).unwrap().replace(
         "<name>Test - System</name>",
         &format!("<name>{name}</name>"),
@@ -103,13 +115,13 @@ impl Env {
         let dats = tmp.path().join("dats");
         let alpha = write_named_dat(&dats, "alpha.dat", "Alpha System", "1", &alpha_games());
         let beta = write_named_dat(&dats, "beta.dat", "Beta System", "1", &beta_games());
-        store.import_dat(&alpha, "Test", None).unwrap();
-        store.import_dat(&beta, "Test", None).unwrap();
+        store.import_dat(&alpha, None).unwrap();
+        store.import_dat(&beta, None).unwrap();
         store
-            .add_source_set(&config, "sets", "Alpha", "Test/Alpha System")
+            .add_source_set(&config, "sets", "Alpha", "No-Intro/Alpha System")
             .unwrap();
         store
-            .add_source_set(&config, "sets", "Beta", "Test/Beta System")
+            .add_source_set(&config, "sets", "Beta", "No-Intro/Beta System")
             .unwrap();
         write_file(&sets.join("Alpha/Pong (USA).a26"), b"pong");
         write_file(&sets.join("Alpha/Combat (USA).a26"), b"combat");
@@ -204,7 +216,6 @@ impl Env {
                 &PlanIngest {
                     action,
                     items: ids,
-                    provider: None,
                     additions: Default::default(),
                 },
             )
@@ -397,13 +408,13 @@ fn an_unmatched_item_is_a_candidate_addition_with_the_system_its_extension_sugge
     assert_eq!(
         proposal("mystery.a26"),
         Some(Proposal::Addition {
-            system: Some("Test/Alpha System".into())
+            system: Some("No-Intro/Alpha System".into())
         })
     );
     assert_eq!(
         proposal("mystery.bin"),
         Some(Proposal::Addition {
-            system: Some("Test/Beta System".into())
+            system: Some("No-Intro/Beta System".into())
         })
     );
     assert_eq!(
@@ -608,8 +619,9 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     assert_eq!(item.state, ItemState::Assessed);
     let dat = item.assessment.dat.clone().unwrap();
     assert_eq!(dat.name, "Alpha System");
-    assert_eq!(dat.providers, ["Test"]);
-    assert!(!dat.imported);
+    assert_eq!(dat.dat, "No-Intro/Alpha System");
+    assert_eq!(dat.provider.as_deref(), Some("No-Intro"));
+    assert!(dat.known && !dat.imported);
     assert_eq!(item.assessment.proposal, Some(Proposal::DatImport));
     let revisions = env.store.dat_revisions().unwrap().len();
 
@@ -667,8 +679,8 @@ fn a_dropped_in_dat_is_recognized_as_a_newer_revision_and_makes_the_following_so
         .dat
         .unwrap();
     assert_eq!(
-        (dat.name.as_str(), dat.providers.as_slice(), dat.imported),
-        ("Alpha System", &["Test".to_string()][..], false),
+        (dat.dat.as_str(), dat.known, dat.imported),
+        ("No-Intro/Alpha System", true, false),
         "recognized from its header, not its file name"
     );
 
@@ -735,7 +747,7 @@ fn an_older_dat_dropped_in_is_recorded_but_never_becomes_the_newest_revision() {
 }
 
 #[test]
-fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_for_the_rest() {
+fn a_dat_import_of_many_keeps_each_dat_under_the_provider_its_header_names_or_as_of_none() {
     let env = Env::new();
     write_named_dat(
         &env.dir("in"),
@@ -744,11 +756,12 @@ fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_f
         "2",
         &alpha_games(),
     );
-    write_named_dat(
+    write_named_dat_from(
         &env.dir("in"),
         "Homebrew.dat",
         "Homebrew",
         "1",
+        "Mine",
         &beta_games(),
     );
     env.scan();
@@ -763,25 +776,38 @@ fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_f
             &PlanIngest {
                 action: IngestAction::DatImport,
                 items: ids.to_vec(),
-                provider: Some("Mine".into()),
                 additions: Default::default(),
             },
         )
         .unwrap();
 
-    let mut providers: Vec<(&str, Option<&str>)> = plan
+    let mut dats: Vec<(&str, Option<&str>)> = plan
         .content
         .items
         .iter()
-        .map(|i| (i.name.as_str(), i.provider.as_deref()))
+        .map(|i| (i.name.as_str(), i.dat.as_deref()))
         .collect();
-    providers.sort();
+    dats.sort();
     assert_eq!(
-        providers,
+        dats,
         [
-            ("Alpha System (2).dat", Some("Test")),
-            ("Homebrew.dat", Some("Mine")),
+            ("Alpha System (2).dat", Some("No-Intro/Alpha System")),
+            ("Homebrew.dat", Some("unknown-logiqx/Homebrew")),
         ]
+    );
+    env.store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let homebrew = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.name == "Homebrew")
+        .unwrap();
+    assert_eq!(
+        (homebrew.dat.as_str(), homebrew.provider),
+        ("unknown-logiqx/Homebrew", None)
     );
 }
 
@@ -798,7 +824,6 @@ fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
         &PlanIngest {
             action: IngestAction::DatImport,
             items: vec![id],
-            provider: None,
             additions: Default::default(),
         },
     );
@@ -871,7 +896,6 @@ fn an_item_still_arriving_cannot_be_planned() {
         &PlanIngest {
             action: IngestAction::Discard,
             items: vec![item.id],
-            provider: None,
             additions: Default::default(),
         },
     );
@@ -889,7 +913,6 @@ fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
             &PlanIngest {
                 action,
                 items: vec![id],
-                provider: None,
                 additions: Default::default(),
             },
         )
@@ -980,7 +1003,6 @@ fn an_item_with_another_link_to_it_cannot_be_planned() {
         &PlanIngest {
             action: IngestAction::Discard,
             items: vec![id],
-            provider: None,
             additions: Default::default(),
         },
     );
@@ -1051,9 +1073,9 @@ fn a_games_zip_holding_a_rom_it_shares_with_other_games_is_that_games_zip() {
             ),
         ],
     );
-    env.store.import_dat(&dat, "Test", None).unwrap();
+    env.store.import_dat(&dat, None).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Gamma", "Test/Gamma System")
+        .add_source_set(&env.config, "sets", "Gamma", "No-Intro/Gamma System")
         .unwrap();
     env.store
         .audit_source_set(&env.config, "Gamma", None, AuditEvidence::Full)
@@ -1183,7 +1205,7 @@ fn an_owed_audit_holds_its_revisions_dat_until_its_job_does() {
     env.store
         .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
-    env.store.import_dat(&newest, "Test", None).unwrap();
+    env.store.import_dat(&newest, None).unwrap();
 
     env.store.retain_blobs().unwrap();
 

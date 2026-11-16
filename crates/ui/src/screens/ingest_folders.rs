@@ -70,10 +70,12 @@ fn evidence(a: &Assessment) -> AnyView {
     let dat = a.dat.as_ref().map(|d| {
         let imported = if d.imported {
             ", already imported".to_string()
-        } else if d.providers.is_empty() {
-            ", a DAT no source set uses yet".to_string()
+        } else if d.known {
+            format!(", a revision of {}", d.dat)
+        } else if d.provider.is_none() {
+            format!(", a DAT you don't have yet; its header doesn't say which provider publishes it, so it is kept as {}", d.dat)
         } else {
-            format!(", a newer revision of {}", d.providers.join(", "))
+            format!(", a DAT you don't have yet: {}", d.dat)
         };
         view! { <li>{format!("DAT {} version {}{imported}", d.name, d.version)}</li> }
     });
@@ -626,12 +628,10 @@ fn Items(
         )
     });
 
-    // What you chose to add items as, by id, and the provider to import DATs under.
+    // What you chose to add items as, by id.
     let edits = RwSignal::new(BTreeMap::<i64, NewAddition>::new());
-    let provider = RwSignal::new(String::new());
     let choices = move || Choices {
         additions: edits.get(),
-        provider: provider.get(),
     };
     let strip = Memo::new(move |_| ingest_model::strip(&all.get(), &choices()));
 
@@ -727,7 +727,6 @@ fn Items(
     let apply = Callback::new(move |(decision, asked): (Decision, Vec<IngestItem>)| {
         let choices = Choices {
             additions: edits.get_untracked(),
-            provider: provider.get_untracked(),
         };
         let bulk = ingest_model::choose(decision, &asked, &choices);
         said.set((bulk.left_out > 0).then(|| decision.left_out(bulk.left_out)));
@@ -815,7 +814,6 @@ fn Items(
         // Tracked, so the open item's detail offers a decision as soon as you fill in what it needs.
         let choices = Choices {
             additions: edits.get(),
-            provider: provider.get(),
         };
         for decision in Decision::ALL {
             if ingest_model::applies(decision, item, &choices) {
@@ -829,7 +827,7 @@ fn Items(
         }
         actions
     });
-    let detail = Callback::new(move |row: ItemRow| item_detail(row, edits, provider));
+    let detail = Callback::new(move |row: ItemRow| item_detail(row, edits));
 
     // The newest plan you approved that is still moving items, if any.
     let moving_plan = Memo::new(move |_| {
@@ -924,7 +922,7 @@ fn Items(
                 .into_any(),
                 None => view! {
                     <ActionPending action=decide status=deciding>
-                        <Strip strip only apply all provider show_only=Callback::new(show_only) />
+                        <Strip strip only apply all show_only=Callback::new(show_only) />
                     </ActionPending>
                     <p class="note" role="status">
                         {move || said.get()}
@@ -957,21 +955,8 @@ fn Strip(
     only: Memo<Option<IngestStatus>>,
     apply: Callback<(Decision, Vec<IngestItem>)>,
     all: Signal<Arc<Vec<IngestItem>>>,
-    provider: RwSignal<String>,
     show_only: Callback<Option<IngestStatus>>,
 ) -> impl IntoView {
-    // Whether a DAT waiting to be imported has no registered DAT naming its provider.
-    let needs_provider = Memo::new(move |_| {
-        all.with(|items| {
-            items.iter().any(|i| {
-                ingest_model::status(i) == Some(IngestStatus::DatFile)
-                    && i.assessment
-                        .dat
-                        .as_ref()
-                        .is_some_and(|d| !d.imported && d.providers.len() != 1)
-            })
-        })
-    });
     move || {
         let counts = strip.get();
         if counts.is_empty() {
@@ -1007,18 +992,6 @@ fn Strip(
                                 }
                             })
                             .collect_view();
-                        let provider_field = (status == IngestStatus::DatFile && needs_provider.get()).then(|| {
-                            view! {
-                                <label class="inline">
-                                    "Provider for DATs no source set uses yet "
-                                    <input
-                                        type="text"
-                                        prop:value=move || provider.get()
-                                        on:input=move |ev| provider.set(event_target_value(&ev))
-                                    />
-                                </label>
-                            }
-                        });
                         view! {
                             <li>
                                 <button
@@ -1035,7 +1008,6 @@ fn Strip(
                                     <span class="tally">{count.items}</span>
                                 </button>
                                 {decisions}
-                                {provider_field}
                             </li>
                         }
                     })
@@ -1046,11 +1018,7 @@ fn Strip(
     }
 }
 
-fn item_detail(
-    row: ItemRow,
-    edits: RwSignal<BTreeMap<i64, NewAddition>>,
-    provider: RwSignal<String>,
-) -> AnyView {
+fn item_detail(row: ItemRow, edits: RwSignal<BTreeMap<i64, NewAddition>>) -> AnyView {
     let item = row.item.clone();
     let id = item.id;
     let moving = ingest_model::moving(&item);
@@ -1104,25 +1072,6 @@ fn item_detail(
         }
         _ => None,
     };
-    let provider_field = item
-        .assessment
-        .dat
-        .as_ref()
-        .filter(|d| !d.imported && d.providers.len() != 1 && !moving)
-        .map(|_| {
-            view! {
-                <div class="form">
-                    <label>
-                        "Provider, for a DAT no source set uses yet"
-                        <input
-                            type="text"
-                            prop:value=move || provider.get()
-                            on:input=move |ev| provider.set(event_target_value(&ev))
-                        />
-                    </label>
-                </div>
-            }
-        });
     view! {
         <dl class="facts">
             <dt>"Status"</dt>
@@ -1155,7 +1104,6 @@ fn item_detail(
             })}
         </dl>
         {addable}
-        {provider_field}
     }
     .into_any()
 }

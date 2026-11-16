@@ -193,8 +193,15 @@ pub struct FoundDat {
     pub name: String,
     pub version: String,
     pub sha256: String,
-    /// The providers of registered DATs with this name.
-    pub providers: Vec<String>,
+    /// The DAT it is a revision of, as `<provider>/<name>`, read from the DAT itself.
+    #[serde(default)]
+    pub dat: String,
+    /// Its DAT Provider as its header signals it; absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Whether the store already has a revision of that DAT.
+    #[serde(default)]
+    pub known: bool,
     /// Whether this exact DAT Revision is already imported.
     pub imported: bool,
 }
@@ -326,10 +333,6 @@ impl IngestAction {
 pub struct PlanIngest {
     pub action: IngestAction,
     pub items: Vec<i64>,
-    /// For a DAT import: the provider to import a DAT under when no one registered DAT names its provider; a DAT
-    /// whose provider is known is imported under that.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
     /// For an Addition: its system, name and parent Game, by item.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub additions: BTreeMap<i64, NewAddition>,
@@ -361,9 +364,9 @@ pub struct IngestPlanItem {
     /// Where it goes, relative to the Ingest Folder.
     pub destination: String,
     pub reason: String,
-    /// For a DAT import: the provider it is imported under.
+    /// For a DAT import: the DAT it is imported as a revision of, as `<provider>/<name>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
+    pub dat: Option<String>,
     /// For an Addition: its system, name and parent Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<NewAddition>,

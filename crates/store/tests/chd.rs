@@ -137,8 +137,8 @@ impl Env {
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         let config = config_with(tmp.path(), chdman);
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &games());
-        let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
+        let dat = write_dat_from(&tmp.path().join("in"), "test.dat", "1", "Redump", &games());
+        let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
             .save_profile(

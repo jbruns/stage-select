@@ -3,6 +3,7 @@
 
 pub mod additions;
 pub mod build;
+pub mod dat;
 pub mod discs;
 pub mod fetch;
 pub mod ingest;
@@ -19,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+pub use dat::DatFormat;
 pub use report::*;
 
 /// The path every API route is under.
@@ -56,12 +58,18 @@ pub struct Root {
     pub ingest: bool,
 }
 
-/// A DAT, identified by its provider and header name, with its DAT Revisions, oldest first by header version.
+/// A DAT, identified by its recognised provider and native name, or by its DAT Format and name when its provider is
+/// unknown, with its DAT Revisions, oldest first by header version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dat {
-    /// `<provider>/<name>`.
+    /// `<provider>/<name>`; the provider part of a DAT whose provider is unknown is reserved for its format, such as
+    /// `unknown-logiqx`.
     pub dat: String,
-    pub provider: String,
+    /// Its newest revision's DAT Format.
+    pub format: DatFormat,
+    /// Its DAT Provider; absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub name: String,
     pub revisions: Vec<DatRevisionRecord>,
 }
@@ -71,23 +79,36 @@ pub struct Dat {
 pub struct DatRevisionRecord {
     /// SHA-256 of the unmodified DAT file; the DAT Revision's identity.
     pub sha256: String,
-    pub provider: String,
-    /// The DAT's header name.
+    /// The DAT this is a revision of, as `<provider>/<name>`.
+    pub dat: String,
+    pub format: DatFormat,
+    /// Its DAT Provider: the one a fetch took it from, else the one its header signals; absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// The DAT's native name: the header's, a software list's, or `MAME` for ListXML.
     pub name: String,
+    /// What the header claims, each absent when it doesn't say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    /// The header's `url`, apart from the [`source_url`](Self::source_url) it was downloaded from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_url: Option<String>,
+    /// The header's version, or ListXML's build; empty when it gives none.
     pub version: String,
+    /// The header's date, as written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
     /// The original filename.
     pub file: String,
     pub imported_at: String,
+    /// Where it was downloaded from, as you or a fetch said: provenance, not a claim of the header.
     pub source_url: Option<String>,
     /// Whether the unmodified file is kept in the store.
     pub blob_present: bool,
-}
-
-impl DatRevisionRecord {
-    /// The DAT this is a revision of, as `<provider>/<name>`.
-    pub fn dat(&self) -> String {
-        format!("{}/{}", self.provider, self.name)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -380,15 +380,18 @@ mod scans {
             .unwrap();
             let store = Store::open(&tmp.path().join("store")).unwrap();
             let dat = match header {
-                Some((rule, _)) => write_dat_with_header(&tmp.path().join("in"), rule, &games),
-                None => write_dat_version(
+                Some((rule, _)) => {
+                    write_dat_with_header_from(&tmp.path().join("in"), rule, provider, &games)
+                }
+                None => write_dat_from(
                     &tmp.path().join("in"),
                     "Test - System (1).dat",
                     "20260101-000000",
+                    provider,
                     &games,
                 ),
             };
-            let (revision, _) = store.import_dat(&dat, provider, None).unwrap();
+            let (revision, _) = store.import_dat(&dat, None).unwrap();
             let system = format!("{provider}/{SET}");
             store.add_source_set(&config, "sets", SET, &system).unwrap();
             if let Some(storage) = storage {

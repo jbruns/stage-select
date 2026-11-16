@@ -142,9 +142,9 @@ fn row_detail(row: IngestRow) -> AnyView {
             <dd><code>{item.destination.clone()}</code></dd>
             <dt>"Why"</dt>
             <dd>{item.reason.clone()}</dd>
-            {item.provider.clone().map(|p| view! {
-                <dt>"Provider"</dt>
-                <dd>{p}</dd>
+            {item.dat.clone().map(|d| view! {
+                <dt>"DAT"</dt>
+                <dd>{d}</dd>
             })}
             {item.addition.clone().map(|a| view! {
                 <dt>"Added as"</dt>

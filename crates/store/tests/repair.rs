@@ -47,7 +47,7 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
-        Env::with("Test", &alpha_games())
+        Env::with("No-Intro", &alpha_games())
     }
 
     /// Alpha and Gamma bound to the DAT of `games` from `provider`.
@@ -84,8 +84,8 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", games);
-        store.import_dat(&dat, provider, None).unwrap();
+        let dat = write_dat_from(&tmp.path().join("dats"), "alpha.dat", "1", provider, games);
+        store.import_dat(&dat, None).unwrap();
         let system = format!("{provider}/Test - System");
         store
             .add_source_set(&config, "sets", "Alpha", &system)
@@ -2476,7 +2476,7 @@ fn a_systems_own_format_beats_the_default() {
     let mut policy = env.store.storage_policy().unwrap();
     policy.source_sets.format = StorageFormat::Loose;
     policy.source_sets.systems.insert(
-        "Test/Test - System".into(),
+        "No-Intro/Test - System".into(),
         SystemStorage {
             format: Some(StorageFormat::TorrentZip),
             delete_originals: None,
@@ -4164,7 +4164,7 @@ fn missing_games_are_filled_from_7z_ingest_items_of_every_method_solid_or_not_in
             (*game, roms)
         })
         .collect();
-    let env = Env::with("Test", &games);
+    let env = Env::with("No-Intro", &games);
     env.audit(AuditEvidence::Full);
     for (method, solid, game, tracks) in &discs {
         let members: Vec<(String, &[u8])> = tracks
