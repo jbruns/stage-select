@@ -423,13 +423,14 @@ async fn make_selection(
         Err(ErrorBody {
             error,
             job: Some(job),
+            ..
         }) => match api::get::<Job>(&format!("/jobs/{job}")).await {
             Ok(j) if j.kind == JobKind::Selection => wait(job).await,
             _ => Err(format!("Couldn't make a fresh selection: {error}")),
         },
-        Err(ErrorBody { error, job: None }) => {
-            Err(format!("Couldn't make a fresh selection: {error}"))
-        }
+        Err(ErrorBody {
+            error, job: None, ..
+        }) => Err(format!("Couldn't make a fresh selection: {error}")),
     }
 }
 

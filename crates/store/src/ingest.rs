@@ -798,7 +798,7 @@ fn found_dat(c: &Connection, read: &ReadDat, sha256: &str) -> Result<FoundDat> {
     let known = crate::dats::find_dat(c, &provider, &read.name)?.is_some();
     let imported = c
         .query_row(
-            "SELECT 1 FROM dat_revisions WHERE sha256 = ?1",
+            "SELECT 1 FROM dat_revisions WHERE sha256 = ?1 AND deleted_at IS NULL",
             [sha256],
             |_| Ok(()),
         )
@@ -2053,8 +2053,8 @@ impl Store {
                 crate::dats::would_be_newest(tx, provider, &name, &parsed.version, &parsed.date)?;
             let newer: bool = newest && tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-                                WHERE d.provider = ?1 AND d.name = ?2)
-                 AND NOT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?3)",
+                                WHERE d.provider = ?1 AND d.name = ?2 AND r.deleted_at IS NULL)
+                 AND NOT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?3 AND deleted_at IS NULL)",
                 params![provider, name, sha],
                 |r| r.get(0),
             )?;
@@ -2153,7 +2153,7 @@ impl Store {
                 "SELECT a.id, s.name, a.sha256, a.actor, a.readers, a.hashers
                  FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
                  WHERE a.fulfilled_at IS NULL
-                   AND EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = a.sha256)
+                   AND EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = a.sha256 AND r.deleted_at IS NULL)
                  ORDER BY a.id",
             )?;
             Ok(stmt
@@ -2219,7 +2219,8 @@ impl Store {
                 "UPDATE ingest_reaudits SET fulfilled_at = ?1,
                      error = 'the service stopped before the import, and it was not imported'
                  WHERE fulfilled_at IS NULL
-                   AND NOT EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = ingest_reaudits.sha256)
+                   AND NOT EXISTS (SELECT 1 FROM dat_revisions r
+                                   WHERE r.sha256 = ingest_reaudits.sha256 AND r.deleted_at IS NULL)
                    AND EXISTS (SELECT 1 FROM ingest_plans p
                                WHERE p.id = ingest_reaudits.plan_id AND p.finished_at IS NOT NULL)",
                 [now()],

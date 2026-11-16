@@ -30,6 +30,7 @@ async fn refused(response: Response) -> Result<Response, ErrorBody> {
         Err(_) => Err(ErrorBody {
             error: format!("The service answered {status}."),
             job: None,
+            blockers: None,
         }),
     }
 }
@@ -65,7 +66,11 @@ pub async fn post_refusable<B: Serialize, T: DeserializeOwned>(
     path: &str,
     body: &B,
 ) -> Result<T, ErrorBody> {
-    let plain = |error: String| ErrorBody { error, job: None };
+    let plain = |error: String| ErrorBody {
+        error,
+        job: None,
+        blockers: None,
+    };
     let request = Request::post(&url(path))
         .json(body)
         .map_err(|e| plain(e.to_string()))?;

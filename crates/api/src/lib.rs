@@ -42,6 +42,9 @@ pub struct ErrorBody {
     /// The Job a refusal names, such as the active Job of a Source Set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<i64>,
+    /// What stops a DAT Revision from being deleted, when that is why the request was refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Vec<DeletionBlocker>>,
 }
 
 /// A Root the Operator configured.
@@ -109,6 +112,132 @@ pub struct DatRevisionRecord {
     pub source_url: Option<String>,
     /// Whether the unmodified file is kept in the store.
     pub blob_present: bool,
+    /// What stops you deleting it, as the catalogue lists it (`/dats`, `/dat-revisions`); empty when you can delete
+    /// it. Absent where a record names a revision for another purpose, such as an audit's report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Vec<DeletionBlocker>>,
+}
+
+/// What still depends on a DAT Revision, so that it can't be deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeletionBlockerKind {
+    /// A registered Source Set uses its DAT: it blocks every revision of the DAT.
+    SourceSet,
+    /// A registered Additions Set belongs to its DAT.
+    AdditionsSet,
+    /// An Audit that isn't pruned, finished or running, uses it.
+    Audit,
+    /// A Selection that isn't pruned was made against it.
+    Selection,
+    /// A Change Plan not yet carried out or superseded rests on an Audit or Selection of it.
+    ChangePlan,
+    /// A Build of it is running, needs recovery, or is a Library Folder's current Build.
+    Build,
+    /// A file in a registered Library Folder was built from it.
+    BuiltFile,
+    /// A kept file, set aside from a registered Library Folder and not yet settled, was built from it.
+    KeptFile,
+    /// A Job against it is queued or running.
+    Job,
+    /// A DAT import from an Ingest Folder still owes an Audit against it.
+    IngestReaudit,
+}
+
+/// One kind of thing that still depends on a DAT Revision: how many, and what names them where that helps you act
+/// (source sets, folders).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeletionBlocker {
+    pub kind: DeletionBlockerKind,
+    pub count: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub names: Vec<String>,
+}
+
+impl DeletionBlocker {
+    /// Why it blocks, in one clause for you to read.
+    pub fn describe(&self) -> String {
+        let n = self.count;
+        let plural = |one: &str, many: &str| {
+            if n == 1 {
+                format!("1 {one}")
+            } else {
+                format!("{n} {many}")
+            }
+        };
+        let of = if self.names.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", self.names.join(", "))
+        };
+        match self.kind {
+            DeletionBlockerKind::SourceSet => format!(
+                "{} {} its DAT{of}",
+                plural("source set", "source sets"),
+                if n == 1 { "uses" } else { "use" }
+            ),
+            DeletionBlockerKind::AdditionsSet => {
+                format!("its DAT has an additions set{of}")
+            }
+            DeletionBlockerKind::Audit => format!(
+                "{} that {} pruned {} it{of}",
+                plural("audit", "audits"),
+                if n == 1 { "isn't" } else { "aren't" },
+                if n == 1 { "uses" } else { "use" }
+            ),
+            DeletionBlockerKind::Selection => format!(
+                "{} that {} pruned {} made against it{of}",
+                plural("selection", "selections"),
+                if n == 1 { "isn't" } else { "aren't" },
+                if n == 1 { "was" } else { "were" }
+            ),
+            DeletionBlockerKind::ChangePlan => format!(
+                "{} {} on it{of}",
+                plural("open plan", "open plans"),
+                if n == 1 { "rests" } else { "rest" }
+            ),
+            DeletionBlockerKind::Build => format!(
+                "{} from it {}{of}",
+                plural("build", "builds"),
+                if n == 1 {
+                    "is running, awaits recovery or is current"
+                } else {
+                    "are running, await recovery or are current"
+                }
+            ),
+            DeletionBlockerKind::BuiltFile => format!(
+                "{} in your play library {} built from it{of}",
+                plural("file", "files"),
+                if n == 1 { "was" } else { "were" }
+            ),
+            DeletionBlockerKind::KeptFile => format!(
+                "{} built from it {} still set aside{of}",
+                plural("kept file", "kept files"),
+                if n == 1 { "is" } else { "are" }
+            ),
+            DeletionBlockerKind::Job => format!(
+                "{} against it {} queued or running",
+                plural("job", "jobs"),
+                if n == 1 { "is" } else { "are" }
+            ),
+            DeletionBlockerKind::IngestReaudit => format!(
+                "a DAT import from an ingest folder still owes {}{of}",
+                plural("audit", "audits")
+            ),
+        }
+    }
+}
+
+/// What deleting a DAT Revision did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeletedDatRevision {
+    pub sha256: String,
+    /// Its DAT, as `<provider>/<name>`.
+    pub dat: String,
+    /// Whether its file was still kept, and so was deleted with it.
+    pub blob_deleted: bool,
+    /// Whether it was its DAT's last catalogued revision, so the DAT left the catalogue.
+    pub dat_removed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -327,6 +327,26 @@ fn latest(
     .optional()?)
 }
 
+/// The release the latest successful fetch of one system's DAT brought, while the DAT Revision it brought is still
+/// catalogued: once that revision is deleted, its release no longer counts as fetched (ADR 0003), though the fetch
+/// stays in the history and still paces the next request.
+fn release_catalogued(
+    c: &Connection,
+    provider: FetchProvider,
+    system: &str,
+) -> Result<Option<String>> {
+    Ok(c.query_row(
+        "SELECT f.release, r.deleted_at IS NULL FROM fetches f
+         LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
+         WHERE f.provider = ?1 AND f.system = ?2 AND f.artifact = ?3 AND f.outcome IN ('added', 'unchanged')
+         ORDER BY f.id DESC LIMIT 1",
+        params![provider.as_str(), system, FetchArtifact::Dat.as_str()],
+        |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<bool>>(1)?)),
+    )
+    .optional()?
+    .and_then(|(release, catalogued)| release.filter(|_| catalogued == Some(true))))
+}
+
 /// When the next request for one system's artifact may be sent, if not now.
 fn next_at(
     c: &Connection,
@@ -580,9 +600,10 @@ impl Store {
                     Some((tag, asset)) => {
                         let mut steps = Vec::new();
                         for (system, followed) in systems {
-                            let current = self
-                                .read(|c| latest(c, provider, &system, FetchArtifact::Dat, true))?
-                                .is_some_and(|(a, _)| a.release.as_deref() == Some(tag.as_str()));
+                            let current = self.read(|c| {
+                                Ok(release_catalogued(c, provider, &system)?.as_deref()
+                                    == Some(tag.as_str()))
+                            })?;
                             if current {
                                 continue;
                             }

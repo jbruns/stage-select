@@ -201,6 +201,14 @@ enum DatCommand {
         #[arg(long)]
         source_url: Option<String>,
     },
+    /// Delete a DAT revision nothing depends on: it leaves the list of DAT revisions and the store deletes its copy
+    /// of the DAT file. No game file is touched. Refused, saying why and changing nothing, while a registered source
+    /// set uses its DAT, or an audit, selection, plan, build, file or job still does. Importing the same file again
+    /// adds it back.
+    Delete {
+        /// The DAT revision's SHA-256.
+        sha256: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -597,6 +605,21 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!(
                     "Its header doesn't say which provider publishes it, so it is kept by its format and name as {}.",
                     revision.dat
+                );
+            }
+            Ok(())
+        }
+        Command::Dat {
+            command: DatCommand::Delete { sha256 },
+        } => {
+            let deleted = open_store(store)?
+                .delete_dat_revision(&sha256)
+                .map_err(|e| e.to_string())?;
+            println!("{}: DAT revision {} deleted", deleted.dat, deleted.sha256);
+            if deleted.dat_removed {
+                println!(
+                    "It was the last revision of {}, so the DAT is no longer listed.",
+                    deleted.dat
                 );
             }
             Ok(())

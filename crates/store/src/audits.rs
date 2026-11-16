@@ -364,7 +364,8 @@ pub(super) fn choose_revision(
             )));
         }
         let mut stmt = c.prepare(&format!(
-            "{base} WHERE r.dat_id = ?1 AND substr(r.sha256, 1, length(?2)) = ?2 ORDER BY r.id"
+            "{base} WHERE r.dat_id = ?1 AND r.deleted_at IS NULL AND substr(r.sha256, 1, length(?2)) = ?2
+             ORDER BY r.id"
         ))?;
         let mut found = stmt
             .query_map(params![set.dat_id, prefix], revision_from_row)?
@@ -394,7 +395,9 @@ pub(super) fn choose_revision(
         return Ok(found);
     }
     c.query_row(
-        &format!("{base} WHERE r.dat_id = ?1 ORDER BY r.header_order DESC LIMIT 1"),
+        &format!(
+            "{base} WHERE r.dat_id = ?1 AND r.deleted_at IS NULL ORDER BY r.header_order DESC LIMIT 1"
+        ),
         [set.dat_id],
         revision_from_row,
     )

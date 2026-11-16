@@ -6,8 +6,8 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use title_select_api::{
-    AuditSummary, CuePackImport, CuePackRecord, Dat, DatRevisionRecord, ImportOutcome,
-    ImportedDatRevision, SourceSetRecord,
+    AuditSummary, CuePackImport, CuePackRecord, Dat, DatRevisionRecord, DeletedDatRevision,
+    DeletionBlocker, DeletionBlockerKind, ImportOutcome, ImportedDatRevision, SourceSetRecord,
 };
 
 use crate::api;
@@ -38,6 +38,8 @@ struct RevisionItem {
     cue_packs: Vec<CuePackRecord>,
     /// The Source Sets bound to its DAT, by name.
     source_sets: Vec<String>,
+    /// How many revisions its DAT has, this one included.
+    revision_count: usize,
 }
 
 impl RevisionItem {
@@ -210,8 +212,12 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
     }
     Ok(dats
         .into_iter()
-        .flat_map(|dat| dat.revisions.into_iter().rev())
-        .map(|revision| RevisionItem {
+        .flat_map(|dat| {
+            let count = dat.revisions.len();
+            dat.revisions.into_iter().rev().map(move |r| (r, count))
+        })
+        .map(|(revision, revision_count)| RevisionItem {
+            revision_count,
             used_by: used_by.remove(&revision.sha256).unwrap_or_default(),
             cue_packs: packs
                 .iter()
@@ -227,8 +233,9 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
         .collect())
 }
 
-/// The actions on one DAT Revision: open its newest Audit, then its other Audits.
-fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
+/// The actions on one DAT Revision: open its newest Audit, download its kept file, open its other Audits, then delete
+/// it, which `ask_delete` asks you to confirm.
+fn revision_actions(item: &RevisionItem, ask_delete: Callback<RevisionItem>) -> Vec<RowAction> {
     let audits = item.audits_newest_first();
     let mut actions = Vec::new();
     if let Some(latest) = audits.first() {
@@ -246,6 +253,12 @@ fn revision_actions(item: &RevisionItem) -> Vec<RowAction> {
             format!("/audits/{}", u.audit),
         )
     }));
+    let target = item.clone();
+    actions.push(RowAction::destructive(
+        Glyph::Trash2,
+        "Delete revision",
+        move || ask_delete.run(target.clone()),
+    ));
     actions
 }
 
@@ -307,6 +320,12 @@ pub fn DatRevisions() -> impl IntoView {
         Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
     let importing = RwSignal::new(false);
     let importing_cues = RwSignal::new(false);
+    let deleting = RwSignal::new(None::<RevisionItem>);
+    let confirming = RwSignal::new(false);
+    let ask_delete = Callback::new(move |item: RevisionItem| {
+        deleting.set(Some(item));
+        confirming.set(true);
+    });
     let actions = vec![
         ToolAction::page(Glyph::Upload, "Import", move || importing.set(true)),
         ToolAction::page(Glyph::Upload, "Import cue pack", move || {
@@ -334,7 +353,7 @@ pub fn DatRevisions() -> impl IntoView {
             empty="No DAT revisions yet. Choose Import to add a DAT."
             placeholder="Filter by DAT, provider, version or file"
             actions
-            row_actions=Callback::new(|item: RevisionItem| revision_actions(&item))
+            row_actions=Callback::new(move |item: RevisionItem| revision_actions(&item, ask_delete))
             detail=Callback::new(revision_detail)
             legend=move || view! { <Legend statuses list="dat-revisions" /> }
         />
@@ -345,6 +364,145 @@ pub fn DatRevisions() -> impl IntoView {
         <Drawer open=importing_cues title="Import a cue pack">
             <CuePackUpload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
         </Drawer>
+        <Drawer open=confirming title="Delete revision">
+            {move || {
+                deleting
+                    .get()
+                    .map(|item| {
+                        view! {
+                            <DeleteRevision
+                                item
+                                on_done=Callback::new(move |_| uploaded.update(|n| *n += 1))
+                            />
+                        }
+                    })
+            }}
+        </Drawer>
+    }
+}
+
+/// What you're told deleting a DAT Revision does, before you confirm.
+fn deletion_consequences(item: &RevisionItem) -> String {
+    let r = &item.revision;
+    let last = if item.revision_count <= 1 {
+        format!(
+            " It's the last revision of {}, so the DAT leaves this list too.",
+            r.dat
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "Delete {}? It leaves this list and the store deletes its copy of the DAT file. No game file is \
+         touched.{last} Importing the same file again adds it back.",
+        item.title()
+    )
+}
+
+/// Deleting a DAT Revision after you confirm, or why you can't yet.
+#[component]
+fn DeleteRevision(item: RevisionItem, on_done: Callback<()>) -> impl IntoView {
+    let said = RwSignal::new(None::<String>);
+    let problem = RwSignal::new(None::<String>);
+    let sha = item.revision.sha256.clone();
+    let delete = Action::new_local(move |_: &()| {
+        let sha = sha.clone();
+        async move { api::delete::<DeletedDatRevision>(&format!("/dat-revisions/{sha}")).await }
+    });
+    Effect::new(move || match delete.value().get() {
+        Some(Ok(d)) => {
+            let removed = if d.dat_removed {
+                format!(
+                    " {} has no revisions left, so it's gone from this list.",
+                    d.dat
+                )
+            } else {
+                String::new()
+            };
+            said.set(Some(format!("Deleted the revision.{removed}")));
+            on_done.run(());
+        }
+        Some(Err(message)) => problem.set(Some(message)),
+        None => {}
+    });
+    let blockers = item.revision.blockers.clone().unwrap_or_default();
+    let explain = deletion_consequences(&item);
+    view! {
+        <section aria-label="Delete revision">
+            {if blockers.is_empty() {
+                view! {
+                    <p>{explain}</p>
+                    <div class="form">
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled=move || delete.pending().get() || said.with(Option::is_some)
+                            on:click=move |_| {
+                                delete.dispatch_local(());
+                            }
+                        >
+                            "Delete revision"
+                        </button>
+                    </div>
+                }
+                    .into_any()
+            } else {
+                view! {
+                    <p>"You can't delete it yet. Nothing was changed."</p>
+                    <Blockers blockers />
+                }
+                    .into_any()
+            }}
+            <p class="done" role="status">{move || said.get()}</p>
+            {move || problem.get().map(|message| view! { <Problem message /> })}
+        </section>
+    }
+}
+
+/// What still depends on a DAT Revision, each a line, the source sets using its DAT linked.
+#[component]
+fn Blockers(blockers: Vec<DeletionBlocker>) -> impl IntoView {
+    view! {
+        <ul>
+            {blockers
+                .into_iter()
+                .map(|b| {
+                    if b.kind == DeletionBlockerKind::SourceSet {
+                        let (lead, then) = if b.count == 1 {
+                            ("A source set uses its DAT: ", ". Unregister it to delete this revision.")
+                        } else {
+                            ("Source sets use its DAT: ", ". Unregister them to delete this revision.")
+                        };
+                        let n = b.names.len();
+                        let links = b
+                            .names
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, name)| {
+                                let href = format!("/source-sets/{}", api::segment(&name));
+                                view! {
+                                    <A href=href>{name}</A>
+                                    {(i + 1 < n).then_some(", ")}
+                                }
+                            })
+                            .collect_view();
+                        view! { <li>{lead}{links}{then}</li> }
+                            .into_any()
+                    } else {
+                        view! { <li>{sentence(&b.describe())}</li> }.into_any()
+                    }
+                })
+                .collect_view()}
+        </ul>
+    }
+}
+
+/// `clause` as a sentence: its first letter capitalized, ending in a full stop.
+fn sentence(clause: &str) -> String {
+    let mut chars = clause.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}.", first.to_uppercase(), chars.as_str()),
+        None => String::new(),
     }
 }
 
@@ -533,6 +691,21 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                         .into_any()
                 }}
             </dd>
+            {r
+                .blockers
+                .clone()
+                .map(|blockers| {
+                    view! {
+                        <dt>"Deletion"</dt>
+                        <dd>
+                            {if blockers.is_empty() {
+                                view! { "Nothing depends on it, so you can delete it" }.into_any()
+                            } else {
+                                view! { <Blockers blockers /> }.into_any()
+                            }}
+                        </dd>
+                    }
+                })}
             <dt>"Cue packs"</dt>
             <dd>
                 {if item.cue_packs.is_empty() {
@@ -658,10 +831,12 @@ mod tests {
                 imported_at: "2026-11-01T10:00:00Z".into(),
                 source_url: None,
                 blob_present: true,
+                blockers: None,
             },
             used_by: Vec::new(),
             cue_packs: Vec::new(),
             source_sets: Vec::new(),
+            revision_count: 1,
         }
     }
 
@@ -731,6 +906,26 @@ mod tests {
     }
 
     #[test]
+    fn confirming_a_deletion_says_when_the_dat_leaves_with_its_last_revision() {
+        let mut item = revision("Homebrew", Some("Mine"), "2", None);
+        let last = deletion_consequences(&item);
+        assert!(last.starts_with("Delete Homebrew 2?"), "{last}");
+        assert!(last.contains("last revision of Mine/Homebrew"), "{last}");
+        assert!(last.contains("No game file is touched"), "{last}");
+        item.revision_count = 2;
+        assert!(!deletion_consequences(&item).contains("last revision"));
+    }
+
+    #[test]
+    fn a_blocker_reads_as_a_sentence() {
+        assert_eq!(sentence("1 job is queued"), "1 job is queued.");
+        assert_eq!(
+            sentence("its DAT has an additions set"),
+            "Its DAT has an additions set."
+        );
+    }
+
+    #[test]
     fn the_source_sets_using_a_dat_are_those_bound_to_it() {
         let sets = [
             ("gb", "No-Intro/Nintendo - Game Boy"),
@@ -761,14 +956,15 @@ mod tests {
                 pruned: false,
             },
         ];
-        let actions = revision_actions(&item);
+        let actions = revision_actions(&item, Callback::new(|_| {}));
         let labels: Vec<&str> = actions.iter().map(|a| a.label.as_str()).collect();
         assert_eq!(
             labels,
             [
                 "Open its latest audit, #7",
                 "Download DAT",
-                "Open audit #3 of gb"
+                "Open audit #3 of gb",
+                "Delete revision"
             ]
         );
         assert!(
@@ -777,7 +973,7 @@ mod tests {
         );
 
         item.revision.blob_present = false;
-        let actions = revision_actions(&item);
+        let actions = revision_actions(&item, Callback::new(|_| {}));
         assert_eq!(actions[1].label, "Can't download DAT: its file was deleted");
         assert!(matches!(
             actions[1].act,

@@ -10,7 +10,7 @@ use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post, put};
+use axum::routing::{any, delete, get, post, put};
 use axum::{Extension, Json, Router, middleware};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -94,6 +94,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
                 .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
         .route("/dat-revisions/{sha256}/file", get(dat_file))
+        .route("/dat-revisions/{sha256}", delete(delete_dat_revision))
         .route(
             "/cue-packs",
             get(cue_packs)
@@ -285,7 +286,15 @@ const WORKBENCH_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-
     frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 pub fn error_response(status: StatusCode, error: String, job: Option<i64>) -> Response {
-    (status, Json(ErrorBody { error, job })).into_response()
+    (
+        status,
+        Json(ErrorBody {
+            error,
+            job,
+            blockers: None,
+        }),
+    )
+        .into_response()
 }
 
 /// An error response with an [`ErrorBody`].
@@ -308,7 +317,7 @@ impl From<Error> for ApiError {
         let status = match &err {
             Error::NotFound(_) => StatusCode::NOT_FOUND,
             Error::Refused(_) => StatusCode::BAD_REQUEST,
-            Error::Conflict(_) => StatusCode::CONFLICT,
+            Error::Conflict(_) | Error::RevisionInUse { .. } => StatusCode::CONFLICT,
             Error::JobActive { job, .. } => {
                 return ApiError(StatusCode::CONFLICT, err.to_string(), Some(*job));
             }
@@ -427,6 +436,33 @@ async fn dat_revisions(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<title_select_api::DatRevisionRecord>>> {
     Ok(Json(blocking(&state, Store::dat_revisions).await?))
+}
+
+/// Deletes the DAT Revision `sha256` if nothing depends on it (ADR 0003). Refused with 409, changing nothing, while
+/// anything does; the body's `blockers` say what.
+async fn delete_dat_revision(
+    State(state): State<AppState>,
+    sha256: Result<Path<String>, PathRejection>,
+) -> Response {
+    let Path(sha256) = match sha256 {
+        Ok(path) => path,
+        Err(err) => return ApiError::from(err).into_response(),
+    };
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.delete_dat_revision(&sha256)).await {
+        Ok(Ok(deleted)) => Json(deleted).into_response(),
+        Ok(Err(Error::RevisionInUse { message, blockers })) => (
+            StatusCode::CONFLICT,
+            Json(ErrorBody {
+                error: message,
+                job: None,
+                blockers: Some(blockers),
+            }),
+        )
+            .into_response(),
+        Ok(Err(err)) => ApiError::from(err).into_response(),
+        Err(err) => error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string(), None),
+    }
 }
 
 /// A multipart form: an optional `source_url`, and the DAT as `file`, with its original filename. What the DAT is,
