@@ -52,7 +52,7 @@ README's Operator sections (configuration, Service, headless use, the workbench)
   "play library". Proper nouns and acronyms (DAT, ZIP, SHA-256) keep their case.
 - Never call a feature, button or setting "Retool": say "selection", "defaults", "reset to defaults". The workbench's
   About page is the one place that names Retool, to acknowledge where selection comes from.
-- Follow the Voice section of `docs/brand-kit/title-select-style-guide.md`: name the action, explain the result, make
+- Follow the Voice section of `docs/brand-kit/stage-select-style-guide.md`: name the action, explain the result, make
   uncertainty visible.
 
 Machine-readable output (JSON fields and values, API paths, enum names, report schemas) is not text: it doesn't change

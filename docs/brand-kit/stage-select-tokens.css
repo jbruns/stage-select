@@ -1,0 +1,107 @@
+/* Stage Select v2.0: one blue family in both themes, legible working views. Each semantic colour is
+   light-dark(light, dark); the style guide lists the measured contrast of every pairing. */
+:root {
+  color-scheme: light dark;
+
+  /* The identity's colours. */
+  --stage-select-night: #0b1026;
+  --stage-select-deck: #141b3d;
+  --stage-select-deck-raised: #1c2550;
+  --stage-select-cobalt: #2f62f0;
+  --stage-select-deep-cobalt: #1847d1;
+  --stage-select-light-cobalt: #8fb0ff;
+  --stage-select-sky: #3cc8f0;
+  --stage-select-yellow: #f8d038;
+  --stage-select-frost: #eef2fa;
+  --stage-select-white: #ffffff;
+  --stage-select-mist: #a4aed0;
+  --stage-select-slate: #4a5578;
+
+  /* The emblem's fixed colour map; these are not product state tokens. */
+  --emblem-cell: var(--stage-select-cobalt);
+  --emblem-chosen: var(--stage-select-yellow);
+  --emblem-brackets: var(--stage-select-sky);
+  --emblem-plaque: light-dark(var(--stage-select-night), var(--stage-select-deck));
+
+  /* Surfaces and text. */
+  --color-canvas: light-dark(var(--stage-select-frost), var(--stage-select-night));
+  --color-surface: light-dark(var(--stage-select-white), var(--stage-select-deck));
+  --color-surface-subtle: light-dark(#dde3f2, var(--stage-select-deck-raised));
+  --color-text: light-dark(var(--stage-select-night), #e8ecfa);
+  --color-text-secondary: light-dark(var(--stage-select-slate), var(--stage-select-mist));
+  --color-divider: light-dark(#c5cde2, #2b376b);
+  --color-control-border: light-dark(#5c6788, #8089b0);
+
+  /* Actions. Text and links use --color-action; a primary button is --color-on-action on --color-action-fill. */
+  --color-action: light-dark(var(--stage-select-deep-cobalt), var(--stage-select-light-cobalt));
+  --color-action-fill: light-dark(var(--stage-select-deep-cobalt), var(--stage-select-cobalt));
+  --color-action-fill-hover: light-dark(#1238a8, #2452d6);
+  --color-on-action: var(--stage-select-white);
+
+  /* Interaction states: each has its own look (style guide, "Interaction states"). */
+  --color-hover: light-dark(#e9eef8, var(--stage-select-deck-raised));
+  --color-checked: light-dark(#dce6ff, #1b2f78);
+  --color-cursor: light-dark(var(--stage-select-deep-cobalt), var(--stage-select-sky));
+  --color-focus: var(--color-cursor);
+  --color-open-edge: var(--color-cursor);
+  --color-current-edge: var(--color-cursor);
+
+  /* Status tones: unchanged from v1.1, tested on every surface above. */
+  --color-verified: light-dark(#237047, #6fcf97);
+  --color-review: light-dark(#805800, #e3b341);
+  --color-failed: light-dark(#a42826, #ff8f85);
+  --tone-good: var(--color-verified);
+  --tone-review: var(--color-review);
+  --tone-failed: var(--color-failed);
+  --tone-active: light-dark(var(--stage-select-deep-cobalt), var(--stage-select-sky));
+  --tone-neutral: var(--color-text-secondary);
+
+  /* Type. Font files are not in the kit; serve them with the product, never from another origin. */
+  --font-display: "Chakra Petch", "Arial Narrow", Arial, sans-serif;
+  --font-display-weight: 700;
+  --font-ui: "IBM Plex Sans", Arial, sans-serif;
+  --font-data: "IBM Plex Mono", "Courier New", monospace;
+  --type-page: 2rem;
+  --line-page: 2.375rem;
+  --type-section: 1.25rem;
+  --line-section: 1.625rem;
+  --type-body: .875rem;
+  --line-body: 1.25rem;
+  --type-meta: .75rem;
+  --line-meta: 1rem;
+
+  /* Geometry and motion. */
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --radius-control: .125rem;
+  --border-width: 1px;
+  --table-row-min-height: 2.5rem;
+  --focus-width: 2px;
+  --focus-offset: 3px;
+  --cursor-bracket: .625rem;
+  --open-edge-width: var(--space-1);
+  --meter-segment-gap: 3px;
+  --meter-height: .75rem;
+  --motion-fast: 120ms;
+  --motion-standard: 160ms;
+  --motion-easing: ease-out;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-standard: 0ms;
+  }
+}
