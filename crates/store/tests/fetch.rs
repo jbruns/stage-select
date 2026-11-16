@@ -671,6 +671,36 @@ fn a_dat_for_another_system_fails_the_fetch() {
 }
 
 #[test]
+fn a_fetch_of_bytes_already_imported_under_another_dat_fails_naming_both_and_moves_nothing() {
+    let env = Env::new(REDUMP);
+    let bytes = dat_xml("Sony - PlayStation", "2");
+    let (manual, _) = env.store.import_dat_bytes(&bytes, "psx.dat", None).unwrap();
+    assert_eq!(manual.dat, "unknown-logiqx/Sony - PlayStation");
+    env.fake.reply(
+        "/datfile/psx/",
+        Reply::Body(zip_of(&[("Sony - PlayStation (2026).dat", &bytes)])),
+    );
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let attempt = &report.attempts[0];
+    assert_eq!(attempt.outcome, Some(FetchOutcome::Failed));
+    let error = attempt.error.as_deref().unwrap();
+    assert!(
+        error.contains("unknown-logiqx/Sony - PlayStation")
+            && error.contains("Redump/Sony - PlayStation"),
+        "{error}"
+    );
+    let revisions = env.store.dat_revisions().unwrap();
+    let kept = revisions
+        .iter()
+        .find(|r| r.sha256 == manual.sha256)
+        .unwrap();
+    assert_eq!(kept.dat, "unknown-logiqx/Sony - PlayStation", "not moved");
+}
+
+#[test]
 fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
     let env = Env::new(FetchSettings::default());
     env.serve_psx("2");

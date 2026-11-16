@@ -831,6 +831,48 @@ fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
 }
 
 #[test]
+fn a_dat_with_no_name_is_never_imported_or_proposed_as_an_addition_and_says_why() {
+    let env = Env::new();
+    env.put(
+        "nameless.dat",
+        br#"<?xml version="1.0"?><datafile><header><version>1</version><homepage>No-Intro</homepage></header>
+            <game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="00000000"/></game></datafile>"#,
+    );
+    env.put(
+        "list.xml",
+        br#"<?xml version="1.0"?><softwarelist><software name="pong"><part name="cart" interface="a2600_cart">
+            <dataarea name="rom" size="4"><rom name="pong.a26" size="4" crc="00000000"/></dataarea></part>
+            </software></softwarelist>"#,
+    );
+    env.scan();
+    env.scan();
+
+    for (name, missing) in [
+        ("nameless.dat", "its header has no <name>"),
+        ("list.xml", "its <softwarelist> has no name attribute"),
+    ] {
+        let item = env.item(name);
+        assert_eq!(item.state, ItemState::Unsupported, "{name}");
+        assert_eq!(item.assessment.proposal, None, "{name}");
+        let reason = item.reason.unwrap_or_default();
+        assert!(reason.contains(missing), "{name}: {reason}");
+        let refused = env.store.plan_ingest(
+            &env.config,
+            "in",
+            &PlanIngest {
+                action: IngestAction::DatImport,
+                items: vec![item.id],
+                additions: Default::default(),
+            },
+        );
+        match refused {
+            Err(Error::Refused(why)) => assert!(why.contains(missing), "{name}: {why}"),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     let env = Env::new();
     env.put("mystery.a26", b"homebrew");

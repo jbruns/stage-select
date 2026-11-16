@@ -67,7 +67,7 @@ pub enum ItemState {
     /// Every Source Set it matches already holds it.
     AlreadyHeld,
     /// An archive Title Select does not open: RAR, a nested or whole-set archive, a 7z over the dictionary limit, or
-    /// a folder.
+    /// a folder; or a DAT it cannot import, such as one with no name.
     Unsupported,
     /// You dismissed it; it stays dismissed until it changes.
     Dismissed,

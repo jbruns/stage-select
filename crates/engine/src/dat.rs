@@ -138,9 +138,10 @@ impl Dat {
                 Event::Empty(e) => {
                     dat.open(&e, root)?;
                 }
-                Event::Text(_) | Event::GeneralRef(_) => {
+                Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) => {
                     let text = match &event {
                         Event::Text(t) => t.xml10_content().into_owned(),
+                        Event::CData(c) => AsRef::<str>::as_ref(c).to_owned(),
                         Event::GeneralRef(r) => match r.resolve_char_ref() {
                             Ok(Some(c)) => c.to_string(),
                             _ => quick_xml::escape::resolve_predefined_entity(&r.xml10_content())

@@ -293,6 +293,17 @@ impl Store {
         // Holding the writer keeps the blob and its row consistent against retention and garbage collection.
         let (record, outcome) = self.with_writer(|conn| {
             if let Some((id, existing)) = revision_by_sha(conn, &dat.sha256)? {
+                // A fetched revision must be of the DAT it was fetched for; bytes already kept as another DAT's
+                // revision are never silently moved to it.
+                if fetched.is_some() {
+                    let expected = format!("{}/{}", dat_provider_part(conn, dat, fetched)?, dat.name);
+                    if existing.dat != expected {
+                        return Err(Error::Conflict(format!(
+                            "{file} is already imported as a revision of {}, so it isn't added to {expected}",
+                            existing.dat
+                        )));
+                    }
+                }
                 let blob = self.blob_path(&existing.sha256);
                 if existing.blob_present && blob.is_file() {
                     return Ok((existing, ImportOutcome::AlreadyImported));

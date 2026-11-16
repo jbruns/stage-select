@@ -1074,7 +1074,7 @@ Each item is one of:
   imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further;
+  never read further; or a DAT with no name to know it by, which can't be imported and is never a candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a

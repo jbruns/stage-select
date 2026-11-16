@@ -220,6 +220,9 @@ struct ItemRead {
     probe: Probe,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dat: Option<ReadDat>,
+    /// Why a file read as a DAT cannot be imported, such as having no name to know it by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refused_dat: Option<String>,
 }
 
 /// A DAT file's native name and version, and the provider part of its key as it reads, not yet spelled as the store
@@ -858,6 +861,9 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             Some(format!("a member cannot be read: {error}")),
         ));
     }
+    if let Some(why) = &read.refused_dat {
+        return Ok(found(ItemState::Unsupported, assessment, Some(why.clone())));
+    }
     if let Some(read_dat) = &read.dat {
         let dat = store.read(|c| found_dat(c, read_dat, &probe.sha256))?;
         let imported = dat.imported;
@@ -954,7 +960,7 @@ fn read_item(
             };
         }
     };
-    let mut dat = None;
+    let (mut dat, mut refused_dat) = (None, None);
     if !probe.zip
         && !probe.sevenz
         && probe.size <= DAT_LIMIT
@@ -964,21 +970,29 @@ fn read_item(
         file.seek(SeekFrom::Start(0))
             .and_then(|_| (&file).take(DAT_LIMIT + 1).read_to_end(&mut bytes))
             .map_err(|e| e.to_string())?;
-        if let Ok(parsed) = Dat::parse(&bytes, Path::new(name))
-            && parsed.check_name(Path::new(name)).is_ok()
-        {
-            dat = Some(ReadDat {
-                provider: title_select_api::dat::provider_part(parsed.provider(), parsed.format),
-                name: parsed.name,
-                version: parsed.version,
-            });
+        if let Ok(parsed) = Dat::parse(&bytes, Path::new(name)) {
+            match parsed.check_name(Path::new(name)) {
+                Ok(()) => {
+                    dat = Some(ReadDat {
+                        provider: title_select_api::dat::provider_part(
+                            parsed.provider(),
+                            parsed.format,
+                        ),
+                        name: parsed.name,
+                        version: parsed.version,
+                    })
+                }
+                Err(why) => refused_dat = Some(why.to_string()),
+            }
         }
     }
     let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     match dir.stat(name) {
-        Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => {
-            Ok(Ok(ItemRead { probe, dat }))
-        }
+        Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => Ok(Ok(ItemRead {
+            probe,
+            dat,
+            refused_dat,
+        })),
         _ => Err(changed()),
     }
 }
@@ -1703,10 +1717,12 @@ impl Store {
                 }
                 IngestAction::DatImport => {
                     let Some(dat) = &item.assessment.dat else {
-                        return Err(Error::Refused(format!(
-                            "{} is not a DAT file that can be imported",
-                            item.name
-                        )));
+                        return Err(Error::Refused(match &item.reason {
+                            Some(why) if item.state == ItemState::Unsupported => {
+                                format!("{} can't be imported: {why}", item.name)
+                            }
+                            _ => format!("{} is not a DAT file that can be imported", item.name),
+                        }));
                     };
                     (
                         format!(

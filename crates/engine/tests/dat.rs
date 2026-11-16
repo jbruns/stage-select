@@ -210,3 +210,14 @@ fn a_dat_with_no_native_name_is_refused_naming_the_file_and_the_missing_name() {
         .to_string();
     assert!(err.contains("list.xml") && err.contains("name"), "{err}");
 }
+
+#[test]
+fn header_fields_in_cdata_are_read_like_text_without_unescaping() {
+    let xml = br#"<datafile><header><name><![CDATA[Atari - 2600]]></name><version>2026<![CDATA[1107]]></version><homepage><![CDATA[No-Intro]]></homepage><author>a &amp; <![CDATA[b &amp; c]]></author></header></datafile>"#;
+    let dat = Dat::parse(xml, Path::new("a2600.dat")).unwrap();
+    assert_eq!(dat.name, "Atari - 2600");
+    assert_eq!(dat.version, "20261107");
+    assert_eq!(dat.homepage.as_deref(), Some("No-Intro"));
+    assert_eq!(dat.author.as_deref(), Some("a & b &amp; c"));
+    assert_eq!(dat.provider(), Some("No-Intro"));
+}
