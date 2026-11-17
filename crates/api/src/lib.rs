@@ -3,6 +3,7 @@
 
 pub mod additions;
 pub mod build;
+pub mod coverage;
 pub mod dat;
 pub mod discs;
 pub mod fetch;
@@ -329,6 +330,9 @@ pub struct SourceSetRecord {
     /// Why it is Stale, if it is: each cause, files first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale: Vec<SourceSetStale>,
+    /// Its Coverage: the engine region names it covers. Absent when it covers every Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Vec<String>>,
 }
 
 /// One reason a Source Set is Stale. Looking changed is a heuristic, never a claim of damage.
@@ -394,6 +398,12 @@ pub struct SetFollow {
     pub follow: bool,
 }
 
+/// The request to set a Source Set's Coverage, as engine region names, or to clear it with `null`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetCoverage {
+    pub coverage: Option<Vec<String>>,
+}
+
 /// The request to register a folder in a Root as a Source Set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddSourceSet {
@@ -407,6 +417,9 @@ pub struct AddSourceSet {
     pub template: Option<String>,
     /// The DAT to audit it against, as `<provider>/<name>`.
     pub dat: String,
+    /// Its Coverage, as engine region names; by default it covers every Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Vec<String>>,
 }
 
 /// The configured default Path Template of each kind of registration.
@@ -545,6 +558,29 @@ pub struct Vocabulary {
     /// The video order a Selection uses when a Profile or system leaves it empty.
     #[serde(default)]
     pub default_video_order: Vec<String>,
+    /// The presets a Coverage can be built from, with their regions.
+    #[serde(default)]
+    pub coverage_presets: Vec<CoveragePreset>,
+}
+
+/// A Coverage preset and the regions it expands to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoveragePreset {
+    pub name: String,
+    pub regions: Vec<String>,
+}
+
+impl CoveragePreset {
+    /// Every preset, in the order the workbench offers them.
+    pub fn all() -> Vec<CoveragePreset> {
+        coverage::PRESETS
+            .iter()
+            .map(|p| CoveragePreset {
+                name: p.name.to_owned(),
+                regions: p.regions.iter().map(|r| (*r).to_owned()).collect(),
+            })
+            .collect()
+    }
 }
 
 /// The result of checking a Selection Profile: empty when the engine can read it.

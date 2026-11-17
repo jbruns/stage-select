@@ -451,6 +451,7 @@ mod tests {
                 last_verified_against: None,
                 follow: false,
                 stale: Vec::new(),
+                coverage: None,
             },
             latest,
             repair,

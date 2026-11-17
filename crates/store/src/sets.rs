@@ -21,7 +21,7 @@ const SET_QUERY: &str =
     "SELECT s.id, s.dat_id, s.name, s.root, s.path, d.provider || '/' || d.name, s.added_at,
             r.sha256, r.version, a.finished_at, s.follow,
             w.id, w.found_at, w.changed, w.added, w.removed,
-            n.sha256, n.version, n.imported_at
+            n.sha256, n.version, n.imported_at, s.coverage
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
@@ -77,6 +77,12 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             imported_at: row.get(18)?,
         });
     }
+    let coverage = match row.get::<_, Option<String>>(19)? {
+        Some(json) => Some(serde_json::from_str(&json).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(19, rusqlite::types::Type::Text, Box::new(e))
+        })?),
+        None => None,
+    };
     Ok(SourceSetRow {
         id: row.get(0)?,
         dat_id: row.get(1)?,
@@ -89,6 +95,7 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             last_verified_against,
             follow: row.get(10)?,
             stale,
+            coverage,
         },
     })
 }
@@ -184,7 +191,8 @@ impl Store {
             .map_err(|e| Error::Refused(e.to_string()))
     }
 
-    /// Registers the folder `rel` in the Root `root` as a Source Set bound to `dat` (`<provider>/<name>`).
+    /// Registers the folder `rel` in the Root `root` as a Source Set bound to `dat` (`<provider>/<name>`), covering
+    /// every Game.
     pub fn add_source_set(
         &self,
         config: &Config,
@@ -192,6 +200,20 @@ impl Store {
         rel: &str,
         dat: &str,
     ) -> Result<SourceSetRecord> {
+        self.add_source_set_covering(config, root, rel, dat, None)
+    }
+
+    /// Registers a Source Set as `add_source_set` does, with the Coverage `coverage`: engine region names the caller
+    /// checked against the engine's vocabulary (`title_select_api::coverage::canonical`).
+    pub fn add_source_set_covering(
+        &self,
+        config: &Config,
+        root: &str,
+        rel: &str,
+        dat: &str,
+        coverage: Option<&[String]>,
+    ) -> Result<SourceSetRecord> {
+        let coverage = coverage_json(coverage)?;
         if config.root(root).is_some_and(|r| r.writable) {
             return Err(Error::Refused(format!(
                 "root {root} is writable, and only library folders go in a writable root; add the source set from a \
@@ -239,8 +261,9 @@ impl Store {
                 )));
             }
             tx.execute(
-                "INSERT INTO source_sets (name, root, path, dat_id, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![name, root, rel, dat_id, now()],
+                "INSERT INTO source_sets (name, root, path, dat_id, added_at, coverage)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![name, root, rel, dat_id, now(), coverage],
             )?;
             Ok(set_by_name(tx, &name)?.record)
         })
@@ -275,5 +298,33 @@ impl Store {
             watch.finish(tx)?;
             Ok(set_by_name(tx, name)?.record)
         })
+    }
+
+    /// Sets the Source Set `name`'s Coverage, checked as for `add_source_set_covering`, or clears it with `None`. It
+    /// changes no file and needs no new Audit.
+    pub fn set_coverage(&self, name: &str, coverage: Option<&[String]>) -> Result<SourceSetRecord> {
+        let coverage = coverage_json(coverage)?;
+        self.write(|tx| {
+            let set = set_by_name(tx, name)?;
+            tx.execute(
+                "UPDATE source_sets SET coverage = ?2 WHERE id = ?1",
+                params![set.id, coverage],
+            )?;
+            Ok(set_by_name(tx, name)?.record)
+        })
+    }
+}
+
+/// A Coverage as the `coverage` column holds it.
+fn coverage_json(coverage: Option<&[String]>) -> Result<Option<String>> {
+    match coverage {
+        Some([]) => Err(Error::Refused(
+            "coverage: choose at least one region, or clear the coverage to cover every game"
+                .into(),
+        )),
+        Some(regions) => Ok(Some(
+            serde_json::to_string(regions).expect("a list of strings serializes"),
+        )),
+        None => Ok(None),
     }
 }

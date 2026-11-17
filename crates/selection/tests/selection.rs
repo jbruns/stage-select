@@ -107,6 +107,46 @@ fn a_selection_without_clone_lists_selects_without_them_and_says_so() {
 }
 
 #[test]
+fn a_games_regions_are_read_from_its_name_as_a_selection_reads_them() {
+    let regions = support::engine().regions().unwrap();
+
+    assert_eq!(regions.of("Pong (Europe, USA)"), ["USA", "Europe"]);
+    assert_eq!(regions.of("Pong (Export) (Rev 1)"), ["World"]);
+    assert_eq!(regions.of("Pong (En,Fr)"), ["Unknown"]);
+    assert_eq!(regions.of("Pong"), ["Unknown"]);
+}
+
+#[test]
+fn every_coverage_preset_names_only_regions_the_engine_knows() {
+    let known = support::engine().names().unwrap().regions;
+
+    let presets = title_select_api::coverage::PRESETS;
+    assert_eq!(
+        presets.iter().map(|p| p.name).collect::<Vec<_>>(),
+        [
+            "USA + Canada",
+            "Latin America",
+            "Europe + Australia",
+            "Asia"
+        ]
+    );
+    for preset in presets {
+        for region in preset.regions {
+            assert!(
+                known.iter().any(|k| k == region),
+                "{}: {region}",
+                preset.name
+            );
+            assert!(
+                !["World", "Unknown"].contains(region),
+                "{}: {region}",
+                preset.name
+            );
+        }
+    }
+}
+
+#[test]
 fn a_profile_with_names_the_engine_does_not_know_is_refused() {
     let work = tempfile::tempdir().unwrap();
     let path = work.path().join("solo.dat");

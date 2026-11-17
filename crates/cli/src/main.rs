@@ -245,6 +245,38 @@ enum SetCommand {
         /// settings. Its tokens are `{provider}`, `{dat}` and `{platform}`.
         #[arg(long, conflicts_with = "path")]
         template: Option<String>,
+        /// A region your source set covers: an audit then reports only the games it covers as missing. Repeat it
+        /// for each region. Leave out every coverage option to cover every game.
+        #[arg(long = "coverage-region", value_name = "REGION")]
+        coverage_regions: Vec<String>,
+        /// A coverage preset whose regions your source set covers, such as `Europe + Australia`. Repeat it, and
+        /// combine it with `--coverage-region`.
+        #[arg(long = "coverage-preset", value_name = "PRESET")]
+        coverage_presets: Vec<String>,
+        /// The clone lists to check region names against. Defaults to `/opt/clone-lists`.
+        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        clone_lists: Option<PathBuf>,
+    },
+    /// Show a source set's coverage: the regions of its DAT's games it keeps. With `--region` or `--preset`, set
+    /// it to those regions; with `--clear`, cover every game again. Changing it moves no file and needs no new audit.
+    ///
+    /// The presets are `USA + Canada`, `Latin America`, `Europe + Australia` and `Asia`. A game is covered when any
+    /// of its regions is; a World game always is. A game whose name tags no region has the region `Unknown`, which
+    /// no preset includes: name it with `--region Unknown` to cover those games.
+    Coverage {
+        name: String,
+        /// A region to cover. Repeat it for each region.
+        #[arg(long = "region", value_name = "REGION")]
+        regions: Vec<String>,
+        /// A preset whose regions to cover. Repeat it, and combine it with `--region`.
+        #[arg(long = "preset", value_name = "PRESET")]
+        presets: Vec<String>,
+        /// Cover every game.
+        #[arg(long, conflicts_with_all = ["regions", "presets"])]
+        clear: bool,
+        /// The clone lists to check region names against. Defaults to `/opt/clone-lists`.
+        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        clone_lists: Option<PathBuf>,
     },
     /// List the source sets with the DAT revision each was last verified against.
     List,
@@ -429,6 +461,42 @@ fn print_unregistration(done: Unregistration) {
     );
     for note in done.notes {
         println!("{note}");
+    }
+}
+
+/// The Coverage `regions` and `presets` name, checked against the engine's region names; `None` when they name none.
+fn coverage(
+    regions: Vec<String>,
+    presets: Vec<String>,
+    clone_lists: Option<&Path>,
+) -> Result<Option<Vec<String>>, String> {
+    use title_select_api::coverage;
+    if regions.is_empty() && presets.is_empty() {
+        return Ok(None);
+    }
+    let mut names = regions;
+    for name in presets {
+        let preset = coverage::preset(&name).ok_or_else(|| {
+            let known: Vec<&str> = coverage::PRESETS.iter().map(|p| p.name).collect();
+            format!(
+                "coverage: no preset named {name}; the presets are {}",
+                known.join(", ")
+            )
+        })?;
+        names.extend(preset.regions.iter().map(|r| (*r).to_owned()));
+    }
+    let known = title_select_selection::Engine::locate(clone_lists)
+        .and_then(|engine| engine.names())
+        .map_err(|e| e.to_string())?
+        .regions;
+    coverage::canonical(&names, &known).map(Some)
+}
+
+/// "covers every game", "covers USA, Canada".
+fn covers(coverage: Option<&[String]>) -> String {
+    match coverage {
+        Some(regions) => format!("covers {}", regions.join(", ")),
+        None => "covers every game".to_owned(),
     }
 }
 
@@ -675,10 +743,14 @@ fn run(cli: Cli) -> Result<(), String> {
                     path,
                     dat,
                     template,
+                    coverage_regions,
+                    coverage_presets,
+                    clone_lists,
                 },
         } => {
             let config = load_config(config)?;
             let store = open_store(store)?;
+            let coverage = coverage(coverage_regions, coverage_presets, clone_lists.as_deref())?;
             let path = match path {
                 Some(path) => path,
                 None => store
@@ -686,12 +758,36 @@ fn run(cli: Cli) -> Result<(), String> {
                     .map_err(|e| e.to_string())?,
             };
             let set = store
-                .add_source_set(&config, &root, &path, &dat)
+                .add_source_set_covering(&config, &root, &path, &dat, coverage.as_deref())
                 .map_err(|e| e.to_string())?;
+            let covering = match set.coverage {
+                Some(_) => format!("; {}", covers(set.coverage.as_deref())),
+                None => String::new(),
+            };
             println!(
-                "{}: added from {}:{}, bound to {}",
+                "{}: added from {}:{}, bound to {}{covering}",
                 set.name, set.root, set.path, set.dat
             );
+            Ok(())
+        }
+        Command::Set {
+            command:
+                SetCommand::Coverage {
+                    name,
+                    regions,
+                    presets,
+                    clear,
+                    clone_lists,
+                },
+        } => {
+            let store = open_store(store)?;
+            let set = match coverage(regions, presets, clone_lists.as_deref())? {
+                Some(regions) => store.set_coverage(&name, Some(&regions)),
+                None if clear => store.set_coverage(&name, None),
+                None => store.source_set(&name),
+            }
+            .map_err(|e| e.to_string())?;
+            println!("{}: {}", set.name, covers(set.coverage.as_deref()));
             Ok(())
         }
         Command::Ingest {
