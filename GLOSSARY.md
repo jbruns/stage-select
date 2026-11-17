@@ -51,6 +51,14 @@ recorded with the DAT Revision of its latest Audit; the source from which a Play
 through an approved Repair, and only while its Root may write it and its marker says it is this store's Source Set.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
+**Coverage**:
+The regions of its DAT's Games that a Source Set intends to preserve; without one, it covers every Game. A Game is
+covered when any of its regions is, and a World Game is covered by every Coverage; a Game whose region is unknown is
+not covered, and is shown as such. Coverage is what a Source Set keeps, not what a player wants: that is a Selection
+Profile's. A Game outside Coverage is never reported Missing, nor filled or listed in a Fixdat, but one that is present
+still counts and is kept. A Selection from a Source Set chooses only among the Games it covers.
+_Avoid_: Scope, subset, Filtered DAT, region filter (when meaning Coverage)
+
 **Follow**:
 A Source Set's opt-in to newer DAT Revisions of its DAT, whether the Operator drops them in or Title Select fetches
 them from a DAT Provider that permits it. A newer revision makes a Following Source Set Stale; it never starts an
@@ -220,7 +228,8 @@ left that disc out. Title Select shows why and how many.
 
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
-be audited against; or a Library Folder whose Source Set or Selection Profile changed since its current Build. Looking
+be audited against; or a Library Folder whose Source Set, its Coverage, or Selection Profile changed since its current
+Build. Looking
 changed is a heuristic, never a claim of damage.
 _Avoid_: Outdated, dirty
 
