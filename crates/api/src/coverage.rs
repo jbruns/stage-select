@@ -1,6 +1,10 @@
 //! Coverage (ADR 0021): the regions of its DAT's Games a Source Set intends to preserve. It is stored as an expanded
 //! list of the Selection engine's region names; without one, a Source Set covers every Game.
 
+use std::collections::BTreeMap;
+
+use crate::{GameStatus, OutsideCoverage, RegionCount};
+
 /// A named set of regions to build a Coverage from. Its name is a label only: a Coverage stores the regions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preset {
@@ -131,6 +135,82 @@ pub fn covered<S: AsRef<str>>(regions: &[S], coverage: Option<&[String]>) -> boo
         };
         region == WORLD || coverage.iter().any(|c| c == region)
     })
+}
+
+/// An Audit's Games counted by Game Status for each distinct list of regions they carry. A Coverage reads its
+/// counts from this alone, so a large Audit's names are read once, not on every change of Coverage.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tally(BTreeMap<Vec<String>, BTreeMap<GameStatus, usize>>);
+
+impl Tally {
+    /// Counts a Game whose regions are `regions` and whose Game Status is `status`.
+    pub fn add(&mut self, regions: Vec<String>, status: GameStatus) {
+        *self
+            .0
+            .entry(regions)
+            .or_default()
+            .entry(status)
+            .or_default() += 1;
+    }
+
+    /// The Games `coverage` covers, by Game Status, and those it doesn't. Without a Coverage, nothing is outside it.
+    pub fn split(
+        &self,
+        coverage: Option<&[String]>,
+    ) -> (BTreeMap<GameStatus, usize>, OutsideCoverage) {
+        let (mut covered, mut outside) = (BTreeMap::new(), OutsideCoverage::default());
+        for (regions, games) in &self.0 {
+            let into = if self::covered(regions, coverage) {
+                &mut covered
+            } else {
+                if regions.iter().any(|r| r == UNKNOWN) {
+                    outside.unknown_region += games.values().sum::<usize>();
+                }
+                &mut outside.games
+            };
+            for (status, n) in games {
+                *into.entry(*status).or_default() += n;
+            }
+        }
+        (covered, outside)
+    }
+
+    /// One row per region a Game carries, ordered as `order` (the engine's region names), then by name; a Game counts
+    /// under each of its regions. `covered` says whether `coverage` covers the region.
+    pub fn by_region(&self, order: &[String], coverage: Option<&[String]>) -> Vec<RegionCount> {
+        let mut rows: BTreeMap<&str, BTreeMap<GameStatus, usize>> = BTreeMap::new();
+        for (regions, games) in &self.0 {
+            for region in regions {
+                let row = rows.entry(region).or_default();
+                for (status, n) in games {
+                    *row.entry(*status).or_default() += n;
+                }
+            }
+        }
+        let mut rows: Vec<RegionCount> = rows
+            .into_iter()
+            .map(|(region, games)| RegionCount {
+                region: region.to_owned(),
+                covered: covered(&[region], coverage),
+                games,
+            })
+            .collect();
+        rows.sort_by_key(|row| {
+            (
+                order
+                    .iter()
+                    .position(|r| *r == row.region)
+                    .unwrap_or(usize::MAX),
+                row.region.clone(),
+            )
+        });
+        rows
+    }
+
+    /// Every Game once, by Game Status.
+    pub fn total(&self) -> BTreeMap<GameStatus, usize> {
+        self.split(None).0
+    }
 }
 
 #[cfg(test)]

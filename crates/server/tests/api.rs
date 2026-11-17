@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use common::*;
 use serde::de::DeserializeOwned;
 use title_select_api::{
-    AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, ImportOutcome,
+    AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, GameStatus, ImportOutcome,
     ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
 use title_select_server::{Handle, Settings, StartError, TOKEN_ACTOR};
@@ -3041,6 +3041,87 @@ mod selections {
         assert!(scan.ended_at.is_some() && scan.detail.is_some(), "{scan:?}");
     }
 
+    /// A preview of a coverage change counts the covered missing games before and after, and names the library
+    /// folders built from the source set that would go stale, saving nothing.
+    #[test]
+    fn a_coverage_preview_counts_missing_games_and_names_the_library_folders_it_would_make_stale() {
+        use title_select_api::build::{LibraryFolder, Plan};
+        use title_select_api::{CoveragePreview, CoverageStaleFolder};
+        let env = Env::new();
+        let play = env.tmp.path().join("roots/play");
+        std::fs::create_dir_all(&play).unwrap();
+        let service = title_select_server::spawn(env.settings(&format!(
+            "\n[roots.play]\npath = {:?}\nwritable = true\n",
+            play.display().to_string()
+        )))
+        .unwrap();
+        let client = Client::new(&service);
+        client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
+        client.add_set();
+        let job: Job = client.start_audit().body_mut().read_json().unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let (_, selection) = save(&client, json!({}));
+        let mut folders = vec![];
+        for path in ["built", "unbuilt"] {
+            let (status, folder) = send(
+                client.post("/libraries"),
+                json!({"root": "play", "path": path, "source_set": SET, "profile": "Everyday"}),
+            );
+            assert_eq!(status, 201, "{folder}");
+            folders.push(serde_json::from_value::<LibraryFolder>(folder).unwrap());
+        }
+        let (_, plan) = send(
+            client.post(&format!("/libraries/{}/plans", folders[0].id)),
+            json!({"selection": selection.id}),
+        );
+        let plan: Plan = serde_json::from_value(plan).unwrap();
+        let (_, job) = send(
+            client.post(&format!("/plans/{}/approval", plan.id)),
+            json!({"digest": plan.digest}),
+        );
+        let job: Job = serde_json::from_value(job).unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let preview = |coverage: Value| {
+            let (status, body) = send(
+                client.post("/source-sets/Test%20-%20System/coverage/preview"),
+                json!({ "coverage": coverage }),
+            );
+            assert_eq!(status, 200, "{body}");
+            serde_json::from_value::<CoveragePreview>(body).unwrap()
+        };
+
+        let europe = preview(json!(["Europe"]));
+
+        assert_eq!(
+            (europe.missing_before, europe.missing_after),
+            (Some(2), Some(1)),
+            "Breakout (USA) (Demo) and Pong (Europe), then Pong (Europe) alone"
+        );
+        assert_eq!(
+            europe.stale_library_folders,
+            [CoverageStaleFolder {
+                id: folders[0].id,
+                root: "play".into(),
+                path: "built".into(),
+            }],
+            "only a folder built from the source set"
+        );
+        assert_eq!(europe.coverage, Some(vec!["Europe".to_owned()]));
+        let set: SourceSetRecord = client.json("/source-sets/Test%20-%20System");
+        assert_eq!(set.coverage, None, "a preview saves nothing");
+        let unchanged = preview(Value::Null);
+        assert_eq!(
+            (unchanged.missing_before, unchanged.missing_after),
+            (Some(2), Some(2))
+        );
+        assert!(unchanged.stale_library_folders.is_empty(), "{unchanged:?}");
+        let (status, _) = send(
+            client.post("/source-sets/Test%20-%20System/coverage/preview"),
+            json!({"coverage": ["Atlantis"]}),
+        );
+        assert_eq!(status, 400);
+    }
+
     /// A library folder in a writable root: a plan of the selection, an approval bound to its digest, and the build
     /// job that writes TorrentZips under the DAT's names.
     #[test]
@@ -3261,6 +3342,156 @@ fn the_api_registers_changes_and_clears_a_source_sets_coverage() {
         .find(|p| p.name == "Europe + Australia")
         .unwrap();
     assert!(europe.regions.iter().any(|r| r == "UK"), "{europe:?}");
+}
+
+/// A Source Set of mixed regions, audited: present are Pong (USA), Combat (USA), Golf (USA, Europe), the untagged
+/// Chess, and one of Racing (Europe)'s two ROMs; Tennis (Europe), Soccer (World), Boxing (Japan) and Breakout (USA)
+/// are missing.
+fn audited_mixed_regions(env: &Env) -> (Handle, Client) {
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    write_file(&set.join("Golf (USA, Europe).a26"), b"golf");
+    write_file(&set.join("Chess.a26"), b"chess");
+    write_file(&set.join("Racing (Europe).a26"), b"race-1");
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (20260101).dat",
+        "20260101-000000",
+        &[
+            ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+            ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+            ("Breakout (USA)", vec![rom("Breakout (USA).a26", b"break")]),
+            (
+                "Golf (USA, Europe)",
+                vec![rom("Golf (USA, Europe).a26", b"golf")],
+            ),
+            ("Chess", vec![rom("Chess.a26", b"chess")]),
+            (
+                "Racing (Europe)",
+                vec![
+                    rom("Racing (Europe).a26", b"race-1"),
+                    rom("Racing (Europe) (Track 2).a26", b"race-2"),
+                ],
+            ),
+            (
+                "Tennis (Europe)",
+                vec![rom("Tennis (Europe).a26", b"tennis")],
+            ),
+            ("Soccer (World)", vec![rom("Soccer (World).a26", b"soccer")]),
+            ("Boxing (Japan)", vec![rom("Boxing (Japan).a26", b"boxing")]),
+        ],
+    );
+    let service = env.start();
+    let client = Client::new(&service);
+    let (status, _) = client.upload("Test - System (20260101).dat", &std::fs::read(dat).unwrap());
+    assert_eq!(status, 201);
+    client.add_set();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    (service, client)
+}
+
+/// Sets the Source Set's Coverage and returns the status and the body.
+fn put_coverage(client: &Client, coverage: serde_json::Value) -> (u16, serde_json::Value) {
+    let (name, value) = client.auth.clone().unwrap();
+    let mut response = agent()
+        .put(format!(
+            "{}/source-sets/Test%20-%20System/coverage",
+            client.base
+        ))
+        .header(name, value)
+        .send_json(serde_json::json!({ "coverage": coverage }))
+        .unwrap();
+    (
+        response.status().as_u16(),
+        response.body_mut().read_json().unwrap(),
+    )
+}
+
+fn statuses(
+    complete: usize,
+    incomplete: usize,
+    missing: usize,
+) -> std::collections::BTreeMap<GameStatus, usize> {
+    [
+        (GameStatus::Complete, complete),
+        (GameStatus::Incomplete, incomplete),
+        (GameStatus::Missing, missing),
+    ]
+    .into_iter()
+    .filter(|(_, n)| *n > 0)
+    .collect()
+}
+
+#[test]
+fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without_a_new_audit() {
+    let env = Env::new();
+    let (_service, client) = audited_mixed_regions(&env);
+    let summary = || {
+        let mut summaries: Vec<title_select_api::SourceSetSummary> =
+            client.json("/source-set-summaries");
+        summaries.remove(0)
+    };
+    let whole = summary();
+    assert_eq!(whole.latest.as_ref().unwrap().games, statuses(4, 1, 4));
+    assert_eq!(
+        whole.outside_coverage, None,
+        "without a coverage, nothing is outside it"
+    );
+
+    let (status, body) = put_coverage(&client, serde_json::json!(["Europe"]));
+    assert_eq!(status, 200, "{body}");
+
+    let covered = summary();
+    let latest = covered.latest.as_ref().unwrap();
+    assert_eq!(latest.id, whole.latest.as_ref().unwrap().id, "no new audit");
+    assert_eq!(
+        latest.games,
+        statuses(1, 1, 2),
+        "Golf (USA, Europe), Racing (Europe), Tennis (Europe) and Soccer (World)"
+    );
+    assert_eq!(
+        covered.outside_coverage,
+        Some(title_select_api::OutsideCoverage {
+            games: statuses(3, 0, 2),
+            unknown_region: 1,
+        }),
+        "Pong, Combat and Chess present; Boxing and Breakout missing; Chess of no known region"
+    );
+    assert!(covered.set.stale.is_empty(), "{:?}", covered.set.stale);
+    assert_eq!(latest.findings, whole.latest.as_ref().unwrap().findings);
+
+    put_coverage(&client, serde_json::Value::Null);
+    assert_eq!(summary(), whole, "clearing the coverage reads as before");
+}
+
+#[test]
+fn the_api_counts_the_latest_audit_by_region_overlapping_for_games_of_several_regions() {
+    use title_select_api::{RegionCount, RegionCounts};
+    let env = Env::new();
+    let (_service, client) = audited_mixed_regions(&env);
+    put_coverage(&client, serde_json::json!(["Europe"]));
+
+    let counts: RegionCounts = client.json("/source-sets/Test%20-%20System/regions");
+
+    let row = |region: &str, covered: bool, games| RegionCount {
+        region: region.into(),
+        covered,
+        games,
+    };
+    assert_eq!(
+        counts.regions,
+        [
+            row("USA", false, statuses(3, 0, 1)),
+            row("World", true, statuses(0, 0, 1)),
+            row("Europe", true, statuses(1, 1, 1)),
+            row("Japan", false, statuses(0, 0, 1)),
+            row("Unknown", false, statuses(1, 0, 0)),
+        ],
+        "Golf (USA, Europe) counts under both USA and Europe"
+    );
+    assert_eq!(counts.total, statuses(4, 1, 4), "each game once");
+    let summary: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    assert_eq!(counts.audit, summary[0].latest.as_ref().unwrap().id);
 }
 
 #[test]

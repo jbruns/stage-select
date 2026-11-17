@@ -1003,6 +1003,7 @@ impl Store {
                         set,
                         latest,
                         repair,
+                        outside_coverage: None,
                     })
                 })
                 .collect()
@@ -1109,6 +1110,30 @@ impl Store {
                 });
             }
             Ok(page(items, limit, |g| g.seq))
+        })
+    }
+
+    /// Calls `f` with the name and Game Status of each of a full Audit's Games, in one read.
+    pub fn for_each_game_status(
+        &self,
+        audit_id: i64,
+        mut f: impl FnMut(&str, GameStatus),
+    ) -> Result<()> {
+        self.read(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            check_full(&tx, audit_id)?;
+            let mut stmt =
+                tx.prepare("SELECT name, status FROM audit_games WHERE audit_id = ?1")?;
+            let mut rows = stmt.query([audit_id])?;
+            while let Some(row) = rows.next()? {
+                let name: String = row.get(0)?;
+                let status: String = row.get(1)?;
+                f(
+                    &name,
+                    GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
+                );
+            }
+            Ok(())
         })
     }
 

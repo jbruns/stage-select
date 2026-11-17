@@ -455,6 +455,7 @@ mod tests {
             },
             latest,
             repair,
+            outside_coverage: None,
         }
     }
 
