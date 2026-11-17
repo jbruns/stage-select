@@ -55,6 +55,7 @@ use crate::auth::{Actor, Auth, require_operator};
 use crate::jobs::Jobs;
 use crate::selections::{Previews, UNAVAILABLE};
 
+pub(crate) mod coverage;
 mod lifecycle;
 
 /// The largest DAT file an upload may carry.
@@ -73,6 +74,7 @@ pub struct AppState {
     pub engine: Option<Arc<Engine>>,
     pub previews: Arc<Previews>,
     pub fetcher: Arc<Fetcher>,
+    pub coverage: Arc<coverage::Tallies>,
 }
 
 impl AppState {
@@ -235,6 +237,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/jobs/{id}/cancellation", post(cancel_job))
         .route("/events", get(all_events))
         .merge(lifecycle::routes())
+        .merge(coverage::routes())
         .layer(middleware::from_fn_with_state(auth, require_operator));
     let api = Router::new()
         .route("/health", get(health))
@@ -697,7 +700,14 @@ async fn source_sets(
 async fn source_set_summaries(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<title_select_api::SourceSetSummary>>> {
-    Ok(Json(blocking(&state, Store::source_set_summaries).await?))
+    let mut summaries = blocking(&state, Store::source_set_summaries).await?;
+    let summaries = tokio::task::spawn_blocking(move || {
+        state.coverage.apply(&state.store, &mut summaries);
+        summaries
+    })
+    .await
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?;
+    Ok(Json(summaries))
 }
 
 async fn add_source_set(
@@ -2362,6 +2372,7 @@ mod tests {
             fetcher: Arc::new(Fetcher::new(title_select_store::fetch::Endpoints::at(
                 "http://127.0.0.1:9",
             ))),
+            coverage: Arc::default(),
         }
     }
 

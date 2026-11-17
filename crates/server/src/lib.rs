@@ -208,6 +208,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         fetcher: Arc::new(Fetcher::new(
             fetch_endpoints.unwrap_or_else(Endpoints::official),
         )),
+        coverage: Arc::default(),
     };
     let app = routes::router(state.clone(), Arc::new(auth), ui.as_deref());
     Ok(Prepared {

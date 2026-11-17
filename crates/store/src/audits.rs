@@ -988,24 +988,15 @@ impl Store {
     /// Source Sets shows, in one read.
     pub fn source_set_summaries(&self) -> Result<Vec<SourceSetSummary>> {
         let sets = self.source_sets()?;
-        self.read(|c| {
-            let mut latest = c.prepare(&format!(
-                "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
-                 ORDER BY a.finish_seq DESC LIMIT 1"
-            ))?;
-            sets.into_iter()
-                .map(|set| {
-                    let latest = latest
-                        .query_row([&set.name], summary_from_row)
-                        .optional()?;
-                    let repair = open_repair(c, &set.name, latest.as_ref().map(|a| a.id))?;
-                    Ok(SourceSetSummary {
-                        set,
-                        latest,
-                        repair,
-                    })
-                })
-                .collect()
+        self.read(|c| sets.into_iter().map(|set| set_summary(c, set)).collect())
+    }
+
+    /// The Source Set `name`'s row of [`Store::source_set_summaries`], read in one transaction.
+    pub fn source_set_summary(&self, name: &str) -> Result<SourceSetSummary> {
+        self.read(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let set = crate::sets::set_by_name(&tx, name)?.record;
+            set_summary(&tx, set)
         })
     }
 
@@ -1112,6 +1103,57 @@ impl Store {
         })
     }
 
+    /// The Source Set `name`'s latest finished Audit, read in one transaction with its Games and Entries: `game` is
+    /// called with each Game's name and Game Status, then `entry` with each Entry in report order. One snapshot, so a
+    /// newer Audit finishing meanwhile, and pruning this one, can't refuse or split the read. None before its first
+    /// Audit, or once it is unregistered.
+    pub fn latest_audit_rows(
+        &self,
+        name: &str,
+        mut game: impl FnMut(&str, GameStatus),
+        mut entry: impl FnMut(EntryRow),
+    ) -> Result<Option<AuditSummary>> {
+        self.read(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let Some(latest) = tx
+                .query_row(
+                    &format!(
+                        "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL
+                         AND a.status = 'finished' ORDER BY a.finish_seq DESC LIMIT 1"
+                    ),
+                    [name],
+                    summary_from_row,
+                )
+                .optional()?
+            else {
+                return Ok(None);
+            };
+            check_full(&tx, latest.id)?;
+            let mut stmt =
+                tx.prepare("SELECT name, status FROM audit_games WHERE audit_id = ?1")?;
+            let mut rows = stmt.query([latest.id])?;
+            while let Some(row) = rows.next()? {
+                let name: String = row.get(0)?;
+                let status: String = row.get(1)?;
+                game(
+                    &name,
+                    GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
+                );
+            }
+            let mut stmt = tx.prepare(&format!(
+                "SELECT {ENTRY_COLUMNS}, seq FROM audit_entries WHERE audit_id = ?1 ORDER BY seq"
+            ))?;
+            let mut rows = stmt.query([latest.id])?;
+            while let Some(row) = rows.next()? {
+                entry(EntryRow {
+                    seq: row.get::<_, i64>(ENTRY_SEQ)? as u64,
+                    entry: entry_from_row(row)?,
+                });
+            }
+            Ok(Some(latest))
+        })
+    }
+
     /// Prunes the Source Set's full Audits beyond the latest `keep` to finish to their summary rows, except any
     /// cited as provenance. The latest Audit is always kept.
     fn prune(&self, set_id: i64, keep: usize) -> Result<Vec<i64>> {
@@ -1158,6 +1200,26 @@ fn page<T>(mut items: Vec<T>, limit: usize, seq: impl Fn(&T) -> u64) -> (Vec<T>,
 }
 
 /// Refuses an Audit that is not finished or whose Entries were pruned.
+/// `set` with its latest finished Audit and its open Repair.
+fn set_summary(c: &Connection, set: title_select_api::SourceSetRecord) -> Result<SourceSetSummary> {
+    let latest = c
+        .prepare_cached(&format!(
+            "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
+             ORDER BY a.finish_seq DESC LIMIT 1"
+        ))?
+        .query_row([&set.name], summary_from_row)
+        .optional()?;
+    let repair = open_repair(c, &set.name, latest.as_ref().map(|a| a.id))?;
+    Ok(SourceSetSummary {
+        set,
+        latest,
+        repair,
+        outside_coverage: None,
+        covered_entries: None,
+        coverage_unavailable: false,
+    })
+}
+
 fn check_full(c: &Connection, audit_id: i64) -> Result<()> {
     let pruned: Option<bool> = c
         .query_row(

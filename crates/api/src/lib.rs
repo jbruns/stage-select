@@ -459,10 +459,91 @@ pub struct AuditSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSetSummary {
     pub set: SourceSetRecord,
+    /// Its latest finished Audit. When the Source Set has a Coverage, `games` counts only the Games it covers
+    /// (ADR 0021); the rest are in `outside_coverage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<AuditSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repair: Option<OpenRepair>,
+    /// The latest Audit's Games outside the Source Set's Coverage; absent without a Coverage or an Audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outside_coverage: Option<OutsideCoverage>,
+    /// The latest Audit's Entries that its status ranks on under the Source Set's Coverage: those of covered Games
+    /// and those of no Game at all. `latest.findings` and `latest.claimed` still count every Entry. Absent without a
+    /// Coverage or an Audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covered_entries: Option<CoveredEntries>,
+    /// Set when the Source Set has a Coverage that couldn't be applied: Games' regions can't be read without the
+    /// Selection engine's clone lists, or its latest Audit couldn't be read. Its latest Audit's counts are then whole,
+    /// as if it had none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coverage_unavailable: bool,
+}
+
+/// Entries of an Audit counted under a Coverage: those whose ROMs, matched or named, belong to a covered Game, and
+/// those that belong to no Game, which need review whatever the Coverage.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoveredEntries {
+    /// How many have each Finding; those of none are left out.
+    pub findings: BTreeMap<Finding, usize>,
+    /// How many of them rest on Claim Evidence.
+    pub claimed: usize,
+}
+
+/// An Audit's Games outside a Coverage: they keep their Game Status, and present ones still count and are kept.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutsideCoverage {
+    /// How many have each Game Status; those of none are left out.
+    pub games: BTreeMap<GameStatus, usize>,
+    /// How many of them have no region the engine recognises (the region Unknown), whatever their Game Status.
+    pub unknown_region: usize,
+}
+
+/// A Source Set's latest Audit counted by region: a Game counts under each region it carries, so the rows overlap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegionCounts {
+    pub audit: i64,
+    /// Every Game once, whatever its regions.
+    pub total: BTreeMap<GameStatus, usize>,
+    /// One row per region at least one Game carries, World and Unknown included, in the engine's region order.
+    pub regions: Vec<RegionCount>,
+}
+
+/// The Games carrying one region, by Game Status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegionCount {
+    pub region: String,
+    /// Whether the Source Set's Coverage covers the region; true for every region without a Coverage.
+    pub covered: bool,
+    /// How many have each Game Status; those of none are left out.
+    pub games: BTreeMap<GameStatus, usize>,
+}
+
+/// What setting a Source Set's Coverage to `coverage` would change, without saving it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoveragePreview {
+    /// The proposed Coverage as it would be stored; null covers every Game.
+    pub coverage: Option<Vec<String>>,
+    /// The latest Audit the counts read; absent before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<i64>,
+    /// Missing Games the current Coverage covers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_before: Option<usize>,
+    /// Missing Games the proposed Coverage would cover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_after: Option<usize>,
+    /// The Library Folders the change would make Stale.
+    pub stale_library_folders: Vec<CoverageStaleFolder>,
+}
+
+/// A Library Folder a Coverage change would make Stale.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoverageStaleFolder {
+    pub id: i64,
+    pub root: String,
+    /// Relative to the Root, with `/` separators.
+    pub path: String,
 }
 
 /// A Source Set's open Repair: one approved and not finished, or else one not yet approved that was proposed from
