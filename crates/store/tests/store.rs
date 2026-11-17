@@ -511,6 +511,45 @@ fn pruning_keeps_the_latest_audits_and_leaves_summaries() {
     assert_eq!(env.store.report(ids[2]).unwrap().entries.len(), 1);
 }
 
+/// A reader that chose an Audit before a newer one finished and pruned it is refused that Audit's rows; reading the
+/// latest Audit with its rows in one snapshot gives the newer one whole instead.
+#[test]
+fn the_latest_audit_is_read_whole_with_its_rows_after_it_prunes_its_predecessor() {
+    let env = Env::new(1);
+    env.import(1);
+    env.add_set();
+    write_file(&env.set_dir().join("Pong (USA).a26"), b"pong");
+    let chosen = env.audit(None);
+    let newer = env.audit(None);
+    assert!(matches!(
+        env.store.for_each_entry(chosen.id, |_| true),
+        Err(Error::Refused(_))
+    ));
+
+    let (mut games, mut entries) = (vec![], vec![]);
+    let latest = env
+        .store
+        .latest_audit_rows(
+            "Test - System",
+            |name, status| games.push((name.to_owned(), status)),
+            |row| entries.push(row.entry.path),
+        )
+        .unwrap();
+
+    assert_eq!(latest.map(|a| a.id), Some(newer.id));
+    assert!(
+        games.contains(&(
+            "Pong (USA)".to_owned(),
+            title_select_engine::GameStatus::Complete
+        )),
+        "{games:?}"
+    );
+    assert!(
+        entries.contains(&"Pong (USA).a26".to_owned()),
+        "{entries:?}"
+    );
+}
+
 #[test]
 fn pruning_never_removes_an_audit_cited_as_provenance() {
     let env = Env::new(1);

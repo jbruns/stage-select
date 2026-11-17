@@ -1115,27 +1115,54 @@ impl Store {
         })
     }
 
-    /// Calls `f` with the name and Game Status of each of a full Audit's Games, in one read.
-    pub fn for_each_game_status(
+    /// The Source Set `name`'s latest finished Audit, read in one transaction with its Games and Entries: `game` is
+    /// called with each Game's name and Game Status, then `entry` with each Entry in report order. One snapshot, so a
+    /// newer Audit finishing meanwhile, and pruning this one, can't refuse or split the read. None before its first
+    /// Audit, or once it is unregistered.
+    pub fn latest_audit_rows(
         &self,
-        audit_id: i64,
-        mut f: impl FnMut(&str, GameStatus),
-    ) -> Result<()> {
+        name: &str,
+        mut game: impl FnMut(&str, GameStatus),
+        mut entry: impl FnMut(EntryRow),
+    ) -> Result<Option<AuditSummary>> {
         self.read(|conn| {
             let tx = conn.unchecked_transaction()?;
-            check_full(&tx, audit_id)?;
+            let Some(latest) = tx
+                .query_row(
+                    &format!(
+                        "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL
+                         AND a.status = 'finished' ORDER BY a.finish_seq DESC LIMIT 1"
+                    ),
+                    [name],
+                    summary_from_row,
+                )
+                .optional()?
+            else {
+                return Ok(None);
+            };
+            check_full(&tx, latest.id)?;
             let mut stmt =
                 tx.prepare("SELECT name, status FROM audit_games WHERE audit_id = ?1")?;
-            let mut rows = stmt.query([audit_id])?;
+            let mut rows = stmt.query([latest.id])?;
             while let Some(row) = rows.next()? {
                 let name: String = row.get(0)?;
                 let status: String = row.get(1)?;
-                f(
+                game(
                     &name,
                     GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
                 );
             }
-            Ok(())
+            let mut stmt = tx.prepare(&format!(
+                "SELECT {ENTRY_COLUMNS}, seq FROM audit_entries WHERE audit_id = ?1 ORDER BY seq"
+            ))?;
+            let mut rows = stmt.query([latest.id])?;
+            while let Some(row) = rows.next()? {
+                entry(EntryRow {
+                    seq: row.get::<_, i64>(ENTRY_SEQ)? as u64,
+                    entry: entry_from_row(row)?,
+                });
+            }
+            Ok(Some(latest))
         })
     }
 

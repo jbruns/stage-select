@@ -1,6 +1,7 @@
 //! Audit results read through a Source Set's Coverage (ADR 0021): its summary counts, its counts by region, and a
 //! preview of a change. The Audit itself is unchanged, so a change of Coverage needs no new Audit.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -54,7 +55,7 @@ impl From<&AuditSummary> for Fingerprint {
 #[derive(Default)]
 pub struct Tallies {
     order: OnceLock<Arc<Vec<String>>>,
-    sets: Mutex<HashMap<String, (Fingerprint, Arc<Tally>)>>,
+    sets: Mutex<HashMap<String, (AuditSummary, Arc<Tally>)>>,
 }
 
 impl Tallies {
@@ -66,26 +67,40 @@ impl Tallies {
         Ok(self.order.get_or_init(|| read).clone())
     }
 
-    /// The Source Set `set`'s finished Audit `audit` counted by its Games' regions. [`Error::RegionsUnavailable`]
-    /// without the store's region reader. Blocks.
-    fn tally(&self, store: &Store, set: &str, audit: &AuditSummary) -> ApiResult<Arc<Tally>> {
-        let fingerprint = Fingerprint::from(audit);
-        if let Some((kept, tally)) = self.sets.lock().unwrap().get(set)
-            && *kept == fingerprint
+    /// The Source Set `set`'s latest Audit and its count by its Games' regions; None before its first Audit.
+    /// `seen` is the latest Audit as the caller last read it: its tally is reused when kept. Otherwise the latest
+    /// Audit is read again with its rows in one snapshot, so a newer Audit that finished meanwhile, and pruned `seen`,
+    /// is counted instead. [`Error::RegionsUnavailable`] without the store's region reader. Blocks.
+    fn tally(
+        &self,
+        store: &Store,
+        set: &str,
+        seen: Option<&AuditSummary>,
+    ) -> ApiResult<Option<(AuditSummary, Arc<Tally>)>> {
+        if let Some(seen) = seen
+            && let Some((kept, tally)) = self.sets.lock().unwrap().get(set)
+            && Fingerprint::from(kept) == Fingerprint::from(seen)
         {
-            return Ok(tally.clone());
+            return Ok(Some((kept.clone(), tally.clone())));
         }
         let regions = store.region_reader()?;
-        let mut tally = Tally::default();
-        let mut games: HashMap<String, Vec<String>> = HashMap::new();
-        store.for_each_game_status(audit.id, |name, status| {
-            let of = regions(name);
-            tally.add(of.clone(), status);
-            games.insert(name.to_owned(), of);
-        })?;
-        if !audit.pruned {
-            store.for_each_entry(audit.id, |row| {
+        // Both callbacks count into these; the store calls them one at a time.
+        let tally = RefCell::new(Tally::default());
+        let games: RefCell<HashMap<String, Vec<String>>> = RefCell::default();
+        let latest = store.latest_audit_rows(
+            set,
+            |name, status| {
+                let of = regions(name);
+                tally.borrow_mut().add(of.clone(), status);
+                games.borrow_mut().insert(name.to_owned(), of);
+            },
+            |row| {
                 let entry = row.entry;
+                let games = games.borrow();
+                // An Entry belongs to the Games of the ROMs it counts as and of the ROM its name gives. A covered
+                // Game's ROM its bytes also match inside an uncovered Game's ZIP or folder is only Available Elsewhere
+                // for that Game, which never counts toward its status (ADR 0017), so the Entry stays the uncovered
+                // Game's and is left out of a Coverage that doesn't cover it.
                 let of = entry
                     .roms
                     .iter()
@@ -101,23 +116,27 @@ impl Tallies {
                     .evidence
                     .as_ref()
                     .is_some_and(|e| e.level == EvidenceLevel::Claim);
-                tally.add_entry(of, entry.finding, claimed);
-                true
-            })?;
-        }
-        let tally = Arc::new(tally);
+                tally.borrow_mut().add_entry(of, entry.finding, claimed);
+            },
+        )?;
+        let Some(latest) = latest else {
+            self.sets.lock().unwrap().remove(set);
+            return Ok(None);
+        };
+        let tally = Arc::new(tally.into_inner());
         self.sets
             .lock()
             .unwrap()
-            .insert(set.to_owned(), (fingerprint, tally.clone()));
-        Ok(tally)
+            .insert(set.to_owned(), (latest.clone(), tally.clone()));
+        Ok(Some((latest, tally)))
     }
 
     /// Counts each Source Set's latest Audit through its Coverage: `games` only the covered Games, the rest in
-    /// `outside_coverage`, and the Entries its status ranks on in `covered_entries`. Without the store's region
-    /// reader, a covered Source Set's counts stay whole and `coverage_unavailable` says so. Drops the tallies of
-    /// Source Sets no longer registered. Blocks.
-    pub(super) fn apply(&self, store: &Store, summaries: &mut [SourceSetSummary]) -> ApiResult<()> {
+    /// `outside_coverage`, and the Entries its status ranks on in `covered_entries`. When a newer Audit finished
+    /// since `summaries` were read, it replaces `latest`. Where the Coverage can't be applied, without the store's
+    /// region reader or on a failed read, that Source Set's counts stay whole and `coverage_unavailable` says so;
+    /// the others are still counted. Drops the tallies of Source Sets no longer registered. Blocks.
+    pub(super) fn apply(&self, store: &Store, summaries: &mut [SourceSetSummary]) {
         self.sets
             .lock()
             .unwrap()
@@ -132,7 +151,24 @@ impl Tallies {
                 summary.coverage_unavailable = true;
                 continue;
             }
-            let tally = self.tally(store, &summary.set.name, latest)?;
+            let tally = match self.tally(store, &summary.set.name, Some(latest)) {
+                Ok(Some((read, tally))) => {
+                    *latest = read;
+                    tally
+                }
+                Ok(None) => {
+                    summary.coverage_unavailable = true;
+                    continue;
+                }
+                Err(ApiError(_, err, _)) => {
+                    eprintln!(
+                        "title-select: source set {}'s coverage couldn't be applied: {err}",
+                        summary.set.name
+                    );
+                    summary.coverage_unavailable = true;
+                    continue;
+                }
+            };
             let (covered, outside) = tally.split(Some(coverage));
             latest.games = covered;
             summary.outside_coverage = Some(outside);
@@ -140,7 +176,6 @@ impl Tallies {
                 summary.covered_entries = Some(tally.covered_entries(Some(coverage)));
             }
         }
-        Ok(())
     }
 }
 
@@ -169,14 +204,17 @@ async fn region_counts(
     blocking(move || {
         let store = &state.store;
         let set = store.source_set(&name)?;
-        let audit = latest_audit(store, &name)?.ok_or_else(|| {
-            ApiError(
-                StatusCode::NOT_FOUND,
-                format!("source set {name} has no audit yet"),
-                None,
-            )
-        })?;
-        let tally = state.coverage.tally(store, &name, &audit)?;
+        let seen = latest_audit(store, &name)?;
+        let (audit, tally) = state
+            .coverage
+            .tally(store, &name, seen.as_ref())?
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    format!("source set {name} has no audit yet"),
+                    None,
+                )
+            })?;
         let order = state.coverage.order(&engine)?;
         Ok(Json(RegionCounts {
             audit: audit.id,
@@ -204,7 +242,11 @@ async fn preview(
     blocking(move || {
         let store = &state.store;
         let set = store.source_set(&name)?;
-        let audit = latest_audit(store, &name)?;
+        let seen = latest_audit(store, &name)?;
+        let read = match seen {
+            Some(seen) => state.coverage.tally(store, &name, Some(&seen))?,
+            None => None,
+        };
         let missing = |tally: &Tally, coverage: Option<&[String]>| {
             tally
                 .split(coverage)
@@ -213,14 +255,11 @@ async fn preview(
                 .copied()
                 .unwrap_or(0)
         };
-        let (missing_before, missing_after) = match &audit {
-            Some(audit) => {
-                let tally = state.coverage.tally(store, &name, audit)?;
-                (
-                    Some(missing(&tally, set.coverage.as_deref())),
-                    Some(missing(&tally, coverage.as_deref())),
-                )
-            }
+        let (missing_before, missing_after) = match &read {
+            Some((_, tally)) => (
+                Some(missing(tally, set.coverage.as_deref())),
+                Some(missing(tally, coverage.as_deref())),
+            ),
             None => (None, None),
         };
         let stale_library_folders = store
@@ -234,7 +273,7 @@ async fn preview(
             .collect();
         Ok(Json(CoveragePreview {
             coverage,
-            audit: audit.map(|a| a.id),
+            audit: read.map(|(a, _)| a.id),
             missing_before,
             missing_after,
             stale_library_folders,

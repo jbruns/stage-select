@@ -701,14 +701,13 @@ async fn source_set_summaries(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<title_select_api::SourceSetSummary>>> {
     let mut summaries = blocking(&state, Store::source_set_summaries).await?;
-    tokio::task::spawn_blocking(move || {
-        state
-            .coverage
-            .apply(&state.store, &mut summaries)
-            .map(|()| Json(summaries))
+    let summaries = tokio::task::spawn_blocking(move || {
+        state.coverage.apply(&state.store, &mut summaries);
+        summaries
     })
     .await
-    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?;
+    Ok(Json(summaries))
 }
 
 async fn add_source_set(
