@@ -1521,14 +1521,41 @@ struct ExportQuery {
     selection: Option<i64>,
 }
 
+#[derive(Deserialize)]
+struct FixdatQuery {
+    selection: Option<i64>,
+    /// What the Fixdat lists in place of a Selection's winners: `coverage`, the default when the Source Set has a
+    /// Coverage, or `dat`, the whole DAT.
+    scope: Option<FixdatScopeParam>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum FixdatScopeParam {
+    Dat,
+    Coverage,
+}
+
 /// The Fixdat of a Source Set's latest Audit, as a download.
 async fn fixdat(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-    query: Result<Query<ExportQuery>, QueryRejection>,
+    query: Result<Query<FixdatQuery>, QueryRejection>,
 ) -> ApiResult<Response> {
+    use title_select_store::FixdatScope;
     let (Path(name), Query(query)) = (name?, query?);
-    let export = blocking(&state, move |store| store.fixdat(&name, query.selection)).await?;
+    let scope = match (query.scope, query.selection) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::bad_request(
+                "give a scope or a selection, not both",
+            ));
+        }
+        (None, None) => None,
+        (None, Some(selection)) => Some(FixdatScope::Selection(selection)),
+        (Some(FixdatScopeParam::Dat), None) => Some(FixdatScope::Dat),
+        (Some(FixdatScopeParam::Coverage), None) => Some(FixdatScope::Coverage),
+    };
+    let export = blocking(&state, move |store| store.fixdat(&name, scope)).await?;
     Ok(download(export, "application/xml"))
 }
 

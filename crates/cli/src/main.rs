@@ -13,7 +13,7 @@ use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
 use title_select_store::config::Config;
-use title_select_store::{ImportOutcome, Store};
+use title_select_store::{FixdatScope, ImportOutcome, Store};
 
 /// Audits your source sets against DAT revisions.
 #[derive(Parser)]
@@ -75,9 +75,16 @@ enum Command {
     /// Export a fixdat: a Logiqx XML DAT of what a source set lacks by its latest audit, against that audit's
     /// DAT revision. It lists the missing games, and only the missing ROMs of incomplete games, with every size and
     /// hash the DAT gives. Reads only; it never fetches or acquires a game.
+    ///
+    /// When the source set has a coverage, it lists only the games in it by default, and its header names that
+    /// coverage; `--scope dat` lists every game of the DAT instead.
     Fixdat {
         /// The registered source set, by name.
         source_set: String,
+        /// List the games in the source set's coverage (`coverage`, the default when it has one) or every game of
+        /// the DAT (`dat`, the default otherwise).
+        #[arg(long, value_enum, conflicts_with = "selection")]
+        scope: Option<FixdatScopeArg>,
         #[command(flatten)]
         export: ExportArgs,
     },
@@ -176,6 +183,12 @@ enum Command {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=300))]
         timeout: u64,
     },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum FixdatScopeArg {
+    Dat,
+    Coverage,
 }
 
 #[derive(clap::Args)]
@@ -394,7 +407,14 @@ fn main() -> ExitCode {
 
 fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
     let dir = cli_store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
-    Store::open(dir).map_err(|e| e.to_string())
+    let store = Store::open(dir).map_err(|e| e.to_string())?;
+    // Without the clone lists, whatever reads a source set's coverage says so.
+    if let Ok(regions) =
+        title_select_selection::Engine::locate(None).and_then(|engine| engine.regions())
+    {
+        store.set_regions(move |game| regions.of(game));
+    }
+    Ok(store)
 }
 
 /// The configuration file, or no roots when none is given.
@@ -594,9 +614,20 @@ fn run(cli: Cli) -> Result<(), String> {
             eprintln!("{}", payloads_line(&audit.report));
             write_report(&audit.report, output)
         }
-        Command::Fixdat { source_set, export } => write_export(
+        Command::Fixdat {
+            source_set,
+            scope,
+            export,
+        } => write_export(
             open_store(store)?
-                .fixdat(&source_set, export.selection)
+                .fixdat(
+                    &source_set,
+                    match (scope, export.selection) {
+                        (Some(FixdatScopeArg::Dat), _) => Some(FixdatScope::Dat),
+                        (Some(FixdatScopeArg::Coverage), _) => Some(FixdatScope::Coverage),
+                        (None, selection) => selection.map(FixdatScope::Selection),
+                    },
+                )
                 .map_err(|e| e.to_string())?,
             export.output,
         ),

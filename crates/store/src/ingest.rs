@@ -566,6 +566,7 @@ struct SetIndex {
     /// Index into [`Matcher::dats`].
     index: usize,
     audit: Option<AuditIndex>,
+    covering: crate::coverage::Covering,
 }
 
 struct AuditIndex {
@@ -638,6 +639,7 @@ impl Matcher {
             if !revision.blob_present {
                 continue;
             }
+            let covering = store.covering(&set)?;
             let index = match parsed.get(&revision.sha256) {
                 Some(index) => *index,
                 None => {
@@ -668,6 +670,7 @@ impl Matcher {
                 revision: revision.sha256,
                 index,
                 audit,
+                covering,
             });
         }
         Ok(matcher)
@@ -716,7 +719,11 @@ impl Matcher {
             }
             for (game, (roms, used)) in games {
                 let name = index.dat.games[game].clone();
-                let need = set.need(&name, &roms);
+                let need = match set.need(&name, &roms) {
+                    Need::Held => Need::Held,
+                    _ if !set.covering.covers(&name) => Need::OutsideCoverage,
+                    need => need,
+                };
                 found.push(ItemMatch {
                     source_set: set.name.clone(),
                     dat_revision: set.revision.clone(),

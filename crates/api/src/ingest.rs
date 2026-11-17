@@ -134,6 +134,8 @@ pub enum Need {
     Unaudited,
     /// The Source Set already holds the Game complete.
     Held,
+    /// The Game is outside the Source Set's Coverage: the item isn't proposed to fill it.
+    OutsideCoverage,
 }
 
 impl Need {
@@ -147,6 +149,7 @@ impl Need {
             }
             Need::Unaudited => "matches; the source set has no audit yet",
             Need::Held => "already held",
+            Need::OutsideCoverage => "outside your coverage",
         }
     }
 }

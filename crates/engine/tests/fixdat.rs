@@ -181,7 +181,7 @@ fn a_scope_limits_both_exports_to_its_games() {
         dat: &dat,
         report: &report,
         audit: 7,
-        scope: Some(Scope {
+        scope: Some(Scope::Selection {
             selection: 3,
             games: &scope,
         }),
@@ -197,6 +197,31 @@ fn a_scope_limits_both_exports_to_its_games() {
         .map(|l| l.split(',').next().unwrap().to_string())
         .collect();
     assert_eq!(games, ["Pong (USA)", "Combat (USA)"]);
+}
+
+#[test]
+fn a_coverage_scope_lists_only_covered_games_and_the_header_names_the_coverage_it_used() {
+    let (_f, dat_path, report) = audited();
+    let dat = Dat::read(&dat_path).unwrap();
+    let covered: HashSet<String> = ["Pong (USA)".to_string(), "Breakout (USA)".to_string()].into();
+    let regions = ["USA".to_string(), "Canada".to_string()];
+    let lacking = Lacking {
+        dat: &dat,
+        report: &report,
+        audit: 7,
+        scope: Some(Scope::Coverage {
+            regions: &regions,
+            games: &covered,
+        }),
+    };
+
+    let xml = lacking.fixdat();
+
+    assert_eq!(parse(&xml).games, ["Breakout (USA)"]);
+    assert!(
+        xml.contains("limited to the games in its coverage: USA, Canada"),
+        "{xml}"
+    );
 }
 
 #[test]

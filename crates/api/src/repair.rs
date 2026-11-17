@@ -278,6 +278,10 @@ pub struct RepairPlanContent {
     /// unregistered.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub set_aside: bool,
+    /// The Source Set's Coverage when the plan was made (ADR 0021): it proposes no fill for a Game outside it. None
+    /// when the Source Set covers every Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Vec<String>>,
 }
 
 /// What a repair of one item did.

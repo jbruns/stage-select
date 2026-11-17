@@ -6,6 +6,7 @@ mod blobs;
 mod builds;
 mod checks;
 pub mod config;
+mod coverage;
 mod cue_packs;
 mod dat_deletion;
 mod dats;
@@ -41,7 +42,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
 pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
-pub use exports::Export;
+pub use exports::{Export, FixdatScope};
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;
@@ -133,6 +134,8 @@ pub struct Store {
     pace: std::sync::RwLock<title_select_api::settings::Pace>,
     /// Held across each settings update's commit and publication, so they happen in the same order.
     settings_update: std::sync::Mutex<()>,
+    /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
+    regions: std::sync::OnceLock<coverage::Regions>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -398,6 +401,7 @@ impl Store {
             archives: std::sync::OnceLock::new(),
             pace: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
+            regions: std::sync::OnceLock::new(),
         };
         // A store opened by a test of an earlier migration has no settings.
         if migrations.len() >= migrations::SETTINGS {

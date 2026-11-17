@@ -575,6 +575,7 @@ impl Store {
         let storage =
             self.read(|c| crate::storage::policy(c, StorageScope::SourceSets, &record.dat))?;
         let cues = self.cue_sheets(&record.dat)?;
+        let covering = self.covering(record)?;
         let planned = planning::plan(&planning::Inputs {
             report: &report,
             dat: &dat,
@@ -587,6 +588,7 @@ impl Store {
             storage,
             additions: &request.additions,
             cues: &cues,
+            covers: &|game| covering.covers(game),
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -658,6 +660,7 @@ impl Store {
             notes: planned.notes,
             storage,
             set_aside: false,
+            coverage: record.coverage.clone(),
         };
         let digest = digest(&content);
         let packs: BTreeSet<&str> = content
@@ -800,6 +803,7 @@ impl Store {
             notes: Vec::new(),
             storage,
             set_aside: true,
+            coverage: None,
         };
         let digest = digest(&content);
         self.write(|tx| {
