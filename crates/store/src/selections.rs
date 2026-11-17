@@ -29,6 +29,8 @@ pub struct SelectionInput {
     pub dat_revision: DatRevisionRecord,
     /// The DAT Revision's blob.
     pub dat: PathBuf,
+    /// The Source Set's Coverage now, to make the Selection under (ADR 0021); `None` covers every Game.
+    pub coverage: Option<Vec<String>>,
 }
 
 /// Queues a Selection of the Source Set `name` with the Profile version `version_id`, pinned now to a DAT Revision
@@ -193,8 +195,9 @@ fn write_selection(
 ) -> Result<i64> {
     tx.execute(
         "INSERT INTO selections (source_set_id, dat_revision_id, profile_version_id, job_id, system,
-                                 system_settings, pins, summary, coverage_drift, stale_choices, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                 system_settings, pins, summary, coverage_drift, stale_choices, created_at,
+                                 coverage)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             set_id,
             revision_id,
@@ -206,7 +209,8 @@ fn write_selection(
             to_json(&selection.summary),
             to_json(&selection.coverage_drift),
             to_json(&selection.stale_choices),
-            now()
+            now(),
+            super::sets::coverage_json(selection.pins.coverage.as_deref())?,
         ],
     )?;
     let id = tx.last_insert_rowid();
@@ -372,13 +376,23 @@ impl Store {
     /// The Profile and DAT blob the Running Selection Job `id` runs.
     pub fn selection_input(&self, id: i64) -> Result<SelectionInput> {
         self.read(|c| {
-            let (kind, state, revision_id, profile_json): (String, String, i64, Option<String>) = c
+            type Row = (String, String, i64, Option<String>, Option<Vec<String>>);
+            let (kind, state, revision_id, profile_json, coverage): Row = c
                 .query_row(
-                    "SELECT j.kind, j.state, j.dat_revision_id, v.json
+                    "SELECT j.kind, j.state, j.dat_revision_id, v.json, s.coverage
                      FROM jobs j LEFT JOIN profile_versions v ON v.id = j.profile_version_id
+                     LEFT JOIN source_sets s ON s.id = j.source_set_id
                      WHERE j.id = ?1",
                     [id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            super::sets::coverage_from_row(r, 4)?,
+                        ))
+                    },
                 )
                 .optional()?
                 .ok_or_else(|| Error::NotFound(format!("no job {id}")))?;
@@ -397,6 +411,7 @@ impl Store {
                 profile,
                 dat: self.blob_path(&dat_revision.sha256),
                 dat_revision,
+                coverage,
             })
         })
     }

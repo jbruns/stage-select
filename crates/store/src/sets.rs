@@ -77,12 +77,7 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             imported_at: row.get(18)?,
         });
     }
-    let coverage = match row.get::<_, Option<String>>(19)? {
-        Some(json) => Some(serde_json::from_str(&json).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(19, rusqlite::types::Type::Text, Box::new(e))
-        })?),
-        None => None,
-    };
+    let coverage = coverage_from_row(row, 19)?;
     Ok(SourceSetRow {
         id: row.get(0)?,
         dat_id: row.get(1)?,
@@ -315,8 +310,28 @@ impl Store {
     }
 }
 
+/// The Coverage a `coverage` column holds, in column `i`.
+pub(super) fn coverage_from_row(row: &Row, i: usize) -> rusqlite::Result<Option<Vec<String>>> {
+    match row.get::<_, Option<String>>(i)? {
+        Some(json) => Ok(Some(serde_json::from_str(&json).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(i, rusqlite::types::Type::Text, Box::new(e))
+        })?)),
+        None => Ok(None),
+    }
+}
+
+/// Whether two Coverages cover the same regions, whatever their order.
+pub(super) fn same_coverage(a: Option<&[String]>, b: Option<&[String]>) -> bool {
+    use std::collections::BTreeSet;
+    let regions = |c: &[String]| c.iter().cloned().collect::<BTreeSet<_>>();
+    match (a, b) {
+        (Some(a), Some(b)) => regions(a) == regions(b),
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
+
 /// A Coverage as the `coverage` column holds it.
-fn coverage_json(coverage: Option<&[String]>) -> Result<Option<String>> {
+pub(super) fn coverage_json(coverage: Option<&[String]>) -> Result<Option<String>> {
     match coverage {
         Some([]) => Err(Error::Refused(
             "coverage: choose at least one region, or clear the coverage to cover every game"

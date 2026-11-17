@@ -527,6 +527,9 @@ pub(crate) fn includes(run: &mut Run, groups: &mut Groups, lookup: &Lookup) -> P
      -> PyResult<()> {
         for title in titles {
             run.limits.check()?;
+            if run.uncovered.contains(&title) {
+                continue;
+            }
             for (system, reason) in [
                 (true, "User system include"),
                 (false, "User global include"),
@@ -611,7 +614,10 @@ pub(crate) fn includes(run: &mut Run, groups: &mut Groups, lookup: &Lookup) -> P
             .collect();
         let mut related_of = |run: &mut Run, titles: Vec<Id>, group: &str, by_name: bool| {
             for title in titles {
-                if names.contains(&run.n(title).full_name) || run.n(title).group_name != group {
+                if run.uncovered.contains(&title)
+                    || names.contains(&run.n(title).full_name)
+                    || run.n(title).group_name != group
+                {
                     continue;
                 }
                 let property = if by_name {

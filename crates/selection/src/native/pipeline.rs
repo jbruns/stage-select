@@ -29,6 +29,7 @@ pub(crate) struct Ran {
 pub(crate) fn run(
     dat_path: &Path,
     profile: &SelectionProfile,
+    coverage: Option<&[String]>,
     internal_config: &[u8],
     data: &Path,
     limits: &Limits,
@@ -37,12 +38,13 @@ pub(crate) fn run(
         Error::Timeout(_) => Error::Timeout(limits.deadline.map(|(_, t)| t).unwrap_or_default()),
         e => e,
     };
-    run_within(dat_path, profile, internal_config, data, limits).map_err(stop)
+    run_within(dat_path, profile, coverage, internal_config, data, limits).map_err(stop)
 }
 
 fn run_within(
     dat_path: &Path,
     profile: &SelectionProfile,
+    coverage: Option<&[String]>,
     internal_config: &[u8],
     data: &Path,
     limits: &Limits,
@@ -76,6 +78,10 @@ fn run_within(
     if !run.s.options.no_1g1r {
         clone_lists::variants_orchestrator(&mut run, &mut groups, &lookup, &mut clone_list, false)
             .map_err(crash)?;
+    }
+    // After the clone lists, so that their groups and terms still see every Game; before anything chooses.
+    if let Some(coverage) = coverage {
+        filters::filter_coverage(&mut run, &mut groups, coverage).map_err(crash)?;
     }
     run.trace.context(Some("Exclusions"), "", "");
     overrides::excludes(&mut run, &mut groups).map_err(crash)?;
@@ -253,6 +259,7 @@ mod tests {
         run(
             &fixture("Retool - Prefer regions.dat"),
             profile,
+            None,
             &internal_config(),
             &fixtures(),
             limits,

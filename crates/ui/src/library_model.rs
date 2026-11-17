@@ -126,6 +126,10 @@ pub fn stale_label(stale: &Stale) -> String {
         Stale::ProfileSaved { built, latest } => {
             format!("Its selection profile is at version {latest}; its build used version {built}.")
         }
+        Stale::CoverageChanged { .. } => {
+            "Its source set's coverage changed; its build was selected under the earlier coverage."
+                .to_owned()
+        }
     }
 }
 

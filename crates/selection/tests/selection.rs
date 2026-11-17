@@ -146,6 +146,160 @@ fn every_coverage_preset_names_only_regions_the_engine_knows() {
     }
 }
 
+fn covering(regions: &[&str]) -> title_select_selection::RunOptions {
+    title_select_selection::RunOptions {
+        coverage: Some(regions.iter().map(|r| (*r).to_owned()).collect()),
+        ..support::options()
+    }
+}
+
+fn usa_first() -> SelectionProfile {
+    SelectionProfile {
+        region_order: vec![
+            "USA".into(),
+            "Europe".into(),
+            "Japan".into(),
+            "World".into(),
+        ],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_selection_chooses_only_among_the_games_its_coverage_covers() {
+    let work = tempfile::tempdir().unwrap();
+    let empty = data_dir(work.path());
+    let path = work.path().join("covered.dat");
+    dat(
+        &path,
+        "Title Select - Coverage",
+        &["Title (USA)", "Title (Europe)"],
+    );
+    let engine = support::engine().with_data_dir(&empty);
+
+    let uncovered = engine
+        .select(&path, &usa_first(), &support::options())
+        .unwrap();
+    assert_eq!(uncovered.groups[0].winners[0].title, "Title (USA)");
+
+    let selection = engine
+        .select(&path, &usa_first(), &covering(&["Europe"]))
+        .unwrap();
+
+    let group = &selection.groups[0];
+    assert_eq!(group.winners.len(), 1, "{group:#?}");
+    assert_eq!(group.winners[0].title, "Title (Europe)");
+    let usa = group
+        .exclusions
+        .iter()
+        .find(|e| e.title == "Title (USA)")
+        .unwrap_or_else(|| panic!("the USA release is not excluded: {group:#?}"));
+    assert!(usa.rule.is_coverage(), "{usa:#?}");
+    assert_eq!(usa.rule.message, "outside its source set's coverage");
+    assert_eq!(selection.summary.exclusions, 1);
+    assert_eq!(selection.pins.coverage, Some(vec!["Europe".to_owned()]));
+    assert_eq!(uncovered.pins.coverage, None);
+}
+
+#[test]
+fn a_group_its_coverage_covers_none_of_is_shown_excluded_and_a_world_release_is_always_covered() {
+    let work = tempfile::tempdir().unwrap();
+    let empty = data_dir(work.path());
+    let path = work.path().join("covered.dat");
+    dat(
+        &path,
+        "Title Select - Coverage",
+        &[
+            "Only Japan (Japan)",
+            "Only Japan (Japan) (Rev 1)",
+            "Everywhere (World)",
+            "Untagged",
+        ],
+    );
+
+    let selection = support::engine()
+        .with_data_dir(&empty)
+        .select(&path, &usa_first(), &covering(&["Europe"]))
+        .unwrap();
+
+    let japan = selection
+        .groups
+        .iter()
+        .find(|g| g.group == "only japan")
+        .unwrap_or_else(|| panic!("{:#?}", selection.groups));
+    assert!(japan.winners.is_empty(), "{japan:#?}");
+    assert_eq!(japan.exclusions.len(), 2, "{japan:#?}");
+    assert!(japan.exclusions.iter().all(|e| e.rule.is_coverage()));
+    let winners: Vec<&str> = selection
+        .groups
+        .iter()
+        .flat_map(|g| &g.winners)
+        .map(|w| w.title.as_str())
+        .collect();
+    assert_eq!(winners, ["Everywhere (World)"], "{:#?}", selection.groups);
+}
+
+#[test]
+fn a_clone_list_group_keeps_its_covered_releases_and_an_include_cannot_bring_back_an_uncovered_one()
+{
+    let work = tempfile::tempdir().unwrap();
+    let data = data_dir(work.path());
+    let name = "Title Select - Coverage clone list";
+    std::fs::write(
+        data.join("clonelists").join(format!("{name}.json")),
+        r#"{
+  "description": {"name": "Title Select - Coverage clone list", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "variants": [
+    {"group": "Merged", "titles": [{"searchTerm": "Merged"}, {"searchTerm": "Other Name"}]},
+    {"group": "Far Away", "titles": [{"searchTerm": "Far Away"}, {"searchTerm": "Far Off"}]}
+  ]
+}
+"#,
+    )
+    .unwrap();
+    let path = work.path().join("clones.dat");
+    dat(
+        &path,
+        name,
+        &[
+            "Merged (USA)",
+            "Other Name (Europe)",
+            "Far Away (Japan)",
+            "Far Off (USA)",
+        ],
+    );
+    let mut profile = usa_first();
+    profile.overrides.include = vec!["Far Off (USA)".into()];
+
+    let selection = support::engine()
+        .with_data_dir(&data)
+        .select(&path, &profile, &covering(&["Europe"]))
+        .unwrap();
+
+    let merged = selection
+        .groups
+        .iter()
+        .find(|g| g.group == "merged")
+        .unwrap_or_else(|| panic!("{:#?}", selection.groups));
+    assert_eq!(merged.winners[0].title, "Other Name (Europe)");
+    assert_eq!(merged.exclusions[0].title, "Merged (USA)");
+    assert!(merged.exclusions[0].rule.is_coverage());
+    assert!(
+        selection
+            .groups
+            .iter()
+            .all(|g| g.winners.is_empty() || g.group == "merged"),
+        "{:#?}",
+        selection.groups
+    );
+    assert!(
+        selection
+            .coverage_drift
+            .unmatched_clone_list_terms
+            .is_empty()
+    );
+}
+
 #[test]
 fn a_profile_with_names_the_engine_does_not_know_is_refused() {
     let work = tempfile::tempdir().unwrap();

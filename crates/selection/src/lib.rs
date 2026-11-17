@@ -72,6 +72,9 @@ pub struct RunOptions {
     pub timeout: Duration,
     /// Set to stop the run: it fails with `Error::Cancelled`.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// The Source Set's Coverage, as engine region names: Games it doesn't cover are excluded before the engine
+    /// chooses (ADR 0021). `None` covers every Game.
+    pub coverage: Option<Vec<String>>,
 }
 
 impl RunOptions {
@@ -79,6 +82,7 @@ impl RunOptions {
         RunOptions {
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
+            coverage: None,
         }
     }
 
@@ -243,8 +247,21 @@ impl Engine {
             cancel: options.cancel.clone(),
             deadline: Some((Instant::now() + options.timeout, options.timeout)),
         };
-        let ran = native::run(&dat, profile, &self.internal_config()?, &self.data, &limits)?;
-        self.outcome(ran.trace, ran.warnings, dat_sha256, profile)
+        let ran = native::run(
+            &dat,
+            profile,
+            options.coverage.as_deref(),
+            &self.internal_config()?,
+            &self.data,
+            &limits,
+        )?;
+        self.outcome(
+            ran.trace,
+            ran.warnings,
+            dat_sha256,
+            profile,
+            options.coverage.as_deref(),
+        )
     }
 
     fn outcome(
@@ -253,10 +270,14 @@ impl Engine {
         warnings: Vec<String>,
         dat_sha256: String,
         profile: &SelectionProfile,
+        coverage: Option<&[String]>,
     ) -> Result<Outcome, Error> {
         let derived = trace::derive(&trace)?;
         let mut selection = Selection {
-            pins: self.pins.clone(),
+            pins: SelectionPins {
+                coverage: coverage.map(<[String]>::to_vec),
+                ..self.pins.clone()
+            },
             dat_sha256,
             system_settings: profile.systems.contains_key(&derived.system),
             summary: derived.summary,
@@ -328,6 +349,7 @@ fn expected_pins() -> Result<SelectionPins, Error> {
         title_select_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
         clone_list_commit: clone_lists()?.commit,
         trace_schema: SELECTION_TRACE_SCHEMA,
+        coverage: None,
     })
 }
 

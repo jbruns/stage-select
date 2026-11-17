@@ -1,6 +1,6 @@
 //! The language and region filters (`modules/title_selection/filter_languages.py`, `filter_regions.py`).
 
-use super::node::{Groups, Run, Titles};
+use super::node::{COVERAGE_REMOVES, Groups, Run, Titles};
 use super::py::PyResult;
 
 /// `filter_languages`.
@@ -72,6 +72,39 @@ pub(crate) fn filter_languages(run: &mut Run, groups: &mut Groups) -> PyResult<(
         }
     }
     run.note("• Removing titles without specified languages... done.");
+    Ok(())
+}
+
+/// Excludes every title the Source Set's Coverage doesn't cover (ADR 0021), from `groups` and from the Operator's
+/// includes, which can't bring one back. Not part of Retool.
+pub(crate) fn filter_coverage(
+    run: &mut Run,
+    groups: &mut Groups,
+    coverage: &[String],
+) -> PyResult<()> {
+    for id in 0..run.nodes.len() {
+        if !title_select_api::coverage::covered(&run.n(id).regions, Some(coverage)) {
+            run.uncovered.insert(id);
+        }
+    }
+    let names: Vec<String> = groups.keys().cloned().collect();
+    for group in names {
+        run.limits.check()?;
+        let mut kept = Titles::new();
+        for &title in &groups[&group] {
+            if run.uncovered.contains(&title) {
+                run.m(title).exclude_reason = title_select_api::selection::COVERAGE_MESSAGE.into();
+                run.remove_into(COVERAGE_REMOVES, title);
+            } else {
+                kept.insert(title);
+            }
+        }
+        if kept.is_empty() {
+            groups.shift_remove(&group);
+        } else {
+            groups.insert(group, kept);
+        }
+    }
     Ok(())
 }
 

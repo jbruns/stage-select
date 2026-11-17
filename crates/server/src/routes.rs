@@ -1972,12 +1972,14 @@ async fn preview(
     let made = tokio::task::spawn_blocking(move || -> ApiResult<Preview> {
         let (revision, blob) =
             store.selection_revision(&request.source_set, request.revision.as_deref())?;
+        let coverage = store.source_set(&request.source_set)?.coverage;
         let (selection, _) = crate::selections::select(
             &store,
             &engine,
             &blob,
             &revision.file,
             &request.profile,
+            coverage,
             Some(cancel),
         )?;
         let against = store.latest_selection(&request.source_set, &revision.sha256)?;
