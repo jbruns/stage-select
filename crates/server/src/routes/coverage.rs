@@ -27,6 +27,9 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/source-sets/{name}/coverage/preview", post(preview))
 }
 
+/// How many times a summary is read again while newer Audits keep finishing.
+const ATTEMPTS: usize = 3;
+
 /// What tells one finished Audit from any other: Audit ids are reused once an Audit is forgotten, so the id alone
 /// doesn't.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +136,7 @@ impl Tallies {
 
     /// Counts each Source Set's latest Audit through its Coverage: `games` only the covered Games, the rest in
     /// `outside_coverage`, and the Entries its status ranks on in `covered_entries`. When a newer Audit finished
-    /// since `summaries` were read, it replaces `latest`. Where the Coverage can't be applied, without the store's
+    /// since `summaries` were read, that Source Set's summary is read again whole. Where the Coverage can't be applied, without the store's
     /// region reader or on a failed read, that Source Set's counts stay whole and `coverage_unavailable` says so;
     /// the others are still counted. Drops the tallies of Source Sets no longer registered. Blocks.
     pub(super) fn apply(&self, store: &Store, summaries: &mut [SourceSetSummary]) {
@@ -143,39 +146,56 @@ impl Tallies {
             .retain(|name, _| summaries.iter().any(|s| s.set.name == *name));
         let readable = store.region_reader().is_ok();
         for summary in summaries {
-            let (Some(coverage), Some(latest)) = (&summary.set.coverage, &mut summary.latest)
-            else {
+            if summary.set.coverage.is_none() || summary.latest.is_none() {
                 continue;
-            };
+            }
             if !readable {
                 summary.coverage_unavailable = true;
                 continue;
             }
-            let tally = match self.tally(store, &summary.set.name, Some(latest)) {
-                Ok(Some((read, tally))) => {
-                    *latest = read;
-                    tally
-                }
-                Ok(None) => {
-                    summary.coverage_unavailable = true;
-                    continue;
-                }
-                Err(ApiError(_, err, _)) => {
-                    eprintln!(
-                        "title-select: source set {}'s coverage couldn't be applied: {err}",
-                        summary.set.name
-                    );
-                    summary.coverage_unavailable = true;
-                    continue;
-                }
-            };
-            let (covered, outside) = tally.split(Some(coverage));
-            latest.games = covered;
-            summary.outside_coverage = Some(outside);
-            if !latest.pruned {
-                summary.covered_entries = Some(tally.covered_entries(Some(coverage)));
+            if let Err(err) = self.apply_one(store, summary) {
+                eprintln!(
+                    "title-select: source set {}'s coverage couldn't be applied: {err}",
+                    summary.set.name
+                );
+                summary.coverage_unavailable = true;
             }
         }
+    }
+
+    /// Counts `summary`'s latest Audit through its Coverage. When a newer Audit finished since `summary` was read,
+    /// reads the whole summary again, so its staleness, last verification and Repair agree with the Audit counted,
+    /// up to [`ATTEMPTS`] times. On an error, `summary` is left as it was read.
+    fn apply_one(&self, store: &Store, summary: &mut SourceSetSummary) -> Result<(), String> {
+        let mut current = summary.clone();
+        for _ in 0..ATTEMPTS {
+            let (Some(coverage), Some(latest)) = (&current.set.coverage, &mut current.latest)
+            else {
+                *summary = current;
+                return Ok(());
+            };
+            let Some((read, tally)) = self
+                .tally(store, &current.set.name, Some(latest))
+                .map_err(|ApiError(_, err, _)| err)?
+            else {
+                return Err("its latest audit is gone".into());
+            };
+            if Fingerprint::from(&read) != Fingerprint::from(&*latest) {
+                current = store
+                    .source_set_summary(&summary.set.name)
+                    .map_err(|err| err.to_string())?;
+                continue;
+            }
+            let (covered, outside) = tally.split(Some(coverage));
+            latest.games = covered;
+            current.outside_coverage = Some(outside);
+            if !latest.pruned {
+                current.covered_entries = Some(tally.covered_entries(Some(coverage)));
+            }
+            *summary = current;
+            return Ok(());
+        }
+        Err("newer audits kept finishing while it was read".into())
     }
 }
 
@@ -280,4 +300,83 @@ async fn preview(
         }))
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use title_select_api::AuditEvidence;
+    use title_select_store::config::Config;
+
+    use super::*;
+
+    fn dat(version: &str) -> String {
+        format!(
+            r#"<?xml version="1.0"?>
+<datafile><header><name>Test - System</name><version>{version}</version><homepage>No-Intro</homepage></header>
+<game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="00000000"/></game>
+<game name="Tennis (Europe)"><rom name="Tennis (Europe).a26" size="4" crc="00000000"/></game></datafile>"#
+        )
+    }
+
+    /// A summary read before a newer Audit finished is read again whole, not only its latest Audit: the Source Set's
+    /// staleness and last verification then agree with the Audit counted.
+    #[test]
+    fn a_summary_read_before_a_newer_audit_finished_is_read_again_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sets/Test - System")).unwrap();
+        let config = Config::parse(&format!(
+            "[roots.sets]\npath = {:?}\n",
+            dir.path().join("sets").display().to_string()
+        ))
+        .unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        store.set_regions(|game| {
+            vec![
+                if game.contains("(Europe)") {
+                    "Europe"
+                } else {
+                    "USA"
+                }
+                .to_owned(),
+            ]
+        });
+        store
+            .import_dat_bytes(dat("1").as_bytes(), "1.dat", None)
+            .unwrap();
+        let set = "Test - System";
+        store
+            .add_source_set(&config, "sets", set, "No-Intro/Test - System")
+            .unwrap();
+        store.set_follow(set, true).unwrap();
+        store
+            .set_coverage(set, Some(&["Europe".to_owned()]))
+            .unwrap();
+        let audit = |revision: Option<&str>| {
+            store
+                .audit_source_set(&config, set, revision, AuditEvidence::Incremental)
+                .unwrap()
+        };
+        audit(None);
+        let (newer, _) = store
+            .import_dat_bytes(dat("2").as_bytes(), "2.dat", None)
+            .unwrap();
+        let mut summaries = store.source_set_summaries().unwrap();
+        assert!(!summaries[0].set.stale.is_empty(), "a newer DAT revision");
+        audit(Some(&newer.sha256));
+
+        Tallies::default().apply(&store, &mut summaries);
+
+        assert_eq!(summaries[0], {
+            let mut now = store.source_set_summary(set).unwrap();
+            let latest = now.latest.as_mut().unwrap();
+            latest.games = [(GameStatus::Missing, 1)].into();
+            now.outside_coverage = Some(title_select_api::OutsideCoverage {
+                games: [(GameStatus::Missing, 1)].into(),
+                unknown_region: 0,
+            });
+            now.covered_entries = Some(Default::default());
+            now
+        });
+        assert!(summaries[0].set.stale.is_empty(), "verified against it");
+    }
 }

@@ -988,27 +988,15 @@ impl Store {
     /// Source Sets shows, in one read.
     pub fn source_set_summaries(&self) -> Result<Vec<SourceSetSummary>> {
         let sets = self.source_sets()?;
-        self.read(|c| {
-            let mut latest = c.prepare(&format!(
-                "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
-                 ORDER BY a.finish_seq DESC LIMIT 1"
-            ))?;
-            sets.into_iter()
-                .map(|set| {
-                    let latest = latest
-                        .query_row([&set.name], summary_from_row)
-                        .optional()?;
-                    let repair = open_repair(c, &set.name, latest.as_ref().map(|a| a.id))?;
-                    Ok(SourceSetSummary {
-                        set,
-                        latest,
-                        repair,
-                        outside_coverage: None,
-                        covered_entries: None,
-                        coverage_unavailable: false,
-                    })
-                })
-                .collect()
+        self.read(|c| sets.into_iter().map(|set| set_summary(c, set)).collect())
+    }
+
+    /// The Source Set `name`'s row of [`Store::source_set_summaries`], read in one transaction.
+    pub fn source_set_summary(&self, name: &str) -> Result<SourceSetSummary> {
+        self.read(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let set = crate::sets::set_by_name(&tx, name)?.record;
+            set_summary(&tx, set)
         })
     }
 
@@ -1212,6 +1200,26 @@ fn page<T>(mut items: Vec<T>, limit: usize, seq: impl Fn(&T) -> u64) -> (Vec<T>,
 }
 
 /// Refuses an Audit that is not finished or whose Entries were pruned.
+/// `set` with its latest finished Audit and its open Repair.
+fn set_summary(c: &Connection, set: title_select_api::SourceSetRecord) -> Result<SourceSetSummary> {
+    let latest = c
+        .prepare_cached(&format!(
+            "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
+             ORDER BY a.finish_seq DESC LIMIT 1"
+        ))?
+        .query_row([&set.name], summary_from_row)
+        .optional()?;
+    let repair = open_repair(c, &set.name, latest.as_ref().map(|a| a.id))?;
+    Ok(SourceSetSummary {
+        set,
+        latest,
+        repair,
+        outside_coverage: None,
+        covered_entries: None,
+        coverage_unavailable: false,
+    })
+}
+
 fn check_full(c: &Connection, audit_id: i64) -> Result<()> {
     let pruned: Option<bool> = c
         .query_row(
