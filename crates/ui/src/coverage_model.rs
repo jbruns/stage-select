@@ -269,6 +269,19 @@ pub fn preview_text(
     }
 }
 
+/// Whether the coverage you just `saved` is still ahead of the one `loaded` with the source set, so reopening the
+/// editor should start from it: until a load brings it back. `None` for either is nothing saved, or not loaded yet.
+pub fn save_pending(
+    saved: Option<&Option<Vec<String>>>,
+    loaded: Option<&Option<Vec<String>>>,
+) -> bool {
+    match (saved, loaded) {
+        (None, _) => false,
+        (Some(_), None) => true,
+        (Some(saved), Some(loaded)) => saved != loaded,
+    }
+}
+
 /// What a Coverage leaves out of a source set's counts, in one line: games present, incomplete, and of an unknown
 /// region.
 pub fn outside_line(outside: &OutsideCoverage) -> String {
@@ -514,5 +527,15 @@ mod tests {
         let stored = regions(&["Japan", "Unknown"]);
         assert_eq!(Draft::of(Some(&stored)).coverage(&order), Ok(Some(stored)));
         assert_eq!(Draft::of(None).coverage(&order), Ok(None));
+    }
+
+    #[test]
+    fn a_saved_coverage_waits_only_until_a_load_brings_it() {
+        let asia = Some(regions(&["Japan"]));
+        assert!(!save_pending(None, Some(&asia)));
+        assert!(save_pending(Some(&asia), None));
+        assert!(save_pending(Some(&asia), Some(&None)));
+        assert!(!save_pending(Some(&asia), Some(&asia)));
+        assert!(!save_pending(Some(&None), Some(&None)));
     }
 }

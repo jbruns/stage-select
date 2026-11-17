@@ -176,9 +176,11 @@ pub fn CoverageDrawer(
     // The coverage just saved, until the reload of the source set brings it: reopening the drawer sooner starts from
     // it, not from the coverage it replaced.
     let saved = RwSignal::new(None::<Option<Vec<String>>>);
+    // Tracks both: a reload that brings back the same coverage notifies nothing, so saving one unchanged must clear
+    // it as soon as it is set.
     Effect::new(move || {
         let loaded = coverage.get();
-        if loaded.is_some() && saved.with_untracked(|s| s.is_some() && *s == loaded) {
+        if saved.with(|s| s.is_some() && !model::save_pending(s.as_ref(), loaded.as_ref())) {
             saved.set(None);
         }
     });
