@@ -41,6 +41,27 @@ pub(crate) fn system_name(dat: &std::path::Path, internal_config: &[u8]) -> Opti
     Some(header.search_name).filter(|name| !name.is_empty())
 }
 
+/// Reads Games' regions from their names under the engine's internal configuration.
+pub(crate) struct GameRegions(settings::Settings);
+
+impl GameRegions {
+    pub fn new(internal_config: &[u8]) -> Result<Self, crate::Error> {
+        settings::Settings::new(
+            internal_config,
+            &title_select_api::selection::SelectionProfile::default(),
+            "",
+        )
+        .map(GameRegions)
+    }
+
+    /// As `DatNode` reads them: region tags don't depend on the Profile, and invalid characters are replaced first.
+    pub fn of(&self, name: &str) -> Vec<String> {
+        let name = titletools::replace_invalid_characters(name, false);
+        let tag = titletools::regions(&name, &self.0, titletools::Method::Get);
+        titletools::region_list(&tag, &self.0)
+    }
+}
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};

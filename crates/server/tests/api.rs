@@ -3126,6 +3126,67 @@ mod selections {
 }
 
 #[test]
+fn the_api_registers_changes_and_clears_a_source_sets_coverage() {
+    const ESCAPED: &str = "Test%20-%20System";
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    let set_coverage = |coverage: serde_json::Value| -> (u16, serde_json::Value) {
+        let (name, value) = client.auth.clone().unwrap();
+        let mut response = agent()
+            .put(format!("{}/source-sets/{ESCAPED}/coverage", client.base))
+            .header(name, value)
+            .send_json(serde_json::json!({ "coverage": coverage }))
+            .unwrap();
+        (
+            response.status().as_u16(),
+            response.body_mut().read_json().unwrap(),
+        )
+    };
+
+    let mut response = client
+        .post("/source-sets")
+        .send_json(serde_json::json!({
+            "root": "sets", "path": SET, "dat": "No-Intro/Test - System",
+            "coverage": ["Europe", "USA", "Europe"],
+        }))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let set: SourceSetRecord = response.body_mut().read_json().unwrap();
+    assert_eq!(
+        set.coverage.as_deref(),
+        Some(&["USA".to_owned(), "Europe".to_owned()][..]),
+        "stored once each, in the engine's region order"
+    );
+
+    let (status, refused) = set_coverage(serde_json::json!(["Japan", "Atlantis"]));
+    assert_eq!(status, 400);
+    let refused: ErrorBody = serde_json::from_value(refused).unwrap();
+    assert!(refused.error.contains("Atlantis"), "{}", refused.error);
+    let (status, changed) = set_coverage(serde_json::json!(["Japan", "Unknown"]));
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["coverage"], serde_json::json!(["Japan", "Unknown"]));
+    let fetched: SourceSetRecord = client.json(&format!("/source-sets/{ESCAPED}"));
+    assert_eq!(serde_json::to_value(&fetched).unwrap(), changed);
+
+    let (status, cleared) = set_coverage(serde_json::Value::Null);
+    assert_eq!(status, 200, "{cleared}");
+    assert!(
+        cleared.get("coverage").is_none(),
+        "a source set without a coverage reads as before: {cleared}"
+    );
+
+    let vocabulary: title_select_api::Vocabulary = client.json("/vocabulary");
+    let europe = vocabulary
+        .coverage_presets
+        .iter()
+        .find(|p| p.name == "Europe + Australia")
+        .unwrap();
+    assert!(europe.regions.iter().any(|r| r == "UK"), "{europe:?}");
+}
+
+#[test]
 fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_newer_revision() {
     use title_select_api::{SourceSetStale, StatWalk};
     const ESCAPED: &str = "Test%20-%20System";

@@ -613,6 +613,7 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             path: Some(chosen),
             template: None,
             dat: dat.get_untracked(),
+            coverage: None,
         };
         busy.set(true);
         leptos::task::spawn_local(async move {

@@ -295,15 +295,7 @@ impl Run {
             languages_title = set;
         }
         let regions_str = titletools::regions(&full_name, s, Method::Get);
-        let mut regions: Vec<String> = s
-            .region_order_default
-            .iter()
-            .filter(|r| regions_str.contains(r.as_str()))
-            .cloned()
-            .collect();
-        if regions.is_empty() {
-            regions = vec!["Unknown".into()];
-        }
+        let regions = titletools::region_list(&regions_str, s);
         let mut primary_region = regions[0].clone();
         let primary_region_original = primary_region.clone();
         let region_order = s.region_order().to_vec();

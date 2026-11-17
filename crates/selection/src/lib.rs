@@ -203,6 +203,11 @@ impl Engine {
         })
     }
 
+    /// Reads Games' regions from their names, as a Selection does.
+    pub fn regions(&self) -> Result<Regions, Error> {
+        Ok(Regions(native::GameRegions::new(&self.internal_config()?)?))
+    }
+
     /// Checks that the engine can read `profile`: every name is known and every override and post filter is
     /// well formed.
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
@@ -271,6 +276,18 @@ impl Engine {
             trace,
             warnings,
         })
+    }
+}
+
+/// Reads a Game's regions from the region tags in its name, exactly as a Selection does, so that Coverage and
+/// Selection agree on them (ADR 0021).
+pub struct Regions(native::GameRegions);
+
+impl Regions {
+    /// The regions of the Game named `name` (its name in the DAT), in the engine's default region order: `World`
+    /// for an `Export` tag, and `Unknown` alone when no tag names a region.
+    pub fn of(&self, name: &str) -> Vec<String> {
+        self.0.of(name)
     }
 }
 

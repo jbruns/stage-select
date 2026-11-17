@@ -112,6 +112,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/source-sets/{name}/fixdat", get(fixdat))
         .route("/source-sets/{name}/have-miss.csv", get(have_miss))
         .route("/source-sets/{name}/follow", put(set_follow))
+        .route("/source-sets/{name}/coverage", put(set_coverage))
         .route(
             "/source-sets/{name}/stat-walks",
             get(stat_walks).post(start_stat_walk),
@@ -704,6 +705,10 @@ async fn add_source_set(
 ) -> ApiResult<(StatusCode, Json<title_select_api::SourceSetRecord>)> {
     let Json(add) = body?;
     let config = state.config.clone();
+    let coverage = match &add.coverage {
+        Some(regions) => Some(coverage(&state, regions).await?),
+        None => None,
+    };
     let record = blocking(&state, move |store| {
         let path = match (add.path, add.template) {
             (Some(_), Some(_)) => {
@@ -712,7 +717,7 @@ async fn add_source_set(
             (Some(path), None) => path,
             (None, template) => store.propose_source_set_path(&add.dat, template.as_deref())?,
         };
-        store.add_source_set(&config, &add.root, &path, &add.dat)
+        store.add_source_set_covering(&config, &add.root, &path, &add.dat, coverage.as_deref())
     })
     .await?;
     Ok((StatusCode::CREATED, Json(record)))
@@ -1391,6 +1396,36 @@ async fn set_follow(
     ))
 }
 
+/// Checks a Coverage's region names against the engine's vocabulary, and returns them as a Coverage stores them.
+async fn coverage(state: &AppState, regions: &[String]) -> ApiResult<Vec<String>> {
+    let engine = state.engine()?;
+    let names = tokio::task::spawn_blocking(move || engine.names())
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
+    title_select_api::coverage::canonical(regions, &names.regions)
+        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e, None))
+}
+
+/// Sets a Source Set's Coverage, or clears it. No file changes, and no new Audit is needed.
+async fn set_coverage(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<title_select_api::SetCoverage>, JsonRejection>,
+) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    let coverage = match &request.coverage {
+        Some(regions) => Some(coverage(&state, regions).await?),
+        None => None,
+    };
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.set_coverage(&name, coverage.as_deref())
+        })
+        .await?,
+    ))
+}
+
 /// Queues a stat walk of a Source Set: a check, from sizes and times alone, for files changed since its latest Audit.
 async fn start_stat_walk(
     State(state): State<AppState>,
@@ -1784,6 +1819,7 @@ async fn vocabulary(State(state): State<AppState>) -> ApiResult<Json<Vocabulary>
         categories: title_select_api::selection::Category::ALL.to_vec(),
         default_region_order: names.default_region_order,
         default_video_order: names.default_video_order,
+        coverage_presets: title_select_api::CoveragePreset::all(),
     }))
 }
 

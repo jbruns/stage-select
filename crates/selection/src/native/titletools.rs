@@ -440,6 +440,22 @@ pub(crate) fn regions(name: &str, s: &Settings, method: Method) -> String {
     }
 }
 
+/// A title's regions, as `DatNode` derives them from its region tag (`regions(name, s, Method::Get)`): those the tag
+/// names, in the default region order, else `Unknown`.
+pub(crate) fn region_list(regions_str: &str, s: &Settings) -> Vec<String> {
+    let regions: Vec<String> = s
+        .region_order_default
+        .iter()
+        .filter(|r| regions_str.contains(r.as_str()))
+        .cloned()
+        .collect();
+    if regions.is_empty() {
+        vec!["Unknown".into()]
+    } else {
+        regions
+    }
+}
+
 /// `TitleTools.remove_tags`.
 pub(crate) fn remove_tags(name: &str, s: &Settings) -> String {
     let mut name = name.to_owned();

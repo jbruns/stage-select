@@ -432,6 +432,58 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
 }
 
 #[test]
+fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
+    let (f, dat) = pong_fixture();
+    let config = f.dat_dir.path().join("title-select.toml");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        &config,
+        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+
+    let added = run_ok(
+        ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"])
+            .args([
+                "--coverage-preset",
+                "USA + Canada",
+                "--coverage-region",
+                "Unknown",
+            ]),
+    );
+    assert!(added.contains("covers USA, Canada, Unknown"), "{added}");
+    let shown = run_ok(ts().args(["set", "coverage", rel]));
+    assert!(shown.contains("covers USA, Canada, Unknown"), "{shown}");
+
+    let unknown = ts()
+        .args(["set", "coverage", rel, "--region", "Atlantis"])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success());
+    assert!(
+        String::from_utf8_lossy(&unknown.stderr).contains("unknown regions: Atlantis"),
+        "{}",
+        String::from_utf8_lossy(&unknown.stderr)
+    );
+    let changed = run_ok(ts().args(["set", "coverage", rel, "--region", "Japan"]));
+    assert!(changed.contains("covers Japan"), "{changed}");
+
+    let cleared = run_ok(ts().args(["set", "coverage", rel, "--clear"]));
+    assert!(cleared.contains("covers every game"), "{cleared}");
+    let shown = run_ok(ts().args(["set", "coverage", rel]));
+    assert!(shown.contains("covers every game"), "{shown}");
+}
+
+#[test]
 fn version_prints_the_pinned_clone_list_commit() {
     let pins = include_str!("../../../third_party/clone-lists/pins.toml");
     let commits: Vec<&str> = pins
