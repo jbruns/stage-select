@@ -4,6 +4,7 @@
 use title_select_api::build::{LibraryFolder, Stale};
 use title_select_api::{Job, JobKind, SelectionRecord};
 
+use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
 use crate::parts::status::{LibraryFacts, LibraryStatus};
 
@@ -126,10 +127,11 @@ pub fn stale_label(stale: &Stale) -> String {
         Stale::ProfileSaved { built, latest } => {
             format!("Its selection profile is at version {latest}; its build used version {built}.")
         }
-        Stale::CoverageChanged { .. } => {
-            "Its source set's coverage changed; its build was selected under the earlier coverage."
-                .to_owned()
-        }
+        Stale::CoverageChanged { built, latest } => format!(
+            "Coverage changed: its source set covers {} now; its build was selected under {}.",
+            label_in_sentence(latest.as_deref()),
+            label_in_sentence(built.as_deref()),
+        ),
     }
 }
 
@@ -542,5 +544,22 @@ mod tests {
         let second = replans.ask();
         assert!(!replans.is_latest(first));
         assert!(replans.is_latest(second));
+    }
+
+    #[test]
+    fn a_coverage_change_says_what_the_build_was_selected_under() {
+        let asia: Vec<String> = title_select_api::coverage::preset("Asia")
+            .unwrap()
+            .regions
+            .iter()
+            .map(|r| (*r).to_owned())
+            .collect();
+        assert_eq!(
+            stale_label(&Stale::CoverageChanged {
+                built: None,
+                latest: Some(asia),
+            }),
+            "Coverage changed: its source set covers Asia now; its build was selected under every region."
+        );
     }
 }

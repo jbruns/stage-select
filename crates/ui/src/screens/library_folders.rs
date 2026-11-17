@@ -43,6 +43,7 @@ use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::status::{BuildKind, LibraryStatus, Status, StatusBadge, StatusIcon};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
+use crate::screens::coverage::InheritedCoverage;
 use crate::screens::jobs::progress_view;
 use crate::screens::library_plan::LibraryPlan;
 use crate::screens::library_romm::RommTab;
@@ -627,6 +628,10 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             <dt>"Selection profile"</dt>
             <dd>
                 <A href=profile_href>{profile}</A>
+            </dd>
+            <dt>"Coverage"</dt>
+            <dd>
+                <InheritedCoverage name=f.source_set.clone() />
             </dd>
             <dt>"Root"</dt>
             <dd>

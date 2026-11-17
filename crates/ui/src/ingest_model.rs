@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use title_select_api::additions::NewAddition;
 use title_select_api::ingest::{
     Assessment, IngestAction, IngestFolder, IngestItem, IngestOutcome, IngestPlan, IngestPlanItem,
-    ItemState, PlanIngest, Proposal,
+    ItemState, Need, PlanIngest, Proposal,
 };
 
 use crate::model::when;
@@ -18,6 +18,16 @@ use crate::screens::additions::new_addition;
 /// DAT Revision's identity and which is shown by name and version instead.
 pub fn item_checksum(a: &Assessment) -> Option<&str> {
     a.sha256.as_deref().filter(|_| a.dat.is_none())
+}
+
+/// What an item that matches a source set's game proposes, in a few words: the game and where it goes, or, when the
+/// source set's coverage leaves the game out or can't be applied, that it proposes nothing.
+pub fn source_set_match(source_set: &str, game: &str, need: Need) -> String {
+    match need {
+        Need::OutsideCoverage => "Outside your coverage".into(),
+        Need::CoverageUnavailable => "Coverage unknown".into(),
+        _ => format!("{game} in {source_set}"),
+    }
 }
 
 /// The checksum to show for a plan item: none for a DAT file, whatever the plan does with it, as [`item_checksum`].
@@ -778,6 +788,22 @@ mod tests {
         assert_eq!(
             arriving_note(&folder(None, None)),
             "Assessed once settled · at the next scan"
+        );
+    }
+
+    #[test]
+    fn a_match_outside_the_coverage_proposes_nothing_and_says_why() {
+        assert_eq!(
+            source_set_match("GB", "Pong (Japan)", Need::OutsideCoverage),
+            "Outside your coverage"
+        );
+        assert_eq!(
+            source_set_match("GB", "Pong (Japan)", Need::CoverageUnavailable),
+            "Coverage unknown"
+        );
+        assert_eq!(
+            source_set_match("GB", "Pong (USA)", Need::Missing),
+            "Pong (USA) in GB"
         );
     }
 }

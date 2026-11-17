@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::GameStatus;
 use title_select_api::selection::{
-    ChoiceStatus, ReleaseRow, Role, Selection, SelectionGroup, SelectionOptions, SelectionProfile,
-    SystemSettings,
+    ChoiceStatus, Exclusion, ReleaseRow, Role, Rule, Selection, SelectionGroup, SelectionOptions,
+    SelectionProfile, SystemSettings,
 };
 
 use crate::model::{Sort, status_text};
@@ -17,6 +17,36 @@ pub fn role_label(role: Role) -> &'static str {
         Role::Winner => "Selected",
         Role::Alternative => "Alternative",
         Role::Exclusion => "Excluded",
+    }
+}
+
+/// A rule as the workbench shows it: the stage and the engine's message, "Your choice", or, for a release its source
+/// set's coverage leaves out, that alone.
+pub fn rule_text(rule: &Rule) -> String {
+    if rule.is_choice() {
+        "Your choice".to_string()
+    } else if rule.is_coverage() {
+        capitalised(&rule.message)
+    } else {
+        format!("{}: {}", rule.stage, rule.message)
+    }
+}
+
+/// Why a release was excluded: the engine's reason and the rule that applied it, or, for a release outside its source
+/// set's coverage, that once.
+pub fn exclusion_text(exclusion: &Exclusion) -> String {
+    if exclusion.rule.is_coverage() {
+        rule_text(&exclusion.rule)
+    } else {
+        format!("{}: {}", exclusion.reason, rule_text(&exclusion.rule))
+    }
+}
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -1155,5 +1185,29 @@ mod tests {
 
         let unaudited = GroupAvailability::of(&g, &BTreeMap::new(), &none);
         assert_eq!(unaudited.label(), "");
+    }
+
+    #[test]
+    fn a_release_outside_the_coverage_says_so_once() {
+        let outside = Exclusion {
+            title: "Pong (Japan)".into(),
+            rule: Rule::coverage(),
+            reason: title_select_api::selection::COVERAGE_MESSAGE.into(),
+        };
+        assert_eq!(
+            exclusion_text(&outside),
+            "Outside its source set's coverage"
+        );
+
+        let demo = Exclusion {
+            title: "Pong (Demo)".into(),
+            rule: rule(),
+            reason: "Demos".into(),
+        };
+        assert_eq!(
+            exclusion_text(&demo),
+            "Demos: Parent selection: Higher region"
+        );
+        assert_eq!(rule_text(&Rule::choice()), "Your choice");
     }
 }

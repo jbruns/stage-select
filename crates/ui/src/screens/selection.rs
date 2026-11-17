@@ -9,7 +9,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
 use title_select_api::selection::{
-    ChoiceStatus, ReleaseChange, Role, Rule, SelectionGroup, SelectionProfile,
+    ChoiceStatus, ReleaseChange, Role, SelectionGroup, SelectionProfile,
 };
 use title_select_api::{
     Availability, GameStatus, Job, ProfileRecord, ProfileVersion, SaveProfile, SavedProfile,
@@ -30,19 +30,10 @@ use crate::screens::audit::{ReAudit, focus};
 use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
-    flag_labels, group_status, include_and_check, role_label, staged_changes, toggle,
-    unresolved_explanation,
+    exclusion_text, flag_labels, group_status, include_and_check, role_label, rule_text,
+    staged_changes, toggle, unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
-
-/// A rule as the workbench shows it: the stage and the engine's message, or "Your choice".
-pub fn rule_text(rule: &Rule) -> String {
-    if rule.is_choice() {
-        "Your choice".to_string()
-    } else {
-        format!("{}: {}", rule.stage, rule.message)
-    }
-}
 
 /// Says that a Job was queued to make a Selection, and links to the Selection once it is made.
 #[component]
@@ -601,6 +592,7 @@ impl GroupItem {
         let first = group.winners.first();
         let rule = match (first, group.exclusions.first()) {
             (Some(w), _) => rule_text(&w.rule),
+            (None, Some(e)) if e.rule.is_coverage() => rule_text(&e.rule),
             (None, Some(e)) => e.reason.clone(),
             (None, None) => String::new(),
         };
@@ -810,6 +802,10 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             <dd>
                 <A href=profile_href>{r.profile.name.clone()}</A>
                 {format!(", version {}", r.profile.version)}
+            </dd>
+            <dt>"Coverage"</dt>
+            <dd>
+                {crate::coverage_model::made_under(r.pins.coverage.as_deref())}
             </dd>
             <dt>"System"</dt>
             <dd>
@@ -1238,13 +1234,11 @@ fn GroupPanel(
                 .iter()
                 .map(|a| (a.title.clone(), Role::Alternative, rule_text(&a.rule))),
         )
-        .chain(g.exclusions.iter().map(|e| {
-            (
-                e.title.clone(),
-                Role::Exclusion,
-                format!("{}: {}", e.reason, rule_text(&e.rule)),
-            )
-        }))
+        .chain(
+            g.exclusions
+                .iter()
+                .map(|e| (e.title.clone(), Role::Exclusion, exclusion_text(e))),
+        )
         .collect();
 
     view! {

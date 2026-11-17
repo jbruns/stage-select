@@ -391,17 +391,61 @@ pub enum MissingExport {
     HaveMiss,
 }
 
-/// The API path that downloads `export` for the source set whose escaped name is `set`, limited to the winners of
-/// `selection` when there is one.
-pub fn missing_export_path(set: &str, export: MissingExport, selection: Option<i64>) -> String {
+/// Which games an export of what's missing lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportScope {
+    /// The games the source set's Coverage covers.
+    Coverage,
+    /// Every game of the DAT.
+    Dat,
+    /// The winners of the selection with this id.
+    Selection(i64),
+}
+
+impl ExportScope {
+    /// The scope an export starts at: the Coverage when the source set has one, else the whole DAT.
+    pub fn default_for(covered: bool) -> ExportScope {
+        if covered {
+            ExportScope::Coverage
+        } else {
+            ExportScope::Dat
+        }
+    }
+
+    /// The value of the scope's `<option>`.
+    pub fn value(self) -> String {
+        match self {
+            ExportScope::Coverage => "coverage".into(),
+            ExportScope::Dat => "dat".into(),
+            ExportScope::Selection(id) => id.to_string(),
+        }
+    }
+
+    /// The scope an `<option>`'s value names; the whole DAT for one it doesn't know.
+    pub fn parse(value: &str) -> ExportScope {
+        match value {
+            "coverage" => ExportScope::Coverage,
+            _ => value
+                .parse()
+                .map_or(ExportScope::Dat, ExportScope::Selection),
+        }
+    }
+}
+
+/// The API path that downloads `export` of `scope` for the source set whose escaped name is `set`. The have/miss CSV
+/// reports every game, covered or not, so only a selection limits it.
+pub fn missing_export_path(set: &str, export: MissingExport, scope: ExportScope) -> String {
+    let query = match (export, scope) {
+        (_, ExportScope::Selection(id)) => format!("?selection={id}"),
+        (MissingExport::Fixdat, ExportScope::Coverage) => "?scope=coverage".into(),
+        (MissingExport::Fixdat, ExportScope::Dat) => "?scope=dat".into(),
+        (MissingExport::HaveMiss, _) => String::new(),
+    };
     let file = match export {
         MissingExport::Fixdat => "fixdat",
         MissingExport::HaveMiss => "have-miss.csv",
     };
-    match selection {
-        Some(id) => format!("/source-sets/{set}/{file}?selection={id}"),
-        None => format!("/source-sets/{set}/{file}"),
-    }
+    format!("/source-sets/{set}/{file}{query}")
 }
 
 /// The selections an export can be limited to: those of the latest audit's DAT revision that still hold their rows.
@@ -785,12 +829,29 @@ mod tests {
         assert_eq!(offered, [9, 6]);
         assert_eq!(selection_option(&selections[0]), "Selection #9: Mine v3");
         assert_eq!(
-            missing_export_path("GB%20Color", MissingExport::Fixdat, None),
-            "/source-sets/GB%20Color/fixdat"
+            missing_export_path("GB%20Color", MissingExport::Fixdat, ExportScope::Dat),
+            "/source-sets/GB%20Color/fixdat?scope=dat"
         );
         assert_eq!(
-            missing_export_path("GB", MissingExport::HaveMiss, Some(9)),
+            missing_export_path("GB", MissingExport::HaveMiss, ExportScope::Selection(9)),
             "/source-sets/GB/have-miss.csv?selection=9"
         );
+    }
+
+    #[test]
+    fn a_covered_source_set_exports_whats_missing_in_its_coverage_by_default() {
+        let scope = ExportScope::default_for(true);
+        assert_eq!(ExportScope::parse(&scope.value()), scope);
+        assert_eq!(
+            missing_export_path("GB", MissingExport::Fixdat, scope),
+            "/source-sets/GB/fixdat?scope=coverage"
+        );
+        assert_eq!(
+            missing_export_path("GB", MissingExport::HaveMiss, scope),
+            "/source-sets/GB/have-miss.csv",
+            "the have/miss CSV reports every game"
+        );
+        assert_eq!(ExportScope::default_for(false), ExportScope::Dat);
+        assert_eq!(ExportScope::parse("9"), ExportScope::Selection(9));
     }
 }

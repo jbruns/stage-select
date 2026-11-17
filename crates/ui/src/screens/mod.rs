@@ -3,6 +3,7 @@ pub mod additions;
 pub mod audit;
 #[cfg(feature = "bench")]
 mod bench;
+pub mod coverage;
 mod dats;
 mod fetching;
 mod ingest_folders;

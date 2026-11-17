@@ -543,6 +543,22 @@ input[type="file"] {
   white-space: nowrap;
 }
 
+/* A cell that shows less than it says (parts::list::CellTip): an icon and a short label, cut off where it doesn't fit. */
+.tip-anchor:has(> .cell-tip) {
+  max-width: 100%;
+}
+
+.cell-tip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-tip svg {
+  vertical-align: middle;
+}
+
 .list-toolbar {
   display: flex;
   flex-wrap: wrap;

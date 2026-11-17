@@ -13,13 +13,14 @@ use title_select_api::build::{BuildSummary, LibraryFolder};
 use title_select_api::ingest::IngestPlan;
 use title_select_api::repair::RepairPlan;
 use title_select_api::{
-    AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, SetFollow,
-    SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
+    AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, OutsideCoverage,
+    SetFollow, SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::build_model::build_state_label;
+use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
 use crate::library_model::live_status;
 use crate::model::{
@@ -27,6 +28,7 @@ use crate::model::{
     warning_counts, when,
 };
 use crate::parts::icon::Glyph;
+use crate::parts::icon::Icon;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::PendingStatus;
@@ -36,13 +38,16 @@ use crate::parts::status::{
 use crate::parts::url_state::encode;
 use crate::screens::additions::SetView;
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
+use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
 use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
 use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
 };
-use crate::source_set_model::{self as model, Happened, MissingExport, Moment, PageTab};
+use crate::source_set_model::{
+    self as model, ExportScope, Happened, MissingExport, Moment, PageTab,
+};
 
 /// What following a DAT does, for the toggle's tooltip.
 const FOLLOW_HINT: &str =
@@ -169,6 +174,9 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     });
     let ready = Memo::new(move |_| good.with(Option::is_some));
     let said = RwSignal::new(None::<String>);
+    let editing = RwSignal::new(query.read_untracked().get("edit").as_deref() == Some("coverage"));
+    let coverage =
+        Signal::derive(move || good.with(|g| g.as_ref().map(|(s, _)| s.set.coverage.clone())));
     let audit_now = move |_| start_audit(name.get_value(), said);
     let check_now = move |_| start_check(name.get_value(), said);
     let audited =
@@ -274,7 +282,17 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             let (summary, revisions) = good.get()?;
             let latest = summary.latest.clone();
             Some(match tab.get() {
-                PageTab::Overview => view! { <Overview set=summary.set.clone() latest revisions /> }.into_any(),
+                PageTab::Overview => view! {
+                    <Overview
+                        set=summary.set.clone()
+                        latest
+                        revisions
+                        outside=summary.outside_coverage.clone()
+                        unavailable=summary.coverage_unavailable
+                        editing
+                    />
+                }
+                .into_any(),
                 PageTab::Games => view! { <LatestAudit latest games=true /> }.into_any(),
                 PageTab::Entries => view! { <LatestAudit latest games=false /> }.into_any(),
                 PageTab::Libraries => {
@@ -287,6 +305,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             })
             }).into_any())
         }}
+        <CoverageDrawer name=name.get_value() open=editing coverage refresh said />
     }
 }
 
@@ -297,8 +316,19 @@ fn Overview(
     set: SourceSetRecord,
     latest: Option<AuditSummary>,
     revisions: Vec<title_select_api::DatRevisionRecord>,
+    outside: Option<OutsideCoverage>,
+    unavailable: bool,
+    editing: RwSignal<bool>,
 ) -> impl IntoView {
     let name = set.name.clone();
+    // A coverage set is still yours when it can't be applied; only the counts then aren't scoped to it.
+    let covered = set.coverage.is_some() && !unavailable;
+    let games_title = if covered { "In your coverage" } else { "Games" };
+    let unavailable_note = (set.coverage.is_some() && unavailable)
+        .then(|| view! { <p class="note">{UNAVAILABLE}</p> });
+    let outside_line = outside
+        .filter(|_| covered)
+        .map(|o| view! { <p class="note">{outside_line(&o)}</p> });
     let headline = match &latest {
         None => view! {
             <p class="note">"Not audited yet. Start an audit to see its games and entries."</p>
@@ -327,7 +357,8 @@ fn Overview(
                 .collect_view();
             view! {
                 <section aria-labelledby="games-title">
-                    <h2 id="games-title">"Games"</h2>
+                    <h2 id="games-title">{games_title}</h2>
+                    {unavailable_note}
                     <ul class="counts headline">
                         {GameStatus::ALL
                             .into_iter()
@@ -349,6 +380,8 @@ fn Overview(
                             <span class="what">"Entries that need review"</span>
                         </li>
                     </ul>
+                    {outside_line}
+                    <ByRegion name=name.clone() />
                 </section>
                 <section aria-labelledby="findings-title">
                     <h2 id="findings-title">"Findings"</h2>
@@ -375,7 +408,7 @@ fn Overview(
             </dd>
             <dt>"Evidence"</dt>
             <dd>{audit_evidence_label(a.evidence)}</dd>
-            <dt>"Coverage"</dt>
+            <dt>"Entries read"</dt>
             <dd>{model::evidence_coverage(&a)}</dd>
             {warning_counts(&a).map(|said| view! {
                 <dt>"Warnings"</dt>
@@ -383,9 +416,27 @@ fn Overview(
             })}
         }
     });
+    let coverage = set.coverage.clone();
+    let (glyph, kind) = coverage::glyph(coverage.as_deref(), unavailable);
     view! {
         {stale_lines(&set)}
         {headline}
+        <section aria-labelledby="coverage-title">
+            <h2 id="coverage-title">"Coverage"</h2>
+            <p>
+                <Icon glyph label=kind />
+                " "
+                {match coverage.as_deref() {
+                    None => regions_line(None),
+                    Some(regions) => format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
+                }}
+            </p>
+            <div class="actions">
+                <button type="button" on:click=move |_| editing.set(true)>
+                    "Edit coverage"
+                </button>
+            </div>
+        </section>
         <section aria-labelledby="about-title">
             <h2 id="about-title">"About it"</h2>
             <dl class="facts">
@@ -410,17 +461,33 @@ fn Overview(
         {latest
             .clone()
             .filter(|a| !a.pruned)
-            .map(|a| view! { <ExportMissing name=set.name.clone() latest=a /> })}
+            .map(|a| view! { <ExportMissing name=set.name.clone() latest=a coverage_set=set.coverage.is_some() unavailable /> })}
         <StartAuditForm name=set.name.clone() latest revisions />
         <SetLifecycle name=set.name.clone() />
     }
 }
 
-/// Downloads of what the latest audit found missing, for the whole DAT or one selection's winners.
+/// Downloads of what the latest audit found missing: in the source set's coverage, in the whole DAT, or among one
+/// selection's winners.
 #[component]
-fn ExportMissing(name: String, latest: AuditSummary) -> impl IntoView {
+fn ExportMissing(
+    name: String,
+    latest: AuditSummary,
+    coverage_set: bool,
+    unavailable: bool,
+) -> impl IntoView {
     let set = api::segment(&name);
-    let selection = RwSignal::new(None::<i64>);
+    let scope = RwSignal::new(ExportScope::default_for(coverage_set));
+    let cant_scope = move || {
+        (unavailable && scope.get() == ExportScope::Coverage).then(|| {
+            view! {
+                <p class="note" role="status">
+                    "Your coverage can't be applied now, as the games' regions can't be read, so this fixdat can't \
+                    be made. Choose the whole DAT to list everything missing."
+                </p>
+            }
+        })
+    };
     let selections = {
         let set = set.clone();
         LocalResource::new(move || {
@@ -438,19 +505,23 @@ fn ExportMissing(name: String, latest: AuditSummary) -> impl IntoView {
     };
     let link = move |export: MissingExport| {
         let set = set.clone();
-        move || api::url(&model::missing_export_path(&set, export, selection.get()))
+        move || api::url(&model::missing_export_path(&set, export, scope.get()))
     };
     view! {
         <section aria-labelledby="export-title">
             <h2 id="export-title">"Export what's missing"</h2>
             <p class="note">
-                "Lists what your latest audit found missing, as a fixdat or a have/miss CSV. Nothing is fetched."
+                "Lists what your latest audit found missing, as a fixdat or a have/miss CSV. Nothing is fetched. \
+                The have/miss CSV lists every game of the DAT unless you choose a selection."
             </p>
             <div class="form">
                 <label>
                     "Games"
-                    <select on:change=move |ev| selection.set(event_target_value(&ev).parse().ok())>
-                        <option value="">"The whole DAT"</option>
+                    <select on:change=move |ev| scope.set(ExportScope::parse(&event_target_value(&ev)))>
+                        {coverage_set.then(|| view! {
+                            <option value=ExportScope::Coverage.value()>"Missing in your coverage"</option>
+                        })}
+                        <option value=ExportScope::Dat.value()>"The whole DAT"</option>
                         {options}
                     </select>
                 </label>
@@ -463,6 +534,7 @@ fn ExportMissing(name: String, latest: AuditSummary) -> impl IntoView {
                     "Download have/miss CSV"
                 </a>
             </div>
+            {cant_scope}
         </section>
     }
 }

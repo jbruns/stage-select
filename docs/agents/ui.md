@@ -40,6 +40,7 @@ pure logic there too.
 | A side panel over the page             | `Drawer { open, title }`                               | `overlay`   |
 | Any list of rows                       | `List { id, label, rows, empty, detail, .. }`          | `list`      |
 | Cell text that may not fit             | `Clip { text }`                                        | `list`      |
+| A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
 | Filter, sort, open/checked rows in URL | `use_list_query()` (`List` uses it already)            | `url_state` |
 | List beside a routed detail            | `SplitView` + `DetailPane` under a `ParentRoute`       | `layout`    |
 | Routed tabs                            | `Tabs { label, tabs: Vec<Tab> }`                       | `layout`    |
@@ -123,7 +124,9 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      with a `min`, and wrap their text in `Clip { text }`: it is cut off with an ellipsis and its tooltip shows the
      whole text only when cut off: on hover, and while the keyboard cursor is on its row (the grid keeps focus, so
      a cell's own focus never fires). The columns' minimums are the grid's minimum width; past it the list scrolls
-     sideways, so keep the sum under about 50rem (the list's width at 1400px with a detail pane open).
+     sideways, so keep the sum under about 50rem (the list's width at 1400px with a detail pane open). A cell that
+     abbreviates, such as an icon and a short label, wraps them in `CellTip { label }` instead: its tooltip always
+     shows the whole of it, the same way.
    - `key()`: stable and unique, it names the row in the URL (`row`, `sel`) and keys its element.
    - `title()`: the detail's title and the accessible name of the row's checkbox and actions.
    - `search()`: the text the filter matches; it is lowercased once per change of `rows`.
