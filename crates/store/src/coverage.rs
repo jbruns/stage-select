@@ -9,12 +9,12 @@ use title_select_api::SourceSetRecord;
 
 use crate::{Error, Result, Store};
 
-/// Reads a Game's regions from its name.
-pub(crate) type Regions = Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
+/// Reads a Game's regions from its name, as the Selection engine does.
+pub type RegionReader = Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
 
 /// Which Games a Source Set covers: every Game without a Coverage.
 pub(crate) struct Covering {
-    regions: Option<(Vec<String>, Regions)>,
+    regions: Option<(Vec<String>, RegionReader)>,
     /// Each Game's answer, once asked.
     seen: Mutex<HashMap<String, bool>>,
 }
@@ -40,13 +40,24 @@ impl Store {
         let _ = self.regions.set(Arc::new(regions));
     }
 
-    /// Which Games `set` covers.
+    /// The reader [`Store::set_regions`] set. Without one, [`Error::RegionsUnavailable`]: a caller that can do
+    /// without regions degrades on it.
+    pub fn region_reader(&self) -> Result<RegionReader> {
+        self.regions.get().cloned().ok_or_else(|| {
+            Error::RegionsUnavailable(
+                "games' regions can't be read: the selection engine's clone lists aren't available; install them"
+                    .into(),
+            )
+        })
+    }
+
+    /// Which Games `set` covers. [`Error::RegionsUnavailable`] when it has a Coverage and no reader is set.
     pub(crate) fn covering(&self, set: &SourceSetRecord) -> Result<Covering> {
         let regions = match &set.coverage {
             None => None,
             Some(coverage) => {
-                let regions = self.regions.get().cloned().ok_or_else(|| {
-                    Error::Refused(format!(
+                let regions = self.region_reader().map_err(|_| {
+                    Error::RegionsUnavailable(format!(
                         "source set {} has a coverage, and reading games' regions needs the selection engine's \
                          clone lists, which aren't available; install them, or clear the coverage",
                         set.name

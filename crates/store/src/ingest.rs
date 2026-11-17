@@ -566,7 +566,9 @@ struct SetIndex {
     /// Index into [`Matcher::dats`].
     index: usize,
     audit: Option<AuditIndex>,
-    covering: crate::coverage::Covering,
+    /// Which Games it covers; `None` when it has a Coverage and Games' regions can't be read, so its matches are
+    /// left unresolved rather than failing every other Source Set's.
+    covering: Option<crate::coverage::Covering>,
 }
 
 struct AuditIndex {
@@ -639,7 +641,11 @@ impl Matcher {
             if !revision.blob_present {
                 continue;
             }
-            let covering = store.covering(&set)?;
+            let covering = match store.covering(&set) {
+                Ok(covering) => Some(covering),
+                Err(Error::RegionsUnavailable(_)) => None,
+                Err(e) => return Err(e),
+            };
             let index = match parsed.get(&revision.sha256) {
                 Some(index) => *index,
                 None => {
@@ -721,8 +727,11 @@ impl Matcher {
                 let name = index.dat.games[game].clone();
                 let need = match set.need(&name, &roms) {
                     Need::Held => Need::Held,
-                    _ if !set.covering.covers(&name) => Need::OutsideCoverage,
-                    need => need,
+                    need => match &set.covering {
+                        None => Need::CoverageUnavailable,
+                        Some(covering) if !covering.covers(&name) => Need::OutsideCoverage,
+                        Some(_) => need,
+                    },
                 };
                 found.push(ItemMatch {
                     source_set: set.name.clone(),

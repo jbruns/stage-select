@@ -41,6 +41,7 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
+pub use coverage::RegionReader;
 pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
 pub use exports::{Export, FixdatScope};
 pub use ingest::OwedAudits;
@@ -98,6 +99,10 @@ pub enum Error {
     },
     #[error(transparent)]
     Audit(#[from] title_select_engine::Error),
+    /// Games' regions can't be read: no reader was set by [`Store::set_regions`], as when the Selection engine's
+    /// clone lists aren't available. What needs a Coverage, or regions, can't be worked out until they are.
+    #[error("{0}")]
+    RegionsUnavailable(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -135,7 +140,7 @@ pub struct Store {
     /// Held across each settings update's commit and publication, so they happen in the same order.
     settings_update: std::sync::Mutex<()>,
     /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
-    regions: std::sync::OnceLock<coverage::Regions>,
+    regions: std::sync::OnceLock<coverage::RegionReader>,
 }
 
 /// What a test runs at each [`Fault`] point.

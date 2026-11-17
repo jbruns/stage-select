@@ -8,14 +8,18 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::*;
-use title_select_api::AuditEvidence;
-use title_select_api::ingest::{Need, Proposal};
+use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
+use title_select_api::{AuditEvidence, GameStatus, JobState, Workers};
 use title_select_engine::dat::Dat;
 use title_select_store::config::Config;
 use title_select_store::{Error, FixdatScope, Store};
 
 const SET: &str = "Alpha";
+const WORKERS: Workers = Workers {
+    readers: 1,
+    hashers: 1,
+};
 
 /// Europe and World Games are covered by a Europe Coverage, a `(USA, Europe)` Game too; USA and Japan Games are not.
 fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
@@ -56,6 +60,31 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        let env = Env::with(&games());
+        env.put("Ball (World).a26", b"ball");
+        env.put("Combat (Anthology).a26", b"combat");
+        write_zip(
+            &env.set().join("Adventure (Europe).zip"),
+            &[
+                ("Adventure (Europe).a26", b"adventure-eu"),
+                ("Adventure (Old).txt", b"manual"),
+            ],
+        );
+        write_zip(
+            &env.set().join("Adventure (USA).zip"),
+            &[("Adventure (USA).a26", b"adventure-us")],
+        );
+        env.audit();
+        env
+    }
+
+    /// An empty Source Set Alpha of a DAT of `games`, and the Ingest Folder `in`.
+    fn with(games: &[(&'static str, Vec<RomSpec>)]) -> Env {
+        Env::reading(games, true)
+    }
+
+    /// As [`Env::with`], with the store reading Games' regions only when `regions`.
+    fn reading(games: &[(&'static str, Vec<RomSpec>)], regions: bool) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "in", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -68,10 +97,12 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let regions = title_select_selection::Engine::locate(None)
-            .and_then(|engine| engine.regions())
-            .expect("the clone lists tools/clone-lists/fetch unpacks");
-        store.set_regions(move |game| regions.of(game));
+        if regions {
+            let regions = title_select_selection::Engine::locate(None)
+                .and_then(|engine| engine.regions())
+                .expect("the clone lists tools/clone-lists/fetch unpacks");
+            store.set_regions(move |game| regions.of(game));
+        }
         store
             .update_settings(
                 &config,
@@ -91,30 +122,42 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        let dat = write_dat(&tmp.path().join("dats"), &games());
+        let dat = write_dat(&tmp.path().join("dats"), games);
         store.import_dat(&dat, None).unwrap();
         store
             .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
             .unwrap();
         store.register_ingest_folder(&config, "in").unwrap();
-        let env = Env { tmp, store, config };
-        env.put("Ball (World).a26", b"ball");
-        env.put("Combat (Anthology).a26", b"combat");
-        write_zip(
-            &env.set().join("Adventure (Europe).zip"),
-            &[
-                ("Adventure (Europe).a26", b"adventure-eu"),
-                ("Adventure (Old).txt", b"manual"),
-            ],
-        );
-        write_zip(
-            &env.set().join("Adventure (USA).zip"),
-            &[("Adventure (USA).a26", b"adventure-us")],
-        );
-        env.store
-            .audit_source_set(&env.config, SET, None, AuditEvidence::Full)
+        Env { tmp, store, config }
+    }
+
+    fn audit(&self) {
+        self.store
+            .audit_source_set(&self.config, SET, None, AuditEvidence::Full)
             .unwrap();
-        env
+    }
+
+    fn status(&self, game: &str) -> GameStatus {
+        let latest = &self.store.history(SET).unwrap()[0];
+        let report = self.store.report(latest.id).unwrap();
+        report.games.iter().find(|g| g.name == game).unwrap().status
+    }
+
+    /// Approves `plan`, runs its Job and the audit it queues.
+    fn approve(&self, plan: &RepairPlan) {
+        let approved = self
+            .store
+            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let job = approved.job.unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
+        let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        self.store.fulfil_repair_audits().unwrap();
+        let done = self.store.repair_plan(plan.id).unwrap();
+        let audit = done.audit_job.unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
+        self.store.run_audit_job(&self.config, audit, None).unwrap();
     }
 
     fn set(&self) -> PathBuf {
@@ -325,4 +368,179 @@ fn an_ingest_item_matching_only_a_game_outside_the_coverage_is_shown_as_outside_
         env.assessed("pong-eu.a26").0,
         [("Pong (Europe)".to_owned(), Need::Missing)]
     );
+}
+
+#[test]
+fn a_covered_game_is_built_from_a_rom_an_uncovered_game_shares_and_the_uncovered_games_file_stays()
+{
+    // Beta's ZIP holds its shared ROM under an old name, so it counts towards Alpha too: Alpha is filled from it.
+    let env = Env::with(&[
+        ("Alpha (Europe)", vec![rom("Alpha (Europe).bin", b"shared")]),
+        (
+            "Beta (USA)",
+            vec![
+                rom("Beta (USA).bin", b"shared"),
+                rom("Beta (USA).dat", b"beta-only"),
+            ],
+        ),
+    ]);
+    write_zip(&env.set().join("Beta (USA).zip"), &[("Old.bin", b"shared")]);
+    env.audit();
+    assert_eq!(env.status("Beta (USA)"), GameStatus::Incomplete);
+    env.cover(&["Europe"]);
+
+    let plan = env.plan();
+
+    assert!(
+        proposed(&plan, "Alpha (Europe)").is_some(),
+        "{:#?}",
+        plan.content.notes
+    );
+    assert_eq!(proposed(&plan, "Beta (USA)"), None);
+    env.approve(&plan);
+    assert_eq!(env.status("Alpha (Europe)"), GameStatus::Complete);
+    assert_eq!(env.status("Beta (USA)"), GameStatus::Incomplete);
+    assert!(env.set().join("Beta (USA).zip").is_file());
+}
+
+#[test]
+fn a_repair_plan_made_under_another_coverage_is_refused_on_approval() {
+    let env = Env::new();
+    env.cover(&["Europe"]);
+    let plan = env.plan();
+    env.cover(&["Europe", "USA"]);
+
+    let refused = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+
+    let Err(Error::Conflict(why)) = refused else {
+        panic!("{refused:?}");
+    };
+    assert!(
+        why.contains("coverage") && why.contains("Plan the repair again"),
+        "{why}"
+    );
+    let cleared = env.plan();
+    env.store.set_coverage(SET, None).unwrap();
+    assert!(matches!(
+        env.store.approve_repair(
+            &env.config,
+            cleared.id,
+            &cleared.digest,
+            "Operator",
+            WORKERS
+        ),
+        Err(Error::Conflict(_))
+    ));
+}
+
+#[test]
+fn the_coverage_cannot_change_while_an_approved_repair_has_not_finished() {
+    let env = Env::new();
+    env.cover(&["Europe"]);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let usa = ["USA".to_owned()];
+    let refused = env.store.set_coverage(SET, Some(&usa));
+
+    let Err(Error::Conflict(why)) = refused else {
+        panic!("{refused:?}");
+    };
+    assert!(
+        why.contains(&format!("repair plan {}", plan.id)) && why.contains("once it has finished"),
+        "{why}"
+    );
+    assert_eq!(
+        env.store.source_set(SET).unwrap().coverage.as_deref(),
+        Some(&["Europe".to_owned()][..])
+    );
+    let job = approved.job.unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+    let ended = env.store.run_repair_job(&env.config, job, None).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.store.set_coverage(SET, Some(&usa)).unwrap();
+}
+
+#[test]
+fn without_regions_to_read_ingest_leaves_a_covered_sets_matches_unresolved_and_still_serves_every_other_set()
+ {
+    let env = Env::reading(
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong-us")])],
+        false,
+    );
+    env.cover(&["Europe"]);
+    let other = write_dat_from(
+        &env.tmp.path().join("dats"),
+        "other.dat",
+        "20260101-000000",
+        "Redump",
+        &[("Kart (USA)", vec![rom("Kart (USA).bin", b"kart")])],
+    );
+    env.store.import_dat(&other, None).unwrap();
+    std::fs::create_dir_all(env.tmp.path().join("roots/sets/Beta")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Beta", "Redump/Test - System")
+        .unwrap();
+    let audit = env
+        .store
+        .audit_source_set(&env.config, "Beta", None, AuditEvidence::Full);
+    audit.unwrap();
+    write_file(&env.tmp.path().join("in/mystery.bin"), b"mystery");
+    write_dat_from(
+        &env.tmp.path().join("in"),
+        "new.dat",
+        "20260202-000000",
+        "TOSEC",
+        &[("Zork (USA)", vec![rom("Zork (USA).z5", b"zork")])],
+    );
+    write_file(&env.tmp.path().join("in/kart.bin"), b"kart");
+
+    env.ingest("pong-us.a26", b"pong-us");
+
+    let item = |name: &str| {
+        env.store
+            .ingest_items("in")
+            .unwrap()
+            .into_iter()
+            .find(|i| i.name == name)
+            .unwrap()
+    };
+    let pong = item("pong-us.a26");
+    assert_eq!(pong.state, ItemState::Assessed, "{pong:?}");
+    assert_eq!(
+        pong.assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: SET.into(),
+            game: "Pong (USA)".into(),
+            need: Need::CoverageUnavailable,
+        }),
+        "neither an addition nor a fill"
+    );
+    assert_eq!(
+        item("kart.bin").assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: "Beta".into(),
+            game: "Kart (USA)".into(),
+            need: Need::Missing,
+        })
+    );
+    assert_eq!(
+        item("new.dat").assessment.proposal,
+        Some(Proposal::DatImport)
+    );
+    assert!(matches!(
+        item("mystery.bin").assessment.proposal,
+        Some(Proposal::Addition { .. })
+    ));
+    env.audit();
+    assert!(matches!(
+        env.store
+            .plan_repair(&env.config, SET, &PlanRepair::default()),
+        Err(Error::RegionsUnavailable(_))
+    ));
 }

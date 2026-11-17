@@ -956,6 +956,14 @@ impl Store {
                     content.source_set
                 )));
             }
+            // A plan proposes fills only for the Games its Coverage covered (ADR 0021).
+            if !content.set_aside && crate::sets::set_by_id(tx, content.set_id)?.record.coverage != content.coverage {
+                return Err(Error::Conflict(format!(
+                    "the coverage of source set {} changed since the plan was made; nothing was changed. Plan the \
+                     repair again and review the new plan",
+                    content.source_set
+                )));
+            }
             if crate::storage::policy(tx, StorageScope::SourceSets, &set.record.dat)? != content.storage {
                 return Err(Error::Conflict(format!(
                     "the storage policy for source set {} changed since the plan was made; plan the repair again",

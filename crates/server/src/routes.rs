@@ -323,6 +323,7 @@ impl From<Error> for ApiError {
                 return ApiError(StatusCode::CONFLICT, err.to_string(), Some(*job));
             }
             Error::Audit(title_select_engine::Error::Dat(_)) => StatusCode::BAD_REQUEST,
+            Error::RegionsUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Error::Sqlite(_) | Error::Io(_) | Error::Audit(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         ApiError(status, err.to_string(), None)
