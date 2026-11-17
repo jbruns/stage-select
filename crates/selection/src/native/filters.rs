@@ -1,6 +1,8 @@
 //! The language and region filters (`modules/title_selection/filter_languages.py`, `filter_regions.py`).
 
 use super::node::{COVERAGE_REMOVES, Groups, Run, Titles};
+
+const CLONE_LIST_IGNORES: &str = "clone_list_ignores";
 use super::py::PyResult;
 
 /// `filter_languages`.
@@ -86,6 +88,22 @@ pub(crate) fn filter_coverage(
         if !title_select_api::coverage::covered(&run.n(id).regions, Some(coverage)) {
             run.uncovered.insert(id);
         }
+    }
+    // Coverage takes precedence over the clone lists' removals, the only ones made before it: an uncovered title is
+    // excluded for its Coverage alone. The clone lists still ran over every title, so their groups and unmatched
+    // terms are as without a Coverage.
+    let ignored: Vec<_> = run.removes[CLONE_LIST_IGNORES]
+        .iter()
+        .copied()
+        .filter(|t| run.uncovered.contains(t))
+        .collect();
+    for title in ignored {
+        run.removes
+            .get_mut(CLONE_LIST_IGNORES)
+            .expect("a Retool list")
+            .shift_remove(&title);
+        run.m(title).exclude_reason = title_select_api::selection::COVERAGE_MESSAGE.into();
+        run.remove_into(COVERAGE_REMOVES, title);
     }
     let names: Vec<String> = groups.keys().cloned().collect();
     for group in names {

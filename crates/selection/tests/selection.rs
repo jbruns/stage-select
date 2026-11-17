@@ -301,6 +301,90 @@ fn a_clone_list_group_keeps_its_covered_releases_and_an_include_cannot_bring_bac
 }
 
 #[test]
+fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_not_half_selected() {
+    let work = tempfile::tempdir().unwrap();
+    let empty = data_dir(work.path());
+    let path = work.path().join("discs.dat");
+    dat(
+        &path,
+        "Title Select - Coverage discs",
+        &["Saga (Europe) (Disc 1)", "Saga (USA) (Disc 2)"],
+    );
+    let engine = support::engine().with_data_dir(&empty);
+
+    let uncovered = engine
+        .select(&path, &usa_first(), &support::options())
+        .unwrap();
+    assert!(
+        uncovered.groups.iter().any(|g| g.unresolved),
+        "{:#?}",
+        uncovered.groups
+    );
+
+    let selection = engine
+        .select(&path, &usa_first(), &covering(&["Europe"]))
+        .unwrap();
+
+    let saga = selection
+        .groups
+        .iter()
+        .find(|g| {
+            g.winners
+                .iter()
+                .any(|w| w.title == "Saga (Europe) (Disc 1)")
+        })
+        .unwrap_or_else(|| panic!("{:#?}", selection.groups));
+    assert!(
+        saga.unresolved,
+        "half a game must not select as resolved: {saga:#?}"
+    );
+    assert!(
+        title_select_api::discs::check_picks(saga).is_some(),
+        "{saga:#?}"
+    );
+    assert!(
+        saga.winners
+            .iter()
+            .all(|w| w.title != "Saga (USA) (Disc 2)"),
+        "the uncovered disc stays out: {saga:#?}"
+    );
+}
+
+#[test]
+fn a_clone_list_ignored_title_outside_its_coverage_is_excluded_by_its_coverage() {
+    let work = tempfile::tempdir().unwrap();
+    let data = data_dir(work.path());
+    let name = "Title Select - Coverage ignore";
+    std::fs::write(
+        data.join("clonelists").join(format!("{name}.json")),
+        r#"{
+  "description": {"name": "Title Select - Coverage ignore", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "variants": [
+    {"group": "Ignored", "titles": [{"searchTerm": "Ignored (USA)", "nameType": "full", "ignore": true}]}
+  ]
+}
+"#,
+    )
+    .unwrap();
+    let path = work.path().join("ignore.dat");
+    dat(&path, name, &["Ignored (USA)", "Kept (Europe)"]);
+
+    let selection = support::engine()
+        .with_data_dir(&data)
+        .select(&path, &usa_first(), &covering(&["Europe"]))
+        .unwrap();
+
+    let exclusions: Vec<_> = selection
+        .groups
+        .iter()
+        .flat_map(|g| &g.exclusions)
+        .filter(|e| e.title == "Ignored (USA)")
+        .collect();
+    assert_eq!(exclusions.len(), 1, "{:#?}", selection.groups);
+    assert!(exclusions[0].rule.is_coverage(), "{:#?}", exclusions[0]);
+}
+
+#[test]
 fn a_profile_with_names_the_engine_does_not_know_is_refused() {
     let work = tempfile::tempdir().unwrap();
     let path = work.path().join("solo.dat");
