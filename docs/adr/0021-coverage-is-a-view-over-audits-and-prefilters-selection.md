@@ -29,7 +29,8 @@ DAT and audit against that (#175).
   before the Selection engine runs, with a trace rule of their own. A Selection records the Coverage it used, and a
   Coverage change makes the Library Folders built from that Source Set Stale.
 - **A Game is covered when any of its region tags is.** Selection's own name-tag parsing decides a Game's regions.
-  World is covered by every Coverage. A Game with an unknown region is not covered.
+  World is covered by every Coverage. A Game with no region tag has the region Unknown, which no preset includes, so
+  it is covered only when the Coverage names Unknown explicitly.
 
 ## Considered Options
 

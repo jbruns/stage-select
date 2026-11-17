@@ -54,7 +54,7 @@ _Avoid_: Verified Set, Archive, romset, dump folder
 **Coverage**:
 The regions of its DAT's Games that a Source Set intends to preserve; without one, it covers every Game. A Game is
 covered when any of its regions is, and a World Game is covered by every Coverage; a Game whose region is unknown is
-not covered, and is shown as such. Coverage is what a Source Set keeps, not what a player wants: that is a Selection
+covered only when its Coverage names the Unknown region, and is shown as such. Coverage is what a Source Set keeps, not what a player wants: that is a Selection
 Profile's. A Game outside Coverage is never reported Missing, nor filled or listed in a Fixdat, but one that is present
 still counts and is kept. A Selection from a Source Set chooses only among the Games it covers.
 _Avoid_: Scope, subset, Filtered DAT, region filter (when meaning Coverage)
