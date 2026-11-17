@@ -254,6 +254,10 @@ pub struct SelectionPins {
     /// The clone list and metadata commit.
     pub clone_list_commit: String,
     pub trace_schema: u32,
+    /// The Source Set's Coverage the Selection was made under, as engine region names (ADR 0021): absent when it
+    /// covered every Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -567,7 +571,26 @@ impl Rule {
     pub fn is_choice(&self) -> bool {
         self.stage == CHOICE_STAGE
     }
+
+    /// The rule recorded for a release its Source Set's Coverage doesn't cover (ADR 0021).
+    pub fn coverage() -> Rule {
+        Rule {
+            stage: COVERAGE_STAGE.to_owned(),
+            reference: None,
+            message: COVERAGE_MESSAGE.to_owned(),
+        }
+    }
+
+    /// Whether the release was excluded as outside its Source Set's Coverage.
+    pub fn is_coverage(&self) -> bool {
+        self.stage == COVERAGE_STAGE
+    }
 }
+
+/// The stage of the rule recorded for a release outside its Source Set's Coverage.
+pub const COVERAGE_STAGE: &str = "coverage";
+/// Why a release outside its Source Set's Coverage was excluded, as the Operator reads it.
+pub const COVERAGE_MESSAGE: &str = "outside its source set's coverage";
 
 /// A rule in Retool's selection, as its trace reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

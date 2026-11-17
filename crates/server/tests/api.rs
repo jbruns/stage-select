@@ -2234,6 +2234,32 @@ mod selections {
             .collect()
     }
 
+    /// A Selection Job chooses only among the Games its Source Set's Coverage covers, and records that Coverage.
+    #[test]
+    fn a_selection_job_chooses_within_its_source_sets_coverage() {
+        let env = Env::new();
+        let (_service, client) = ready(&env);
+        let (name, value) = client.auth.clone().unwrap();
+        let response = agent()
+            .put(format!(
+                "{}/source-sets/Test%20-%20System/coverage",
+                client.base
+            ))
+            .header(name, value)
+            .send_json(json!({ "coverage": ["Europe"] }))
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
+        let (_, record) = save(&client, json!({"region_order": ["USA", "Europe"]}));
+
+        let made = selection(&client, record.id);
+        assert_eq!(made.pins.coverage, Some(vec!["Europe".to_owned()]));
+        assert_eq!(winners(&made, "pong"), ["Pong (Europe)"]);
+        let usa = &group(&made, "pong").exclusions[0];
+        assert_eq!(usa.title, "Pong (USA)");
+        assert!(usa.rule.is_coverage(), "{usa:?}");
+    }
+
     /// A client that goes away mid-preview stops the engine run: its run folder under the store's `tmp` goes at
     /// once instead of when the run would have finished.
     #[test]

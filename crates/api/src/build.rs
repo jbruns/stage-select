@@ -86,7 +86,8 @@ pub struct LibraryFolder {
     pub stale: Vec<Stale>,
 }
 
-/// One thing that changed since a Library Folder's current Build: its Source Set or its Selection Profile.
+/// One thing that changed since a Library Folder's current Build: its Source Set, its Source Set's Coverage, or its
+/// Selection Profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Stale {
@@ -100,6 +101,12 @@ pub enum Stale {
     /// The Profile was saved since: `latest` is its newest version, `built` the one the current Build's Selection
     /// used.
     ProfileSaved { built: u32, latest: u32 },
+    /// The Source Set's Coverage changed: `latest` is its Coverage now, `built` the one the current Build's Selection
+    /// was made under; `None` covers every Game.
+    CoverageChanged {
+        built: Option<Vec<String>>,
+        latest: Option<Vec<String>>,
+    },
 }
 
 /// A build that stopped before it finished, as the store recorded it: shown straight after a restart, without a

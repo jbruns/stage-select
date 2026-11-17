@@ -29,6 +29,8 @@ const FAIL_SAFE: &str = "REF0059";
 const TIE_BREAKERS: [&str; 5] = ["REF0057", "REF0058", "REF0075", "REF0093", "REF0105"];
 /// Retool's synthetic groups for compilation winners and the releases they replace.
 const COMPILATION_GROUPS: &str = "retool_compilations";
+/// The list the engine files titles outside the Source Set's Coverage under.
+const COVERAGE_REMOVES: &str = "coverage_removes";
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -58,6 +60,8 @@ enum Record {
         schema: u32,
         title: String,
         group: String,
+        #[serde(default)]
+        list: Option<String>,
         reason: String,
     },
     Coverage {
@@ -185,7 +189,7 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
     let mut coverage = None;
     let mut steps: Vec<Resolved> = Vec::new();
     let mut finals: Vec<(String, Vec<String>, BTreeMap<String, String>)> = Vec::new();
-    let mut excluded: Vec<(String, String, String)> = Vec::new();
+    let mut excluded: Vec<(String, String, Option<String>, String)> = Vec::new();
     for (number, line) in trace.lines().enumerate() {
         let record: Record = serde_json::from_str(line)
             .map_err(|e| Error::Trace(format!("line {}: {e}", number + 1)))?;
@@ -214,9 +218,10 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             Record::Excluded {
                 title,
                 group,
+                list,
                 reason,
                 ..
-            } => excluded.push((title, group, reason)),
+            } => excluded.push((title, group, list, reason)),
             Record::Coverage {
                 clone_list_unmatched,
                 metadata_missing,
@@ -261,8 +266,12 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             });
         }
     }
-    for (title, group, reason) in &excluded {
-        let rule = explain.exclusion(title, reason);
+    for (title, group, list, reason) in &excluded {
+        let rule = if list.as_deref() == Some(COVERAGE_REMOVES) {
+            Rule::coverage()
+        } else {
+            explain.exclusion(title, reason)
+        };
         row(&mut rows, group).exclusions.push(Exclusion {
             title: title.clone(),
             rule,

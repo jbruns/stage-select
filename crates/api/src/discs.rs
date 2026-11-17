@@ -183,9 +183,15 @@ fn chosen<'a>(selected: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, B
 
 /// The disc numbers the `chosen` releases must cover between them: those of the group's titles your settings don't
 /// exclude, and every disc of a chosen release, even an excluded one. So an excluded demo disc never counts, but an
-/// excluded disc of the chosen release does.
+/// excluded disc of the chosen release does. A disc outside the Source Set's Coverage still counts (ADR 0014, ADR
+/// 0021): Coverage narrows what may be chosen, never how many discs make the game whole.
 fn expected(group: &SelectionGroup, chosen: &BTreeMap<String, BTreeSet<u32>>) -> BTreeSet<u32> {
-    let excluded: BTreeSet<&str> = group.exclusions.iter().map(|e| e.title.as_str()).collect();
+    let excluded: BTreeSet<&str> = group
+        .exclusions
+        .iter()
+        .filter(|e| !e.rule.is_coverage())
+        .map(|e| e.title.as_str())
+        .collect();
     titles(group)
         .filter_map(|title| Some((excluded.contains(title), disc(title)?)))
         .filter(|(excluded, d)| !excluded || chosen.contains_key(&d.release))

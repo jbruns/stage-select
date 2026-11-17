@@ -40,18 +40,20 @@ fn stage(store: &Store, blob: &Path, file: &str) -> Result<Staged, Error> {
 }
 
 /// Runs the engine on the DAT blob `blob`, staged under its imported file name `file`. Returns the Selection and
-/// the engine's warnings.
+/// the engine's warnings. Only the Games `coverage`, the Source Set's Coverage, covers are chosen among.
 pub fn select(
     store: &Store,
     engine: &Engine,
     blob: &Path,
     file: &str,
     profile: &SelectionProfile,
+    coverage: Option<Vec<String>>,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(Selection, Vec<String>), Error> {
     let staged = stage(store, blob, file)?;
     let mut options = RunOptions::new();
     options.cancel = cancel;
+    options.coverage = coverage;
     let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");

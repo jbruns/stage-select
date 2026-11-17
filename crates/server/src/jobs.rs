@@ -602,6 +602,7 @@ fn run_selection(store: &Arc<Store>, engine: Option<Arc<Engine>>, id: i64) -> Op
             &input.dat,
             &input.dat_revision.file,
             &input.profile,
+            input.coverage,
             None,
         )
         .map_err(|e| e.to_string())?;

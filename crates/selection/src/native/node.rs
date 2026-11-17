@@ -74,7 +74,7 @@ pub(crate) struct Node {
 }
 
 /// The lists of titles Retool removes, by its `Removes` attribute names, in their definition order.
-pub(crate) const REMOVES: [&str; 26] = [
+pub(crate) const REMOVES: [&str; 27] = [
     "add_ons_removes",
     "aftermarket_removes",
     "applications_removes",
@@ -101,13 +101,19 @@ pub(crate) const REMOVES: [&str; 26] = [
     "global_excludes",
     "global_filter_removes",
     "system_filter_removes",
+    COVERAGE_REMOVES,
 ];
+
+/// The titles outside the Source Set's Coverage: Title Select's own list, not Retool's.
+pub(crate) const COVERAGE_REMOVES: &str = "coverage_removes";
 
 pub(crate) struct Run {
     pub s: Settings,
     pub nodes: Vec<Node>,
     pub trace: Trace,
     pub removes: IndexMap<&'static str, Titles>,
+    /// The titles outside the Source Set's Coverage, which nothing may select.
+    pub uncovered: Titles,
     pub numbered: bool,
     pub limits: super::Limits,
     patterns: HashMap<String, Re>,
@@ -120,6 +126,7 @@ impl Run {
             nodes: Vec::new(),
             trace: Trace::new(),
             removes: REMOVES.iter().map(|r| (*r, Titles::new())).collect(),
+            uncovered: Titles::new(),
             numbered: false,
             limits: Default::default(),
             patterns: HashMap::new(),

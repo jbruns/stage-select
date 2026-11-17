@@ -21,7 +21,7 @@ use super::folder_dir::{FolderDir, Identity, parent_made};
 use super::plans::json;
 use super::profiles::active_profile_id;
 use super::selections::{read_selection, record_by_id};
-use super::sets::{resolve, set_by_id, set_by_name};
+use super::sets::{coverage_from_row, resolve, same_coverage, set_by_id, set_by_name};
 use super::{Error, Result, Store, io_error, now};
 use crate::config::Config;
 use rustix::fs::FileType;
@@ -226,33 +226,34 @@ fn plan_open(c: &Connection, row: &FolderRow) -> Result<bool> {
 }
 
 /// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else a newer
-/// Audit of its Source Set that found something other than the Build's did, or a version of its Profile newer than the
-/// Build's Selection's.
+/// Audit of its Source Set that found something other than the Build's did, a Coverage of its Source Set other than
+/// the one the Build's Selection was made under, or a version of its Profile newer than the Build's Selection's.
 fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     let Some(build) = row.current_build else {
         return Ok(Vec::new());
     };
-    let (set_id, set, profile_id, profile, version, audit): (i64, String, i64, String, u32, i64) =
-        c.query_row(
-            "SELECT s.source_set_id, ss.name, v.profile_id, p.name, v.version, b.audit_id
+    type Built = (i64, String, i64, String, u32, i64, Option<Vec<String>>);
+    let (set_id, set, profile_id, profile, version, audit, built_coverage): Built = c.query_row(
+        "SELECT s.source_set_id, ss.name, v.profile_id, p.name, v.version, b.audit_id, s.coverage
              FROM builds b
              JOIN selections s ON s.id = b.selection_id
              JOIN source_sets ss ON ss.id = s.source_set_id
              JOIN profile_versions v ON v.id = s.profile_version_id
              JOIN profiles p ON p.id = v.profile_id
              WHERE b.id = ?1",
-            [build],
-            |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            },
-        )?;
+        [build],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                coverage_from_row(r, 6)?,
+            ))
+        },
+    )?;
     let mut stale = Vec::new();
     if set_id != row.source_set_id {
         stale.push(Stale::SourceSetRebound { built: set });
@@ -273,6 +274,15 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
             latest,
         });
     }
+    if set_id == row.source_set_id {
+        let latest = coverage_of(c, set_id)?;
+        if !same_coverage(built_coverage.as_deref(), latest.as_deref()) {
+            stale.push(Stale::CoverageChanged {
+                built: built_coverage,
+                latest,
+            });
+        }
+    }
     if profile_id != row.profile_id {
         stale.push(Stale::ProfileRebound { built: profile });
     } else {
@@ -289,6 +299,15 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
         }
     }
     Ok(stale)
+}
+
+/// The Source Set `set_id`'s Coverage now.
+fn coverage_of(c: &Connection, set_id: i64) -> Result<Option<Vec<String>>> {
+    Ok(c.query_row(
+        "SELECT coverage FROM source_sets WHERE id = ?1",
+        [set_id],
+        |r| coverage_from_row(r, 0),
+    )?)
 }
 
 /// The folder's latest Build that stopped before it finished, unless a Build has succeeded since. Whether it is the
@@ -962,6 +981,44 @@ impl Store {
 
     pub fn library_folder(&self, config: &Config, id: i64) -> Result<LibraryFolder> {
         self.read(|c| record(c, config, folder_by_id(c, id)?))
+    }
+
+    /// The registered Library Folders of the Source Set `source_set` that would be Stale for a Coverage change if its
+    /// Coverage were `coverage`: those whose current Build's Selection was made under another Coverage. Saves nothing:
+    /// it previews a Coverage change. A folder that was never built, or whose Build is of another Source Set, is not
+    /// among them.
+    pub fn folders_stale_under(
+        &self,
+        config: &Config,
+        source_set: &str,
+        coverage: Option<&[String]>,
+    ) -> Result<Vec<LibraryFolder>> {
+        self.read(|c| {
+            let set = set_by_name(c, source_set)?;
+            let mut stmt = c.prepare(&format!(
+                "{FOLDER_QUERY} WHERE f.unregistered_at IS NULL AND f.source_set_id = ?1
+                 ORDER BY f.root, f.path"
+            ))?;
+            let rows = stmt
+                .query_map([set.id], folder_from_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut stale = Vec::new();
+            for row in rows {
+                let Some(build) = row.current_build else {
+                    continue;
+                };
+                let (built_set, built): (i64, Option<Vec<String>>) = c.query_row(
+                    "SELECT s.source_set_id, s.coverage FROM builds b
+                     JOIN selections s ON s.id = b.selection_id WHERE b.id = ?1",
+                    [build],
+                    |r| Ok((r.get(0)?, coverage_from_row(r, 1)?)),
+                )?;
+                if built_set == set.id && !same_coverage(built.as_deref(), coverage) {
+                    stale.push(record(c, config, row)?);
+                }
+            }
+            Ok(stale)
+        })
     }
 
     /// What Library Folder `id` lacks of its current Build's Selection, item by item.

@@ -6183,6 +6183,58 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
 }
 
 #[test]
+fn a_folder_is_stale_once_its_source_sets_coverage_differs_from_its_builds_and_not_once_it_is_set_back()
+ {
+    use title_select_api::build::Stale;
+    let env = Env::new();
+    env.audit();
+    let europe = vec!["Europe".to_owned()];
+    env.store.set_coverage(SET, Some(&europe)).unwrap();
+    let mut made = everything(&env.sha256);
+    made.pins.coverage = Some(europe.clone());
+    let id = env.record(&made);
+    assert_eq!(
+        env.store.selection(id).unwrap().pins.coverage,
+        Some(europe.clone())
+    );
+    let folder = env.folder("atari2600");
+    let read = || env.store.library_folder(&env.config, folder.id).unwrap();
+    env.build(&env.plan(&folder, id));
+    assert!(read().stale.is_empty(), "{:?}", read().stale);
+    let stale_under = |coverage: Option<&[String]>| -> Vec<i64> {
+        env.store
+            .folders_stale_under(&env.config, SET, coverage)
+            .unwrap()
+            .iter()
+            .map(|f| f.id)
+            .collect()
+    };
+    assert!(stale_under(Some(&europe)).is_empty());
+    assert_eq!(stale_under(None), [folder.id]);
+
+    env.store.set_coverage(SET, None).unwrap();
+    assert_eq!(
+        read().stale,
+        [Stale::CoverageChanged {
+            built: Some(europe.clone()),
+            latest: None,
+        }]
+    );
+    assert!(
+        env.store.source_set(SET).unwrap().stale.is_empty(),
+        "a coverage change makes no source set stale"
+    );
+    assert_eq!(stale_under(Some(&europe)), Vec::<i64>::new());
+
+    env.store.set_coverage(SET, Some(&europe)).unwrap();
+    assert!(
+        read().stale.is_empty(),
+        "set back to the built coverage: {:?}",
+        read().stale
+    );
+}
+
+#[test]
 fn a_stat_walk_stops_for_a_build_that_waits_and_never_delays_its_approval() {
     let env = Env::new();
     env.audit();
