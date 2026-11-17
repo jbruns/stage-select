@@ -3060,9 +3060,9 @@ mod selections {
         client.add_set();
         let job: Job = client.start_audit().body_mut().read_json().unwrap();
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
-        let (_, selection) = save(&client, json!({}));
+        save(&client, json!({}));
         let mut folders = vec![];
-        for path in ["built", "unbuilt"] {
+        for path in ["built", "unbuilt", "usa"] {
             let (status, folder) = send(
                 client.post("/libraries"),
                 json!({"root": "play", "path": path, "source_set": SET, "profile": "Everyday"}),
@@ -3070,17 +3070,31 @@ mod selections {
             assert_eq!(status, 201, "{folder}");
             folders.push(serde_json::from_value::<LibraryFolder>(folder).unwrap());
         }
-        let (_, plan) = send(
-            client.post(&format!("/libraries/{}/plans", folders[0].id)),
-            json!({"selection": selection.id}),
-        );
-        let plan: Plan = serde_json::from_value(plan).unwrap();
-        let (_, job) = send(
-            client.post(&format!("/plans/{}/approval", plan.id)),
-            json!({"digest": plan.digest}),
-        );
-        let job: Job = serde_json::from_value(job).unwrap();
-        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let build = |folder: &LibraryFolder| {
+            let (_, selection) = save(&client, json!({}));
+            let (_, plan) = send(
+                client.post(&format!("/libraries/{}/plans", folder.id)),
+                json!({"selection": selection.id}),
+            );
+            let plan: Plan = serde_json::from_value(plan).unwrap();
+            let (_, job) = send(
+                client.post(&format!("/plans/{}/approval", plan.id)),
+                json!({"digest": plan.digest}),
+            );
+            let job: Job = serde_json::from_value(job).unwrap();
+            assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        };
+        build(&folders[0]);
+        assert_eq!(put_coverage(&client, json!(["USA"])).0, 200);
+        build(&folders[2]);
+        assert_eq!(put_coverage(&client, Value::Null).0, 200);
+        let listed = |preview: &CoveragePreview| -> Vec<String> {
+            preview
+                .stale_library_folders
+                .iter()
+                .map(|f| f.path.clone())
+                .collect()
+        };
         let preview = |coverage: Value| {
             let (status, body) = send(
                 client.post("/source-sets/Test%20-%20System/coverage/preview"),
@@ -3098,13 +3112,22 @@ mod selections {
             "Breakout (USA) (Demo) and Pong (Europe), then Pong (Europe) alone"
         );
         assert_eq!(
-            europe.stale_library_folders,
-            [CoverageStaleFolder {
+            europe.stale_library_folders[0],
+            CoverageStaleFolder {
                 id: folders[0].id,
                 root: "play".into(),
                 path: "built".into(),
-            }],
-            "only a folder built from the source set"
+            }
+        );
+        assert_eq!(
+            listed(&europe),
+            ["built", "usa"],
+            "the folders built under another coverage, not the unbuilt one"
+        );
+        assert_eq!(
+            listed(&preview(json!(["USA"]))),
+            ["built"],
+            "not the folder built under the proposed coverage"
         );
         assert_eq!(europe.coverage, Some(vec!["Europe".to_owned()]));
         let set: SourceSetRecord = client.json("/source-sets/Test%20-%20System");
@@ -3114,7 +3137,11 @@ mod selections {
             (unchanged.missing_before, unchanged.missing_after),
             (Some(2), Some(2))
         );
-        assert!(unchanged.stale_library_folders.is_empty(), "{unchanged:?}");
+        assert_eq!(
+            listed(&unchanged),
+            ["usa"],
+            "already stale for its coverage"
+        );
         let (status, _) = send(
             client.post("/source-sets/Test%20-%20System/coverage/preview"),
             json!({"coverage": ["Atlantis"]}),
@@ -3438,6 +3465,7 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
         "without a coverage, nothing is outside it"
     );
     assert_eq!(whole.covered_entries, None);
+    assert!(!whole.coverage_unavailable);
 
     let (status, body) = put_coverage(&client, serde_json::json!(["Europe"]));
     assert_eq!(status, 200, "{body}");
@@ -3578,6 +3606,47 @@ fn entries_of_games_outside_the_coverage_leave_out_their_claims_and_findings() {
             claimed: 0,
         }),
         "only Tennis (Europe), read in full"
+    );
+}
+
+#[test]
+fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
+    let env = Env::new();
+    let (service, client) = audited_mixed_regions(&env);
+    let (status, body) = put_coverage(&client, serde_json::json!(["Europe"]));
+    assert_eq!(status, 200, "{body}");
+    drop(service);
+    let service = title_select_server::spawn(Settings {
+        clone_lists: Some(env.tmp.path().join("no-clone-lists")),
+        ..env.settings("")
+    })
+    .unwrap();
+    let client = Client::new(&service);
+
+    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+
+    assert!(summaries[0].coverage_unavailable);
+    assert_eq!(
+        summaries[0].latest.as_ref().unwrap().games,
+        statuses(4, 1, 4),
+        "the whole audit"
+    );
+    assert_eq!(summaries[0].outside_coverage, None);
+    assert_eq!(summaries[0].covered_entries, None);
+    let status = |response: Result<ureq::http::Response<ureq::Body>, ureq::Error>| {
+        response.unwrap().status().as_u16()
+    };
+    assert_eq!(
+        status(client.get("/source-sets/Test%20-%20System/regions").call()),
+        503
+    );
+    assert_eq!(
+        status(
+            client
+                .post("/source-sets/Test%20-%20System/coverage/preview")
+                .send_json(serde_json::json!({ "coverage": null }))
+        ),
+        503
     );
 }
 

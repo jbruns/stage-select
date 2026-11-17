@@ -473,6 +473,10 @@ pub struct SourceSetSummary {
     /// Coverage or an Audit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covered_entries: Option<CoveredEntries>,
+    /// Set when the Source Set has a Coverage that couldn't be applied, because Games' regions can't be read without
+    /// the Selection engine's clone lists: its latest Audit's counts are then whole, as if it had none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coverage_unavailable: bool,
 }
 
 /// Entries of an Audit counted under a Coverage: those whose ROMs, matched or named, belong to a covered Game, and

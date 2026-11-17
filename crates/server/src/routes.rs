@@ -704,7 +704,7 @@ async fn source_set_summaries(
     tokio::task::spawn_blocking(move || {
         state
             .coverage
-            .apply(&state.store, state.engine.as_deref(), &mut summaries)
+            .apply(&state.store, &mut summaries)
             .map(|()| Json(summaries))
     })
     .await

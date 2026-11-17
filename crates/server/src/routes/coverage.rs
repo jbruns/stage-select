@@ -12,9 +12,10 @@ use axum::{Json, Router};
 use title_select_api::coverage::Tally;
 use title_select_api::report::EvidenceLevel;
 use title_select_api::{
-    AuditSummary, CoveragePreview, GameStatus, RegionCounts, SetCoverage, SourceSetSummary,
+    AuditSummary, CoveragePreview, CoverageStaleFolder, GameStatus, RegionCounts, SetCoverage,
+    SourceSetSummary,
 };
-use title_select_selection::{Engine, Regions};
+use title_select_selection::Engine;
 use title_select_store::{Error, Store};
 
 use super::{ApiError, ApiResult, AppState};
@@ -46,43 +47,39 @@ impl From<&AuditSummary> for Fingerprint {
     }
 }
 
-/// The engine's region reader and its region names, read once, and the [`Tally`] of each Source Set's latest Audit,
-/// read once per Audit: a finished Audit never changes. A Source Set keeps one tally, replaced when a newer Audit
-/// supersedes it and dropped when the Source Set leaves the registry.
+/// The engine's region names in its order, read once, and the [`Tally`] of each Source Set's latest Audit, read once
+/// per Audit: a finished Audit never changes. A Source Set keeps one tally, replaced when a newer Audit supersedes it
+/// and dropped when the Source Set leaves the registry. Games' regions are read with the store's reader
+/// ([`Store::region_reader`]), so Coverage reads them as Selection does.
 #[derive(Default)]
 pub struct Tallies {
-    regions: OnceLock<Arc<(Regions, Vec<String>)>>,
+    order: OnceLock<Arc<Vec<String>>>,
     sets: Mutex<HashMap<String, (Fingerprint, Arc<Tally>)>>,
 }
 
 impl Tallies {
-    fn regions(&self, engine: &Engine) -> ApiResult<Arc<(Regions, Vec<String>)>> {
-        if let Some(regions) = self.regions.get() {
-            return Ok(regions.clone());
+    fn order(&self, engine: &Engine) -> ApiResult<Arc<Vec<String>>> {
+        if let Some(order) = self.order.get() {
+            return Ok(order.clone());
         }
-        let read = Arc::new((engine.regions()?, engine.names()?.regions));
-        Ok(self.regions.get_or_init(|| read).clone())
+        let read = Arc::new(engine.names()?.regions);
+        Ok(self.order.get_or_init(|| read).clone())
     }
 
-    /// The Source Set `set`'s finished Audit `audit` counted by its Games' regions. Blocks.
-    fn tally(
-        &self,
-        store: &Store,
-        engine: &Engine,
-        set: &str,
-        audit: &AuditSummary,
-    ) -> ApiResult<Arc<Tally>> {
+    /// The Source Set `set`'s finished Audit `audit` counted by its Games' regions. [`Error::RegionsUnavailable`]
+    /// without the store's region reader. Blocks.
+    fn tally(&self, store: &Store, set: &str, audit: &AuditSummary) -> ApiResult<Arc<Tally>> {
         let fingerprint = Fingerprint::from(audit);
         if let Some((kept, tally)) = self.sets.lock().unwrap().get(set)
             && *kept == fingerprint
         {
             return Ok(tally.clone());
         }
-        let regions = self.regions(engine)?;
+        let regions = store.region_reader()?;
         let mut tally = Tally::default();
         let mut games: HashMap<String, Vec<String>> = HashMap::new();
         store.for_each_game_status(audit.id, |name, status| {
-            let of = regions.0.of(name);
+            let of = regions(name);
             tally.add(of.clone(), status);
             games.insert(name.to_owned(), of);
         })?;
@@ -97,7 +94,7 @@ impl Tallies {
                         games
                             .get(&rom.game)
                             .cloned()
-                            .unwrap_or_else(|| regions.0.of(&rom.game))
+                            .unwrap_or_else(|| regions(&rom.game))
                     })
                     .collect();
                 let claimed = entry
@@ -117,27 +114,25 @@ impl Tallies {
     }
 
     /// Counts each Source Set's latest Audit through its Coverage: `games` only the covered Games, the rest in
-    /// `outside_coverage`, and the Entries its status ranks on in `covered_entries`. Without the engine, which reads
-    /// Games' regions, the counts stay whole. Drops the tallies of Source Sets no longer registered. Blocks.
-    pub(super) fn apply(
-        &self,
-        store: &Store,
-        engine: Option<&Engine>,
-        summaries: &mut [SourceSetSummary],
-    ) -> ApiResult<()> {
+    /// `outside_coverage`, and the Entries its status ranks on in `covered_entries`. Without the store's region
+    /// reader, a covered Source Set's counts stay whole and `coverage_unavailable` says so. Drops the tallies of
+    /// Source Sets no longer registered. Blocks.
+    pub(super) fn apply(&self, store: &Store, summaries: &mut [SourceSetSummary]) -> ApiResult<()> {
         self.sets
             .lock()
             .unwrap()
             .retain(|name, _| summaries.iter().any(|s| s.set.name == *name));
-        let Some(engine) = engine else {
-            return Ok(());
-        };
+        let readable = store.region_reader().is_ok();
         for summary in summaries {
             let (Some(coverage), Some(latest)) = (&summary.set.coverage, &mut summary.latest)
             else {
                 continue;
             };
-            let tally = self.tally(store, engine, &summary.set.name, latest)?;
+            if !readable {
+                summary.coverage_unavailable = true;
+                continue;
+            }
+            let tally = self.tally(store, &summary.set.name, latest)?;
             let (covered, outside) = tally.split(Some(coverage));
             latest.games = covered;
             summary.outside_coverage = Some(outside);
@@ -169,6 +164,7 @@ async fn region_counts(
     name: Result<Path<String>, PathRejection>,
 ) -> ApiResult<Json<RegionCounts>> {
     let Path(name) = name?;
+    state.store.region_reader()?;
     let engine = state.engine()?;
     blocking(move || {
         let store = &state.store;
@@ -180,12 +176,12 @@ async fn region_counts(
                 None,
             )
         })?;
-        let tally = state.coverage.tally(store, &engine, &name, &audit)?;
-        let order = state.coverage.regions(&engine)?;
+        let tally = state.coverage.tally(store, &name, &audit)?;
+        let order = state.coverage.order(&engine)?;
         Ok(Json(RegionCounts {
             audit: audit.id,
             total: tally.total(),
-            regions: tally.by_region(&order.1, set.coverage.as_deref()),
+            regions: tally.by_region(&order, set.coverage.as_deref()),
         }))
     })
     .await
@@ -200,7 +196,7 @@ async fn preview(
 ) -> ApiResult<Json<CoveragePreview>> {
     let Path(name) = name?;
     let Json(request) = body?;
-    let engine = state.engine()?;
+    state.store.region_reader()?;
     let coverage = match &request.coverage {
         Some(regions) => Some(super::coverage(&state, regions).await?),
         None => None,
@@ -219,7 +215,7 @@ async fn preview(
         };
         let (missing_before, missing_after) = match &audit {
             Some(audit) => {
-                let tally = state.coverage.tally(store, &engine, &name, audit)?;
+                let tally = state.coverage.tally(store, &name, audit)?;
                 (
                     Some(missing(&tally, set.coverage.as_deref())),
                     Some(missing(&tally, coverage.as_deref())),
@@ -227,7 +223,15 @@ async fn preview(
             }
             None => (None, None),
         };
-        let stale_library_folders = store.coverage_stale_folders(&name, coverage.as_deref())?;
+        let stale_library_folders = store
+            .folders_stale_under(&state.config, &name, coverage.as_deref())?
+            .into_iter()
+            .map(|f| CoverageStaleFolder {
+                id: f.id,
+                root: f.root,
+                path: f.path,
+            })
+            .collect();
         Ok(Json(CoveragePreview {
             coverage,
             audit: audit.map(|a| a.id),

@@ -466,6 +466,7 @@ mod tests {
             repair,
             outside_coverage: None,
             covered_entries: None,
+            coverage_unavailable: false,
         }
     }
 
