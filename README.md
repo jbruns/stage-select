@@ -260,6 +260,10 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Releases it moved carry
   a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.
 - A group has `drift` when a release in it has no metadata, or the clone list names it but no longer matches the DAT.
+- A selection the service makes from a source set with a coverage (see "Coverage") chooses only among the games in
+  it. `pins.coverage` lists the regions it chose among, and each release outside them is an exclusion whose rule's
+  stage is `coverage`, with the message "outside its source set's coverage". Without a coverage, `pins` has no
+  `coverage`.
 
 ## Store
 
@@ -549,6 +553,9 @@ list` prints each cue pack with its DAT, file, cue sheets, import time and SHA-2
 
 ```sh
 title-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
+  [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>]
+title-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
+title-select set coverage <source set> --clear
 title-select set list
 title-select set history <source set>
 ```
@@ -556,7 +563,12 @@ title-select set history <source set>
 `set add` registers a folder in a root, such as `sets "No-Intro/Atari - 2600"`, as a source set bound to an imported
 DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it registers the path the path template
 proposes for the DAT: `--template`, else your source set path template, by default `{provider}/{dat}` (see "Path
-templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `set list` prints each source set with the DAT revision it was last verified against:
+templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `--coverage-preset` and
+`--coverage-region` give it a coverage, the regions of its DAT's games you keep (see "Coverage"); repeat either and
+combine them. Leave both out to cover every game. `set coverage` prints a source set's coverage. With `--preset` or
+`--region`, both repeatable, it sets the coverage to those regions instead, and `--clear` covers every game again; it
+moves no file and needs no new audit. Region and preset names are checked against the clone lists, `--clone-lists`
+or as for `select`, so setting a coverage needs them; clearing one doesn't. `set list` prints each source set with the DAT revision it was last verified against:
 its latest audit's, the latest being the last to finish. `set history` lists a source set's audits, latest first, with
 the time, DAT revision, counts (with the games carrying each warning, such as `header_missing=2`, when any do),
 evidence, and whether the full audit is kept or only its summary.
@@ -584,7 +596,7 @@ them with the new ROMs. The read, reused and claimed counts go to stderr, and `s
 evidence.
 
 ```sh
-title-select fixdat <source set> [--selection <id>] [--output <file or folder>]
+title-select fixdat <source set> [--scope coverage|dat | --selection <id>] [--output <file or folder>]
 title-select have-miss <source set> [--selection <id>] [--output <file or folder>]
 ```
 
@@ -606,7 +618,9 @@ the DAT names a header rule, so does the fixdat, since its ROM sizes and hashes 
 
 ROM names in a cell are separated by `|`, which no file name holds. With `--selection`, either export covers only
 the winners of that selection, which must be a selection of the same source set against the latest audit's DAT
-revision. Both write to stdout; `--output` writes to a file, or into a folder under the export's own name, such as
+revision. When the source set has a coverage, `fixdat` lists only the games in it by default, and its description
+names the coverage; `--scope dat` lists every game of the DAT instead, and `--scope coverage` on a source set without
+a coverage is refused. `have-miss` lists every game of the DAT, whatever the coverage. Both write to stdout; `--output` writes to a file, or into a folder under the export's own name, such as
 `fixdat_<DAT name> (<date>).dat` or `have-miss_<DAT name> (<date>).csv`, the date being the audit's. A source set with
 no audit yet is refused: audit it first.
 
@@ -722,6 +736,59 @@ clears both:
   Following never starts an audit; you choose when to audit against the new revision. A source set you don't follow
   never goes stale on a newer revision. Its history keeps each revision that made it stale, after an audit clears it
   or you stop following.
+
+### Coverage
+
+A source set's coverage is the regions of its DAT's games you mean to keep, such as only the Europe discs of a large
+Redump set. It is optional: a source set without one covers every game, and nothing below applies to it.
+
+A game is covered when any of its regions is, so a Europe coverage covers `Game (USA, Europe)`. A game's regions come
+from the tags in its name, read as selection reads them; a `(United Kingdom)` tag counts as `UK`. A World game is
+covered by every coverage. A game whose name tags no region has the region `Unknown`: it is covered only when your
+coverage names `Unknown`, which no preset includes.
+
+You build a coverage from presets, from single regions, or both. It is saved as the list of regions, so a preset's
+name is only a label, and the presets combine:
+
+| Preset               | Regions                                                                                    |
+|----------------------|--------------------------------------------------------------------------------------------|
+| `USA + Canada`       | USA, Canada                                                                                |
+| `Latin America`      | Mexico, Brazil, Argentina, Peru, Latin America                                             |
+| `Europe + Australia` | Europe, UK, Ireland, Australia, New Zealand, France, Germany, Spain, Italy, Netherlands, Belgium, Austria, Switzerland, Portugal, Russia, Ukraine, Poland, Scandinavia, Sweden, Norway, Denmark, Finland, Iceland, Greece, Hungary, Czech, Slovakia, Turkey, Croatia, Slovenia, Bulgaria, Romania, Serbia, Estonia, Latvia, Lithuania, Macedonia, Albania, Israel, South Africa |
+| `Asia`               | Japan, Asia, Korea, Taiwan, Hong Kong, China, Thailand, Singapore, Indonesia, India, United Arab Emirates |
+
+A region is named as selection names it (the `regions` of `GET /api/v1/vocabulary`). An unknown name is refused, and
+so is a coverage of no region at all: clear the coverage to cover every game instead.
+
+Coverage changes how an audit is read, not the audit: every entry is still read, and every game still gets its status
+against the whole DAT revision. Changing a coverage moves no file, needs no new audit and doesn't make the source set
+stale. What it changes:
+
+- **Counts and status.** The source set's game counts, and the status it shows, count only the games in its
+  coverage. A game outside it never counts as missing. The ones you have are counted apart, as outside your coverage,
+  and kept: a repair still renames and repacks them like any other game. An entry that belongs only to games outside
+  your coverage doesn't make the source set need review; an entry of no game still does.
+- **Fixdats.** A fixdat lists only the missing games in your coverage by default, and its description names the
+  coverage; you can still export one of the whole DAT. The have/miss CSV lists every game of the DAT, unless you limit
+  it to a selection.
+- **Repairs and ingest.** A repair never fills a game outside your coverage, and a plan made under one coverage
+  can't be approved under another (see "Repairs"). An ingest item that matches only games outside your coverage
+  shows as outside your coverage, and isn't proposed to fill them.
+- **Selections.** A selection from the source set chooses only among the games in its coverage, and records the
+  coverage it was made under. A release outside it is excluded, as "outside its source set's coverage". A disc
+  outside your coverage still counts towards whether a chosen multi-disc game is whole. Changing the coverage makes
+  stale each library folder built from the source set whose current build was selected under another coverage, as
+  "coverage changed", until it is built from a selection made under the new one.
+
+A game's regions are read with the clone lists selection uses. Without them, a source set with a coverage shows its
+counts for the whole DAT and says its coverage couldn't be applied; setting a coverage, counting games by region,
+previewing a change, exporting a fixdat of your coverage and planning its repair are refused; and an ingest item that
+matches a game can't tell whether your coverage includes it, so it isn't proposed to fill it until they are. Clearing
+a coverage works without them.
+
+You set a coverage when you register a source set, or later: in the workbench, where a preview says how many missing
+games your coverage counts now and after saving, and which library folders would become stale (see "Workbench"); with
+`set add` and `set coverage` (see "Commands"); or through the API (see "API").
 
 ### Fetching DATs
 
@@ -1083,7 +1150,8 @@ Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate addition, with the system its extension suggests when exactly one registered system uses it;
-  or a DAT you may import;
+  or a DAT you may import. A game outside its source set's coverage is shown as outside your coverage, and the item
+  isn't proposed to fill it (see "Coverage");
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
   imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
@@ -1145,6 +1213,11 @@ approving approves the plan as it was made, so it waits while you have changes y
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
+
+When the source set has a coverage, a repair fills only the games in it: a game outside it is renamed, repacked and
+converted like any other, but nothing fills it, and the plan's notes say so. The plan records the coverage it was
+made under, and approving it is refused if the coverage changed since; while an approved repair hasn't finished, the
+coverage can't be changed (see "Coverage").
 
 Setting a file aside that holds the last copy of a ROM no repair writes is never the default. A repair that writes
 the same payload for another game counts, such as a track two games share, when the DAT gives that game's ROM every
@@ -1273,16 +1346,19 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
-| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}` |
+| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, and `coverage`: the regions it covers, absent when it covers every game |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
-| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
-| `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows |
+| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game |
+| `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows. With a coverage, the latest audit's `games` counts only the games it covers, `outside_coverage` (`{"games", "unknown_region"}`) counts the rest by game status and how many of them have the region `Unknown`, and `covered_entries` (`{"findings", "claimed"}`) counts the entries its status ranks on, those of covered games and of no game, while `latest.findings` and `latest.claimed` still count every entry; `coverage_unavailable` is `true` when the coverage couldn't be applied, and its counts are then whole |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
-| `GET /api/v1/source-sets/{name}/fixdat`            | a fixdat of what its latest audit found missing; `?selection=<id>` limits it to that selection's winners |
-| `GET /api/v1/source-sets/{name}/have-miss.csv`     | a have/miss CSV of its latest audit; `?selection=<id>` as for the fixdat |
+| `GET /api/v1/source-sets/{name}/fixdat`            | a fixdat of what its latest audit found missing; `?scope=coverage` lists only the games in its coverage, the default when it has one, and `?scope=dat` every game of the DAT, the default otherwise; `?selection=<id>` limits it to that selection's winners instead; `400` for both a scope and a selection, or `scope=coverage` without a coverage |
+| `GET /api/v1/source-sets/{name}/have-miss.csv`     | a have/miss CSV of its latest audit, every game of the DAT whatever its coverage; `?selection=<id>` as for the fixdat |
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
+| `PUT /api/v1/source-sets/{name}/coverage`          | set its coverage: `{"coverage": [region]}`, or `{"coverage": null}` to cover every game; returns the source set, its regions in the vocabulary's order. Moves no file and needs no new audit; `400` for an unknown region or an empty list, `409` while an approved repair of it hasn't finished, `503` to set regions without the clone lists |
+| `GET /api/v1/source-sets/{name}/regions`           | its latest audit's games counted by region: `{"audit", "total", "regions"}`, `total` every game once by game status, and each region a game carries, `World` and `Unknown` included, `{"region", "covered", "games"}` in the vocabulary's order; a game counts under each of its regions. `404` before its first audit |
+| `POST /api/v1/source-sets/{name}/coverage/preview` | what setting its coverage would change, saving nothing: the body as for `PUT …/coverage`; returns `{"coverage", "audit"?, "missing_before"?, "missing_after"?, "stale_library_folders"}`, the missing games its coverage counts now and would count after, absent before its first audit, and the library folders that would become stale, each `{"id", "root", "path"}` |
 | `POST /api/v1/source-sets/{name}/stat-walks`       | queue a check for changes; `202`, or `400` when it has never been audited |
 | `GET /api/v1/source-sets/{name}/followed-revisions` | the newer DAT revisions that made it stale while it followed its DAT, newest first: `{"source_set", "sha256", "version", "imported_at", "found_at"}` |
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
@@ -1292,7 +1368,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
-| `GET /api/v1/vocabulary`                           | the names, categories and default orders                     |
+| `GET /api/v1/vocabulary`                           | the names, categories and default orders, and `coverage_presets`, each `{"name", "regions"}` |
 | `GET /api/v1/systems`                              | each source set's system, as a profile's system settings name it: `[{"source_set", "system"}]` |
 | `POST /api/v1/check`                               | check a selection profile: `{"problems": [...]}`             |
 | `GET /api/v1/profiles`                             | the selection profiles, each with its newest version         |
@@ -1315,7 +1391,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -1337,7 +1413,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-folders`                      | register one: `{"root"}`; `201`                              |
 | `GET /api/v1/ingest-folders/{root}`                | one ingest folder, with `next_check_at` while a follow-up scan is pending |
 | `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
-| `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way |
+| `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way. Each match's `need` says what the item does for that game; `outside_coverage` and `coverage_unavailable` propose nothing |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
 | `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
@@ -1348,8 +1424,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-plans/{id}/approval`          | approve it: `{"digest"}`; moves the items and answers with each outcome, `409` when the folder changed |
 | `GET /api/v1/source-sets/{name}/repairs`           | its repair plans, newest first                               |
 | `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside" \| "add_addition"}, "additions"?: {key: {"system", "name", "parent"?}}}`; `201` |
-| `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes    |
-| `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed |
+| `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes, its `content.coverage` being the coverage it was made under, absent for every game |
+| `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed, its source set's coverage included |
 | `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
 | `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/source-kept-deletions/{id}`           | a plan to delete a source set's kept files                   |
@@ -1397,6 +1473,12 @@ A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` bac
 may be up to 512 MiB, and is `201` when it adds a DAT revision, `200` when the bytes were already imported. After a
 quick inventory, availability's `claimed` names the games whose status rests on claims, and such a release carries
 `"claimed": true`.
+
+A source set's coverage is read with the clone lists, as selection is. Without them, `PUT …/coverage` with regions,
+`GET …/regions`, `POST …/coverage/preview`, a fixdat of a coverage and planning a repair of a source set with a
+coverage are `503`, saying why; clearing a coverage works, `GET /api/v1/source-set-summaries` marks each audited source set
+with a coverage `coverage_unavailable`, and an ingest item's match with such a source set's game has the `need`
+`coverage_unavailable`.
 
 Server-sent events carry JSON data, under one of these event names:
 
@@ -1602,10 +1684,15 @@ Its screens:
 - **Source sets** lists each source set with its status (running, repair open, needs review, stale, resting on
   claims, verified or never audited); a stale status carries an icon for each cause, files changed or a newer DAT
   revision, and a set whose latest audit matched entries only on claims
-  (a quick inventory) never reads verified, its game counts by game status, its DAT and its latest audit. Each row audits
+  (a quick inventory) never reads verified, its game counts by game status (in its coverage only, when it has one),
+  its coverage, its DAT and its latest audit. The **Coverage** column reads "Every region", the presets a coverage is
+  made of (such as "USA + Canada"), or how many regions it names after you chose them one by one; its tooltip lists
+  the regions, and an icon shows "Coverage not applied" when the clone lists aren't there to read games' regions.
+  Each row audits
   in one click and offers checking it for changes, proposing or reviewing its repair, previewing a selection, making a library folder, and
   its tabs; check rows to audit them, check them for changes or propose their repairs together, which says it is making each plan while it
-  waits. Register adds another from a root, a DAT and a path in the root. The path template proposes the path from
+  waits. Register adds another from a root, a DAT, a path in the root and its coverage, every region unless you
+  choose otherwise in the coverage editor described below. The path template proposes the path from
   the DAT, with a live preview of the folder it names; change the template, or type over the path and use "Use the
   proposed path" to go back. When the DAT has no `{platform}`, the preview says so and you type the path.
 - **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
@@ -1614,7 +1701,20 @@ Its screens:
   claims) and how many games may not play without their header, and why it is stale, downloads a fixdat or have/miss
   CSV of what the latest audit found missing, for the whole DAT or one selection's winners, and starts an audit
   against the default DAT revision or a newer one, as a quick inventory
-  or an incremental (the default) or full audit. Its header checks it for changes and follows its DAT. **Games** and **Entries** show the latest audit's game statuses and
+  or an incremental (the default) or full audit. With a coverage, the game statuses are headed **In your coverage**,
+  and a line under them counts what is **Outside your coverage**: the games you have, those incomplete and those
+  with an unknown region, which you keep and none of which counts as missing. When the clone lists aren't there, it
+  says your coverage couldn't be applied and the counts are the whole DAT's. **By region**, under the counts, opens a
+  table of the latest audit's games by region and game status, each region outside your coverage marked so, with a
+  row of every game once; a game in several regions counts in each. It lists the regions in your coverage, and **All
+  regions** shows the rest. The download chooses **Missing in your coverage** (the default with a coverage), **The
+  whole DAT** or a selection; the have/miss CSV lists every game of the DAT unless you choose a selection. The
+  **Coverage** section shows the coverage and its regions, and **Edit coverage** opens the coverage editor (or
+  `?edit=coverage`): choose **Every region** or **Only some regions**, then check presets, or open **Choose regions**
+  to check single regions, grouped by preset, with **Other regions** last. World games are always covered, and a
+  game with no region tag only when you choose Unknown. Before you save, a line previews the change, such as
+  "Missing in your coverage: 1204 now, 312 after saving. 2 library folders will become stale." **Save coverage**
+  saves it; no file changes and no new audit is needed. Its header checks it for changes and follows its DAT. **Games** and **Entries** show the latest audit's game statuses and
   entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
   what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
@@ -1667,7 +1767,8 @@ Its screens:
   right, its candidate releases with the rule that decided each, where you check the releases you want, confirm an
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
   until you save them as the next version of the profile, which makes a new selection. A link to a group
-  (`?group=`) opens it. The selection names the library folders that use it; one no library folder uses is a
+  (`?group=`) opens it. Its facts name the coverage it was made under, and a release outside that coverage shows as
+  excluded, "Outside its source set's coverage". The selection names the library folders that use it; one no library folder uses is a
   what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
   into a library folder bound to its source set and selection profile.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
@@ -1682,14 +1783,15 @@ Its screens:
   the bundle's `licences/` folder.
 - **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete,
   stale, current or never built, in that precedence. Stale means its source set's latest audit found something other than the audit
-  its current build used, its selection profile was saved since, or the folder was rebound to another; the folder
-  says which. Each row can be
+  its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
+  changed"), or the folder was rebound to another; the folder says which. Each row can be
   checked, or have a build planned of the newest selection of its source set and profile against the source set's
   latest verified DAT revision, made first when there is none. **New library folder** (`/libraries/new`, or
   `/libraries/new?source_set=<name>` or `?selection=<id>` from a source set or a selection) picks a saved selection
   profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
   plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
-  **Overview**, its facts, what it lacks and the files built into it; **Selection**, the selection it was built
+  **Overview**, its facts, with the coverage it has from its source set and a link to edit it there, what it lacks
+  and the files built into it; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
   blocks it, its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
   **Builds**; **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept
@@ -1702,7 +1804,8 @@ Its screens:
 - **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was
   last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with how often
   the folder is scanned), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or
-  done. A strip above the list counts the items of each status and offers what you can decide for all of them at
+  done. An item that matches only games outside their source set's coverage reads "Outside your coverage" where its
+  proposal would be, and "Coverage unknown" when the clone lists aren't there to tell; neither fills the game. A strip above the list counts the items of each status and offers what you can decide for all of them at
   once, such as **Add 2 as additions**, **Discard 3** or **Dismiss 3**; clicking a count shows only that status. You
   can also check items, or select every item matching the filter, and decide for those from the toolbar, or decide
   for one item from its row; an item a decision doesn't apply to is left out, and the page says how many. Opening an
