@@ -12,18 +12,21 @@ use title_select_api::{
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
+use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
 use crate::parts::icon::Glyph;
+use crate::parts::icon::Svg;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
-    Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
+    CellTip, Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::encode;
 use crate::registration;
+use crate::screens::coverage::{self, CoverageEditor, UNAVAILABLE};
 use crate::source_set_model::{self as model, PageTab};
 
 /// A source set's page.
@@ -118,6 +121,7 @@ enum SetCol {
     Status,
     Name,
     Games,
+    Coverage,
     Dat,
     Audited,
 }
@@ -142,12 +146,44 @@ fn game_counts(games: &BTreeMap<GameStatus, usize>) -> AnyView {
     .into_any()
 }
 
+fn coverage_label(s: &SourceSetSummary) -> String {
+    coverage_model::label(s.set.coverage.as_deref())
+}
+
+/// What a source set's coverage is, for its tooltip: every region it names, and whether it could be applied.
+fn coverage_tip(s: &SourceSetSummary) -> String {
+    let coverage = s.set.coverage.as_deref();
+    let (_, kind) = coverage::glyph(coverage, s.coverage_unavailable);
+    let regions = coverage_model::regions_line(coverage);
+    match (coverage, s.coverage_unavailable) {
+        (None, _) => regions,
+        (Some(_), true) => format!("{kind}: {regions} {UNAVAILABLE}"),
+        (Some(_), false) => format!("{kind}: {regions}"),
+    }
+}
+
+/// A source set's coverage in its list cell: its icon and short label, every region in the tooltip.
+fn coverage_cell(s: &SourceSetSummary) -> AnyView {
+    let coverage = s.set.coverage.as_deref();
+    let (glyph, _) = coverage::glyph(coverage, s.coverage_unavailable);
+    let label = coverage_model::label(coverage);
+    view! {
+        <CellTip label=coverage_tip(s)>
+            <Svg glyph />
+            " "
+            {label}
+        </CellTip>
+    }
+    .into_any()
+}
+
 impl ListRow for SetRow {
     type Col = SetCol;
     const COLUMNS: &'static [SetCol] = &[
         SetCol::Status,
         SetCol::Name,
         SetCol::Games,
+        SetCol::Coverage,
         SetCol::Dat,
         SetCol::Audited,
     ];
@@ -166,8 +202,12 @@ impl ListRow for SetRow {
                 },
             )
             .sortable(),
-            SetCol::Games => Column::new("games", "Games", Width::Fixed(15.0))
-                .hint("Complete, incomplete and missing games in its latest audit"),
+            SetCol::Games => Column::new("games", "Games", Width::Fixed(15.0)).hint(
+                "Complete, incomplete and missing games in its latest audit, in its coverage only",
+            ),
+            SetCol::Coverage => Column::new("coverage", "Coverage", Width::Fixed(9.0))
+                .sortable()
+                .hint("The regions whose games it keeps"),
             SetCol::Dat => Column::new(
                 "dat",
                 "DAT",
@@ -198,8 +238,9 @@ impl ListRow for SetRow {
             .map(|(cause, _)| cause.look().label)
             .collect();
         format!(
-            "{} {} {} {} {} {}",
+            "{} {} {} {} {} {} {}",
             set.name,
+            coverage_model::label(set.coverage.as_deref()),
             set.dat,
             set.root,
             set.path,
@@ -225,6 +266,7 @@ impl ListRow for SetRow {
                 Some(audit) => game_counts(&audit.games),
                 None => "—".into_any(),
             },
+            SetCol::Coverage => coverage_cell(s),
             SetCol::Dat => view! { <Clip text=s.set.dat.clone() /> }.into_any(),
             SetCol::Audited => match &s.latest {
                 Some(audit) => view! { <Clip text=when(&audit.finished_at) /> }.into_any(),
@@ -238,6 +280,9 @@ impl ListRow for SetRow {
         match col {
             SetCol::Status => self.status.rank().cmp(&other.status.rank()),
             SetCol::Name | SetCol::Games => a.set.name.cmp(&b.set.name),
+            SetCol::Coverage => coverage_label(a)
+                .cmp(&coverage_label(b))
+                .then_with(|| a.set.name.cmp(&b.set.name)),
             SetCol::Dat => a.set.dat.cmp(&b.set.dat),
             SetCol::Audited => a
                 .latest
@@ -355,6 +400,11 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
 fn set_detail(row: SetRow) -> AnyView {
     let s = row.summary;
     let name = s.set.name.clone();
+    let outside = s
+        .outside_coverage
+        .as_ref()
+        .filter(|_| !s.coverage_unavailable)
+        .map(|o| view! { <p class="note">{coverage_model::outside_line(o)}</p> });
     view! {
         <p>
             <StatusBadge status=row.status />
@@ -387,8 +437,15 @@ fn set_detail(row: SetRow) -> AnyView {
                     None => "Never audited".into_any(),
                 }}
             </dd>
+            <dt>"Coverage"</dt>
+            <dd>
+                {coverage_model::label(s.set.coverage.as_deref())}
+                {(s.coverage_unavailable && s.set.coverage.is_some()).then(|| view! {
+                    <p class="note small">{UNAVAILABLE}</p>
+                })}
+            </dd>
             {s.latest.as_ref().map(|a| view! {
-                <dt>"Games"</dt>
+                <dt>{if s.set.coverage.is_some() && !s.coverage_unavailable { "In your coverage" } else { "Games" }}</dt>
                 <dd>{game_counts(&a.games)}</dd>
             })}
             <dt>"Last verified against"</dt>
@@ -418,6 +475,7 @@ fn set_detail(row: SetRow) -> AnyView {
                 }}
             </dd>
         </dl>
+        {outside}
     }
     .into_any()
 }
@@ -568,6 +626,8 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
     let typed = RwSignal::new(None::<String>);
     let problem = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
+    let draft = RwSignal::new(Draft::every());
+    let order = RwSignal::new(Vec::<String>::new());
 
     let proposal = Memo::new(move |_| {
         let Some(template) = template.get() else {
@@ -608,12 +668,19 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             ));
             return;
         }
+        let coverage = match order.with_untracked(|o| draft.with_untracked(|d| d.coverage(o))) {
+            Ok(coverage) => coverage,
+            Err(message) => {
+                problem.set(Some(message));
+                return;
+            }
+        };
         let request = AddSourceSet {
             root: root.get_untracked(),
             path: Some(chosen),
             template: None,
             dat: dat.get_untracked(),
-            coverage: None,
+            coverage,
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
@@ -706,6 +773,7 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
                         on:input=move |ev| typed.set(Some(event_target_value(&ev)))
                     />
                 </label>
+                <CoverageEditor draft order />
                 {move || {
                     (typed.get().is_some() && proposal.get().is_ok())
                         .then(|| {

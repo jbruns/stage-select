@@ -92,6 +92,10 @@ ICONS = [
     "file-clock",
     # The header's mark while Jobs run unthrottled.
     "gauge",
+    # Coverage: every region, only some regions, and coverage that couldn't be applied.
+    "globe",
+    "map-pinned",
+    "map-pin-x",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

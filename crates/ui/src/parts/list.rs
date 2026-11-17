@@ -272,6 +272,22 @@ pub fn Clip(#[prop(into)] text: String) -> impl IntoView {
     }
 }
 
+/// A cell that shows less than it says, such as an icon and a short label, with `label`, the whole of it, as a
+/// tooltip: on hover, or while the keyboard cursor is on its row. The label is also there for assistive technology, so
+/// hide the children's own words from it where they only repeat part of it.
+#[component]
+pub fn CellTip(#[prop(into)] label: String, children: Children) -> impl IntoView {
+    let shown = use_context::<KeyboardCursor>().map_or(Signal::stored(false), |c| c.0);
+    view! {
+        <Tooltip label=label.clone() shown>
+            <span class="visually-hidden">{label}</span>
+            <span class="cell-tip" aria-hidden="true">
+                {children()}
+            </span>
+        </Tooltip>
+    }
+}
+
 /// The list. `id` prefixes its elements' IDs and names its legend's remembered state; `label` names it ("DAT
 /// revisions"). `rows` are every row, in their default order; `detail` renders the open row's summary.
 #[component]

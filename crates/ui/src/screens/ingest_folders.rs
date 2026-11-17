@@ -438,8 +438,10 @@ impl ItemRow {
             IngestStatus::Arriving => self.arriving.clone(),
             IngestStatus::MatchesSourceSet => match &item.assessment.proposal {
                 Some(Proposal::SourceSet {
-                    source_set, game, ..
-                }) => format!("{game} in {source_set}"),
+                    source_set,
+                    game,
+                    need,
+                }) => crate::ingest_model::source_set_match(source_set, game, *need),
                 _ => "A source set needs it".into(),
             },
             IngestStatus::NoDatMatch => match &item.assessment.proposal {

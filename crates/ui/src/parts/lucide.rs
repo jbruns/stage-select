@@ -72,10 +72,13 @@ pub enum Glyph {
     ScanSearch,
     FileClock,
     Gauge,
+    Globe,
+    MapPinned,
+    MapPinX,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 68] = [
+    pub const ALL: [Glyph; 71] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -144,6 +147,9 @@ impl Glyph {
         Glyph::ScanSearch,
         Glyph::FileClock,
         Glyph::Gauge,
+        Glyph::Globe,
+        Glyph::MapPinned,
+        Glyph::MapPinX,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -329,6 +335,15 @@ impl Glyph {
                 "<path d='M16 22h2a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v2.85' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M8 14v2.2l1.6 1' /><circle cx='8' cy='16' r='6' />"
             }
             Glyph::Gauge => "<path d='m12 14 4-4' /><path d='M3.34 19a10 10 0 1 1 17.32 0' />",
+            Glyph::Globe => {
+                "<circle cx='12' cy='12' r='10' /><path d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' /><path d='M2 12h20' />"
+            }
+            Glyph::MapPinned => {
+                "<path d='M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 01-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0112 0' /><path d='M4.474 15h-.197a1 1 0 00-.969.753l-1.097 4.35a1.5 1.5 0 001.444 1.898L20.344 22a1.5 1.5 0 001.446-1.897l-1.098-4.35a1 1 0 00-.969-.753h-.197' /><circle cx='12' cy='8' r='2' />"
+            }
+            Glyph::MapPinX => {
+                "<path d='M19.752 11.901A7.78 7.78 0 0 0 20 10a8 8 0 0 0-16 0c0 4.993 5.539 10.193 7.399 11.799a1 1 0 0 0 1.202 0 19 19 0 0 0 .09-.077' /><circle cx='12' cy='10' r='3' /><path d='m21.5 15.5-5 5' /><path d='m21.5 20.5-5-5' />"
+            }
         }
     }
 
@@ -403,6 +418,9 @@ impl Glyph {
             Glyph::ScanSearch => "scan-search",
             Glyph::FileClock => "file-clock",
             Glyph::Gauge => "gauge",
+            Glyph::Globe => "globe",
+            Glyph::MapPinned => "map-pinned",
+            Glyph::MapPinX => "map-pin-x",
         }
     }
 }
