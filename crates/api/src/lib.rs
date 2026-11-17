@@ -468,6 +468,21 @@ pub struct SourceSetSummary {
     /// The latest Audit's Games outside the Source Set's Coverage; absent without a Coverage or an Audit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outside_coverage: Option<OutsideCoverage>,
+    /// The latest Audit's Entries that its status ranks on under the Source Set's Coverage: those of covered Games
+    /// and those of no Game at all. `latest.findings` and `latest.claimed` still count every Entry. Absent without a
+    /// Coverage or an Audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covered_entries: Option<CoveredEntries>,
+}
+
+/// Entries of an Audit counted under a Coverage: those whose ROMs, matched or named, belong to a covered Game, and
+/// those that belong to no Game, which need review whatever the Coverage.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoveredEntries {
+    /// How many have each Finding; those of none are left out.
+    pub findings: BTreeMap<Finding, usize>,
+    /// How many of them rest on Claim Evidence.
+    pub claimed: usize,
 }
 
 /// An Audit's Games outside a Coverage: they keep their Game Status, and present ones still count and are kept.

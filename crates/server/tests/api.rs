@@ -3437,6 +3437,7 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
         whole.outside_coverage, None,
         "without a coverage, nothing is outside it"
     );
+    assert_eq!(whole.covered_entries, None);
 
     let (status, body) = put_coverage(&client, serde_json::json!(["Europe"]));
     assert_eq!(status, 200, "{body}");
@@ -3457,11 +3458,127 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
         }),
         "Pong, Combat and Chess present; Boxing and Breakout missing; Chess of no known region"
     );
+    assert_eq!(
+        covered.covered_entries,
+        Some(title_select_api::CoveredEntries {
+            findings: [(Finding::Matched, 2), (Finding::Unmatched, 1)].into(),
+            claimed: 0,
+        }),
+        "Golf's and Racing's entries, and notes.txt, which belongs to no game"
+    );
     assert!(covered.set.stale.is_empty(), "{:?}", covered.set.stale);
     assert_eq!(latest.findings, whole.latest.as_ref().unwrap().findings);
 
     put_coverage(&client, serde_json::Value::Null);
     assert_eq!(summary(), whole, "clearing the coverage reads as before");
+}
+
+#[test]
+fn a_forgotten_source_set_registered_and_audited_again_is_counted_from_its_new_audit() {
+    let env = Env::new();
+    let (_service, client) = audited_mixed_regions(&env);
+    let auth = client.auth.clone().unwrap();
+    put_coverage(&client, serde_json::json!(["Europe"]));
+    let summary = || {
+        let mut summaries: Vec<title_select_api::SourceSetSummary> =
+            client.json("/source-set-summaries");
+        summaries.remove(0)
+    };
+    let before = summary();
+    assert_eq!(before.latest.as_ref().unwrap().games, statuses(1, 1, 2));
+    let response = client
+        .post("/source-sets/Test%20-%20System/unregistration")
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let unregistered: Vec<title_select_api::lifecycle::UnregisteredRecord> =
+        client.json("/unregistered");
+    let forget = agent()
+        .delete(format!(
+            "{}/unregistered/source_set/{}",
+            client.base, unregistered[0].id
+        ))
+        .header(&auth.0, &auth.1)
+        .call();
+    assert_eq!(status_of(forget), 200);
+
+    std::fs::remove_file(
+        env.tmp
+            .path()
+            .join("roots/sets")
+            .join(SET)
+            .join("Golf (USA, Europe).a26"),
+    )
+    .unwrap();
+    client.add_set();
+    put_coverage(&client, serde_json::json!(["Europe"]));
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+
+    let after = summary();
+    assert_eq!(
+        after.latest.as_ref().unwrap().id,
+        before.latest.as_ref().unwrap().id,
+        "the store gives the new audit the forgotten one's id"
+    );
+    assert_eq!(
+        after.latest.as_ref().unwrap().games,
+        statuses(0, 1, 3),
+        "Golf (USA, Europe) is missing now"
+    );
+    let regions: title_select_api::RegionCounts =
+        client.json("/source-sets/Test%20-%20System/regions");
+    assert_eq!(regions.total, statuses(3, 1, 5));
+}
+
+#[test]
+fn entries_of_games_outside_the_coverage_leave_out_their_claims_and_findings() {
+    let env = Env::new();
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    std::fs::remove_file(set.join("notes.txt")).unwrap();
+    write_file(&set.join("Tennis (Europe).a26"), b"tennis");
+    write_file(&set.join("Boxing.a26"), b"boxing");
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (20260101).dat",
+        "20260101-000000",
+        &[
+            ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+            ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+            (
+                "Tennis (Europe)",
+                vec![rom("Tennis (Europe).a26", b"tennis")],
+            ),
+            ("Boxing (Japan)", vec![rom("Boxing (Japan).a26", b"boxing")]),
+        ],
+    );
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System (20260101).dat", &std::fs::read(dat).unwrap());
+    client.add_set();
+    put_coverage(&client, serde_json::json!(["Europe"]));
+    let job: Job = client
+        .post("/audits")
+        .send_json(serde_json::json!({"source_set": SET, "evidence": "quick"}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+
+    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+
+    let latest = summaries[0].latest.as_ref().unwrap();
+    assert_eq!(latest.findings[&Finding::Misnamed], 1, "Boxing.a26");
+    assert_eq!(latest.claimed, Some(1), "Combat (USA).zip, read on claims");
+    assert_eq!(
+        summaries[0].covered_entries,
+        Some(title_select_api::CoveredEntries {
+            findings: [(Finding::Matched, 1)].into(),
+            claimed: 0,
+        }),
+        "only Tennis (Europe), read in full"
+    );
 }
 
 #[test]

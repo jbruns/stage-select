@@ -12,18 +12,27 @@ use title_select_api::{
 use crate::model::needs_review_from_counts;
 use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
 
-/// What is true of a source set: `running` when a job is queued or running for it.
+/// What is true of a source set: `running` when a job is queued or running for it. With a coverage, its latest
+/// audit's entries count only as `covered_entries` says.
 pub fn facts(summary: &SourceSetSummary, running: bool) -> SourceSetFacts {
-    let latest = summary.latest.as_slice();
+    let latest = summary.latest.as_ref();
+    let (needs_review, claims) = match (&summary.covered_entries, latest) {
+        (Some(covered), Some(_)) => (
+            needs_review_from_counts(&covered.findings) > 0,
+            covered.claimed > 0,
+        ),
+        _ => (
+            latest.is_some_and(|a| needs_review_from_counts(&a.findings) > 0),
+            latest.is_some_and(rests_on_claims),
+        ),
+    };
     SourceSetFacts {
         running,
         repair_open: summary.repair.is_some(),
-        needs_review: latest
-            .first()
-            .is_some_and(|a| needs_review_from_counts(&a.findings) > 0),
+        needs_review,
         stale: !summary.set.stale.is_empty(),
-        claims: latest.first().is_some_and(rests_on_claims),
-        audited: !latest.is_empty(),
+        claims,
+        audited: latest.is_some(),
     }
 }
 
@@ -456,6 +465,7 @@ mod tests {
             latest,
             repair,
             outside_coverage: None,
+            covered_entries: None,
         }
     }
 
@@ -499,6 +509,24 @@ mod tests {
             status(&summary(Some(claimed), None), false),
             SourceSetStatus::OnClaims,
             "claims never make it verified"
+        );
+        let mut uncovered_trouble = summary(
+            Some(AuditSummary {
+                claimed: Some(2),
+                ..audit(1, "t", "b", 0)
+            }),
+            None,
+        );
+        let latest = uncovered_trouble.latest.as_mut().unwrap();
+        latest.findings = BTreeMap::from([(Finding::Matched, 3), (Finding::Misnamed, 1)]);
+        uncovered_trouble.covered_entries = Some(title_select_api::CoveredEntries {
+            findings: BTreeMap::from([(Finding::Matched, 1)]),
+            claimed: 0,
+        });
+        assert_eq!(
+            status(&uncovered_trouble, false),
+            SourceSetStatus::Verified,
+            "claims and a misnamed entry of games outside the coverage don't rank"
         );
         let mut covered = audit(1, "t", "b", 1);
         covered.findings.insert(Finding::Matched, 9);

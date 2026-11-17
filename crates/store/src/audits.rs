@@ -1004,6 +1004,7 @@ impl Store {
                         latest,
                         repair,
                         outside_coverage: None,
+                        covered_entries: None,
                     })
                 })
                 .collect()
