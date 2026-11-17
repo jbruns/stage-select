@@ -952,6 +952,57 @@ fn the_api_exports_a_fixdat_and_a_have_miss_csv_of_what_the_latest_audit_found_m
 }
 
 #[test]
+fn the_api_exports_a_fixdat_of_the_coverage_by_default_and_of_the_whole_dat_when_asked() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let base = "/source-sets/Test%20-%20System";
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let fixdat = |query: &str| -> (u16, String) {
+        let mut response = client.get(&format!("{base}/fixdat{query}")).call().unwrap();
+        (
+            response.status().as_u16(),
+            response.body_mut().read_to_string().unwrap(),
+        )
+    };
+    assert_eq!(
+        status_of(client.get(&format!("{base}/fixdat?scope=coverage")).call()),
+        400,
+        "no coverage to limit it to"
+    );
+    let (name, value) = client.auth.clone().unwrap();
+    let response = agent()
+        .put(format!("{}{base}/coverage", client.base))
+        .header(name, value)
+        .send_json(serde_json::json!({ "coverage": ["Japan"] }))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let (status, covered) = fixdat("");
+    assert_eq!(status, 200);
+    assert!(!covered.contains("Breakout"), "{covered}");
+    assert!(
+        covered.contains("limited to the games in its coverage: Japan"),
+        "{covered}"
+    );
+    assert_eq!(fixdat("?scope=coverage").1, covered);
+    let (status, whole) = fixdat("?scope=dat");
+    assert_eq!(status, 200);
+    assert!(whole.contains("Breakout (USA)"), "{whole}");
+    assert!(!whole.contains("coverage"), "{whole}");
+    for query in ["?scope=coverage&selection=1", "?scope=region"] {
+        assert_eq!(
+            status_of(client.get(&format!("{base}/fixdat{query}")).call()),
+            400,
+            "{query}"
+        );
+    }
+}
+
+#[test]
 fn an_audit_is_incremental_unless_you_ask_the_api_for_a_full_one() {
     let env = Env::new();
     let service = env.start();

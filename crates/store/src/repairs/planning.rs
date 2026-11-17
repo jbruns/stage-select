@@ -41,6 +41,8 @@ pub(super) struct Inputs<'a> {
     pub additions: &'a BTreeMap<String, NewAddition>,
     /// Every `.cue` sheet in the cue packs of the Source Set's DAT.
     pub cues: &'a [CueSheet],
+    /// Whether the Source Set's Coverage covers a Game: a Game outside it is never filled (ADR 0021).
+    pub covers: &'a dyn Fn(&str) -> bool,
 }
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
@@ -157,6 +159,132 @@ impl<'a> Preserved<'a> {
         }
         lost
     }
+}
+
+/// Keeps every file holding a ROM of a present Game outside the Coverage where it is (ADR 0021): no other Game's item
+/// keeps it aside, moves it, or deletes it once converted. Such a Game is never filled, so the file may be all it has.
+/// An item that reads it copies from it instead; one that must put its Game where the file is is dropped, with why.
+fn keep_uncovered(
+    i: &Inputs,
+    by_path: &BTreeMap<&str, Vec<&Entry>>,
+    reported: &HashMap<&str, &title_select_api::report::Game>,
+    proposed: &mut Vec<Proposed>,
+    notes: &mut Vec<String>,
+) {
+    let kept_for: HashMap<&str, BTreeSet<&str>> = by_path
+        .iter()
+        .filter_map(|(path, entries)| {
+            let games: BTreeSet<&str> = entries
+                .iter()
+                .flat_map(|e| &e.roms)
+                .map(|r| r.game.as_str())
+                .filter(|g| {
+                    !(i.covers)(g)
+                        && reported
+                            .get(g)
+                            .is_some_and(|r| r.status != title_select_api::GameStatus::Missing)
+                })
+                .collect();
+            (!games.is_empty()).then_some((*path, games))
+        })
+        .collect();
+    if kept_for.is_empty() {
+        return;
+    }
+    proposed.retain_mut(|p| {
+        let Some(game) = p.item.game.clone() else {
+            return true;
+        };
+        let others = |path: &str| -> Vec<&str> {
+            kept_for
+                .get(path)
+                .map(|games| games.iter().copied().filter(|g| *g != game).collect())
+                .unwrap_or_default()
+        };
+        let mut kept: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        let mut keep = |path: &str| {
+            let games = others(path);
+            let found = !games.is_empty();
+            if found {
+                kept.insert(path.to_owned(), games);
+            }
+            found
+        };
+        // Where the item puts its Game: a file there that must stay leaves it nowhere to go.
+        let mut targets: Vec<&str> = p.target.iter().map(|(t, _)| t.as_str()).collect();
+        if let Some(Proposal::Folder { parts }) = &p.proposal {
+            targets.extend(parts.iter().map(|part| match part {
+                Part::Build { target, .. } | Part::Fill { target, .. } => target.as_str(),
+                Part::Rename { to, .. } => to.as_str(),
+            }));
+        }
+        if let Some(path) = targets.into_iter().find(|t| keep(t)) {
+            notes.push(format!(
+                "{game} is left as it is: {path} is in the way, and {} still holds it, outside your coverage",
+                kept[path].join(", ")
+            ));
+            return false;
+        }
+        p.displaces.retain(|(path, _)| !keep(path));
+        p.converts.retain(|path| !keep(path));
+        let member_of = |from: &str, rom: &ExpectedRom| {
+            by_path.get(from).and_then(|entries| {
+                entries
+                    .iter()
+                    .find(|e| e.roms.iter().any(|r| r.game == game && r.name == rom.name))
+                    .and_then(|e| e.member.clone())
+            })
+        };
+        let mut copied = None;
+        match &mut p.proposal {
+            Some(Proposal::Rename { from, roms }) if keep(from) => {
+                copied = Some(from.clone());
+                let roms = roms
+                    .iter()
+                    .map(|rom| RepairRom {
+                        rom: rom.clone(),
+                        from: from.clone(),
+                        member: member_of(from, rom),
+                        cue_pack: None,
+                    })
+                    .collect();
+                p.proposal = Some(Proposal::Build { roms });
+            }
+            Some(Proposal::Folder { parts }) => {
+                for part in parts.iter_mut() {
+                    if let Part::Rename { from, to, rom } = part
+                        && keep(from)
+                    {
+                        *part = Part::Build {
+                            target: to.clone(),
+                            rom: RepairRom {
+                                rom: rom.clone(),
+                                from: from.clone(),
+                                member: None,
+                                cue_pack: None,
+                            },
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let (Some(from), Some((target, _))) = (copied, &p.target) {
+            p.item.summary = format!("write {target} from {from}");
+        }
+        if !kept.is_empty() {
+            let stays: Vec<String> = kept
+                .iter()
+                .map(|(path, games)| format!("{path} stays for {}", games.join(", ")))
+                .collect();
+            p.item.summary = format!(
+                "{}; {}, outside your coverage",
+                p.item.summary,
+                stays.join("; ")
+            );
+        }
+        true
+    });
 }
 
 /// Whether bytes that are `w`, as the DAT gives it, are also `r`: the same size, with every checksum `r` gives also
@@ -624,6 +752,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     let mut used_candidates: BTreeSet<i64> = BTreeSet::new();
     let mut good: BTreeSet<String> = BTreeSet::new();
     let placements = placements_of(i);
+    let reported: HashMap<&str, &title_select_api::report::Game> = i
+        .report
+        .games
+        .iter()
+        .map(|g| (g.name.as_str(), g))
+        .collect();
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = roms_of(i.dat, index);
         let Some((placed, why_zip)) = &placements[index] else {
@@ -655,6 +789,16 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let is_target = |path: &str| targets.iter().any(|t| t == path);
+        // A Game outside the Coverage keeps what it has, renamed and repacked, but none of its missing ROMs is filled:
+        // not from another Game's file, a cue pack or an Ingest Folder.
+        let outside = !(i.covers)(game);
+        let withheld = |rom: &str| {
+            outside
+                && reported.get(game.as_str()).is_none_or(|g| {
+                    g.status == title_select_api::GameStatus::Missing
+                        || g.missing_roms.iter().any(|m| m == rom)
+                })
+        };
         // Each ROM's best copy: matched in the Game's own file first, then matched elsewhere, then misnamed, then a
         // conflicting entry you chose to take as the ROM it matches.
         let mut sources: Vec<Option<(u8, &str, &Entry)>> = vec![None; roms.len()];
@@ -679,6 +823,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         .roms
                         .iter()
                         .any(|r| r.game == *game && r.name == rom.name)
+                        && !withheld(&rom.name)
                         && sources[n].is_none_or(|(best, ..)| rank < best)
                     {
                         sources[n] = Some((rank, path, entry));
@@ -691,7 +836,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .iter()
             .zip(&sources)
             .map(|(rom, source)| match source {
-                None if is_cue(&rom.name) => i.cues.iter().find(|c| c.is(rom)),
+                None if is_cue(&rom.name) && !withheld(&rom.name) => {
+                    i.cues.iter().find(|c| c.is(rom))
+                }
                 _ => None,
             })
             .collect();
@@ -701,7 +848,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .iter()
             .enumerate()
             .map(|(n, rom)| {
-                if folder.is_none() || sources[n].is_some() || cues[n].is_some() {
+                if folder.is_none() || sources[n].is_some() || cues[n].is_some() || outside {
                     return None;
                 }
                 i.candidates.iter().position(|c| {
@@ -1213,6 +1360,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             notes.push(left_in_way(path));
             continue;
         }
+        if outside {
+            if !attributable.is_empty() || !occupants.is_empty() {
+                notes.push(format!(
+                    "{game} is left as it is: it is outside your coverage, so nothing fills the ROMs it is missing"
+                ));
+            }
+            continue;
+        }
         if folder.is_some() {
             if !attributable.is_empty() || !occupants.is_empty() {
                 notes.push(format!(
@@ -1280,6 +1435,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             checked: true,
         });
     }
+
+    keep_uncovered(i, &by_path, &reported, &mut proposed, &mut notes);
 
     // The choices you made in place of the defaults; those for files holding nothing are checked below.
     for (key, choice) in i.choices {

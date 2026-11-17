@@ -301,6 +301,22 @@ impl Store {
         let coverage = coverage_json(coverage)?;
         self.write(|tx| {
             let set = set_by_name(tx, name)?;
+            // An approved repair carries out a plan made for the Coverage it had (ADR 0021).
+            let repairing: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM repair_plans
+                     WHERE source_set_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL
+                     ORDER BY id LIMIT 1",
+                    [set.id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(plan) = repairing {
+                return Err(Error::Conflict(format!(
+                    "source set {name} has an approved repair, repair plan {plan}, that hasn't finished, and it \
+                     repairs the games your current coverage covers; change the coverage once it has finished"
+                )));
+            }
             tx.execute(
                 "UPDATE source_sets SET coverage = ?2 WHERE id = ?1",
                 params![set.id, coverage],

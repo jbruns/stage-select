@@ -11,6 +11,17 @@ use title_select_engine::fixdat::{Lacking, Scope};
 use super::sets::set_by_name;
 use super::{Error, Result, Store};
 
+/// What a Fixdat lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixdatScope {
+    /// Every Game of the DAT.
+    Dat,
+    /// The Games the Source Set's Coverage covers (ADR 0021).
+    Coverage,
+    /// The winners of the Selection with this id.
+    Selection(i64),
+}
+
 /// An exported file: the name to save it as, and its content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Export {
@@ -19,18 +30,20 @@ pub struct Export {
 }
 
 impl Store {
-    /// The Fixdat of Source Set `name` from its latest Audit, of the whole DAT or of the winners of Selection
-    /// `selection`.
-    pub fn fixdat(&self, name: &str, selection: Option<i64>) -> Result<Export> {
-        self.lacking(name, selection, |lacking| Export {
+    /// The Fixdat of Source Set `name` from its latest Audit, of `scope`: by default, the Games its Coverage covers
+    /// when it has one, else the whole DAT. Its header names the Coverage or Selection it is limited to.
+    pub fn fixdat(&self, name: &str, scope: Option<FixdatScope>) -> Result<Export> {
+        self.lacking(name, scope, |lacking| Export {
             file_name: lacking.fixdat_file_name(),
             content: lacking.fixdat(),
         })
     }
 
-    /// The have/miss CSV of Source Set `name` from its latest Audit, scoped as [`Store::fixdat`] is.
+    /// The have/miss CSV of Source Set `name` from its latest Audit, of the whole DAT or of the winners of Selection
+    /// `selection`. It reports every Game, covered or not, so it ignores Coverage.
     pub fn have_miss(&self, name: &str, selection: Option<i64>) -> Result<Export> {
-        self.lacking(name, selection, |lacking| Export {
+        let scope = Some(selection.map_or(FixdatScope::Dat, FixdatScope::Selection));
+        self.lacking(name, scope, |lacking| Export {
             file_name: lacking.have_miss_file_name(),
             content: lacking.have_miss(),
         })
@@ -39,10 +52,19 @@ impl Store {
     fn lacking(
         &self,
         name: &str,
-        selection: Option<i64>,
+        scope: Option<FixdatScope>,
         export: impl FnOnce(&Lacking) -> Export,
     ) -> Result<Export> {
         let set = self.read(|c| set_by_name(c, name))?;
+        let scope = scope.unwrap_or(match set.record.coverage {
+            Some(_) => FixdatScope::Coverage,
+            None => FixdatScope::Dat,
+        });
+        if scope == FixdatScope::Coverage && set.record.coverage.is_none() {
+            return Err(Error::Refused(format!(
+                "source set {name} has no coverage: it covers every game, so export the whole DAT instead"
+            )));
+        }
         let audit = self
             .source_set_history_by_id(set.id)?
             .into_iter()
@@ -52,16 +74,32 @@ impl Store {
                     "source set {name} has no audit yet; audit it to export what it lacks"
                 ))
             })?;
-        let winners = selection
-            .map(|id| self.winners(name, set.id, &audit, id))
-            .transpose()?;
         let report = self.report(audit.id)?;
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
             .map_err(|e| Error::Io(e.to_string()))?;
-        let scope = selection.zip(winners.as_ref()).map(|(id, games)| Scope {
-            selection: id,
-            games,
-        });
+        let games = match scope {
+            FixdatScope::Dat => HashSet::new(),
+            FixdatScope::Selection(id) => self.winners(name, set.id, &audit, id)?,
+            FixdatScope::Coverage => {
+                let covering = self.covering(&set.record)?;
+                dat.games
+                    .iter()
+                    .filter(|game| covering.covers(game))
+                    .cloned()
+                    .collect()
+            }
+        };
+        let scope = match scope {
+            FixdatScope::Dat => None,
+            FixdatScope::Selection(selection) => Some(Scope::Selection {
+                selection,
+                games: &games,
+            }),
+            FixdatScope::Coverage => Some(Scope::Coverage {
+                regions: set.record.coverage.as_deref().expect("refused without one"),
+                games: &games,
+            }),
+        };
         Ok(export(&Lacking {
             dat: &dat,
             report: &report,

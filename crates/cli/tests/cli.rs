@@ -316,6 +316,16 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
         .output()
         .unwrap();
     assert!(!unknown.status.success());
+
+    run_ok(ts().args(["set", "coverage", rel, "--region", "Japan"]));
+    let covered = run_ok(ts().args(["fixdat", rel]));
+    assert!(!covered.contains("Breakout"), "{covered}");
+    assert!(
+        covered.contains("limited to the games in its coverage: Japan"),
+        "{covered}"
+    );
+    let whole = run_ok(ts().args(["fixdat", rel, "--scope", "dat"]));
+    assert!(whole.contains("Breakout (USA)"), "{whole}");
 }
 
 #[test]

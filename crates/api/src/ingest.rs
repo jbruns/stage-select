@@ -134,6 +134,11 @@ pub enum Need {
     Unaudited,
     /// The Source Set already holds the Game complete.
     Held,
+    /// The Game is outside the Source Set's Coverage: the item isn't proposed to fill it.
+    OutsideCoverage,
+    /// The Source Set has a Coverage, and Games' regions can't be read to tell whether it covers the Game: the
+    /// Selection engine's clone lists aren't available. The item isn't proposed to fill it until they are.
+    CoverageUnavailable,
 }
 
 impl Need {
@@ -147,6 +152,10 @@ impl Need {
             }
             Need::Unaudited => "matches; the source set has no audit yet",
             Need::Held => "already held",
+            Need::OutsideCoverage => "outside your coverage",
+            Need::CoverageUnavailable => {
+                "can't tell whether your coverage includes it: the clone lists aren't available"
+            }
         }
     }
 }

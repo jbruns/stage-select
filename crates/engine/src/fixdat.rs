@@ -20,11 +20,26 @@ const DOCTYPE: &str = r#"datafile PUBLIC "-//Logiqx//DTD ROM Management Datafile
 /// Separates ROM names within a have/miss cell. No ROM name holds it: it can't be in a file name on Windows.
 const ROM_SEPARATOR: &str = "|";
 
-/// The Games an export is limited to: a Selection's winners.
+/// The Games an export is limited to, and why: a Selection's winners, or the Games a Coverage covers (ADR 0021).
 #[derive(Clone, Copy)]
-pub struct Scope<'a> {
-    pub selection: i64,
-    pub games: &'a HashSet<String>,
+pub enum Scope<'a> {
+    Selection {
+        selection: i64,
+        games: &'a HashSet<String>,
+    },
+    /// `games` are the Games `regions`, the Source Set's Coverage, covers.
+    Coverage {
+        regions: &'a [String],
+        games: &'a HashSet<String>,
+    },
+}
+
+impl Scope<'_> {
+    fn games(&self) -> &HashSet<String> {
+        match self {
+            Scope::Selection { games, .. } | Scope::Coverage { games, .. } => games,
+        }
+    }
 }
 
 /// What a Source Set lacks, by its Audit `audit`, whose report is `report`, against `dat`, the DAT Revision that
@@ -61,12 +76,21 @@ impl Lacking<'_> {
             self.audit,
             self.report.finished_at,
         );
-        if let Some(scope) = self.scope {
-            let _ = write!(
-                description,
-                ", limited to the winners of selection {}",
-                scope.selection
-            );
+        match self.scope {
+            Some(Scope::Selection { selection, .. }) => {
+                let _ = write!(
+                    description,
+                    ", limited to the winners of selection {selection}"
+                );
+            }
+            Some(Scope::Coverage { regions, .. }) => {
+                let _ = write!(
+                    description,
+                    ", limited to the games in its coverage: {}",
+                    regions.join(", ")
+                );
+            }
+            None => {}
         }
         for (tag, text) in [
             ("name", name.as_str()),
@@ -192,7 +216,7 @@ impl Lacking<'_> {
             .games
             .iter()
             .enumerate()
-            .filter(|(_, name)| self.scope.is_none_or(|s| s.games.contains(*name)))
+            .filter(|(_, name)| self.scope.is_none_or(|s| s.games().contains(*name)))
             .filter_map(move |(index, name)| {
                 by_name
                     .get(name.as_str())

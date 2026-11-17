@@ -575,6 +575,7 @@ impl Store {
         let storage =
             self.read(|c| crate::storage::policy(c, StorageScope::SourceSets, &record.dat))?;
         let cues = self.cue_sheets(&record.dat)?;
+        let covering = self.covering(record)?;
         let planned = planning::plan(&planning::Inputs {
             report: &report,
             dat: &dat,
@@ -587,6 +588,7 @@ impl Store {
             storage,
             additions: &request.additions,
             cues: &cues,
+            covers: &|game| covering.covers(game),
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -658,6 +660,7 @@ impl Store {
             notes: planned.notes,
             storage,
             set_aside: false,
+            coverage: record.coverage.clone(),
         };
         let digest = digest(&content);
         let packs: BTreeSet<&str> = content
@@ -800,6 +803,7 @@ impl Store {
             notes: Vec::new(),
             storage,
             set_aside: true,
+            coverage: None,
         };
         let digest = digest(&content);
         self.write(|tx| {
@@ -949,6 +953,14 @@ impl Store {
                 return Err(Error::Conflict(format!(
                     "source set {} was audited again since the plan was made; plan the repair again from the \
                      latest audit",
+                    content.source_set
+                )));
+            }
+            // A plan proposes fills only for the Games its Coverage covered (ADR 0021).
+            if !content.set_aside && crate::sets::set_by_id(tx, content.set_id)?.record.coverage != content.coverage {
+                return Err(Error::Conflict(format!(
+                    "the coverage of source set {} changed since the plan was made; nothing was changed. Plan the \
+                     repair again and review the new plan",
                     content.source_set
                 )));
             }

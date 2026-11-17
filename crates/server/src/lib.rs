@@ -95,6 +95,12 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     };
     let auth = auth::Auth::new(&config.auth, token_file.as_deref(), listen)?;
     let store = Store::open(&store)?;
+    if let Some(engine) = &engine {
+        match engine.regions() {
+            Ok(regions) => store.set_regions(move |game| regions.of(game)),
+            Err(err) => eprintln!("title-select: coverage is unavailable: {err}"),
+        }
+    }
     let (notifier, delivery) = notify::Notifier::new(&store.settings()?.notify);
     // Each Job records the ceilings, the most threads it may use; the pace says how many of them work, file by file.
     let workers: Workers = config.jobs.ceilings().workers();

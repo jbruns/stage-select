@@ -1533,7 +1533,13 @@ mod profiles_and_selections {
         );
         let chosen = env.store.have_miss("Test - System", Some(id)).unwrap();
         assert_eq!(have_miss_games(&chosen.content), ["Combat (USA)"]);
-        let fixdat = env.store.fixdat("Test - System", Some(id)).unwrap();
+        let fixdat = env
+            .store
+            .fixdat(
+                "Test - System",
+                Some(title_select_store::FixdatScope::Selection(id)),
+            )
+            .unwrap();
         let read = title_select_engine::dat::Dat::parse(
             fixdat.content.as_bytes(),
             Path::new(&fixdat.file_name),
@@ -1550,7 +1556,10 @@ mod profiles_and_selections {
         let (newer, _) = env.import(2);
         env.audit(Some(&newer));
         for refused in [
-            env.store.fixdat("Test - System", Some(id)),
+            env.store.fixdat(
+                "Test - System",
+                Some(title_select_store::FixdatScope::Selection(id)),
+            ),
             env.store.have_miss("Test - System", Some(id)),
         ] {
             let Err(Error::Refused(message)) = refused else {
@@ -1587,7 +1596,10 @@ mod profiles_and_selections {
         env.audit(Some(&sha256));
 
         for refused in [
-            env.store.fixdat("Test - System", Some(old)),
+            env.store.fixdat(
+                "Test - System",
+                Some(title_select_store::FixdatScope::Selection(old)),
+            ),
             env.store.have_miss("Test - System", Some(old)),
         ] {
             let Err(Error::Refused(message)) = refused else {
