@@ -618,12 +618,12 @@ impl Chdman {
         // chdman is a process of its own: what it reads is counted as the size of its input as it starts, and what it
         // writes as the files in `dir` grow, at each poll.
         self.tally
-            .read(usize::try_from(input_bytes(dir, args)).unwrap_or(usize::MAX));
+            .read_outside(usize::try_from(input_bytes(dir, args)).unwrap_or(usize::MAX));
         let mut seen = written(dir);
         let mut count_written = || {
             let now = written(dir);
             self.tally
-                .wrote(usize::try_from(now.saturating_sub(seen)).unwrap_or(usize::MAX));
+                .wrote_outside(usize::try_from(now.saturating_sub(seen)).unwrap_or(usize::MAX));
             seen = now;
         };
         let log_path = dir.join("chdman.log");

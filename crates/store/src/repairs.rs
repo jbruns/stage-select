@@ -32,7 +32,7 @@ use title_select_engine::build::{
     FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
 };
 use title_select_engine::dat::Dat;
-use title_select_engine::meter::Tally;
+use title_select_engine::meter::{Interruptible, Tally};
 use title_select_engine::{FileStamp, Progress};
 
 use crate::builds::{sha256_of, still_sha256};
@@ -485,6 +485,57 @@ fn step_from_row(r: &Row) -> rusqlite::Result<StepRow> {
         aside_why: r.get(12)?,
         discard_slot: r.get(13)?,
     })
+}
+
+/// The items of a repair's `steps` that are committed, and run to their end even once you cancel: those one of whose
+/// steps other than a Build has started, or a committed or started step keeping a file aside needs one of whose
+/// Builds, and every disc of a game one of whose discs is.
+fn committed_items(steps: &[StepRow]) -> std::collections::HashSet<String> {
+    // A step skipped changed nothing, so it commits nothing.
+    let started = |s: &StepRow| !matches!(s.state.as_str(), "pending" | "skipped");
+    let mut committed: std::collections::HashSet<&str> = steps
+        .iter()
+        .filter(|s| !matches!(s.step, RepairStep::Build { .. }) && started(s))
+        .map(|s| s.item.as_str())
+        .collect();
+    loop {
+        let before = committed.len();
+        for step in steps {
+            if let RepairStep::Keep { needs, affects, .. } = &step.step
+                && (started(step)
+                    || committed.contains(step.item.as_str())
+                    || affects.iter().any(|a| committed.contains(a.as_str())))
+            {
+                committed.insert(step.item.as_str());
+                committed.extend(affects.iter().map(String::as_str));
+                for need in needs {
+                    if let Some(build) = steps.iter().find(|b| b.seq == *need) {
+                        committed.insert(build.item.as_str());
+                    }
+                }
+            }
+        }
+        // Every disc of a game is stored alike: once one disc's repair has changed something, the others
+        // finish too.
+        let releases: std::collections::HashSet<String> = committed
+            .iter()
+            .filter_map(|item| item.strip_prefix("game:"))
+            .map(release_of)
+            .collect();
+        for step in steps {
+            if step
+                .item
+                .strip_prefix("game:")
+                .is_some_and(|game| releases.contains(&release_of(game)))
+            {
+                committed.insert(step.item.as_str());
+            }
+        }
+        if committed.len() == before {
+            break;
+        }
+    }
+    committed.into_iter().map(str::to_owned).collect()
 }
 
 fn steps_of(c: &Connection, plan: i64) -> Result<Vec<StepRow>> {
@@ -1111,8 +1162,9 @@ impl Store {
     }
 
     /// Asks the Queued or Running Repair, Build or Additions Job `id` to stop at its next safe point. A repair stops
-    /// between two steps: each step that changed something, and every step of the same item, still ends as planned;
-    /// every other is skipped. A build stops between two files: each file it put in place stays, recorded as built,
+    /// between two steps, or within a Build for an item nothing was yet changed for: each step that changed something,
+    /// and every step of the same item, still ends as planned; every other is skipped. A build stops between two
+    /// files, or within the staging of one: each file it put in place stays, recorded as built,
     /// and the original a conversion replaced is disposed of before it stops. An Additions Job stops between two
     /// additions: each it started is settled, and each it had not fails. A Calibration stops between two steps,
     /// keeping what it measured of the Host and each Root it finished; a Queued one ends at once.
@@ -1142,6 +1194,7 @@ impl Store {
             )?;
             job_by_id(tx, id)
         })
+        .inspect(|_| self.meter.cancel(id))
     }
 
     /// Queues each incremental Audit a finished repair owes, once no other Job of its Source Set stands in the way.
@@ -1276,10 +1329,22 @@ impl Store {
                 }
             }
             let step = self.other_step(id, seq as u32)?;
+            // A Build for an item nothing was yet changed for is dropped on a cancel, so a cancel stops its reads and
+            // writes at once rather than wait out the caps, and is then taken at once, as before the next step.
+            let droppable = !cancelled
+                && !is_terminal(&step.state)
+                && matches!(step.step, RepairStep::Build { .. })
+                && !committed_items(&self.read(|c| steps_of(c, id))?).contains(&step.item);
             if !is_terminal(&step.state)
-                && let Err(why) = self.run_step(config, &repairing, &step)?
+                && let Err(why) = self.run_step(config, &repairing, &step, droppable)?
             {
                 return Ok(Err(why));
+            }
+            if droppable && self.cancel_requested(job)? {
+                cancelled = true;
+                if let Err(why) = self.cancel_uncommitted(&repairing)? {
+                    return Ok(Err(why));
+                }
             }
             if let Some(progress) = progress {
                 progress(Progress {
@@ -1546,55 +1611,11 @@ impl Store {
     /// started, or a committed or started step keeping a file aside needs one of its Builds.
     fn cancel_uncommitted(&self, r: &Repairing) -> Ran {
         let steps = self.read(|c| steps_of(c, r.plan.id))?;
-        // A step skipped changed nothing, so it commits nothing.
-        let started = |s: &StepRow| !matches!(s.state.as_str(), "pending" | "skipped");
-        let mut committed: std::collections::HashSet<&str> = steps
-            .iter()
-            .filter(|s| !matches!(s.step, RepairStep::Build { .. }) && started(s))
-            .map(|s| s.item.as_str())
-            .collect();
-        loop {
-            let before = committed.len();
-            for step in &steps {
-                if let RepairStep::Keep { needs, affects, .. } = &step.step
-                    && (started(step)
-                        || committed.contains(step.item.as_str())
-                        || affects.iter().any(|a| committed.contains(a.as_str())))
-                {
-                    committed.insert(step.item.as_str());
-                    committed.extend(affects.iter().map(String::as_str));
-                    for need in needs {
-                        if let Some(build) = steps.iter().find(|b| b.seq == *need) {
-                            committed.insert(build.item.as_str());
-                        }
-                    }
-                }
-            }
-            // Every disc of a game is stored alike: once one disc's repair has changed something, the others
-            // finish too.
-            let releases: std::collections::HashSet<String> = committed
-                .iter()
-                .filter_map(|item| item.strip_prefix("game:"))
-                .map(release_of)
-                .collect();
-            for step in &steps {
-                if step
-                    .item
-                    .strip_prefix("game:")
-                    .is_some_and(|game| releases.contains(&release_of(game)))
-                {
-                    committed.insert(step.item.as_str());
-                }
-            }
-            if committed.len() == before {
-                break;
-            }
-        }
+        let committed = committed_items(&steps);
         let skipped: Vec<i64> = steps
             .iter()
             .filter(|s| {
-                !committed.contains(s.item.as_str())
-                    && !matches!(s.state.as_str(), "failed" | "skipped")
+                !committed.contains(&s.item) && !matches!(s.state.as_str(), "failed" | "skipped")
             })
             .map(|s| s.id)
             .collect();
@@ -1790,14 +1811,15 @@ impl Store {
         })
     }
 
-    fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {
+    /// Runs `step`; a Build `droppable` by a cancel stops its reads and writes for one ([`Interruptible`]).
+    fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
         match &step.step {
             RepairStep::Build {
                 target,
                 roms,
                 sources,
                 loose,
-            } => self.run_build(r, step, target, roms, sources, *loose),
+            } => self.run_build(r, step, (target, roms, sources, *loose), droppable),
             RepairStep::Keep {
                 path,
                 kept_name,
@@ -1842,14 +1864,15 @@ impl Store {
 
     /// Writes a Build step's file under a staged name recorded first, from its sources while each is still the file
     /// the plan saw, and checks it against the DAT.
+    ///
+    /// A `droppable` step, stopped by a cancel while it writes its file, deletes what it staged and is left for the
+    /// cancel to skip.
     fn run_build(
         &self,
         r: &Repairing,
         step: &StepRow,
-        target: &str,
-        roms: &[RepairRom],
-        sources: &BTreeMap<String, SeenFile>,
-        loose: bool,
+        (target, roms, sources, loose): (&str, &[RepairRom], &BTreeMap<String, SeenFile>, bool),
+        droppable: bool,
     ) -> Ran {
         let dir = &r.dir;
         // A staged file a stop left being deleted is deleted before anything is staged again.
@@ -1890,7 +1913,7 @@ impl Store {
             }
         }
         if let Some(batch) = self.extraction_of(r, step, roms, sources, loose)? {
-            return self.run_extraction(r, &batch, sources);
+            return self.run_extraction(r, &batch, sources, droppable);
         }
         let staged_name = staged_name(base_name(target));
         self.write(|tx| {
@@ -1916,6 +1939,7 @@ impl Store {
             Ok(())
         })?;
         type Written = (Option<String>, Option<String>);
+        let interruptible = droppable.then(Interruptible::new);
         let written = (|| -> std::result::Result<Written, String> {
             let mut opened: Vec<File> = Vec::new();
             let mut index: HashMap<&str, usize> = HashMap::new();
@@ -1999,6 +2023,10 @@ impl Store {
                 .then(|| serde_json::to_string(&reads).expect("a map of strings"));
             Ok((single, reads))
         })();
+        let interrupted = interruptible
+            .as_ref()
+            .is_some_and(Interruptible::interrupted);
+        drop(interruptible);
         let (source_sha, reads) = match written {
             Ok(read) => read,
             Err(why) => {
@@ -2006,6 +2034,9 @@ impl Store {
                 // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
                 if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
                     return Ok(Err(format!("{why}; {left}")));
+                }
+                if interrupted {
+                    return Ok(Ok(()));
                 }
                 return self.step_failed(step, "failed", why);
             }
@@ -2084,6 +2115,7 @@ impl Store {
         r: &Repairing,
         batch: &[Extracting],
         sources: &BTreeMap<String, SeenFile>,
+        droppable: bool,
     ) -> Ran {
         let dir = &r.dir;
         let (path, seen) = sources.iter().next().expect("one source");
@@ -2118,6 +2150,7 @@ impl Store {
             })?;
             staged.push((one, staged_name, file, id));
         }
+        let interruptible = droppable.then(Interruptible::new);
         let written = match failed {
             Some(why) => Err(why),
             None => (|| -> std::result::Result<(String, u64), String> {
@@ -2152,6 +2185,10 @@ impl Store {
                 Ok(read)
             })(),
         };
+        let interrupted = interruptible
+            .as_ref()
+            .is_some_and(Interruptible::interrupted);
+        drop(interruptible);
         match written {
             Ok((sha, size)) => {
                 // What the ZIP was, hashed as it was read while its stamp, ctime included, held still.
@@ -2179,6 +2216,9 @@ impl Store {
                     if let Err(left) = self.discard_staged(r, &one.step, staged_name, *id)? {
                         return Ok(Err(format!("{why}; {left}")));
                     }
+                }
+                if interrupted {
+                    return Ok(Ok(()));
                 }
                 for one in batch {
                     self.fail_step(&one.step, "failed", why.clone())?;

@@ -983,6 +983,44 @@ pub struct Rates {
 // Rates are counts over a positive span, never NaN.
 impl Eq for Rates {}
 
+/// The byte-rate caps in force, in bytes a second: none where nothing caps that way, as under `unthrottled`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ByteCaps {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_bytes_per_s: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_bytes_per_s: Option<u64>,
+}
+
+impl ByteCaps {
+    /// The caps of several Roots moving bytes at once: each way's caps added up, or none if any Root moving that way
+    /// is uncapped, or no Root moves that way. Each Root comes with whether it reads and whether it writes.
+    pub fn sum<'a>(roots: impl IntoIterator<Item = (&'a ByteCaps, bool, bool)>) -> ByteCaps {
+        let (mut read, mut write) = (Some(Vec::new()), Some(Vec::new()));
+        for (caps, reads, writes) in roots {
+            for (on, cap, total) in [
+                (reads, caps.read_bytes_per_s, &mut read),
+                (writes, caps.write_bytes_per_s, &mut write),
+            ] {
+                if on {
+                    match (cap, total.as_mut()) {
+                        (Some(cap), Some(caps)) => caps.push(cap),
+                        _ => *total = None,
+                    }
+                }
+            }
+        }
+        let add = |caps: Option<Vec<u64>>| {
+            caps.filter(|c| !c.is_empty())
+                .map(|c| c.into_iter().fold(0u64, u64::saturating_add))
+        };
+        ByteCaps {
+            read_bytes_per_s: add(read),
+            write_bytes_per_s: add(write),
+        }
+    }
+}
+
 /// How far a Running Audit has got through its Source Set's files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobProgress {
@@ -1001,6 +1039,9 @@ pub struct JobProgress {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Throughput {
     pub total: Rates,
+    /// The byte-rate caps on the Roots moving bytes now, added up.
+    #[serde(default)]
+    pub caps: ByteCaps,
     /// Each Root bytes moved in or out of since the Service started, by name.
     pub roots: Vec<RootRates>,
     /// Each Running Job the Service meters.
@@ -1020,6 +1061,9 @@ impl Eq for Throughput {}
 pub struct RootRates {
     pub root: String,
     pub rates: Rates,
+    /// The Root's byte-rate caps in force now.
+    #[serde(default)]
+    pub caps: ByteCaps,
 }
 
 /// How fast one Running Job reads and writes, and its workers at work against what the pace allows it.
@@ -1027,6 +1071,9 @@ pub struct RootRates {
 pub struct JobLoad {
     pub job: i64,
     pub rates: Rates,
+    /// The byte-rate caps on the Roots the Job moves bytes in, added up.
+    #[serde(default)]
+    pub caps: ByteCaps,
     /// Payload readers at work now.
     pub readers: usize,
     /// Hash workers at work now.

@@ -418,7 +418,7 @@ impl Store {
             regions: std::sync::OnceLock::new(),
             meter: title_select_engine::meter::Meter::default(),
         };
-        store.meter.share_readers(store.ceilings.readers.clone());
+        store.meter.share_limits(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.
         if migrations.len() >= migrations::SETTINGS {
             let pace = store.settings()?.pace;

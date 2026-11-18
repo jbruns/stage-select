@@ -15,7 +15,7 @@ use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScan};
 use title_select_api::{Job, JobKind, JobLoad, JobState, Rates, SourceSetRecord};
 
 use crate::activity_model::{
-    Counts, KeptPlace, KeptRow, Outcome, Subject, average_fact, bytes_rate, counts, cpu_label,
+    Counts, KeptPlace, KeptRow, Outcome, Subject, average_fact, capped_rate, counts, cpu_label,
     files_rate, listed, newest_first, opened_failure, throughput_cell, workers_fact,
 };
 use crate::api;
@@ -516,8 +516,18 @@ fn ThroughputStrip() -> impl IntoView {
             let pace = pace_label(t.pace).split(':').next().unwrap_or_default();
             view! {
                 <div class="throughput-strip" role="group" aria-label="Throughput">
-                    <span>"Reading " <span class="data">{bytes_rate(t.total.read_bytes_per_s)}</span></span>
-                    <span>"Writing " <span class="data">{bytes_rate(t.total.write_bytes_per_s)}</span></span>
+                    <span>
+                        "Reading "
+                        <span class="data">
+                            {capped_rate(t.total.read_bytes_per_s, t.caps.read_bytes_per_s)}
+                        </span>
+                    </span>
+                    <span>
+                        "Writing "
+                        <span class="data">
+                            {capped_rate(t.total.write_bytes_per_s, t.caps.write_bytes_per_s)}
+                        </span>
+                    </span>
                     <span class="data">{files_rate(t.total.files_per_s)}</span>
                     {t.cpu.map(|cpu| {
                         view! {
@@ -538,12 +548,13 @@ fn throughput_facts(live: Live, row: LiveJob) -> impl IntoView {
     move || match row.job.state {
         JobState::Running => {
             let load = load_of(live, row.job.id);
+            let caps = load.map(|l| l.caps).unwrap_or_default();
             rates_of(live, &row).map(|rates| {
                 view! {
                     <dt>"Reading"</dt>
-                    <dd class="data">{bytes_rate(rates.read_bytes_per_s)}</dd>
+                    <dd class="data">{capped_rate(rates.read_bytes_per_s, caps.read_bytes_per_s)}</dd>
                     <dt>"Writing"</dt>
-                    <dd class="data">{bytes_rate(rates.write_bytes_per_s)}</dd>
+                    <dd class="data">{capped_rate(rates.write_bytes_per_s, caps.write_bytes_per_s)}</dd>
                     <dt>"Files"</dt>
                     <dd class="data">{files_rate(rates.files_per_s)}</dd>
                     {load.map(|load| {

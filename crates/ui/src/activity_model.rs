@@ -254,6 +254,14 @@ pub fn bytes_rate(per_s: f64) -> String {
     }
 }
 
+/// A rate against the byte-rate cap in force, if any: "312 MiB/s of 400 MiB/s cap", or "312 MiB/s" uncapped.
+pub fn capped_rate(per_s: f64, cap: Option<u64>) -> String {
+    match cap {
+        Some(cap) => format!("{} of {} cap", bytes_rate(per_s), bytes_rate(cap as f64)),
+        None => bytes_rate(per_s),
+    }
+}
+
 /// Files read and written per second: "12 files/s", "0.5 files/s".
 pub fn files_rate(per_s: f64) -> String {
     let per_s = per_s.max(0.0);
@@ -556,10 +564,21 @@ mod tests {
     }
 
     #[test]
+    fn a_rate_reads_against_the_cap_in_force_and_alone_when_nothing_caps_it() {
+        let mib = 1u64 << 20;
+        assert_eq!(
+            capped_rate(312.0 * mib as f64, Some(400 * mib)),
+            "312 MiB/s of 400 MiB/s cap"
+        );
+        assert_eq!(capped_rate(312.0 * mib as f64, None), "312 MiB/s");
+    }
+
+    #[test]
     fn workers_read_against_what_the_pace_allows() {
         let load = JobLoad {
             job: 1,
             rates: Rates::default(),
+            caps: title_select_api::ByteCaps::default(),
             readers: 2,
             hashers: 3,
             allowance: Workers {
