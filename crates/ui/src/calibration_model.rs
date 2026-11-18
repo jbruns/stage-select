@@ -87,6 +87,14 @@ pub fn rows(calibration: &Calibration) -> Vec<Row> {
                     size(root.available_bytes)
                 )),
             ),
+            (RootOutcome::TimedOut, None) => (
+                CalibrationStatus::TimedOut,
+                Some(format!(
+                    "The calibration couldn't find enough to read in root {} in time: it may hold files with \
+                     nothing in them, or be slow to list.",
+                    root.root
+                )),
+            ),
             (RootOutcome::Measured, None) => (CalibrationStatus::Measured, None),
         };
         rows.push(Row {
@@ -249,6 +257,7 @@ mod tests {
             roots: vec![
                 root("moved", RootOutcome::Measured),
                 root("small", RootOutcome::TooSmall),
+                root("slow", RootOutcome::TimedOut),
                 root("fine", RootOutcome::Measured),
                 RootCalibration {
                     error: Some("permission denied".into()),
@@ -281,6 +290,7 @@ mod tests {
                 ("fine", CalibrationStatus::Measured),
                 ("moved", CalibrationStatus::Stale),
                 ("new", CalibrationStatus::NotMeasured),
+                ("slow", CalibrationStatus::TimedOut),
                 ("small", CalibrationStatus::TooSmall),
             ]
         );
@@ -293,7 +303,8 @@ mod tests {
                 .contains("permission denied")
         );
         assert!(rows[3].reason.as_deref().unwrap().contains("/mnt/moved"));
-        assert!(rows[5].reason.as_deref().unwrap().contains("1.0 MiB"));
+        assert!(rows[5].reason.as_deref().unwrap().contains("in time"));
+        assert!(rows[6].reason.as_deref().unwrap().contains("1.0 MiB"));
     }
 
     #[test]

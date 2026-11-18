@@ -54,9 +54,15 @@ fn root_row(root: &RootCalibration) -> [String; 4] {
             "-".into(),
             "-".into(),
             format!(
-                "too small to measure: {:.1} MiB to read",
+                "too small to measure: {:.1} MiB to read in all",
                 root.available_bytes as f64 / MIB
             ),
+        ],
+        RootOutcome::TimedOut => [
+            what,
+            "-".into(),
+            "-".into(),
+            "timed out: it couldn't find enough to read in time".into(),
         ],
         RootOutcome::Unreadable => [
             what,

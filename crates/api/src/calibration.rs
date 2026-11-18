@@ -48,6 +48,9 @@ pub enum RootOutcome {
     TooSmall,
     /// It couldn't be read at all.
     Unreadable,
+    /// Its sweep couldn't find enough to read in time, though it may hold more: it was passing over files with
+    /// nothing in them, or finding files was slow.
+    TimedOut,
 }
 
 /// What the latest Calibration that measured a Root found: payload readers over its least recently read files.

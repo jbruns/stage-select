@@ -3916,6 +3916,7 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
             step_time: std::time::Duration::from_millis(20),
             step_bytes: 1 << 20,
             min_bytes: 1,
+            ..title_select_server::CalibrationLimits::default()
         }),
         ..env.settings("")
     })

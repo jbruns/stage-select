@@ -739,10 +739,13 @@ It measures:
   following a symlink, so it never reads outside the root. A root whose files run out before about 1 GiB is read is
   too small to measure; a root none of whose files it could open or read is reported unreadable, with why.
 
-Before each step it finds and opens the files the step will read, so a step's time counts only reading. Each step
-stops after 10 seconds or 2 GiB of reading. A sweep's knee is the fewest workers within 10% of the fastest step, never
-past a step that was slower than the one before; a root's sweep stops at that slower step. The results keep each
-sweep's steps, its knee and the throughput at the knee, with the CPU count and each root's path at the time.
+A step finds and opens files in batches, then reads each batch, so its time counts only reading. Each step stops after
+10 seconds or 2 GiB of reading, or when the root has nothing left to read. A step that spends a minute finding files
+without reaching either limit, for example passing over files with nothing in them, ends the sweep there; if that
+happens before the first step finishes, the root is reported timed out. A sweep's knee is the fewest workers within
+10% of the fastest step, never past a step that was slower than the one before; a root's sweep stops at that slower
+step. The results keep each sweep's steps, its knee and the throughput at the knee, with the CPU count and each root's
+path at the time.
 
 A calibration only reads: it never writes to a root. A filesystem that caches what it reads, such as ZFS with its ARC,
 can make a root look faster than it is, so calibrate after a quiet period, when little has been read lately.
@@ -1513,7 +1516,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
 | `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, a build job at the next file, or a calibration at its next step (a queued one ends at once); `409` once it has ended |
 | `POST /api/v1/calibrations`                        | queue a calibration job; `202`, or `409` while one is queued or running |
-| `GET /api/v1/calibration`                          | the calibration results that apply now: `{"host", "roots", "stale"}`. `host` is `{"job", "measured_at", "cpus", "curve", "knee"}` or `null`; each root `{"root", "path", "job", "measured_at", "outcome", "available_bytes", "curve", "knee", "error"?}`, `outcome` being `measured`, `too_small` or `unreadable` and `available_bytes` the bytes its sweep read; each step of a `curve` `{"workers", "bytes", "duration_ms", "bytes_per_s"}` and a `knee` `{"workers", "bytes_per_s"}` or `null`; each of `stale` `{"reason": "cpus", "measured", "now"}`, `{"reason": "unmeasured", "root"}` or `{"reason": "moved", "root", "measured", "now"}` |
+| `GET /api/v1/calibration`                          | the calibration results that apply now: `{"host", "roots", "stale"}`. `host` is `{"job", "measured_at", "cpus", "curve", "knee"}` or `null`; each root `{"root", "path", "job", "measured_at", "outcome", "available_bytes", "curve", "knee", "error"?}`, `outcome` being `measured`, `too_small`, `unreadable` or `timed_out` and `available_bytes` the bytes its sweep read; each step of a `curve` `{"workers", "bytes", "duration_ms", "bytes_per_s"}` and a `knee` `{"workers", "bytes_per_s"}` or `null`; each of `stale` `{"reason": "cpus", "measured", "now"}`, `{"reason": "unmeasured", "root"}` or `{"reason": "moved", "root", "measured", "now"}` |
 | `GET /api/v1/jobs/{id}/calibration`                | what one calibration job measured, as above with `stale` empty; `404` for another kind of job |
 | `GET /api/v1/events`                               | server-sent events for every job, opening with a `resync`    |
 

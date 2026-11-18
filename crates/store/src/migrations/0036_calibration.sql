@@ -14,13 +14,14 @@ CREATE TABLE calibrations (
 );
 
 -- One row for each Root a Calibration Job finished measuring, under its name and the path it had then. A Root that
--- had too little to read is 'too_small' and one that couldn't be read is 'unreadable', with no curve points and no
--- knee. available_bytes is what it found to read, up to what a full sweep needs.
+-- had too little to read is 'too_small', one that couldn't be read is 'unreadable', and one in which the sweep couldn't
+-- find enough to read in time is 'timed_out', each with no curve points and no knee. available_bytes is what its
+-- sweep read.
 CREATE TABLE calibration_roots (
     job_id INTEGER NOT NULL REFERENCES jobs (id),
     root TEXT NOT NULL,
     path TEXT NOT NULL,
-    outcome TEXT NOT NULL CHECK (outcome IN ('measured', 'too_small', 'unreadable')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('measured', 'too_small', 'unreadable', 'timed_out')),
     available_bytes INTEGER NOT NULL,
     curve TEXT NOT NULL,
     knee INTEGER,

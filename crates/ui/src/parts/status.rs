@@ -982,6 +982,7 @@ pub enum CalibrationStatus {
     Unreadable,
     Stale,
     TooSmall,
+    TimedOut,
     NotMeasured,
     Measured,
 }
@@ -991,6 +992,7 @@ impl Status for CalibrationStatus {
         CalibrationStatus::Unreadable,
         CalibrationStatus::Stale,
         CalibrationStatus::TooSmall,
+        CalibrationStatus::TimedOut,
         CalibrationStatus::NotMeasured,
         CalibrationStatus::Measured,
     ];
@@ -1014,6 +1016,12 @@ impl Status for CalibrationStatus {
                 Tone::Neutral,
                 "Too small",
                 "It holds too little to read for a measurement worth having.",
+            ),
+            CalibrationStatus::TimedOut => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Timed out",
+                "The calibration couldn't find enough to read in time; calibrate again when it's quieter.",
             ),
             CalibrationStatus::NotMeasured => look(
                 Glyph::Clock,

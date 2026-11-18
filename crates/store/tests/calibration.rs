@@ -23,6 +23,7 @@ fn limits() -> Limits {
         step_time: Duration::from_secs(30),
         step_bytes: 64 * KIB as u64,
         min_bytes: 64 * KIB as u64,
+        ..Limits::default()
     }
 }
 

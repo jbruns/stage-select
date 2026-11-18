@@ -208,6 +208,12 @@ impl Store {
                     let tally = meter.tally(Some(name));
                     match calibrate::root(&files, how.limits, &Instant::now(), cancel, &tally) {
                         RootSweep::Unreadable(why) => unreadable(why),
+                        RootSweep::TimedOut { read } => Measured {
+                            outcome: RootOutcome::TimedOut,
+                            available: read,
+                            sweep: None,
+                            error: None,
+                        },
                         RootSweep::TooSmall { read } => Measured {
                             outcome: RootOutcome::TooSmall,
                             available: read,
@@ -566,6 +572,7 @@ fn outcome_str(outcome: RootOutcome) -> &'static str {
         RootOutcome::Measured => "measured",
         RootOutcome::TooSmall => "too_small",
         RootOutcome::Unreadable => "unreadable",
+        RootOutcome::TimedOut => "timed_out",
     }
 }
 
@@ -598,6 +605,7 @@ fn root_from_row(row: &rusqlite::Row) -> rusqlite::Result<RootCalibration> {
             "measured" => RootOutcome::Measured,
             "too_small" => RootOutcome::TooSmall,
             "unreadable" => RootOutcome::Unreadable,
+            "timed_out" => RootOutcome::TimedOut,
             other => {
                 return Err(rusqlite::Error::FromSqlConversionFailure(
                     4,
