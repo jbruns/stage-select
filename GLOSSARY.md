@@ -247,8 +247,8 @@ left that disc out. Title Select shows why and how many.
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
 be audited against; or a Library Folder whose Source Set, its Coverage, or Selection Profile changed since its current
-Build. Looking
-changed is a heuristic, never a claim of damage.
+Build; or a Calibration whose Host or Roots changed since it ran. Looking changed is a heuristic, never a claim of
+damage.
 _Avoid_: Outdated, dirty
 
 **Drift**:
