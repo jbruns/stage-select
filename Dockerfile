@@ -40,25 +40,35 @@ FROM toolchain AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM toolchain AS build
-# The dependencies of both builds cargo-leptos makes, in a layer keyed on the recipe alone. Each cook matches its
-# build's package, target, target directory, profile and features, and the output name leptos compiles in, so the
-# build reuses what it compiled. The fetch adds the crates for other platforms that cargo-leptos's metadata query
-# downloads.
+# The server and the workbench build in stages of their own, so BuildKit runs them at the same time. Each is the half
+# of `cargo leptos build --release --precompress` its flag selects: the workbench's bundle comes first in a full build
+# only so that a server could embed it, and this one doesn't.
+#
+# Each stage's dependencies compile in a layer keyed on the recipe alone. The cook matches its build's package,
+# target, target directory, profile and features, and the output name leptos compiles in, so the build reuses what it
+# compiled. The fetch adds the crates for other platforms that cargo-leptos's metadata query downloads. target/ is
+# removed once the build's output is out of it, so the layer cached for the build stays small.
+FROM toolchain AS server
 COPY --from=planner /src/recipe.json recipe.json
 RUN cargo chef cook --recipe-path recipe.json --locked --package title-select --bin title-select --no-default-features \
       --release \
-    && LEPTOS_OUTPUT_NAME=title-select cargo chef cook --recipe-path recipe.json --locked --package title-select-ui \
+    && cargo fetch --locked
+COPY . .
+RUN cargo leptos build --release --cargo-locked --server-only \
+    && cp target/release/title-select /title-select \
+    && rm -r target
+RUN mkdir /store
+
+FROM toolchain AS front
+COPY --from=planner /src/recipe.json recipe.json
+RUN LEPTOS_OUTPUT_NAME=title-select cargo chef cook --recipe-path recipe.json --locked --package title-select-ui \
       --no-default-features --target wasm32-unknown-unknown --target-dir target/front --profile wasm-release \
     && cargo fetch --locked
 COPY . .
-# target/ is removed once the binary and bundle are out of it, so the layer cached for this step stays small.
-RUN cargo leptos build --release --precompress --cargo-locked \
-    && cp target/release/title-select /title-select \
+RUN cargo leptos build --release --precompress --cargo-locked --frontend-only \
     && cp -r target/site /ui \
     && mkdir -p /ui/licences && cp LICENSE /ui/licences/title-select.txt \
     && rm -r target
-RUN mkdir /store
 
 # The clone lists, metadata, MIAs and RetroAchievements data Selection reads (ADR 0015), at the pinned commit, checked
 # against the pinned archive sha256.
@@ -96,9 +106,9 @@ FROM scratch AS chdman
 COPY --from=chdman-build /out/chdman /chdman
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
-COPY --from=build /title-select /title-select
-COPY --from=build /ui /ui
-COPY --from=build --chown=65532:65532 /store /store
+COPY --from=server /title-select /title-select
+COPY --from=front /ui /ui
+COPY --from=server --chown=65532:65532 /store /store
 COPY --from=clone-lists /opt/clone-lists /opt/clone-lists
 # Retool's licence, which the selection engine ported from it carries, and the clone lists' licence, for the
 # workbench's About page.
