@@ -424,7 +424,10 @@ mod tests {
             readers: 1,
             hashers: 1,
         };
-        let read = read_files(&files, how, workers, None, None).pop().unwrap();
+        let read = read_files(&files, how, workers, None, None)
+            .unwrap()
+            .pop()
+            .unwrap();
         assert_eq!(read.error, None);
         assert_eq!(read.members.len(), payloads.len());
         for ((_, known), payload) in read.members.iter().zip(payloads) {
@@ -639,7 +642,10 @@ mod tests {
             readers: 1,
             hashers: 1,
         };
-        let read = read_files(&files, how, workers, None, None).pop().unwrap();
+        let read = read_files(&files, how, workers, None, None)
+            .unwrap()
+            .pop()
+            .unwrap();
         assert!(read.members.is_empty());
         assert!(read.error.is_some_and(|e| e.contains("not a ZIP")));
 

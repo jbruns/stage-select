@@ -4,6 +4,13 @@
 //! Counting is a relaxed atomic add on a buffer already in hand: no copy, syscall or lock is added to a read or a
 //! write. A [`Tally`] is resolved once, for a Job and a Root, before any byte moves, and every count goes through
 //! [`Tally::read`] or [`Tally::wrote`]: that is where a Root's byte-rate cap (#193) takes its tokens.
+//!
+//! A Tally also holds its Root's shared readers pool (ADR 0022), when the Service shares one: every Job-time read of a
+//! file of the Root takes one permit of it for that file, through [`Tally::reader`], the first read through a
+//! [`Reading`] or [`Switched`], or [`copy_chunked`], and gives it back when that drops. A thread holds at most one
+//! reader permit: one asked for while it holds another shares it, and it is given back only once every reader on the
+//! thread is done with it; one asked for while the thread holds the store's writer is taken without waiting. So the waits go one way only, 7z gate, then reader, then hash worker, and nothing holding a later one
+//! waits for an earlier one: Jobs sharing the pools can't deadlock.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
@@ -14,6 +21,118 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use title_select_api::{Rates, Workers};
+
+use crate::pool::{OwnedPermit, Pool};
+
+/// The shared readers pool of each Root, as the Service sizes them.
+pub trait RootReaders: Send + Sync + std::fmt::Debug {
+    /// The pool every Job reading the Root `root` shares.
+    fn readers(&self, root: &str) -> Arc<Pool>;
+}
+
+thread_local! {
+    /// The reader permit this thread holds, if any, and how many [`ReaderPermit`]s share it.
+    static HELD: RefCell<Option<Held>> = const { RefCell::new(None) };
+    /// How many [`NoReaderWaits`] this thread is under.
+    static NO_WAITS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The one reader permit a thread holds: none where its reader took one itself from a pool it holds.
+struct Held {
+    _permit: Option<OwnedPermit>,
+    guards: usize,
+}
+
+/// A share of the one permit of a Root's shared readers pool this thread holds while it reads files of it. Every
+/// [`ReaderPermit`] on a thread shares that permit, which is given back only once the last of them drops: a reader
+/// of one file may outlive the reader that took the permit, as the sources of a repack do, each finished in turn.
+/// One taken where there is no pool, or where the thread may not wait for one, shares nothing.
+#[derive(Debug)]
+#[must_use = "a reader permit is given back as soon as it drops"]
+pub struct ReaderPermit {
+    shares: bool,
+    /// [`HELD`] is this thread's: the permit stays on it.
+    _here: std::marker::PhantomData<*const ()>,
+}
+
+impl ReaderPermit {
+    const NONE: ReaderPermit = ReaderPermit {
+        shares: false,
+        _here: std::marker::PhantomData,
+    };
+
+    const SHARE: ReaderPermit = ReaderPermit {
+        shares: true,
+        _here: std::marker::PhantomData,
+    };
+
+    /// A share of the permit this thread holds, if it holds one.
+    fn share() -> Option<ReaderPermit> {
+        HELD.with_borrow_mut(|held| {
+            let held = held.as_mut()?;
+            held.guards += 1;
+            Some(ReaderPermit::SHARE)
+        })
+    }
+
+    fn hold(permit: Option<OwnedPermit>) -> ReaderPermit {
+        HELD.set(Some(Held {
+            _permit: permit,
+            guards: 1,
+        }));
+        ReaderPermit::SHARE
+    }
+
+    /// Marks this thread as holding a reader permit it took itself, from a pool it holds, until dropped.
+    pub(crate) fn held() -> ReaderPermit {
+        ReaderPermit::share().unwrap_or_else(|| ReaderPermit::hold(None))
+    }
+
+    /// Whether this thread holds a reader permit now.
+    pub fn on_this_thread() -> bool {
+        HELD.with_borrow(Option::is_some)
+    }
+}
+
+impl Drop for ReaderPermit {
+    fn drop(&mut self) {
+        if !self.shares {
+            return;
+        }
+        // Taken out of the cell before it drops, so that giving the permit back wakes no one under the borrow.
+        let last = HELD.try_with(|held| {
+            let mut held = held.borrow_mut();
+            let h = held.as_mut()?;
+            h.guards -= 1;
+            if h.guards == 0 { held.take() } else { None }
+        });
+        drop(last);
+    }
+}
+
+/// While held, this thread waits for no reader permit: the store holds it with its writer, which a Job holding a
+/// reader permit may be waiting for.
+#[must_use]
+pub struct NoReaderWaits(());
+
+impl NoReaderWaits {
+    pub fn new() -> NoReaderWaits {
+        NO_WAITS.set(NO_WAITS.get() + 1);
+        NoReaderWaits(())
+    }
+}
+
+impl Default for NoReaderWaits {
+    fn default() -> Self {
+        NoReaderWaits::new()
+    }
+}
+
+impl Drop for NoReaderWaits {
+    fn drop(&mut self) {
+        NO_WAITS.set(NO_WAITS.get() - 1);
+    }
+}
 
 /// What one thread counted for one [`Flow`], on a cache line of its own. Only that thread writes it, so each count is
 /// a plain load and store, never a read-modify-write, and no other thread's counting touches its line; the sampler
@@ -136,6 +255,8 @@ pub struct Tally(Option<Arc<Sinks>>);
 struct Sinks {
     job: JobMeter,
     flow: Arc<Flow>,
+    /// The Root's shared readers pool, when the Service shares one.
+    readers: Option<Arc<Pool>>,
 }
 
 impl Tally {
@@ -180,6 +301,27 @@ impl Tally {
     pub fn job(&self) -> Option<&JobMeter> {
         self.0.as_ref().map(|s| &s.job)
     }
+
+    /// Waits for a permit of this Root's shared readers pool, to read one file of it, and takes it. Shares the one
+    /// this thread holds already, if any, rather than wait for a second, which a ceiling of 1 would never give. Holds
+    /// nothing where there is no pool, and under [`NoReaderWaits`].
+    pub fn reader(&self) -> ReaderPermit {
+        let Some(pool) = self.0.as_ref().and_then(|s| s.readers.as_ref()) else {
+            return ReaderPermit::NONE;
+        };
+        if let Some(share) = ReaderPermit::share() {
+            return share;
+        }
+        if NO_WAITS.get() > 0 {
+            return ReaderPermit::NONE;
+        }
+        ReaderPermit::hold(Some(Pool::enter_owned(pool)))
+    }
+
+    /// The readers pool this tally's reads share, if any.
+    pub fn readers(&self) -> Option<&Arc<Pool>> {
+        self.0.as_ref().and_then(|s| s.readers.as_ref())
+    }
 }
 
 /// Every Job's counts, every Root's, and the total, since the Service started: summed from the Jobs metered now, and
@@ -188,6 +330,7 @@ impl Tally {
 pub struct Meter {
     jobs: Mutex<BTreeMap<i64, JobMeter>>,
     ended: Mutex<Left>,
+    root_readers: std::sync::OnceLock<Arc<dyn RootReaders>>,
 }
 
 /// What the Jobs that ended counted, in total and for each Root.
@@ -212,9 +355,22 @@ struct JobShared {
     readers: AtomicUsize,
     hashers: AtomicUsize,
     chdman: AtomicUsize,
+    /// The pools its readers and hash workers share with other Jobs, once it reads through them.
+    pools: std::sync::OnceLock<(Arc<Pool>, Arc<Pool>)>,
+    /// Each Root's shared readers pool, which its tallies take their permits from.
+    root_readers: Option<Arc<dyn RootReaders>>,
 }
 
 impl JobShared {
+    /// The readers and hash workers it may have at work now: as many as the pools it shares allow, since it starts
+    /// threads as they do.
+    fn allowance(&self) -> Option<Workers> {
+        self.pools.get().map(|(readers, hashers)| Workers {
+            readers: readers.limit(),
+            hashers: hashers.limit(),
+        })
+    }
+
     fn by_root(&self) -> Vec<(Option<String>, Counted)> {
         self.flows
             .lock()
@@ -247,6 +403,12 @@ fn active(count: &AtomicUsize) -> Active<'_> {
 }
 
 impl Meter {
+    /// Has every Job metered from now take a permit of `readers`' pool for each file it reads of a Root. Only the
+    /// first call counts.
+    pub fn share_readers(&self, readers: Arc<dyn RootReaders>) {
+        let _ = self.root_readers.set(readers);
+    }
+
     /// Starts metering Job `id`, whose payload readers and hash workers are `ceilings` before the pace, from now; the
     /// Job already metered if it is.
     pub fn start(&self, id: i64, ceilings: Workers) -> JobMeter {
@@ -263,6 +425,8 @@ impl Meter {
                     readers: AtomicUsize::new(0),
                     hashers: AtomicUsize::new(0),
                     chdman: AtomicUsize::new(0),
+                    pools: std::sync::OnceLock::new(),
+                    root_readers: self.root_readers.get().cloned(),
                 }))
             })
             .clone()
@@ -341,6 +505,7 @@ impl Meter {
                     hashers: j.0.hashers.load(Ordering::Relaxed),
                     chdman: j.0.chdman.load(Ordering::Relaxed) > 0,
                     ceilings: j.0.ceilings,
+                    allowance: j.0.allowance(),
                 }
             })
             .collect();
@@ -353,9 +518,18 @@ impl Meter {
 }
 
 impl JobMeter {
+    /// Says which pools this Job's readers and hash workers share with other Jobs, so that its allowance follows
+    /// them. Only the first call counts.
+    pub fn shares(&self, readers: Arc<Pool>, hashers: Arc<Pool>) {
+        let _ = self.0.pools.set((readers, hashers));
+    }
+
     /// Where this Job's bytes from or into the Root named `root` are counted; with no Root, only for the Job and in
     /// total.
     pub fn tally(&self, root: Option<&str>) -> Tally {
+        let readers = root
+            .zip(self.0.root_readers.as_ref())
+            .map(|(root, r)| r.readers(root));
         let flow = self
             .0
             .flows
@@ -367,6 +541,7 @@ impl JobMeter {
         Tally(Some(Arc::new(Sinks {
             job: self.clone(),
             flow,
+            readers,
         })))
     }
 
@@ -435,6 +610,8 @@ pub struct JobSample {
     pub hashers: usize,
     pub chdman: bool,
     pub ceilings: Workers,
+    /// What the pools it shares allow it now, once it reads through them.
+    pub allowance: Option<Workers>,
 }
 
 /// Rates over a sliding window: the change between the oldest and newest counts it holds, over the time between them.
@@ -522,15 +699,21 @@ impl<W: Seek> Seek for Metered<'_, W> {
     }
 }
 
-/// A reader that counts every byte read through it: wrapped round a file, the bytes read from that file.
+/// A reader that counts every byte read through it: wrapped round a file, the bytes read from that file. Its first
+/// read takes a permit of the Root's shared readers, held until it drops.
 pub struct Reading<'t, R> {
     inner: R,
     tally: &'t Tally,
+    permit: Option<ReaderPermit>,
 }
 
 impl<'t, R> Reading<'t, R> {
     pub fn new(inner: R, tally: &'t Tally) -> Self {
-        Reading { inner, tally }
+        Reading {
+            inner,
+            tally,
+            permit: None,
+        }
     }
 
     pub fn into_inner(self) -> R {
@@ -540,6 +723,9 @@ impl<'t, R> Reading<'t, R> {
 
 impl<R: Read> Read for Reading<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.permit.is_none() {
+            self.permit = Some(self.tally.reader());
+        }
         let n = self.inner.read(buf)?;
         self.tally.read(n);
         Ok(n)
@@ -553,21 +739,31 @@ impl<R: Seek> Seek for Reading<'_, R> {
 }
 
 /// A reader of an archive file that counts the bytes read through it only while `on` is set: those of a member's
-/// stored payload, and not of the directory or the headers read to find it.
+/// stored payload, and not of the directory or the headers read to find it. Its first read takes a permit of the
+/// Root's shared readers, as [`Reading`]'s does.
 pub(crate) struct Switched<'t, R> {
     inner: R,
     tally: &'t Tally,
     on: &'t Cell<bool>,
+    permit: Option<ReaderPermit>,
 }
 
 impl<'t, R> Switched<'t, R> {
     pub(crate) fn new(inner: R, tally: &'t Tally, on: &'t Cell<bool>) -> Self {
-        Switched { inner, tally, on }
+        Switched {
+            inner,
+            tally,
+            on,
+            permit: None,
+        }
     }
 }
 
 impl<R: Read> Read for Switched<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.permit.is_none() {
+            self.permit = Some(self.tally.reader());
+        }
         let n = self.inner.read(buf)?;
         if self.on.get() {
             self.tally.read(n);
@@ -612,6 +808,8 @@ pub(crate) fn copy_with(
     chunk: usize,
     kernel: &mut dyn FnMut(&File, &File, usize) -> io::Result<InKernel>,
 ) -> io::Result<u64> {
+    // Only the source's: a copy reads one Root, and a thread holds one reader permit at most.
+    let _reading = src.reader();
     let mut copied = 0u64;
     let counted = |n: u64| {
         src.read(n as usize);
@@ -933,5 +1131,168 @@ mod tests {
         on.set(false);
         r.read_exact(&mut buf).unwrap();
         assert_eq!(meter.root("roms").read, 30);
+    }
+
+    /// One pool of `limit` for every Root.
+    #[derive(Debug)]
+    struct OnePool(Arc<Pool>);
+
+    impl RootReaders for OnePool {
+        fn readers(&self, _: &str) -> Arc<Pool> {
+            self.0.clone()
+        }
+    }
+
+    fn shared(limit: usize) -> (Meter, Arc<Pool>) {
+        let pool = Arc::new(Pool::new(limit));
+        let meter = Meter::default();
+        meter.share_readers(Arc::new(OnePool(pool.clone())));
+        (meter, pool)
+    }
+
+    /// Runs `f` on its own thread, failing if it takes more than a few seconds.
+    fn within<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(f()));
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("it finished in time")
+    }
+
+    #[test]
+    fn a_read_of_a_root_takes_one_of_its_readers_until_the_reader_drops() {
+        let (meter, pool) = shared(1);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let mut reading = Reading::new(&b"payload"[..], &tally);
+        assert_eq!(pool.taken(), 0, "nothing is taken before the first read");
+        let mut buf = [0; 3];
+        reading.read_exact(&mut buf).unwrap();
+        reading.read_exact(&mut buf).unwrap();
+        assert_eq!(pool.taken(), 1, "one permit for the whole file");
+        drop(reading);
+        assert_eq!(pool.taken(), 0);
+
+        let scratch = meter.job(1).tally(None);
+        let _unpooled = scratch.reader();
+        assert_eq!(pool.taken(), 0, "scratch is no Root's");
+    }
+
+    #[test]
+    fn a_copy_takes_a_reader_of_its_source_root_only() {
+        let (meter, pool) = shared(1);
+        let job = meter.start(1, workers());
+        let (from, to) = (job.tally(Some("roms")), job.tally(Some("library")));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), b"bytes").unwrap();
+        let source = File::open(dir.path().join("a")).unwrap();
+        let dest = File::create(dir.path().join("b")).unwrap();
+        let mut seen = 0;
+        copy_with((&source, &from), (&dest, &to), 2, &mut |_, _, _| {
+            seen = pool.taken();
+            Ok(InKernel::Refused)
+        })
+        .unwrap();
+        assert_eq!(
+            seen, 1,
+            "only the source's reader, even with both Roots in one pool"
+        );
+        assert_eq!(pool.taken(), 0);
+    }
+
+    #[test]
+    fn a_thread_holding_a_reader_takes_no_second_one_and_never_waits_on_itself() {
+        let (meter, pool) = shared(1);
+        within(move || {
+            let tally = meter.start(1, workers()).tally(Some("roms"));
+            let outer = tally.reader();
+            let inner = tally.reader();
+            assert_eq!(pool.taken(), 1);
+            drop(inner);
+            assert!(
+                ReaderPermit::on_this_thread(),
+                "the outer permit still holds"
+            );
+            drop(outer);
+            assert_eq!(pool.taken(), 0);
+            assert!(!ReaderPermit::on_this_thread());
+        });
+    }
+
+    #[test]
+    fn a_reader_outliving_the_one_that_took_the_permit_keeps_it_until_it_drops() {
+        let (meter, pool) = shared(1);
+        within(move || {
+            let tally = meter.start(1, workers()).tally(Some("roms"));
+            let first = tally.reader();
+            let second = tally.reader();
+            let third = tally.reader();
+            drop(first);
+            drop(third);
+            assert_eq!(pool.taken(), 1, "the second still reads under it");
+            assert!(ReaderPermit::on_this_thread());
+            drop(second);
+            assert_eq!(pool.taken(), 0);
+            assert!(!ReaderPermit::on_this_thread());
+        });
+    }
+
+    #[test]
+    fn a_thread_that_may_not_wait_reads_without_a_reader() {
+        let (meter, pool) = shared(1);
+        within(move || {
+            let tally = meter.start(1, workers()).tally(Some("roms"));
+            let _taken = pool.enter();
+            let _no_waits = NoReaderWaits::new();
+            let _none = tally.reader();
+        });
+    }
+
+    #[test]
+    fn a_reader_is_given_back_when_its_thread_panics_or_its_read_fails() {
+        let (meter, pool) = shared(1);
+        let job = meter.start(1, workers());
+        let tally = job.tally(Some("roms"));
+        let panicked = std::thread::spawn(move || {
+            let _reading = tally.reader();
+            panic!("a read that panics");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert_eq!(pool.taken(), 0);
+
+        struct Failing;
+        impl Read for Failing {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("a read that fails"))
+            }
+        }
+        let tally = job.tally(Some("roms"));
+        let failed = within(move || {
+            let mut buf = [0; 1];
+            Reading::new(Failing, &tally).read(&mut buf).is_err()
+        });
+        assert!(failed);
+        assert_eq!(pool.taken(), 0);
+        let tally = job.tally(Some("roms"));
+        within(move || drop(tally.reader()));
+    }
+
+    #[test]
+    fn a_reader_waits_while_other_jobs_hold_every_reader_of_its_root() {
+        let (meter, pool) = shared(1);
+        let held = pool.clone();
+        let permit = Pool::enter_owned(&held);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _reading = tally.reader();
+            tx.send(()).unwrap();
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "it waits"
+        );
+        drop(permit);
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("it reads once a reader is free");
     }
 }

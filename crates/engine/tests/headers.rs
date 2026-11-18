@@ -257,7 +257,7 @@ fn run(
             file: "test.dat".into(),
             confine: None,
             workers: ONE_WORKER_EACH,
-            pace: None,
+            pools: None,
             progress: None,
             evidence,
             reads,

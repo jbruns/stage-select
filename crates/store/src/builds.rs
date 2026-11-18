@@ -243,6 +243,12 @@ fn stage_chd(
         })
         .map(|r| r.name.as_str())
         .ok_or_else(|| Failure::Item("a disc is built from its .cue or .iso".into()))?;
+    // The pace's share of the hash workers as chdman starts, after its inputs are written and checked, however long
+    // that took.
+    let chdman = Chdman {
+        threads: work.store.chdman_threads_now(),
+        ..chdman
+    };
     let out = chdman.create(&dir, kind, main, cancelled).map_err(stop)?;
     // The ROMs read are no longer needed once the CHD holds them: what it gives back is checked against the DAT.
     std::fs::remove_dir_all(&input)
@@ -268,6 +274,7 @@ fn stage_chd(
     let _ = std::fs::remove_dir_all(dir.join("x"));
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
+    let _reading = work.scratch.reader();
     loop {
         let n = built
             .read(&mut buf)
@@ -412,6 +419,7 @@ fn verify_found_chd(
     let mut reader = reader.take(before.file.size);
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
+    let _reading = work.to.reader();
     loop {
         if (work.cancelled)() {
             return Err(Failure::Cancelled);
@@ -452,6 +460,7 @@ pub(super) fn sha256_of(mut file: &File, tally: &Tally) -> io::Result<(String, u
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
     let mut size = 0;
+    let _reading = tally.reader();
     loop {
         let n = file.read(&mut buf)?;
         if n == 0 {
@@ -1826,7 +1835,7 @@ impl Store {
         };
         let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
         let limits = self.settings()?.chd_limits();
-        let threads = self.pace().of(config.jobs.ceilings().hashers);
+        let threads = self.chdman_threads(config)?;
         let meter = self.meter.job(job);
         let chd_work = ChdWork {
             chdman: match work.iter().any(|w| w.item.chd) {

@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 use title_select_api::calibration::Calibration;
 use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
-use title_select_api::settings::{NotifyEvent, Pace, SecretUpdate, SettingsView};
+use title_select_api::settings::{Ceiling, NotifyEvent, Pace, SecretUpdate, SettingsView};
 use title_select_api::{Job, Root};
 
 use crate::api;
@@ -15,9 +15,11 @@ use crate::events::use_live;
 use crate::parts::legend::{Legend, present};
 use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
-use crate::parts::status::StatusBadge;
+use crate::parts::status::{StatusBadge, StatusIcon};
 use crate::settings_model::{
-    CadenceDraft, Draft, pace_label, romm_check_lines, romm_platform_label, secret_state,
+    CadenceDraft, CeilingField, CeilingKey, Draft, Refreshed, at_pace, ceiling, ceiling_curve,
+    ceiling_keys, locked_reason, pace_label, refreshed, romm_check_lines, romm_platform_label,
+    secret_state, source_label,
 };
 
 fn event_label(event: NotifyEvent) -> &'static str {
@@ -221,14 +223,16 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     refetch.update(|n| *n += 1);
                     return;
                 }
-                if saved.with_untracked(|s| *s == now) {
-                    return;
-                }
-                if dirty.get_untracked() {
-                    newer.set(Some(now));
-                } else {
-                    draft.set(Draft::of(&now));
-                    saved.set(now);
+                let dirty = dirty.get_untracked();
+                match saved.with_untracked(|s| refreshed(s, &now, dirty)) {
+                    Refreshed::Same => {}
+                    Refreshed::Show => {
+                        if !dirty {
+                            draft.set(Draft::of(&now));
+                        }
+                        saved.set(now);
+                    }
+                    Refreshed::Newer => newer.set(Some(now)),
                 }
             });
         },
@@ -261,7 +265,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     };
     view! {
         <div class="settings">
-            <PaceSection saved draft />
+            <PaceSection saved draft newer />
             <fieldset class="setting">
                 <legend>"Retention"</legend>
                 <p class="note small">
@@ -381,16 +385,16 @@ fn Editor(saved: SettingsView) -> impl IntoView {
 }
 
 #[component]
-fn PaceSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl IntoView {
-    let counts = move || {
-        let ceilings = saved.with(|s| s.jobs.ceilings);
-        (ceilings, draft.with(|d| d.pace).counts(ceilings))
-    };
+fn PaceSection(
+    saved: RwSignal<SettingsView>,
+    draft: RwSignal<Draft>,
+    newer: RwSignal<Option<SettingsView>>,
+) -> impl IntoView {
     view! {
         <fieldset class="setting">
             <legend>"Job pace"</legend>
             <p class="note small">
-                "The pace is a share of the ceilings in your configuration file. A new pace reaches running jobs at each worker's next file; a lower one never stops a running job."
+                "The pace is a share of each ceiling, shared by every job running at once. A new pace reaches running jobs at each worker's next file; a lower one never stops a running job."
             </p>
             {Pace::ALL
                 .into_iter()
@@ -410,49 +414,229 @@ fn PaceSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
                     }
                 })
                 .collect_view()}
+            {move || {
+                (draft.with(|d| d.pace) == Pace::Unthrottled)
+                    .then(|| {
+                        view! {
+                            <p class="note small tone-review">
+                                "Unthrottled, jobs use every ceiling in full, with no limit on reads or writes, and can slow everything else on this server. The header shows Unthrottled while it is on."
+                            </p>
+                        }
+                    })
+            }}
+            <CeilingsTable saved draft newer />
+        </fieldset>
+    }
+}
+
+/// Every Ceiling of the Host and of each Root: what the pace makes of it, where it comes from, what a calibration
+/// measured, and your own value, which you can change unless the configuration file sets it.
+#[component]
+fn CeilingsTable(
+    saved: RwSignal<SettingsView>,
+    draft: RwSignal<Draft>,
+    newer: RwSignal<Option<SettingsView>>,
+) -> impl IntoView {
+    let live = use_live();
+    let calibration = LocalResource::new(move || {
+        live.settled.get();
+        api::get::<Calibration>("/calibration")
+    });
+    // The calibration's row for the Host (`None`) or a Root, for its curve and whether it is stale.
+    let measured = move |root: Option<String>| {
+        calibration.with(|c| {
+            let rows = calibration_model::rows(c.as_ref()?.as_ref().ok()?);
+            match root {
+                None => rows.into_iter().next(),
+                Some(root) => rows.into_iter().skip(1).find(|r| r.what == root),
+            }
+        })
+    };
+    let rows = move || {
+        saved.with(|s| {
+            ceiling_keys(&s.jobs)
+                .into_iter()
+                .filter_map(|key| {
+                    let c = ceiling(&s.jobs, &key)?.clone();
+                    let observed = match &key {
+                        (Some(root), CeilingField::WriteMibPerS) => s
+                            .jobs
+                            .roots
+                            .iter()
+                            .find(|r| r.root == *root)
+                            .and_then(|r| r.observed_write_mib_per_s),
+                        _ => None,
+                    };
+                    Some((key, c, observed))
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    view! {
+        <details class="ceilings">
+            <summary>"Adjust ceilings"</summary>
+            <p class="note small">
+                "Each ceiling is the most the pace shares out. Its value comes from the first of these that has one: your configuration file, yours, the calibration, then the CPU count. Clear yours to fall back. Read and write rates have no limit until a calibration or you set one, and roots on one storage pool add up."
+            </p>
             <div class="table-scroll">
-                <table aria-label="Job limits">
+                <table aria-label="Ceilings">
                     <thead>
                         <tr>
+                            <th scope="col"><span class="label">"Of"</span></th>
                             <th scope="col"><span class="label">"Limit"</span></th>
-                            <th scope="col" class="numeric"><span class="label">"Ceiling"</span></th>
                             <th scope="col" class="numeric"><span class="label">"At this pace"</span></th>
+                            <th scope="col" class="numeric"><span class="label">"Ceiling"</span></th>
+                            <th scope="col"><span class="label">"Source"</span></th>
+                            <th scope="col"><span class="label">"Yours"</span></th>
+                            <th scope="col"><span class="label">"Calibration"</span></th>
+                            <th scope="col"><span class="label">"MiB/s by workers"</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         {move || {
-                            let (ceilings, active) = counts();
-                            [
-                                ("Jobs at once", ceilings.concurrent, active.concurrent),
-                                ("Readers in each job", ceilings.readers, active.readers),
-                                ("Hash workers in each job", ceilings.hashers, active.hashers),
-                            ]
+                            rows()
                                 .into_iter()
-                                .map(|(what, ceiling, now)| {
-                                    view! {
-                                        <tr>
-                                            <th scope="row">{what}</th>
-                                            <td class="numeric">{ceiling}</td>
-                                            <td class="numeric">{now}</td>
-                                        </tr>
-                                    }
+                                .map(|(key, c, observed)| {
+                                    view! { <CeilingRow key c observed draft measured /> }
                                 })
                                 .collect_view()
                         }}
                     </tbody>
                 </table>
             </div>
-            {move || {
-                (draft.with(|d| d.pace) == Pace::Unthrottled)
-                    .then(|| {
-                        view! {
-                            <p class="note small tone-review">
-                                "Unthrottled, jobs use every ceiling in full and can slow everything else on this server. The header shows Unthrottled while it is on."
-                            </p>
-                        }
-                    })
-            }}
-        </fieldset>
+            <div class="actions">
+                <button
+                    type="button"
+                    on:click=move |_| {
+                        // The latest measurements, even in settings kept aside while you have changes.
+                        let latest = newer
+                            .with_untracked(|n| n.as_ref().map(|n| n.jobs.clone()))
+                            .unwrap_or_else(|| saved.with_untracked(|s| s.jobs.clone()));
+                        draft.update(|d| d.use_measured(&latest));
+                    }
+                >
+                    "Use measured values"
+                </button>
+                <button
+                    type="button"
+                    on:click=move |_| saved.with_untracked(|s| draft.update(|d| d.reset_ceilings(&s.jobs)))
+                >
+                    "Reset to defaults"
+                </button>
+            </div>
+            <p class="note small">
+                "Both change only your values, and apply when you save. Running jobs pick up a saved ceiling at each worker's next file."
+            </p>
+        </details>
+    }
+}
+
+#[component]
+fn CeilingRow(
+    key: CeilingKey,
+    c: Ceiling,
+    observed: Option<u64>,
+    draft: RwSignal<Draft>,
+    measured: impl Fn(Option<String>) -> Option<calibration_model::Row> + Copy + Send + Sync + 'static,
+) -> impl IntoView {
+    let (root, field) = key.clone();
+    let of = root.clone().unwrap_or_else(|| "Host".into());
+    let id = format!(
+        "ceiling-{}-{field:?}",
+        root.as_deref()
+            .unwrap_or("host")
+            .replace(|ch: char| !ch.is_ascii_alphanumeric(), "-")
+    );
+    let ceiling_value = c.ceiling;
+    let now = move || at_pace(draft.with(|d| d.pace), field, ceiling_value);
+    let shown = c.ceiling.map(|v| v.to_string()).unwrap_or_else(|| {
+        if field.is_rate() {
+            "No limit".into()
+        } else {
+            "–".into()
+        }
+    });
+    let source = source_label(c.source);
+    let yours = match c.locked_by.clone() {
+        Some(locked) => view! {
+            <Tooltip label=locked_reason(&locked) focusable=true>
+                <span>"Locked"</span>
+            </Tooltip>
+        }
+        .into_any(),
+        None => {
+            let draft_key = key.clone();
+            let get_key = key.clone();
+            let placeholder = observed
+                .map(|o| format!("{o}, seen in past jobs"))
+                .unwrap_or_default();
+            let label = format!("Your {} for {of}", field.label().to_lowercase());
+            let suggest = observed.map(|o| {
+                let typed = key.clone();
+                let key = key.clone();
+                view! {
+                    <button
+                        type="button"
+                        class="small"
+                        disabled=move || draft.with(|d| !d.ceilings.get(&typed).is_none_or(|t| t.trim().is_empty()))
+                        on:click=move |_| draft.update(|d| {
+                            d.ceilings.insert(key.clone(), o.to_string());
+                        })
+                    >
+                        {format!("Start at {o}")}
+                    </button>
+                }
+            });
+            view! {
+                <input
+                    id=id
+                    type="text"
+                    inputmode="numeric"
+                    size="6"
+                    aria-label=label
+                    placeholder=placeholder
+                    prop:value=move || draft.with(|d| d.ceilings.get(&get_key).cloned().unwrap_or_default())
+                    on:input=move |ev| {
+                        let value = event_target_value(&ev);
+                        draft.update(|d| {
+                            d.ceilings.insert(draft_key.clone(), value);
+                        });
+                    }
+                />
+                {suggest}
+            }
+            .into_any()
+        }
+    };
+    // Read as the calibration loads and each time it is fetched again, as a calibration ends.
+    let calibrated = Memo::new(move |_| {
+        field
+            .calibrated()
+            .then(|| measured(root.clone()))
+            .flatten()
+            .map(|r| (r.status, ceiling_curve(field, &r.curve)))
+    });
+    let status = move || match calibrated.get() {
+        Some((status, _)) => view! { <StatusIcon status /> }.into_any(),
+        None => "–".into_any(),
+    };
+    let curve = move || {
+        calibrated
+            .get()
+            .and_then(|(_, curve)| curve)
+            .unwrap_or_else(|| "–".into())
+    };
+    view! {
+        <tr>
+            <td>{of}</td>
+            <th scope="row">{field.label()}</th>
+            <td class="numeric">{now}</td>
+            <td class="numeric">{shown}</td>
+            <td>{source}</td>
+            <td>{yours}</td>
+            <td>{status}</td>
+            <td>{curve}</td>
+        </tr>
     }
 }
 

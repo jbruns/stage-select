@@ -310,6 +310,9 @@ stops the service from starting, naming the key.
 path = "/data/source-sets"
 writable = false            # the default
 # writable_paths = ["No-Intro/Atari - 2600"]   # source sets in it that repairs may write
+# readers = 4               # ceilings for this root, shared by every job; see "Jobs"
+# read_mib_per_s = 400
+# write_mib_per_s = 200
 
 [roots.play]                # a root for your front end's `roms/` folder
 path = "/data/roms"
@@ -329,20 +332,23 @@ identity_header = "Remote-User"
 trusted_proxies = ["10.0.0.0/8"]
 # dev_identity = "Developer"
 
-[jobs]                      # ceilings: the most the pace may use; each defaults to this computer's CPU count
+[jobs]                      # host ceilings, shared by every job; see "Jobs"
 # concurrent = 8            # jobs run at once
-# readers = 8               # payload readers in each job
-# hashers = 8               # hash workers in each job
+# hashers = 8               # hash workers
 
 [ingest]                    # how 7z archives in ingest folders are read; see "Ingest folders" and "Memory"
-archive_workers = 2         # 7z archives decoded at once, across every job (the default; 1 to 64)
+# archive_workers = 2       # 7z archives decoded at once, across every job (the default; 1 to 64)
 max_dictionary_mib = 128    # the largest dictionary a 7z may need (the default; 1 to 4096)
 
 [chd]                       # see "Storage policy"
 # chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
 ```
 
-Each ceiling must be at least 1. The pace you choose in the workbench uses a share of each; see "Jobs".
+Leave the ceilings out unless you need to pin one: a ceiling set here can't be changed in the workbench. Each must be
+a whole number of at least 1: `concurrent`, `hashers` and `readers` at most 1024, `archive_workers` at most 64, and
+`read_mib_per_s` and `write_mib_per_s` at most 1048576. Title Select won't start with one outside these, except
+`concurrent` or `hashers` above 1024: it lowers that to 1024 and warns you as it starts. The pace you choose in the
+workbench uses a share of each; see "Jobs".
 
 ### Operations settings
 
@@ -351,7 +357,8 @@ save it, without a restart, and is kept in the store, so a backup of the store k
 
 | Setting | What it does | Default |
 | --- | --- | --- |
-| Job pace | the share of each `[jobs]` ceiling jobs use: gentle, default or unthrottled; see "Jobs" | default |
+| Job pace | the share of each ceiling jobs use: gentle, default or unthrottled; see "Jobs" | default |
+| Ceilings | under "Adjust ceilings", your own value for each ceiling the configuration file doesn't set; see "Jobs" | none: calibration, then the CPU count |
 | Retention | full audits and full selections each source set keeps, from 1 to 10,000 | 20 each |
 | Path templates | the paths registration proposes for a source set and a library folder; see "Path templates" | `{provider}/{dat}`, `{platform}` |
 | Checking source sets | how often each audited source set is checked for changed files, at most every 525,600 minutes (a year); 0 checks only when you ask | every 360 minutes |
@@ -699,20 +706,47 @@ reuses the reads the interrupted job made, and for an incremental audit or quick
 only for files that pass the change test above. Claims are not
 recorded; a resumed quick inventory takes them again.
 
-`[jobs]` in the configuration file sets three ceilings: `concurrent`, the most jobs that run at once; `readers`, the
-most threads one audit reads payloads on, which also decompress ZIP members; and `hashers`, the most threads it
-checksums them on. Each defaults to this computer's CPU count. The pace, which you choose under Settings, then
-Operations, uses a share of each ceiling, rounded down and never less than 1:
+Ceilings are the most work the service does at once, shared by every job running at the same time, not given to each:
+
+- **The host's:** `concurrent`, the most jobs that run at once; `hashers`, one pool of hash workers every job's
+  checksums share; and `archive_workers`, the most 7z archives decoded at once (see "Ingest folders").
+- **Each root's:** `readers`, the payload readers, which also decompress ZIP members, shared by every job reading that
+  root; `read_mib_per_s` and `write_mib_per_s`, the most it reads and writes each second, in MiB. Roots on one
+  storage pool, such as folders of one disk or one ZFS pool, add up: their ceilings together are what the pool sees.
+
+Each ceiling's value comes from the first of these that has one:
+
+1. **Your configuration file:** `[jobs] concurrent` and `hashers`, `[ingest] archive_workers`, and `readers`,
+   `read_mib_per_s` and `write_mib_per_s` under each `[roots.NAME]`. A ceiling set there is locked: the workbench
+   shows it, and why it can't change it.
+2. **Yours:** the value you set under Settings, then Operations, then "Adjust ceilings".
+3. **The calibration:** the host's knee for `hashers`, each root's knee for its `readers`, and the throughput at that
+   knee for its `read_mib_per_s`; see "Calibration".
+4. **The CPU count** the service can use, for `concurrent`, `hashers` and `readers`. `archive_workers` defaults to 2,
+   and the byte rates have no limit until something sets them.
+
+"Adjust ceilings" lists each one with what the pace makes of it, the ceiling, where it comes from, and what the
+calibration measured and whether that is stale. "Use measured values" clears yours where the calibration measured
+one; "reset to defaults" clears all of yours. A root with no write ceiling offers the write throughput its past jobs
+reached as a starting value. A ceiling you save applies at once, as a new pace does.
+
+The pace, which you choose under Settings, then Operations, uses a share of each ceiling, rounded down and never less
+than 1:
 
 | Pace          | share of each ceiling | for                                                     |
 |---------------|-----------------------|---------------------------------------------------------|
 | `gentle`      | a quarter             | leaving disks and CPUs to other services                |
 | `default`     | half                  | the default                                             |
-| `unthrottled` | all of it             | an otherwise idle server; the workbench's header says so while it is on |
+| `unthrottled` | all of it, and no limit on reads or writes | an otherwise idle server; the workbench's header says so while it is on |
 
-A new pace applies without a restart: to jobs not yet started, and to a running audit at each reader's and hash
-worker's next file. A lower pace never stops a running job; it only holds back the next one until fewer are running.
-A job records the ceilings it was queued with.
+Under `gentle` and `default`, each chdman is told as it starts to compress with the pace's share of the hash
+workers; `unthrottled` leaves it its own default, every core.
+
+A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
+running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;
+it only holds back the next until fewer are at work. Every job that reads a root shares that root's readers, whatever
+the job: an audit, a build, an ingest, a repair or a check each takes one reader for each file it reads, and a copy
+takes one of the root it reads from.
 
 A selection is a job too, of kind `selection`. It runs one version of a selection profile against the source set's
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
@@ -1430,8 +1464,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?}`; only a disc system's play libraries take `layout` and `sbi` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
-| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`, the `ceilings` from the configuration file and the `active` counts the pace gives, each `{"concurrent", "readers", "hashers"}`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
-| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace`; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
+| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured", "locked_by"}`, its `source` one of `config`, `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
+| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace` and `ceilings`, `{"host": {…}, "roots": {"NAME": {…}}}`, every ceiling of yours at once: one left out or `null` is cleared, and one the configuration file sets is refused; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
 | `POST /api/v1/romm/test`                           | test the RomM connection without saving it: `{"base_url"?, "token"?}`, each by default the saved one; returns `{"version", "version_tested", "user" ({"username", "admin"}, with `me.read`), "missing_scopes", "failure"}`; `400` for a new address with the saved token |
 | `GET /api/v1/romm/platforms`                       | each library folder's RomM platform: `{"folder_id", "root", "path", "platform"}`, `platform` being `{"mapping": "mapped", "fs_slug"}` or a `mapping` of `no_root`, `outside_root`, `nested`, `is_root` or `unresolved` (the folder or the RomM root can't be found on disk) |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
@@ -1552,7 +1586,7 @@ repair or a move, a 7z each time it's read to hash or decode it, and each file r
 headers read to find a payload aren't counted. Bytes written are everything a job writes into a root, copies included.
 In `throughput`, `total` and each of `roots` (`{"root", "rates"}`) cover every job; each of `jobs` is `{"job", "rates",
 "readers", "hashers", "allowance", "chdman"}`, the payload readers and hash workers at work against the `allowance`
-(`{"readers", "hashers"}`) the pace gives it, and `chdman` while chdman runs, whose bytes are counted from its files as
+(`{"readers", "hashers"}`) it may use now, its own workers capped by what the pace gives the pools it shares, and `chdman` while chdman runs, whose bytes are counted from its files as
 it goes but not capped. `cpu` is the service's CPU use as a share of the CPUs it may use, from 0 to 1, absent where the
 computer has no `/proc`. Once nothing has moved for 3 seconds, one last `throughput` comes with every rate at 0, no
 `roots`, no `jobs` and no `cpu`; then none until bytes move again. A finished job carries `throughput`, `{"bytes_read",
@@ -1604,15 +1638,16 @@ each `v<version>` tag.
 
 Title Select's memory grows with the DATs you select against and the files in a job, not with the size of the files:
 [docs/memory.md](docs/memory.md) has the measurements and how to take them. Reading a 7z adds its dictionary, up to
-`max_dictionary_mib`, and up to 24 MiB for its header, for each of the `archive_workers` archives read at once. Size
-the service's memory limit at about:
+`max_dictionary_mib`, and up to 24 MiB for its header, for each of the `archive_workers` archives read at once. That's
+why a calibration doesn't measure `archive_workers`: what limits it is memory, as each decoder holds a large
+dictionary, not the CPUs or the disks. Size the service's memory limit at about:
 
 > 2 × the peak you measure without 7z + `archive_workers` × (`max_dictionary_mib` + 24 MiB)
 
 With the defaults, 2 workers and 128 MiB, 7z adds about 304 MiB. If you unpack many 7z archives, or ones made with large
 dictionaries, raise both settings and the memory limit with them. If you never drop 7z archives into an ingest folder,
-or rarely scan more than one at once, lower them and the limit. A change to `archive_workers` takes effect when the
-service restarts; a change to `max_dictionary_mib` takes effect on the next scan.
+or rarely scan more than one at once, lower them and the limit. A change to `archive_workers` takes effect at the next
+archive, under the pace like the other ceilings; a change to `max_dictionary_mib` takes effect on the next scan.
 
 ### Health
 

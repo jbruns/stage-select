@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use ipnet::IpNet;
 use serde::Deserialize;
 use title_select_api::paths::relative_path;
-use title_select_api::settings::Ceilings;
+use title_select_api::settings::{MAX_ARCHIVE_WORKERS, MAX_MIB_PER_S, MAX_WORKERS};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,21 +24,22 @@ pub struct Config {
     pub chd: Chd,
     #[serde(default)]
     pub ingest: Ingest,
+    /// What the file sets that was changed to be used, to say at startup.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
 /// How archives arriving in an Ingest Folder are read: how many 7z archives decode at once across every Job, and
 /// the largest dictionary one may declare. Decoding takes up to about `archive_workers` x `max_dictionary_mib` of
-/// memory above the rest of the Service.
+/// memory above the rest of the Service. `archive_workers` is a Host Ceiling (ADR 0022): set here, it locks it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Ingest {
-    pub archive_workers: usize,
+    pub archive_workers: Option<usize>,
     pub max_dictionary_mib: u32,
 }
 
 impl Ingest {
-    /// The most 7z archives that may decode at once.
-    pub const MAX_ARCHIVE_WORKERS: usize = 64;
     /// The largest dictionary limit: 4 GiB, the most an LZMA2 header can declare.
     pub const MAX_DICTIONARY_MIB: u32 = 4096;
 }
@@ -46,7 +47,7 @@ impl Ingest {
 impl Default for Ingest {
     fn default() -> Self {
         Ingest {
-            archive_workers: 2,
+            archive_workers: None,
             max_dictionary_mib: 128,
         }
     }
@@ -75,6 +76,11 @@ pub struct Root {
     /// Library Folder.
     #[serde(default)]
     pub kind: RootKind,
+    /// The Root's Ceilings (ADR 0022), each locking its own when set: payload readers across every Job, and the
+    /// bytes per second every Job may read from it and write to it, in MiB.
+    pub readers: Option<u64>,
+    pub read_mib_per_s: Option<u64>,
+    pub write_mib_per_s: Option<u64>,
 }
 
 /// The Root that holds the Additions Sets, one folder per system.
@@ -121,26 +127,14 @@ pub struct Auth {
     pub dev_identity: Option<String>,
 }
 
-/// The most the Service may work at once: Jobs running, and each Job's payload readers and hash workers. Each
-/// defaults to the number of CPUs; the pace chosen in the workbench is a fraction of them.
+/// The Host's Ceilings (ADR 0022), each locking its own when set: Jobs running at once, and hash workers across
+/// every Job. `readers` is every Root's reader Ceiling, where the Root sets none of its own.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Jobs {
     pub concurrent: Option<usize>,
     pub readers: Option<usize>,
     pub hashers: Option<usize>,
-}
-
-impl Jobs {
-    /// Each ceiling, as configured or else the number of CPUs.
-    pub fn ceilings(&self) -> Ceilings {
-        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
-        Ceilings {
-            concurrent: self.concurrent.unwrap_or(cpus),
-            readers: self.readers.unwrap_or(cpus),
-            hashers: self.hashers.unwrap_or(cpus),
-        }
-    }
 }
 
 impl Default for Config {
@@ -152,6 +146,7 @@ impl Default for Config {
             jobs: Jobs::default(),
             chd: Chd::default(),
             ingest: Ingest::default(),
+            warnings: Vec::new(),
         }
     }
 }
@@ -194,19 +189,28 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, Error> {
-        let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
-        let jobs = &config.jobs;
-        if [jobs.concurrent, jobs.readers, jobs.hashers].contains(&Some(0)) {
-            return Err(Error(
-                "jobs.concurrent, jobs.readers and jobs.hashers must be at least 1".into(),
-            ));
+        let mut config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
+        let jobs = &mut config.jobs;
+        // These once had no upper bound: one above it is lowered to it rather than refused.
+        for (key, value) in [
+            ("jobs.concurrent", &mut jobs.concurrent),
+            ("jobs.readers", &mut jobs.readers),
+            ("jobs.hashers", &mut jobs.hashers),
+        ] {
+            if let Some(v) = value.filter(|&v| v as u64 > MAX_WORKERS) {
+                *value = Some(MAX_WORKERS as usize);
+                config.warnings.push(format!(
+                    "Your configuration file sets {key} to {v}, more than the most it can be, {MAX_WORKERS}: \
+                     {MAX_WORKERS} is used. Lower it in the file to stop this warning."
+                ));
+            }
+            in_range(key, value.map(|v| v as u64), MAX_WORKERS)?;
         }
-        if !(1..=Ingest::MAX_ARCHIVE_WORKERS).contains(&config.ingest.archive_workers) {
-            return Err(Error(format!(
-                "ingest.archive_workers must be between 1 and {}",
-                Ingest::MAX_ARCHIVE_WORKERS
-            )));
-        }
+        in_range(
+            "ingest.archive_workers",
+            config.ingest.archive_workers.map(|v| v as u64),
+            MAX_ARCHIVE_WORKERS,
+        )?;
         if !(1..=Ingest::MAX_DICTIONARY_MIB).contains(&config.ingest.max_dictionary_mib) {
             return Err(Error(format!(
                 "ingest.max_dictionary_mib must be between 1 and {}",
@@ -244,6 +248,17 @@ impl Config {
             if name.is_empty() {
                 return Err(Error("a root has an empty name".into()));
             }
+            in_range(&format!("roots.{name}.readers"), root.readers, MAX_WORKERS)?;
+            in_range(
+                &format!("roots.{name}.read_mib_per_s"),
+                root.read_mib_per_s,
+                MAX_MIB_PER_S,
+            )?;
+            in_range(
+                &format!("roots.{name}.write_mib_per_s"),
+                root.write_mib_per_s,
+                MAX_MIB_PER_S,
+            )?;
             if root.is_ingest() && !root.writable {
                 return Err(Error(format!(
                     "roots.{name} is an ingest folder, which needs writable = true"
@@ -278,6 +293,16 @@ impl Config {
     }
 }
 
+/// Refuses a ceiling set outside 1 to `max`.
+fn in_range(key: &str, value: Option<u64>, max: u64) -> Result<(), Error> {
+    match value {
+        Some(v) if !(1..=max).contains(&v) => {
+            Err(Error(format!("{key} must be between 1 and {max}")))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Whether `name` is a valid HTTP header name: a non-empty token.
 fn is_header_name(name: &str) -> bool {
     !name.is_empty()
@@ -295,13 +320,13 @@ mod tests {
         let ingest = Config::default().ingest;
         assert_eq!(
             (ingest.archive_workers, ingest.max_dictionary_mib),
-            (2, 128)
+            (None, 128)
         );
         let set =
             Config::parse("[ingest]\narchive_workers = 4\nmax_dictionary_mib = 1536").unwrap();
         assert_eq!(
             (set.ingest.archive_workers, set.ingest.max_dictionary_mib),
-            (4, 1536)
+            (Some(4), 1536)
         );
         for (bad, why) in [
             (
@@ -353,29 +378,78 @@ mod tests {
     }
 
     #[test]
-    fn job_ceilings_default_to_the_cpus_and_zero_is_refused() {
-        let cpus = std::thread::available_parallelism().unwrap().get();
+    fn ceilings_are_read_from_the_file_and_unsupported_values_are_refused() {
+        let set = Config::parse(
+            "[jobs]\nconcurrent = 2\nhashers = 6\nreaders = 3\n\n\
+             [roots.sets]\npath = \"/sets\"\nreaders = 4\nread_mib_per_s = 200\nwrite_mib_per_s = 90",
+        )
+        .unwrap();
         assert_eq!(
-            Config::default().jobs.ceilings(),
-            Ceilings {
-                concurrent: cpus,
-                readers: cpus,
-                hashers: cpus
-            }
+            (set.jobs.concurrent, set.jobs.hashers, set.jobs.readers),
+            (Some(2), Some(6), Some(3))
         );
-        let set = Config::parse("[jobs]\nconcurrent = 2\nhashers = 6").unwrap();
+        let sets = &set.roots["sets"];
         assert_eq!(
-            set.jobs.ceilings(),
-            Ceilings {
-                concurrent: 2,
-                readers: cpus,
-                hashers: 6
-            }
+            (sets.readers, sets.read_mib_per_s, sets.write_mib_per_s),
+            (Some(4), Some(200), Some(90))
         );
+        // The Host's Ceilings once had no upper bound, so a file setting one above it still starts, at the bound.
+        let above = Config::parse("[jobs]\nhashers = 5000\nconcurrent = 3").unwrap();
+        assert_eq!(
+            (above.jobs.hashers, above.jobs.concurrent),
+            (Some(1024), Some(3))
+        );
+        assert_eq!(
+            above.warnings,
+            [
+                "Your configuration file sets jobs.hashers to 5000, more than the most it can be, 1024: 1024 is used. \
+              Lower it in the file to stop this warning."
+            ]
+        );
+        let unset = Config::default();
+        assert_eq!(
+            (
+                unset.jobs.concurrent,
+                unset.jobs.hashers,
+                unset.jobs.readers
+            ),
+            (None, None, None)
+        );
+        for (text, why) in [
+            (
+                "[jobs]\nconcurrent = 0",
+                "jobs.concurrent must be between 1 and 1024",
+            ),
+            (
+                "[jobs]\nreaders = 0",
+                "jobs.readers must be between 1 and 1024",
+            ),
+            (
+                "[jobs]\nhashers = 0",
+                "jobs.hashers must be between 1 and 1024",
+            ),
+            (
+                "[roots.sets]\npath = \"/sets\"\nreaders = 0",
+                "roots.sets.readers must be between 1 and 1024",
+            ),
+            (
+                "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = 0",
+                "roots.sets.read_mib_per_s must be between 1 and 1048576",
+            ),
+            (
+                "[roots.sets]\npath = \"/sets\"\nwrite_mib_per_s = 2000000",
+                "roots.sets.write_mib_per_s must be between 1 and 1048576",
+            ),
+        ] {
+            let err = Config::parse(text).unwrap_err().to_string();
+            assert!(err.contains(why), "{text}: {err}");
+        }
         for text in [
-            "[jobs]\nconcurrent = 0",
-            "[jobs]\nreaders = 0",
-            "[jobs]\nhashers = 0",
+            "[jobs]\nhashers = -1",
+            "[jobs]\nconcurrent = 1.5",
+            "[jobs]\nreaders = \"lots\"",
+            "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = -5",
+            "[roots.sets]\npath = \"/sets\"\nwrite_mib_per_s = 2.5",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
         }

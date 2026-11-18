@@ -19,10 +19,10 @@ use std::sync::Arc;
 use title_select_api::JobKind;
 use title_select_api::calibration::CalibrationStale;
 pub use title_select_engine::calibrate::Limits as CalibrationLimits;
+use title_select_store::Store;
 use title_select_store::config::Config;
 use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::romm::ScanTiming;
-use title_select_store::{Store, Workers};
 
 pub use auth::TOKEN_ACTOR;
 pub use routes::UPLOAD_LIMIT;
@@ -109,9 +109,10 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         }
     }
     let (notifier, delivery) = notify::Notifier::new(&store.settings()?.notify);
-    // Each Job records the ceilings, the most threads it may use; the pace says how many of them work, file by file.
-    let workers: Workers = config.jobs.ceilings().workers();
-    for interruption in store.recover_jobs(workers)? {
+    // The Ceilings are worked out before any Job runs. Each Job records the Ceilings it starts with; the pools it
+    // shares with other Jobs say how many of its workers work, file by file.
+    store.refresh_ceilings(&config)?;
+    for interruption in store.recover_jobs(store.job_workers(&config))? {
         let job = &interruption.job;
         match &interruption.requeued {
             Some(again) => eprintln!(
@@ -226,7 +227,6 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         store: Arc::new(store),
         config: Arc::new(config),
         jobs: Arc::new(jobs),
-        workers,
         engine,
         previews: Arc::default(),
         fetcher: Arc::new(Fetcher::new(

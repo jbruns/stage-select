@@ -254,6 +254,8 @@ pub(crate) struct Hashing<'a> {
     file: &'a File,
     /// Where every byte read from the file is counted.
     tally: &'a Tally,
+    /// The file's Root's reader permit, held while it is read.
+    _reading: crate::meter::ReaderPermit,
     pos: u64,
     hashed: u64,
     sha256: Sha256,
@@ -266,6 +268,7 @@ impl<'a> Hashing<'a> {
         Ok(Hashing {
             file,
             tally,
+            _reading: tally.reader(),
             pos: 0,
             hashed: 0,
             sha256: Sha256::new(),
@@ -1282,6 +1285,102 @@ mod tests {
         assert_eq!(after.files_read - before.files_read, 1);
         assert_eq!(job.counted().read - job_before.read, 6 + 2);
         assert_eq!(meter.total().read - total_before.read, 6 + 2);
+    }
+
+    /// One pool for every Root.
+    #[derive(Debug)]
+    struct OnePool(std::sync::Arc<crate::pool::Pool>);
+
+    impl crate::meter::RootReaders for OnePool {
+        fn readers(&self, _: &str) -> std::sync::Arc<crate::pool::Pool> {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn a_repack_holds_its_reader_until_every_source_is_finished_not_only_the_first() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let pool = std::sync::Arc::new(crate::pool::Pool::new(1));
+        let meter = crate::meter::Meter::default();
+        meter.share_readers(std::sync::Arc::new(OnePool(pool.clone())));
+        let job = meter.start(
+            1,
+            crate::Workers {
+                readers: 1,
+                hashers: 1,
+            },
+        );
+        let file_of = |bytes: &[u8]| {
+            let mut file = tempfile::tempfile().unwrap();
+            io::Write::write_all(&mut file, bytes).unwrap();
+            file
+        };
+        let rom_of = |name: &str, bytes: &[u8]| ExpectedRom {
+            name: name.into(),
+            size: bytes.len() as u64,
+            crc: Some(format!("{:08x}", crc32fast::hash(bytes))),
+            md5: None,
+            sha1: None,
+            sha256: None,
+            header: None,
+        };
+        // The loose source is read first and whole, so it takes the permit; the ZIP's member is read after it, and
+        // the rest of the ZIP, a large member no ROM wants, only when it is finished, after the loose source is.
+        let loose = file_of(b"aaaa");
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("x.bin", stored).unwrap();
+        io::Write::write_all(&mut zip, b"bbbbbb").unwrap();
+        zip.start_file("rest.bin", stored).unwrap();
+        let rest: Vec<u8> = (0..8u32 << 20)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect();
+        io::Write::write_all(&mut zip, &rest).unwrap();
+        let zip = file_of(&zip.finish().unwrap().into_inner());
+        let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
+
+        let done = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let (roms, library) = (job.tally(Some("roms")), job.tally(Some("library")));
+                let dest = tempfile::tempfile().unwrap();
+                repack_sources(
+                    &dest,
+                    &[(&a, 0, None), (&b, 1, Some("x.bin"))],
+                    &[(&loose, &roms), (&zip, &roms)],
+                    &library,
+                )
+                .unwrap();
+                done.store(true, Ordering::SeqCst);
+            });
+            // Another Job waits for the Root's one reader as soon as the repack holds it.
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while pool.taken() == 0 {
+                assert!(
+                    !done.load(Ordering::SeqCst),
+                    "the repack never held a reader"
+                );
+                assert!(Instant::now() < deadline, "the repack never started");
+                std::thread::sleep(Duration::from_micros(200));
+            }
+            let other = pool
+                .enter_unless(|| Instant::now() > deadline)
+                .expect("the reader was given back in time");
+            let read_when_taken = job.counted().read;
+            drop(other);
+            while !done.load(Ordering::SeqCst) {
+                assert!(Instant::now() < deadline, "the repack finished in time");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(
+                job.counted().read,
+                read_when_taken,
+                "the repack read on after another Job took the Root's only reader"
+            );
+        });
+        assert_eq!(pool.taken(), 0);
     }
 
     fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {

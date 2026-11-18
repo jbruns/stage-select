@@ -46,6 +46,8 @@ pub(super) struct RunningAudit {
     /// The Job running it, if any; it changes state with the Audit.
     job: Option<i64>,
     workers: Workers,
+    /// For a Job, the pools its workers share with every other Job: its Root's readers and the Host's hash workers.
+    pools: Option<crate::ceilings::JobPools>,
     evidence: AuditEvidence,
     /// For a Job queued again after a restart interrupted it, the interrupted Job, whose reads a full Audit resumes
     /// from.
@@ -832,6 +834,14 @@ impl Store {
         choose: impl FnOnce(&Transaction, &SourceSetRow) -> Result<(i64, DatRevisionRecord)>,
     ) -> Result<RunningAudit> {
         let resolved = resolve(config, &set.record.root, &set.record.path)?;
+        let pools = how
+            .job
+            .map(|job| {
+                let pools = self.job_pools(config, &set.record.root)?;
+                pools.meter(&self.meter.job(job));
+                Ok::<_, Error>(pools)
+            })
+            .transpose()?;
         let source_set_path = resolved.path.display().to_string();
         let (id, revision) = self.write(|tx| {
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
@@ -859,6 +869,7 @@ impl Store {
             revision,
             job: how.job,
             workers: how.workers,
+            pools,
             evidence: how.evidence,
             resumes: how.resumes,
         })
@@ -922,8 +933,6 @@ impl Store {
         let revision = &running.revision;
         let blob = self.blob_path(&revision.sha256);
         let reads = StoredReads::new(self, running);
-        // A Job's workers are its ceilings: the pace in the settings, read at each file, says how many of them work.
-        let paced = || self.pace().workers(running.workers);
         let report = title_select_engine::audit_with(
             &blob,
             &running.resolved.path,
@@ -931,7 +940,7 @@ impl Store {
                 file: revision.file.clone(),
                 confine: Some(&running.resolved.canonical_root),
                 workers: running.workers,
-                pace: running.job.map(|_| &paced as &(dyn Fn() -> Workers + Sync)),
+                pools: running.pools.as_ref().map(crate::ceilings::JobPools::pools),
                 progress,
                 evidence: running.evidence,
                 reads: Some(&reads),

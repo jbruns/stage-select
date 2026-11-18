@@ -160,6 +160,8 @@ impl Store {
             }
         };
         ended?;
+        // What it measured applies to Jobs from their workers' next file, unless you set those Ceilings yourself.
+        self.refresh_ceilings(config)?;
         let job = self.job(id)?;
         match ran {
             Err(err) => Err(err),

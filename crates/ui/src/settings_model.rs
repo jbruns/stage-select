@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 use title_select_api::paths::PathTemplate;
 use title_select_api::romm::{RommCheck, RommPlatform, RommUpdate, TESTED_RELEASES};
 use title_select_api::settings::{
-    ChdTimeouts, FetchSettings, IngestCadence, NotifyEvent, NotifyUpdate, Pace, PathTemplates,
-    Retention, SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
+    Ceiling, CeilingSource, CeilingsUpdate, ChdTimeouts, FetchSettings, IngestCadence, JobsView,
+    NotifyEvent, NotifyUpdate, Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate,
+    SettingsView, SourceSetChecks,
 };
 
 use crate::parts::status::Tone;
@@ -20,10 +21,139 @@ pub struct CadenceDraft {
     pub scan_every_minutes: String,
 }
 
+/// One Ceiling the workbench shows: three of the Host's, and three of each Root's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CeilingField {
+    Concurrent,
+    Hashers,
+    ArchiveWorkers,
+    Readers,
+    ReadMibPerS,
+    WriteMibPerS,
+}
+
+impl CeilingField {
+    pub const HOST: [CeilingField; 3] = [
+        CeilingField::Concurrent,
+        CeilingField::Hashers,
+        CeilingField::ArchiveWorkers,
+    ];
+    pub const ROOT: [CeilingField; 3] = [
+        CeilingField::Readers,
+        CeilingField::ReadMibPerS,
+        CeilingField::WriteMibPerS,
+    ];
+
+    /// Its row's name.
+    pub fn label(self) -> &'static str {
+        match self {
+            CeilingField::Concurrent => "Jobs at once",
+            CeilingField::Hashers => "Hash workers",
+            CeilingField::ArchiveWorkers => "7z archive workers",
+            CeilingField::Readers => "Readers",
+            CeilingField::ReadMibPerS => "Reads, MiB/s",
+            CeilingField::WriteMibPerS => "Writes, MiB/s",
+        }
+    }
+
+    /// Whether it is a byte rate, which `unthrottled` lifts, rather than a worker count.
+    pub fn is_rate(self) -> bool {
+        matches!(self, CeilingField::ReadMibPerS | CeilingField::WriteMibPerS)
+    }
+
+    /// Whether a calibration measures it, so that its row shows the curve and whether that is stale.
+    pub fn calibrated(self) -> bool {
+        matches!(
+            self,
+            CeilingField::Hashers | CeilingField::Readers | CeilingField::ReadMibPerS
+        )
+    }
+}
+
+/// A Ceiling's place: the Host's when `root` is none, else that Root's.
+pub type CeilingKey = (Option<String>, CeilingField);
+
+/// The Ceiling at `key` in `jobs`, if the Host or that Root has it.
+pub fn ceiling<'a>(jobs: &'a JobsView, (root, field): &CeilingKey) -> Option<&'a Ceiling> {
+    match root {
+        None => match field {
+            CeilingField::Concurrent => Some(&jobs.host.concurrent),
+            CeilingField::Hashers => Some(&jobs.host.hashers),
+            CeilingField::ArchiveWorkers => Some(&jobs.host.archive_workers),
+            _ => None,
+        },
+        Some(root) => {
+            let r = jobs.roots.iter().find(|r| r.root == *root)?;
+            match field {
+                CeilingField::Readers => Some(&r.readers),
+                CeilingField::ReadMibPerS => Some(&r.read_mib_per_s),
+                CeilingField::WriteMibPerS => Some(&r.write_mib_per_s),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Every Ceiling in `jobs`, the Host's first, then each Root's by name.
+pub fn ceiling_keys(jobs: &JobsView) -> Vec<CeilingKey> {
+    let mut keys: Vec<CeilingKey> = CeilingField::HOST.map(|f| (None, f)).into();
+    for root in &jobs.roots {
+        keys.extend(CeilingField::ROOT.map(|f| (Some(root.root.clone()), f)));
+    }
+    keys
+}
+
+/// What `pace` makes of a Ceiling of `ceiling`: its share of workers, or of a byte rate, which `unthrottled` lifts.
+pub fn at_pace(pace: Pace, field: CeilingField, ceiling: Option<u64>) -> String {
+    if field.is_rate() {
+        return match pace.rate(ceiling) {
+            Some(rate) => rate.to_string(),
+            None => "No limit".into(),
+        };
+    }
+    match ceiling {
+        Some(c) => pace
+            .of(usize::try_from(c).unwrap_or(usize::MAX))
+            .to_string(),
+        None => "–".into(),
+    }
+}
+
+/// A Ceiling's measured curve, as its row shows it: a read rate's is its readers', shown on their row.
+pub fn ceiling_curve(
+    field: CeilingField,
+    curve: &[title_select_api::calibration::CurvePoint],
+) -> Option<String> {
+    (field != CeilingField::ReadMibPerS && !curve.is_empty())
+        .then(|| crate::calibration_model::curve(curve))
+}
+
+/// Where a Ceiling's value comes from, as its source column says it.
+pub fn source_label(source: Option<CeilingSource>) -> &'static str {
+    match source {
+        Some(CeilingSource::Config) => "configuration file",
+        Some(CeilingSource::Yours) => "yours",
+        Some(CeilingSource::Calibration) => "calibration",
+        Some(CeilingSource::Cpus) => "CPU count",
+        Some(CeilingSource::Default) => "default",
+        None => "none",
+    }
+}
+
+/// Why a locked Ceiling can't be changed here.
+pub fn locked_reason(key: &str) -> String {
+    format!(
+        "Your configuration file sets this ({key}). Change it in the file, then restart the service."
+    )
+}
+
 /// Every Operations setting as typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Draft {
     pub pace: Pace,
+    /// Your own value of each Ceiling as typed, empty for none: one the configuration file sets is kept but never
+    /// sent.
+    pub ceilings: BTreeMap<CeilingKey, String>,
     pub audits_keep: String,
     pub selections_keep: String,
     pub source_set_template: String,
@@ -44,11 +174,41 @@ pub struct Draft {
     pub romm_root: String,
 }
 
+/// What the editor does with the settings fetched again while it shows `saved`, with your unsaved changes when
+/// `dirty`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refreshed {
+    /// Nothing changed.
+    Same,
+    /// Show them. Your draft is replaced only when you have no unsaved changes: with them, only what you can't edit
+    /// changed, such as a calibration's measurements and the ceilings in force, so your changes stay.
+    Show,
+    /// Someone changed something you can edit: kept aside until you save or discard yours.
+    Newer,
+}
+
+pub fn refreshed(saved: &SettingsView, now: &SettingsView, dirty: bool) -> Refreshed {
+    if saved == now {
+        Refreshed::Same
+    } else if !dirty || Draft::of(saved) == Draft::of(now) {
+        Refreshed::Show
+    } else {
+        Refreshed::Newer
+    }
+}
+
 impl Draft {
     /// The settings as saved, untouched.
     pub fn of(saved: &SettingsView) -> Draft {
         Draft {
             pace: saved.jobs.pace,
+            ceilings: ceiling_keys(&saved.jobs)
+                .into_iter()
+                .map(|key| {
+                    let yours = ceiling(&saved.jobs, &key).and_then(|c| c.yours);
+                    (key, yours.map(|v| v.to_string()).unwrap_or_default())
+                })
+                .collect(),
             audits_keep: saved.retention.audits_keep.to_string(),
             selections_keep: saved.retention.selections_keep.to_string(),
             source_set_template: saved.path_templates.source_set.as_str().to_owned(),
@@ -92,6 +252,59 @@ impl Draft {
         }
         self.events
             .sort_by_key(|e| NotifyEvent::ALL.iter().position(|a| a == e));
+    }
+
+    /// Clears your value of every Ceiling a calibration measured, so that the measurement applies.
+    pub fn use_measured(&mut self, jobs: &JobsView) {
+        for (key, text) in &mut self.ceilings {
+            if ceiling(jobs, key).is_some_and(|c| !c.locked() && c.measured.is_some()) {
+                text.clear();
+            }
+        }
+    }
+
+    /// Clears your value of every Ceiling, so that each falls back to the calibration or the CPU count.
+    pub fn reset_ceilings(&mut self, jobs: &JobsView) {
+        for (key, text) in &mut self.ceilings {
+            if ceiling(jobs, key).is_some_and(|c| !c.locked()) {
+                text.clear();
+            }
+        }
+    }
+
+    /// Your Ceilings as `PATCH /settings` takes them, all of them, when any differs from those saved. One the
+    /// configuration file sets is left out.
+    fn ceilings_update(&self, jobs: &JobsView) -> Result<Option<CeilingsUpdate>, String> {
+        let mut update = CeilingsUpdate::default();
+        let mut changed = false;
+        for (key, text) in &self.ceilings {
+            let Some(saved) = ceiling(jobs, key).filter(|c| !c.locked()) else {
+                continue;
+            };
+            let value: Option<u64> = match text.trim() {
+                "" => None,
+                text => Some(whole(&ceiling_name(key), text)?),
+            };
+            changed |= value != saved.yours;
+            let Some(value) = value else { continue };
+            let value = Some(serde_json::Value::from(value));
+            match key {
+                (None, CeilingField::Concurrent) => update.host.concurrent = value,
+                (None, CeilingField::Hashers) => update.host.hashers = value,
+                (None, CeilingField::ArchiveWorkers) => update.host.archive_workers = value,
+                (Some(root), field) => {
+                    let r = update.roots.entry(root.clone()).or_default();
+                    match field {
+                        CeilingField::Readers => r.readers = value,
+                        CeilingField::ReadMibPerS => r.read_mib_per_s = value,
+                        CeilingField::WriteMibPerS => r.write_mib_per_s = value,
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(changed.then_some(update))
     }
 
     /// The change that saves this draft over `saved`: only the sections that differ. A field that isn't a whole
@@ -157,6 +370,7 @@ impl Draft {
             || romm.root != saved.romm.root;
         Ok(SettingsUpdate {
             pace: (self.pace != saved.jobs.pace).then_some(self.pace),
+            ceilings: self.ceilings_update(&saved.jobs)?,
             retention: (retention != saved.retention).then_some(retention),
             path_templates: (path_templates != saved.path_templates).then_some(path_templates),
             source_sets: (source_sets != saved.source_sets).then_some(source_sets),
@@ -166,6 +380,13 @@ impl Draft {
             notify: notify_changed.then_some(notify),
             romm: romm_changed.then_some(romm),
         })
+    }
+}
+
+fn ceiling_name((root, field): &CeilingKey) -> String {
+    match root {
+        None => field.label().to_owned(),
+        Some(root) => format!("{root}: {}", field.label()),
     }
 }
 
@@ -276,21 +497,62 @@ pub fn pace_label(pace: Pace) -> &'static str {
 #[cfg(test)]
 mod tests {
     use title_select_api::romm::{RommUser, RommView};
-    use title_select_api::settings::{Ceilings, JobsView, NotifyView};
+    use title_select_api::settings::{
+        HostCeilings, HostCeilingsUpdate, NotifyView, RootCeilings, RootCeilingsUpdate,
+    };
 
     use super::*;
 
+    fn of(ceiling: u64, source: CeilingSource) -> Ceiling {
+        Ceiling {
+            ceiling: Some(ceiling),
+            in_force: Some(Pace::Default.of(ceiling as usize) as u64),
+            source: Some(source),
+            yours: (source == CeilingSource::Yours).then_some(ceiling),
+            measured: None,
+            locked_by: None,
+        }
+    }
+
+    fn none() -> Ceiling {
+        Ceiling {
+            ceiling: None,
+            in_force: None,
+            source: None,
+            yours: None,
+            measured: None,
+            locked_by: None,
+        }
+    }
+
     fn saved() -> SettingsView {
-        let ceilings = Ceilings {
-            concurrent: 4,
-            readers: 8,
-            hashers: 8,
-        };
         SettingsView {
             jobs: JobsView {
                 pace: Pace::Default,
-                ceilings,
-                active: Pace::Default.counts(ceilings),
+                host: HostCeilings {
+                    concurrent: Ceiling {
+                        locked_by: Some("[jobs] concurrent".into()),
+                        ..of(4, CeilingSource::Config)
+                    },
+                    hashers: Ceiling {
+                        measured: Some(6),
+                        ..of(12, CeilingSource::Yours)
+                    },
+                    archive_workers: of(2, CeilingSource::Default),
+                },
+                roots: vec![RootCeilings {
+                    root: "sets".into(),
+                    readers: Ceiling {
+                        measured: Some(3),
+                        ..of(3, CeilingSource::Calibration)
+                    },
+                    read_mib_per_s: Ceiling {
+                        measured: Some(410),
+                        ..of(410, CeilingSource::Calibration)
+                    },
+                    write_mib_per_s: none(),
+                    observed_write_mib_per_s: Some(95),
+                }],
             },
             retention: Retention::default(),
             path_templates: PathTemplates::default(),
@@ -358,6 +620,144 @@ mod tests {
         assert_eq!(update.path_templates, None);
         assert_eq!(update.fetch, None);
         assert_eq!(update.notify, None);
+    }
+
+    #[test]
+    fn your_ceilings_are_sent_all_together_when_one_changes_but_never_one_the_file_locks() {
+        let saved = saved();
+        let mut draft = Draft::of(&saved);
+        assert_eq!(draft.ceilings[&(None, CeilingField::Hashers)], "12");
+        draft.ceilings.insert(
+            (Some("sets".into()), CeilingField::WriteMibPerS),
+            " 95 ".into(),
+        );
+        draft
+            .ceilings
+            .insert((None, CeilingField::Concurrent), "9".into());
+        let update = draft.update(&saved).unwrap();
+        assert_eq!(update.pace, None);
+        assert_eq!(
+            update.ceilings,
+            Some(CeilingsUpdate {
+                host: HostCeilingsUpdate {
+                    hashers: Some(12.into()),
+                    ..Default::default()
+                },
+                roots: [(
+                    "sets".to_owned(),
+                    RootCeilingsUpdate {
+                        write_mib_per_s: Some(95.into()),
+                        ..Default::default()
+                    }
+                )]
+                .into(),
+            }),
+            "every one of yours, and none the configuration file sets"
+        );
+
+        draft
+            .ceilings
+            .insert((Some("sets".into()), CeilingField::Readers), "many".into());
+        assert_eq!(
+            draft.update(&saved),
+            Err("sets: Readers: enter a whole number.".into())
+        );
+    }
+
+    #[test]
+    fn a_ceilings_curve_is_on_its_workers_row_not_its_read_rate() {
+        let curve = [title_select_api::calibration::CurvePoint {
+            workers: 2,
+            bytes: 1 << 20,
+            duration_ms: 1000,
+            bytes_per_s: (1 << 20) as f64,
+        }];
+        assert!(ceiling_curve(CeilingField::Readers, &curve).is_some_and(|c| c.starts_with("2: ")));
+        assert_eq!(ceiling_curve(CeilingField::ReadMibPerS, &curve), None);
+        assert_eq!(ceiling_curve(CeilingField::Hashers, &[]), None);
+    }
+
+    #[test]
+    fn a_calibration_ending_while_you_edit_shows_its_measurements_and_keeps_your_changes() {
+        let saved = saved();
+        let mut calibrated = saved.clone();
+        calibrated.jobs.host.hashers.measured = None;
+        let readers = &mut calibrated.jobs.roots[0].readers;
+        readers.measured = Some(9);
+        readers.ceiling = Some(9);
+        assert_eq!(
+            refreshed(&saved, &calibrated, true),
+            Refreshed::Show,
+            "nothing you can edit changed"
+        );
+        assert_eq!(refreshed(&saved, &calibrated, false), Refreshed::Show);
+        assert_eq!(refreshed(&saved, &saved.clone(), true), Refreshed::Same);
+        let mut edited = calibrated.clone();
+        edited.retention.audits_keep += 1;
+        assert_eq!(refreshed(&saved, &edited, true), Refreshed::Newer);
+
+        // You typed hash workers, then use the latest measurements, which measure none: yours stay.
+        let mut draft = Draft::of(&saved);
+        let hashers = (None, CeilingField::Hashers);
+        draft.audits_keep = "7".into();
+        draft.ceilings.insert(hashers.clone(), "2".into());
+        draft.use_measured(&calibrated.jobs);
+        assert_eq!(draft.ceilings[&hashers], "2");
+        assert_eq!(draft.audits_keep, "7");
+    }
+
+    #[test]
+    fn using_measured_values_and_resetting_clear_yours_but_leave_the_file_alone() {
+        let saved = saved();
+        let mut draft = Draft::of(&saved);
+        draft
+            .ceilings
+            .insert((None, CeilingField::ArchiveWorkers), "4".into());
+        draft.use_measured(&saved.jobs);
+        assert_eq!(draft.ceilings[&(None, CeilingField::Hashers)], "");
+        assert_eq!(
+            draft.ceilings[&(None, CeilingField::ArchiveWorkers)],
+            "4",
+            "nothing measures 7z archive workers"
+        );
+        assert_eq!(
+            draft.update(&saved).unwrap().ceilings,
+            Some(CeilingsUpdate {
+                host: HostCeilingsUpdate {
+                    archive_workers: Some(4.into()),
+                    ..Default::default()
+                },
+                roots: Default::default(),
+            })
+        );
+        draft.reset_ceilings(&saved.jobs);
+        assert!(
+            draft.ceilings.values().all(String::is_empty),
+            "the locked one was never typed: {:?}",
+            draft.ceilings
+        );
+        assert_eq!(
+            draft.update(&saved).unwrap().ceilings,
+            Some(CeilingsUpdate::default())
+        );
+    }
+
+    #[test]
+    fn a_pace_scales_worker_ceilings_and_lifts_byte_rates_only_when_unthrottled() {
+        assert_eq!(at_pace(Pace::Gentle, CeilingField::Hashers, Some(8)), "2");
+        assert_eq!(at_pace(Pace::Gentle, CeilingField::Readers, Some(2)), "1");
+        assert_eq!(
+            at_pace(Pace::Default, CeilingField::ReadMibPerS, Some(400)),
+            "200"
+        );
+        assert_eq!(
+            at_pace(Pace::Unthrottled, CeilingField::ReadMibPerS, Some(400)),
+            "No limit"
+        );
+        assert_eq!(
+            at_pace(Pace::Default, CeilingField::WriteMibPerS, None),
+            "No limit"
+        );
     }
 
     #[test]

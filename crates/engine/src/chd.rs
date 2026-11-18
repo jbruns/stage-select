@@ -2,7 +2,7 @@
 //! builds each one as a subprocess, and extracts it once to check every track against the DAT before it is published;
 //! afterwards only its v5 header is read, never its compressed data.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
@@ -528,12 +528,12 @@ impl Limits {
     }
 }
 
-/// The chdman a Build runs, how many threads it compresses with, and how long each run may take before it is
+/// The chdman a Build runs, how many threads it compresses with (chdman's own choice, every CPU, when `None`), and how long each run may take before it is
 /// stopped; and where the bytes it reads and writes are counted, from its files' sizes as it runs.
 #[derive(Debug, Clone)]
 pub struct Chdman {
     pub program: PathBuf,
-    pub threads: usize,
+    pub threads: Option<usize>,
     pub deadline: Duration,
     pub tally: Tally,
 }
@@ -715,22 +715,26 @@ impl Chdman {
             ChdKind::Cd => "createcd",
             ChdKind::Dvd => "createdvd",
         };
-        let input = Path::new("in").join(main);
-        let threads = self.threads.max(1).to_string();
-        self.run(
-            dir,
-            &[
-                OsStr::new(verb),
-                OsStr::new("-i"),
-                input.as_os_str(),
-                OsStr::new("-o"),
-                OsStr::new("out.chd"),
-                OsStr::new("-np"),
-                OsStr::new(&threads),
-            ],
-            cancelled,
-        )?;
+        let args = self.create_args(verb, main);
+        let args: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+        self.run(dir, &args, cancelled)?;
         Ok(dir.join("out.chd"))
+    }
+
+    /// What [`Chdman::create`] runs chdman with: `--numprocessors` only when its threads are held back.
+    fn create_args(&self, verb: &str, main: &str) -> Vec<OsString> {
+        let mut args: Vec<OsString> = vec![
+            verb.into(),
+            "-i".into(),
+            Path::new("in").join(main).into(),
+            "-o".into(),
+            "out.chd".into(),
+        ];
+        if let Some(threads) = self.threads {
+            args.push("--numprocessors".into());
+            args.push(threads.max(1).to_string().into());
+        }
+        args
     }
 
     /// Extracts `dir/out.chd` into `dir/x`, and checks what it gives back against the disc's ROMs `roms`: each track
@@ -866,6 +870,36 @@ pub fn read_cue(file: &File) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn chdman_is_held_to_its_threads_only_when_it_has_a_count() {
+        let chdman = |threads| Chdman {
+            program: "chdman".into(),
+            threads,
+            deadline: Duration::from_secs(1),
+            tally: Default::default(),
+        };
+        let args = |threads| {
+            chdman(threads)
+                .create_args("createcd", "d.cue")
+                .into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            args(Some(3)),
+            [
+                "createcd",
+                "-i",
+                "in/d.cue",
+                "-o",
+                "out.chd",
+                "--numprocessors",
+                "3"
+            ]
+        );
+        assert_eq!(args(None), ["createcd", "-i", "in/d.cue", "-o", "out.chd"]);
+    }
 
     fn v5(raw: [u8; 20], sha1: [u8; 20]) -> Vec<u8> {
         let mut h = vec![0u8; V5_HEADER];
@@ -1120,7 +1154,7 @@ mod tests {
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let chdman = Chdman {
             program,
-            threads: 1,
+            threads: Some(1),
             deadline: Duration::from_secs(5),
             tally: Default::default(),
         };
@@ -1158,7 +1192,7 @@ mod tests {
         let job = meter.start(1, crate::ONE_WORKER_EACH);
         let chdman = Chdman {
             program,
-            threads: 1,
+            threads: Some(1),
             deadline: Duration::from_secs(20),
             tally: job.tally(None),
         };
@@ -1211,7 +1245,7 @@ mod tests {
         roms.push(sized("g.cue", cue.len() as u64));
         let chdman = Chdman {
             program,
-            threads: 1,
+            threads: Some(1),
             deadline: Duration::from_secs(120),
             tally: Default::default(),
         };
@@ -1241,7 +1275,7 @@ mod tests {
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let chdman = Chdman {
             program,
-            threads: 1,
+            threads: Some(1),
             deadline: Duration::from_millis(300),
             tally: Default::default(),
         };
