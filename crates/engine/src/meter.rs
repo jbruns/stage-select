@@ -8,8 +8,8 @@
 //! A Tally also holds its Root's shared readers pool (ADR 0022), when the Service shares one: every Job-time read of a
 //! file of the Root takes one permit of it for that file, through [`Tally::reader`], the first read through a
 //! [`Reading`] or [`Switched`], or [`copy_chunked`], and gives it back when that drops. A thread holds at most one
-//! reader permit: one asked for while it holds another, or while it holds the store's writer, is taken without
-//! waiting. So the waits go one way only, 7z gate, then reader, then hash worker, and nothing holding a later one
+//! reader permit: one asked for while it holds another shares it, and it is given back only once every reader on the
+//! thread is done with it; one asked for while the thread holds the store's writer is taken without waiting. So the waits go one way only, 7z gate, then reader, then hash worker, and nothing holding a later one
 //! waits for an earlier one: Jobs sharing the pools can't deadlock.
 
 use std::cell::{Cell, RefCell};
@@ -31,55 +31,82 @@ pub trait RootReaders: Send + Sync + std::fmt::Debug {
 }
 
 thread_local! {
-    /// Whether this thread holds a reader permit.
-    static READING: Cell<bool> = const { Cell::new(false) };
+    /// The reader permit this thread holds, if any, and how many [`ReaderPermit`]s share it.
+    static HELD: RefCell<Option<Held>> = const { RefCell::new(None) };
     /// How many [`NoReaderWaits`] this thread is under.
     static NO_WAITS: Cell<usize> = const { Cell::new(0) };
 }
 
-/// A permit of a Root's shared readers pool, held while one file of it is read, and given back when dropped. One
-/// taken where the thread may not wait for it holds nothing.
+/// The one reader permit a thread holds: none where its reader took one itself from a pool it holds.
+struct Held {
+    _permit: Option<OwnedPermit>,
+    guards: usize,
+}
+
+/// A share of the one permit of a Root's shared readers pool this thread holds while it reads files of it. Every
+/// [`ReaderPermit`] on a thread shares that permit, which is given back only once the last of them drops: a reader
+/// of one file may outlive the reader that took the permit, as the sources of a repack do, each finished in turn.
+/// One taken where there is no pool, or where the thread may not wait for one, shares nothing.
 #[derive(Debug)]
 #[must_use = "a reader permit is given back as soon as it drops"]
 pub struct ReaderPermit {
-    _permit: Option<OwnedPermit>,
-    /// Whether it set [`READING`], which it clears when dropped.
-    marked: bool,
-    /// [`READING`] is this thread's: the permit stays on it.
+    shares: bool,
+    /// [`HELD`] is this thread's: the permit stays on it.
     _here: std::marker::PhantomData<*const ()>,
 }
 
 impl ReaderPermit {
     const NONE: ReaderPermit = ReaderPermit {
-        _permit: None,
-        marked: false,
+        shares: false,
         _here: std::marker::PhantomData,
     };
 
+    const SHARE: ReaderPermit = ReaderPermit {
+        shares: true,
+        _here: std::marker::PhantomData,
+    };
+
+    /// A share of the permit this thread holds, if it holds one.
+    fn share() -> Option<ReaderPermit> {
+        HELD.with_borrow_mut(|held| {
+            let held = held.as_mut()?;
+            held.guards += 1;
+            Some(ReaderPermit::SHARE)
+        })
+    }
+
+    fn hold(permit: Option<OwnedPermit>) -> ReaderPermit {
+        HELD.set(Some(Held {
+            _permit: permit,
+            guards: 1,
+        }));
+        ReaderPermit::SHARE
+    }
+
     /// Marks this thread as holding a reader permit it took itself, from a pool it holds, until dropped.
     pub(crate) fn held() -> ReaderPermit {
-        if READING.get() {
-            return ReaderPermit::NONE;
-        }
-        READING.set(true);
-        ReaderPermit {
-            _permit: None,
-            marked: true,
-            _here: std::marker::PhantomData,
-        }
+        ReaderPermit::share().unwrap_or_else(|| ReaderPermit::hold(None))
     }
 
     /// Whether this thread holds a reader permit now.
     pub fn on_this_thread() -> bool {
-        READING.get()
+        HELD.with_borrow(Option::is_some)
     }
 }
 
 impl Drop for ReaderPermit {
     fn drop(&mut self) {
-        if self.marked {
-            READING.set(false);
+        if !self.shares {
+            return;
         }
+        // Taken out of the cell before it drops, so that giving the permit back wakes no one under the borrow.
+        let last = HELD.try_with(|held| {
+            let mut held = held.borrow_mut();
+            let h = held.as_mut()?;
+            h.guards -= 1;
+            if h.guards == 0 { held.take() } else { None }
+        });
+        drop(last);
     }
 }
 
@@ -275,22 +302,20 @@ impl Tally {
         self.0.as_ref().map(|s| &s.job)
     }
 
-    /// Waits for a permit of this Root's shared readers pool, to read one file of it, and takes it. Holds nothing
-    /// where there is no pool, when this thread holds a reader permit already, and under [`NoReaderWaits`].
+    /// Waits for a permit of this Root's shared readers pool, to read one file of it, and takes it. Shares the one
+    /// this thread holds already, if any, rather than wait for a second, which a ceiling of 1 would never give. Holds
+    /// nothing where there is no pool, and under [`NoReaderWaits`].
     pub fn reader(&self) -> ReaderPermit {
         let Some(pool) = self.0.as_ref().and_then(|s| s.readers.as_ref()) else {
             return ReaderPermit::NONE;
         };
-        if READING.get() || NO_WAITS.get() > 0 {
+        if let Some(share) = ReaderPermit::share() {
+            return share;
+        }
+        if NO_WAITS.get() > 0 {
             return ReaderPermit::NONE;
         }
-        let permit = Pool::enter_owned(pool);
-        READING.set(true);
-        ReaderPermit {
-            _permit: Some(permit),
-            marked: true,
-            _here: std::marker::PhantomData,
-        }
+        ReaderPermit::hold(Some(Pool::enter_owned(pool)))
     }
 
     /// The readers pool this tally's reads share, if any.
@@ -1186,6 +1211,24 @@ mod tests {
                 "the outer permit still holds"
             );
             drop(outer);
+            assert_eq!(pool.taken(), 0);
+            assert!(!ReaderPermit::on_this_thread());
+        });
+    }
+
+    #[test]
+    fn a_reader_outliving_the_one_that_took_the_permit_keeps_it_until_it_drops() {
+        let (meter, pool) = shared(1);
+        within(move || {
+            let tally = meter.start(1, workers()).tally(Some("roms"));
+            let first = tally.reader();
+            let second = tally.reader();
+            let third = tally.reader();
+            drop(first);
+            drop(third);
+            assert_eq!(pool.taken(), 1, "the second still reads under it");
+            assert!(ReaderPermit::on_this_thread());
+            drop(second);
             assert_eq!(pool.taken(), 0);
             assert!(!ReaderPermit::on_this_thread());
         });
