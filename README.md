@@ -1489,17 +1489,20 @@ Server-sent events carry JSON data, under one of these event names:
 | `resync`          | `{"jobs": [...]}`, newest first                 | by `/events` on connecting, and after the client fell behind              |
 | `settings`        | `{"pace"}`, never a secret                      | by `/events` when the settings change; fetch them again                   |
 | `romm_reconciled` | `{"folder_id"}`                                 | by `/events` when a folder's comparison with RomM is kept; fetch it again |
-| `throughput`      | `{"total", "roots", "jobs", "pace", "cpu"}`     | by `/events` twice a second while jobs run, and once more after the last  |
+| `throughput`      | `{"total", "roots", "jobs", "pace", "cpu"}`     | by `/events` twice a second while bytes move, then once at rest           |
 
 Rates are `{"read_bytes_per_s", "write_bytes_per_s", "files_per_s"}`, over the last 3 seconds; `rates` in `progress` is
-absent until the job's first sample. Bytes read are a job's payload reads: an audit's checksums and 7z decoding, not
-headers. Bytes written are everything it writes into a root, copies included. In `throughput`, `total` and each of
-`roots` (`{"root", "rates"}`) cover every job; each of `jobs` is `{"job", "rates", "readers", "hashers", "allowance",
-"chdman"}`, the payload readers and hash workers at work against the `allowance` (`{"readers", "hashers"}`) the pace
-gives it, and `chdman` while chdman runs, whose bytes are counted from its files as it goes but
-not capped. `cpu` is the service's CPU use as a share of the CPUs it may use, from 0 to 1, absent where the computer
-has no `/proc`. A finished job carries `throughput`, `{"bytes_read", "bytes_written", "duration_ms"}`, once it was
-counted; jobs from before this version have none.
+absent until the job's first sample. Bytes read are the bytes a job reads from its files as they're stored, so a ZIP
+member counts what it takes in the ZIP, not what it decompresses to: an audit's payloads, the sources of a build, a
+repair or a move, a 7z each time it's read to hash or decode it, and each file read back to verify it. Directories and
+headers read to find a payload aren't counted. Bytes written are everything a job writes into a root, copies included.
+In `throughput`, `total` and each of `roots` (`{"root", "rates"}`) cover every job; each of `jobs` is `{"job", "rates",
+"readers", "hashers", "allowance", "chdman"}`, the payload readers and hash workers at work against the `allowance`
+(`{"readers", "hashers"}`) the pace gives it, and `chdman` while chdman runs, whose bytes are counted from its files as
+it goes but not capped. `cpu` is the service's CPU use as a share of the CPUs it may use, from 0 to 1, absent where the
+computer has no `/proc`. Once nothing has moved for 3 seconds, one last `throughput` comes with every rate at 0, no
+`roots`, no `jobs` and no `cpu`; then none until bytes move again. A finished job carries `throughput`, `{"bytes_read",
+"bytes_written", "duration_ms"}`, once it was counted; jobs from before this version have none.
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.
