@@ -4,6 +4,7 @@ mod additions;
 mod audits;
 mod blobs;
 mod builds;
+pub mod calibration;
 mod checks;
 pub mod config;
 mod coverage;
