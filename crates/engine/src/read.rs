@@ -118,8 +118,13 @@ struct Started {
 /// rather than all at once: a reader that takes a permit and finds a file left, the pool with room, and none of the
 /// Job's readers waiting, starts another, and a reader that hands over a payload with none of the Job's hash workers
 /// free and their pool with room starts one. So a Ceiling or the pace raised while the Job runs reaches it as its
-/// workers start their next file, a Job never has more readers than files, and the threads it started stay, waiting
-/// for a permit, when the pools shrink. Each start costs a few atomic loads; a file costs nothing more.
+/// workers start their next file, and the threads it started stay, waiting for a permit, when the pools shrink.
+///
+/// A pool's occupancy counts only the workers holding a permit, so each start is first reserved in the Job's count of
+/// threads of its kind, by compare-and-swap against the pool's size at that moment and the Job's files. Threads
+/// starting, or waiting for a permit, are counted, and racing starts can't take the Job past either bound: it never
+/// has more readers, or more hash workers, than its pool allowed when each started or than it has files. Each start
+/// costs a few atomic operations; a file costs nothing more.
 struct Crew<'a> {
     files: &'a [ToRead],
     how: How<'a>,
@@ -129,9 +134,11 @@ struct Crew<'a> {
     done: AtomicUsize,
     results: Mutex<Vec<Option<FileRead>>>,
     queue: Mutex<Receiver<HashJob>>,
+    /// Readers started, or reserved to start.
     readers: AtomicUsize,
     /// Readers started that hold no permit: waiting for one, or about to.
     readers_waiting: AtomicUsize,
+    /// Hash workers started, or reserved to start.
     hashers: AtomicUsize,
     /// Hash workers started that hold no payload.
     hashers_free: AtomicUsize,
@@ -142,13 +149,36 @@ impl<'a> Crew<'a> {
         pool.taken() < pool.limit()
     }
 
-    /// Starts a reader, counted as waiting until it takes a permit.
-    fn start_reader<'s, 'e>(
+    /// Counts one more thread in `started` if that keeps it within `bound`.
+    fn reserve(started: &AtomicUsize, bound: usize) -> bool {
+        started
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < bound).then_some(n + 1)
+            })
+            .is_ok()
+    }
+
+    /// Starts another reader, counted as waiting until it takes a permit, if none of the Job's readers is waiting
+    /// and the pool and the Job's files leave room for it.
+    fn start_reader_if_room<'s, 'e>(
         &'s self,
         s: &'s std::thread::Scope<'s, 'e>,
-        jobs: SyncSender<HashJob>,
+        jobs: &SyncSender<HashJob>,
     ) {
-        self.readers.fetch_add(1, Ordering::SeqCst);
+        let pool = self.pools.readers;
+        if !Crew::has_room(pool)
+            || self
+                .readers_waiting
+                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            return;
+        }
+        if !Crew::reserve(&self.readers, pool.limit().min(self.files.len())) {
+            self.readers_waiting.fetch_sub(1, Ordering::SeqCst);
+            return;
+        }
+        let jobs = jobs.clone();
         s.spawn(move || self.read(s, jobs));
     }
 
@@ -168,15 +198,8 @@ impl<'a> Crew<'a> {
             let _held = ReaderPermit::held();
             let i = self.next.fetch_add(1, Ordering::SeqCst);
             let Some(file) = files.get(i) else { break };
-            if i + 1 < files.len()
-                && self.readers.load(Ordering::SeqCst) < files.len()
-                && Crew::has_room(self.pools.readers)
-                && self
-                    .readers_waiting
-                    .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            {
-                self.start_reader(s, jobs.clone());
+            if i + 1 < files.len() {
+                self.start_reader_if_room(s, &jobs);
             }
             let hand = |job: HashJob| {
                 // The first starts however full the pool is: a payload handed over with none running would wait for
@@ -200,7 +223,8 @@ impl<'a> Crew<'a> {
         }
     }
 
-    /// Starts a hash worker, counted as free until it takes a payload, unless one is free already.
+    /// Starts a hash worker, counted as free until it takes a payload, unless one is free already or the pool and
+    /// the Job's files leave no room for it. The Job's first always starts.
     fn start_hasher_unless_one_is_free<'s, 'e>(&'s self, s: &'s std::thread::Scope<'s, 'e>) {
         if self
             .hashers_free
@@ -209,7 +233,11 @@ impl<'a> Crew<'a> {
         {
             return;
         }
-        self.hashers.fetch_add(1, Ordering::SeqCst);
+        let bound = self.pools.hashers.limit().min(self.files.len()).max(1);
+        if !Crew::reserve(&self.hashers, bound) {
+            self.hashers_free.fetch_sub(1, Ordering::SeqCst);
+            return;
+        }
         s.spawn(move || {
             loop {
                 let job = self
@@ -220,7 +248,7 @@ impl<'a> Crew<'a> {
                 self.hashers_free.fetch_sub(1, Ordering::SeqCst);
                 // The hash workers stop once every reader has dropped its sender.
                 let Ok(job) = job else { break };
-                {
+                let sums = {
                     // Taken only with a payload in hand: see the module's note on deadlock.
                     let _permit = self.pools.hashers.enter();
                     let _active = self.how.tally.job().map(JobMeter::hashing);
@@ -228,9 +256,11 @@ impl<'a> Crew<'a> {
                     for chunk in job.chunks {
                         hasher.update(&chunk);
                     }
-                    let _ = job.done.send(hasher.finish());
-                }
+                    hasher.finish()
+                };
+                // Free before its reader hears, so that its next payload doesn't start another hash worker.
                 self.hashers_free.fetch_add(1, Ordering::SeqCst);
+                let _ = job.done.send(sums);
             }
         });
     }
@@ -265,12 +295,15 @@ fn read_counting_threads(
         done: AtomicUsize::new(0),
         results: Mutex::new(files.iter().map(|_| None).collect()),
         queue: Mutex::new(queue),
-        readers: AtomicUsize::new(0),
+        readers: AtomicUsize::new(1),
         readers_waiting: AtomicUsize::new(1),
         hashers: AtomicUsize::new(0),
         hashers_free: AtomicUsize::new(0),
     };
-    std::thread::scope(|s| crew.start_reader(s, jobs));
+    std::thread::scope(|s| {
+        let crew = &crew;
+        s.spawn(move || crew.read(s, jobs));
+    });
     let started = Started {
         readers: crew.readers.into_inner(),
         hashers: crew.hashers.into_inner(),

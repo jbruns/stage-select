@@ -151,7 +151,6 @@ fn stage_chd(
         deadline: work
             .limits
             .for_bytes(item.roms.iter().map(|r| r.size).sum()),
-        threads: work.store.chdman_threads_now(),
         ..work.chdman.clone().map_err(Failure::Item)?
     };
     let cancelled = work.cancelled;
@@ -244,6 +243,12 @@ fn stage_chd(
         })
         .map(|r| r.name.as_str())
         .ok_or_else(|| Failure::Item("a disc is built from its .cue or .iso".into()))?;
+    // The pace's share of the hash workers as chdman starts, after its inputs are written and checked, however long
+    // that took.
+    let chdman = Chdman {
+        threads: work.store.chdman_threads_now(),
+        ..chdman
+    };
     let out = chdman.create(&dir, kind, main, cancelled).map_err(stop)?;
     // The ROMs read are no longer needed once the CHD holds them: what it gives back is checked against the DAT.
     std::fs::remove_dir_all(&input)
@@ -347,7 +352,6 @@ fn verify_found_chd(
     let before = seen(found)?;
     let chdman = Chdman {
         deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
-        threads: work.store.chdman_threads_now(),
         ..work.chdman.clone().map_err(Failure::Item)?
     };
     let dir = chd_dir(&work.tmp, work.build, seq);
