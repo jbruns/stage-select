@@ -132,7 +132,20 @@ impl Store {
                     }
                 }
             });
-            let ran = self.calibrate(config, id, how, cancel, &meter);
+            // A sweep that panics fails the Calibration rather than ending the Service's worker without a word.
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.calibrate(config, id, how, cancel, &meter)
+            }))
+            .unwrap_or_else(|panic| {
+                let why = panic
+                    .downcast_ref::<&str>()
+                    .map(|why| why.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "it panicked".to_string());
+                Err(Error::Io(format!(
+                    "the calibration stopped unexpectedly: {why}"
+                )))
+            });
             drop(done);
             ran
         });

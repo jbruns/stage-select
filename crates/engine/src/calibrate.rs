@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Barrier, Mutex};
+use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use title_select_api::calibration::{CurvePoint, Knee};
@@ -357,6 +357,9 @@ pub enum RootSweep {
 /// A Root must hold at least [`Limits::min_bytes`] to be measured, whether or not its sweep read that much. When the
 /// sweep read less, it counts the files it opened but didn't read and finds more, by size only, without reading them:
 /// a Root whose files run out first is too small, and one it can't confirm within [`Limits::find_time`] times out.
+/// It counts each file it opened whole, however much of it was read.
+///
+/// A panic in a reader, or while finding files, stops the step's other threads and goes on from here.
 pub fn root<F: Files + ?Sized>(
     files: &F,
     limits: Limits,
@@ -364,10 +367,9 @@ pub fn root<F: Files + ?Sized>(
     cancel: &AtomicBool,
     tally: &Tally,
 ) -> RootSweep {
-    fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-        m.lock().unwrap_or_else(|e| e.into_inner())
-    }
     let read = AtomicU64::new(0);
+    // The sizes of every file the sweep opened, read or not: what it knows the Root holds.
+    let opened = AtomicU64::new(0);
     let failed = Mutex::new(None::<String>);
     let fail = |err: std::io::Error| {
         lock(&failed).get_or_insert_with(|| err.to_string());
@@ -394,6 +396,7 @@ pub fn root<F: Files + ?Sized>(
                     Ok(0) => {}
                     Ok(size) => {
                         payload.uncache();
+                        opened.fetch_add(size, Ordering::Relaxed);
                         have += size.min(share);
                         queue.push_back((payload, size));
                     }
@@ -406,9 +409,8 @@ pub fn root<F: Files + ?Sized>(
     let mut timed_out = false;
     let sweep = sweep(&counts(MAX_READERS), true, limits.min_bytes / 4, |n| {
         let batch = Batch::default();
-        // The readers start before the step is timed, and wait at `go` for each batch and at `done` after it.
-        let go = Barrier::new(n + 1);
-        let done = Barrier::new(n + 1);
+        // The readers start before the step is timed, and wait at the gate for each batch.
+        let gate = Gate::default();
         let going = || {
             !cancel.load(Ordering::Relaxed)
                 && batch.bytes.load(Ordering::Relaxed) < limits.step_bytes
@@ -417,13 +419,11 @@ pub fn root<F: Files + ?Sized>(
                     < nanos(limits.step_time)
         };
         let reader = || {
+            let _abort = AbortOnPanic(&gate);
             let _active = tally.job().map(JobMeter::reading);
             let mut buf = vec![0; CHUNK];
-            loop {
-                go.wait();
-                if batch.stop.load(Ordering::Relaxed) {
-                    return;
-                }
+            let mut seen = 0;
+            while gate.next(&mut seen) {
                 batch
                     .first
                     .fetch_min(nanos(clock.elapsed()), Ordering::Relaxed);
@@ -461,13 +461,13 @@ pub fn root<F: Files + ?Sized>(
                 batch
                     .last
                     .fetch_max(nanos(clock.elapsed()), Ordering::Relaxed);
-                done.wait();
+                gate.done();
             }
         };
         let end = std::thread::scope(|s| {
-            for _ in 0..n {
-                s.spawn(reader);
-            }
+            let readers: Vec<_> = (0..n).map(|_| s.spawn(reader)).collect();
+            // A panic here, finding files, releases the readers rather than leaving them waiting.
+            let abort = AbortOnPanic(&gate);
             let mut finding = Duration::ZERO;
             let end = loop {
                 if cancel.load(Ordering::Relaxed) {
@@ -493,8 +493,9 @@ pub fn root<F: Files + ?Sized>(
                 batch.first.store(u64::MAX, Ordering::Relaxed);
                 batch.last.store(0, Ordering::Relaxed);
                 batch.start.store(nanos(clock.elapsed()), Ordering::Relaxed);
-                go.wait();
-                done.wait();
+                if !gate.run(n) {
+                    break StepEnd::Cancelled;
+                }
                 // Only the time the readers spent reading: from the first to start to the last to stop.
                 let first = batch.first.load(Ordering::Relaxed);
                 let last = batch.last.load(Ordering::Relaxed);
@@ -514,8 +515,14 @@ pub fn root<F: Files + ?Sized>(
                     break StepEnd::Time;
                 }
             };
-            batch.stop.store(true, Ordering::Relaxed);
-            go.wait();
+            gate.stop();
+            drop(abort);
+            // A reader that panicked has stopped the others: the panic goes on, so that the Calibration fails.
+            for reader in readers {
+                if let Err(panic) = reader.join() {
+                    std::panic::resume_unwind(panic);
+                }
+            }
             end
         });
         Step {
@@ -538,9 +545,10 @@ pub fn root<F: Files + ?Sized>(
         return RootSweep::Unreadable(why);
     }
     if read < limits.min_bytes {
-        // Too small is how much the Root holds, not how much a slow sweep read: what the sweep read, what it opened
-        // and didn't read, then the sizes of more files, found without reading them, until there is enough.
-        let mut held = read + lock(&prepared).iter().map(|(_, size)| size).sum::<u64>();
+        // Too small is how much the Root holds, not how much a slow sweep read: the whole of every file the sweep
+        // opened, read, partly read or not, then the sizes of more files, found without reading them, until there is
+        // enough.
+        let mut held = read.max(opened.into_inner());
         let until = clock.elapsed() + limits.find_time;
         while held < limits.min_bytes
             && !ran_out
@@ -592,8 +600,83 @@ struct Batch {
     last: AtomicU64,
     /// Whether a reader stopped at a limit with files left.
     cut: AtomicBool,
-    /// Whether the readers are done for the step.
-    stop: AtomicBool,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Where a Root's step hands its readers each batch and waits for them to finish it. Unlike a barrier, a panic on
+/// either side aborts it, releasing everyone who waits.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+    turn: Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    /// The batches handed out so far.
+    batch: u64,
+    /// The readers still reading this batch.
+    reading: usize,
+    stop: bool,
+    aborted: bool,
+}
+
+impl Gate {
+    fn wait<'a>(&self, state: MutexGuard<'a, GateState>) -> MutexGuard<'a, GateState> {
+        self.turn.wait(state).unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Hands `readers` a batch and waits until they've all finished it: false if a reader panicked instead.
+    fn run(&self, readers: usize) -> bool {
+        let mut state = lock(&self.state);
+        state.batch += 1;
+        state.reading = readers;
+        self.turn.notify_all();
+        while state.reading > 0 && !state.aborted {
+            state = self.wait(state);
+        }
+        !state.aborted
+    }
+
+    /// Waits for a batch after the one `seen`: false once the step is over.
+    fn next(&self, seen: &mut u64) -> bool {
+        let mut state = lock(&self.state);
+        while state.batch == *seen && !state.stop && !state.aborted {
+            state = self.wait(state);
+        }
+        *seen = state.batch;
+        !state.stop && !state.aborted
+    }
+
+    /// A reader has finished its batch.
+    fn done(&self) {
+        lock(&self.state).reading -= 1;
+        self.turn.notify_all();
+    }
+
+    fn stop(&self) {
+        lock(&self.state).stop = true;
+        self.turn.notify_all();
+    }
+
+    fn abort(&self) {
+        lock(&self.state).aborted = true;
+        self.turn.notify_all();
+    }
+}
+
+/// Aborts its gate if dropped by a panic.
+struct AbortOnPanic<'a>(&'a Gate);
+
+impl Drop for AbortOnPanic<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.abort();
+        }
+    }
 }
 
 /// Drops `file`'s pages from the page cache, so that what was read isn't read again from memory, nor was read from
@@ -933,6 +1016,12 @@ mod tests {
         clock: Fake,
         read: AtomicU64,
         slow_after: Option<u64>,
+        /// Milliseconds a MiB, before any slowing: 1 unless set.
+        ms_per_mib: Option<u64>,
+        /// A read once this much has been read panics, as does finding a file once this many have been found.
+        panic_reading_after: Option<u64>,
+        panic_finding_after: Option<u64>,
+        found: AtomicU64,
         threads: std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
     }
 
@@ -956,8 +1045,14 @@ mod tests {
             let n = (buf.len() as u64).min(self.left);
             self.left -= n;
             let before = model.read.fetch_add(n, Ordering::Relaxed);
+            if model
+                .panic_reading_after
+                .is_some_and(|after| before >= after)
+            {
+                panic!("a reader went wrong");
+            }
             let slow = model.slow_after.is_some_and(|after| before >= after);
-            let per_mib = if slow { 2_000_000 } else { 1_000_000 };
+            let per_mib = model.ms_per_mib.unwrap_or(1) * if slow { 2_000_000 } else { 1_000_000 };
             model.clock.advance(Duration::from_nanos(n * per_mib / MIB));
             Ok(n as usize)
         }
@@ -989,6 +1084,14 @@ mod tests {
 
         fn next(&self) -> Option<std::io::Result<Modelled<'a>>> {
             let left = self.sizes.lock().unwrap().next()?;
+            let found = self.model.found.fetch_add(1, Ordering::Relaxed);
+            if self
+                .model
+                .panic_finding_after
+                .is_some_and(|after| found >= after)
+            {
+                panic!("finding files went wrong");
+            }
             self.model.clock.advance(self.find);
             Some(Ok(Modelled {
                 left,
@@ -1198,6 +1301,66 @@ mod tests {
             matches!(root_of(1000), RootSweep::TimedOut { .. }),
             "more files to find"
         );
+    }
+
+    #[test]
+    fn a_huge_file_read_slowly_counts_whole_towards_the_minimum() {
+        // One 2 GiB file at 50 MiB/s: the first step reads 500 MiB of it in 10 s, and there is nothing else.
+        let model = Model {
+            ms_per_mib: Some(20),
+            ..Model::default()
+        };
+        let files = Fakes::new(&model, Duration::ZERO, vec![2048 * MIB]);
+        let RootSweep::Swept { sweep, read } = modelled_root(&files, Limits::default()) else {
+            panic!("it holds 2 GiB");
+        };
+        assert_eq!(read, 500 * MIB);
+        assert_eq!(sweep.knee.map(|k| k.workers), Some(1));
+    }
+
+    /// Sweeps a Root modelled by `model` over 1 MiB files on a thread of its own: how it ended, or the panic it ended
+    /// with, unless it hangs.
+    fn bounded(model: Model) -> Result<RootSweep, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let files = Fakes::new(&model, Duration::ZERO, vec![MIB; 1000]);
+            let limits = Limits {
+                step_bytes: 20 * MIB,
+                min_bytes: 0,
+                ..Limits::default()
+            };
+            let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                modelled_root(&files, limits)
+            }))
+            .map_err(|panic| {
+                panic
+                    .downcast_ref::<&str>()
+                    .map_or_else(|| "?".to_string(), |why| why.to_string())
+            });
+            let _ = tx.send(ended);
+        });
+        rx.recv_timeout(Duration::from_secs(20))
+            .expect("the sweep hung")
+    }
+
+    #[test]
+    fn a_reader_that_panics_ends_the_sweep_with_its_panic() {
+        // Partway through the third step, with four readers.
+        let model = Model {
+            panic_reading_after: Some(50 * MIB),
+            ..Model::default()
+        };
+        assert_eq!(bounded(model), Err("a reader went wrong".to_string()));
+    }
+
+    #[test]
+    fn a_panic_finding_files_ends_the_sweep_with_its_panic() {
+        // Preparing the second step's batch, with its two readers waiting.
+        let model = Model {
+            panic_finding_after: Some(30),
+            ..Model::default()
+        };
+        assert_eq!(bounded(model), Err("finding files went wrong".to_string()));
     }
 
     #[test]

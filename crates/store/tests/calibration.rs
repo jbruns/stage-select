@@ -312,6 +312,32 @@ fn a_cancelled_calibration_keeps_the_roots_it_finished() {
 }
 
 #[test]
+fn a_calibration_that_panics_fails_and_lets_other_jobs_run() {
+    let env = Env::new();
+    let job = env.store.enqueue_calibration("Operator").unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let held = env.enqueue_audit("Alpha");
+    let panics = |p: title_select_engine::Progress| {
+        if p.files_done == 2 {
+            panic!("a sweep went wrong");
+        }
+    };
+    let ran = env.store.run_calibration(
+        &env.config,
+        job.id,
+        &Calibrating {
+            progress: Some(&panics),
+            ..how(1)
+        },
+    );
+    assert!(ran.is_err());
+    let ended = env.store.job(job.id).unwrap();
+    assert_eq!(ended.state, JobState::Failed);
+    assert!(ended.error.unwrap().contains("a sweep went wrong"));
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, held.id);
+}
+
+#[test]
 fn a_queued_calibration_you_cancel_ends_at_once_and_holds_nothing_back() {
     let env = Env::new();
     let running = env.enqueue_audit("Alpha");
