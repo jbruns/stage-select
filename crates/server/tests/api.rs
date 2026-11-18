@@ -61,6 +61,7 @@ impl Env {
             hold_jobs: false,
             fetch_endpoints: None,
             romm_scan_timing: None,
+            calibration_limits: None,
         }
     }
 
@@ -2765,6 +2766,7 @@ mod selections {
         std::fs::create_dir_all(&play).unwrap();
         let service = title_select_server::spawn(Settings {
             romm_scan_timing: Some(timing),
+            calibration_limits: None,
             ..env.settings(&format!(
                 "\n[roots.play]\npath = {:?}\nwritable = true\n",
                 play.display().to_string()
@@ -3870,4 +3872,71 @@ fn fetching_reports_its_state_and_refuses_before_any_request() {
         "{}",
         body.error
     );
+}
+
+#[test]
+fn a_calibration_is_queued_and_a_second_is_refused() {
+    let env = Env::new();
+    let service = title_select_server::spawn(Settings {
+        hold_jobs: true,
+        ..env.settings("")
+    })
+    .unwrap();
+    let client = Client::new(&service);
+
+    let mut first = client.post("/calibrations").send_empty().unwrap();
+    assert_eq!(first.status(), 202);
+    let first: Job = first.body_mut().read_json().unwrap();
+    assert_eq!(first.kind, title_select_api::JobKind::Calibration);
+    assert_eq!(first.state, JobState::Queued);
+
+    let mut second = client.post("/calibrations").send_empty().unwrap();
+    assert_eq!(second.status(), 409);
+    let body: ErrorBody = second.body_mut().read_json().unwrap();
+    assert!(
+        body.error.contains(&format!("job {}", first.id)),
+        "{}",
+        body.error
+    );
+
+    let cancelled = client
+        .post(&format!("/jobs/{}/cancellation", first.id))
+        .send_empty()
+        .unwrap();
+    assert_eq!(cancelled.status(), 200);
+    let job: Job = client.json(&format!("/jobs/{}", first.id));
+    assert!(job.state.is_final(), "{:?}", job.state);
+}
+
+#[test]
+fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
+    let env = Env::new();
+    let service = title_select_server::spawn(Settings {
+        calibration_limits: Some(title_select_server::CalibrationLimits {
+            step_time: std::time::Duration::from_millis(20),
+            step_bytes: 1 << 20,
+            min_bytes: 1,
+        }),
+        ..env.settings("")
+    })
+    .unwrap();
+    let client = Client::new(&service);
+    let empty: title_select_api::calibration::Calibration = client.json("/calibration");
+    assert!(empty.host.is_none() && empty.roots.is_empty() && empty.stale.is_empty());
+
+    let mut started = client.post("/calibrations").send_empty().unwrap();
+    assert_eq!(started.status(), 202);
+    let started: Job = started.body_mut().read_json().unwrap();
+    let (_, ended) = client.follow(started.id);
+
+    assert_eq!(ended.state, JobState::Succeeded, "{:?}", ended.error);
+    let measured: title_select_api::calibration::Calibration =
+        client.json(&format!("/jobs/{}/calibration", started.id));
+    let host = measured.host.expect("the host's sweep");
+    assert!(!host.curve.is_empty() && host.knee.is_some());
+    assert_eq!(measured.roots.len(), 1);
+    assert_eq!(measured.roots[0].root, "sets");
+    let now: title_select_api::calibration::Calibration = client.json("/calibration");
+    assert_eq!(now.host.map(|h| h.job), Some(started.id));
+    assert!(now.stale.is_empty(), "{:?}", now.stale);
 }

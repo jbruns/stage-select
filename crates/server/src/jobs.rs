@@ -12,6 +12,7 @@ use title_select_api::fetch::{
 use title_select_api::romm::{RommReconciled, RommReconciliation};
 use title_select_api::{Job, JobEvent, JobKind, JobProgress};
 use title_select_engine::Progress;
+use title_select_engine::calibrate::Limits;
 use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
@@ -43,6 +44,8 @@ pub struct Jobs {
     romm_stop: ScanStop,
     /// Each Running Job's latest rates, for its progress events.
     pub latest: Latest,
+    /// When each step of a Calibration stops; tests shorten them.
+    pub calibration: Limits,
 }
 
 impl Jobs {
@@ -55,6 +58,7 @@ impl Jobs {
             romm_scan,
             romm_stop: ScanStop::default(),
             latest: Latest::default(),
+            calibration: Limits::default(),
         }
     }
 
@@ -240,12 +244,16 @@ pub async fn run(
                 continue;
             }
         };
-        eprintln!(
-            "title-select: job {} started: {} of {}",
-            job.id,
-            job.kind.as_str(),
-            job.ingest_folder.as_deref().unwrap_or(&job.source_set)
-        );
+        if job.kind == JobKind::Calibration {
+            eprintln!("title-select: job {} started: calibration", job.id);
+        } else {
+            eprintln!(
+                "title-select: job {} started: {} of {}",
+                job.id,
+                job.kind.as_str(),
+                job.ingest_folder.as_deref().unwrap_or(&job.source_set)
+            );
+        }
         // Metered from now, against the readers and hash workers the Job may use before the pace.
         store.meter().start(job.id, job.workers);
         jobs.changed(job.clone());
@@ -256,9 +264,11 @@ pub async fn run(
             let ended = {
                 let (store, config, jobs) = (store.clone(), config.clone(), jobs.clone());
                 tokio::task::spawn_blocking(move || match kind {
-                    JobKind::Audit | JobKind::Build | JobKind::Check | JobKind::Repair => {
-                        run_one(&store, &config, &jobs, kind, id, version)
-                    }
+                    JobKind::Audit
+                    | JobKind::Build
+                    | JobKind::Check
+                    | JobKind::Repair
+                    | JobKind::Calibration => run_one(&store, &config, &jobs, kind, id, version),
                     JobKind::Additions => run_additions(&store, &config, id),
                     JobKind::Selection => run_selection(&store, engine, id),
                     JobKind::IngestScan => run_ingest_scan(&store, &config, id),
@@ -371,7 +381,7 @@ impl Drop for Slot {
     }
 }
 
-/// Runs one claimed Audit, Build, Check or Repair Job, publishing its progress, and returns the Job as it ended.
+/// Runs one claimed Audit, Build, Check, Repair or Calibration Job, publishing its progress, and returns the Job as it ended.
 fn run_one(
     store: &Store,
     config: &Config,
@@ -399,6 +409,15 @@ fn run_one(
         JobKind::Build => store.run_build_job(config, id, Some(&progress)),
         JobKind::Check => store.run_check_job(config, id, Some(&progress)),
         JobKind::Repair => store.run_repair_job(config, id, Some(&progress)),
+        JobKind::Calibration => store.run_calibration(
+            config,
+            id,
+            &title_select_store::calibration::Calibrating {
+                limits: jobs.calibration,
+                progress: Some(&progress),
+                ..Default::default()
+            },
+        ),
         _ => store.run_audit_job(config, id, Some(&progress)),
     };
     match ran {

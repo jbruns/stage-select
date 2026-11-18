@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use title_select_api::JobKind;
+use title_select_api::calibration::CalibrationStale;
+pub use title_select_engine::calibrate::Limits as CalibrationLimits;
 use title_select_store::config::Config;
 use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::romm::ScanTiming;
@@ -51,6 +53,9 @@ pub struct Settings {
     /// How a RomM scan a Build requests waits on RomM, so tests needn't wait minutes.
     #[doc(hidden)]
     pub romm_scan_timing: Option<ScanTiming>,
+    /// When each step of a Calibration stops, so tests needn't wait seconds a step.
+    #[doc(hidden)]
+    pub calibration_limits: Option<CalibrationLimits>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -86,6 +91,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         hold_jobs,
         fetch_endpoints,
         romm_scan_timing,
+        calibration_limits,
     } = settings;
     let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
@@ -118,6 +124,11 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             ),
             None if job.kind == JobKind::Check => eprintln!(
                 "title-select: check job {} was interrupted by a stop; check the folder again",
+                job.id
+            ),
+            None if job.kind == JobKind::Calibration => eprintln!(
+                "title-select: calibration job {} was interrupted by a stop; it kept what it measured. Calibrate \
+                 again to measure the rest",
                 job.id
             ),
             None => eprintln!(
@@ -196,13 +207,25 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     listener
         .set_nonblocking(true)
         .map_err(|e| StartError::Listen(listen, e))?;
+    // Never calibrated again by itself: Stale results keep applying until you calibrate.
+    let calibration = store.calibration(&config, title_select_store::calibration::cpus())?;
+    if !calibration.stale.is_empty() {
+        eprintln!(
+            "title-select: the calibration is stale ({}); calibrate again to measure what changed",
+            calibration
+                .stale
+                .iter()
+                .map(stale_reason)
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+    let mut jobs = jobs::Jobs::new(notifier, romm_scan_timing.unwrap_or_default());
+    jobs.calibration = calibration_limits.unwrap_or_default();
     let state = routes::AppState {
         store: Arc::new(store),
         config: Arc::new(config),
-        jobs: Arc::new(jobs::Jobs::new(
-            notifier,
-            romm_scan_timing.unwrap_or_default(),
-        )),
+        jobs: Arc::new(jobs),
         workers,
         engine,
         previews: Arc::default(),
@@ -219,6 +242,23 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         hold_jobs,
         delivery,
     })
+}
+
+/// Why the calibration is Stale, as the log says it.
+fn stale_reason(stale: &CalibrationStale) -> String {
+    match stale {
+        CalibrationStale::Cpus { measured, now } => {
+            format!("it measured {measured} CPUs and the service has {now}")
+        }
+        CalibrationStale::Unmeasured { root } => format!("root {root} isn't measured"),
+        CalibrationStale::Moved {
+            root,
+            measured,
+            now,
+        } => {
+            format!("root {root} moved from {measured} to {now}")
+        }
+    }
 }
 
 impl Prepared {

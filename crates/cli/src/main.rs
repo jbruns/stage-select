@@ -1,3 +1,4 @@
+mod calibration;
 mod client;
 
 use std::io::Write;
@@ -25,7 +26,7 @@ struct Cli {
     /// The configuration file (`title-select.toml`) that declares your roots.
     #[arg(long, global = true, env = "TITLE_SELECT_CONFIG")]
     config: Option<PathBuf>,
-    /// The file holding your operator token: the service accepts it, and `audit --server` sends it.
+    /// The file holding your operator token: the service accepts it, and `audit --server` and `calibrate` send it.
     #[arg(long, global = true, env = "TITLE_SELECT_OPERATOR_TOKEN_FILE")]
     token_file: Option<PathBuf>,
     #[command(subcommand)]
@@ -172,6 +173,18 @@ enum Command {
         /// Write the selection to this file instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Calibrate: measure how fast the host hashes as hash workers are added, and how fast each root reads as
+    /// payload readers are added, and print the results. The service at `<url>` runs it as a job, which this
+    /// follows to its end.
+    ///
+    /// It reads only; it never writes to a root. It waits for running jobs to finish, and no other job starts
+    /// until it ends. A filesystem that caches what it reads, such as ZFS with its ARC, can make a root look faster
+    /// than it is, so calibrate after a quiet period.
+    Calibrate {
+        /// The service to run the calibration, such as `http://127.0.0.1:8080`. Sends your operator token.
+        #[arg(long)]
+        server: String,
     },
     /// Check that the service is up, for a container healthcheck. Prints nothing on success; exits 1 with the
     /// reason on stderr otherwise.
@@ -655,6 +668,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 hold_jobs: false,
                 fetch_endpoints: None,
                 romm_scan_timing: None,
+                calibration_limits: None,
             })
             .map_err(|e| e.to_string())
         }
@@ -682,6 +696,22 @@ fn run(cli: Cli) -> Result<(), String> {
                 eprintln!("title-select: selection engine warning: {warning}");
             }
             write_report(&outcome.selection, output)
+        }
+        Command::Calibrate { server } => {
+            let (job, measured, now) = client::calibrate(&server, cli.token_file.as_deref())?;
+            print!("{}", calibration::table(&measured));
+            for line in calibration::stale(&now) {
+                eprintln!("{line}");
+            }
+            match job.state {
+                JobState::Succeeded => Ok(()),
+                state => Err(format!(
+                    "job {} {}: {}",
+                    job.id,
+                    state.as_str(),
+                    job.error.as_deref().unwrap_or("no reason given")
+                )),
+            }
         }
         Command::Health { url, timeout } => {
             client::health(&url, std::time::Duration::from_secs(timeout))

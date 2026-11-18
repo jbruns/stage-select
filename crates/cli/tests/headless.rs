@@ -53,6 +53,7 @@ impl Env {
             hold_jobs: false,
             fetch_endpoints: None,
             romm_scan_timing: None,
+            calibration_limits: None,
         })
         .unwrap();
         Env { fx, service }
@@ -267,4 +268,47 @@ fn health_refuses_a_timeout_out_of_range() {
         .unwrap();
 
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+#[test]
+fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
+    let fx = Fixture::new();
+    write_file(&fx.set_path(SET).join("Pong (USA).a26"), &[7; 64 << 10]);
+    let config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\n",
+        fx.set.path().display().to_string()
+    ))
+    .unwrap();
+    std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
+    let service = title_select_server::spawn(Settings {
+        store: fx.dat_dir.path().join("store"),
+        config,
+        listen: "127.0.0.1:0".parse().unwrap(),
+        token_file: Some(fx.dat_dir.path().join("token")),
+        ui: None,
+        clone_lists: None,
+        hold_jobs: false,
+        fetch_endpoints: None,
+        romm_scan_timing: None,
+        calibration_limits: Some(title_select_server::CalibrationLimits {
+            step_time: std::time::Duration::from_millis(20),
+            step_bytes: 1 << 20,
+            min_bytes: 1,
+        }),
+    })
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_title-select"))
+        .args(["calibrate", "--server", &service.url()])
+        .arg("--token-file")
+        .arg(fx.dat_dir.path().join("token"))
+        .env_remove("TITLE_SELECT_STORE")
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", stderr(&out));
+    let table = String::from_utf8_lossy(&out.stdout);
+    assert!(table.contains("host, "), "{table}");
+    assert!(table.contains("root sets ("), "{table}");
+    assert!(stderr(&out).contains("succeeded"), "{}", stderr(&out));
 }
