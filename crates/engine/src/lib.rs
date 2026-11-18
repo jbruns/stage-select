@@ -668,5 +668,3 @@ fn matching_roms(dat: &Dat, known: &Known) -> Vec<usize> {
             .collect(),
     }
 }
-
-// Measuring a warm image build for #198; reverted in the next commit.
