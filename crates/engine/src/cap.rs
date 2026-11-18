@@ -16,16 +16,25 @@
 //! rescales what it has left to wait the same way, so a slower pace slows even a single large file within a second,
 //! and a faster one, or none, ends a wait within [`RECHECK`].
 //!
-//! **Waiting** sleeps, in slices of at most [`RECHECK`], and gives up at once, without waiting the rest, when its
-//! `stop` says so: a cancelled Job's wait ends within [`RECHECK`]. A wait holds no lock and nothing of the bucket, so
-//! a panic or an early return leaves the bucket as it was, and nothing ever waits for a waiter: a bucket wait can't
-//! be part of a deadlock. It always ends, since a bucket's rate is never zero while capped and what is ahead of now
-//! is bounded by what the threads waiting charged. Holding a Root's reader permit while waiting on its read bucket is
-//! intended: the permit's reader is the one being held back. The store's writer is never held while waiting: a
-//! thread holding it charges what it reads and writes without waiting ([`crate::meter::NoReaderWaits`]).
+//! **Waiting** sleeps, in slices of at most [`RECHECK`], and gives up, without waiting the rest, when its `stop` says
+//! so: a cancelled Job's wait ends within [`RECHECK`], and what it didn't wait for is given back
+//! ([`Bucket::refund`]), so a cancel leaves no debt. A refund gives back only time still to come, never time gone, so
+//! it can't let a burst through. A wait holds no lock and nothing of the bucket, so a panic or an early return leaves
+//! the bucket as it was, and nothing ever waits for a waiter: a bucket wait can't be part of a deadlock. It always
+//! ends, since a bucket's rate is never zero while capped and what is ahead of now is bounded by what the threads
+//! waiting charged. Holding a Root's reader permit while waiting on its read bucket is intended: the permit's reader
+//! is the one being held back. The store's writer is never held while waiting: a thread holding it charges what it
+//! reads and writes without waiting ([`crate::meter::NoReaderWaits`]). A 7z decoder waits on its read cap while it
+//! holds its 7z gate permit, as it is the reader being held back; since every wait ends, the gate is held no longer
+//! than the cap holds the decoder's reads.
+//!
+//! **Two caps at once.** A copy's chunk is paid for in two buckets, its source's reads and its destination's writes,
+//! and moves only once both let it through at once ([`take_both`]).
+//!
+//! **Uncapping** forgets what was charged: a bucket capped again starts afresh, and waits on it end.
 
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 /// How far ahead of now a bucket may be charged before a charge waits: what a bucket lets through at once after a
@@ -79,6 +88,9 @@ pub struct Bucket {
     rate: AtomicU64,
     /// When, in [`Clock::now`]'s nanoseconds, everything charged so far is paid for.
     paid_until: AtomicU64,
+    /// Moved on each time the bucket is capped afresh or uncapped, when what was charged before is forgotten: a wait
+    /// on a charge of an earlier epoch ends, and a refund of one gives nothing back.
+    epoch: AtomicU64,
     /// How many charges have waited, for tests.
     waits: AtomicU64,
 }
@@ -95,20 +107,38 @@ impl Bucket {
         Some(self.rate.load(Ordering::Relaxed)).filter(|&r| r != 0)
     }
 
-    /// Caps the bucket at `rate` bytes a second, or uncaps it, from `now` on: what was charged ahead of now is
-    /// rescaled to the new rate.
+    /// Caps the bucket at `rate` bytes a second, or uncaps it, from `now` on. From one rate to another, what was
+    /// charged ahead of now is rescaled to the new rate; uncapped, or capped afresh, nothing charged before is owed.
     pub fn set_rate(&self, rate: Option<u64>, now: u64) {
         let rate = rate.unwrap_or(0);
         let was = self.rate.swap(rate, Ordering::Relaxed);
-        if was == rate || was == 0 || rate == 0 {
+        if was == rate {
             return;
         }
         // A charge that read the old rate just before the swap may land after this; it is off by that one charge.
+        if was == 0 || rate == 0 {
+            self.epoch.fetch_add(1, Ordering::Relaxed);
+            self.paid_until.store(0, Ordering::Relaxed);
+            return;
+        }
         let _ = self
             .paid_until
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |paid| {
                 (paid > now).then(|| now.saturating_add(rescale(paid - now, was, rate)))
             });
+    }
+
+    /// The epoch charges made now belong to, for [`Bucket::refund`].
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Relaxed)
+    }
+
+    /// How far ahead of `now`, in nanoseconds, it is charged: none while uncapped.
+    fn backlog(&self, now: u64) -> u64 {
+        match self.capped() {
+            true => self.paid_until.load(Ordering::Relaxed).saturating_sub(now),
+            false => 0,
+        }
     }
 
     /// Charges `n` bytes at `now`: what is left to wait, if anything, before they are paid for. Nothing while
@@ -118,6 +148,7 @@ impl Bucket {
         if rate == 0 || n == 0 {
             return None;
         }
+        let epoch = self.epoch.load(Ordering::Relaxed);
         let cost = cost(n, rate);
         let mut paid = self.paid_until.load(Ordering::Relaxed);
         let until = loop {
@@ -132,39 +163,54 @@ impl Bucket {
                 Err(now_paid) => paid = now_paid,
             }
         };
-        (until > now).then_some(Debt { until, rate })
+        (until > now).then_some(Debt { until, rate, epoch })
     }
 
-    /// Gives back `n` bytes charged but not used, as by a copy that found the end of its file first.
-    pub fn refund(&self, n: u64) {
+    /// Gives back, at `now`, `n` bytes charged in `epoch` but not moved, as by a read that found the end of its file
+    /// first. Only what is still ahead of now is given back: time already gone can't be spent again, so a refund
+    /// never lets anything through that the cap would not have.
+    pub fn refund(&self, n: u64, now: u64, epoch: u64) {
         let rate = self.rate.load(Ordering::Relaxed);
-        if rate == 0 || n == 0 {
+        if rate == 0 || n == 0 || self.epoch() != epoch {
             return;
         }
         let cost = cost(n, rate);
         let _ = self
             .paid_until
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |paid| {
-                Some(paid.saturating_sub(cost))
+                Some(paid.saturating_sub(cost).max(now.min(paid)))
             });
     }
 
-    /// Charges `n` bytes and waits, by `clock`, until they are paid for, unless `stop` says to give up first.
-    pub fn take(&self, n: u64, clock: &impl Clock, stop: &dyn Fn() -> bool) {
-        if let Some(debt) = self.charge(n, clock.now()) {
-            self.wait(debt, clock, stop);
+    /// Charges `n` bytes and waits, by `clock`, until they are paid for; `false`, with what wasn't waited for given
+    /// back, if `stop` says to give up first.
+    pub fn take(&self, n: u64, clock: &(impl Clock + ?Sized), stop: &dyn Fn() -> bool) -> bool {
+        let epoch = self.epoch();
+        let Some(debt) = self.charge(n, clock.now()) else {
+            return true;
+        };
+        if self.wait(debt, clock, stop) {
+            return true;
         }
+        self.refund(n, clock.now(), epoch);
+        false
     }
 
-    /// Waits out `debt`, by `clock`, unless `stop` says to give up first.
-    pub fn wait(&self, mut debt: Debt, clock: &impl Clock, stop: &dyn Fn() -> bool) {
+    /// Waits out `debt`, by `clock`: `false` if `stop` says to give up first.
+    pub fn wait(
+        &self,
+        mut debt: Debt,
+        clock: &(impl Clock + ?Sized),
+        stop: &dyn Fn() -> bool,
+    ) -> bool {
         self.waits.fetch_add(1, Ordering::Relaxed);
         while let Some(d) = debt.poll(self, clock.now()) {
             if stop() {
-                return;
+                return false;
             }
             clock.sleep(d);
         }
+        true
     }
 
     /// How many charges have waited on it.
@@ -172,9 +218,75 @@ impl Bucket {
         self.waits.load(Ordering::Relaxed)
     }
 
-    /// Whether nothing was ever charged to it.
+    /// Whether nothing is charged to it, since it was last capped.
     pub fn untouched(&self) -> bool {
         self.paid_until.load(Ordering::Relaxed) == 0
+    }
+}
+
+/// How long a chunk one bucket has let through may wait for the other's, when it is charged to two.
+pub const GRACE: Duration = Duration::from_millis(50);
+
+/// Charges `n` bytes to both `a` and `b`, as a copy's chunk is to its source's read cap and its destination's write
+/// cap, and waits, by `clock`, until both let it through at once; `false` if `stop` says to give up first.
+///
+/// A payment to one bucket that then waits its turn in the other would fall into the past and, with every other
+/// chunk waiting the same way, go through in a burst once the other let them all go. So nothing is charged while the
+/// chunk waits its turn: it sleeps until neither bucket is charged more than [`GRACE`] ahead of now, then charges both
+/// at that moment and waits out both. If another chunk took the turn first, both charges are given back whole, as
+/// they are still ahead of now, and it sleeps again. A payment then waits at most the other bucket's charge for the
+/// same piece and [`GRACE`] before its bytes move: a quarter second and [`GRACE`] at the lower cap, as a copy's pieces
+/// are sized to it, so over any span each bucket lets through no more than it would alone and about that much of its
+/// rate. Chunks waiting this way aren't served in order: one may lose its turn more than once, but a turn lost costs
+/// neither bucket anything, and the caps are used in full.
+pub fn take_both(
+    a: &Bucket,
+    b: &Bucket,
+    n: u64,
+    clock: &(impl Clock + ?Sized),
+    stop: &dyn Fn() -> bool,
+) -> bool {
+    let grace = nanos(GRACE);
+    let mut waited = false;
+    loop {
+        let now = clock.now();
+        let backlog = a.backlog(now).max(b.backlog(now));
+        if backlog > grace {
+            if stop() {
+                return false;
+            }
+            if !waited {
+                waited = true;
+                for bucket in [a, b] {
+                    if bucket.backlog(now) > grace {
+                        bucket.waits.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            clock.sleep(Duration::from_nanos(backlog - grace).min(RECHECK));
+            continue;
+        }
+        let epochs = (a.epoch(), b.epoch());
+        let debts = (a.charge(n, now), b.charge(n, now));
+        // Charged further ahead than the backlog let through: another chunk took the turn in between.
+        let late = |debt: Option<Debt>| {
+            debt.is_some_and(|d| {
+                d.until.saturating_add(nanos(BURST)) > now + grace + cost(n, d.rate)
+            })
+        };
+        if late(debts.0) || late(debts.1) {
+            a.refund(n, now, epochs.0);
+            b.refund(n, now, epochs.1);
+            continue;
+        }
+        let paid = debts.0.is_none_or(|d| a.wait(d, clock, stop))
+            && debts.1.is_none_or(|d| b.wait(d, clock, stop));
+        if !paid {
+            let now = clock.now();
+            a.refund(n, now, epochs.0);
+            b.refund(n, now, epochs.1);
+        }
+        return paid;
     }
 }
 
@@ -184,14 +296,16 @@ pub struct Debt {
     /// When it is paid for, at `rate`.
     until: u64,
     rate: u64,
+    /// The bucket's epoch it was charged in.
+    epoch: u64,
 }
 
 impl Debt {
-    /// How long to sleep at `now` before looking again, at most [`RECHECK`]; none once paid for, or once `bucket` is
-    /// uncapped. A change of rate since the last look rescales what is left.
+    /// How long to sleep at `now` before looking again, at most [`RECHECK`]; none once paid for, once `bucket` is
+    /// uncapped, or once it was capped afresh. A change of rate since the last look rescales what is left.
     pub fn poll(&mut self, bucket: &Bucket, now: u64) -> Option<Duration> {
         let rate = bucket.rate.load(Ordering::Relaxed);
-        if rate == 0 {
+        if rate == 0 || bucket.epoch() != self.epoch {
             return None;
         }
         if rate != self.rate {
@@ -202,38 +316,179 @@ impl Debt {
         }
         (self.until > now).then(|| Duration::from_nanos(self.until - now).min(RECHECK))
     }
-}
 
-/// A Root's two caps: its reads and its writes.
-#[derive(Debug, Default)]
-pub struct Caps {
-    pub read: Bucket,
-    pub write: Bucket,
-}
-
-impl Caps {
-    /// Caps reads at `read` and writes at `write` bytes a second, or uncaps either, from now on.
-    pub fn set(&self, read: Option<u64>, write: Option<u64>) {
-        let now = Monotonic.now();
-        self.read.set_rate(read, now);
-        self.write.set_rate(write, now);
+    /// What is left to wait at `now`, at the rate it was charged at.
+    pub fn left(&self, now: u64) -> Duration {
+        Duration::from_nanos(self.until.saturating_sub(now))
     }
 }
 
-/// The smallest chunk a capped copy asks the kernel for at once.
-pub const MIN_COPY_CHUNK: usize = 1 << 20;
-/// The share of a second's bytes at the cap a capped copy moves at once.
-const COPY_SHARE: Duration = Duration::from_millis(250);
+/// A Root's two caps, its reads and its writes, and the clock they wait by.
+pub struct Caps {
+    pub read: Bucket,
+    pub write: Bucket,
+    clock: Arc<dyn Clock + Send + Sync>,
+}
+
+impl Default for Caps {
+    fn default() -> Caps {
+        Caps::with_clock(Arc::new(Monotonic))
+    }
+}
+
+impl std::fmt::Debug for Caps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Caps")
+            .field("read", &self.read)
+            .field("write", &self.write)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Caps {
+    /// Uncapped caps that wait by `clock`: a fake one, in tests.
+    pub fn with_clock(clock: Arc<dyn Clock + Send + Sync>) -> Caps {
+        Caps {
+            read: Bucket::default(),
+            write: Bucket::default(),
+            clock,
+        }
+    }
+
+    /// Caps reads at `read` and writes at `write` bytes a second, or uncaps either, from now on.
+    pub fn set(&self, read: Option<u64>, write: Option<u64>) {
+        let now = self.clock.now();
+        self.read.set_rate(read, now);
+        self.write.set_rate(write, now);
+    }
+
+    /// The clock its waits go by.
+    pub fn clock(&self) -> &(dyn Clock + Send + Sync) {
+        &*self.clock
+    }
+}
+
+/// The smallest piece a capped read, write or copy moves at once.
+pub const MIN_PIECE: usize = 64 << 10;
+/// The share of a second's bytes at the cap a capped read, write or copy moves at once.
+const PIECE: Duration = Duration::from_millis(250);
+
+/// The most bytes a read or write capped at `rate` bytes a second moves at once: a quarter second's worth, and no
+/// less than [`MIN_PIECE`]. Each piece is paid for before it moves, so a quarter second keeps a piece from bursting
+/// past the cap over a few seconds, even at a cap of a few hundred KiB/s.
+pub fn piece(rate: u64) -> usize {
+    let fits = u128::from(rate) * PIECE.as_nanos() / NS;
+    usize::try_from(fits).unwrap_or(usize::MAX).max(MIN_PIECE)
+}
 
 /// The bytes a copy capped at `rate` bytes a second asks the kernel for at once, at most `most`: the largest power of
-/// two no more than a quarter second at that rate, and no less than [`MIN_COPY_CHUNK`]. A power of two from the start
-/// of the file keeps each chunk aligned to every block size up to its own, so a filesystem that clones blocks still
-/// can; a quarter second keeps one chunk from bursting past the cap over a few seconds.
+/// two no more than a [`piece`]. A power of two from the start of the file keeps each chunk aligned to every block
+/// size up to its own, so a filesystem that clones blocks still can.
 pub fn copy_chunk(rate: u64, most: usize) -> usize {
-    let fits = u128::from(rate) * COPY_SHARE.as_nanos() / NS;
-    let fits = usize::try_from(fits).unwrap_or(usize::MAX).max(1);
+    let fits = piece(rate);
     let pow = 1usize << (usize::BITS - 1 - fits.leading_zeros());
-    pow.clamp(MIN_COPY_CHUNK.min(most), most)
+    pow.clamp(MIN_PIECE.min(most), most)
+}
+
+/// A fake clock for tests with several threads: time moves on only once every thread it runs is asleep, to the
+/// earliest time one of them wakes. So each thread sees time stand still while it works, and a test's result is
+/// the same however the threads are scheduled.
+#[cfg(test)]
+pub(crate) mod lockstep {
+    use std::sync::{Arc, Condvar, Mutex, PoisonError};
+    use std::time::Duration;
+
+    use super::{Clock, nanos};
+
+    #[derive(Default)]
+    struct State {
+        now: u64,
+        running: usize,
+        /// Each thread asleep: when it wakes, and its ticket.
+        asleep: Vec<(u64, u64)>,
+        woken: Vec<u64>,
+        tickets: u64,
+    }
+
+    #[derive(Default)]
+    pub(crate) struct Lockstep {
+        state: Mutex<State>,
+        woke: Condvar,
+    }
+
+    impl Lockstep {
+        pub(crate) fn new() -> Arc<Lockstep> {
+            Arc::default()
+        }
+
+        /// Runs `f` on a thread of its own on this clock: time doesn't move on while it works.
+        pub(crate) fn spawn<T: Send + 'static>(
+            self: &Arc<Self>,
+            f: impl FnOnce() -> T + Send + 'static,
+        ) -> std::thread::JoinHandle<T> {
+            self.lock().running += 1;
+            let clock = self.clone();
+            std::thread::spawn(move || {
+                struct Done(Arc<Lockstep>);
+                impl Drop for Done {
+                    fn drop(&mut self) {
+                        let mut state = self.0.lock();
+                        state.running -= 1;
+                        self.0.advance(&mut state);
+                    }
+                }
+                let _done = Done(clock);
+                f()
+            })
+        }
+
+        fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+            self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// Once every thread is asleep, moves time on to the earliest wake and wakes every thread due.
+        fn advance(&self, state: &mut State) {
+            if state.running > 0 || state.asleep.is_empty() {
+                return;
+            }
+            let next = state.asleep.iter().map(|(at, _)| *at).min().expect("one");
+            state.now = state.now.max(next);
+            let now = state.now;
+            let (due, later) = state.asleep.drain(..).partition(|(at, _)| *at <= now);
+            state.asleep = later;
+            for (_, ticket) in due {
+                state.running += 1;
+                state.woken.push(ticket);
+            }
+            self.woke.notify_all();
+        }
+    }
+
+    impl Clock for Lockstep {
+        fn now(&self) -> u64 {
+            self.lock().now
+        }
+
+        fn sleep(&self, d: Duration) {
+            let mut state = self.lock();
+            let ticket = state.tickets;
+            state.tickets += 1;
+            let at = state.now + nanos(d).max(1);
+            state.asleep.push((at, ticket));
+            state.running -= 1;
+            self.advance(&mut state);
+            loop {
+                if let Some(i) = state.woken.iter().position(|t| *t == ticket) {
+                    state.woken.swap_remove(i);
+                    return;
+                }
+                state = self
+                    .woke
+                    .wait(state)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -526,7 +781,7 @@ mod tests {
         let bucket = capped(10);
         let clock = Fake::new();
         // 10 MiB at 10 MiB/s is a second, less the burst.
-        bucket.take(10 * MIB, &clock, &|| false);
+        assert!(bucket.take(10 * MIB, &clock, &|| false));
         assert_eq!(clock.now(), 900 * MS);
         assert!(clock.slept.borrow().iter().all(|d| *d <= RECHECK));
         assert_eq!(bucket.waited(), 1);
@@ -539,12 +794,14 @@ mod tests {
             .at
             .borrow_mut()
             .push((1_400 * MS, Box::new(|| stopped.set(true))));
-        bucket.take(100 * MIB, &clock, &|| stopped.get());
+        assert!(!bucket.take(100 * MIB, &clock, &|| stopped.get()));
         assert!(
             clock.now() <= 1_400 * MS + nanos(RECHECK),
             "{}",
             clock.now()
         );
+        // What it didn't wait for is given back: the next charge owes nothing of it.
+        assert_eq!(bucket.charge(MIB, clock.now()), None);
     }
 
     #[test]
@@ -565,8 +822,41 @@ mod tests {
         let bucket = capped(10);
         // 10 MiB charged for a chunk, of which the copy moved half a MiB.
         assert!(bucket.charge(10 * MIB, 0).is_some());
-        bucket.refund(19 * MIB / 2);
+        bucket.refund(19 * MIB / 2, 0, bucket.epoch());
         assert_eq!(bucket.charge(MIB / 2, 0), None, "within the burst again");
+    }
+
+    #[test]
+    fn a_refund_gives_back_only_time_still_to_come() {
+        let bucket = capped(1);
+        let epoch = bucket.epoch();
+        // 2 MiB at 1 MiB/s is paid for at 2 s; half a MiB of it is given back at 1.9 s, when only 0.1 s is still to
+        // come.
+        assert!(bucket.charge(2 * MIB, 0).is_some());
+        bucket.refund(MIB / 2, 1_900 * MS, epoch);
+        assert_eq!(bucket.paid_until.load(Ordering::Relaxed), 1_900 * MS);
+        // Charged before the bucket was capped afresh, nothing is given back.
+        bucket.set_rate(None, 2 * SEC);
+        bucket.set_rate(Some(MIB), 2 * SEC);
+        assert!(bucket.charge(MIB, 2 * SEC).is_some());
+        bucket.refund(MIB, 2 * SEC, epoch);
+        assert_eq!(bucket.paid_until.load(Ordering::Relaxed), 3 * SEC);
+    }
+
+    #[test]
+    fn uncapping_forgets_what_was_charged_at_the_old_rate() {
+        // 4 MiB charged at 1 MiB/s, uncapped at 0.1 s, then capped at 100 MiB/s at 0.2 s: a MiB then fits the burst,
+        // rather than waiting out the 3.7 s still owed at the old rate.
+        let bucket = capped(1);
+        let mut owed = bucket.charge(4 * MIB, 0).expect("over the burst");
+        bucket.set_rate(None, 100 * MS);
+        bucket.set_rate(Some(100 * MIB), 200 * MS);
+        assert_eq!(bucket.charge(MIB, 200 * MS), None);
+        assert_eq!(
+            owed.poll(&bucket, 200 * MS),
+            None,
+            "a wait from before ends"
+        );
     }
 
     #[test]
@@ -576,7 +866,10 @@ mod tests {
         assert_eq!(copy_chunk(200 * MIB, most), 32 << 20);
         assert_eq!(copy_chunk(100 * MIB, most), 16 << 20);
         assert_eq!(copy_chunk(50 * MIB, most), 8 << 20);
-        assert_eq!(copy_chunk(MIB, most), 1 << 20, "never under a MiB");
+        assert_eq!(copy_chunk(MIB, most), 256 << 10);
+        assert_eq!(copy_chunk(MIB / 8, most), 64 << 10, "never under 64 KiB");
         assert_eq!(copy_chunk(400 * MIB, 4096), 4096, "never over the most");
+        assert_eq!(piece(MIB), 256 << 10);
+        assert_eq!(piece(MIB / 8), 64 << 10);
     }
 }

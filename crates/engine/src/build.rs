@@ -288,8 +288,7 @@ impl<'a> Hashing<'a> {
 impl Read for Hashing<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut file = self.file;
-        let n = file.read(buf)?;
-        self.tally.read(n);
+        let n = self.tally.read_from(&mut file, buf)?;
         let end = self.pos + n as u64;
         if self.pos <= self.hashed && end > self.hashed {
             self.sha256

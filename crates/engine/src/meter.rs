@@ -3,8 +3,18 @@
 //!
 //! Counting is a relaxed atomic add on a buffer already in hand: no copy, syscall or lock is added to a read or a
 //! write. A [`Tally`] is resolved once, for a Job and a Root, before any byte moves, and every count goes through
-//! [`Tally::read`] or [`Tally::wrote`]: that is where a Root's byte-rate caps ([`crate::cap`]) take their tokens.
-//! Under `unthrottled`, where a Root's buckets have no rate, that costs one relaxed load more and touches no bucket.
+//! a Tally: that is where a Root's byte-rate caps ([`crate::cap`]) take their tokens. Under `unthrottled`, where a
+//! Root's buckets have no rate, that costs one relaxed load more and touches no bucket.
+//!
+//! Capped, a read or write is paid for before it is made ([`Tally::read_from`], [`Tally::write_to`] and the readers
+//! and writers built on them), a piece of at most a quarter second at the cap at a time, and what it didn't move is
+//! given back: so no thread has bytes in flight the cap hasn't let through. A copy's chunk is paid for in its
+//! source's read cap and its destination's write cap at once ([`crate::cap::take_both`]).
+//!
+//! A cancel stops only the capped I/O under [`Interruptible`], work the Job drops whole when cancelled: it fails with
+//! [`Cancelled`] and gives back what it didn't wait for. Everything else a cancelled Job still does, settling or
+//! rolling back what it began, waits for its caps as before: a cancel never lets bytes past a cap, nor leaves the
+//! next Jobs a debt to pay.
 //!
 //! A Tally also holds its Root's shared readers pool (ADR 0022), when the Service shares one: every Job-time read of a
 //! file of the Root takes one permit of it for that file, through [`Tally::reader`], the first read through a
@@ -23,7 +33,7 @@ use std::time::{Duration, Instant};
 
 use title_select_api::{Rates, Workers};
 
-use crate::cap::{Bucket, Caps, Clock, Monotonic, copy_chunk};
+use crate::cap::{Bucket, Caps, Clock, Monotonic, copy_chunk, piece};
 use crate::pool::{OwnedPermit, Pool};
 
 /// The limits every Job shares on each Root, as the Service sets them.
@@ -287,42 +297,210 @@ impl Sinks {
         bucket.capped().then_some(bucket)
     }
 
-    /// Charges `n` bytes to `bucket` and waits until they are paid for: not while this thread holds the store's
-    /// writer, which other Jobs may be waiting for, and no longer once the Job is cancelled.
-    #[cold]
-    fn pay(&self, bucket: &Bucket, n: u64) {
-        let clock = Monotonic;
-        let Some(debt) = bucket.charge(n, clock.now()) else {
-            return;
-        };
-        if NO_WAITS.get() > 0 {
-            return;
+    /// The clock the Root's caps wait by.
+    fn clock(&self) -> &dyn Clock {
+        match &self.caps {
+            Some(caps) => caps.clock(),
+            None => &Monotonic,
         }
-        bucket.wait(debt, &clock, &|| self.job.cancelled());
+    }
+
+    /// Whether this thread's I/O for the Job stops for its cancel: only under [`Interruptible`], and not while the
+    /// thread holds the store's writer.
+    fn interruptible(&self) -> bool {
+        INTERRUPTIBLE.get() > 0 && NO_WAITS.get() == 0
+    }
+
+    /// Whether a cancel stops this thread's I/O for the Job now.
+    fn stopped(&self) -> bool {
+        self.interruptible() && self.job.cancelled()
+    }
+
+    /// Charges `n` bytes to `bucket` before they move, and waits until they are paid for: not while this thread holds
+    /// the store's writer, which other Jobs may be waiting for. Under [`Interruptible`], once the Job is cancelled,
+    /// nothing is charged, or what was not waited for is given back, and the bytes may not move: [`Cancelled`].
+    #[cold]
+    fn pay(&self, bucket: &Bucket, n: u64) -> io::Result<()> {
+        if self.stopped() {
+            return Err(cancelled());
+        }
+        let clock = self.clock();
+        let epoch = bucket.epoch();
+        let Some(debt) = bucket.charge(n, clock.now()) else {
+            return Ok(());
+        };
+        if NO_WAITS.get() > 0 || bucket.wait(debt, clock, &|| self.stopped()) {
+            return Ok(());
+        }
+        bucket.refund(n, clock.now(), epoch);
+        Err(cancelled())
+    }
+
+    /// [`Sinks::pay`], for `n` bytes going through both `a` and `b` at once: a copy's chunk.
+    #[cold]
+    fn pay_both(&self, a: &Bucket, b: &Bucket, n: u64) -> io::Result<()> {
+        if self.stopped() {
+            return Err(cancelled());
+        }
+        if NO_WAITS.get() > 0 {
+            let now = self.clock().now();
+            let _ = (a.charge(n, now), b.charge(n, now));
+            return Ok(());
+        }
+        match crate::cap::take_both(a, b, n, self.clock(), &|| self.stopped()) {
+            true => Ok(()),
+            false => Err(cancelled()),
+        }
+    }
+
+    /// Charges `n` bytes that have already moved through `bucket`, and waits until they are paid for, as
+    /// [`Sinks::pay`] does; under [`Interruptible`] once the Job is cancelled, they are not charged.
+    #[cold]
+    fn pay_after(&self, bucket: &Bucket, n: u64) {
+        let _ = self.pay(bucket, n);
+    }
+
+    /// Moves at most a piece of `want` bytes through `bucket` by `io`, paid for before it moves; what `io` didn't
+    /// move is given back.
+    #[inline(never)]
+    fn capped_io(
+        &self,
+        bucket: &Bucket,
+        want: usize,
+        io: impl FnOnce(usize) -> io::Result<usize>,
+    ) -> io::Result<usize> {
+        if want == 0 {
+            return io(0);
+        }
+        let len = want.min(bucket.rate().map_or(want, piece));
+        let epoch = bucket.epoch();
+        self.pay(bucket, len as u64)?;
+        let moved = io(len);
+        let n = moved.as_ref().map_or(0, |n| *n);
+        if n < len {
+            bucket.refund((len - n) as u64, self.clock().now(), epoch);
+        }
+        moved
     }
 }
 
+thread_local! {
+    /// How many [`Interruptible`]s this thread is under, and whether a cancel stopped I/O under them.
+    static INTERRUPTIBLE: Cell<usize> = const { Cell::new(0) };
+    static INTERRUPTED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// While held, a cancel of the Job stops this thread's capped reads, writes and copies for it: each fails with
+/// [`Cancelled`] rather than wait for a cap, within a recheck of the cap. Held only around work the Job can drop
+/// halfway, as a Build's staging of a file it then removes. Everything else, as what settles or rolls back work
+/// begun, goes on waiting for its caps after a cancel: a cancel never lets anything past a cap, nor leaves a debt.
+#[must_use]
+pub struct Interruptible(std::marker::PhantomData<*const ()>);
+
+impl Interruptible {
+    pub fn new() -> Interruptible {
+        if INTERRUPTIBLE.get() == 0 {
+            INTERRUPTED.set(false);
+        }
+        INTERRUPTIBLE.set(INTERRUPTIBLE.get() + 1);
+        Interruptible(std::marker::PhantomData)
+    }
+
+    /// Whether a cancel stopped I/O under it.
+    pub fn interrupted(&self) -> bool {
+        INTERRUPTED.get()
+    }
+}
+
+impl Default for Interruptible {
+    fn default() -> Self {
+        Interruptible::new()
+    }
+}
+
+impl Drop for Interruptible {
+    fn drop(&mut self) {
+        INTERRUPTIBLE.set(INTERRUPTIBLE.get() - 1);
+    }
+}
+
+/// Why a read, write or copy under [`Interruptible`] did not happen: you cancelled its Job.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("you cancelled the job")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+fn cancelled() -> io::Error {
+    INTERRUPTED.set(true);
+    io::Error::other(Cancelled)
+}
+
+/// Whether `e` is a read, write or copy stopped by a cancel ([`Cancelled`]).
+pub fn is_cancelled(e: &io::Error) -> bool {
+    e.get_ref().is_some_and(|e| e.is::<Cancelled>())
+}
+
 impl Tally {
-    /// Counts `n` payload bytes read, once the Root's read cap, if any, lets them through.
+    /// Counts `n` payload bytes read, once the Root's read cap, if any, lets them through. A read that can be paid for
+    /// before it moves goes through [`Tally::read_from`] instead.
     #[inline]
     pub fn read(&self, n: usize) {
         if let Some(sinks) = &self.0 {
             if let Some(bucket) = sinks.capped(Way::Read) {
-                sinks.pay(bucket, n as u64);
+                sinks.pay_after(bucket, n as u64);
             }
             count(&sinks.flow, |s| Slot::add(&s.read, n as u64));
         }
     }
 
-    /// Counts `n` bytes written, once the Root's write cap, if any, lets them through.
+    /// Counts `n` bytes written, once the Root's write cap, if any, lets them through. A write that can be paid for
+    /// before it moves goes through [`Tally::write_to`] instead.
     #[inline]
     pub fn wrote(&self, n: usize) {
         if let Some(sinks) = &self.0 {
             if let Some(bucket) = sinks.capped(Way::Write) {
-                sinks.pay(bucket, n as u64);
+                sinks.pay_after(bucket, n as u64);
             }
             count(&sinks.flow, |s| Slot::add(&s.written, n as u64));
         }
+    }
+
+    /// Reads from `inner` into `buf`, counting the payload bytes read. Under the Root's read cap, it reads at most a
+    /// piece of the cap at once ([`piece`]), once the cap lets it through. Uncapped, it costs a read and one relaxed
+    /// load more.
+    #[inline]
+    pub fn read_from<R: Read + ?Sized>(&self, inner: &mut R, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(sinks) = &self.0 else {
+            return inner.read(buf);
+        };
+        let n = match sinks.capped(Way::Read) {
+            None => inner.read(buf)?,
+            Some(bucket) => {
+                sinks.capped_io(bucket, buf.len(), |len| inner.read(&mut buf[..len]))?
+            }
+        };
+        count(&sinks.flow, |s| Slot::add(&s.read, n as u64));
+        Ok(n)
+    }
+
+    /// Writes `buf` to `inner`, counting the bytes written, as [`Tally::read_from`] reads.
+    #[inline]
+    pub fn write_to<W: Write + ?Sized>(&self, inner: &mut W, buf: &[u8]) -> io::Result<usize> {
+        let Some(sinks) = &self.0 else {
+            return inner.write(buf);
+        };
+        let n = match sinks.capped(Way::Write) {
+            None => inner.write(buf)?,
+            Some(bucket) => sinks.capped_io(bucket, buf.len(), |len| inner.write(&buf[..len]))?,
+        };
+        count(&sinks.flow, |s| Slot::add(&s.written, n as u64));
+        Ok(n)
     }
 
     /// Counts `n` bytes another process read, such as chdman, which no cap holds back.
@@ -357,27 +535,14 @@ impl Tally {
         }))
     }
 
+    /// The bucket bytes going `way` are charged to, while it caps them.
+    fn bucket(&self, way: Way) -> Option<&Bucket> {
+        self.0.as_ref()?.capped(way)
+    }
+
     /// The rate of this Root's cap on bytes going `way`, while it caps them.
     fn rate(&self, way: Way) -> Option<u64> {
-        self.0.as_ref()?.capped(way)?.rate()
-    }
-
-    /// Charges `n` bytes going `way` before they move, and waits until they are paid for.
-    fn prepay(&self, way: Way, n: u64) {
-        if let Some(sinks) = &self.0
-            && let Some(bucket) = sinks.capped(way)
-        {
-            sinks.pay(bucket, n);
-        }
-    }
-
-    /// Gives back `n` bytes going `way` charged but not moved.
-    fn refund(&self, way: Way, n: u64) {
-        if let Some(sinks) = &self.0
-            && let Some(bucket) = sinks.capped(way)
-        {
-            bucket.refund(n);
-        }
+        self.bucket(way)?.rate()
     }
 
     /// Counts one file whose payloads were read.
@@ -457,7 +622,7 @@ struct JobShared {
     readers: AtomicUsize,
     hashers: AtomicUsize,
     chdman: AtomicUsize,
-    /// Set once the Job is asked to stop: none of its reads or writes waits on a cap after that.
+    /// Set once the Job is asked to stop: its reads, writes and copies under [`Interruptible`] stop then.
     cancelled: AtomicBool,
     /// The pools its readers and hash workers share with other Jobs, once it reads through them.
     pools: std::sync::OnceLock<(Arc<Pool>, Arc<Pool>)>,
@@ -513,8 +678,9 @@ impl Meter {
         let _ = self.root_limits.set(limits);
     }
 
-    /// Ends every wait of Job `id` on a cap, now and from now on, once it is asked to stop: it reaches its next safe
-    /// point within a recheck of the cap.
+    /// Stops Job `id`'s capped reads, writes and copies under [`Interruptible`], now and from now on, once it is
+    /// asked to stop: each waiting on a cap fails with [`Cancelled`] within a recheck of the cap, and gives back what
+    /// it didn't wait for. Its other reads and writes, which settle what it began, go on within its caps.
     pub fn cancel(&self, id: i64) {
         if let Some(job) = self
             .jobs
@@ -794,7 +960,7 @@ impl Window {
     }
 }
 
-/// A writer that counts every byte written through it.
+/// A writer that counts every byte written through it, each write paid for before it is made ([`Tally::write_to`]).
 pub struct Metered<'t, W> {
     inner: W,
     tally: &'t Tally,
@@ -812,9 +978,7 @@ impl<'t, W> Metered<'t, W> {
 
 impl<W: Write> Write for Metered<'_, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = self.inner.write(buf)?;
-        self.tally.wrote(n);
-        Ok(n)
+        self.tally.write_to(&mut self.inner, buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -828,7 +992,7 @@ impl<W: Seek> Seek for Metered<'_, W> {
     }
 }
 
-/// A reader that counts every byte read through it: wrapped round a file, the bytes read from that file. Its first
+/// A reader that counts every byte read through it, each read paid for before it is made ([`Tally::read_from`]): wrapped round a file, the bytes read from that file. Its first
 /// read takes a permit of the Root's shared readers, held until it drops.
 pub struct Reading<'t, R> {
     inner: R,
@@ -855,9 +1019,7 @@ impl<R: Read> Read for Reading<'_, R> {
         if self.permit.is_none() {
             self.permit = Some(self.tally.reader());
         }
-        let n = self.inner.read(buf)?;
-        self.tally.read(n);
-        Ok(n)
+        self.tally.read_from(&mut self.inner, buf)
     }
 }
 
@@ -893,11 +1055,10 @@ impl<R: Read> Read for Switched<'_, R> {
         if self.permit.is_none() {
             self.permit = Some(self.tally.reader());
         }
-        let n = self.inner.read(buf)?;
-        if self.on.get() {
-            self.tally.read(n);
+        match self.on.get() {
+            true => self.tally.read_from(&mut self.inner, buf),
+            false => self.inner.read(buf),
         }
-        Ok(n)
     }
 }
 
@@ -935,8 +1096,10 @@ pub(crate) enum InKernel {
 /// Under a cap, each chunk is charged before it moves, as read from `from`'s Root and as written into `to`'s, even
 /// where the filesystem clones it: a clone can't be told from a copy. A capped chunk is smaller where the cap is
 /// low ([`copy_chunk`]) and starts at a multiple of its size, so a filesystem that clones blocks still can; it is
-/// charged no more than what is left of the file, so that a small file waits for its own bytes only. Uncapped, every
-/// chunk is `chunk` bytes, and nothing is charged.
+/// charged no more than what is left of the file, so that a small file waits for its own bytes only. A chunk moves
+/// only once both caps let it through at once ([`crate::cap::take_both`]); one the kernel refuses is carried, paid
+/// for, into the fallback's first chunk. Under [`Interruptible`], a cancel stops the copy with [`Cancelled`] before
+/// its next chunk. Uncapped, every chunk is `chunk` bytes, and nothing is charged.
 pub(crate) fn copy_with(
     (from, src): (&File, &Tally),
     (to, dst): (&File, &Tally),
@@ -970,37 +1133,56 @@ pub(crate) fn copy_with(
         // Up to the next multiple of a chunk's size, so that the chunks after it start at one.
         let mut ask = copy_chunk(rate, chunk);
         let aligned = 1u64.checked_shl(at.trailing_zeros()).unwrap_or(u64::MAX);
-        if aligned < ask as u64 && aligned >= crate::cap::MIN_COPY_CHUNK as u64 {
+        if aligned < ask as u64 && aligned >= crate::cap::MIN_PIECE as u64 {
             ask = aligned as usize;
         }
         let left = end.saturating_sub(at);
         (ask, left.min(ask as u64))
     };
-    let pay = |n: u64| {
-        src.prepay(Way::Read, n);
-        dst.prepay(Way::Write, n);
+    // Pays for a chunk of `n` bytes before it moves, at once in both caps: the epochs it was charged in, to settle it.
+    let pay = |n: u64| -> io::Result<Paid> {
+        let (a, b) = (src.bucket(Way::Read), dst.bucket(Way::Write));
+        let paid = Paid {
+            n,
+            epochs: [a.map_or(0, Bucket::epoch), b.map_or(0, Bucket::epoch)],
+        };
+        match (a, b, src.0.as_deref(), dst.0.as_deref()) {
+            (Some(a), Some(b), Some(sinks), _) => sinks.pay_both(a, b, n)?,
+            (Some(a), None, Some(sinks), _) => sinks.pay(a, n)?,
+            (None, Some(b), _, Some(sinks)) => sinks.pay(b, n)?,
+            _ => {}
+        }
+        Ok(paid)
     };
-    // Counts the `n` bytes a chunk charged `paid` for moved, settling the difference.
-    let moved = |paid: u64, n: u64| {
-        if n < paid {
-            src.refund(Way::Read, paid - n);
-            dst.refund(Way::Write, paid - n);
-        } else if n > paid {
-            pay(n - paid);
+    // Counts the `n` bytes a chunk `paid` for moved, settling the difference.
+    let moved = |paid: Paid, n: u64| {
+        if n < paid.n {
+            let back = paid.n - n;
+            if let (Some(b), Some(sinks)) = (src.bucket(Way::Read), &src.0) {
+                b.refund(back, sinks.clock().now(), paid.epochs[0]);
+            }
+            if let (Some(b), Some(sinks)) = (dst.bucket(Way::Write), &dst.0) {
+                b.refund(back, sinks.clock().now(), paid.epochs[1]);
+            }
+        } else if n > paid.n {
+            // The file grew since it was looked at: the bytes past its end then are paid for once they've moved.
+            for (tally, way) in [(src, Way::Read), (dst, Way::Write)] {
+                if let (Some(b), Some(sinks)) = (tally.bucket(way), &tally.0) {
+                    sinks.pay_after(b, n - paid.n);
+                }
+            }
         }
         src.counted(Way::Read, n);
         dst.counted(Way::Write, n);
     };
-    loop {
-        let (ask, paid) = next(copied);
-        pay(paid);
+    // A chunk paid for that the kernel refused, carried into the first chunk of the fallback rather than paid twice.
+    let mut carried = loop {
+        let (ask, n) = next(copied);
+        let paid = pay(n)?;
         match kernel(from, to, ask)? {
             // A first call that copies nothing may be a filesystem that copies nothing this way, as overlayfs once
             // did, rather than an empty file: the copy below tells them apart. Later, nothing is the end.
-            InKernel::Copied(0) if copied == 0 => {
-                moved(paid, 0);
-                break;
-            }
+            InKernel::Copied(0) if copied == 0 => break Some((ask, paid)),
             InKernel::Copied(0) => {
                 moved(paid, 0);
                 return Ok(copied);
@@ -1009,17 +1191,19 @@ pub(crate) fn copy_with(
                 moved(paid, n as u64);
                 copied += n as u64;
             }
-            InKernel::Refused => {
-                moved(paid, 0);
-                break;
-            }
+            InKernel::Refused => break Some((ask, paid)),
         }
-    }
+    };
     // From where the kernel stopped, if it copied any: each chunk advanced both offsets. `io::copy` between two files
     // keeps std's own kernel copies, `sendfile` among them, before it falls back to a buffer.
     loop {
-        let (ask, paid) = next(copied);
-        pay(paid);
+        let (ask, paid) = match carried.take() {
+            Some(carried) => carried,
+            None => {
+                let (ask, n) = next(copied);
+                (ask, pay(n)?)
+            }
+        };
         let reader = from;
         let mut writer = to;
         let n = io::copy(&mut reader.take(ask as u64), &mut writer)?;
@@ -1029,6 +1213,13 @@ pub(crate) fn copy_with(
         }
         copied += n;
     }
+}
+
+/// A chunk of a copy paid for: its bytes, and the epoch of each cap they were charged in.
+#[derive(Clone, Copy)]
+struct Paid {
+    n: u64,
+    epochs: [u64; 2],
 }
 
 /// One `copy_file_range` of up to `chunk` bytes, from and to each file's offset.
@@ -1538,9 +1729,22 @@ mod tests {
             asked[0], COPY_CHUNK,
             "uncapped, a copy keeps its full chunks"
         );
+        // Reads and writes made through a tally are whole, and a cancel doesn't reach them: they check nothing but
+        // the cap.
+        let _interruptible = Interruptible::new();
+        meter.cancel(1);
+        let mut buf = vec![0; 8 << 20];
+        let read = Reading::new(&[7u8; 8 << 20][..], &tally)
+            .read(&mut buf)
+            .unwrap();
+        let wrote = Metered::new(io::sink(), &tally).write(&buf).unwrap();
+        assert_eq!((read, wrote), (8 << 20, 8 << 20));
         assert!(caps.read.untouched() && caps.write.untouched());
         assert_eq!((caps.read.waited(), caps.write.waited()), (0, 0));
-        assert_eq!(meter.root("roms").read, (10_000 << 20) + 100_003);
+        assert_eq!(
+            meter.root("roms").read,
+            (10_000 << 20) + 100_003 + (8 << 20)
+        );
     }
 
     #[test]
@@ -1579,27 +1783,341 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_capped_read_waits_and_a_cancel_ends_the_wait_promptly() {
-        // 1 MiB/s: 100 MiB takes about 100 s.
-        let (meter, caps) = capped(Some(MIB), None);
-        let meter = Arc::new(meter);
-        let tally = meter.start(1, workers()).tally(Some("roms"));
-        let reading = std::thread::spawn(move || {
-            let started = std::time::Instant::now();
-            tally.read(100 << 20);
-            started.elapsed()
-        });
-        let waiting = std::time::Instant::now();
-        while caps.read.waited() == 0 {
-            assert!(waiting.elapsed() < Duration::from_secs(30), "it waits");
-            std::thread::sleep(Duration::from_millis(5));
+    use crate::cap::lockstep::Lockstep;
+
+    const SEC: u64 = 1_000_000_000;
+    const MS: u64 = 1_000_000;
+
+    /// Caps as `capped` sets them, waiting by a clock that moves on only once every thread on it is asleep.
+    fn stepped(read: Option<u64>, write: Option<u64>) -> (Arc<Meter>, Arc<Caps>, Arc<Lockstep>) {
+        let clock = Lockstep::new();
+        let caps = Arc::new(Caps::with_clock(clock.clone()));
+        caps.set(read, write);
+        let meter = Meter::default();
+        meter.share_limits(Arc::new(CapAll(caps.clone())));
+        (Arc::new(meter), caps, clock)
+    }
+
+    /// What moved, and when, by the fake clock.
+    type Log = Arc<Mutex<Vec<(u64, u64)>>>;
+
+    /// The most bytes `log` holds within any `window` nanoseconds.
+    fn most_within(log: &Log, window: u64) -> u64 {
+        let log = log.lock().unwrap();
+        log.iter()
+            .map(|&(start, _)| {
+                log.iter()
+                    .filter(|(t, _)| (start..start + window).contains(t))
+                    .map(|(_, n)| n)
+                    .sum::<u64>()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn moved_within(log: &Log, from: u64, to: u64) -> u64 {
+        let log = log.lock().unwrap();
+        log.iter()
+            .filter(|(t, _)| (from..to).contains(t))
+            .map(|(_, n)| n)
+            .sum()
+    }
+
+    /// A file of `len` bytes, which logs when each read of it is made and what it asks for.
+    struct Logged {
+        clock: Arc<Lockstep>,
+        log: Log,
+        left: u64,
+    }
+
+    impl Read for Logged {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.left as usize);
+            self.log.lock().unwrap().push((self.clock.now(), n as u64));
+            self.left -= n as u64;
+            Ok(n)
         }
+    }
+
+    #[test]
+    fn concurrent_readers_read_nothing_the_cap_has_not_let_through() {
+        // Sixteen readers of 64 KiB at 1 MiB/s: each read is paid for before it is made, so over any 5 s no more than
+        // 5 MiB and the burst are read, where reading first and paying after reads one buffer of each reader more.
+        let (meter, _caps, clock) = stepped(Some(MIB), None);
+        let job = meter.start(1, workers());
+        let log = Log::default();
+        let readers: Vec<_> = (0..16)
+            .map(|_| {
+                let (tally, clock, log) = (job.tally(Some("roms")), clock.clone(), log.clone());
+                clock.clone().spawn(move || {
+                    let file = Logged {
+                        clock: clock.clone(),
+                        log,
+                        left: u64::MAX,
+                    };
+                    let mut reading = Reading::new(file, &tally);
+                    let mut buf = vec![0; 64 << 10];
+                    while clock.now() < 12 * SEC {
+                        assert!(reading.read(&mut buf).unwrap() > 0);
+                    }
+                })
+            })
+            .collect();
+        for r in readers {
+            r.join().unwrap();
+        }
+        let most = most_within(&log, 5 * SEC);
+        assert!(most * 10 <= 5 * MIB * 11, "{most} bytes in 5 s");
+        let all = moved_within(&log, 0, 12 * SEC);
+        assert!(all * 10 >= 12 * MIB * 9, "only {all} bytes in 12 s");
+    }
+
+    #[test]
+    fn a_capped_read_moves_at_most_a_quarter_second_of_the_cap_at_once() {
+        let (meter, _caps, clock) = stepped(Some(MIB), None);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let log = Log::default();
+        let file = Logged {
+            clock: clock.clone(),
+            log: log.clone(),
+            left: 100,
+        };
+        clock
+            .spawn(move || {
+                let mut reading = Reading::new(file, &tally);
+                let mut buf = vec![0; 1 << 20];
+                assert_eq!(reading.read(&mut buf).unwrap(), 100, "a short read");
+                assert_eq!(reading.read(&mut buf).unwrap(), 0);
+            })
+            .join()
+            .unwrap();
+        assert_eq!(log.lock().unwrap()[0].1, 100);
+        let (meter, caps, clock) = stepped(Some(MIB), None);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let log = Log::default();
+        let file = Logged {
+            clock: clock.clone(),
+            log: log.clone(),
+            left: u64::MAX,
+        };
+        clock
+            .spawn(move || {
+                let mut buf = vec![0; 1 << 20];
+                Reading::new(file, &tally).read(&mut buf).unwrap()
+            })
+            .join()
+            .unwrap();
+        // A quarter second's piece, of which the burst lets the first tenth through at once.
+        assert_eq!(*log.lock().unwrap(), [(150 * MS, 256 << 10)]);
+        assert!(!caps.read.untouched());
+    }
+
+    #[test]
+    fn a_cancel_stops_staging_within_a_recheck_and_leaves_no_debt_to_the_next_job() {
+        // A file of 20 MiB read at 1 MiB/s by a Job that can drop it, cancelled 2 s in.
+        let (meter, caps, clock) = stepped(Some(MIB), None);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let log = Log::default();
+        let file = Logged {
+            clock: clock.clone(),
+            log: log.clone(),
+            left: 20 * MIB,
+        };
+        let (reader, canceller) = clock
+            .clone()
+            .spawn({
+                let (clock, meter) = (clock.clone(), meter.clone());
+                move || {
+                    let reader = clock.clone().spawn(move || {
+                        let interruptible = Interruptible::new();
+                        let mut reading = Reading::new(file, &tally);
+                        let mut buf = vec![0; 64 << 10];
+                        loop {
+                            match reading.read(&mut buf) {
+                                Ok(0) => panic!("it read the whole file"),
+                                Ok(_) => {}
+                                Err(e) => {
+                                    assert!(is_cancelled(&e), "{e}");
+                                    assert!(interruptible.interrupted());
+                                    return;
+                                }
+                            }
+                        }
+                    });
+                    let canceller = {
+                        let (clock, meter) = (clock.clone(), meter.clone());
+                        clock.clone().spawn(move || {
+                            clock.sleep(Duration::from_secs(2));
+                            meter.cancel(1);
+                            clock.now()
+                        })
+                    };
+                    (reader, canceller)
+                }
+            })
+            .join()
+            .unwrap();
+        let cancelled = canceller.join().unwrap();
+        reader.join().unwrap();
+        let last = log.lock().unwrap().last().unwrap().0;
+        assert!(last <= cancelled + 100 * MS, "read until {last}");
+        assert!(moved_within(&log, 0, u64::MAX) <= 3 * MIB);
+        // The next Job's first piece goes within the burst the cancelled one already used.
+        let next = meter.start(2, workers()).tally(Some("roms"));
+        let started = clock.now();
+        let file = Logged {
+            clock: clock.clone(),
+            log: log.clone(),
+            left: u64::MAX,
+        };
+        let read_at = clock
+            .clone()
+            .spawn(move || {
+                let read = Reading::new(file, &next).read(&mut [0; 64 << 10]).unwrap();
+                assert_eq!(read, 64 << 10);
+                clock.now()
+            })
+            .join()
+            .unwrap();
+        assert!(
+            read_at - started <= 100 * MS,
+            "waited {} ms",
+            (read_at - started) / MS
+        );
+        assert!(caps.read.waited() > 0);
+    }
+
+    #[test]
+    fn outside_staging_a_cancelled_job_still_waits_for_its_caps() {
+        let (meter, _caps, clock) = stepped(Some(MIB), None);
+        meter.start(1, workers());
         meter.cancel(1);
-        let waited = reading.join().unwrap();
-        // RECHECK is 100 ms; the margin is for a loaded runner.
-        assert!(waited < Duration::from_secs(20), "waited {waited:?}");
-        assert_eq!(meter.root("roms").read, 100 << 20, "counted all the same");
+        let tally = meter.job(1).tally(Some("roms"));
+        let log = Log::default();
+        let file = Logged {
+            clock: clock.clone(),
+            log: log.clone(),
+            left: 4 * MIB,
+        };
+        let done = clock
+            .clone()
+            .spawn(move || {
+                io::copy(&mut Reading::new(file, &tally), &mut io::sink()).unwrap();
+                clock.now()
+            })
+            .join()
+            .unwrap();
+        assert!(done >= 3 * SEC, "4 MiB at 1 MiB/s took {} ms", done / MS);
+    }
+
+    #[test]
+    fn concurrent_copies_move_a_chunk_only_once_both_caps_let_it_through() {
+        // Sixty-four copies from a source read at 8 MiB/s into a destination written at 1 MiB/s, whose write cap goes 3 s
+        // in. Chunks paid for at the source while they waited for the destination must not go through at once then:
+        // paying one and then waiting on the other moves 56 MiB in the 5 s from then.
+        let (meter, caps, clock) = stepped(Some(8 * MIB), Some(MIB));
+        let job = meter.start(1, workers());
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        File::create(&src).unwrap().set_len(1 << 30).unwrap();
+        let log = Log::default();
+        // Spawned from a thread on the clock, so that it doesn't move on before every one is.
+        let spawning = clock.clone();
+        let dir_path = dir.path().to_owned();
+        let logs = log.clone();
+        let (copies, uncap) = spawning
+            .clone()
+            .spawn(move || {
+                let copies: Vec<_> = (0..64)
+                    .map(|i| {
+                        let from = File::open(&src).unwrap();
+                        let to = File::create(dir_path.join(format!("dst{i}"))).unwrap();
+                        let (from_tally, to_tally) =
+                            (job.tally(Some("roms")), job.tally(Some("library")));
+                        let (clock, log) = (clock.clone(), logs.clone());
+                        clock.clone().spawn(move || {
+                            let mut calls = 0;
+                            copy_with(
+                                (&from, &from_tally),
+                                (&to, &to_tally),
+                                COPY_CHUNK,
+                                &mut |_, _, c| {
+                                    calls += 1;
+                                    let now = clock.now();
+                                    if calls > 1 && now >= 10 * SEC {
+                                        return Ok(InKernel::Copied(0));
+                                    }
+                                    log.lock().unwrap().push((now, c as u64));
+                                    Ok(InKernel::Copied(c))
+                                },
+                            )
+                            .unwrap()
+                        })
+                    })
+                    .collect();
+                let uncap = {
+                    let clock = clock.clone();
+                    clock.clone().spawn(move || {
+                        clock.sleep(Duration::from_secs(3));
+                        caps.set(Some(8 * MIB), None);
+                    })
+                };
+                (copies, uncap)
+            })
+            .join()
+            .unwrap();
+        uncap.join().unwrap();
+        for c in copies {
+            c.join().unwrap();
+        }
+        let most = most_within(&log, 5 * SEC);
+        assert!(most * 10 <= 8 * MIB * 5 * 11, "{} MiB in 5 s", most / MIB);
+        let before = moved_within(&log, 0, 3 * SEC);
+        assert!(
+            before <= 3 * MIB + MIB,
+            "{} KiB before the write cap went",
+            before >> 10
+        );
+        let after = moved_within(&log, 4 * SEC, 10 * SEC);
+        assert!(
+            after * 10 >= 8 * MIB * 6 * 9,
+            "only {} MiB after",
+            after / MIB
+        );
+    }
+
+    #[test]
+    fn a_copy_the_kernel_refuses_reaches_its_cap() {
+        // Copies of 256 KiB at 1 MiB/s, each refused by the kernel: the chunk paid for is carried into the fallback.
+        let (meter, _caps, clock) = stepped(Some(MIB), None);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let dir = tempfile::tempdir().unwrap();
+        let (bytes, _, _) = files(dir.path(), 256 << 10);
+        let times = {
+            let clock = clock.clone();
+            let dir = dir.path().to_owned();
+            clock.clone().spawn(move || {
+                (0..9)
+                    .map(|i| {
+                        let from = File::open(dir.join("src")).unwrap();
+                        let to = File::create(dir.join(format!("copy{i}"))).unwrap();
+                        copy_with(
+                            (&from, &tally),
+                            (&to, &tally),
+                            COPY_CHUNK,
+                            &mut |_, _, _| Ok(InKernel::Refused),
+                        )
+                        .unwrap();
+                        clock.now()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        }
+        .join()
+        .unwrap();
+        assert_eq!(std::fs::read(dir.path().join("copy8")).unwrap(), bytes);
+        let rate = 8 * (256 << 10) * SEC / (times[8] - times[0]);
+        assert!(rate * 10 >= MIB * 9, "{} KiB/s", rate >> 10);
     }
 
     #[test]

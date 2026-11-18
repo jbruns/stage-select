@@ -32,7 +32,7 @@ use title_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
-use title_select_engine::meter::{JobMeter, Tally, copy_chunked};
+use title_select_engine::meter::{Interruptible, JobMeter, Metered, Tally, copy_chunked};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -65,8 +65,8 @@ struct Work<'a> {
 enum Failure {
     Item(String),
     Folder(String),
-    /// You cancelled the Build while chdman was making the item's CHD: chdman was stopped, and nothing was put in
-    /// place.
+    /// You cancelled the Build while the item was staged, as while chdman was making its CHD: chdman was stopped, or
+    /// the reads and writes waiting on a byte-rate cap, and nothing was put in place.
     Cancelled,
 }
 
@@ -276,17 +276,16 @@ fn stage_chd(
     let mut buf = vec![0; 1 << 16];
     let _reading = work.scratch.reader();
     loop {
-        let n = built
-            .read(&mut buf)
+        let n = work
+            .scratch
+            .read_from(&mut built, &mut buf)
             .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
         if n == 0 {
             break;
         }
-        work.scratch.read(n);
         hasher.update(&buf[..n]);
-        io::Write::write_all(file, &buf[..n])
+        io::Write::write_all(&mut Metered::new(&mut *file, &work.to), &buf[..n])
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-        work.to.wrote(n);
     }
     work.scratch.file_read();
     work.to.file_written();
@@ -424,17 +423,16 @@ fn verify_found_chd(
         if (work.cancelled)() {
             return Err(Failure::Cancelled);
         }
-        let n = reader
-            .read(&mut buf)
+        let n = work
+            .to
+            .read_from(&mut reader, &mut buf)
             .map_err(|e| Failure::Item(e.to_string()))?;
         if n == 0 {
             break;
         }
-        work.to.read(n);
         hasher.update(&buf[..n]);
-        io::Write::write_all(&mut copy, &buf[..n])
+        io::Write::write_all(&mut Metered::new(&mut copy, &work.scratch), &buf[..n])
             .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
-        work.scratch.wrote(n);
     }
     work.to.file_read();
     work.scratch.file_written();
@@ -462,11 +460,10 @@ pub(super) fn sha256_of(mut file: &File, tally: &Tally) -> io::Result<(String, u
     let mut size = 0;
     let _reading = tally.reader();
     loop {
-        let n = file.read(&mut buf)?;
+        let n = tally.read_from(&mut file, &mut buf)?;
         if n == 0 {
             break;
         }
-        tally.read(n);
         hasher.update(&buf[..n]);
         size += n as u64;
     }
@@ -808,8 +805,9 @@ fn stage_generated(
         }
     };
     let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
-    file.write_all(&bytes).map_err(at)?;
-    work.to.wrote(bytes.len());
+    Metered::new(&mut *file, &work.to)
+        .write_all(&bytes)
+        .map_err(at)?;
     work.to.file_written();
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
@@ -1977,7 +1975,10 @@ impl Store {
                 record_temp(self, folder, &staged_temp(&name), file_id)?;
                 staged_ids.insert(name.clone(), file_id);
                 let staged_path = staging.path().join(&name);
-                match stage(
+                // Staging is dropped whole on a cancel, so a cancel stops its capped reads and writes at once rather
+                // than wait out the caps: whatever failed for it is the cancel.
+                let interruptible = Interruptible::new();
+                let staged = stage(
                     (w.item, w.seq),
                     &mut file,
                     &staged_path,
@@ -1990,7 +1991,15 @@ impl Store {
                     additions.as_ref(),
                     &chd_work,
                     built_at,
-                ) {
+                );
+                let staged = match staged {
+                    Err(Failure::Item(_) | Failure::Folder(_)) if interruptible.interrupted() => {
+                        Err(Failure::Cancelled)
+                    }
+                    staged => staged,
+                };
+                drop(interruptible);
+                match staged {
                     Err(Failure::Cancelled) => {
                         // Nothing of the unit is put in place: its items are left pending, as ones the Build never
                         // got to.

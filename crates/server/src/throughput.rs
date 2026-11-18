@@ -42,7 +42,12 @@ struct Windows {
     total: Option<Window>,
     roots: HashMap<String, Window>,
     jobs: HashMap<i64, Window>,
+    /// Each Job's in each Root it has counted bytes in.
+    job_roots: HashMap<(i64, String), Window>,
 }
+
+/// A Job's rates, in all and in each Root it has counted bytes in.
+type JobRates = (i64, Rates, Vec<(String, Rates)>);
 
 fn window() -> Window {
     Window::new(WINDOW)
@@ -50,7 +55,7 @@ fn window() -> Window {
 
 impl Windows {
     /// Pushes `sample`, taken `at`, and returns the rates it gives; a Job no longer metered is forgotten.
-    fn push(&mut self, at: Instant, sample: &Sample) -> (Rates, Vec<RootRates>, Vec<(i64, Rates)>) {
+    fn push(&mut self, at: Instant, sample: &Sample) -> (Rates, Vec<RootRates>, Vec<JobRates>) {
         let total = self.total.get_or_insert_with(window).push(at, sample.total);
         let roots = sample
             .roots
@@ -67,6 +72,8 @@ impl Windows {
             .collect();
         self.jobs
             .retain(|id, _| sample.jobs.iter().any(|j| j.id == *id));
+        self.job_roots
+            .retain(|(id, _), _| sample.jobs.iter().any(|j| j.id == *id));
         let jobs = sample
             .jobs
             .iter()
@@ -76,7 +83,19 @@ impl Windows {
                     .entry(j.id)
                     .or_insert_with(window)
                     .push(at, j.counted);
-                (j.id, rates)
+                let roots = j
+                    .roots
+                    .iter()
+                    .map(|(root, counted)| {
+                        let rates = self
+                            .job_roots
+                            .entry((j.id, root.clone()))
+                            .or_insert_with(window)
+                            .push(at, *counted);
+                        (root.clone(), rates)
+                    })
+                    .collect();
+                (j.id, rates, roots)
             })
             .collect();
         (total, roots, jobs)
@@ -128,7 +147,7 @@ impl Publisher {
         }
         let moving =
             !sample.jobs.is_empty() || moves(&total) || roots.iter().any(|r| moves(&r.rates));
-        let latest = rates.iter().copied().collect();
+        let latest = rates.iter().map(|(id, rates, _)| (*id, *rates)).collect();
         let was_moving = std::mem::replace(&mut self.moving, moving);
         if !moving {
             // At rest: no rate, no Job, and no CPU use, which would otherwise stay at what it was last.
@@ -146,14 +165,15 @@ impl Publisher {
             .jobs
             .iter()
             .zip(&rates)
-            .map(|(j, (_, rates))| JobLoad {
+            .map(|(j, (_, rates, roots))| JobLoad {
                 job: j.id,
                 rates: *rates,
-                caps: ByteCaps::sum(j.roots.iter().map(|(root, c)| {
+                // The Roots it moves bytes in now, each way, not every Root it has touched.
+                caps: ByteCaps::sum(roots.iter().map(|(root, r)| {
                     (
                         caps.get(root).unwrap_or(&NO_CAPS),
-                        c.read > 0,
-                        c.written > 0,
+                        r.read_bytes_per_s > 0.0,
+                        r.write_bytes_per_s > 0.0,
                     )
                 })),
                 readers: j.readers,
@@ -344,6 +364,63 @@ mod tests {
         assert_eq!(event.roots[0].caps, ByteCaps::default());
         assert_eq!(event.jobs[0].caps, ByteCaps::default());
         assert_eq!(event.caps, ByteCaps::default());
+    }
+
+    #[test]
+    fn a_jobs_caps_are_those_of_the_roots_it_moves_bytes_in_now() {
+        // A Job read the uncapped Root "a", then reads only the capped Root "b": past the window, its cap is "b"'s.
+        let mib = 1u64 << 20;
+        let capped = ByteCaps {
+            read_bytes_per_s: Some(200 * mib),
+            write_bytes_per_s: None,
+        };
+        let caps = BTreeMap::from([("b".to_owned(), capped)]);
+        let read = |n| title_select_engine::meter::Counted {
+            read: n,
+            ..Default::default()
+        };
+        let sample = |a, b| Sample {
+            total: read(a + b),
+            roots: vec![("a".into(), read(a)), ("b".into(), read(b))],
+            jobs: vec![title_select_engine::meter::JobSample {
+                id: 1,
+                counted: read(a + b),
+                roots: vec![("a".into(), read(a)), ("b".into(), read(b))],
+                readers: 1,
+                hashers: 1,
+                chdman: false,
+                ceilings: title_select_engine::ONE_WORKER_EACH,
+                allowance: None,
+            }],
+        };
+        let mut publisher = Publisher::default();
+        let start = Instant::now();
+        let mut next = |ms, a, b| {
+            publisher
+                .next(
+                    start + Duration::from_millis(ms),
+                    &sample(a, b),
+                    None,
+                    Pace::default(),
+                    &caps,
+                )
+                .1
+                .expect("a Job runs")
+                .jobs[0]
+                .caps
+        };
+        next(0, 0, 0);
+        assert_eq!(
+            next(500, 1000, 0),
+            ByteCaps::default(),
+            "it reads only \"a\""
+        );
+        assert_eq!(
+            next(1000, 1000, 1000),
+            ByteCaps::default(),
+            "it reads both, one uncapped"
+        );
+        assert_eq!(next(5000, 1000, 9000), capped, "it reads only \"b\" now");
     }
 
     #[test]
