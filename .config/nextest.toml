@@ -1,0 +1,5 @@
+# CI's profile (`--profile ci`): a flaky test fails the run until it is fixed at its cause, and one run reports every
+# failure. See docs/agents/testing.md.
+[profile.ci]
+retries = 0
+fail-fast = false

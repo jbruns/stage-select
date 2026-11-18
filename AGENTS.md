@@ -25,8 +25,15 @@ The toolchain is pinned in `rust-toolchain.toml`. CI runs exactly these, so run 
 tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar and sha256sum
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
-cargo test --locked
+cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
+cargo test --doc --locked
+cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 ```
+
+Locally, `cargo test --locked` runs the same tests, but its debug fixtures run checks only some of the goldens: run the
+release fixtures command above to check them all. Before writing or changing tests, read `docs/agents/testing.md`.
 
 Tests build their DATs and Source Sets from synthetic fixtures at test time. Never commit ROMs, and never commit a
 real DAT unless its licence permits redistribution.
