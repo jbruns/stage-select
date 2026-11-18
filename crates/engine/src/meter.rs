@@ -787,6 +787,17 @@ impl Meter {
         )
     }
 
+    /// What Job `id` has read and written so far, and for how long it has been metered, leaving it metered; none if
+    /// it isn't metered.
+    pub fn so_far(&self, id: i64) -> Option<Ended> {
+        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let job = jobs.get(&id)?;
+        Some(Ended {
+            counted: job.counted(),
+            duration: job.0.started.elapsed(),
+        })
+    }
+
     /// Stops metering Job `id`, returning what it read and wrote; none if it wasn't metered. What it counted stays in
     /// its Roots' counts and the total; anything still counted for it after this is not.
     pub fn end(&self, id: i64) -> Option<Ended> {

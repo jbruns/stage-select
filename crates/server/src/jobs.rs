@@ -288,23 +288,8 @@ pub async fn run(
                         .flatten()
                 }
             };
-            // Recorded as it ends, so that it keeps its average throughput.
-            let metered = {
-                let store = store.clone();
-                tokio::task::spawn_blocking(move || store.end_metering(id)).await
-            };
-            let job = match metered {
-                Ok(Ok(Some(recorded))) => Some(recorded),
-                Ok(Ok(None)) => job,
-                Ok(Err(err)) => {
-                    eprintln!("title-select: job {id}: cannot record its throughput: {err}");
-                    job
-                }
-                Err(err) => {
-                    eprintln!("title-select: job {id}: cannot record its throughput: {err}");
-                    job
-                }
-            };
+            // Its throughput was recorded as it ended, in the same write.
+            store.end_metering(id);
             if let Some(job) = job {
                 eprintln!("title-select: job {} {}", job.id, job.state.as_str());
                 // Set before the scan's end is announced, so that whoever sees it end sees its follow-up too.

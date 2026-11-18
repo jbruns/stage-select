@@ -150,13 +150,17 @@ impl Store {
             ran
         });
         let ended = match &ran {
-            Ok(Ran::Finished) => self.write(|tx| finish_running(tx, id, JobState::Succeeded, None)),
-            Ok(Ran::Cancelled) => {
-                self.write(|tx| finish_running(tx, id, JobState::Interrupted, Some(CANCELLED)))
+            Ok(Ran::Finished) => {
+                self.write(|tx| finish_running(tx, &self.meter, id, JobState::Succeeded, None))
             }
+            Ok(Ran::Cancelled) => self.write(|tx| {
+                finish_running(tx, &self.meter, id, JobState::Interrupted, Some(CANCELLED))
+            }),
             Err(err) => {
                 let message = err.to_string();
-                self.write(|tx| finish_running(tx, id, JobState::Failed, Some(&message)))
+                self.write(|tx| {
+                    finish_running(tx, &self.meter, id, JobState::Failed, Some(&message))
+                })
             }
         };
         ended?;

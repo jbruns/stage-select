@@ -583,14 +583,16 @@ fn a_builds_written_bytes_are_counted_for_its_job_and_root_and_kept_across_a_res
     // Each is hashed whole again once verified.
     assert!(play.read > written.iter().sum::<u64>());
 
-    let ended = env.store.end_metering(job.id).unwrap().unwrap();
-    let throughput = ended.throughput.unwrap();
+    // Recorded in the write that ended it, so the Job as it ended carries it.
+    let throughput = job.throughput.unwrap();
     assert_eq!(throughput.bytes_written, bytes);
-    assert!(
-        ended.version > job.version,
-        "the recorded Job is published again"
+    assert!(env.store.end_metering(job.id));
+    assert_eq!(
+        env.store.job(job.id).unwrap(),
+        job,
+        "nothing is recorded later"
     );
-    assert_eq!(env.store.end_metering(job.id).unwrap(), None);
+    assert!(!env.store.end_metering(job.id));
 
     let (env, _) = env.restart();
     assert_eq!(env.store.job(job.id).unwrap().throughput, Some(throughput));

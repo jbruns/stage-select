@@ -434,7 +434,7 @@ impl Store {
                 )));
             }
             let selection_id = write_selection(tx, set_id, revision_id, version_id, id, selection)?;
-            finish_running(tx, id, JobState::Succeeded, None)?;
+            finish_running(tx, &self.meter, id, JobState::Succeeded, None)?;
             tx.execute(
                 "UPDATE jobs SET selection_id = ?2 WHERE id = ?1",
                 params![id, selection_id],

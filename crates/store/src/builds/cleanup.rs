@@ -965,7 +965,7 @@ impl Store {
             let refreshed = self.refresh_check(config, folder);
             return self.write(|tx| {
                 store_refreshed(tx, folder, refreshed)?;
-                finish_running(tx, job, JobState::Succeeded, None)
+                finish_running(tx, &self.meter, job, JobState::Succeeded, None)
             });
         }
 
@@ -1033,7 +1033,7 @@ impl Store {
         }
         let Run { dir, .. } = run;
         if cancelled {
-            return self.write(|tx| super::end_cancelled(tx, job, id, folder));
+            return self.write(|tx| super::end_cancelled(tx, &self.meter, job, id, folder));
         }
 
         // As a Build finishes: the store decides the next generation first, and the marker follows it.
@@ -1095,7 +1095,7 @@ impl Store {
             )?;
             tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
             store_refreshed(tx, folder, refreshed)?;
-            finish_running(tx, job, JobState::Succeeded, None)
+            finish_running(tx, &self.meter, job, JobState::Succeeded, None)
         })
     }
 

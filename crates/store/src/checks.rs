@@ -837,12 +837,12 @@ impl Store {
         let outcome = self.check_folder(config, id, folder, progress);
         if let Err(err) = outcome {
             let message = err.to_string();
-            self.write(
-                |tx| match finish_running(tx, id, JobState::Failed, Some(&message)) {
+            self.write(|tx| {
+                match finish_running(tx, &self.meter, id, JobState::Failed, Some(&message)) {
                     Err(Error::Io(_)) | Ok(()) => Ok(()),
                     Err(err) => Err(err),
-                },
-            )?;
+                }
+            })?;
         }
         self.job(id)
     }
@@ -951,7 +951,7 @@ impl Store {
         };
         self.write(|tx| {
             store_check(tx, folder, Some(job), scan.as_ref(), check.clone())?;
-            finish_running(tx, job, JobState::Succeeded, None)
+            finish_running(tx, &self.meter, job, JobState::Succeeded, None)
         })
     }
 

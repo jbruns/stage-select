@@ -284,7 +284,7 @@ impl Store {
                 Ok(None) => (JobState::Interrupted, Some(WALK_YIELDED.to_owned())),
                 Err(err) => (JobState::Failed, Some(err.to_string())),
             };
-            match finish_running(tx, id, state, error.as_deref()) {
+            match finish_running(tx, &self.meter, id, state, error.as_deref()) {
                 Err(Error::Io(_)) | Ok(()) => Ok(()),
                 Err(err) => Err(err),
             }

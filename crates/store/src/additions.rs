@@ -1555,7 +1555,7 @@ impl Store {
         // the Job found it waiting. One left blocked, or as it was, waits for whatever settles it to queue a Job, or for
         // the service to start.
         self.write(|tx| {
-            match finish_running(tx, id, to, why.as_deref()) {
+            match finish_running(tx, &self.meter, id, to, why.as_deref()) {
                 Err(Error::Io(_)) | Ok(()) => {}
                 Err(err) => return Err(err),
             }
