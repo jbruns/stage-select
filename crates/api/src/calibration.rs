@@ -60,7 +60,7 @@ pub struct RootCalibration {
     pub job: i64,
     pub measured_at: String,
     pub outcome: RootOutcome,
-    /// The bytes it found to read, up to what a full sweep needs.
+    /// The bytes its sweep read: for a Root too small to measure, all it could read.
     pub available_bytes: u64,
     pub curve: Vec<CurvePoint>,
     pub knee: Option<Knee>,

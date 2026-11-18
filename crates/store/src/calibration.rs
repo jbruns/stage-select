@@ -1,22 +1,27 @@
 //! Calibration Jobs (ADR 0022): measuring how many hash workers the Host sustains and how many payload readers each
 //! Root does, and keeping each sweep's curve and knee. A Calibration only reads: it never writes to a Root (ADR 0002).
 
+use std::collections::{HashMap, VecDeque};
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use rusqlite::{OptionalExtension, Transaction, params};
+use rustix::fs::FileType;
 use title_select_api::calibration::{
     Calibration, CalibrationStale, CurvePoint, HostCalibration, Knee, RootCalibration, RootOutcome,
 };
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_engine::calibrate::{self, Candidate, Limits, RootSweep, Sweep};
+use title_select_engine::calibrate::{self, Limits, RootSweep, Sweep};
 use title_select_engine::meter::JobMeter;
 
 use super::jobs::{finish_running, job_by_id};
 use super::{Error, Result, Store, now};
 use crate::config::Config;
+use crate::folder_dir::FolderDir;
 
 /// Why a restart Interrupted a Calibration Job, which is never queued again.
 pub(crate) const INTERRUPTED: &str = "the service stopped while the calibration was running; it kept what it had \
@@ -193,34 +198,28 @@ impl Store {
             Ok(())
         })?;
         progress(1);
-        let enough = how
-            .limits
-            .sweep_bytes(calibrate::counts(calibrate::MAX_READERS).len());
         for (done, (name, root)) in config.roots.iter().enumerate() {
             if cancelled()? {
                 return Ok(Ran::Cancelled);
             }
-            let measured = match self.calibration_files(name, &root.path, enough)? {
-                Err(err) => Measured {
-                    outcome: RootOutcome::Unreadable,
-                    available: 0,
-                    sweep: None,
-                    error: Some(format!("{}: {err}", root.path.display())),
-                },
+            let measured = match self.calibration_files(name, &root.path)? {
+                Err(err) => unreadable(err.to_string()),
                 Ok(files) => {
-                    let available = files.iter().map(|f| f.size).sum();
                     let tally = meter.tally(Some(name));
                     match calibrate::root(&files, how.limits, &Instant::now(), cancel, &tally) {
-                        RootSweep::TooSmall => Measured {
+                        RootSweep::Unreadable(why) => unreadable(why),
+                        RootSweep::TooSmall { read } => Measured {
                             outcome: RootOutcome::TooSmall,
-                            available,
+                            available: read,
                             sweep: None,
                             error: None,
                         },
-                        RootSweep::Swept(sweep) if sweep.cancelled => return Ok(Ran::Cancelled),
-                        RootSweep::Swept(sweep) => Measured {
+                        RootSweep::Swept { sweep, .. } if sweep.cancelled => {
+                            return Ok(Ran::Cancelled);
+                        }
+                        RootSweep::Swept { sweep, read } => Measured {
                             outcome: RootOutcome::Measured,
-                            available,
+                            available: read,
                             sweep: Some(sweep),
                             error: None,
                         },
@@ -257,41 +256,54 @@ impl Store {
         Ok(Ran::Finished)
     }
 
-    /// The files a Calibration reads from Root `name`, at `path`, in order, until they add up to `enough`: those its
-    /// Source Sets' latest Audits saw, or, when none has an Audit, those a walk finds. The inner error says why the
-    /// Root couldn't be walked.
+    /// The files a Calibration reads from Root `name`, at `path`, in order: those its Source Sets' latest Audits
+    /// saw, or, when none has an Audit, those a walk finds. Each is found as the sweep asks for it and opened beneath
+    /// the Root without following a symlink. The error says why the Root itself couldn't be opened.
     #[doc(hidden)]
-    pub fn calibration_files(
-        &self,
-        name: &str,
+    pub fn calibration_files<'a>(
+        &'a self,
+        name: &'a str,
         path: &Path,
-        enough: u64,
-    ) -> Result<std::io::Result<Vec<Candidate>>> {
-        Ok(match self.audited_files(name, path, enough)? {
-            Some(files) => Ok(files),
-            None => calibrate::walk(path, enough),
-        })
-    }
-
-    /// The files of Root `name`, at `path`, its Source Sets' latest Audits saw, least recently read first and those
-    /// never read before them, until they add up to `enough`; none when no Source Set in it has an Audit.
-    fn audited_files(
-        &self,
-        name: &str,
-        path: &Path,
-        enough: u64,
-    ) -> Result<Option<Vec<Candidate>>> {
-        self.read(|c| {
-            let audited: bool = c.query_row(
+    ) -> Result<std::io::Result<RootFiles<'a>>> {
+        let audited: bool = self.read(|c| {
+            Ok(c.query_row(
                 "SELECT EXISTS (SELECT 1 FROM source_sets s JOIN audits a ON a.source_set_id = s.id
                                 WHERE s.root = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished')",
                 [name],
                 |r| r.get(0),
-            )?;
-            if !audited {
-                return Ok(None);
+            )?)
+        })?;
+        let dir = match FolderDir::open(path, "") {
+            Ok(dir) => dir,
+            Err(err) => return Ok(Err(err)),
+        };
+        let found = if audited {
+            Found::Audited {
+                store: self,
+                root: name,
+                dir,
+                sets: HashMap::new(),
+                batch: VecDeque::new(),
+                offset: 0,
+                done: false,
             }
-            let mut stmt = c.prepare(
+        } else {
+            let names = match listed(&dir) {
+                Ok(names) => names,
+                Err(err) => return Ok(Err(err)),
+            };
+            Found::Walk {
+                stack: vec![(dir, names)],
+            }
+        };
+        Ok(Ok(RootFiles(Mutex::new(found))))
+    }
+
+    /// The next `AUDITED_BATCH` files of Root `root` its Source Sets' latest Audits saw, from `offset`, never read
+    /// first, then least recently read: each as its Source Set's path and its own.
+    fn audited_batch(&self, root: &str, offset: usize) -> Result<Vec<(String, String)>> {
+        self.read(|c| {
+            let mut stmt = c.prepare_cached(
                 "WITH latest AS (
                      SELECT s.id AS set_id, s.path AS set_path,
                             (SELECT a.id FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished'
@@ -304,14 +316,16 @@ impl Store {
                  LEFT JOIN payload_reads pr ON pr.source_set_id = l.set_id AND pr.path = e.path
                  WHERE e.path <> ''
                  GROUP BY l.set_id, e.path
-                 ORDER BY last_read IS NOT NULL, last_read, l.set_path, e.path",
+                 ORDER BY last_read IS NOT NULL, last_read, l.set_path, e.path
+                 LIMIT ?2 OFFSET ?3",
             )?;
-            let paths = stmt
-                .query_map([name], |r| {
-                    Ok(under(path, &[r.get::<_, String>(0)?, r.get::<_, String>(1)?]))
-                })?
-                .filter_map(rusqlite::Result::ok);
-            Ok(Some(calibrate::candidates(paths, enough)))
+            let rows = stmt
+                .query_map(
+                    params![root, AUDITED_BATCH as i64, offset as i64],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
         })
     }
 
@@ -405,13 +419,127 @@ struct Measured {
     error: Option<String>,
 }
 
-/// `parts`, each relative with `/` separators, under `root`.
-fn under(root: &Path, parts: &[String]) -> PathBuf {
-    parts
-        .iter()
-        .flat_map(|p| p.split('/'))
-        .filter(|p| !p.is_empty())
-        .fold(root.to_path_buf(), |path, part| path.join(part))
+fn unreadable(why: String) -> Measured {
+    Measured {
+        outcome: RootOutcome::Unreadable,
+        available: 0,
+        sweep: None,
+        error: Some(why),
+    }
+}
+
+/// How many of the files its Audits saw a Root's sweep looks up at a time.
+const AUDITED_BATCH: usize = 1024;
+
+/// The files a Calibration reads from a Root, found as its sweep asks for them: see [`Store::calibration_files`].
+pub struct RootFiles<'a>(Mutex<Found<'a>>);
+
+enum Found<'a> {
+    /// Those its Source Sets' latest Audits saw, a batch at a time, each Source Set's folder opened once.
+    Audited {
+        store: &'a Store,
+        root: &'a str,
+        dir: FolderDir,
+        sets: HashMap<String, std::io::Result<FolderDir>>,
+        batch: VecDeque<(String, String)>,
+        offset: usize,
+        done: bool,
+    },
+    /// Those a walk finds, depth first in name order: each folder open with the names in it still to visit,
+    /// reversed. The walk passes over symlinks and the folders Title Select keeps for itself.
+    Walk {
+        stack: Vec<(FolderDir, Vec<(String, FileType)>)>,
+    },
+}
+
+impl RootFiles<'_> {
+    /// The next file, with its path, for the sweep to read; `None` once there are no more.
+    #[doc(hidden)]
+    pub fn next_at(&self) -> Option<(PathBuf, std::io::Result<File>)> {
+        let mut found = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match &mut *found {
+            Found::Audited {
+                store,
+                root,
+                dir,
+                sets,
+                batch,
+                offset,
+                done,
+            } => {
+                if batch.is_empty() && !*done {
+                    match store.audited_batch(root, *offset) {
+                        Ok(rows) => {
+                            *done = rows.len() < AUDITED_BATCH;
+                            *offset += rows.len();
+                            batch.extend(rows);
+                        }
+                        Err(err) => {
+                            *done = true;
+                            return Some((
+                                dir.path().to_path_buf(),
+                                Err(std::io::Error::other(err.to_string())),
+                            ));
+                        }
+                    }
+                }
+                let (set_path, entry) = batch.pop_front()?;
+                let at = dir.path().join(&set_path).join(&entry);
+                if set_path.is_empty() {
+                    return Some((at, dir.open_file(&entry)));
+                }
+                let set = sets
+                    .entry(set_path.clone())
+                    .or_insert_with(|| dir.sub(&set_path));
+                Some(match set {
+                    Ok(set) => (at, set.open_file(&entry)),
+                    Err(err) => (at, Err(std::io::Error::new(err.kind(), err.to_string()))),
+                })
+            }
+            Found::Walk { stack } => loop {
+                let (dir, names) = stack.last_mut()?;
+                let Some((name, kind)) = names.pop() else {
+                    stack.pop();
+                    continue;
+                };
+                if title_select_engine::is_own_entry(&name) {
+                    continue;
+                }
+                let at = dir.path().join(&name);
+                let kind = match kind {
+                    FileType::Unknown => match dir.stat(&name) {
+                        Ok(Some(st)) => FolderDir::kind(&st),
+                        Ok(None) => continue,
+                        Err(err) => return Some((at, Err(err))),
+                    },
+                    kind => kind,
+                };
+                match kind {
+                    FileType::RegularFile => return Some((at, dir.open_file(&name))),
+                    FileType::Directory => {
+                        match dir.sub(&name).and_then(|sub| Ok((listed(&sub)?, sub))) {
+                            Ok((names, sub)) => stack.push((sub, names)),
+                            Err(err) => return Some((at, Err(err))),
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        }
+    }
+}
+
+impl calibrate::Files for RootFiles<'_> {
+    fn next(&self) -> Option<std::io::Result<File>> {
+        self.next_at().map(|(_, file)| file)
+    }
+}
+
+/// The names in `dir`, in reverse name order to pop from the end.
+fn listed(dir: &FolderDir) -> std::io::Result<Vec<(String, FileType)>> {
+    let mut names = dir.entries()?;
+    names.sort_by(|a, b| b.0.cmp(&a.0));
+    Ok(names)
 }
 
 fn curve_json(curve: &[CurvePoint]) -> Result<String> {

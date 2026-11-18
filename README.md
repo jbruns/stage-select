@@ -735,8 +735,9 @@ It measures:
 - **Each root**, ingest roots included. It reads files with 1, 2, 4… payload readers, up to 32, as audits read them.
   It reads the payloads of source sets you audited, those never read first, then those read longest ago; a root with
   no audits is walked instead. Each file is read at most once in a calibration, and on Linux it asks the kernel to
-  drop each file from its page cache before and after reading it. A root with less than about 1 GiB to read is too
-  small to measure.
+  drop each file from its page cache before and after reading it. It opens each file inside the root without
+  following a symlink, so it never reads outside the root. A root whose files run out before about 1 GiB is read is
+  too small to measure; a root none of whose files it could open or read is reported unreadable, with why.
 
 Each step stops after 10 seconds or 2 GiB. A sweep's knee is the fewest workers within 10% of the fastest step, never
 past a step that was slower than the one before; a root's sweep stops at that slower step. The results keep each
@@ -1511,7 +1512,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
 | `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, a build job at the next file, or a calibration at its next step (a queued one ends at once); `409` once it has ended |
 | `POST /api/v1/calibrations`                        | queue a calibration job; `202`, or `409` while one is queued or running |
-| `GET /api/v1/calibration`                          | the calibration results that apply now: `{"host", "roots", "stale"}`. `host` is `{"job", "measured_at", "cpus", "curve", "knee"}` or `null`; each root `{"root", "path", "job", "measured_at", "outcome", "available_bytes", "curve", "knee", "error"?}`, `outcome` being `measured`, `too_small` or `unreadable`; each step of a `curve` `{"workers", "bytes", "duration_ms", "bytes_per_s"}` and a `knee` `{"workers", "bytes_per_s"}` or `null`; each of `stale` `{"reason": "cpus", "measured", "now"}`, `{"reason": "unmeasured", "root"}` or `{"reason": "moved", "root", "measured", "now"}` |
+| `GET /api/v1/calibration`                          | the calibration results that apply now: `{"host", "roots", "stale"}`. `host` is `{"job", "measured_at", "cpus", "curve", "knee"}` or `null`; each root `{"root", "path", "job", "measured_at", "outcome", "available_bytes", "curve", "knee", "error"?}`, `outcome` being `measured`, `too_small` or `unreadable` and `available_bytes` the bytes its sweep read; each step of a `curve` `{"workers", "bytes", "duration_ms", "bytes_per_s"}` and a `knee` `{"workers", "bytes_per_s"}` or `null`; each of `stale` `{"reason": "cpus", "measured", "now"}`, `{"reason": "unmeasured", "root"}` or `{"reason": "moved", "root", "measured", "now"}` |
 | `GET /api/v1/jobs/{id}/calibration`                | what one calibration job measured, as above with `stale` empty; `404` for another kind of job |
 | `GET /api/v1/events`                               | server-sent events for every job, opening with a `resync`    |
 

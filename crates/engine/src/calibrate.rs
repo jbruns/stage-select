@@ -10,8 +10,7 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use title_select_api::calibration::{CurvePoint, Knee};
@@ -35,8 +34,8 @@ const HOST_PAYLOAD: usize = 16 << 20;
 pub struct Limits {
     pub step_time: Duration,
     pub step_bytes: u64,
-    /// Less than this to read and a Root is too small to measure; a step that ran out of files before reading a
-    /// quarter of it measured too little to keep.
+    /// A Root whose files run out before the sweep has read this much is too small to measure; a step that ran out of
+    /// files before reading a quarter of it measured too little to keep.
     pub min_bytes: u64,
 }
 
@@ -47,13 +46,6 @@ impl Default for Limits {
             step_bytes: 2 << 30,
             min_bytes: 1 << 30,
         }
-    }
-}
-
-impl Limits {
-    /// The most a sweep of `steps` steps can read: what's worth finding in a Root before reading it.
-    pub fn sweep_bytes(&self, steps: usize) -> u64 {
-        self.step_bytes.saturating_mul(steps as u64)
     }
 }
 
@@ -271,123 +263,95 @@ fn synthetic(len: usize) -> Vec<u8> {
     out
 }
 
-/// A file a Root's sweep may read, and its size when found.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Candidate {
-    pub path: PathBuf,
-    pub size: u64,
-}
-
-/// The regular files among `paths`, in order, until their sizes add up to `enough`. A path that can't be statted, or
-/// isn't a regular file (a symlink included), is passed over.
-pub fn candidates(paths: impl IntoIterator<Item = PathBuf>, enough: u64) -> Vec<Candidate> {
-    let mut found = Vec::new();
-    let mut total = 0u64;
-    for path in paths {
-        if total >= enough {
-            break;
-        }
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            continue;
-        };
-        if !meta.is_file() || meta.len() == 0 {
-            continue;
-        }
-        total += meta.len();
-        found.push(Candidate {
-            path,
-            size: meta.len(),
-        });
-    }
-    found
-}
-
-/// The files of a Root with no Audits, walked in name order without following links and passing over Title Select's
-/// own entries, until their sizes add up to `enough`. Errors only when the Root itself can't be read.
-pub fn walk(root: &Path, enough: u64) -> std::io::Result<Vec<Candidate>> {
-    std::fs::read_dir(root)?;
-    let mut paths = walkdir::WalkDir::new(root)
-        .follow_links(false)
-        .sort_by_file_name()
-        .into_iter();
-    let mut files = Vec::new();
-    let mut total = 0u64;
-    while total < enough {
-        let Some(item) = paths.next() else { break };
-        let Ok(item) = item else { continue };
-        if item.depth() > 0 && crate::is_own_entry(&item.file_name().to_string_lossy()) {
-            if item.file_type().is_dir() {
-                paths.skip_current_dir();
-            }
-            continue;
-        }
-        if !item.file_type().is_file() {
-            continue;
-        }
-        let Ok(meta) = item.metadata() else { continue };
-        if meta.len() == 0 {
-            continue;
-        }
-        total += meta.len();
-        files.push(Candidate {
-            path: item.into_path(),
-            size: meta.len(),
-        });
-    }
-    Ok(files)
+/// The files a Root's sweep reads, found as the sweep asks for them so that a step never runs short while the Root
+/// has files left, and each handed out at most once. Whoever implements it opens each file beneath the Root without
+/// following a symlink, and only hands out regular files.
+pub trait Files: Sync {
+    /// The next file to read; `None` once there are no more. An `Err` is a file, or a folder of files, that was
+    /// found but couldn't be opened; the sweep goes on to the next.
+    fn next(&self) -> Option<std::io::Result<File>>;
 }
 
 /// How a Root's sweep went.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RootSweep {
-    /// Its files add up to less than [`Limits::min_bytes`].
-    TooSmall,
-    Swept(Sweep),
+    /// Its files ran out after less than [`Limits::min_bytes`] in all, these bytes, or before any step measured
+    /// enough to keep.
+    TooSmall { read: u64 },
+    /// It found nothing it could read: why the first file or folder it tried failed.
+    Unreadable(String),
+    /// Its curve, never empty unless cancelled, and the bytes it read in all.
+    Swept { sweep: Sweep, read: u64 },
 }
 
-/// Sweeps payload readers 1, 2, 4… up to [`MAX_READERS`] over `files`, read-only, in order. Each file is read at most
-/// once across the sweep, so each step reads files no earlier step read, and each is dropped from the page cache
-/// before and after. A file that can't be opened or read is passed over.
+/// Sweeps payload readers 1, 2, 4… up to [`MAX_READERS`] over `files`, read-only, in the order they come. Each file
+/// is read at most once across the sweep, so each step reads files no earlier step read, and each is dropped from the
+/// page cache before and after. A file that can't be opened or read is passed over, and the first such failure kept:
+/// a Root none of whose data could be read is unreadable.
 pub fn root(
-    files: &[Candidate],
+    files: &dyn Files,
     limits: Limits,
     clock: &dyn Clock,
     cancel: &AtomicBool,
     tally: &Tally,
 ) -> RootSweep {
-    let available: u64 = files.iter().map(|f| f.size).sum();
-    if available < limits.min_bytes {
-        return RootSweep::TooSmall;
-    }
-    let next = AtomicUsize::new(0);
+    let read = AtomicU64::new(0);
+    let ran_out = AtomicBool::new(false);
+    let failed = std::sync::Mutex::new(None::<String>);
+    let fail = |err: std::io::Error| {
+        let mut first = failed.lock().unwrap_or_else(|e| e.into_inner());
+        first.get_or_insert_with(|| err.to_string());
+    };
     let work = |budget: &Budget| {
         let _active = tally.job().map(JobMeter::reading);
         let mut buf = vec![0; CHUNK];
         while budget.going() {
-            let Some(file) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
-                return;
-            };
-            let Ok(opened) = File::open(&file.path) else {
-                continue;
+            let opened = match files.next() {
+                None => {
+                    ran_out.store(true, Ordering::Relaxed);
+                    return;
+                }
+                Some(Err(err)) => {
+                    fail(err);
+                    continue;
+                }
+                Some(Ok(opened)) => opened,
             };
             uncache(&opened);
             let mut reading = Reading::new(&opened, tally);
             while budget.going() {
                 match reading.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => budget.add(n as u64),
+                    Ok(0) => break,
+                    Ok(n) => {
+                        budget.add(n as u64);
+                        read.fetch_add(n as u64, Ordering::Relaxed);
+                    }
+                    Err(err) => {
+                        fail(err);
+                        break;
+                    }
                 }
             }
             tally.file_read();
             uncache(&opened);
         }
     };
-    RootSweep::Swept(sweep(
-        &counts(MAX_READERS),
-        true,
-        limits.min_bytes / 4,
-        |n| step(n, limits, clock, cancel, &work),
-    ))
+    let sweep = sweep(&counts(MAX_READERS), true, limits.min_bytes / 4, |n| {
+        step(n, limits, clock, cancel, &work)
+    });
+    let read = read.into_inner();
+    if sweep.cancelled {
+        return RootSweep::Swept { sweep, read };
+    }
+    if read == 0
+        && let Some(why) = failed.into_inner().unwrap_or_else(|e| e.into_inner())
+    {
+        return RootSweep::Unreadable(why);
+    }
+    if sweep.curve.is_empty() || (ran_out.into_inner() && read < limits.min_bytes) {
+        return RootSweep::TooSmall { read };
+    }
+    RootSweep::Swept { sweep, read }
 }
 
 /// Drops `file`'s pages from the page cache, so that what was read isn't read again from memory, nor was read from
@@ -580,93 +544,140 @@ mod tests {
         assert!(!swept.cancelled);
     }
 
-    fn files(dir: &Path, sizes: &[usize]) -> Vec<Candidate> {
-        sizes
-            .iter()
-            .enumerate()
-            .map(|(i, &size)| {
-                let path = dir.join(format!("{i:03}.bin"));
-                std::fs::write(&path, vec![i as u8; size]).unwrap();
-                Candidate {
-                    path,
-                    size: size as u64,
-                }
-            })
-            .collect()
+    /// Files handed out in order, each at most once: `Ok(size)` a file of that many bytes, `Err` one that can't be
+    /// opened.
+    struct Listed {
+        dir: tempfile::TempDir,
+        next: std::sync::Mutex<std::vec::IntoIter<(usize, Result<usize, ()>)>>,
     }
 
-    #[test]
-    fn a_root_with_less_than_the_minimum_is_too_small_to_measure() {
-        let dir = tempfile::tempdir().unwrap();
-        let files = files(dir.path(), &[1000, 1000]);
-        let limits = Limits {
-            min_bytes: 2001,
-            ..Limits::default()
-        };
-        let swept = root(
-            &files,
+    impl Listed {
+        fn new(sizes: &[Result<usize, ()>]) -> Listed {
+            let dir = tempfile::tempdir().unwrap();
+            let next = sizes
+                .iter()
+                .enumerate()
+                .map(|(i, &size)| {
+                    if let Ok(size) = size {
+                        std::fs::write(dir.path().join(format!("{i}")), vec![i as u8; size])
+                            .unwrap();
+                    }
+                    (i, size)
+                })
+                .collect::<Vec<_>>()
+                .into_iter();
+            Listed {
+                dir,
+                next: std::sync::Mutex::new(next),
+            }
+        }
+    }
+
+    impl Files for Listed {
+        fn next(&self) -> Option<std::io::Result<File>> {
+            let (i, size) = self.next.lock().unwrap().next()?;
+            Some(match size {
+                Ok(_) => File::open(self.dir.path().join(format!("{i}"))),
+                Err(()) => Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("{i}: permission denied"),
+                )),
+            })
+        }
+    }
+
+    fn run(files: &Listed, limits: Limits) -> RootSweep {
+        root(
+            files,
             limits,
             &Instant::now(),
             &AtomicBool::new(false),
             &Tally::default(),
-        );
-        assert_eq!(swept, RootSweep::TooSmall);
+        )
+    }
+
+    #[test]
+    fn a_root_whose_files_run_out_before_the_minimum_is_too_small_to_measure() {
+        let files = Listed::new(&[Ok(1000), Ok(1000)]);
+        let limits = Limits {
+            min_bytes: 2001,
+            ..Limits::default()
+        };
+        assert_eq!(run(&files, limits), RootSweep::TooSmall { read: 2000 });
     }
 
     #[test]
     fn a_root_sweep_reads_each_file_at_most_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let files = files(dir.path(), &[4096; 64]);
+        let files = Listed::new(&[Ok(4096); 64]);
         let limits = Limits {
             step_time: Duration::from_secs(60),
             step_bytes: 8 * 4096,
             min_bytes: 4096,
         };
-        let RootSweep::Swept(swept) = root(
-            &files,
-            limits,
-            &Instant::now(),
-            &AtomicBool::new(false),
-            &Tally::default(),
-        ) else {
+        let RootSweep::Swept { sweep, read } = run(&files, limits) else {
             panic!("big enough");
         };
-        let read: u64 = swept.curve.iter().map(|p| p.bytes).sum();
         assert!(
             read <= 64 * 4096,
             "read {read} bytes of {}: a file read twice",
             64 * 4096
         );
+        assert_eq!(read, sweep.curve.iter().map(|p| p.bytes).sum::<u64>());
     }
 
     #[test]
-    fn candidates_keep_order_and_stop_once_there_is_enough() {
-        let dir = tempfile::tempdir().unwrap();
-        let made = files(dir.path(), &[10, 0, 10, 10]);
-        let mut paths: Vec<PathBuf> = made.iter().map(|c| c.path.clone()).collect();
-        paths.insert(0, dir.path().join("missing"));
-        let found = candidates(paths, 20);
-        assert_eq!(
-            found.iter().map(|c| &c.path).collect::<Vec<_>>(),
-            [&made[0].path, &made[2].path],
-            "missing and empty files are passed over"
+    fn a_few_huge_files_first_leave_files_for_every_later_step() {
+        // Each huge file is far more than a whole sweep reads of it, but a step reads only its limit and moves on:
+        // the files after them are still there for the later steps.
+        let mut sizes = vec![Ok(64 * 4096); 2];
+        sizes.extend([Ok(4096); 256]);
+        let files = Listed::new(&sizes);
+        let limits = Limits {
+            step_time: Duration::from_secs(60),
+            step_bytes: 8 * 4096,
+            min_bytes: 4096,
+        };
+        let RootSweep::Swept { sweep, .. } = run(&files, limits) else {
+            panic!("big enough");
+        };
+        assert!(
+            sweep.curve.len() > 1,
+            "only {:?} measured",
+            sweep.curve.iter().map(|p| p.workers).collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn a_walk_passes_over_own_entries_and_stops_once_there_is_enough() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("a/.title-select")).unwrap();
-        std::fs::write(dir.path().join("a/.title-select/kept"), [0; 100]).unwrap();
-        std::fs::write(dir.path().join("a/1.zip"), [0; 10]).unwrap();
-        std::fs::write(dir.path().join("b.zip"), [0; 10]).unwrap();
-        std::fs::write(dir.path().join("c.zip"), [0; 10]).unwrap();
-        let walked = walk(dir.path(), 20).unwrap();
+    fn a_root_none_of_whose_files_can_be_opened_is_unreadable() {
+        let files = Listed::new(&[Err(()), Err(())]);
         assert_eq!(
-            walked.iter().map(|c| c.path.clone()).collect::<Vec<_>>(),
-            [dir.path().join("a/1.zip"), dir.path().join("b.zip")]
+            run(&files, Limits::default()),
+            RootSweep::Unreadable("0: permission denied".into())
         );
-        assert!(walk(&dir.path().join("missing"), 20).is_err());
+    }
+
+    #[test]
+    fn files_that_cannot_be_opened_are_passed_over() {
+        let files = Listed::new(&[Err(()), Ok(1000), Err(()), Ok(1000)]);
+        let limits = Limits {
+            min_bytes: 2000,
+            ..Limits::default()
+        };
+        let RootSweep::Swept { sweep, read } = run(&files, limits) else {
+            panic!("the readable files are enough");
+        };
+        assert_eq!(read, 2000);
+        assert!(!sweep.curve.is_empty());
+    }
+
+    #[test]
+    fn a_root_with_nothing_to_read_is_never_measured() {
+        let files = Listed::new(&[]);
+        let limits = Limits {
+            min_bytes: 0,
+            ..Limits::default()
+        };
+        assert_eq!(run(&files, limits), RootSweep::TooSmall { read: 0 });
     }
 
     #[test]

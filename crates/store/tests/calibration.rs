@@ -190,15 +190,11 @@ fn a_calibration_measures_the_host_and_every_root_and_writes_nothing() {
         plain.path,
         env.tmp.path().join("plain").display().to_string()
     );
-    assert_eq!(
-        plain.available_bytes,
-        6 * 64 * KIB as u64,
-        "what six steps of 64 KiB need, of the megabyte there"
-    );
     assert!(!plain.curve.is_empty());
     assert!(plain.knee.is_some());
     let read: u64 = plain.curve.iter().map(|p| p.bytes).sum();
-    assert!(read <= plain.available_bytes, "each file read at most once");
+    assert_eq!(plain.available_bytes, read, "what its steps read");
+    assert!(read < 1 << 20, "each file read at most once");
     let small = &measured.roots[2];
     assert!(small.curve.is_empty() && small.knee.is_none());
 }
@@ -372,13 +368,8 @@ fn files_never_read_come_first_then_the_least_recently_read() {
         read_at("Beta", "Pong (USA).a26", Some("2010-01-01T00:00:00Z"));
         read_at("Beta", "Combat (USA).zip", Some("2030-01-01T00:00:00Z"));
     }
-    let files = env
-        .store
-        .calibration_files("sets", &env.tmp.path().join("sets"), u64::MAX)
-        .unwrap()
-        .unwrap();
     assert_eq!(
-        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
+        found(&env, "sets"),
         [
             env.set("Alpha").join("Combat (USA).zip"),
             env.set("Beta").join("Pong (USA).a26"),
@@ -391,14 +382,99 @@ fn files_never_read_come_first_then_the_least_recently_read() {
 #[test]
 fn a_root_with_no_audits_is_walked() {
     let env = Env::new();
+    let files = found(&env, "plain");
+    assert_eq!(files.len(), 64);
+    assert_eq!(files[0], env.tmp.path().join("plain/0/00.bin"));
+    assert_eq!(files[1], env.tmp.path().join("plain/0/04.bin"));
+}
+
+/// The files a calibration reads from Root `root`, in order, of those it found; the ones it couldn't open left out.
+fn found(env: &Env, root: &str) -> Vec<PathBuf> {
     let files = env
         .store
-        .calibration_files("plain", &env.tmp.path().join("plain"), u64::MAX)
+        .calibration_files(root, &env.tmp.path().join(root))
         .unwrap()
         .unwrap();
-    assert_eq!(files.len(), 64);
-    assert_eq!(files[0].path, env.tmp.path().join("plain/0/00.bin"));
-    assert_eq!(files[1].path, env.tmp.path().join("plain/0/04.bin"));
+    std::iter::from_fn(|| files.next_at())
+        .filter_map(|(path, file)| file.is_ok().then_some(path))
+        .collect()
+}
+
+#[test]
+fn a_calibration_never_follows_a_symlink_out_of_a_root() {
+    let env = Env::new();
+    let outside = env.tmp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    // An audited Source Set's folder swapped for a symlink to a copy of it outside the Root.
+    std::fs::rename(env.set("Beta"), outside.join("Beta")).unwrap();
+    std::os::unix::fs::symlink(outside.join("Beta"), env.set("Beta")).unwrap();
+    // A walked Root's folder, and a file in it, that are symlinks out of it.
+    write_file(&outside.join("secret/payload.bin"), &[7; 16 * KIB]);
+    std::os::unix::fs::symlink(outside.join("secret"), env.tmp.path().join("plain/0/link"))
+        .unwrap();
+    std::os::unix::fs::symlink(
+        outside.join("secret/payload.bin"),
+        env.tmp.path().join("plain/1/file.bin"),
+    )
+    .unwrap();
+
+    let sets = found(&env, "sets");
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert!(
+        sets.iter().all(|p| p.starts_with(env.set("Alpha"))),
+        "{sets:?}"
+    );
+    let plain = found(&env, "plain");
+    assert_eq!(plain.len(), 64, "only the files really in it: {plain:?}");
+}
+
+#[test]
+fn a_root_none_of_whose_files_can_be_opened_is_recorded_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let plain = env.tmp.path().join("plain");
+    let files: Vec<PathBuf> = walkdir::WalkDir::new(&plain)
+        .into_iter()
+        .map(|e| e.unwrap().into_path())
+        .filter(|p| p.is_file())
+        .collect();
+    for file in &files {
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    if std::fs::File::open(&files[0]).is_ok() {
+        // Running as a user that reads past permissions: nothing to test.
+        return;
+    }
+    let job = env.calibrate(&how(1));
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let plain = env
+        .store
+        .job_calibration(job.id)
+        .unwrap()
+        .roots
+        .into_iter()
+        .find(|r| r.root == "plain")
+        .unwrap();
+    assert_eq!(plain.outcome, RootOutcome::Unreadable, "{plain:?}");
+    assert!(plain.curve.is_empty() && plain.knee.is_none());
+    assert!(plain.error.is_some_and(|e| e.contains("ermission denied")));
+}
+
+#[test]
+fn an_audited_root_that_is_gone_is_recorded_unreadable() {
+    let env = Env::new();
+    std::fs::remove_dir_all(env.tmp.path().join("sets")).unwrap();
+    let job = env.calibrate(&how(1));
+    let sets = env
+        .store
+        .job_calibration(job.id)
+        .unwrap()
+        .roots
+        .into_iter()
+        .find(|r| r.root == "sets")
+        .unwrap();
+    assert_eq!(sets.outcome, RootOutcome::Unreadable, "{sets:?}");
+    assert!(sets.error.is_some());
 }
 
 #[test]
