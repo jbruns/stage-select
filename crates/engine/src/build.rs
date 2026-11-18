@@ -368,8 +368,8 @@ pub fn repack_members(
 enum Repacked<'a> {
     /// Once the ROM with this name is added.
     Added(&'a str),
-    /// Once the source at this index is finished: read to its end and hashed, and its reader given up.
-    Finished(usize),
+    /// Once the next source, in order, is finished: read to its end and hashed, and its reader given up.
+    Finished,
 }
 
 /// What a test runs at each [`Repacked`] point of a [`repack_sources`] on its thread: the repack waits, holding
@@ -473,15 +473,14 @@ pub fn repack_sources(
     reading
         .into_iter()
         .zip(sources)
-        .enumerate()
-        .map(|(_at, (reading, &(source, from)))| {
+        .map(|(reading, &(source, from))| {
             let finished = match reading {
                 Reading::Zip(archive) => archive.into_inner().into_inner().finish(),
                 Reading::Loose(hashing) => hashing.finish(),
                 Reading::Unread => Hashing::new(source, from).and_then(Hashing::finish),
             };
             #[cfg(test)]
-            repack_paused(Repacked::Finished(_at));
+            repack_paused(Repacked::Finished);
             finished.map_err(|e| e.to_string())
         })
         .collect()
@@ -1368,12 +1367,16 @@ mod tests {
         let paused = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         REPACK_PAUSE.set(Some(Box::new({
             let (pool, paused, job) = (pool.clone(), paused.clone(), job.clone());
+            let finished = std::cell::Cell::new(0);
             move |at: Repacked| {
                 let taken = pool.taken();
                 let other = pool.enter_unless(|| true);
                 let at = match at {
                     Repacked::Added(rom) => format!("added {rom}"),
-                    Repacked::Finished(source) => format!("finished source {source}"),
+                    Repacked::Finished => {
+                        finished.set(finished.get() + 1);
+                        format!("finished source {}", finished.get() - 1)
+                    }
                 };
                 paused
                     .borrow_mut()
