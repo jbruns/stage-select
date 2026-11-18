@@ -1,6 +1,6 @@
 //! Refusing a 7z over the dictionary limit allocates nothing for its dictionary: the most memory held while it is
 //! refused stays small, and the same for a dictionary twice as large. A test binary of its own, so that its counting
-//! allocator sees no other test's allocations.
+//! allocator sees no other test binary's allocations. Its tests take [`ONE_AT_A_TIME`], so that none sees another's.
 
 #[path = "common/sevenz.rs"]
 mod sevenz_fixtures;
@@ -9,6 +9,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use sevenz_fixtures::*;
 use title_select_engine::build::{Probed, ZipLimits};
@@ -38,6 +39,15 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
+/// The counters are global, so a test measuring them must be the only one allocating: each test holds this while it
+/// runs. Counting per thread would miss what the archive's reads allocate on other threads.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// Held for a test's whole run; a test that failed while holding it does not fail the others.
+fn alone() -> MutexGuard<'static, ()> {
+    ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// The most bytes held at once, above those held before, while `path` is refused under a 1 MiB limit, for a reason
 /// starting `why`.
 fn peak_while_refused_for(path: &Path, why: &str) -> usize {
@@ -65,6 +75,7 @@ fn peak_while_refused(path: &Path) -> usize {
 
 #[test]
 fn peak_memory_does_not_grow_with_a_refused_archives_dictionary() {
+    let _alone = alone();
     let dir = tempfile::tempdir().unwrap();
     let packed = vec![0; 4096];
     let mut peaks = Vec::new();
@@ -86,6 +97,7 @@ fn peak_memory_does_not_grow_with_a_refused_archives_dictionary() {
 /// hundreds of MiB of entries.
 #[test]
 fn a_header_listing_millions_of_entries_is_refused_before_they_are_allocated() {
+    let _alone = alone();
     let dir = tempfile::tempdir().unwrap();
     let header = header_of_many_files(3_000_000);
     let plain = dir.path().join("plain.7z");
@@ -112,6 +124,7 @@ fn a_header_listing_millions_of_entries_is_refused_before_they_are_allocated() {
 /// A header larger than any game's archive needs is refused from the size the archive's start declares, unread.
 #[test]
 fn a_header_too_large_to_be_a_games_is_refused_unread() {
+    let _alone = alone();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("large.7z");
     assemble(&path, &[], &header_of_many_files(9 << 20));

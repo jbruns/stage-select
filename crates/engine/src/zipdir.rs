@@ -130,15 +130,19 @@ pub fn open<R: Read + Seek>(
             OPENED
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(file.metadata()?.len());
+                .extend(crate::FileStamp::from_metadata(&file.metadata()?));
             Ok(Gated::Archive(zip::ZipArchive::new(reader()?)))
         }
     }
 }
 
-/// The length of each file [`open`] handed to the archive reader.
+/// The stamp of each file [`open`] handed to the archive reader. Every engine unit test opens through here, and an
+/// audit opens on its reader threads rather than the test's, so a test finds its own file by its stamp rather than by
+/// thread: no two existing files share a stamp, and a deleted one would have to match its size and times to the
+/// nanosecond as well as its inode.
 #[cfg(test)]
-pub(crate) static OPENED: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+pub(crate) static OPENED: std::sync::Mutex<Vec<crate::FileStamp>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// Judges `file`'s layout and its central directory against `limits`, whatever it begins with.
 pub(crate) fn check_directory(file: &File, limits: &DirectoryLimits) -> io::Result<Layout> {
@@ -599,20 +603,21 @@ mod tests {
         assert_eq!(probe.error, None);
     }
 
-    /// Asserts the file `bytes`, whose length no other test's file has, is never handed to the archive reader by
-    /// either probe or an audit, and that both probes hash it whole as a loose file.
+    /// Asserts the file `bytes` is never handed to the archive reader by either probe or an audit, and that both
+    /// probes hash it whole as a loose file. Each file stays open until it is looked for among those opened.
     fn never_opened_but_hashed_whole(bytes: &[u8]) {
         let whole = {
             let mut hasher = crate::payload::Hasher::new();
             hasher.update(bytes);
             hasher.finish()
         };
-        let probe = probe(&file_with(bytes), &crate::meter::Tally::default()).unwrap();
+        let (probed, probed_within) = (file_with(bytes), file_with(bytes));
+        let probe = probe(&probed, &crate::meter::Tally::default()).unwrap();
         assert!(!probe.zip, "{probe:?}");
         assert_eq!(probe.payloads.len(), 1);
         assert_eq!(probe.payloads[0].sha256, whole.sha256);
         let Probed::Read(within) = probe_within(
-            &file_with(bytes),
+            &probed_within,
             &ZipLimits::default(),
             &crate::meter::Tally::default(),
         )
@@ -626,6 +631,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.zip");
         std::fs::write(&path, bytes).unwrap();
+        let audited = File::open(&path).unwrap();
         let files = [ToRead {
             path,
             is_zip: true,
@@ -652,10 +658,13 @@ mod tests {
         let opened = OPENED
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        assert!(
-            !opened.contains(&(bytes.len() as u64)),
-            "the archive reader was given it"
-        );
+        for file in [&probed, &probed_within, &audited] {
+            let stamp = crate::FileStamp::from_metadata(&file.metadata().unwrap());
+            assert!(
+                stamp.is_none_or(|stamp| !opened.contains(&stamp)),
+                "the archive reader was given it"
+            );
+        }
     }
 
     #[test]
