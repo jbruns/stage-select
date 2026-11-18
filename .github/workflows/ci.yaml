@@ -27,6 +27,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner installs the toolchain rust-toolchain.toml pins.
       - run: rustup show active-toolchain
+      # Restores main's dependency builds, keyed on the toolchain, Cargo.lock and the manifests; only main saves, so a
+      # PR never evicts main's cache.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       # The pinned clone lists the Selection tests read.
       - run: tools/clone-lists/fetch
       # The image's own chdman, from its pinned MAME release, for the CHD tests; they fail in CI without it.
@@ -46,9 +54,12 @@ jobs:
       # The workbench as the browser runs it; the image build compiles it the same way.
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
-      - run: cargo test --locked
+      # The release run below checks every fixture golden, so this one leaves them out.
+      - run: cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
+      # nextest runs no doctests; there are none yet, this keeps any new one checked.
+      - run: cargo test --doc --locked
       # Every fixture golden: a debug build checks only some of them, a release build all of them in about a minute.
-      - run: cargo test --release --locked --package title-select-selection --test fixtures
+      - run: cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 
   image:
     name: image build, smoke test
