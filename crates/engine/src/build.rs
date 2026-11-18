@@ -362,6 +362,14 @@ pub fn repack_members(
         .map_err(|e| e.to_string())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What a test runs each time a [`repack_sources`] on its thread has added a ROM, with the ROM's name: the repack
+    /// waits, holding whatever it holds, until it returns.
+    static REPACK_PAUSE: std::cell::RefCell<Option<Box<dyn Fn(&str)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// One ROM of [`repack_sources`]: the ROM, the index of the source it is read from, and the member of that source,
 /// a ZIP archive, it is read from; `None` reads the whole source, a loose file.
 pub type FromSource<'a> = (&'a ExpectedRom, usize, Option<&'a str>);
@@ -429,6 +437,8 @@ pub fn repack_sources(
             }
         };
         added.map_err(|e| format!("{}: {e}", rom.name))?;
+        #[cfg(test)]
+        REPACK_PAUSE.with_borrow(|pause| pause.as_ref().map(|pause| pause(&rom.name)));
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
     let file = out
@@ -1298,8 +1308,6 @@ mod tests {
 
     #[test]
     fn a_repack_holds_its_reader_until_every_source_is_finished_not_only_the_first() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::time::{Duration, Instant};
         let pool = std::sync::Arc::new(crate::pool::Pool::new(1));
         let meter = crate::meter::Meter::default();
         meter.share_limits(std::sync::Arc::new(OnePool(pool.clone())));
@@ -1324,62 +1332,41 @@ mod tests {
             sha256: None,
             header: None,
         };
-        // The loose source is read first and whole, so it takes the permit; the ZIP's member is read after it, and
-        // the rest of the ZIP, a large member no ROM wants, only when it is finished, after the loose source is.
+        // The loose source is read whole for the first ROM, and the ZIP opened only for the second.
         let loose = file_of(b"aaaa");
-        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
-        let stored = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        zip.start_file("x.bin", stored).unwrap();
-        io::Write::write_all(&mut zip, b"bbbbbb").unwrap();
-        zip.start_file("rest.bin", stored).unwrap();
-        let rest: Vec<u8> = (0..8u32 << 20)
-            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
-            .collect();
-        io::Write::write_all(&mut zip, &rest).unwrap();
-        let zip = file_of(&zip.finish().unwrap().into_inner());
+        let zip = file_of(&zip_of(&[("x.bin", b"bbbbbb")]));
         let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
+        // Each time the repack has added a ROM: how many of the Root's readers are taken, and whether another Job,
+        // waiting for one, would get it.
+        let paused = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        REPACK_PAUSE.set(Some(Box::new({
+            let (pool, paused) = (pool.clone(), paused.clone());
+            move |rom: &str| {
+                let taken = pool.taken();
+                let other = pool.enter_unless(|| true);
+                paused
+                    .borrow_mut()
+                    .push((rom.to_owned(), taken, other.is_some()));
+            }
+        })));
 
-        let done = AtomicBool::new(false);
-        std::thread::scope(|s| {
-            s.spawn(|| {
-                let (roms, library) = (job.tally(Some("roms")), job.tally(Some("library")));
-                let dest = tempfile::tempfile().unwrap();
-                repack_sources(
-                    &dest,
-                    &[(&a, 0, None), (&b, 1, Some("x.bin"))],
-                    &[(&loose, &roms), (&zip, &roms)],
-                    &library,
-                )
-                .unwrap();
-                done.store(true, Ordering::SeqCst);
-            });
-            // Another Job waits for the Root's one reader as soon as the repack holds it.
-            let deadline = Instant::now() + Duration::from_secs(30);
-            while pool.taken() == 0 {
-                assert!(
-                    !done.load(Ordering::SeqCst),
-                    "the repack never held a reader"
-                );
-                assert!(Instant::now() < deadline, "the repack never started");
-                std::thread::sleep(Duration::from_micros(200));
-            }
-            let other = pool
-                .enter_unless(|| Instant::now() > deadline)
-                .expect("the reader was given back in time");
-            let read_when_taken = job.counted().read;
-            drop(other);
-            while !done.load(Ordering::SeqCst) {
-                assert!(Instant::now() < deadline, "the repack finished in time");
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            assert_eq!(
-                job.counted().read,
-                read_when_taken,
-                "the repack read on after another Job took the Root's only reader"
-            );
-        });
-        assert_eq!(pool.taken(), 0);
+        let (roms, library) = (job.tally(Some("roms")), job.tally(Some("library")));
+        let dest = tempfile::tempfile().unwrap();
+        repack_sources(
+            &dest,
+            &[(&a, 0, None), (&b, 1, Some("x.bin"))],
+            &[(&loose, &roms), (&zip, &roms)],
+            &library,
+        )
+        .unwrap();
+        REPACK_PAUSE.set(None);
+
+        assert_eq!(
+            *paused.borrow(),
+            [("a.bin".to_owned(), 1, false), ("b.bin".to_owned(), 1, false)],
+            "the repack held the Root's only reader after its first source was finished, and another Job waited"
+        );
+        assert_eq!(pool.taken(), 0, "the repack gave its reader back");
     }
 
     fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
