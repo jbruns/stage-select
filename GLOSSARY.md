@@ -102,6 +102,24 @@ A durable unit of work that Title Select runs for the Operator, such as an Audit
 Failed or Interrupted, and it survives a browser disconnecting or the Service restarting.
 _Avoid_: Task, run
 
+**Host**:
+The machine the Service runs on, as far as Title Select can see it: its CPUs and its Roots.
+_Avoid_: Server, NAS, box
+
+**Ceiling**:
+The most a Pace may use of one resource: concurrent Jobs and hash workers for the Host, payload readers and byte
+rates for each Root.
+_Avoid_: Limit (alone), maximum
+
+**Pace**:
+The single share of every Ceiling that all Jobs use, `gentle`, `default` or `unthrottled`; changing it reaches Jobs
+already running.
+_Avoid_: Speed, throttle, preset (alone)
+
+**Calibration**:
+A Job that measures the Host and each Root to find Ceilings past which more workers stop raising throughput.
+_Avoid_: Benchmark, test, discovery
+
 **Addition**:
 An item the Operator approves for management in a Play Library independently of an official DAT, such as a ROM hack. It
 is identified by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name the Operator can edit, and may name a
@@ -229,8 +247,8 @@ left that disc out. Title Select shows why and how many.
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
 be audited against; or a Library Folder whose Source Set, its Coverage, or Selection Profile changed since its current
-Build. Looking
-changed is a heuristic, never a claim of damage.
+Build; or a Calibration whose Host or Roots changed since it ran. Looking changed is a heuristic, never a claim of
+damage.
 _Avoid_: Outdated, dirty
 
 **Drift**:
