@@ -655,6 +655,7 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
         "chdman was left to run"
     );
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
     assert!(!env.dir().join("Orbit (USA).chd").exists());
     let build = env.store.library_folder(&env.config, folder.id).unwrap();
@@ -1037,6 +1038,7 @@ fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
     });
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(saga_files(&env), SAGA_ZIPS);
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
     assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
@@ -1102,6 +1104,7 @@ fn a_cancel_while_the_last_disc_is_copied_and_hashed_leaves_its_game_as_it_was()
     );
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(saga_files(&env), SAGA_ZIPS);
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
     assert!(!env.dir().join(title_select_api::build::STAGING).exists());
@@ -1135,6 +1138,23 @@ fn a_cancel_once_a_games_discs_are_going_in_place_lets_them_all_finish() {
     }
 }
 
+/// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
+/// failed included.
+fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+    let counted = env.store.meter().so_far(job.id).expect("metered").counted;
+    let recorded = job.throughput.expect("its throughput");
+    assert_eq!(
+        (recorded.bytes_read, recorded.bytes_written),
+        (counted.read, counted.written),
+        "recorded as it ended, against counted by its meter"
+    );
+    assert_eq!(
+        env.store.job(job.id).unwrap(),
+        *job,
+        "nothing is recorded after it ends"
+    );
+}
+
 /// Recovers the store's unfinished Builds, and says why each that is still unfinished is.
 fn recover(env: &Env) -> Vec<String> {
     env.store
@@ -1163,6 +1183,7 @@ fn a_disc_that_cannot_be_put_in_place_holds_its_game_until_recovery_finishes_it(
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert!(env.dir().join(SAGA_CHDS[0]).is_file());
     assert_eq!(std::fs::read(&intruder).unwrap(), b"not a CHD");
     // Disc 2 isn't failed, and its verified CHD stays staged, while the build waits to finish the game.
@@ -1209,6 +1230,7 @@ fn a_keep_that_fails_on_disc_2_holds_its_game_until_recovery_finishes_it() {
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(env.kept(&folder), [SAGA_CHDS[0]]);
     assert_eq!(std::fs::read(&disc2).unwrap(), b"changed");
     // Recovery, run as the build failed, put Disc 1 in place, and holds the folder at Disc 2, which it can't.
@@ -1335,6 +1357,7 @@ fn a_copy_of_a_discs_checked_file_at_its_target_is_not_taken_for_it() {
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     let blocked = recover(&env);
     assert!(
         blocked.len() == 1 && blocked[0].contains(SAGA_CHDS[1]),

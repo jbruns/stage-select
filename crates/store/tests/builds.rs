@@ -653,6 +653,7 @@ fn the_digest_binds_the_plan_and_a_stale_approval_is_rejected_with_the_new_plan(
     env.store.claim_job().unwrap();
     let failed = env.store.run_build_job(&env.config, job.id, None).unwrap();
     assert_eq!(failed.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &failed);
     assert!(
         failed
             .error
@@ -1926,6 +1927,7 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
     env.store.hook_faults(None);
 
     assert_eq!(job.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &job);
     assert!(elsewhere.is_dir());
     assert_eq!(
         std::fs::read(dir.join(RETAINED).join("theirs")).unwrap(),
@@ -2346,6 +2348,7 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
         env.store.hook_faults(None);
 
         assert_eq!(job.state, JobState::Failed, "{tamper}");
+        assert_recorded_as_metered(&env, &job);
         let temps = creating(&dir);
         assert_eq!(temps.len(), 1, "{tamper}: left in place");
         if tamper == "a file in it" {
@@ -3064,6 +3067,7 @@ fn a_symlink_planted_at_the_markers_temp_file_is_never_followed() {
     let job = env.build_with(&plan, &plant);
 
     assert_eq!(job.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &job);
     assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
     assert_eq!(marker(&dir)["generation"], 0, "the marker did not advance");
     assert!(
@@ -3096,6 +3100,7 @@ fn a_marker_changed_during_a_build_stops_it_before_the_next_file_is_put_in_place
     let job = env.build_with(&plan, &swap);
 
     assert_eq!(job.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &job);
     assert!(job.error.as_ref().unwrap().contains("marker"), "{job:?}");
     assert!(dir.join(&targets[0]).is_file());
     for target in &targets[1..] {
@@ -3213,6 +3218,7 @@ fn a_staged_file_replaced_after_it_was_verified_is_never_put_in_place() {
 
     assert_eq!(*mode.lock().unwrap(), Some(0o700), "staging is private");
     assert_eq!(job.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &job);
     assert!(
         job.error
             .unwrap()
@@ -3256,6 +3262,7 @@ fn a_file_replaced_at_its_target_once_renamed_is_left_and_reported_uncertain() {
     let job = env.build(&plan);
 
     assert_eq!(job.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &job);
     assert_eq!(std::fs::read(&target).unwrap(), b"someone else's");
     let build = env.store.build_of_job(job.id).unwrap().unwrap();
     let detail = env.store.build(build.id).unwrap();
@@ -3412,6 +3419,7 @@ fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released
     let job = env.store.claim_job().unwrap().unwrap();
     let job = env.store.run_build_job(&env.config, job.id, None).unwrap();
     assert_eq!(job.state, JobState::Failed, "the plan changed");
+    assert_recorded_as_metered(&env, &job);
     env.audit();
     env.record(&everything(&env.sha256));
     assert!(env.store.selection_record(second).unwrap().pruned);
@@ -5610,6 +5618,7 @@ fn a_plan_made_before_the_play_library_policy_changed_is_refused() {
     env.store.claim_job().unwrap().unwrap();
     let done = env.store.run_build_job(&env.config, job.id, None).unwrap();
     assert_eq!(done.state, JobState::Failed);
+    assert_recorded_as_metered(&env, &done);
     assert!(done.error.unwrap().contains("the plan changed"));
     assert!(env.play().join("atari2600/Pong (USA).zip").exists());
 }
@@ -5830,6 +5839,7 @@ fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder
         env.store.hook_faults(None);
 
         assert_eq!(ended.state, JobState::Interrupted, "{convert}");
+        assert_recorded_as_metered(&env, &ended);
         assert!(
             ended.error.as_deref().unwrap().contains("you cancelled"),
             "{ended:?}"
@@ -6349,6 +6359,7 @@ fn a_stat_walk_stops_for_a_build_that_waits_and_never_delays_its_approval() {
     let ended = env.store.run_stat_walk_job(&env.config, walk.id).unwrap();
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
 }
 
@@ -6378,5 +6389,22 @@ fn drift_found_and_cleared_before_anyone_looks_is_reported_once() {
             drift: 1
         }],
         "once as it was found, not again while it stayed"
+    );
+}
+
+/// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
+/// failed included.
+fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+    let counted = env.store.meter().so_far(job.id).expect("metered").counted;
+    let recorded = job.throughput.expect("its throughput");
+    assert_eq!(
+        (recorded.bytes_read, recorded.bytes_written),
+        (counted.read, counted.written),
+        "recorded as it ended, against counted by its meter"
+    );
+    assert_eq!(
+        env.store.job(job.id).unwrap(),
+        *job,
+        "nothing is recorded after it ends"
     );
 }

@@ -1267,19 +1267,17 @@ fn record_disposal(
     })
 }
 
-fn end_failed(
-    tx: &Transaction,
-    meter: &Meter,
-    job: i64,
-    build: Option<i64>,
-    error: &str,
-) -> Result<()> {
-    if let Some(build) = build {
-        tx.execute(
-            "UPDATE builds SET state = 'failed', finished_at = ?2 WHERE id = ?1 AND state = 'running'",
-            params![build, now()],
-        )?;
-    }
+/// Records the Running Build `build` failed.
+fn fail_build(tx: &Transaction, build: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE builds SET state = 'failed', finished_at = ?2 WHERE id = ?1 AND state = 'running'",
+        params![build, now()],
+    )?;
+    Ok(())
+}
+
+/// Ends the Build Job `job` Failed with `error`; one no longer Running is left as it is.
+fn end_failed(tx: &Transaction, meter: &Meter, job: i64, error: &str) -> Result<()> {
     match finish_running(tx, meter, job, JobState::Failed, Some(error)) {
         Err(Error::Io(_)) | Ok(()) => Ok(()),
         Err(err) => Err(err),
@@ -1531,10 +1529,18 @@ impl Store {
         let outcome = self.carry_out(config, id, plan_id, &mut build, progress);
         if let Err(err) = &outcome {
             let message = err.to_string();
-            self.write(|tx| end_failed(tx, &self.meter, id, build, &message))?;
-            if let Some(build) = build {
-                self.recover_build(config, build, Some(&self.meter.job(id)))?;
-            }
+            // The Build is recorded failed before its folder is recovered, and the Job ends once recovery has, so
+            // that the write ending it records what recovery read and wrote too.
+            let recovered = match build {
+                Some(build) => {
+                    self.write(|tx| fail_build(tx, build))?;
+                    self.recover_build(config, build, Some(&self.meter.job(id)))
+                        .map(drop)
+                }
+                None => Ok(()),
+            };
+            self.write(|tx| end_failed(tx, &self.meter, id, &message))?;
+            recovered?;
         }
         // Additions a cleanup kept aside drift entries for are published from their kept files by their
         // Additions Jobs.
