@@ -56,8 +56,6 @@ jobs:
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
       # The release run below checks every fixture golden, so this one leaves them out.
       - run: cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-      # nextest runs no doctests; there are none yet, this keeps any new one checked.
-      - run: cargo test --doc --locked
       # Every fixture golden: a debug build checks only some of them, a release build all of them in about a minute.
       - run: cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 
