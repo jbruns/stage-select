@@ -530,6 +530,8 @@ impl RootFiles<'_> {
 }
 
 impl calibrate::Files for RootFiles<'_> {
+    type Payload = File;
+
     fn next(&self) -> Option<std::io::Result<File>> {
         self.next_at().map(|(_, file)| file)
     }

@@ -8,14 +8,16 @@
 //! Every read is read-only, and each file is read at most once in a run, then dropped from the page cache so that
 //! no later step reads it from memory.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use title_select_api::calibration::{CurvePoint, Knee};
 
-use crate::meter::{JobMeter, Reading, Tally};
+use crate::meter::{JobMeter, Tally};
 use crate::payload::Hasher;
 
 /// The most payload readers a Root's sweep tries.
@@ -263,14 +265,41 @@ fn synthetic(len: usize) -> Vec<u8> {
     out
 }
 
-/// The files a Root's sweep reads, found as the sweep asks for them so that a step never runs short while the Root
-/// has files left, and each handed out at most once. Whoever implements it opens each file beneath the Root without
-/// following a symlink, and only hands out regular files.
-pub trait Files: Sync {
+/// A file a Root's sweep reads: opened, sized and dropped from the page cache before a step's clock starts, so that
+/// the step times only reading.
+pub trait Payload: Send {
+    /// Its size, from the open handle.
+    fn size(&self) -> std::io::Result<u64>;
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
+    /// Drops its pages from the page cache, where the platform can.
+    fn uncache(&self);
+}
+
+impl Payload for File {
+    fn size(&self) -> std::io::Result<u64> {
+        Ok(self.metadata()?.len())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Read::read(self, buf)
+    }
+
+    fn uncache(&self) {
+        uncache(self);
+    }
+}
+
+/// The files a Root's sweep reads, found as the sweep asks for them, each handed out at most once. Whoever implements
+/// it opens each file beneath the Root without following a symlink, and only hands out regular files.
+pub trait Files {
+    type Payload: Payload;
     /// The next file to read; `None` once there are no more. An `Err` is a file, or a folder of files, that was
     /// found but couldn't be opened; the sweep goes on to the next.
-    fn next(&self) -> Option<std::io::Result<File>>;
+    fn next(&self) -> Option<std::io::Result<Self::Payload>>;
 }
+
+/// The most files a step opens ahead of its readers: few enough to stay well inside the open-file limit.
+const PREPARED_FILES: usize = 256;
 
 /// How a Root's sweep went.
 #[derive(Debug, Clone, PartialEq)]
@@ -285,46 +314,72 @@ pub enum RootSweep {
 }
 
 /// Sweeps payload readers 1, 2, 4… up to [`MAX_READERS`] over `files`, read-only, in the order they come. Each file
-/// is read at most once across the sweep, so each step reads files no earlier step read, and each is dropped from the
-/// page cache before and after. A file that can't be opened or read is passed over, and the first such failure kept:
+/// is read at most once across the sweep, so each step reads files no earlier step read.
+///
+/// Before each step's clock starts, it finds and opens enough files for the step's byte limit, and drops each from the
+/// page cache, within the step's time limit and [`PREPARED_FILES`] files: the step's readers then only read, and its
+/// throughput is their bytes over the time they read together. Files a step finished are dropped from the page cache
+/// again after its clock stops. A file that can't be opened or read is passed over, and the first such failure kept:
 /// a Root none of whose data could be read is unreadable.
-pub fn root(
-    files: &dyn Files,
+pub fn root<F: Files + ?Sized>(
+    files: &F,
     limits: Limits,
     clock: &dyn Clock,
     cancel: &AtomicBool,
     tally: &Tally,
 ) -> RootSweep {
+    fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(|e| e.into_inner())
+    }
     let read = AtomicU64::new(0);
-    let ran_out = AtomicBool::new(false);
-    let failed = std::sync::Mutex::new(None::<String>);
+    let failed = Mutex::new(None::<String>);
     let fail = |err: std::io::Error| {
-        let mut first = failed.lock().unwrap_or_else(|e| e.into_inner());
-        first.get_or_insert_with(|| err.to_string());
+        lock(&failed).get_or_insert_with(|| err.to_string());
+    };
+    let prepared: Mutex<VecDeque<(F::Payload, u64)>> = Mutex::new(VecDeque::new());
+    let finished: Mutex<Vec<F::Payload>> = Mutex::new(Vec::new());
+    let mut ran_out = false;
+    let prepare = |workers: usize, ran_out: &mut bool| {
+        let start = clock.elapsed();
+        // What each reader of an even share of the step's bytes would read of each file.
+        let share = (limits.step_bytes / workers as u64).max(1);
+        let mut queue = lock(&prepared);
+        let mut have: u64 = queue.iter().map(|(_, size)| (*size).min(share)).sum();
+        while !*ran_out
+            && (have < limits.step_bytes || queue.len() < workers)
+            && queue.len() < PREPARED_FILES
+            && !cancel.load(Ordering::Relaxed)
+            && clock.elapsed().saturating_sub(start) < limits.step_time
+        {
+            match files.next() {
+                None => *ran_out = true,
+                Some(Err(err)) => fail(err),
+                Some(Ok(payload)) => match payload.size() {
+                    Err(err) => fail(err),
+                    Ok(0) => {}
+                    Ok(size) => {
+                        payload.uncache();
+                        have += size.min(share);
+                        queue.push_back((payload, size));
+                    }
+                },
+            }
+        }
     };
     let work = |budget: &Budget| {
         let _active = tally.job().map(JobMeter::reading);
         let mut buf = vec![0; CHUNK];
         while budget.going() {
-            let opened = match files.next() {
-                None => {
-                    ran_out.store(true, Ordering::Relaxed);
-                    return;
-                }
-                Some(Err(err)) => {
-                    fail(err);
-                    continue;
-                }
-                Some(Ok(opened)) => opened,
+            let Some((mut payload, _)) = lock(&prepared).pop_front() else {
+                return;
             };
-            uncache(&opened);
-            let mut reading = Reading::new(&opened, tally);
             while budget.going() {
-                match reading.read(&mut buf) {
+                match payload.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
                         budget.add(n as u64);
                         read.fetch_add(n as u64, Ordering::Relaxed);
+                        tally.read(n);
                     }
                     Err(err) => {
                         fail(err);
@@ -333,12 +388,23 @@ pub fn root(
                 }
             }
             tally.file_read();
-            uncache(&opened);
+            lock(&finished).push(payload);
         }
     };
     let sweep = sweep(&counts(MAX_READERS), true, limits.min_bytes / 4, |n| {
-        step(n, limits, clock, cancel, &work)
+        prepare(n, &mut ran_out);
+        let mut step = step(n, limits, clock, cancel, &work);
+        for payload in lock(&finished).drain(..) {
+            payload.uncache();
+        }
+        // Readers that ran through all that was opened for them, with more of the Root still to find, measured
+        // what they read: the sweep goes on.
+        if step.end == StepEnd::Exhausted && !ran_out && step.point.bytes > 0 {
+            step.end = StepEnd::Time;
+        }
+        step
     });
+    let left = lock(&prepared).len();
     let read = read.into_inner();
     if sweep.cancelled {
         return RootSweep::Swept { sweep, read };
@@ -348,7 +414,7 @@ pub fn root(
     {
         return RootSweep::Unreadable(why);
     }
-    if sweep.curve.is_empty() || (ran_out.into_inner() && read < limits.min_bytes) {
+    if sweep.curve.is_empty() || (ran_out && left == 0 && read < limits.min_bytes) {
         return RootSweep::TooSmall { read };
     }
     RootSweep::Swept { sweep, read }
@@ -574,6 +640,8 @@ mod tests {
     }
 
     impl Files for Listed {
+        type Payload = File;
+
         fn next(&self) -> Option<std::io::Result<File>> {
             let (i, size) = self.next.lock().unwrap().next()?;
             Some(match size {
@@ -678,6 +746,112 @@ mod tests {
             ..Limits::default()
         };
         assert_eq!(run(&files, limits), RootSweep::TooSmall { read: 0 });
+    }
+
+    /// A payload that reads at a fixed rate on the fake clock, whatever the number of readers: a millisecond a MiB.
+    struct Modelled<'a> {
+        left: u64,
+        clock: &'a Fake,
+    }
+
+    impl Payload for Modelled<'_> {
+        fn size(&self) -> std::io::Result<u64> {
+            // Slow to stat.
+            self.clock.advance(Duration::from_millis(50));
+            Ok(self.left)
+        }
+
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = (buf.len() as u64).min(self.left);
+            self.left -= n;
+            self.clock
+                .advance(Duration::from_nanos(n * 1_000_000 / MIB));
+            Ok(n as usize)
+        }
+
+        fn uncache(&self) {
+            self.clock.advance(Duration::from_millis(10));
+        }
+    }
+
+    /// Files slow to find and open, each a MiB.
+    struct Slow<'a> {
+        clock: &'a Fake,
+        left: std::sync::Mutex<usize>,
+    }
+
+    impl<'a> Files for Slow<'a> {
+        type Payload = Modelled<'a>;
+
+        fn next(&self) -> Option<std::io::Result<Modelled<'a>>> {
+            let mut left = self.left.lock().unwrap();
+            *left = left.checked_sub(1)?;
+            self.clock.advance(Duration::from_millis(200));
+            Some(Ok(Modelled {
+                left: MIB,
+                clock: self.clock,
+            }))
+        }
+    }
+
+    #[test]
+    fn finding_and_opening_files_is_not_timed_as_reading() {
+        let clock = Fake::default();
+        let files = Slow {
+            clock: &clock,
+            left: std::sync::Mutex::new(1000),
+        };
+        let limits = Limits {
+            step_time: Duration::from_secs(60),
+            step_bytes: 32 * MIB,
+            min_bytes: MIB,
+        };
+        let RootSweep::Swept { sweep, .. } = root(
+            &files,
+            limits,
+            &clock,
+            &AtomicBool::new(false),
+            &Tally::default(),
+        ) else {
+            panic!("big enough");
+        };
+        assert_eq!(
+            sweep.curve.iter().map(|p| p.workers).collect::<Vec<_>>(),
+            counts(MAX_READERS),
+            "no drop"
+        );
+        for p in &sweep.curve {
+            assert!(
+                (p.bytes_per_s - 1000.0 * MIB as f64).abs() < 1.0,
+                "{} readers read at {} MiB/s",
+                p.workers,
+                p.bytes_per_s / MIB as f64
+            );
+        }
+    }
+
+    #[test]
+    fn a_cancel_while_files_are_found_ends_the_sweep() {
+        struct Cancelling<'a>(&'a AtomicBool);
+        impl Files for Cancelling<'_> {
+            type Payload = File;
+            fn next(&self) -> Option<std::io::Result<File>> {
+                self.0.store(true, Ordering::Relaxed);
+                Some(Err(std::io::Error::other("never reached")))
+            }
+        }
+        let cancel = AtomicBool::new(false);
+        let RootSweep::Swept { sweep, read } = root(
+            &Cancelling(&cancel),
+            Limits::default(),
+            &Instant::now(),
+            &cancel,
+            &Tally::default(),
+        ) else {
+            panic!("cancelled");
+        };
+        assert!(sweep.cancelled && sweep.curve.is_empty());
+        assert_eq!(read, 0);
     }
 
     #[test]

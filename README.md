@@ -739,7 +739,8 @@ It measures:
   following a symlink, so it never reads outside the root. A root whose files run out before about 1 GiB is read is
   too small to measure; a root none of whose files it could open or read is reported unreadable, with why.
 
-Each step stops after 10 seconds or 2 GiB. A sweep's knee is the fewest workers within 10% of the fastest step, never
+Before each step it finds and opens the files the step will read, so a step's time counts only reading. Each step
+stops after 10 seconds or 2 GiB of reading. A sweep's knee is the fewest workers within 10% of the fastest step, never
 past a step that was slower than the one before; a root's sweep stops at that slower step. The results keep each
 sweep's steps, its knee and the throughput at the knee, with the CPU count and each root's path at the time.
 
