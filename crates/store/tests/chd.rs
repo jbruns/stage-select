@@ -1366,14 +1366,14 @@ fn only_item(env: &Env, job: &title_select_api::Job) -> title_select_api::build:
 #[test]
 fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
     let root = tempfile::tempdir().unwrap();
-    let ran = root.path().join("args");
+    let args = root.path().join("args");
     let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[ECHO]);
     let ended = env.build(&env.plan(&folder, selection));
 
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
-    assert!(!ran.exists(), "chdman ran");
+    assert!(!args.exists(), "chdman ran");
     let item = only_item(&env, &ended);
     assert_eq!(item.state, ItemState::Failed, "{item:?}");
     let error = item.error.unwrap();

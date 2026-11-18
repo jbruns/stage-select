@@ -440,7 +440,11 @@ pub fn repack_sources(
         };
         added.map_err(|e| format!("{}: {e}", rom.name))?;
         #[cfg(test)]
-        REPACK_PAUSE.with_borrow(|pause| pause.as_ref().map(|pause| pause(&rom.name)));
+        REPACK_PAUSE.with_borrow(|pause| {
+            if let Some(pause) = pause {
+                pause(&rom.name)
+            }
+        });
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
     let file = out

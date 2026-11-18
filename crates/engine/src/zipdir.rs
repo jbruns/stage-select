@@ -137,7 +137,7 @@ pub fn open<R: Read + Seek>(
 }
 
 /// The stamp of each file [`open`] handed to the archive reader. Every engine unit test opens through here, and an
-/// audit opens on its reader threads rather than the test's, so a test finds its own file by its stamp rather than by
+/// Audit opens on its reader threads rather than the test's, so a test finds its own file by its stamp rather than by
 /// thread: no two existing files share a stamp, and a deleted one would have to match its size and times to the
 /// nanosecond as well as its inode.
 #[cfg(test)]
