@@ -117,6 +117,8 @@ pub struct Bucket {
 /// A slot reserved in a [`Bucket`]'s queue for `n` bytes: they may move from [`BURST`] before its end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Receipt {
+    /// The end of the queue before it: its start, unless it was reserved together with a busier queue's slot.
+    prior: u64,
     start: u64,
     end: u64,
     n: u64,
@@ -220,10 +222,12 @@ impl Bucket {
         }
         let mut paid = self.tail();
         let cost = cost(n, self.rate()?);
-        let start = (*paid).max(now);
+        let prior = *paid;
+        let start = prior.max(now);
         let end = start.saturating_add(cost);
         *paid = end;
         Some(Receipt {
+            prior,
             start,
             end,
             n,
@@ -233,15 +237,17 @@ impl Bucket {
 
     /// Gives back, at `now`, `unused` bytes of `receipt` that didn't move, as by a read that found the end of its file
     /// first, from the end of its slot: only while its slot is still the last in the queue, and only what of it is
-    /// still to come. Returns whether it was. A slot others have queued behind is never given back, since the next
-    /// reservation would then overlap theirs: its unused part is capacity lost, never a burst.
+    /// still to come. Returns whether it was. The queue then ends where it did before the slot, or now if later, plus
+    /// what is still to come of the part kept: so a joint slot given back gives back the gap left before it too. A
+    /// slot others have queued behind is never given back, since the next reservation would then overlap theirs: its
+    /// unused part is capacity lost, never a burst.
     pub fn refund(&self, receipt: &Receipt, unused: u64, now: u64) -> bool {
         if unused == 0 || self.epoch() != receipt.epoch {
             return false;
         }
         let len = receipt.end - receipt.start;
-        let tail = receipt.end - share(unused.min(receipt.n), len, receipt.n);
-        let back = tail.max(now);
+        let kept = receipt.start + len - share(unused.min(receipt.n), len, receipt.n);
+        let back = receipt.prior.max(now) + kept.saturating_sub(now.max(receipt.start));
         let mut paid = self.tail();
         let last = back < receipt.end && *paid == receipt.end && self.epoch() == receipt.epoch;
         if last {
@@ -312,9 +318,11 @@ pub fn reserve_both(a: &Bucket, b: &Bucket, n: u64, now: u64) -> [Option<Receipt
     // Read under the locks, which a change of rate takes too: one bucket uncapped leaves the other a slot of its own.
     let receipt = |bucket: &Bucket, paid: &mut u64, end: Option<u64>| {
         let cost = cost(n, bucket.rate()?);
-        let end = end.unwrap_or((*paid).max(now).saturating_add(cost));
+        let prior = *paid;
+        let end = end.unwrap_or(prior.max(now).saturating_add(cost));
         *paid = end;
         Some(Receipt {
+            prior,
             start: end - cost,
             end,
             n,
@@ -1027,6 +1035,43 @@ mod tests {
         assert_eq!(take_both(&a, &b, 0, &clock, &|| false), Some([None, None]));
         assert_eq!(a.take(0, &clock, &|| false), Some(None));
         assert_eq!((a.waited(), paid_until(&a)), waits);
+    }
+
+    #[test]
+    fn a_cancelled_copy_gives_back_the_gap_its_joint_slot_left_in_the_faster_queue() {
+        // A fast source at 100 MiB/s with nothing queued, a slow destination at 1 MiB/s with 30 s queued: the copy's
+        // slot on the source is put 30 s out, behind a gap. Cancelled 100 ms in, it gives back both slots and the gap.
+        let (a, b) = (capped(100), capped(1));
+        b.reserve(30 * MIB, 0).unwrap();
+        let clock = Fake::new();
+        let stop = || clock.now() >= 100 * MS;
+        assert_eq!(take_both(&a, &b, 256 << 10, &clock, &stop), None);
+        let now = clock.now();
+        assert_eq!(paid_until(&a), now);
+        assert_eq!(paid_until(&b), 30 * SEC);
+        // A read on the source alone, which nothing else is queued for, goes straight away.
+        let waits = a.waited();
+        let read = a.take(64 << 10, &clock, &|| false).unwrap().unwrap();
+        assert_eq!(read.start, now);
+        assert_eq!((a.waited(), clock.now()), (waits, now));
+    }
+
+    #[test]
+    fn a_partly_used_joint_slot_keeps_only_what_is_still_to_come_of_its_used_part() {
+        // A slot reserved with a gap before it, half of whose bytes were found unused before it began, keeps the
+        // queue at the end before it plus the used half's cost; once it has begun, at now plus what's left of that.
+        let (a, b) = (capped(4), capped(1));
+        b.reserve(2 * MIB, 0).unwrap();
+        let [Some(ra), Some(_)] = reserve_both(&a, &b, MIB, 0) else {
+            panic!("both capped")
+        };
+        assert_eq!((ra.prior, ra.start, ra.end), (0, 2_750 * MS, 3 * SEC));
+        assert!(a.refund(&ra, MIB / 2, SEC));
+        assert_eq!(paid_until(&a), SEC + 125 * MS);
+        let ra = a.reserve(MIB, 0).unwrap();
+        assert_eq!((ra.prior, ra.start), (SEC + 125 * MS, SEC + 125 * MS));
+        assert!(a.refund(&ra, MIB / 2, SEC + 200 * MS));
+        assert_eq!(paid_until(&a), SEC + 250 * MS);
     }
 
     #[test]
