@@ -30,6 +30,9 @@ pub enum Error {
     Dat(String),
     #[error("cannot read source set: {0}")]
     SourceSet(String),
+    /// The read stopped because a worker it needed couldn't start.
+    #[error("the audit stopped: {0}")]
+    Workers(String),
 }
 
 /// One payload reader and one hash worker: what the stateless Audit uses.
@@ -349,6 +352,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         options.pools,
         options.progress,
     )
+    .map_err(Error::Workers)?
     .into_iter();
     let game_index: HashMap<&str, usize> = dat
         .games
