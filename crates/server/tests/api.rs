@@ -1105,8 +1105,9 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
     let (again, first) = (&jobs[0], &jobs[1]);
     assert_eq!(first.state, JobState::Interrupted);
     assert_eq!((again.attempt, again.requeued_from), (2, Some(first.id)));
+    // The threads it starts depend on neither the pace nor the ceilings in force, which say how many work.
     let cpus = std::thread::available_parallelism().unwrap().get();
-    assert_eq!(again.workers.readers, cpus);
+    assert_eq!(again.workers.readers, cpus.max(32));
     let (_, done) = client.follow(again.id);
     assert_eq!(done.state, JobState::Succeeded);
 }
@@ -1325,10 +1326,11 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceili
     client.upload("Test - System.dat", &env.dat());
     client.add_set();
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    let cpus = std::thread::available_parallelism().unwrap().get();
     assert_eq!(
         (job.workers.readers, job.workers.hashers),
-        (8, 5),
-        "a job records the ceilings it may reach"
+        (32, cpus.max(5)),
+        "a job starts the threads any ceiling or pace could set to work, and the shared pools hold back the rest"
     );
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
 

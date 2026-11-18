@@ -433,7 +433,13 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
 /// The configuration file, or no roots when none is given.
 fn load_config(path: Option<&Path>) -> Result<Config, String> {
     match path {
-        Some(path) => Config::load(path).map_err(|e| e.to_string()),
+        Some(path) => {
+            let config = Config::load(path).map_err(|e| e.to_string())?;
+            for warning in &config.warnings {
+                eprintln!("title-select: {warning}");
+            }
+            Ok(config)
+        }
         None => Ok(Config::default()),
     }
 }

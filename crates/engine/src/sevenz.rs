@@ -88,6 +88,10 @@ impl Gate {
 
     /// Waits for a free permit and takes it.
     pub fn enter(&self) -> Permit<'_> {
+        debug_assert!(
+            !crate::meter::ReaderPermit::on_this_thread(),
+            "the 7z gate is entered before a reader permit is taken, never after"
+        );
         self.permits.enter()
     }
 

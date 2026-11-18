@@ -272,7 +272,7 @@ pub(crate) struct Live {
     hashers: Arc<Pool>,
     archives: Gate,
     /// One pool for each Root, made as a Job first reads it.
-    readers: RwLock<BTreeMap<String, Arc<Pool>>>,
+    pub(crate) readers: Arc<RootPools>,
     concurrent: AtomicUsize,
     view: RwLock<Option<JobsView>>,
     ready: AtomicBool,
@@ -285,7 +285,7 @@ impl Default for Live {
         Live {
             hashers: Arc::new(Pool::new(1)),
             archives: Gate::new(1),
-            readers: RwLock::default(),
+            readers: Arc::default(),
             concurrent: AtomicUsize::new(1),
             view: RwLock::default(),
             ready: AtomicBool::new(false),
@@ -303,7 +303,14 @@ impl Live {
         self.concurrent
             .store(in_force(&view.host.concurrent), Ordering::SeqCst);
         {
-            let mut readers = self.readers.write().unwrap_or_else(|e| e.into_inner());
+            let unnamed = view.pace.of(crate::calibration::cpus());
+            self.readers.unnamed.store(unnamed, Ordering::SeqCst);
+            let mut readers = self.readers.map.write().unwrap_or_else(|e| e.into_inner());
+            for (name, pool) in readers.iter() {
+                if !view.roots.iter().any(|r| &r.root == name) {
+                    pool.set_limit(unnamed);
+                }
+            }
             for root in &view.roots {
                 let limit = in_force(&root.readers);
                 match readers.get(&root.root) {
@@ -316,6 +323,37 @@ impl Live {
         }
         *self.view.write().unwrap_or_else(|e| e.into_inner()) = Some(view);
         self.ready.store(true, Ordering::Release);
+    }
+}
+
+/// Each Root's shared readers pool, which every Job reading the Root takes its permits from.
+#[derive(Debug)]
+pub(crate) struct RootPools {
+    map: RwLock<BTreeMap<String, Arc<Pool>>>,
+    /// The limit of a Root the configuration doesn't name: the pace's share of the CPU count.
+    unnamed: AtomicUsize,
+}
+
+impl Default for RootPools {
+    fn default() -> Self {
+        RootPools {
+            map: RwLock::default(),
+            unnamed: AtomicUsize::new(crate::calibration::cpus()),
+        }
+    }
+}
+
+impl title_select_engine::meter::RootReaders for RootPools {
+    fn readers(&self, root: &str) -> Arc<Pool> {
+        if let Some(pool) = self.map.read().unwrap_or_else(|e| e.into_inner()).get(root) {
+            return pool.clone();
+        }
+        self.map
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(root.to_owned())
+            .or_insert_with(|| Arc::new(Pool::new(self.unnamed.load(Ordering::SeqCst))))
+            .clone()
     }
 }
 
@@ -385,15 +423,17 @@ impl Store {
         Ok(&self.ceilings)
     }
 
-    /// The threads a Job queued now starts: as many readers as the largest reader Ceiling of any Root, and as many
-    /// hash workers as the Host's Ceiling. The shared pools say how many of them work at each moment; a Ceiling
-    /// raised later reaches a Job queued before only as far as its threads. The CPU count of each when the Ceilings
-    /// can't be worked out.
+    /// The threads a Job starts: as many readers as Calibration ever tries, or the largest reader Ceiling of any Root
+    /// if that's more, and as many hash workers as the CPU count, or the Host's Ceiling if that's more. None of these
+    /// depends on the pace or on what is in force now: the shared pools say how many of the threads work at each
+    /// moment, so a Ceiling or pace raised while the Job runs reaches it at each worker's next file, as one lowered
+    /// does. The threads the pools hold back wait for a permit, and cost the read path nothing.
     pub fn job_workers(&self, config: &Config) -> title_select_api::Workers {
         let cpus = crate::calibration::cpus();
+        let readers = title_select_engine::calibrate::MAX_READERS;
         let Ok(view) = self.ceilings(config) else {
             return title_select_api::Workers {
-                readers: cpus,
+                readers,
                 hashers: cpus,
             };
         };
@@ -403,9 +443,8 @@ impl Store {
                 .roots
                 .iter()
                 .map(|r| ceiling(&r.readers))
-                .max()
-                .unwrap_or(cpus),
-            hashers: ceiling(&view.host.hashers),
+                .fold(readers, usize::max),
+            hashers: ceiling(&view.host.hashers).max(cpus),
         }
     }
 
@@ -420,24 +459,9 @@ impl Store {
     /// The pools a Job reading the Root `root` shares with every other Job.
     pub fn job_pools(&self, config: &Config, root: &str) -> Result<JobPools> {
         let live = self.live_ceilings(config)?;
-        let found = live
-            .readers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(root)
-            .cloned();
         // A Root the configuration doesn't name is read with the readers of the CPU count, at this pace.
-        let readers = found.unwrap_or_else(|| {
-            let limit = self.pace().of(crate::calibration::cpus());
-            live.readers
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .entry(root.to_owned())
-                .or_insert_with(|| Arc::new(Pool::new(limit)))
-                .clone()
-        });
         Ok(JobPools {
-            readers,
+            readers: title_select_engine::meter::RootReaders::readers(&*live.readers, root),
             hashers: live.hashers.clone(),
         })
     }
@@ -533,24 +557,37 @@ mod tests {
                      INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
                          SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
                      INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     -- Only the totals matter here, not the repair plan a repair Job needs.
-                     PRAGMA ignore_check_constraints = ON;",
+                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;",
                 )?;
-                for (kind, written, ms) in [
-                    ("repair", 100i64 << 20, 2_000i64),
-                    ("repair", 300 << 20, 2_000),
-                    ("repair", 0, 1_000),
-                    ("audit", 900 << 20, 1_000),
-                ] {
+                let job = |kind: &str, plan: Option<i64>, written: i64, ms: i64| {
                     tx.execute(
-                        "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers,
-                                           created_at, bytes_written, duration_ms)
-                         SELECT 'succeeded', ?1, s.id, r.id, 'Operator', 1, 1, 'then', ?2, ?3
+                        "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, repair_plan_id, actor,
+                                           readers, hashers, created_at, bytes_written, duration_ms)
+                         SELECT 'succeeded', ?1, s.id, r.id, ?2, 'Operator', 1, 1, 'then', ?3, ?4
                          FROM source_sets s, dat_revisions r",
-                        rusqlite::params![kind, written, ms],
-                    )?;
+                        rusqlite::params![kind, plan, written, ms],
+                    )
+                    .map(|_| tx.last_insert_rowid())
+                };
+                // The audit the repair plan was made from, which wrote nothing.
+                let audit_job = job("audit", None, 0, 1_000)?;
+                tx.execute(
+                    "INSERT INTO audits (source_set_id, dat_revision_id, status, source_set_path, started_at, job_id,
+                                         evidence)
+                     SELECT s.id, r.id, 'finished', 'Set', 'then', ?1, 'full' FROM source_sets s, dat_revisions r",
+                    [audit_job],
+                )?;
+                tx.execute(
+                    "INSERT INTO repair_plans (source_set_id, audit_id, content, digest, created_at, readers, hashers)
+                     SELECT source_set_id, id, '{}', 'digest', 'then', 0, 0 FROM audits",
+                    [],
+                )?;
+                let plan = tx.last_insert_rowid();
+                for (written, ms) in [(100i64 << 20, 2_000i64), (300 << 20, 2_000), (0, 1_000)] {
+                    job("repair", Some(plan), written, ms)?;
                 }
+                // An audit's write, were one counted, would be the fastest.
+                job("audit", None, 900 << 20, 1_000)?;
                 observed_writes(tx)
             })
             .unwrap();
@@ -876,5 +913,251 @@ mod tests {
             1,
             "a quarter of the default 2, at least 1"
         );
+    }
+
+    /// Counts the files being read at once of one Root, by every Job reading it, and the count each file started at.
+    #[derive(Default)]
+    struct Reading {
+        now: AtomicUsize,
+        most: AtomicUsize,
+        starts: Mutex<Vec<usize>>,
+    }
+
+    impl Reading {
+        fn start(&self) {
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.most.fetch_max(now, Ordering::SeqCst);
+            self.starts.lock().unwrap().push(now);
+            std::thread::sleep(std::time::Duration::from_millis(4));
+        }
+
+        fn end(&self) {
+            self.now.fetch_sub(1, Ordering::SeqCst);
+        }
+
+        fn most_started(&self, range: std::ops::Range<usize>) -> usize {
+            let starts = self.starts.lock().unwrap();
+            starts[range].iter().copied().max().unwrap()
+        }
+    }
+
+    /// An Audit's reads, counted as they start and end.
+    impl title_select_engine::PayloadReads for Reading {
+        fn prior(&self, _: &str) -> Option<title_select_engine::PayloadRead> {
+            self.start();
+            None
+        }
+
+        fn record(&self, _: &str, _: &title_select_engine::PayloadRead) {
+            self.end();
+        }
+    }
+
+    /// A file that counts while it is read, from its first read until it drops.
+    struct Counted<'r> {
+        file: std::fs::File,
+        reading: &'r Reading,
+        started: bool,
+    }
+
+    impl std::io::Read for Counted<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !self.started {
+                self.started = true;
+                self.reading.start();
+            }
+            self.file.read(buf)
+        }
+    }
+
+    impl Drop for Counted<'_> {
+        fn drop(&mut self) {
+            if self.started {
+                self.reading.end();
+            }
+        }
+    }
+
+    /// A Source Set of `n` files, none of which the DAT names, and the DAT.
+    fn files(n: usize) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let set = dir.path().join("set");
+        std::fs::create_dir(&set).unwrap();
+        for i in 0..n {
+            std::fs::write(set.join(format!("{i}.bin")), vec![i as u8; 4096]).unwrap();
+        }
+        let dat = dir.path().join("Test.dat");
+        std::fs::write(
+            &dat,
+            "<datafile><header><name>Test</name><version>1</version></header></datafile>",
+        )
+        .unwrap();
+        (dir, set, dat)
+    }
+
+    fn audit(
+        (set, dat): (&std::path::Path, &std::path::Path),
+        workers: title_select_api::Workers,
+        pools: &JobPools,
+        tally: title_select_engine::meter::Tally,
+        reads: &Reading,
+        progress: &(dyn Fn(title_select_engine::Progress) + Sync),
+    ) {
+        let options = title_select_engine::Options {
+            file: "Test.dat".into(),
+            confine: None,
+            workers,
+            pools: Some(pools.pools()),
+            progress: Some(progress),
+            evidence: title_select_api::report::AuditEvidence::Full,
+            reads: Some(reads),
+            tally,
+        };
+        title_select_engine::audit_with(dat, set, &options).unwrap();
+    }
+
+    /// Runs `f` on a thread of its own, failing if it takes longer than 60 s.
+    fn bounded<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(60))
+            .expect("it finished in time: no deadlock, and no permit stuck")
+    }
+
+    fn readers_of_sets(readers: u64) -> SettingsUpdate {
+        update(CeilingsUpdate {
+            roots: BTreeMap::from([(
+                "sets".to_owned(),
+                RootCeilingsUpdate {
+                    readers: Some(readers.into()),
+                    ..RootCeilingsUpdate::default()
+                },
+            )]),
+            ..CeilingsUpdate::default()
+        })
+    }
+
+    #[test]
+    fn a_running_job_reads_more_at_once_when_a_ceiling_or_the_pace_rises_and_fewer_when_it_falls() {
+        bounded(|| {
+            let (_dir, store) = store();
+            let config = config("[roots.sets]\npath = \"/sets\"");
+            store
+                .update_settings(&config, &readers_of_sets(4), "Operator")
+                .unwrap();
+            let workers = store.job_workers(&config);
+            assert!(workers.readers >= title_select_engine::calibrate::MAX_READERS);
+            let pools = store.job_pools(&config, "sets").unwrap();
+            let tally = store.meter().start(1, workers).tally(Some("sets"));
+            let (_files, set, dat) = files(120);
+            let reads = Reading::default();
+            // Two at once at first, the default pace's half of your 4; six once you raise it to 12; one once you
+            // lower it to 1, even unthrottled; then three once the pace is gentle and you raise it to 12 again.
+            let progress = |p: title_select_engine::Progress| {
+                let set = |u: SettingsUpdate| {
+                    store.update_settings(&config, &u, "Operator").unwrap();
+                };
+                match p.files_done {
+                    20 => set(readers_of_sets(12)),
+                    50 => {
+                        set(readers_of_sets(1));
+                        set(SettingsUpdate {
+                            pace: Some(Pace::Unthrottled),
+                            ..SettingsUpdate::default()
+                        });
+                    }
+                    80 => {
+                        set(SettingsUpdate {
+                            pace: Some(Pace::Gentle),
+                            ..SettingsUpdate::default()
+                        });
+                        set(readers_of_sets(12));
+                    }
+                    _ => {}
+                }
+            };
+            audit((&set, &dat), workers, &pools, tally, &reads, &progress);
+
+            // The files under way at each change finish as they started; every file started after them follows it.
+            assert_eq!(reads.most_started(0..20), 2);
+            assert_eq!(reads.most_started(35..50), 6);
+            assert_eq!(reads.most_started(65..80), 1);
+            assert_eq!(reads.most_started(95..120), 3);
+            assert_eq!(
+                store.job_workers(&config),
+                workers,
+                "the threads a Job starts don't depend on the pace or the ceilings in force"
+            );
+        });
+    }
+
+    #[test]
+    fn a_build_reading_a_root_and_an_audit_of_it_share_its_readers() {
+        bounded(|| {
+            let (_dir, store) = store();
+            let config = config("[roots.sets]\npath = \"/sets\"");
+            store
+                .update_settings(&config, &readers_of_sets(4), "Operator")
+                .unwrap();
+            let pools = store.job_pools(&config, "sets").unwrap();
+            let shared = pools.pools().readers;
+            assert_eq!(shared.limit(), 2);
+            let (_files, set, dat) = files(40);
+            let reads = Reading::default();
+
+            // The Root's readers all taken by other Jobs: a Build's read of the Root waits for one.
+            let build = store.meter().start(2, store.job_workers(&config));
+            let held = (shared.enter(), shared.enter());
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::scope(|s| {
+                let tally = build.tally(Some("sets"));
+                let path = set.join("0.bin");
+                s.spawn(move || {
+                    let file = std::fs::File::open(path).unwrap();
+                    tx.send(crate::builds::sha256_of(&file, &tally).unwrap())
+                        .unwrap();
+                });
+                let waited = rx.recv_timeout(std::time::Duration::from_millis(300));
+                assert!(waited.is_err(), "it read while every reader was taken");
+                drop(held);
+                rx.recv_timeout(std::time::Duration::from_secs(10))
+                    .expect("it reads once a reader is free");
+            });
+
+            // A Build reading every file of the Root alongside an Audit of it: never more than two at once in all.
+            let audited = store.meter().start(1, store.job_workers(&config));
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    let tally = audited.tally(Some("sets"));
+                    let workers = store.job_workers(&config);
+                    audit((&set, &dat), workers, &pools, tally, &reads, &|_| {});
+                });
+                for _ in 0..4 {
+                    s.spawn(|| {
+                        let tally = build.tally(Some("sets"));
+                        for i in 0..10 {
+                            let file = std::fs::File::open(set.join(format!("{i}.bin"))).unwrap();
+                            let counted = Counted {
+                                file,
+                                reading: &reads,
+                                started: false,
+                            };
+                            let mut reading =
+                                title_select_engine::meter::Reading::new(counted, &tally);
+                            std::io::copy(&mut reading, &mut std::io::sink()).unwrap();
+                        }
+                    });
+                }
+            });
+            assert_eq!(reads.most.load(Ordering::SeqCst), 2);
+            assert_eq!(
+                reads.starts.lock().unwrap().len(),
+                80,
+                "40 audited, 40 built"
+            );
+            assert_eq!(shared.taken(), 0);
+        });
     }
 }

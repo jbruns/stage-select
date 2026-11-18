@@ -418,6 +418,7 @@ impl Store {
             regions: std::sync::OnceLock::new(),
             meter: title_select_engine::meter::Meter::default(),
         };
+        store.meter.share_readers(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.
         if migrations.len() >= migrations::SETTINGS {
             let pace = store.settings()?.pace;
@@ -503,6 +504,8 @@ impl Store {
     /// Runs `f` while holding the writer, so that blob files and the rows that hold them change together.
     /// What `f` notes is handed to the observer once it returns successfully and the writer is released.
     fn with_writer<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
+        // A Job holding a reader permit may wait for the writer, so nothing holding it waits for one.
+        let _no_waits = title_select_engine::meter::NoReaderWaits::new();
         let mut conn = self.writer.lock().unwrap();
         observe::begin(self.observer.get().is_some());
         let out = f(&mut conn);

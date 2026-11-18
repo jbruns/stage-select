@@ -8,7 +8,8 @@
 //!
 //! A reader holds its permit while it waits for a hash worker; a hash worker takes its permit only once it has a
 //! payload, and then waits only for that payload's reader, which already holds its own. So no worker holding a hash
-//! worker permit ever waits for a reader permit, and Jobs sharing both pools can't deadlock.
+//! worker permit ever waits for a reader permit, and Jobs sharing both pools can't deadlock. Jobs that read a Root
+//! without this pipeline take the same Root's permits through their [`Tally`] (see [`crate::meter`]), one at a time.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -18,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, PoisonError};
 
-use crate::meter::{JobMeter, Reading, Switched, Tally};
+use crate::meter::{JobMeter, ReaderPermit, Reading, Switched, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::pool::Pool;
 use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
@@ -138,6 +139,8 @@ pub fn read_files(
                         break;
                     }
                     let _permit = pools.readers.enter();
+                    // So that the file's reads don't ask the Root's pool for a second permit.
+                    let _held = ReaderPermit::held();
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(file) = files.get(i) else {
                         break;

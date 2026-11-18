@@ -346,8 +346,9 @@ max_dictionary_mib = 128    # the largest dictionary a 7z may need (the default;
 
 Leave the ceilings out unless you need to pin one: a ceiling set here can't be changed in the workbench. Each must be
 a whole number of at least 1: `concurrent`, `hashers` and `readers` at most 1024, `archive_workers` at most 64, and
-`read_mib_per_s` and `write_mib_per_s` at most 1048576. The pace you choose in the workbench uses a share of each; see
-"Jobs".
+`read_mib_per_s` and `write_mib_per_s` at most 1048576. Title Select won't start with one outside these, except
+`concurrent` or `hashers` above 1024: it lowers that to 1024 and warns you as it starts. The pace you choose in the
+workbench uses a share of each; see "Jobs".
 
 ### Operations settings
 
@@ -741,10 +742,11 @@ than 1:
 Under `gentle` and `default`, chdman is told to compress with the pace's share of the hash workers; `unthrottled`
 leaves it its own default, every core.
 
-A new pace or ceiling applies without a restart: to jobs not yet started, and to a running audit at each reader's and
-hash worker's next file, and to the next 7z archive. A lower one never stops a running job or a file being read; it
-only holds back the next until fewer are at work. A job starts with as many readers as the largest root's ceiling and
-as many hash workers as the host's, and records them; raising a ceiling past them reaches only the jobs queued after.
+A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
+running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;
+it only holds back the next until fewer are at work. Every job that reads a root shares that root's readers, whatever
+the job: an audit, a build, an ingest, a repair or a check each takes one reader for each file it reads, and a copy
+takes one of the root it reads from.
 
 A selection is a job too, of kind `selection`. It runs one version of a selection profile against the source set's
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set

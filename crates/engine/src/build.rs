@@ -254,6 +254,8 @@ pub(crate) struct Hashing<'a> {
     file: &'a File,
     /// Where every byte read from the file is counted.
     tally: &'a Tally,
+    /// The file's Root's reader permit, held while it is read.
+    _reading: crate::meter::ReaderPermit,
     pos: u64,
     hashed: u64,
     sha256: Sha256,
@@ -266,6 +268,7 @@ impl<'a> Hashing<'a> {
         Ok(Hashing {
             file,
             tally,
+            _reading: tally.reader(),
             pos: 0,
             hashed: 0,
             sha256: Sha256::new(),

@@ -268,6 +268,7 @@ fn stage_chd(
     let _ = std::fs::remove_dir_all(dir.join("x"));
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
+    let _reading = work.scratch.reader();
     loop {
         let n = built
             .read(&mut buf)
@@ -412,6 +413,7 @@ fn verify_found_chd(
     let mut reader = reader.take(before.file.size);
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
+    let _reading = work.to.reader();
     loop {
         if (work.cancelled)() {
             return Err(Failure::Cancelled);
@@ -452,6 +454,7 @@ pub(super) fn sha256_of(mut file: &File, tally: &Tally) -> io::Result<(String, u
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
     let mut size = 0;
+    let _reading = tally.reader();
     loop {
         let n = file.read(&mut buf)?;
         if n == 0 {

@@ -24,6 +24,9 @@ pub struct Config {
     pub chd: Chd,
     #[serde(default)]
     pub ingest: Ingest,
+    /// What the file sets that was changed to be used, to say at startup.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
 /// How archives arriving in an Ingest Folder are read: how many 7z archives decode at once across every Job, and
@@ -143,6 +146,7 @@ impl Default for Config {
             jobs: Jobs::default(),
             chd: Chd::default(),
             ingest: Ingest::default(),
+            warnings: Vec::new(),
         }
     }
 }
@@ -185,13 +189,21 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, Error> {
-        let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
-        let jobs = &config.jobs;
+        let mut config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
+        let jobs = &mut config.jobs;
+        // These once had no upper bound: one above it is lowered to it rather than refused.
         for (key, value) in [
-            ("jobs.concurrent", jobs.concurrent),
-            ("jobs.readers", jobs.readers),
-            ("jobs.hashers", jobs.hashers),
+            ("jobs.concurrent", &mut jobs.concurrent),
+            ("jobs.readers", &mut jobs.readers),
+            ("jobs.hashers", &mut jobs.hashers),
         ] {
+            if let Some(v) = value.filter(|&v| v as u64 > MAX_WORKERS) {
+                *value = Some(MAX_WORKERS as usize);
+                config.warnings.push(format!(
+                    "Your configuration file sets {key} to {v}, more than the most it can be, {MAX_WORKERS}: \
+                     {MAX_WORKERS} is used. Lower it in the file to stop this warning."
+                ));
+            }
             in_range(key, value.map(|v| v as u64), MAX_WORKERS)?;
         }
         in_range(
@@ -381,6 +393,19 @@ mod tests {
             (sets.readers, sets.read_mib_per_s, sets.write_mib_per_s),
             (Some(4), Some(200), Some(90))
         );
+        // The Host's Ceilings once had no upper bound, so a file setting one above it still starts, at the bound.
+        let above = Config::parse("[jobs]\nhashers = 5000\nconcurrent = 3").unwrap();
+        assert_eq!(
+            (above.jobs.hashers, above.jobs.concurrent),
+            (Some(1024), Some(3))
+        );
+        assert_eq!(
+            above.warnings,
+            [
+                "Your configuration file sets jobs.hashers to 5000, more than the most it can be, 1024: 1024 is used. \
+              Lower it in the file to stop this warning."
+            ]
+        );
         let unset = Config::default();
         assert_eq!(
             (
@@ -400,7 +425,7 @@ mod tests {
                 "jobs.readers must be between 1 and 1024",
             ),
             (
-                "[jobs]\nhashers = 5000",
+                "[jobs]\nhashers = 0",
                 "jobs.hashers must be between 1 and 1024",
             ),
             (

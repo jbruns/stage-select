@@ -40,10 +40,18 @@ pub struct Permit<'p>(&'p Pool);
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
-        self.0.inside.fetch_sub(1, Ordering::SeqCst);
-        if self.0.waiting.load(Ordering::SeqCst) > 0 {
-            self.0.wake();
-        }
+        self.0.release();
+    }
+}
+
+/// A [`Permit`] that holds its pool, for a guard that can't borrow it.
+#[derive(Debug)]
+#[must_use = "a permit is given back as soon as it drops"]
+pub struct OwnedPermit(std::sync::Arc<Pool>);
+
+impl Drop for OwnedPermit {
+    fn drop(&mut self) {
+        self.0.release();
     }
 }
 
@@ -102,6 +110,19 @@ impl Pool {
             }
         }
         None
+    }
+
+    /// Waits for a permit of the pool `pool` and takes it.
+    pub fn enter_owned(pool: &std::sync::Arc<Pool>) -> OwnedPermit {
+        std::mem::forget(pool.enter());
+        OwnedPermit(pool.clone())
+    }
+
+    fn release(&self) {
+        self.inside.fetch_sub(1, Ordering::SeqCst);
+        if self.waiting.load(Ordering::SeqCst) > 0 {
+            self.wake();
+        }
     }
 
     /// Waits for a permit and takes it.
