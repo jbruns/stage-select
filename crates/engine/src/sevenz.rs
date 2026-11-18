@@ -25,6 +25,7 @@ use crate::build::{
     Hashing, NESTED_ENDINGS, Payload, Probe, Probed, ZipLimits, archive_magic, copy_sized,
     hash_all, sized, wrong_size,
 };
+use crate::meter::{Metered, Reading, Tally};
 use crate::torrentzip::{Writer, compare_names};
 use header::Fault;
 use zstd::{Guarded, Span, Stop};
@@ -118,11 +119,14 @@ impl Drop for Permit<'_> {
     }
 }
 
-/// What decoding a 7z is bounded by: the gate it decodes inside, and the largest dictionary it may declare.
+/// What decoding a 7z is bounded by: the gate it decodes inside, and the largest dictionary it may declare; and where
+/// the bytes read from the archive, and the archive as a file read, are counted, with its Job's readers and hash
+/// workers at work.
 #[derive(Debug, Clone, Copy)]
 pub struct Decoding<'a> {
     pub gate: &'a Gate,
     pub max_dictionary_mib: u32,
+    pub read: &'a Tally,
 }
 
 impl Decoding<'_> {
@@ -662,7 +666,7 @@ fn decode_block<R: Read + Seek>(
         b,
         &judged.archive,
         &password,
-        source,
+        &mut *source,
     );
     let decoded = decoder.for_each_entries(&mut |entry, member| {
         let i = index;
@@ -682,13 +686,16 @@ fn decode_block<R: Read + Seek>(
 /// read is read with the reason in its error.
 pub fn probe(file: &File, limits: &ZipLimits, decoding: &Decoding) -> io::Result<Probed> {
     let _permit = decoding.gate.enter();
+    let _active = at_work(decoding);
     let judged = match judge(file, limits.members, decoding) {
         Err(Judged::TooLarge(why) | Judged::Refused(why)) => return Ok(Probed::Refused(why)),
         judged => judged,
     };
-    let mut reader = BufReader::new(file);
+    let mut reader = BufReader::new(Reading::new(file, decoding.read));
     reader.seek(SeekFrom::Start(0))?;
     let whole = hash_all(&mut reader)?;
+    // Once for the archive, however many blocks are decoded from it.
+    decoding.read.file_read();
     let mut probe = Probe {
         sha256: whole.sha256,
         size: whole.size,
@@ -735,7 +742,7 @@ pub fn probe(file: &File, limits: &ZipLimits, decoding: &Decoding) -> io::Result
 
     let mut read: Vec<Option<Payload>> = vec![None; archive.files.len()];
     let mut refused = None;
-    let mut source = judged.guard(BufReader::new(file), decoding)?;
+    let mut source = judged.guard(BufReader::new(Reading::new(file, decoding.read)), decoding)?;
     for b in 0..archive.blocks.len() {
         let decoded = decode_block(
             &judged,
@@ -801,13 +808,28 @@ pub fn probe(file: &File, limits: &ZipLimits, decoding: &Decoding) -> io::Result
     Ok(Probed::Read(probe))
 }
 
-/// The source a 7z is written from: read through a hasher, its zstd frames followed.
+/// The payload reader and hash worker a 7z is read by, at work for its Job until dropped: one thread does both.
+fn at_work<'a>(
+    decoding: &Decoding<'a>,
+) -> Option<(crate::meter::Active<'a>, crate::meter::Active<'a>)> {
+    let job = decoding.read.job()?;
+    Some((job.reading(), job.hashing()))
+}
+
+/// The source a 7z is written from: read through a hasher that counts each byte read and, once finished, the archive
+/// as a file read; its zstd frames followed.
 type Source<'a> = Guarded<BufReader<Hashing<'a>>>;
 
 /// Judges `source`'s header and opens it to write from, under the permit its caller holds.
-fn open<'a>(source: &'a File, decoding: &Decoding) -> Result<(Judgement, Source<'a>), String> {
+fn open<'a>(source: &'a File, decoding: &Decoding<'a>) -> Result<(Judgement, Source<'a>), String> {
     let judged = judge(source, ZipLimits::default().members, decoding).map_err(Judged::why)?;
-    let hashing = Hashing::new(source).map_err(|e| e.to_string())?;
+    let mut hashing = Hashing::new(source, decoding.read).map_err(|e| e.to_string())?;
+    // The decoder starts past the signature header, so it is read here first: the hash then follows the blocks as they
+    // are read, and the archive is read about once rather than again to hash it.
+    let mut signature = [0; SIGNATURE_HEADER as usize];
+    hashing
+        .read_exact(&mut signature)
+        .map_err(|e| e.to_string())?;
     let source = judged
         .guard(BufReader::new(hashing), decoding)
         .map_err(|e| e.to_string())?;
@@ -846,8 +868,10 @@ pub fn repack(
     source: &File,
     decoding: &Decoding,
     scratch: &Path,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let _permit = decoding.gate.enter();
+    let _active = at_work(decoding);
     let (judged, mut source) = open(source, decoding)?;
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
@@ -855,13 +879,19 @@ pub fn repack(
         .iter()
         .map(|(_, member)| member_index(&judged.archive, member))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    let mut writer =
+        Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     let mut turns = Turns {
         order: &order,
         wanted: &wanted,
         next: 0,
         staged: HashMap::new(),
         scratch,
+        spill: decoding
+            .read
+            .job()
+            .map(|job| job.tally(None))
+            .unwrap_or_default(),
     };
     turns.drain(&judged, &mut writer)?;
     let blocks: BTreeSet<usize> = wanted.iter().filter_map(|&i| judged.block_of(i)).collect();
@@ -897,12 +927,16 @@ pub fn repack(
         return Err(format!("{}: {member} was not decoded", rom.name));
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
     finish(source)
 }
 
-type ZipOut<'a> = Writer<BufWriter<&'a File>>;
+type ZipOut<'a> = Writer<BufWriter<Metered<'a, &'a File>>>;
 
 /// Which of a repack's ROMs is written next, in TorrentZip's order, and the members waiting in scratch for theirs.
 struct Turns<'r> {
@@ -913,6 +947,8 @@ struct Turns<'r> {
     /// Members decoded before their turn: each one's scratch file, and how many ROMs are still to be read from it.
     staged: HashMap<usize, (PathBuf, usize)>,
     scratch: &'r Path,
+    /// Where the bytes staged in `scratch`, and read back from it, are counted: for the Job alone, in no Root.
+    spill: Tally,
 }
 
 impl Turns<'_> {
@@ -931,8 +967,12 @@ impl Turns<'_> {
         } else {
             let path = self.scratch.join(i.to_string());
             let mut file = File::create_new(&path).map_err(|e| format!("{}: {e}", entry.name))?;
-            let copied = io::copy(&mut member.take(entry.size.saturating_add(1)), &mut file)
-                .map_err(|e| format!("{}: {e}", entry.name))?;
+            let copied = io::copy(
+                &mut member.take(entry.size.saturating_add(1)),
+                &mut Metered::new(&mut file, &self.spill),
+            )
+            .map_err(|e| format!("{}: {e}", entry.name))?;
+            self.spill.file_written();
             if copied != entry.size {
                 return Err(format!(
                     "{}: it expands to other than its archive says; it was not read further",
@@ -972,14 +1012,17 @@ impl Turns<'_> {
                 return Ok(());
             };
             let name = &self.order[self.next].0.name;
-            let mut file = File::open(&*path).map_err(|e| format!("{name}: {e}"))?;
+            let file = File::open(&*path).map_err(|e| format!("{name}: {e}"))?;
             let len = file.metadata().map_err(|e| format!("{name}: {e}"))?.len();
+            let spill = self.spill.clone();
+            let mut file = Reading::new(file, &spill);
             *uses -= 1;
             if *uses == 0 {
                 let (path, _) = self.staged.remove(&i).unwrap();
                 std::fs::remove_file(&path).map_err(|e| format!("{name}: {e}"))?;
             }
             self.write(len, &mut file, writer)?;
+            spill.file_read();
         }
         Ok(())
     }
@@ -996,11 +1039,13 @@ pub fn write_loose(
     member: &str,
     source: &File,
     decoding: &Decoding,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let _permit = decoding.gate.enter();
+    let _active = at_work(decoding);
     let (judged, mut source) = open(source, decoding)?;
     let wanted = member_index(&judged.archive, member)?;
-    let mut out = BufWriter::new(dest);
+    let mut out = BufWriter::new(Metered::new(dest, to));
     let mut copied = None;
     match judged.block_of(wanted) {
         None => copied = Some(copy_sized(rom, 0, io::empty(), &mut out)),
@@ -1025,7 +1070,44 @@ pub fn write_loose(
     if copied != size {
         return Err(wrong_size(rom, copied, size));
     }
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
     finish(source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_7z_at_work_counts_one_reader_and_one_hasher_for_its_job() {
+        let meter = crate::meter::Meter::default();
+        let job = meter.start(1, crate::ONE_WORKER_EACH);
+        let gate = Gate::new(1);
+        let read = job.tally(Some("sets"));
+        let decoding = Decoding {
+            gate: &gate,
+            max_dictionary_mib: 128,
+            read: &read,
+        };
+        let at = |meter: &crate::meter::Meter| {
+            let job = &meter.sample().jobs[0];
+            (job.readers, job.hashers)
+        };
+
+        let active = at_work(&decoding);
+        assert_eq!(at(&meter), (1, 1));
+        drop(active);
+        assert_eq!(at(&meter), (0, 0));
+        let detached = Tally::default();
+        let unmetered = Decoding {
+            read: &detached,
+            ..decoding
+        };
+        assert!(at_work(&unmetered).is_none());
+    }
 }

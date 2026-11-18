@@ -508,6 +508,14 @@ input[type="file"] {
 
 /* Activity's counters: each a toggle that narrows the list of jobs to one state. */
 
+.throughput-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-2);
+}
+
 .counters {
   display: flex;
   flex-wrap: wrap;

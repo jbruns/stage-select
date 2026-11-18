@@ -5,14 +5,16 @@
 //! `workers` gives the threads started, the ceilings. A pace may hold some of them back: each reader and hash worker
 //! passes a [`Gate`] before each file or payload, which lets in only as many as the pace allows at that moment.
 
+use std::cell::Cell;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
+use crate::meter::{JobMeter, Reading, Switched, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
 
@@ -64,6 +66,8 @@ pub struct How<'a> {
     /// Whether a ZIP member of this claimed size might hold a Header the DAT leaves out. Its claim covers any
     /// Header, so it cannot say which ROM the member is; an archive holding one is read rather than claimed.
     pub might_be_headered: &'a (dyn Fn(u64) -> bool + Sync),
+    /// Where each payload byte read is counted, and its Job's readers and hash workers at work.
+    pub tally: &'a Tally,
 }
 
 /// One payload for a hash worker: its chunks, the Header Rule to hash them under, and where to send its checksums.
@@ -138,6 +142,7 @@ pub fn read_files(
                     let _pass = hashing.enter(|| allowed(|w| w.hashers, hashers));
                     let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
                     let Ok(job) = job else { break };
+                    let _active = how.tally.job().map(JobMeter::hashing);
                     let mut hasher = Hasher::with_header(job.header);
                     for chunk in job.chunks {
                         hasher.update(&chunk);
@@ -157,6 +162,7 @@ pub fn read_files(
                     let Some(file) = files.get(i) else {
                         break;
                     };
+                    let _active = how.tally.job().map(JobMeter::reading);
                     let read = read_or_reuse(file, how, &jobs);
                     results.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(read);
                     let files_done = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -218,7 +224,8 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         }
     }
     let read_at = jiff::Timestamp::now();
-    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how.header);
+    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how);
+    how.tally.file_read();
     if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
         let members: Option<Vec<_>> = read
             .members
@@ -245,11 +252,12 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
 }
 
 /// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
-fn bounded_archive(file: File) -> Result<zip::ZipArchive<File>, String> {
+fn bounded_archive<R: Read + Seek>(
+    file: &File,
+    reader: impl FnOnce() -> std::io::Result<R>,
+) -> Result<zip::ZipArchive<R>, String> {
     use crate::zipdir::{DirectoryLimits, Gated, open};
-    match open(&file, &DirectoryLimits::default(), || file.try_clone())
-        .map_err(|e| e.to_string())?
-    {
+    match open(file, &DirectoryLimits::default(), reader).map_err(|e| e.to_string())? {
         Gated::Archive(archive) => archive.map_err(|e| e.to_string()),
         Gated::Refused(why) => Err(format!("not read: {why}")),
         Gated::NotZip => Err("not read: it is not a ZIP archive".into()),
@@ -265,7 +273,7 @@ fn claim_file(path: &Path) -> FileRead {
     };
     let mut zip = match File::open(path)
         .map_err(|e| e.to_string())
-        .and_then(|f| bounded_archive(f).map_err(|e| e.to_string()))
+        .and_then(|f| bounded_archive(&f, || f.try_clone()))
     {
         Ok(zip) => zip,
         Err(e) => {
@@ -306,7 +314,7 @@ fn read_file(
     is_zip: bool,
     jobs: &SyncSender<HashJob>,
     read_at: jiff::Timestamp,
-    header: Option<HeaderRule>,
+    how: How,
 ) -> (FileRead, Option<FileStamp>) {
     let mut read = FileRead {
         members: Vec::new(),
@@ -325,13 +333,19 @@ fn read_file(
         .ok()
         .and_then(|m| FileStamp::from_metadata(&m));
     if !is_zip {
-        match checksum(file, jobs, header) {
+        match checksum(Reading::new(file, how.tally), jobs, how.header) {
             Ok(sums) => read.members.push((None, Ok(Known::Payload(sums)))),
             Err(e) => read.error = Some(e),
         }
         return (read, stamp);
     }
-    let mut zip = match bounded_archive(file) {
+    // Only a member's stored bytes are counted, as they are read: not the directory, nor the headers read to find it.
+    let payload = Cell::new(false);
+    let opened = || {
+        file.try_clone()
+            .map(|f| Switched::new(f, how.tally, &payload))
+    };
+    let mut zip = match bounded_archive(&file, opened) {
         Ok(zip) => zip,
         Err(e) => {
             read.error = Some(e);
@@ -356,10 +370,10 @@ fn read_file(
                 return (read, stamp);
             }
         };
-        read.members.push((
-            Some(name),
-            checksum(member, jobs, header).map(Known::Payload),
-        ));
+        payload.set(true);
+        let sums = checksum(member, jobs, how.header);
+        payload.set(false);
+        read.members.push((Some(name), sums.map(Known::Payload)));
     }
     (read, stamp)
 }
@@ -457,6 +471,7 @@ mod tests {
             reads: Some(&overlap),
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let limit = AtomicUsize::new(4);
         let pace = || Workers {

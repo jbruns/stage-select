@@ -234,10 +234,19 @@ impl Store {
         }))
     }
 
-    /// The bytes of `member` in the kept SBI pack `pack`, when its SHA-256 is `sha256`.
-    pub(crate) fn sbi_member(&self, pack: &str, member: &str, sha256: &str) -> Result<Vec<u8>> {
+    /// The bytes of `member` in the kept SBI pack `pack`, when its SHA-256 is `sha256`, each byte read from the pack
+    /// counted to `tally`.
+    pub(crate) fn sbi_member(
+        &self,
+        pack: &str,
+        member: &str,
+        sha256: &str,
+        tally: &title_select_engine::meter::Tally,
+    ) -> Result<Vec<u8>> {
         let path = self.sbi_pack_path(pack);
         let file = std::fs::File::open(&path).map_err(|e| io_error(&path, e))?;
+        tally.file_read();
+        let file = title_select_engine::meter::Reading::new(file, tally);
         let mut archive = zip::ZipArchive::new(file)
             .map_err(|e| Error::Io(format!("{}: not a ZIP: {e}", path.display())))?;
         let mut found = archive

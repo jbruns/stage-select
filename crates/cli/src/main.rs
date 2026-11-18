@@ -595,6 +595,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     progress: None,
                     evidence,
                     reads: None,
+                    tally: Default::default(),
                 },
             )
             .map_err(|e| e.to_string())?;

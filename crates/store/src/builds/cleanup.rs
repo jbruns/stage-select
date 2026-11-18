@@ -27,6 +27,7 @@ use title_select_api::build::{
 };
 use title_select_engine::Progress;
 use title_select_engine::build::{Probe, holds_as, repack_from, verify};
+use title_select_engine::meter::Tally;
 
 use super::{
     Publishing, adopted_parent, cited_by, clear_staging, is_file, record_adopted_parent,
@@ -249,6 +250,8 @@ struct Run<'a> {
     staging: Option<(FolderDir, Identity)>,
     staged: HashMap<String, Identity>,
     built_at: SystemTime,
+    /// Where the bytes written into the folder's Root are counted.
+    to: Tally,
 }
 
 impl Run<'_> {
@@ -291,7 +294,9 @@ impl Run<'_> {
             original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
-        Ok(store.keep_aside(&self.dir, area, &k)?.map(|_| ()))
+        Ok(store
+            .keep_aside((&self.dir, &self.to), area, &k)?
+            .map(|_| ()))
     }
 
     /// Adopts entry `e`: renamed, by one rename that never replaces anything, to its game's file name when it is not
@@ -438,6 +443,11 @@ impl Run<'_> {
         let config = self.config;
         let limits = self.store.settings()?.chd_limits();
         let threads = self.store.pace().of(config.jobs.ceilings().hashers);
+        let set = self
+            .store
+            .read(|c| folder_by_id(c, self.folder))?
+            .source_set_id;
+        let job = self.store.meter.job(self.job);
         let work = super::ChdWork {
             store: self.store,
             chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
@@ -445,8 +455,21 @@ impl Run<'_> {
                     program,
                     threads,
                     deadline: limits.base,
+                    tally: job.tally(None),
                 }
             }),
+            // The CHD cleaned up is read from the Library Folder it is in.
+            to: self.to.clone(),
+            // Its cue sheet is extracted from the Source Set.
+            from: job.tally(Some(
+                &self
+                    .store
+                    .read(|c| crate::sets::set_by_id(c, set))?
+                    .record
+                    .root,
+            )),
+            additions: Default::default(),
+            scratch: job.tally(None),
             limits,
             tmp: self.store.dir().join(crate::TMP),
             build: self.build,
@@ -455,13 +478,7 @@ impl Run<'_> {
         let game = e.game.as_deref().unwrap_or_default();
         let set_fd = match e.sources.is_empty() {
             true => Err(String::new()),
-            false => {
-                let set = self
-                    .store
-                    .read(|c| folder_by_id(c, self.folder))?
-                    .source_set_id;
-                self.store.set_folder_dir(config, set)?
-            }
+            false => self.store.set_folder_dir(config, set)?,
         };
         let cue = e.sources.first().map(|source| (source, &set_fd));
         Ok(
@@ -652,20 +669,22 @@ impl Run<'_> {
         let staged_path = staging.path().join(&name);
         // The old ZIP is read once: the rewrite hashes it whole as it reads it, for keeping it aside.
         let mut read = None;
-        let written = repack_from(&file, &r.roms, &source)
+        let written = repack_from(&file, &r.roms, &source, &self.to, &self.to)
             .and_then(|(sha256, size)| {
                 if sha256 != r.sha256 || size != r.file.size {
                     return Err("it is not the file the plan was made with".to_owned());
                 }
                 read = Some(sha256);
-                verify(&file, &r.roms)
+                verify(&file, &r.roms, &self.to)
             })
             .and_then(|()| {
                 file.set_modified(self.built_at)
                     .and_then(|()| file.sync_all())
                     .map_err(|e| format!("{}: {e}", staged_path.display()))
             })
-            .and_then(|()| sha256_of(&file).map_err(|e| format!("{}: {e}", staged_path.display())))
+            .and_then(|()| {
+                sha256_of(&file, &self.to).map_err(|e| format!("{}: {e}", staged_path.display()))
+            })
             .and_then(|written| match rustix::fs::fstat(&source) {
                 Ok(st) if same(&st) => Ok((written, Seen::of(&st) == before)),
                 _ => Err("it changed while it was read".to_owned()),
@@ -704,7 +723,7 @@ impl Run<'_> {
             original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
-        if let Err(why) = self.store.keep_aside(&self.dir, area, &k)? {
+        if let Err(why) = self.store.keep_aside((&self.dir, &self.to), area, &k)? {
             return unstage(self, file, &why);
         }
         let (dev, ino) = file_id.to_sql();
@@ -966,6 +985,7 @@ impl Store {
             staging: None,
             staged: HashMap::new(),
             built_at: SystemTime::now(),
+            to: self.meter.job(job).tally(Some(&folder_row.root)),
         };
         let probes = again.scan.as_ref().map(|s| &s.probes);
         let total = steps.len();

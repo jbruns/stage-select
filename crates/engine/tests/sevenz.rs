@@ -24,6 +24,7 @@ fn probed(path: &Path, max_dictionary_mib: u32) -> Probed {
     let decoding = Decoding {
         gate: &gate,
         max_dictionary_mib,
+        read: &Default::default(),
     };
     sevenz::probe(&File::open(path).unwrap(), &ZipLimits::default(), &decoding).unwrap()
 }
@@ -214,6 +215,7 @@ fn encrypted_damaged_or_unsupported_archives_are_read_as_unreadable_with_a_reaso
     let roomy = Decoding {
         gate: &gate,
         max_dictionary_mib: 1024,
+        read: &Default::default(),
     };
     let probed = sevenz::probe(&File::open(&zstd).unwrap(), &ZipLimits::default(), &roomy).unwrap();
     assert!(
@@ -270,6 +272,7 @@ fn a_decode_waits_until_the_gate_has_a_free_permit() {
             let decoding = Decoding {
                 gate: &gate,
                 max_dictionary_mib: 128,
+                read: &Default::default(),
             };
             let file = File::open(&path).unwrap();
             let probed = sevenz::probe(&file, &ZipLimits::default(), &decoding).unwrap();
@@ -307,6 +310,7 @@ fn no_more_archives_decode_at_once_than_the_gate_allows() {
                 let decoding = Decoding {
                     gate: &gate,
                     max_dictionary_mib: 128,
+                    read: &Default::default(),
                 };
                 start.wait();
                 sevenz::probe(
@@ -347,6 +351,7 @@ fn members_of_a_7z_are_repacked_as_verified_torrentzip_and_the_source_hashed_as_
             let decoding = Decoding {
                 gate: &gate,
                 max_dictionary_mib: 128,
+                read: &Default::default(),
             };
             let dest = created(&dir.path().join(format!("{method:?}-{solid}.zip")));
 
@@ -358,10 +363,11 @@ fn members_of_a_7z_are_repacked_as_verified_torrentzip_and_the_source_hashed_as_
                 &File::open(&source).unwrap(),
                 &decoding,
                 scratch.path(),
+                &Default::default(),
             )
             .unwrap();
 
-            verify(&dest, &roms).unwrap();
+            verify(&dest, &roms, &Default::default()).unwrap();
             let bytes = std::fs::read(&source).unwrap();
             assert_eq!(read, (sha256_hex(&bytes), bytes.len() as u64));
         }
@@ -380,6 +386,7 @@ fn a_member_of_a_7z_is_written_as_a_verified_loose_file() {
     let decoding = Decoding {
         gate: &gate,
         max_dictionary_mib: 128,
+        read: &Default::default(),
     };
     let path = dir.path().join("Track 01.bin");
 
@@ -389,10 +396,11 @@ fn a_member_of_a_7z_is_written_as_a_verified_loose_file() {
         member,
         &File::open(&source).unwrap(),
         &decoding,
+        &Default::default(),
     )
     .unwrap();
 
-    verify_loose(&File::open(&path).unwrap(), &rom).unwrap();
+    verify_loose(&File::open(&path).unwrap(), &rom, &Default::default()).unwrap();
     assert_eq!(&std::fs::read(&path).unwrap(), bytes);
     let whole = std::fs::read(&source).unwrap();
     assert_eq!(read, (sha256_hex(&whole), whole.len() as u64));
@@ -417,10 +425,13 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
     for solid in [true, false] {
         let source = dir.path().join(format!("{solid}.7z"));
         write_7z(&source, &borrowed(&members), Method::Lzma2, solid);
+        let meter = title_select_engine::meter::Meter::default();
+        let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
         let gate = Gate::new(1);
         let decoding = Decoding {
             gate: &gate,
             max_dictionary_mib: 128,
+            read: &job.tally(Some("sets")),
         };
         let dest = created(&dir.path().join(format!("{solid}.zip")));
         let scratch = tempfile::tempdir_in(dir.path()).unwrap();
@@ -431,10 +442,26 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
             &File::open(&source).unwrap(),
             &decoding,
             scratch.path(),
+            &job.tally(Some("play")),
         )
         .unwrap();
 
-        verify(&dest, &roms).unwrap();
+        // Tracks 02 and 01 are decoded before the cue sheet TorrentZip writes first, so wait in scratch: written and
+        // read back once each, counted for the Job alone.
+        let spill = meter.total() - meter.root("sets") - meter.root("play");
+        let staged = (members[0].1.len() + members[1].1.len()) as u64;
+        assert_eq!(
+            spill,
+            title_select_engine::meter::Counted {
+                read: staged,
+                written: staged,
+                files_read: 2,
+                files_written: 2,
+            },
+            "solid: {solid}"
+        );
+
+        verify(&dest, &roms, &Default::default()).unwrap();
         let blocks = if solid { 1 } else { wanted.len() };
         assert_eq!(gate.blocks_decoded(), blocks, "solid: {solid}");
         assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
@@ -473,6 +500,7 @@ fn a_header_is_decoded_only_once_the_gate_has_a_free_permit() {
                 let decoding = Decoding {
                     gate: &gate,
                     max_dictionary_mib: 128,
+                    read: &Default::default(),
                 };
                 let file = File::open(&source).unwrap();
                 match op {
@@ -483,12 +511,27 @@ fn a_header_is_decoded_only_once_the_gate_has_a_free_permit() {
                     "repack" => {
                         let scratch = tempfile::tempdir_in(&dir).unwrap();
                         let dest = created(&dir.join("Game.zip"));
-                        sevenz::repack(&dest, &[(&rom, &member)], &file, &decoding, scratch.path())
-                            .is_ok()
+                        sevenz::repack(
+                            &dest,
+                            &[(&rom, &member)],
+                            &file,
+                            &decoding,
+                            scratch.path(),
+                            &Default::default(),
+                        )
+                        .is_ok()
                     }
                     _ => {
                         let dest = created(&dir.join("Track 00.bin"));
-                        sevenz::write_loose(&dest, &rom, &member, &file, &decoding).is_ok()
+                        sevenz::write_loose(
+                            &dest,
+                            &rom,
+                            &member,
+                            &file,
+                            &decoding,
+                            &Default::default(),
+                        )
+                        .is_ok()
                     }
                 }
             })
@@ -535,6 +578,7 @@ fn every_zstd_frame_is_held_to_the_limit_as_it_streams() {
     let tight = Decoding {
         gate: &gate,
         max_dictionary_mib: 1,
+        read: &Default::default(),
     };
     let scratch = tempfile::tempdir_in(dir.path()).unwrap();
     let written = sevenz::repack(
@@ -543,6 +587,7 @@ fn every_zstd_frame_is_held_to_the_limit_as_it_streams() {
         &File::open(&path).unwrap(),
         &tight,
         scratch.path(),
+        &Default::default(),
     );
     assert!(
         matches!(&written, Err(why) if why.contains("this 7z needs a 16 MiB dictionary")),
@@ -591,7 +636,11 @@ fn a_7z_probed_as_a_library_file_is_one_opaque_payload() {
     let path = dir.path().join("Game.7z");
     write_7z(&path, &[("Game.bin", b"game")], Method::Lzma2, true);
 
-    let probe = title_select_engine::build::probe(&File::open(&path).unwrap()).unwrap();
+    let probe = title_select_engine::build::probe(
+        &File::open(&path).unwrap(),
+        &title_select_engine::meter::Tally::default(),
+    )
+    .unwrap();
 
     let bytes = std::fs::read(&path).unwrap();
     assert!(!probe.zip && !probe.sevenz, "{probe:?}");
@@ -670,6 +719,7 @@ fn a_later_zstd_frame_is_held_to_what_the_blocks_other_dictionaries_leave() {
     let tight = Decoding {
         gate: &gate,
         max_dictionary_mib: 4,
+        read: &Default::default(),
     };
     let scratch = tempfile::tempdir_in(dir.path()).unwrap();
     let written = sevenz::repack(
@@ -678,9 +728,95 @@ fn a_later_zstd_frame_is_held_to_what_the_blocks_other_dictionaries_leave() {
         &File::open(&path).unwrap(),
         &tight,
         scratch.path(),
+        &Default::default(),
     );
     assert!(
         matches!(&written, Err(why) if why.contains("this 7z needs a 5 MiB dictionary")),
         "{written:?}"
+    );
+}
+
+#[test]
+fn bytes_read_decoding_a_7z_and_written_from_it_are_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let members = disc();
+    let source = dir.path().join("Game.7z");
+    write_7z(&source, &borrowed(&members), Method::Lzma2, true);
+    let (member, bytes) = &members[1];
+    let rom = expected("Track 01.bin", bytes);
+    let meter = title_select_engine::meter::Meter::default();
+    let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+    let gate = Gate::new(1);
+    let decoding = Decoding {
+        gate: &gate,
+        max_dictionary_mib: 128,
+        read: &job.tally(Some("ingest")),
+    };
+    let path = dir.path().join("Track 01.bin");
+
+    sevenz::write_loose(
+        &created(&path),
+        &rom,
+        member,
+        &File::open(&source).unwrap(),
+        &decoding,
+        &job.tally(Some("library")),
+    )
+    .unwrap();
+
+    // The archive is read once, hashed as its block is decoded and finished after; and is one file read.
+    let archive = std::fs::metadata(&source).unwrap().len();
+    let read = meter.root("ingest").read;
+    assert_eq!(read, archive);
+    assert_eq!(meter.root("ingest").files_read, 1);
+    assert_eq!(meter.root("ingest").written, 0);
+    assert_eq!(meter.root("library").written, bytes.len() as u64);
+    assert_eq!(meter.root("library").files_written, 1);
+    assert_eq!(
+        meter.total().read + meter.total().written,
+        read + bytes.len() as u64
+    );
+}
+
+#[test]
+fn probing_a_7z_of_many_blocks_counts_its_whole_file_pass_and_blocks_as_one_file_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let members = disc();
+    let source = dir.path().join("Game.7z");
+    write_7z(&source, &borrowed(&members), Method::Lzma2, false);
+    let meter = title_select_engine::meter::Meter::default();
+    let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+    let gate = Gate::new(1);
+    let decoding = Decoding {
+        gate: &gate,
+        max_dictionary_mib: 128,
+        read: &job.tally(Some("sets")),
+    };
+
+    let Probed::Read(probe) = sevenz::probe(
+        &File::open(&source).unwrap(),
+        &ZipLimits::default(),
+        &decoding,
+    )
+    .unwrap() else {
+        panic!("refused");
+    };
+
+    assert!(probe.error.is_none(), "{:?}", probe.error);
+    assert!(gate.blocks_decoded() > 1, "one block per member");
+    let archive = std::fs::metadata(&source).unwrap().len();
+    let sets = meter.root("sets");
+    // Hashed whole, then each block read again as it is decoded: never what the blocks decode to.
+    assert!(
+        sets.read > archive && sets.read < 2 * archive + 64 * 1024,
+        "read {} of {archive}",
+        sets.read
+    );
+    assert_eq!(sets.files_read, 1);
+    let sample = meter.sample();
+    assert_eq!(
+        (sample.jobs[0].readers, sample.jobs[0].hashers),
+        (0, 0),
+        "no longer at work"
     );
 }

@@ -113,6 +113,8 @@ pub(super) fn set_by_id(c: &Connection, id: i64) -> Result<SourceSetRow> {
 
 /// A Source Set's folder, checked to lie inside its Root.
 pub(super) struct Resolved {
+    /// The Root's name.
+    pub root: String,
     /// Relative to the Root, with `/` separators.
     pub rel: String,
     /// The Root's path, as configured, joined with `rel`.
@@ -160,6 +162,7 @@ pub(super) fn resolve(config: &Config, root: &str, rel: &str) -> Result<Resolved
         )));
     }
     Ok(Resolved {
+        root: root.to_owned(),
         rel,
         path: configured,
         canonical_root,

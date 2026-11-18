@@ -12,14 +12,15 @@ use title_select_api::build::{KeptFile, LibraryFolder};
 use title_select_api::ingest::{IngestFolder, IngestKeptFile};
 use title_select_api::repair::SourceKeptFile;
 use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScan};
-use title_select_api::{Job, JobKind, JobState, SourceSetRecord};
+use title_select_api::{Job, JobKind, JobLoad, JobState, Rates, SourceSetRecord};
 
 use crate::activity_model::{
-    Counts, KeptPlace, KeptRow, Outcome, Subject, counts, listed, newest_first, opened_failure,
+    Counts, KeptPlace, KeptRow, Outcome, Subject, average_fact, bytes_rate, counts, cpu_label,
+    files_rate, listed, newest_first, opened_failure, throughput_cell, workers_fact,
 };
 use crate::api;
 use crate::app::{Loading, Problem, use_seen_jobs};
-use crate::events::{Stream, use_live};
+use crate::events::{Live, Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, when};
 use crate::parts::icon::{Glyph, Svg};
@@ -31,6 +32,7 @@ use crate::parts::list::{
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::{query_string, use_list_query};
+use crate::settings_model::pace_label;
 use crate::shell::unseen_failures;
 
 pub(crate) fn progress_view(live: &LiveJob) -> AnyView {
@@ -144,6 +146,7 @@ enum JobCol {
     Kind,
     Subject,
     Progress,
+    Throughput,
     Queued,
 }
 
@@ -155,6 +158,7 @@ impl ListRow for JobRow {
         JobCol::Kind,
         JobCol::Subject,
         JobCol::Progress,
+        JobCol::Throughput,
         JobCol::Queued,
     ];
 
@@ -176,6 +180,9 @@ impl ListRow for JobRow {
             .sortable()
             .hint("The source set or folder it works on"),
             JobCol::Progress => Column::new("progress", "Progress", Width::Fixed(10.0)),
+            JobCol::Throughput => Column::new("throughput", "Rate", Width::Fixed(7.0))
+                .numeric()
+                .hint("Bytes read and written per second: now while it runs, on average once it has ended"),
             JobCol::Queued => Column::new("queued", "Queued", Width::Fixed(12.0)).sortable(),
         }
     }
@@ -209,6 +216,11 @@ impl ListRow for JobRow {
             JobCol::Kind => view! { <Clip text=kind_label(job.kind) /> }.into_any(),
             JobCol::Subject => view! { <Clip text=self.subject_name.clone() /> }.into_any(),
             JobCol::Progress => progress_view(&self.live),
+            JobCol::Throughput => {
+                let live = use_live();
+                let row = self.live.clone();
+                (move || throughput_cell(&row.job, rates_of(live, &row))).into_any()
+            }
             JobCol::Queued => view! { <Clip text=when(&job.created_at) /> }.into_any(),
         }
     }
@@ -220,7 +232,7 @@ impl ListRow for JobRow {
             JobCol::Kind => kind_label(a.kind).cmp(kind_label(b.kind)),
             JobCol::Subject => self.subject_name.cmp(&other.subject_name),
             JobCol::Queued => a.created_at.cmp(&b.created_at),
-            JobCol::Id | JobCol::Progress => a.id.cmp(&b.id),
+            JobCol::Id | JobCol::Progress | JobCol::Throughput => a.id.cmp(&b.id),
         }
     }
 }
@@ -406,6 +418,7 @@ pub fn Jobs() -> impl IntoView {
                 }
             }}
         </p>
+        <ThroughputStrip />
         <Counters counted shown=shown_state choose />
         {move || match (history.get(), failed.get()) {
             (Some(Err(message)), _) | (_, Some(Err(message))) => {
@@ -478,9 +491,90 @@ fn Counters(
     }
 }
 
+/// A Running Job's latest rates: from the latest throughput event, or else its latest progress.
+fn rates_of(live: Live, row: &LiveJob) -> Option<Rates> {
+    load_of(live, row.job.id)
+        .map(|l| l.rates)
+        .or(row.progress.and_then(|p| p.rates))
+}
+
+/// What the latest throughput event says of Job `job`, while it runs.
+fn load_of(live: Live, job: i64) -> Option<JobLoad> {
+    live.throughput.with(|t| {
+        t.as_ref()
+            .and_then(|t| t.jobs.iter().find(|l| l.job == job).copied())
+    })
+}
+
+/// The Service's throughput now, with its CPU use and the pace Jobs follow, once it has published any.
+#[component]
+fn ThroughputStrip() -> impl IntoView {
+    let live = use_live();
+    move || {
+        live.throughput.get().map(|t| {
+            let pace = pace_label(t.pace).split(':').next().unwrap_or_default();
+            view! {
+                <div class="throughput-strip" role="group" aria-label="Throughput">
+                    <span>"Reading " <span class="data">{bytes_rate(t.total.read_bytes_per_s)}</span></span>
+                    <span>"Writing " <span class="data">{bytes_rate(t.total.write_bytes_per_s)}</span></span>
+                    <span class="data">{files_rate(t.total.files_per_s)}</span>
+                    {t.cpu.map(|cpu| {
+                        view! {
+                            <span title="The service's CPU use, as a share of the CPUs it may use">
+                                "CPU " <span class="data">{cpu_label(cpu)}</span>
+                            </span>
+                        }
+                    })}
+                    <A href="/settings/operations">{format!("Pace: {pace}")}</A>
+                </div>
+            }
+        })
+    }
+}
+
+/// How fast a Job reads and writes: now, with its workers, while it runs; on average once it has ended.
+fn throughput_facts(live: Live, row: LiveJob) -> impl IntoView {
+    move || match row.job.state {
+        JobState::Running => {
+            let load = load_of(live, row.job.id);
+            rates_of(live, &row).map(|rates| {
+                view! {
+                    <dt>"Reading"</dt>
+                    <dd class="data">{bytes_rate(rates.read_bytes_per_s)}</dd>
+                    <dt>"Writing"</dt>
+                    <dd class="data">{bytes_rate(rates.write_bytes_per_s)}</dd>
+                    <dt>"Files"</dt>
+                    <dd class="data">{files_rate(rates.files_per_s)}</dd>
+                    {load.map(|load| {
+                        view! {
+                            <dt>"At work"</dt>
+                            <dd>{workers_fact(&load)}</dd>
+                        }
+                    })}
+                    {load.filter(|l| l.chdman).map(|_| {
+                        view! {
+                            <dt>"chdman"</dt>
+                            <dd>"chdman isn't byte-capped"</dd>
+                        }
+                    })}
+                }
+                .into_any()
+            })
+        }
+        _ => row.job.throughput.map(|t| {
+            view! {
+                <dt>"Throughput"</dt>
+                <dd>{average_fact(&t)}</dd>
+            }
+            .into_any()
+        }),
+    }
+}
+
 fn job_detail(row: JobRow) -> AnyView {
     let live = row.live.clone();
     let job = live.job.clone();
+    let throughput = throughput_facts(use_live(), live.clone());
     let set_href = Subject::SourceSet(job.source_set.clone()).href();
     view! {
         <dl class="facts">
@@ -558,6 +652,7 @@ fn job_detail(row: JobRow) -> AnyView {
             <dd>{job.started_at.as_deref().map(when)}</dd>
             <dt>"Finished"</dt>
             <dd>{job.finished_at.as_deref().map(when)}</dd>
+            {throughput}
             {job.romm_scan.clone().map(romm_scan_fact)}
             {job
                 .error

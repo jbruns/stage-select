@@ -31,6 +31,7 @@ use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
     FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose, write_loose_member,
 };
+use title_select_engine::meter::{self, Tally, copy_chunked};
 use title_select_engine::payload::{Checksums, Hasher};
 use title_select_engine::sevenz;
 
@@ -320,10 +321,11 @@ enum Moving {
 /// Reads back the entry `name` of `dir`, which Title Select has just moved there, to tell whether it is still the
 /// file `seen` planned: the same regular file, size and modification time, with no other link, reading as `expect`
 /// when given, and unchanged while it was read. Its change time is not compared with the plan's, since a rename
-/// changes it on most filesystems; reading it whole, with its change time steady meanwhile, stands in.
+/// changes it on most filesystems; reading it whole, with its change time steady meanwhile, stands in. Each byte read
+/// is counted to `tally`, of the Root `dir` is in.
 /// `ctime`, when given, is the ctime it must still have, as read once it was moved there.
 fn read_back(
-    dir: &FolderDir,
+    (dir, tally): (&FolderDir, &Tally),
     name: &str,
     seen: &Seen,
     expect: Option<&str>,
@@ -353,7 +355,7 @@ fn read_back(
     if ctime.is_some_and(|ctime| ctime_ns(&before) != ctime) {
         return other("it was written to after it was set aside to delete");
     }
-    let (sha256, _) = sha256_of(&file)?;
+    let (sha256, _) = sha256_of(&file, tally)?;
     let after = rustix::fs::fstat(&file)?;
     if Identity::of(&before) != identity
         || Seen::of(&before) != Seen::of(&after)
@@ -582,9 +584,19 @@ impl Store {
             }
             _ => (dest, m),
         };
+        // Counted for the Job this thread runs, if any: a move recovered at start runs for none.
+        let job = meter::this_thread();
+        let tally = |root: &str| {
+            job.as_ref()
+                .map_or_else(Tally::default, |job| job.tally(Some(root)))
+        };
+        let to = match &m.dest {
+            Destination::Kept { .. } => tally(&row.root),
+            Destination::Path { root, .. } => tally(root),
+        };
         match m.kind.as_str() {
-            "rename" => self.drive_rename(config, &m, &src, &dest),
-            _ => self.drive_copy(config, &m, &src, &dest),
+            "rename" => self.drive_rename(config, &m, &src, (&dest, &to)),
+            _ => self.drive_copy(config, &m, (&src, &tally(&row.root)), (&dest, &to)),
         }
     }
 
@@ -691,7 +703,7 @@ impl Store {
         config: &Config,
         m: &MoveRow,
         src: &FolderDir,
-        dest: &FolderDir,
+        (dest, to): (&FolderDir, &Tally),
     ) -> Outcome {
         let dest_name = m.dest_name();
         if m.state == "restoring" {
@@ -756,7 +768,7 @@ impl Store {
         }
         dest.sync().map_err(io)?;
         src.sync().map_err(io)?;
-        match read_back(dest, dest_name, &m.seen, m.sha256.as_deref(), None).map_err(io)? {
+        match read_back((dest, to), dest_name, &m.seen, m.sha256.as_deref(), None).map_err(io)? {
             Moving::Planned { file, sha256 } => {
                 let kept = self.kept_entry(m, m.seen.identity, file, Some(sha256.clone()));
                 self.finish_move(m, kept, Some(sha256), None)
@@ -998,13 +1010,13 @@ impl Store {
         &self,
         config: &Config,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
     ) -> Outcome {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
         if matches!(m.state.as_str(), "pending" | "moving" | "staging") {
-            match self.stage_and_publish(config, m, src, dest, &dest_name)? {
+            match self.stage_and_publish(config, m, (src, from), (dest, to), &dest_name)? {
                 Ok(sha) => dest_sha256 = Some(sha),
                 Err(why) => return Ok(Err(why)),
             }
@@ -1067,9 +1079,9 @@ impl Store {
                         return replaced();
                     }
                 } else if m.kind == "repack" {
-                    exactly_repacked(m, rom, &file)
+                    exactly_repacked(m, rom, (&file, to))
                 } else {
-                    exactly(rom, &checksums_of(&file).map_err(io)?)
+                    exactly(rom, &checksums_of(&file, to).map_err(io)?)
                 }
             }
             _ => false,
@@ -1080,15 +1092,17 @@ impl Store {
             _ => published_sha,
         };
         let disposed = match (m.state.as_str(), delete, original_sha) {
-            ("keeping", ..) => self.delete_original(m, src, None)?.map(|note| (None, note)),
+            ("keeping", ..) => self
+                .delete_original(m, (src, from), None)?
+                .map(|note| (None, note)),
             ("retaining", ..) => self.keep_original(m, src)?,
             (_, true, Some(original_sha)) => self
-                .delete_original(m, src, Some(&original_sha))?
+                .delete_original(m, (src, from), Some(&original_sha))?
                 .map(|note| (None, note)),
             // Already set aside to delete: kept from there instead.
-            _ if resumed && !is_seen(src, &m.name, &m.seen).map_err(io)? => {
-                self.delete_original(m, src, None)?.map(|note| (None, note))
-            }
+            _ if resumed && !is_seen(src, &m.name, &m.seen).map_err(io)? => self
+                .delete_original(m, (src, from), None)?
+                .map(|note| (None, note)),
             _ => self.keep_original(m, src)?,
         };
         let (original, note) = match disposed {
@@ -1110,8 +1124,8 @@ impl Store {
         &self,
         config: &Config,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
         dest_name: &str,
     ) -> Result<std::result::Result<String, String>> {
         if let Some(staged) = m.staged {
@@ -1129,14 +1143,14 @@ impl Store {
                 let file = dest.open_file(dest_name).map_err(io)?;
                 let st = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
                 if Identity::of(&st) == staged && file_stat(&st) == *stamp {
-                    let (sha, _) = sha256_of(&file).map_err(io)?;
+                    let (sha, _) = sha256_of(&file, to).map_err(io)?;
                     self.published(m.id, &sha, None)?;
                     return Ok(Ok(sha));
                 }
             }
             let staged_name = m.staged_name.clone().unwrap_or_default();
             if is_file(dest, &staged_name, staged, None).map_err(io)? {
-                return match self.check_staged(m, src, dest, &staged_name)? {
+                return match self.check_staged(m, (src, from), (dest, to), &staged_name)? {
                     Ok((file, sha)) if Identity::of_fd(&file).map_err(io)? == staged => {
                         self.publish(m, &file, dest, &staged_name, dest_name, sha)
                     }
@@ -1208,7 +1222,7 @@ impl Store {
             // ROMs of a 7z are decoded from it again, the whole archive hashed as it is read.
             (Some(roms), _) if sevenz => {
                 self.fault_point(Fault::IngestReadWhole);
-                let decoding = self.decoding(config);
+                let decoding = self.decoding(config, from);
                 let named: std::result::Result<Vec<(&ExpectedRom, &str)>, String> = roms
                     .iter()
                     .map(|(rom, member)| {
@@ -1223,7 +1237,7 @@ impl Store {
                 named
                     .and_then(|named| match (m.loose, named.as_slice()) {
                         (true, [(rom, member)]) => {
-                            sevenz::write_loose(&file, rom, member, &source, &decoding)
+                            sevenz::write_loose(&file, rom, member, &source, &decoding, to)
                         }
                         (true, _) => Err(format!(
                             "a loose file holds one ROM, not {}; a game with more stays a ZIP",
@@ -1236,7 +1250,7 @@ impl Store {
                                     .join(format!("{SEVENZ_SCRATCH}{}", m.id)),
                             )
                             .map_err(|e| format!("{}: {e}", m.name))?;
-                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0)
+                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0, to)
                         }
                     })
                     .map(|(sha, _)| sha)
@@ -1248,7 +1262,7 @@ impl Store {
                 let [(rom, Some(member))] = roms.as_slice() else {
                     unreachable!("one ROM of a ZIP");
                 };
-                write_loose_member(&file, rom, member, &source).and_then(|()| {
+                write_loose_member(&file, rom, member, &source, from, to).and_then(|()| {
                     let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
                     match Seen::of(&st) == m.seen {
                         true => Ok(planned.to_owned()),
@@ -1263,14 +1277,14 @@ impl Store {
                     .map(|(rom, member)| (rom, 0, member.as_deref()))
                     .collect();
                 match m.loose {
-                    true => write_loose(&file, &named, &[&source]),
-                    false => repack_sources(&file, &named, &[&source]),
+                    true => write_loose(&file, &named, &[(&source, from)], to),
+                    false => repack_sources(&file, &named, &[(&source, from)], to),
                 }
                 .map(|mut read| read.remove(0).0)
             }
             (None, _) => {
                 self.fault_point(Fault::IngestReadWhole);
-                copy_hashing(&source, &file).map_err(|e| e.to_string())
+                copy_hashing(&source, from, &file, to).map_err(|e| e.to_string())
             }
         };
         let source_sha = match written {
@@ -1291,7 +1305,7 @@ impl Store {
                 m.name
             ));
         }
-        let sha = match check_written(m, &file, &source_sha) {
+        let sha = match check_written(m, &file, &source_sha, to) {
             Ok(sha) => sha,
             Err(why) => return fail(why),
         };
@@ -1309,15 +1323,15 @@ impl Store {
     fn check_staged(
         &self,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
         staged_name: &str,
     ) -> Result<std::result::Result<(std::fs::File, String), String>> {
         let source = match open_source(src, m) {
             Ok(source) => source,
             Err(why) => return Ok(Err(why)),
         };
-        let (source_sha, _) = sha256_of(&source).map_err(io)?;
+        let (source_sha, _) = sha256_of(&source, from).map_err(io)?;
         if m.sha256
             .as_deref()
             .is_some_and(|planned| planned != source_sha)
@@ -1328,7 +1342,7 @@ impl Store {
             )));
         }
         let file = dest.open_file(staged_name).map_err(io)?;
-        Ok(check_written(m, &file, &source_sha).map(|sha| (file, sha)))
+        Ok(check_written(m, &file, &source_sha, to).map(|sha| (file, sha)))
     }
 
     /// Renames the staged file `file`, written or checked through that descriptor, held throughout, to `dest_name`
@@ -1450,7 +1464,7 @@ impl Store {
     fn delete_original(
         &self,
         m: &MoveRow,
-        src: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
         copied: Option<&str>,
     ) -> Result<std::result::Result<Option<String>, String>> {
         let deleting = match open_area_deleting(self, Scope::Ingest(m.folder), src, true)? {
@@ -1509,7 +1523,7 @@ impl Store {
             let isolated = self.read(|c| move_by_id(c, m.id))?.isolated_ctime;
             let found = match copied {
                 Some(copied) => {
-                    match read_back(&deleting, &slot, &m.seen, Some(copied), isolated)
+                    match read_back((&deleting, from), &slot, &m.seen, Some(copied), isolated)
                         .map_err(io)?
                     {
                         Moving::Planned { .. } if isolated.is_none() => (
@@ -1733,7 +1747,12 @@ pub(crate) fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
 /// bounds, holding exactly one member, `rom`, whose payload, hashed again, has `rom`'s size and every checksum it
 /// lists, and the SHA-256 and size of the original as the repack read it. The original is then deleted only while it
 /// still hashes, set aside, as what was read.
-fn exactly_repacked(m: &MoveRow, rom: &ExpectedRom, file: &std::fs::File) -> bool {
+/// What it reads of `file` is counted to `tally`, of the Root `file` is in.
+fn exactly_repacked(
+    m: &MoveRow,
+    rom: &ExpectedRom,
+    (file, tally): (&std::fs::File, &Tally),
+) -> bool {
     let loose_whole = matches!(m.roms.as_deref(), Some([(only, None)]) if only == rom);
     let Some(read) = m.sha256.as_deref() else {
         return false;
@@ -1741,7 +1760,7 @@ fn exactly_repacked(m: &MoveRow, rom: &ExpectedRom, file: &std::fs::File) -> boo
     loose_whole
         && m.seen.file.size == rom.size
         && matches!(
-            sole_payload(file),
+            sole_payload(file, tally),
             Ok((name, sums)) if name == rom.name
                 && exactly(rom, &sums)
                 && sums.size == m.seen.file.size
@@ -1749,8 +1768,9 @@ fn exactly_repacked(m: &MoveRow, rom: &ExpectedRom, file: &std::fs::File) -> boo
         )
 }
 
-fn checksums_of(mut file: &std::fs::File) -> io::Result<Checksums> {
+fn checksums_of(mut file: &std::fs::File, tally: &Tally) -> io::Result<Checksums> {
     file.seek(SeekFrom::Start(0))?;
+    let mut file = title_select_engine::meter::Reading::new(file, tally);
     let mut hasher = Hasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
@@ -1769,16 +1789,17 @@ fn check_written(
     m: &MoveRow,
     file: &std::fs::File,
     source_sha: &str,
+    to: &Tally,
 ) -> std::result::Result<String, String> {
     file.sync_all().map_err(|e| e.to_string())?;
-    let (sha, _) = sha256_of(file).map_err(|e| e.to_string())?;
+    let (sha, _) = sha256_of(file, to).map_err(|e| e.to_string())?;
     match &m.roms {
         Some(roms) => {
             let roms: Vec<ExpectedRom> = roms.iter().map(|(rom, _)| rom.clone()).collect();
             match (m.loose, roms.as_slice()) {
-                (true, [rom]) => verify_loose(file, rom),
+                (true, [rom]) => verify_loose(file, rom, to),
                 (true, _) => Err("a loose file is one ROM".into()),
-                (false, _) => verify(file, &roms),
+                (false, _) => verify(file, &roms, to),
             }
             .map_err(|why| {
                 format!(
@@ -1813,10 +1834,18 @@ fn open_source(src: &FolderDir, m: &MoveRow) -> std::result::Result<std::fs::Fil
 
 /// Copies `source`, from its start, into `dest` with `io::copy`, which on Linux uses `copy_file_range` so that the
 /// filesystem may share or offload the copy. Returns the SHA-256 of `source`, read separately.
-fn copy_hashing(mut source: &std::fs::File, mut dest: &std::fs::File) -> io::Result<String> {
+fn copy_hashing(
+    mut source: &std::fs::File,
+    from: &Tally,
+    dest: &std::fs::File,
+    to: &Tally,
+) -> io::Result<String> {
     source.seek(SeekFrom::Start(0))?;
-    io::copy(&mut source, &mut dest)?;
-    Ok(sha256_of(source)?.0)
+    copy_chunked(source, from, dest, to)?;
+    from.file_read();
+    to.file_written();
+    // Read again to hash it: the copy may never have passed through this process.
+    Ok(sha256_of(source, from)?.0)
 }
 
 /// Records move `mv`, of kind `kind`, as pending, in `tx`. Returns its id.
@@ -2223,7 +2252,7 @@ mod tests {
             ]
         );
         let built = std::fs::File::open(env.tmp.path().join("lib/Atari/Pong (USA).zip")).unwrap();
-        verify(&built, &[rom]).unwrap();
+        verify(&built, &[rom], &Default::default()).unwrap();
         let kept = env.store.ingest_kept_files("in").unwrap();
         assert_eq!(kept[0].name, "pong.zip");
     }
@@ -2254,14 +2283,15 @@ mod tests {
                     std::fs::File::open(path).unwrap()
                 })
                 .collect();
-            let refs: Vec<&std::fs::File> = paths.iter().collect();
+            let detached = Tally::default();
+            let refs: Vec<_> = paths.iter().map(|p| (p, &detached)).collect();
             let path = env.tmp.path().join(name);
             let file = std::fs::File::create_new(&path).unwrap();
-            repack_sources(&file, roms, &refs).unwrap();
+            repack_sources(&file, roms, &refs, &Default::default()).unwrap();
             std::fs::File::open(path).unwrap()
         };
         let one = repack("one.zip", &[(&rom, 0, None)], &[b"pong"]);
-        assert!(exactly_repacked(&m, &rom, &one));
+        assert!(exactly_repacked(&m, &rom, (&one, &Tally::default())));
 
         let extra = rom_of("Readme.txt", b"from the scene");
         let two = repack(
@@ -2269,12 +2299,15 @@ mod tests {
             &[(&rom, 0, None), (&extra, 1, None)],
             &[b"pong", b"from the scene"],
         );
-        assert!(!exactly_repacked(&m, &rom, &two), "more than one member");
+        assert!(
+            !exactly_repacked(&m, &rom, (&two, &Tally::default())),
+            "more than one member"
+        );
 
         let mut other = m.clone();
         other.sha256 = Some(hex(&Sha256::digest(b"pang")));
         assert!(
-            !exactly_repacked(&other, &rom, &one),
+            !exactly_repacked(&other, &rom, (&one, &Tally::default())),
             "a payload that is not what was read"
         );
         let mut crc_only = rom.clone();
@@ -2284,7 +2317,7 @@ mod tests {
         wrong.roms = Some(vec![(crc_only.clone(), None)]);
         wrong.sha256 = Some(hex(&Sha256::digest(b"pang")));
         assert!(
-            !exactly_repacked(&wrong, &crc_only, &one),
+            !exactly_repacked(&wrong, &crc_only, (&one, &Tally::default())),
             "a payload whose listed checksums match but whose bytes are not what was read"
         );
     }

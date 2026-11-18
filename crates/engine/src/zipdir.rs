@@ -392,11 +392,15 @@ mod tests {
             check_directory(&file_with(bytes), &DirectoryLimits::default()).unwrap(),
             Layout::Zip
         );
-        let probe = probe(&file_with(bytes)).unwrap();
+        let probe = probe(&file_with(bytes), &crate::meter::Tally::default()).unwrap();
         assert_eq!(probe.error, None);
         assert_eq!(probe.payloads.len(), payloads.len(), "{probe:?}");
-        let Probed::Read(within) = probe_within(&file_with(bytes), &ZipLimits::default()).unwrap()
-        else {
+        let Probed::Read(within) = probe_within(
+            &file_with(bytes),
+            &ZipLimits::default(),
+            &crate::meter::Tally::default(),
+        )
+        .unwrap() else {
             panic!("refused within a game's limits");
         };
         assert_eq!(within.payloads.len(), payloads.len());
@@ -414,6 +418,7 @@ mod tests {
             reads: None,
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let workers = Workers {
             readers: 1,
@@ -435,10 +440,15 @@ mod tests {
     /// Asserts `bytes`, beginning as a ZIP, is refused unread by every reader.
     fn refused_by_every_reader(bytes: &[u8]) {
         assert!(matches!(
-            probe_within(&file_with(bytes), &ZipLimits::default()).unwrap(),
+            probe_within(
+                &file_with(bytes),
+                &ZipLimits::default(),
+                &crate::meter::Tally::default()
+            )
+            .unwrap(),
             Probed::Refused(_)
         ));
-        let probe = probe(&file_with(bytes)).unwrap();
+        let probe = probe(&file_with(bytes), &crate::meter::Tally::default()).unwrap();
         assert!(
             probe.payloads.is_empty() && probe.error.is_some(),
             "{probe:?}"
@@ -579,7 +589,7 @@ mod tests {
         rom[4000..4004].copy_from_slice(&EOCD);
         assert!(matches!(layout(&rom), Layout::Refused(_)));
 
-        let probe = probe(&file_with(&rom)).unwrap();
+        let probe = probe(&file_with(&rom), &crate::meter::Tally::default()).unwrap();
 
         assert!(!probe.zip);
         assert_eq!(probe.payloads.len(), 1);
@@ -594,12 +604,16 @@ mod tests {
             hasher.update(bytes);
             hasher.finish()
         };
-        let probe = probe(&file_with(bytes)).unwrap();
+        let probe = probe(&file_with(bytes), &crate::meter::Tally::default()).unwrap();
         assert!(!probe.zip, "{probe:?}");
         assert_eq!(probe.payloads.len(), 1);
         assert_eq!(probe.payloads[0].sha256, whole.sha256);
-        let Probed::Read(within) = probe_within(&file_with(bytes), &ZipLimits::default()).unwrap()
-        else {
+        let Probed::Read(within) = probe_within(
+            &file_with(bytes),
+            &ZipLimits::default(),
+            &crate::meter::Tally::default(),
+        )
+        .unwrap() else {
             panic!("refused as a ZIP");
         };
         assert!(!within.zip);
@@ -619,6 +633,7 @@ mod tests {
             reads: None,
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let workers = Workers {
             readers: 1,

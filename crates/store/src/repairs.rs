@@ -32,6 +32,7 @@ use title_select_engine::build::{
     FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
 };
 use title_select_engine::dat::Dat;
+use title_select_engine::meter::Tally;
 use title_select_engine::{FileStamp, Progress};
 
 use crate::builds::{sha256_of, still_sha256};
@@ -223,19 +224,26 @@ fn holds_exactly(
     seen: &Seen,
     roms: &[ExpectedRom],
     loose: bool,
+    tally: &Tally,
 ) -> io::Result<std::result::Result<(), String>> {
     let file = dir.open_file(name)?;
     if Seen::of(&rustix::fs::fstat(&file)?) != *seen {
         return Ok(Err("it changed while it was opened".into()));
     }
-    Ok(checks_as(&file, roms, loose))
+    Ok(checks_as(&file, roms, loose, tally))
 }
 
-/// Whether `file` is exactly `roms` as stored: valid TorrentZip holding them, or, `loose`, the one ROM of them.
-fn checks_as(file: &File, roms: &[ExpectedRom], loose: bool) -> std::result::Result<(), String> {
+/// Whether `file` is exactly `roms` as stored: valid TorrentZip holding them, or, `loose`, the one ROM of them. What
+/// is read back to check it is counted to `tally`, of the Root `file` is in.
+fn checks_as(
+    file: &File,
+    roms: &[ExpectedRom],
+    loose: bool,
+    tally: &Tally,
+) -> std::result::Result<(), String> {
     match (loose, roms) {
-        (false, _) => verify(file, roms),
-        (true, [rom]) => verify_loose(file, rom),
+        (false, _) => verify(file, roms, tally),
+        (true, [rom]) => verify_loose(file, rom, tally),
         (true, _) => Err("a loose file is one ROM".into()),
     }
 }
@@ -497,6 +505,8 @@ type Ran = Result<std::result::Result<(), String>>;
 struct Repairing<'a> {
     plan: &'a RepairPlan,
     dir: FolderDir,
+    /// Where the bytes written into the Source Set's Root are counted.
+    to: Tally,
 }
 
 impl Repairing<'_> {
@@ -610,7 +620,8 @@ impl Store {
                 }) {
                     return Ok(None);
                 }
-                let read = title_select_engine::build::probe(&held)?;
+                // Planned for you, by no Job: no Job's meter counts it.
+                let read = title_select_engine::build::probe(&held, &Tally::default())?;
                 let after = rustix::fs::fstat(&held)?;
                 if file_stat(&after) != file_stat(&before) || ctime_ns(&after) != ctime_ns(&before)
                 {
@@ -1063,6 +1074,8 @@ impl Store {
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         let Some(plan) = job.repair else {
             return Err(Error::Refused(format!("job {id} is not a repair")));
@@ -1230,7 +1243,11 @@ impl Store {
         {
             return Ok(Err(why));
         }
-        let repairing = Repairing { plan: &plan, dir };
+        let repairing = Repairing {
+            plan: &plan,
+            dir,
+            to: self.meter.job(job).tally(Some(&content.root)),
+        };
         let total = self.read(|c| steps_of(c, id))?.len();
         let mut cancelled = self.read(|c| {
             Ok(c.query_row(
@@ -1838,10 +1855,11 @@ impl Store {
                 Some(id) if is_file(dir, staged_name, id).map_err(io_err)? => {
                     let file = dir.open_file(staged_name).map_err(io_err)?;
                     let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-                    if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
+                    if checks_as(&file, &expected, loose, &r.to).is_ok() && file.sync_all().is_ok()
+                    {
                         dir.sync_holding(staged_name).map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
-                        return self.build_staged(step, &file, None, None);
+                        return self.build_staged(step, (&file, &r.to), None, None);
                     }
                     drop(file);
                     if let Err(why) = self.discard_staged(r, step, staged_name, id)? {
@@ -1908,6 +1926,7 @@ impl Store {
                 index.insert(path, opened.len());
                 opened.push(file);
             }
+            let in_set = opened.len();
             // A `.cue` sheet from a cue pack is read from the pack kept in the store, after every file of the
             // Source Set.
             let mut packs: HashMap<&str, usize> = HashMap::new();
@@ -1931,13 +1950,20 @@ impl Store {
                     (&rom.rom, at, rom.member.as_deref())
                 })
                 .collect();
-            let refs: Vec<&File> = opened.iter().collect();
+            // The Source Set's files are read from its Root; the cue packs, kept in the store and in no Root, are
+            // counted for the Job alone.
+            let store = r.to.job().map(|job| job.tally(None)).unwrap_or_default();
+            let refs: Vec<(&File, &Tally)> = opened
+                .iter()
+                .enumerate()
+                .map(|(i, file)| (file, if i < in_set { &r.to } else { &store }))
+                .collect();
             let read = match loose {
-                true => write_loose(&file, &from, &refs)?,
-                false => repack_sources(&file, &from, &refs)?,
+                true => write_loose(&file, &from, &refs, &r.to)?,
+                false => repack_sources(&file, &from, &refs, &r.to)?,
             };
             let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-            checks_as(&file, &expected, loose)
+            checks_as(&file, &expected, loose, &r.to)
                 .map_err(|why| format!("the new {target} did not check: {why}"))?;
             for ((path, seen), source) in sources.iter().zip(&opened) {
                 let st = rustix::fs::fstat(source).map_err(|e| e.to_string())?;
@@ -1967,7 +1993,7 @@ impl Store {
         let (source_sha, reads) = match written {
             Ok(read) => read,
             Err(why) => {
-                self.stamp_staged(step, &file)?;
+                self.stamp_staged(step, (&file, &r.to))?;
                 // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
                 if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
                     return Ok(Err(format!("{why}; {left}")));
@@ -1976,7 +2002,7 @@ impl Store {
             }
         };
         dir.sync_holding(&staged_name).map_err(io_err)?;
-        self.build_staged(step, &file, source_sha, reads)
+        self.build_staged(step, (&file, &r.to), source_sha, reads)
     }
 
     /// The Build steps, `step` first, that extract a Game's ROMs from one ZIP of the Source Set into loose files, one
@@ -2103,9 +2129,9 @@ impl Store {
                     .iter()
                     .map(|(one, ..)| (&one.rom, one.member.as_str()))
                     .collect();
-                let read = write_loose_members(&dests, &roms, &source)?;
+                let read = write_loose_members(&dests, &roms, &source, &r.to, &r.to)?;
                 for (one, _, file, _) in &staged {
-                    verify_loose(file, &one.rom)
+                    verify_loose(file, &one.rom, &r.to)
                         .map_err(|why| format!("the new {} did not check: {why}", one.target))?;
                 }
                 let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
@@ -2130,7 +2156,7 @@ impl Store {
                 }
                 for (one, _, file, _) in &staged {
                     if let Err(why) =
-                        self.build_staged(&one.step, file, single.clone(), reads.clone())?
+                        self.build_staged(&one.step, (file, &r.to), single.clone(), reads.clone())?
                     {
                         return Ok(Err(why));
                     }
@@ -2139,7 +2165,7 @@ impl Store {
             }
             Err(why) => {
                 for (one, staged_name, file, id) in &staged {
-                    self.stamp_staged(&one.step, file)?;
+                    self.stamp_staged(&one.step, (file, &r.to))?;
                     // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
                     if let Err(left) = self.discard_staged(r, &one.step, staged_name, *id)? {
                         return Ok(Err(format!("{why}; {left}")));
@@ -2159,7 +2185,7 @@ impl Store {
     fn build_staged(
         &self,
         step: &StepRow,
-        file: &File,
+        file: (&File, &Tally),
         source_sha: Option<String>,
         reads: Option<String>,
     ) -> Ran {
@@ -2177,10 +2203,10 @@ impl Store {
     }
 
     /// Records the size, modification time and SHA-256 of the file a step staged, read through `file`, a descriptor
-    /// held since it was written or checked. Returns the SHA-256.
-    fn stamp_staged(&self, step: &StepRow, file: &File) -> Result<String> {
+    /// held since it was written or checked, its bytes counted to `tally`. Returns the SHA-256.
+    fn stamp_staged(&self, step: &StepRow, (file, tally): (&File, &Tally)) -> Result<String> {
         let st = rustix::fs::fstat(file).map_err(|e| io_err(e.into()))?;
-        let (sha, _) = sha256_of(file).map_err(io_err)?;
+        let (sha, _) = sha256_of(file, tally).map_err(io_err)?;
         let stat = file_stat(&st);
         self.write(|tx| {
             tx.execute(
@@ -2322,7 +2348,7 @@ impl Store {
                     (Some((stat, sha)), Some(moved))
                         if Identity::of(&held) == id && file_stat(&held) == *stat =>
                     {
-                        still_sha256(&file, moved).map_err(io_err)?.as_ref() == Some(sha)
+                        still_sha256(&file, moved, &r.to).map_err(io_err)?.as_ref() == Some(sha)
                     }
                     _ => false,
                 };
@@ -2752,7 +2778,9 @@ impl Store {
                     format!("{from} changed since the plan was made; it was left as it is"),
                 );
             }
-            if let Err(why) = holds_exactly(parent, name, seen, roms, loose).map_err(io_err)? {
+            if let Err(why) =
+                holds_exactly(parent, name, seen, roms, loose, &r.to).map_err(io_err)?
+            {
                 return self.step_failed(
                     step,
                     "failed",
@@ -3206,7 +3234,7 @@ impl Store {
                 Ok(())
             })?;
         }
-        let outcome = self.delete_converted(&r.dir, kept_id, &read)?;
+        let outcome = self.delete_converted((&r.dir, &r.to), kept_id, &read)?;
         let note = match outcome.deleted {
             true => Some(format!(
                 "{path} was deleted once its converted file was verified"
@@ -3271,14 +3299,14 @@ impl Store {
         if Identity::of(&st) != id || file_stat(&st) != stamp {
             return Ok(Err(format!("{target} is no longer the file written")));
         }
-        let Some(sha) = still_sha256(&file, ctime_ns(&st)).map_err(io_err)? else {
+        let Some(sha) = still_sha256(&file, ctime_ns(&st), &r.to).map_err(io_err)? else {
             return Ok(Err(format!("{target} changed while it was read")));
         };
         if sha != staged_sha {
             return Ok(Err(format!("{target} no longer reads as it was written")));
         }
         let expected: Vec<ExpectedRom> = roms.iter().map(|r| r.rom.clone()).collect();
-        Ok(checks_as(&file, &expected, *loose))
+        Ok(checks_as(&file, &expected, *loose, &r.to))
     }
 
     fn run_fill(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {

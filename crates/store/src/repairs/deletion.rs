@@ -24,6 +24,7 @@ use crate::kept::{
 use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
+use title_select_engine::meter::Tally;
 
 /// Whose kept files: a Source Set's, kept by its repairs, or an Additions Set's, kept as its additions retire.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -207,9 +208,10 @@ fn is_kept(dir: &FolderDir, name: &str, file: &SourceKeptFile) -> Result<bool> {
 }
 
 /// Kept file `file` as read now through `held`, opened on it: whether it is still the file kept, has ctime `ctime`
-/// and, read while it holds still, hashes as it did when you reviewed its deletion ([`reads_as_reviewed`]).
+/// and, read while it holds still, hashes as it did when you reviewed its deletion ([`reads_as_reviewed`]). What it
+/// reads is counted to the tally beside `held`.
 fn reads_as(
-    held: &std::fs::File,
+    held: (&std::fs::File, &Tally),
     file: &SourceKeptFile,
     reviewed: Option<&KeptFileReviewed>,
     ctime: Option<i128>,
@@ -608,7 +610,14 @@ impl Store {
             let done = match state.as_str() {
                 "deleting" => {
                     let reviewed = plan.content.reviewed.iter().find(|r| r.id == file.id);
-                    self.delete_kept_of(owner, &dir, &deleting, file, reviewed)?
+                    // A deletion you approved runs for no Job: no Job's meter counts what it reads.
+                    self.delete_kept_of(
+                        owner,
+                        (&dir, &Tally::default()),
+                        &deleting,
+                        file,
+                        reviewed,
+                    )?
                 }
                 "deleted" => outcome(file, true, None),
                 "gone" => outcome(
@@ -634,10 +643,11 @@ impl Store {
 
     /// Deletes the original a conversion kept aside as kept file `id`, recorded as being deleted, as an approved
     /// deletion does: only while it still reads as `read`, the hash the conversion read it as and the ctime read
-    /// through the descriptor held across the rename that kept it. Otherwise it stays kept.
+    /// through the descriptor held across the rename that kept it. Otherwise it stays kept. What it reads is counted to
+    /// `tally`, of the Repair's Job.
     pub(super) fn delete_converted(
         &self,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         id: i64,
         read: &KeptFileReviewed,
     ) -> Result<KeptDeletionOutcome> {
@@ -657,7 +667,7 @@ impl Store {
             }
             Err(why) => return Err(Error::Io(why)),
         };
-        self.delete_kept_of(Owner::Source, dir, &deleting, &file, Some(read))
+        self.delete_kept_of(Owner::Source, (dir, tally), &deleting, &file, Some(read))
     }
 
     fn set_slot_ctime(
@@ -708,11 +718,11 @@ impl Store {
     }
 
     /// Deletes kept file `file`, recorded as being deleted, from wherever a stop left it: its kept entry or its slot
-    /// in the private folder kept files are deleted from.
+    /// in the private folder kept files are deleted from. What it reads is counted to `tally`.
     fn delete_kept_of(
         &self,
         owner: Owner,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         deleting: &FolderDir,
         file: &SourceKeptFile,
         reviewed: Option<&KeptFileReviewed>,
@@ -763,7 +773,11 @@ impl Store {
             }
             // Read as reviewed before the rename, which moves its ctime, and held through it.
             let read = match generation.open_file(&file.kept_name) {
-                Ok(read) if reads_as(&read, file, reviewed, reviewed.map(|r| r.ctime_ns))? => read,
+                Ok(read)
+                    if reads_as((&read, tally), file, reviewed, reviewed.map(|r| r.ctime_ns))? =>
+                {
+                    read
+                }
                 _ => {
                     let why = format!("{CHANGED}, so it was left kept");
                     self.settle_source_kept(owner, file, "kept", Some(&why))?;
@@ -796,7 +810,7 @@ impl Store {
             Some(held) if kept => unlink_verified(
                 deleting,
                 &slot,
-                held,
+                (held, tally),
                 Identity::from(file.identity),
                 &file.file,
                 reviewed,

@@ -14,6 +14,7 @@ use title_select_api::build::ExpectedRom;
 use title_select_api::storage::ChdKind;
 
 use crate::build::verify_loose;
+use crate::meter::{JobMeter, Tally};
 
 /// The environment variable naming the chdman to run, where the configuration names none.
 pub const CHDMAN_ENV: &str = "TITLE_SELECT_CHDMAN";
@@ -44,6 +45,22 @@ fn written(out: &Path) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .fold(0, u64::saturating_add)
+}
+
+/// The bytes chdman, run in `dir` with `args`, reads: those of its `-i` file, or of every file in the folder it is in
+/// when that is a folder of `dir`'s, as a cue sheet and its tracks are.
+fn input_bytes<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> u64 {
+    let Some(input) = args
+        .windows(2)
+        .find(|w| w[0].as_ref() == "-i")
+        .map(|w| dir.join(w[1].as_ref()))
+    else {
+        return 0;
+    };
+    match input.parent() {
+        Some(folder) if folder != dir => written(folder),
+        _ => std::fs::metadata(&input).map_or(0, |m| m.len()),
+    }
 }
 
 /// Why chdman was stopped for writing more than `budget` allows.
@@ -512,12 +529,13 @@ impl Limits {
 }
 
 /// The chdman a Build runs, how many threads it compresses with, and how long each run may take before it is
-/// stopped.
+/// stopped; and where the bytes it reads and writes are counted, from its files' sizes as it runs.
 #[derive(Debug, Clone)]
 pub struct Chdman {
     pub program: PathBuf,
     pub threads: usize,
     pub deadline: Duration,
+    pub tally: Tally,
 }
 
 /// Where chdman is: `configured`, else the program [`CHDMAN_ENV`] names, else `chdman` on the `PATH`.
@@ -596,6 +614,18 @@ impl Chdman {
         budget: Option<(&Path, u64)>,
     ) -> Result<(), Stop> {
         let over = || budget.and_then(|(out, most)| (written(out) > most).then_some(most));
+        let _running = self.tally.job().map(JobMeter::running_chdman);
+        // chdman is a process of its own: what it reads is counted as the size of its input as it starts, and what it
+        // writes as the files in `dir` grow, at each poll.
+        self.tally
+            .read(usize::try_from(input_bytes(dir, args)).unwrap_or(usize::MAX));
+        let mut seen = written(dir);
+        let mut count_written = || {
+            let now = written(dir);
+            self.tally
+                .wrote(usize::try_from(now.saturating_sub(seen)).unwrap_or(usize::MAX));
+            seen = now;
+        };
         let log_path = dir.join("chdman.log");
         let log = File::options()
             .create(true)
@@ -616,6 +646,7 @@ impl Chdman {
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .unwrap_or_default();
         let started = std::time::Instant::now();
+        let mut counted_at = started;
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
@@ -641,10 +672,16 @@ impl Chdman {
                     let _ = child.wait();
                     break over_budget(&verb, budget)?;
                 }
-                Ok(None) => std::thread::sleep(match budget {
-                    Some(_) => BUDGET_POLL,
-                    None => POLL,
-                }),
+                Ok(None) => {
+                    if counted_at.elapsed() >= POLL {
+                        count_written();
+                        counted_at = std::time::Instant::now();
+                    }
+                    std::thread::sleep(match budget {
+                        Some(_) => BUDGET_POLL,
+                        None => POLL,
+                    });
+                }
                 Err(e) => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -652,6 +689,7 @@ impl Chdman {
                 }
             }
         };
+        count_written();
         if over().is_some() {
             return over_budget(&verb, budget);
         }
@@ -801,7 +839,7 @@ impl Chdman {
                     rom.name, rom.size
                 )));
             }
-            verify_loose(&file, rom)
+            verify_loose(&file, rom, &self.tally)
                 .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
         }
         let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
@@ -1084,6 +1122,7 @@ mod tests {
             program,
             threads: 1,
             deadline: Duration::from_secs(5),
+            tally: Default::default(),
         };
         let started = std::time::Instant::now();
         let stop = chdman
@@ -1099,6 +1138,43 @@ mod tests {
             panic!("{stop:?}")
         };
         assert!(why.contains("more than the 1048576 bytes"), "{why}");
+    }
+
+    #[test]
+    fn what_chdman_reads_and_writes_is_counted_from_its_files_sizes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("fake");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nhead -c 300000 /dev/zero > out.chd\nsleep 0.3\nhead -c 200000 /dev/zero >> out.chd\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::create_dir(dir.path().join("in")).unwrap();
+        std::fs::write(dir.path().join("in/g.cue"), [0; 100]).unwrap();
+        std::fs::write(dir.path().join("in/t1.bin"), [0; 7000]).unwrap();
+        let meter = crate::meter::Meter::default();
+        let job = meter.start(1, crate::ONE_WORKER_EACH);
+        let chdman = Chdman {
+            program,
+            threads: 1,
+            deadline: Duration::from_secs(20),
+            tally: job.tally(None),
+        };
+
+        chdman
+            .create(dir.path(), ChdKind::Cd, "g.cue", &|| false)
+            .unwrap();
+
+        let counted = job.counted();
+        assert_eq!(counted.read, 7100, "the cue sheet and its track");
+        let log = std::fs::metadata(dir.path().join("chdman.log"))
+            .unwrap()
+            .len();
+        assert_eq!(counted.written, 500_000 + log);
+        assert_eq!(meter.total().written, counted.written);
+        assert!(!meter.sample().jobs[0].chdman, "no longer running");
     }
 
     /// A synthetic GD-ROM, made and extracted by the chdman here, when there is one.
@@ -1137,6 +1213,7 @@ mod tests {
             program,
             threads: 1,
             deadline: Duration::from_secs(120),
+            tally: Default::default(),
         };
         chdman
             .create(dir.path(), ChdKind::Cd, "g.cue", &|| false)
@@ -1166,6 +1243,7 @@ mod tests {
             program,
             threads: 1,
             deadline: Duration::from_millis(300),
+            tally: Default::default(),
         };
         let started = std::time::Instant::now();
         let stop = chdman

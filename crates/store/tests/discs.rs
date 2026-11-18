@@ -696,7 +696,30 @@ fn sbi_files_go_beside_their_cue_when_the_system_opts_in() {
         sbi: Some(true),
         ..Default::default()
     });
+    let m = env.store.meter();
+    let (sets, play, total) = (m.root("sets"), m.root("play"), m.total());
     env.built(&folder, selection);
+    let (sets, play, total) = (
+        m.root("sets") - sets,
+        m.root("play") - play,
+        m.total() - total,
+    );
+    // Each SBI file is written into the library's root and hashed back once; the pack it comes from, in the store, is
+    // opened for each, and read for the Job alone.
+    let sbi = ("SBI\0orbit".len() + "SBI\0saga".len()) as u64;
+    assert_eq!(
+        play,
+        title_select_engine::meter::Counted {
+            read: sbi,
+            written: sbi,
+            files_read: 0,
+            files_written: 2,
+        }
+    );
+    assert_eq!(sets, Default::default());
+    let store = total - play;
+    assert_eq!((store.files_read, store.written), (2, 0));
+    assert!(store.read >= 2 * sbi_pack().len() as u64, "{store:?}");
     let mut expected: Vec<&str> = ES_DE_LOOSE.to_vec();
     expected.extend([
         "Saga (USA).m3u/Saga (USA) (Disc 1).sbi",
@@ -1944,6 +1967,58 @@ fn a_chd_laid_out_as_the_dats_cue_sheet_in_other_words_is_adopted() {
         "{:?}",
         check.drift
     );
+}
+
+#[test]
+fn adopting_a_chd_counts_it_read_from_the_librarys_root_and_its_cue_sheet_from_the_source_sets() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, _) = laid_out_by_hand(&env);
+    let cue = std::fs::read_to_string(
+        env.tmp
+            .path()
+            .join("roots/sets")
+            .join(SET)
+            .join(CD)
+            .join("Orbit (USA).cue"),
+    )
+    .unwrap();
+    orbit_chd_laid_out_as(&env, &cue);
+    let chd = std::fs::metadata(env.dir().join("Orbit (USA).chd"))
+        .unwrap()
+        .len();
+    let request = PlanCleanup {
+        entries: [("Orbit (USA).chd".to_owned(), CleanupAction::Adopt)].into(),
+        ..PlanCleanup::default()
+    };
+    let plan = env
+        .store
+        .plan_cleanup(&env.config, folder.id, &request)
+        .unwrap();
+    let m = env.store.meter();
+    let (sets, play, total) = (m.root("sets"), m.root("play"), m.total());
+
+    let ended = env.run(&plan);
+
+    for item in env.items(&ended) {
+        assert!(item.error.is_none(), "{item:?}");
+    }
+    let (sets, play, total) = (
+        m.root("sets") - sets,
+        m.root("play") - play,
+        m.total() - total,
+    );
+    // The CHD is read once from the library's root, and the DAT's cue sheet once from the source set's.
+    assert_eq!((play.read, play.files_read, play.written), (chd, 1, 0));
+    assert_eq!(
+        (sets.read, sets.files_read, sets.written),
+        (cue.len() as u64, 1, 0)
+    );
+    // Its copy in scratch, and what chdman extracts from it, are counted for the Job alone.
+    let scratch = total - sets - play;
+    let tracks = 2352 * 500;
+    assert!(scratch.written >= chd + tracks, "{scratch:?}");
+    assert!(scratch.files_written >= 1, "{scratch:?}");
 }
 
 #[test]

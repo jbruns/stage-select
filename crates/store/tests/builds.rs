@@ -473,7 +473,12 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
     for item in plan.content.items.iter().filter(|i| i.kind.writes()) {
         let path = dir.join(&item.target);
         validate(&path);
-        verify(&std::fs::File::open(&path).unwrap(), &item.roms).unwrap();
+        verify(
+            &std::fs::File::open(&path).unwrap(),
+            &item.roms,
+            &Default::default(),
+        )
+        .unwrap();
         let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
         assert!(before <= mtime && mtime <= after, "{}", item.target);
     }
@@ -512,6 +517,83 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
         };
         assert_eq!(now.kind, expected, "{}", now.target);
     }
+}
+
+#[test]
+fn a_builds_written_bytes_are_counted_for_its_job_and_root_and_kept_across_a_restart() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    let plan = env.plan(&folder, id);
+    let before = env.store.meter().total();
+
+    let job = env.build(&plan);
+
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", job.error);
+    let written: Vec<u64> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes())
+        .map(|i| std::fs::metadata(dir.join(&i.target)).unwrap().len())
+        .collect();
+    // A repack writes each member's local header twice: once to hold its place, and again once its CRC is known.
+    let headers: u64 = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Repack)
+        .flat_map(|i| {
+            let bytes = std::fs::read(dir.join(&i.target)).unwrap();
+            validate(&dir.join(&i.target))
+                .into_iter()
+                .map(move |m| {
+                    let at = m.offset as usize;
+                    let len = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]) as u64;
+                    30 + len(at + 26) + len(at + 28)
+                })
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    let bytes: u64 = written.iter().sum::<u64>() + headers;
+    let play = env.store.meter().root("play");
+    assert_eq!(
+        (play.written, play.files_written),
+        (bytes, written.len() as u64)
+    );
+    assert_eq!(env.store.meter().total().written - before.written, bytes);
+    // Every source is read from the source set's root, at least once; each built file is read back to verify it.
+    let sources: std::collections::BTreeSet<&str> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes())
+        .flat_map(|i| i.sources.iter().map(|s| s.path.as_str()))
+        .collect();
+    let source_bytes: u64 = sources
+        .iter()
+        .map(|p| std::fs::metadata(env.set_dir().join(p)).unwrap().len())
+        .sum();
+    let sets = env.store.meter().root("sets");
+    assert!(sets.read >= source_bytes, "{} of {source_bytes}", sets.read);
+    assert!(sets.files_read >= sources.len() as u64);
+    assert_eq!(sets.written, 0, "a build only reads its source set");
+    // Each is hashed whole again once verified.
+    assert!(play.read > written.iter().sum::<u64>());
+
+    let ended = env.store.end_metering(job.id).unwrap().unwrap();
+    let throughput = ended.throughput.unwrap();
+    assert_eq!(throughput.bytes_written, bytes);
+    assert!(
+        ended.version > job.version,
+        "the recorded Job is published again"
+    );
+    assert_eq!(env.store.end_metering(job.id).unwrap(), None);
+
+    let (env, _) = env.restart();
+    assert_eq!(env.store.job(job.id).unwrap().throughput, Some(throughput));
 }
 
 #[test]
@@ -5442,7 +5524,8 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     assert!(
         verify(
             &std::fs::File::open(dir.join("Pong (USA).zip")).unwrap(),
-            &item(&plan, "Pong (USA)").roms
+            &item(&plan, "Pong (USA)").roms,
+            &Default::default()
         )
         .is_ok()
     );
@@ -5537,7 +5620,20 @@ fn with_delete_originals_on_a_converted_original_is_deleted_once_its_new_file_ve
     set_play_policy(&env, StorageFormat::Loose, None, true);
     let plan = env.plan(&folder, id);
     assert!(plan.content.storage.delete_originals);
+    let originals: u64 = ["Pong (USA).zip", "Combat (USA).zip"]
+        .iter()
+        .map(|n| std::fs::metadata(dir.join(n)).unwrap().len())
+        .sum();
+    let play = env.store.meter().root("play");
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    // Every read of the play library is counted to its root: each original is hashed whole when its conversion
+    // records it, when it is kept aside, and twice more as it is deleted; each converted file is read three times
+    // to verify it.
+    let play = env.store.meter().root("play") - play;
+    let converted = (b"pong".len() + b"combat".len()) as u64;
+    assert_eq!(play.read, 4 * originals + 3 * converted);
+    assert_eq!((play.written, play.files_written), (converted, 2));
 
     assert!(env.store.kept_files(folder.id).unwrap().is_empty());
     assert_eq!(

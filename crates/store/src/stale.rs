@@ -257,6 +257,8 @@ impl Store {
     /// there. It stops, recording nothing and ending Interrupted, once a Repair or Build wants the Source Set or the
     /// job slot. Returns the Job as it ends.
     pub fn run_stat_walk_job(&self, config: &Config, id: i64) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         if job.kind != JobKind::StatWalk {
             return Err(Error::Refused(format!("job {id} is not a stat walk")));

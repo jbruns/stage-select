@@ -15,6 +15,7 @@ title-select-selection.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 jiff.workspace = true
+rustix.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
@@ -29,7 +30,6 @@ tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
 [dev-dependencies]
 crc32fast.workspace = true
 md-5.workspace = true
-rustix.workspace = true
 sha1.workspace = true
 ureq = { version = "3.5.0", features = ["json"] }
 zip.workspace = true

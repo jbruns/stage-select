@@ -2027,7 +2027,13 @@ fn write_torrentzip(path: &Path, name: &str, payload: &[u8]) {
         path: &loose,
         member: None,
     };
-    title_select_engine::build::repack(&dest, &[(&rom, source)]).unwrap();
+    title_select_engine::build::repack(
+        &dest,
+        &[(&rom, source)],
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
     std::fs::remove_file(&loose).unwrap();
 }
 
@@ -2533,7 +2539,17 @@ fn with_delete_originals_on_an_original_is_deleted_once_its_converted_file_verif
         "{:#?}",
         plan.content.steps
     );
+    let sets = env.store.meter().root("sets");
     let done = env.approve(&plan);
+
+    // The new ZIP is hashed whole twice from the source set's root: stamped once staged, and verified before its
+    // original is deleted. The game's four bytes are read six times more, from the original and from the new member:
+    // each read of the Repair Job is counted to the root.
+    let sets = env.store.meter().root("sets") - sets;
+    let zip = std::fs::metadata(env.set().join("Pong (USA).zip"))
+        .unwrap()
+        .len();
+    assert_eq!(sets.read, 2 * zip + 6 * b"pong".len() as u64);
 
     assert_eq!(env.listing(), [".title-select/marker", "Pong (USA).zip"]);
     assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
@@ -3648,6 +3664,34 @@ fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
     );
     env.run_queued_audit(&done);
     assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_cue_packs_bytes_are_counted_for_the_job_alone_and_the_written_sheets_for_the_source_sets_root()
+{
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    let pack = std::fs::metadata(env.tmp.path().join("Test - System (cues).zip"))
+        .unwrap()
+        .len();
+    let (sets, total) = (env.store.meter().root("sets"), env.store.meter().total());
+
+    env.approve(&env.plan());
+
+    let cue = quest[0].payload.len() as u64;
+    let sets = env.store.meter().root("sets") - sets;
+    let total = env.store.meter().total() - total;
+    assert_eq!((sets.written, sets.files_written), (cue, 1));
+    // The sheet written is read back twice from the source set's root: once to check it, once to stamp it.
+    assert_eq!((sets.read, sets.files_read), (2 * cue, 0));
+    // The pack, in the store, is read for the Job alone: from the start again after each seek, so at least whole.
+    let store = total - sets;
+    assert_eq!(store.files_read, 1);
+    assert!(store.read >= pack, "{} of {pack}", store.read);
+    assert_eq!(store.written, 0);
 }
 
 #[test]
