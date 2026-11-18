@@ -397,6 +397,7 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
             progress: Some(&progress),
             evidence: title_select_engine::AuditEvidence::Full,
             reads: None,
+            tally: Default::default(),
         };
         let report = title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
         (report, seen.into_inner().unwrap())
@@ -750,4 +751,53 @@ fn a_7z_in_a_source_set_is_one_opaque_file_whose_members_are_not_read() {
         .collect();
     assert_eq!(entries, [("Pong (USA).7z", None, Finding::Unmatched)]);
     assert_eq!(status_of(&report, "Pong (USA)"), GameStatus::Missing);
+}
+
+#[test]
+fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total() {
+    let fx = Fixture::new();
+    let loose = noise(1, 300_000);
+    let member = noise(2, 120_000);
+    write_file(&fx.set_path("Loose.bin"), &loose);
+    write_zip(&fx.set_path("Zipped.zip"), &[("Zipped.bin", &member)]);
+    let dat = fx.dat(&[
+        ("Loose", vec![rom("Loose.bin", &loose)]),
+        ("Zipped", vec![rom("Zipped.bin", &member)]),
+    ]);
+    let meter = title_select_engine::meter::Meter::default();
+    let job = meter.start(
+        7,
+        title_select_engine::Workers {
+            readers: 2,
+            hashers: 2,
+        },
+    );
+    // Another Job reading elsewhere at the same time.
+    meter
+        .start(8, title_select_engine::ONE_WORKER_EACH)
+        .tally(None)
+        .read(5);
+    let options = title_select_engine::Options {
+        file: "test.dat".into(),
+        confine: None,
+        workers: title_select_engine::Workers {
+            readers: 2,
+            hashers: 2,
+        },
+        pace: None,
+        progress: None,
+        evidence: title_select_engine::AuditEvidence::Full,
+        reads: None,
+        tally: job.tally(Some("sets")),
+    };
+
+    title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
+
+    // A loose file's bytes, and a ZIP member's as it decompresses.
+    let payload = (loose.len() + member.len()) as u64;
+    assert_eq!(job.counted().read, payload);
+    assert_eq!(job.counted().files_read, 2);
+    assert_eq!(meter.root("sets").read, payload);
+    assert_eq!(meter.total().read, payload + 5);
+    assert_eq!(meter.total().written, 0, "an audit writes nothing");
 }

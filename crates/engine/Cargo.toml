@@ -25,6 +25,9 @@ thiserror.workspace = true
 walkdir.workspace = true
 zip.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix.workspace = true
+
 [dev-dependencies]
 sevenz-rust2 = { workspace = true, features = ["compress"] }
 tempfile.workspace = true

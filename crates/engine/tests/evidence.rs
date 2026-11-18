@@ -29,6 +29,7 @@ fn run(
             progress: None,
             evidence,
             reads,
+            tally: Default::default(),
         },
     )
     .unwrap()

@@ -261,6 +261,7 @@ fn run(
             progress: None,
             evidence,
             reads,
+            tally: Default::default(),
         },
     )
     .unwrap()
@@ -503,12 +504,18 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             path: &loose,
             member: None,
         };
-        repack(&file, &[(&rom, source)]).unwrap();
+        repack(&file, &[(&rom, source)], &Default::default()).unwrap();
         verify(&file, std::slice::from_ref(&rom)).unwrap();
         assert_eq!(sole_member(&out("repack-loose.zip")), dump, "{rule:?}");
 
         let file = created(&out("repack-member.zip"));
-        repack_from(&file, std::slice::from_ref(&rom), &opened(&zipped)).unwrap();
+        repack_from(
+            &file,
+            std::slice::from_ref(&rom),
+            &opened(&zipped),
+            &Default::default(),
+        )
+        .unwrap();
         verify(&file, std::slice::from_ref(&rom)).unwrap();
         assert_eq!(sole_member(&out("repack-member.zip")), dump, "{rule:?}");
 
@@ -517,7 +524,13 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             ("sources-member.zip", Some("Game.bin"), &zipped),
         ] {
             let file = created(&out(name));
-            repack_sources(&file, &[(&rom, 0, member)], &[&opened(source)]).unwrap();
+            repack_sources(
+                &file,
+                &[(&rom, 0, member)],
+                &[&opened(source)],
+                &Default::default(),
+            )
+            .unwrap();
             verify(&file, std::slice::from_ref(&rom)).unwrap();
             assert_eq!(sole_member(&out(name)), dump, "{rule:?} {name}");
         }
@@ -527,18 +540,37 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             ("loose-member.bin", Some("Game.bin"), &zipped),
         ] {
             let file = created(&out(name));
-            write_loose(&file, &[(&rom, 0, member)], &[&opened(source)]).unwrap();
+            write_loose(
+                &file,
+                &[(&rom, 0, member)],
+                &[&opened(source)],
+                &Default::default(),
+            )
+            .unwrap();
             verify_loose(&file, &rom).unwrap();
             assert_eq!(std::fs::read(out(name)).unwrap(), dump, "{rule:?} {name}");
         }
 
         let file = created(&out("member.bin"));
-        write_loose_member(&file, &rom, "Game.bin", &opened(&zipped)).unwrap();
+        write_loose_member(
+            &file,
+            &rom,
+            "Game.bin",
+            &opened(&zipped),
+            &Default::default(),
+        )
+        .unwrap();
         verify_loose(&file, &rom).unwrap();
         assert_eq!(std::fs::read(out("member.bin")).unwrap(), dump);
 
         let file = created(&out("members.bin"));
-        write_loose_members(&[&file], &[(&rom, "Game.bin")], &opened(&zipped)).unwrap();
+        write_loose_members(
+            &[&file],
+            &[(&rom, "Game.bin")],
+            &opened(&zipped),
+            &Default::default(),
+        )
+        .unwrap();
         verify_loose(&file, &rom).unwrap();
         assert_eq!(std::fs::read(out("members.bin")).unwrap(), dump);
     }
@@ -554,7 +586,13 @@ fn a_headerless_payload_is_written_as_it_is_under_a_rule() {
     let out = dir.path().join("Game.zip");
     let file = created(&out);
 
-    repack_sources(&file, &[(&rom, 0, None)], &[&opened(&loose)]).unwrap();
+    repack_sources(
+        &file,
+        &[(&rom, 0, None)],
+        &[&opened(&loose)],
+        &Default::default(),
+    )
+    .unwrap();
 
     verify(&file, std::slice::from_ref(&rom)).unwrap();
     assert_eq!(sole_member(&out), rom_bytes);

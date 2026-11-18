@@ -13,6 +13,7 @@ use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
+use crate::meter::{JobMeter, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
 
@@ -64,6 +65,8 @@ pub struct How<'a> {
     /// Whether a ZIP member of this claimed size might hold a Header the DAT leaves out. Its claim covers any
     /// Header, so it cannot say which ROM the member is; an archive holding one is read rather than claimed.
     pub might_be_headered: &'a (dyn Fn(u64) -> bool + Sync),
+    /// Where each payload byte read is counted, and its Job's readers and hash workers at work.
+    pub tally: &'a Tally,
 }
 
 /// One payload for a hash worker: its chunks, the Header Rule to hash them under, and where to send its checksums.
@@ -138,6 +141,7 @@ pub fn read_files(
                     let _pass = hashing.enter(|| allowed(|w| w.hashers, hashers));
                     let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
                     let Ok(job) = job else { break };
+                    let _active = how.tally.job().map(JobMeter::hashing);
                     let mut hasher = Hasher::with_header(job.header);
                     for chunk in job.chunks {
                         hasher.update(&chunk);
@@ -157,6 +161,7 @@ pub fn read_files(
                     let Some(file) = files.get(i) else {
                         break;
                     };
+                    let _active = how.tally.job().map(JobMeter::reading);
                     let read = read_or_reuse(file, how, &jobs);
                     results.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(read);
                     let files_done = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -218,7 +223,8 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         }
     }
     let read_at = jiff::Timestamp::now();
-    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how.header);
+    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how);
+    how.tally.file_read();
     if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
         let members: Option<Vec<_>> = read
             .members
@@ -306,7 +312,7 @@ fn read_file(
     is_zip: bool,
     jobs: &SyncSender<HashJob>,
     read_at: jiff::Timestamp,
-    header: Option<HeaderRule>,
+    how: How,
 ) -> (FileRead, Option<FileStamp>) {
     let mut read = FileRead {
         members: Vec::new(),
@@ -325,7 +331,7 @@ fn read_file(
         .ok()
         .and_then(|m| FileStamp::from_metadata(&m));
     if !is_zip {
-        match checksum(file, jobs, header) {
+        match checksum(file, jobs, how.header, how.tally) {
             Ok(sums) => read.members.push((None, Ok(Known::Payload(sums)))),
             Err(e) => read.error = Some(e),
         }
@@ -358,18 +364,19 @@ fn read_file(
         };
         read.members.push((
             Some(name),
-            checksum(member, jobs, header).map(Known::Payload),
+            checksum(member, jobs, how.header, how.tally).map(Known::Payload),
         ));
     }
     (read, stamp)
 }
 
 /// Reads `r` to its end, once, handing its bytes to a hash worker, and returns their checksums without the Header
-/// `header` finds.
+/// `header` finds. Each byte read is counted to `tally`: an archive member's as it decompresses.
 fn checksum(
     mut r: impl Read,
     jobs: &SyncSender<HashJob>,
     header: Option<HeaderRule>,
+    tally: &Tally,
 ) -> Result<Checksums, String> {
     let (chunks, chunks_rx) = sync_channel(CHUNKS_IN_FLIGHT);
     let (done_tx, done) = sync_channel(1);
@@ -386,6 +393,7 @@ fn checksum(
         if n == 0 {
             break;
         }
+        tally.read(n);
         buf.truncate(n);
         chunks
             .send(buf)
@@ -457,6 +465,7 @@ mod tests {
             reads: Some(&overlap),
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let limit = AtomicUsize::new(4);
         let pace = || Workers {
@@ -541,7 +550,7 @@ mod tests {
                 bytes: &dump,
                 read: &read,
             };
-            checksum(counting, &jobs, Some(HeaderRule::Nes)).unwrap()
+            checksum(counting, &jobs, Some(HeaderRule::Nes), &Default::default()).unwrap()
         });
 
         assert_eq!(read.load(Ordering::Relaxed), dump.len(), "read once");

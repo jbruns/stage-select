@@ -414,6 +414,7 @@ mod tests {
             reads: None,
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let workers = Workers {
             readers: 1,
@@ -619,6 +620,7 @@ mod tests {
             reads: None,
             header: None,
             might_be_headered: &|_| false,
+            tally: &Default::default(),
         };
         let workers = Workers {
             readers: 1,

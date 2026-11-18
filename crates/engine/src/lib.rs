@@ -4,6 +4,7 @@ pub mod build;
 pub mod chd;
 pub mod dat;
 pub mod fixdat;
+pub mod meter;
 pub mod payload;
 mod read;
 pub mod sevenz;
@@ -60,6 +61,9 @@ pub struct Options<'a> {
     pub evidence: AuditEvidence,
     /// Earlier payload reads to reuse under the change test, and where to record this Audit's reads.
     pub reads: Option<&'a dyn PayloadReads>,
+    /// Where the payload bytes read are counted: for the Job, the Source Set's Root and in total. An Audit reads one
+    /// Source Set, so one tally serves every file.
+    pub tally: meter::Tally,
 }
 
 /// A file as `stat` sees it: what the change test compares. An earlier read of a file is reused only while every
@@ -161,6 +165,7 @@ pub fn audit(dat_path: &Path, root: &Path) -> Result<Report, Error> {
             progress: None,
             evidence: AuditEvidence::Full,
             reads: None,
+            tally: Default::default(),
         },
     )
 }
@@ -331,6 +336,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         reads: options.reads,
         header,
         might_be_headered: &might_be_headered,
+        tally: &options.tally,
     };
     let mut reads =
         read::read_files(&files, how, options.workers, options.pace, options.progress).into_iter();

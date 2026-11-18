@@ -46,6 +46,7 @@ fn peak_while_refused_for(path: &Path, why: &str) -> usize {
     let decoding = Decoding {
         gate: &gate,
         max_dictionary_mib: 1,
+        read: &Default::default(),
     };
     let before = HELD.load(Ordering::SeqCst);
     PEAK.store(before, Ordering::SeqCst);

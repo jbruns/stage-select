@@ -11,6 +11,7 @@ use title_select_api::HeaderRule;
 use title_select_api::build::ExpectedRom;
 
 use crate::dat::Dat;
+use crate::meter::{Metered, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
 use crate::zipdir::{self, DirectoryLimits, Gated};
@@ -185,21 +186,23 @@ pub fn is_torrentzip(path: &Path) -> bool {
         .is_ok()
 }
 
-/// Copies `source` into `dest`, a new, empty file the caller created. On Linux the standard library uses
-/// `copy_file_range`, so that the filesystem may share or offload the copy; nowhere is a hardlink made.
-pub fn copy(source: &Path, dest: &mut File) -> io::Result<u64> {
-    let mut from = File::open(source)?;
-    let copied = io::copy(&mut from, dest)?;
+/// Copies `source` into `dest`, a new, empty file the caller created, counting what it writes to `to`. On Linux each
+/// chunk is a `copy_file_range`, so that the filesystem may share or offload the copy; nowhere is a hardlink made.
+pub fn copy(source: &Path, dest: &mut File, to: &Tally) -> io::Result<u64> {
+    let from = File::open(source)?;
+    let copied = crate::meter::copy_chunked(&from, dest, to)?;
     dest.sync_all()?;
+    to.file_written();
     Ok(copied)
 }
 
 /// Writes the TorrentZip of `roms` into `dest`, a new, empty file the caller created, each ROM's payload read from
 /// its source. A payload of the wrong size is refused; checksums are checked by [`verify`] afterwards.
-pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)]) -> Result<(), String> {
+pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)], to: &Tally) -> Result<(), String> {
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
-    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    let mut writer =
+        Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     for (rom, source) in order {
         let opened =
             File::open(source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
@@ -225,8 +228,13 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)]) -> Result<(), String
         added.map_err(|e| format!("{} ({}): {e}", source.path.display(), rom.name))?;
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
-    file.sync_all().map_err(|e| e.to_string())
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
+    file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
+    Ok(())
 }
 
 /// A reader of a file that hashes it whole as it is read: each byte read in order from the start of the file is
@@ -289,9 +297,10 @@ pub fn repack_from(
     dest: &File,
     roms: &[ExpectedRom],
     source: &File,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let named: Vec<(&ExpectedRom, &str)> = roms.iter().map(|r| (r, r.name.as_str())).collect();
-    repack_members(dest, &named, source)
+    repack_members(dest, &named, source, to)
 }
 
 /// As [`repack_from`], each ROM read from the named member of `source`, which may be named otherwise; members not
@@ -300,11 +309,13 @@ pub fn repack_members(
     dest: &File,
     roms: &[(&ExpectedRom, &str)],
     source: &File,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
     let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
-    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    let mut writer =
+        Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     for (rom, member) in order {
         let payload = archive
             .by_name(member)
@@ -317,8 +328,13 @@ pub fn repack_members(
             .map_err(|e| format!("{}: {e}", rom.name))?;
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
+
     archive
         .into_inner()
         .into_inner()
@@ -338,6 +354,7 @@ pub fn repack_sources(
     dest: &File,
     roms: &[FromSource],
     sources: &[&File],
+    to: &Tally,
 ) -> Result<Vec<(String, u64)>, String> {
     enum Reading<'a> {
         Unread,
@@ -347,7 +364,8 @@ pub fn repack_sources(
     let mut reading: Vec<Reading> = sources.iter().map(|_| Reading::Unread).collect();
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
-    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    let mut writer =
+        Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     for (rom, at, member) in order {
         let source = *sources
             .get(*at)
@@ -391,8 +409,13 @@ pub fn repack_sources(
         added.map_err(|e| format!("{}: {e}", rom.name))?;
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
+
     reading
         .into_iter()
         .zip(sources)
@@ -449,6 +472,7 @@ pub fn write_loose_members(
     dests: &[&File],
     roms: &[(&ExpectedRom, &str)],
     source: &File,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     if dests.len() != roms.len() {
         return Err(format!(
@@ -467,7 +491,7 @@ pub fn write_loose_members(
     }
     order.sort_by_key(|(index, ..)| *index);
     for (index, dest, rom) in order {
-        let mut out = BufWriter::new(dest);
+        let mut out = BufWriter::new(Metered::new(dest, to));
         let (copied, size) = {
             let payload = archive
                 .by_index(index)
@@ -477,8 +501,12 @@ pub fn write_loose_members(
         if copied != size {
             return Err(wrong_size(rom, copied, size));
         }
-        let file = out.into_inner().map_err(|e| e.error().to_string())?;
+        let file = out
+            .into_inner()
+            .map_err(|e| e.error().to_string())?
+            .into_inner();
         file.sync_all().map_err(|e| e.to_string())?;
+        to.file_written();
     }
     archive
         .into_inner()
@@ -496,9 +524,10 @@ pub fn write_loose_member(
     rom: &ExpectedRom,
     member: &str,
     source: &File,
+    to: &Tally,
 ) -> Result<(), String> {
     let mut archive = archive(source, || Ok(BufReader::new(source)))?;
-    let mut out = BufWriter::new(dest);
+    let mut out = BufWriter::new(Metered::new(dest, to));
     let (copied, size) = {
         let payload = archive
             .by_name(member)
@@ -508,8 +537,13 @@ pub fn write_loose_member(
     if copied != size {
         return Err(wrong_size(rom, copied, size));
     }
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
-    file.sync_all().map_err(|e| e.to_string())
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
+    file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
+    Ok(())
 }
 
 /// Writes the one ROM of `roms` into `dest`, a new, empty file the caller created, as a loose file: its payload,
@@ -520,6 +554,7 @@ pub fn write_loose(
     dest: &File,
     roms: &[FromSource],
     sources: &[&File],
+    to: &Tally,
 ) -> Result<Vec<(String, u64)>, String> {
     let [(rom, at, member)] = roms else {
         return Err(format!(
@@ -530,7 +565,7 @@ pub fn write_loose(
     let source = *sources
         .get(*at)
         .ok_or_else(|| format!("{}: no source {at}", rom.name))?;
-    let mut out = BufWriter::new(dest);
+    let mut out = BufWriter::new(Metered::new(dest, to));
     let ((copied, size), whole) = match member {
         Some(member) => {
             let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
@@ -557,8 +592,13 @@ pub fn write_loose(
     if copied != size {
         return Err(wrong_size(rom, copied, size));
     }
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
+
     let mut read: Vec<(String, u64)> = Vec::with_capacity(sources.len());
     for (i, other) in sources.iter().enumerate() {
         if i == *at {
@@ -1133,6 +1173,7 @@ mod tests {
             &dest,
             &[(&b, 1, None), (&a, 0, Some("x.bin"))],
             &[&zip, &loose, &unread],
+            &Default::default(),
         )
         .unwrap();
 

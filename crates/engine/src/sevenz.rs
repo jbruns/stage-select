@@ -25,6 +25,7 @@ use crate::build::{
     Hashing, NESTED_ENDINGS, Payload, Probe, Probed, ZipLimits, archive_magic, copy_sized,
     hash_all, sized, wrong_size,
 };
+use crate::meter::{Metered, Reading, Tally};
 use crate::torrentzip::{Writer, compare_names};
 use header::Fault;
 use zstd::{Guarded, Span, Stop};
@@ -118,11 +119,13 @@ impl Drop for Permit<'_> {
     }
 }
 
-/// What decoding a 7z is bounded by: the gate it decodes inside, and the largest dictionary it may declare.
+/// What decoding a 7z is bounded by: the gate it decodes inside, and the largest dictionary it may declare; and where
+/// the archive's bytes read as its blocks are decoded are counted.
 #[derive(Debug, Clone, Copy)]
 pub struct Decoding<'a> {
     pub gate: &'a Gate,
     pub max_dictionary_mib: u32,
+    pub read: &'a Tally,
 }
 
 impl Decoding<'_> {
@@ -656,13 +659,14 @@ fn decode_block<R: Read + Seek>(
     decoding.gate.blocks.fetch_add(1, Ordering::SeqCst);
     let mut index = judged.archive.stream_map.block_first_file_index[b];
     let password = Password::empty();
+    let mut counted = Reading::new(&mut *source, decoding.read);
     let decoder = BlockDecoder::new_with_memory_limit(
         1,
         decoding.limit_kb(),
         b,
         &judged.archive,
         &password,
-        source,
+        &mut counted,
     );
     let decoded = decoder.for_each_entries(&mut |entry, member| {
         let i = index;
@@ -846,6 +850,7 @@ pub fn repack(
     source: &File,
     decoding: &Decoding,
     scratch: &Path,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let _permit = decoding.gate.enter();
     let (judged, mut source) = open(source, decoding)?;
@@ -855,7 +860,8 @@ pub fn repack(
         .iter()
         .map(|(_, member)| member_index(&judged.archive, member))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    let mut writer =
+        Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     let mut turns = Turns {
         order: &order,
         wanted: &wanted,
@@ -897,12 +903,16 @@ pub fn repack(
         return Err(format!("{}: {member} was not decoded", rom.name));
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
     finish(source)
 }
 
-type ZipOut<'a> = Writer<BufWriter<&'a File>>;
+type ZipOut<'a> = Writer<BufWriter<Metered<'a, &'a File>>>;
 
 /// Which of a repack's ROMs is written next, in TorrentZip's order, and the members waiting in scratch for theirs.
 struct Turns<'r> {
@@ -996,11 +1006,12 @@ pub fn write_loose(
     member: &str,
     source: &File,
     decoding: &Decoding,
+    to: &Tally,
 ) -> Result<(String, u64), String> {
     let _permit = decoding.gate.enter();
     let (judged, mut source) = open(source, decoding)?;
     let wanted = member_index(&judged.archive, member)?;
-    let mut out = BufWriter::new(dest);
+    let mut out = BufWriter::new(Metered::new(dest, to));
     let mut copied = None;
     match judged.block_of(wanted) {
         None => copied = Some(copy_sized(rom, 0, io::empty(), &mut out)),
@@ -1025,7 +1036,11 @@ pub fn write_loose(
     if copied != size {
         return Err(wrong_size(rom, copied, size));
     }
-    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    let file = out
+        .into_inner()
+        .map_err(|e| e.error().to_string())?
+        .into_inner();
     file.sync_all().map_err(|e| e.to_string())?;
+    to.file_written();
     finish(source)
 }
