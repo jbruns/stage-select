@@ -815,6 +815,8 @@ impl Store {
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         if job.kind != JobKind::Check {
             return Err(Error::Refused(format!("job {id} is not a check")));

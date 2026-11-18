@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 
 use title_select_api::romm::RommReconciled;
-use title_select_api::{Job, JobEvent, JobProgress, JobSnapshot, JobState, SettingsChanged};
+use title_select_api::{
+    Job, JobEvent, JobProgress, JobSnapshot, JobState, SettingsChanged, Throughput,
+};
 
 /// Parses one server-sent event by its SSE event name, since the JSON alone does not say which it is.
 pub fn parse_event(name: &str, data: &str) -> Result<JobEvent, String> {
@@ -14,6 +16,9 @@ pub fn parse_event(name: &str, data: &str) -> Result<JobEvent, String> {
         "settings" => serde_json::from_str::<SettingsChanged>(data).map(JobEvent::Settings),
         "romm_reconciled" => {
             serde_json::from_str::<RommReconciled>(data).map(JobEvent::RommReconciled)
+        }
+        "throughput" => {
+            serde_json::from_str::<Throughput>(data).map(|t| JobEvent::Throughput(Box::new(t)))
         }
         other => return Err(format!("unknown event `{other}`")),
     };
@@ -88,6 +93,8 @@ impl JobBook {
             }
             JobEvent::Settings(_) => Applied::Settings,
             JobEvent::RommReconciled(r) => Applied::RommReconciled(r.folder_id),
+            // Rates are kept beside the book, not in it.
+            JobEvent::Throughput(_) => Applied::Ignored,
         }
     }
 
@@ -194,6 +201,7 @@ mod tests {
             evidence: None,
             error: None,
             romm_scan: None,
+            throughput: None,
             workers: Workers {
                 readers: 1,
                 hashers: 1,
@@ -215,6 +223,7 @@ mod tests {
             version,
             files_done,
             files_total: 10,
+            rates: None,
         })
     }
 
@@ -362,6 +371,33 @@ mod tests {
         assert_eq!(book, before, "a settings event leaves the jobs alone");
         assert!(parse_event("progress", &data).is_err());
         assert!(parse_event("other", "{}").is_err());
+    }
+
+    #[test]
+    fn a_throughput_event_parses_and_leaves_the_jobs_alone() {
+        let throughput = Throughput {
+            total: title_select_api::Rates {
+                read_bytes_per_s: 1024.0,
+                write_bytes_per_s: 0.5,
+                files_per_s: 2.0,
+            },
+            roots: vec![],
+            jobs: vec![],
+            pace: title_select_api::settings::Pace::Default,
+            cpu: None,
+        };
+        let data = serde_json::to_string(&throughput).unwrap();
+        assert!(
+            !data.contains("cpu"),
+            "no CPU use where the host can't tell"
+        );
+        let event = parse_event("throughput", &data).unwrap();
+        assert_eq!(event, JobEvent::Throughput(Box::new(throughput)));
+        let mut book = JobBook::default();
+        book.apply(JobEvent::State(Box::new(job(4, JobState::Running, 1))));
+        let before = book.clone();
+        assert_eq!(book.apply(event), Applied::Ignored);
+        assert_eq!(book, before);
     }
 
     #[test]

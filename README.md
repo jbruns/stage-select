@@ -1482,13 +1482,24 @@ with a coverage `coverage_unavailable`, and an ingest item's match with such a s
 
 Server-sent events carry JSON data, under one of these event names:
 
-| Event             | Data                                   | Sent                                                                      |
-| ----------------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| `state`           | the job                                | when a job's state changes; first on a job's own stream                   |
-| `progress`        | `{"job", "files_done", "files_total"}` | while a job is running, at most five times a second                       |
-| `resync`          | `{"jobs": [...]}`, newest first        | by `/events` on connecting, and after the client fell behind              |
-| `settings`        | `{"pace"}`, never a secret             | by `/events` when the settings change; fetch them again                   |
-| `romm_reconciled` | `{"folder_id"}`                        | by `/events` when a folder's comparison with RomM is kept; fetch it again |
+| Event             | Data                                            | Sent                                                                      |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `state`           | the job                                         | when a job's state changes; first on a job's own stream                   |
+| `progress`        | `{"job", "files_done", "files_total", "rates"}` | while a job is running, at most five times a second                       |
+| `resync`          | `{"jobs": [...]}`, newest first                 | by `/events` on connecting, and after the client fell behind              |
+| `settings`        | `{"pace"}`, never a secret                      | by `/events` when the settings change; fetch them again                   |
+| `romm_reconciled` | `{"folder_id"}`                                 | by `/events` when a folder's comparison with RomM is kept; fetch it again |
+| `throughput`      | `{"total", "roots", "jobs", "pace", "cpu"}`     | by `/events` twice a second while jobs run, and once more after the last  |
+
+Rates are `{"read_bytes_per_s", "write_bytes_per_s", "files_per_s"}`, over the last 3 seconds; `rates` in `progress` is
+absent until the job's first sample. Bytes read are a job's payload reads: an audit's checksums and 7z decoding, not
+headers. Bytes written are everything it writes into a root, copies included. In `throughput`, `total` and each of
+`roots` (`{"root", "rates"}`) cover every job; each of `jobs` is `{"job", "rates", "readers", "hashers", "allowance",
+"chdman"}`, the payload readers and hash workers at work against the `allowance` (`{"readers", "hashers"}`) the pace
+gives it, and `chdman` while chdman runs, whose bytes are counted from its files as it goes but
+not capped. `cpu` is the service's CPU use as a share of the CPUs it may use, from 0 to 1, absent where the computer
+has no `/proc`. A finished job carries `throughput`, `{"bytes_read", "bytes_written", "duration_ms"}`, once it was
+counted; jobs from before this version have none.
 
 A `resync` lists every queued or running job and the 50 most recently finished; it replaces what the client knew,
 since events in between may have been dropped. An idle stream sends a comment every 15 seconds.
@@ -1678,6 +1689,11 @@ all failures seen** in its toolbar marks every failure seen at once (**Mark seen
 Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
 the icons; hover over or focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`,
 `/jobs`, `/storage-policy`, `/about`) open their new place.
+
+Once jobs have run, a strip at the top of Activity shows how fast the service reads and writes, files per second, its CPU
+use where the computer reports it, and the pace, linking to the setting. A running job's row shows its bytes per second
+now; its detail shows reading and writing apart, files per second and its workers against what the pace allows. A
+finished job shows what it read and wrote and its average.
 
 Its screens:
 

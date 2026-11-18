@@ -32,6 +32,7 @@ use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::build::{
     probe, repack_sources, sole_payload, verify, verify_loose, write_loose,
 };
+use title_select_engine::meter::Tally;
 
 use crate::builds::{sha256_of, still_sha256};
 use crate::config::{ADDITIONS_ROOT, Config};
@@ -1513,6 +1514,8 @@ impl Store {
     /// where it was. One that cannot be settled now, because the Root `additions` cannot be written, is left as it is
     /// and the Job Failed; it is tried again when the service next starts. Returns the Job as it ends.
     pub fn run_additions_job(&self, config: &Config, id: i64) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         if job.kind != JobKind::Additions {
             return Err(Error::Refused(format!("job {id} is not an additions job")));
@@ -1641,7 +1644,7 @@ impl Store {
             let settled = match row.raw_state.as_str() {
                 "retiring" => self.retire(config, &row)?,
                 "restoring" => self.restore_retired(config, &row)?,
-                _ => self.settle(config, &row)?,
+                _ => self.settle(config, &row, job)?,
             };
             if let Settled::Blocked(why) = &settled {
                 blocked.push(format!("addition {}: {why}", row.addition.id));
@@ -1657,8 +1660,8 @@ impl Store {
         })
     }
 
-    /// Settles addition `row`, being added.
-    fn settle(&self, config: &Config, row: &AdditionRow) -> Result<Settled> {
+    /// Settles addition `row`, being added, for Job `job`.
+    fn settle(&self, config: &Config, row: &AdditionRow, job: i64) -> Result<Settled> {
         let id = row.addition.id;
         if let Err(why) = self.additions_root(config) {
             return Ok(Settled::Blocked(why));
@@ -1706,7 +1709,8 @@ impl Store {
                     Ok(dest) => dest,
                     Err(why) => return self.fail_addition(id, why),
                 };
-                self.publish_kept(row, &dir, &name, identity, &file, &dest)
+                let to = self.meter.job(job).tally(Some(ADDITIONS_ROOT));
+                self.publish_kept(row, (&dir, &name, identity, &file), &dest, &to)
             }
         }
     }
@@ -2317,11 +2321,9 @@ impl Store {
     fn publish_kept(
         &self,
         row: &AdditionRow,
-        src: &FolderDir,
-        name: &str,
-        identity: Identity,
-        file: &FileStat,
+        (src, name, identity, file): (&FolderDir, &str, Identity, &FileStat),
         dest: &FolderDir,
+        to: &Tally,
     ) -> Result<Settled> {
         let id = row.addition.id;
         let file_name = &row.addition.file_name;
@@ -2434,8 +2436,8 @@ impl Store {
         // Written in the format the storage policy said for its system's source sets when it was approved.
         let read = [(&rom, 0, member.as_deref())];
         let written = match row.addition.loose {
-            true => write_loose(&staged, &read, &[&source]),
-            false => repack_sources(&staged, &read, &[&source]),
+            true => write_loose(&staged, &read, &[&source], to),
+            false => repack_sources(&staged, &read, &[&source], to),
         }
         .and_then(|_| staged.sync_all().map_err(|e| e.to_string()));
         if let Err(why) = written {

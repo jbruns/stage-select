@@ -943,7 +943,40 @@ pub struct Job {
     pub finished_at: Option<String>,
     /// Starts at 1 and goes up with each change of state, so that a client can tell a stale `state` from a newer one.
     pub version: u64,
+    /// What a finished Job read and wrote, and for how long it ran; absent for a Job that hasn't finished, or that
+    /// finished before the Service metered Jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throughput: Option<JobThroughput>,
 }
+
+/// The payload bytes a finished Job read and the bytes it wrote, and how long it ran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobThroughput {
+    pub bytes_read: u64,
+    pub bytes_written: u64,
+    pub duration_ms: u64,
+}
+
+impl JobThroughput {
+    /// The bytes read and written per second, on average over the Job; none for a Job that took no time.
+    pub fn bytes_per_s(&self) -> Option<f64> {
+        (self.duration_ms > 0).then(|| {
+            (self.bytes_read + self.bytes_written) as f64 * 1000.0 / self.duration_ms as f64
+        })
+    }
+}
+
+/// How fast bytes and files move, over the last few seconds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Rates {
+    pub read_bytes_per_s: f64,
+    pub write_bytes_per_s: f64,
+    /// Files read and written per second.
+    pub files_per_s: f64,
+}
+
+// Rates are counts over a positive span, never NaN.
+impl Eq for Rates {}
 
 /// How far a Running Audit has got through its Source Set's files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -953,6 +986,50 @@ pub struct JobProgress {
     pub version: u64,
     pub files_done: usize,
     pub files_total: usize,
+    /// How fast the Job reads and writes now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rates: Option<Rates>,
+}
+
+/// Sent by `/events` while Jobs run, and once when the last stops: how fast the Service reads and writes in total, in
+/// each Root and for each Running Job, and how hard it works.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Throughput {
+    pub total: Rates,
+    /// Each Root bytes moved in or out of since the Service started, by name.
+    pub roots: Vec<RootRates>,
+    /// Each Running Job the Service meters.
+    pub jobs: Vec<JobLoad>,
+    /// The pace Running Jobs follow.
+    pub pace: settings::Pace,
+    /// The Service's CPU use as a share of the CPUs it may use, from 0 up; absent where the host can't tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu: Option<f64>,
+}
+
+// CPU use is a share over a positive span, never NaN.
+impl Eq for Throughput {}
+
+/// How fast bytes move in and out of one Root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootRates {
+    pub root: String,
+    pub rates: Rates,
+}
+
+/// How fast one Running Job reads and writes, and its workers at work against what the pace allows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobLoad {
+    pub job: i64,
+    pub rates: Rates,
+    /// Payload readers at work now.
+    pub readers: usize,
+    /// Hash workers at work now.
+    pub hashers: usize,
+    /// The payload readers and hash workers the pace allows the Job now.
+    pub allowance: Workers,
+    /// Whether chdman, whose bytes aren't capped, runs for the Job now.
+    pub chdman: bool,
 }
 
 /// The Jobs a client of `/events` should know about: every Queued or Running Job and the most recently finished.
@@ -968,13 +1045,15 @@ pub struct SettingsChanged {
     pub pace: settings::Pace,
 }
 
-/// A server-sent event: the SSE event name is `state`, `progress`, `resync`, `settings` or `romm_reconciled`, and its
-/// data is this, as JSON.
+/// A server-sent event: the SSE event name is `state`, `progress`, `throughput`, `resync`, `settings` or
+/// `romm_reconciled`, and its data is this, as JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JobEvent {
     State(Box<Job>),
     Progress(JobProgress),
+    // Before `Resync`, whose `jobs` an empty Throughput's would match.
+    Throughput(Box<Throughput>),
     /// Sent by `/events` when a client connects and whenever it fell behind and missed events: the Jobs now, to
     /// replace what the client knew.
     Resync(JobSnapshot),
@@ -988,18 +1067,22 @@ impl JobEvent {
         match self {
             JobEvent::State(_) => "state",
             JobEvent::Progress(_) => "progress",
+            JobEvent::Throughput(_) => "throughput",
             JobEvent::Resync(_) => "resync",
             JobEvent::Settings(_) => "settings",
             JobEvent::RommReconciled(_) => "romm_reconciled",
         }
     }
 
-    /// The Job the event is about; none for a `resync`, `settings` or `romm_reconciled`.
+    /// The Job the event is about; none for a `throughput`, `resync`, `settings` or `romm_reconciled`.
     pub fn job_id(&self) -> Option<i64> {
         match self {
             JobEvent::State(job) => Some(job.id),
             JobEvent::Progress(p) => Some(p.job),
-            JobEvent::Resync(_) | JobEvent::Settings(_) | JobEvent::RommReconciled(_) => None,
+            JobEvent::Throughput(_)
+            | JobEvent::Resync(_)
+            | JobEvent::Settings(_)
+            | JobEvent::RommReconciled(_) => None,
         }
     }
 }

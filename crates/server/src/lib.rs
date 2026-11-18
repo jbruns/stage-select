@@ -10,6 +10,7 @@ mod metrics;
 mod notify;
 mod routes;
 mod selections;
+mod throughput;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -248,6 +249,7 @@ impl Prepared {
                 state.store.clone(),
                 state.fetcher.clone(),
             ));
+            tokio::spawn(throughput::run(state.store.clone(), state.jobs.clone()));
             tokio::spawn(jobs::run(
                 state.store,
                 state.config,

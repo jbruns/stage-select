@@ -1290,6 +1290,8 @@ impl Store {
     /// Runs the Running scan Job `id`. A folder that cannot be opened, or whose marker is not this store's, fails
     /// the Job and leaves every item as it was. Returns the Job as it ends.
     pub fn run_ingest_scan_job(&self, config: &Config, id: i64) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         if job.kind != JobKind::IngestScan {
             return Err(Error::Refused(format!("job {id} is not an ingest scan")));
@@ -1417,7 +1419,9 @@ impl Store {
                 Some(read) => (read, false),
                 None => {
                     self.fault_point(Fault::IngestRead);
-                    match read_item(&dir, &name, &seen, &self.decoding(config)) {
+                    let from = title_select_engine::meter::this_thread()
+                        .map_or_else(Default::default, |job| job.tally(Some(&row.root)));
+                    match read_item(&dir, &name, &seen, &self.decoding(config, &from)) {
                         Ok(Ok(read)) => (read, true),
                         Ok(Err(why)) => {
                             let again = existing.item.state == ItemState::Unsupported

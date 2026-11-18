@@ -31,6 +31,7 @@ use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
     FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose, write_loose_member,
 };
+use title_select_engine::meter::{self, Tally, copy_chunked};
 use title_select_engine::payload::{Checksums, Hasher};
 use title_select_engine::sevenz;
 
@@ -584,7 +585,19 @@ impl Store {
         };
         match m.kind.as_str() {
             "rename" => self.drive_rename(config, &m, &src, &dest),
-            _ => self.drive_copy(config, &m, &src, &dest),
+            _ => {
+                // Counted for the Job this thread runs, if any: a move recovered at start runs for none.
+                let job = meter::this_thread();
+                let tally = |root: &str| {
+                    job.as_ref()
+                        .map_or_else(Tally::default, |job| job.tally(Some(root)))
+                };
+                let to = match &m.dest {
+                    Destination::Kept { .. } => tally(&row.root),
+                    Destination::Path { root, .. } => tally(root),
+                };
+                self.drive_copy(config, &m, (&src, &tally(&row.root)), (&dest, &to))
+            }
         }
     }
 
@@ -998,13 +1011,13 @@ impl Store {
         &self,
         config: &Config,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
     ) -> Outcome {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
         if matches!(m.state.as_str(), "pending" | "moving" | "staging") {
-            match self.stage_and_publish(config, m, src, dest, &dest_name)? {
+            match self.stage_and_publish(config, m, (src, from), (dest, to), &dest_name)? {
                 Ok(sha) => dest_sha256 = Some(sha),
                 Err(why) => return Ok(Err(why)),
             }
@@ -1110,8 +1123,8 @@ impl Store {
         &self,
         config: &Config,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
         dest_name: &str,
     ) -> Result<std::result::Result<String, String>> {
         if let Some(staged) = m.staged {
@@ -1208,7 +1221,7 @@ impl Store {
             // ROMs of a 7z are decoded from it again, the whole archive hashed as it is read.
             (Some(roms), _) if sevenz => {
                 self.fault_point(Fault::IngestReadWhole);
-                let decoding = self.decoding(config);
+                let decoding = self.decoding(config, from);
                 let named: std::result::Result<Vec<(&ExpectedRom, &str)>, String> = roms
                     .iter()
                     .map(|(rom, member)| {
@@ -1223,7 +1236,7 @@ impl Store {
                 named
                     .and_then(|named| match (m.loose, named.as_slice()) {
                         (true, [(rom, member)]) => {
-                            sevenz::write_loose(&file, rom, member, &source, &decoding)
+                            sevenz::write_loose(&file, rom, member, &source, &decoding, to)
                         }
                         (true, _) => Err(format!(
                             "a loose file holds one ROM, not {}; a game with more stays a ZIP",
@@ -1236,7 +1249,7 @@ impl Store {
                                     .join(format!("{SEVENZ_SCRATCH}{}", m.id)),
                             )
                             .map_err(|e| format!("{}: {e}", m.name))?;
-                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0)
+                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0, to)
                         }
                     })
                     .map(|(sha, _)| sha)
@@ -1248,7 +1261,7 @@ impl Store {
                 let [(rom, Some(member))] = roms.as_slice() else {
                     unreachable!("one ROM of a ZIP");
                 };
-                write_loose_member(&file, rom, member, &source).and_then(|()| {
+                write_loose_member(&file, rom, member, &source, to).and_then(|()| {
                     let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
                     match Seen::of(&st) == m.seen {
                         true => Ok(planned.to_owned()),
@@ -1263,14 +1276,14 @@ impl Store {
                     .map(|(rom, member)| (rom, 0, member.as_deref()))
                     .collect();
                 match m.loose {
-                    true => write_loose(&file, &named, &[&source]),
-                    false => repack_sources(&file, &named, &[&source]),
+                    true => write_loose(&file, &named, &[&source], to),
+                    false => repack_sources(&file, &named, &[&source], to),
                 }
                 .map(|mut read| read.remove(0).0)
             }
             (None, _) => {
                 self.fault_point(Fault::IngestReadWhole);
-                copy_hashing(&source, &file).map_err(|e| e.to_string())
+                copy_hashing(&source, &file, to).map_err(|e| e.to_string())
             }
         };
         let source_sha = match written {
@@ -1813,9 +1826,14 @@ fn open_source(src: &FolderDir, m: &MoveRow) -> std::result::Result<std::fs::Fil
 
 /// Copies `source`, from its start, into `dest` with `io::copy`, which on Linux uses `copy_file_range` so that the
 /// filesystem may share or offload the copy. Returns the SHA-256 of `source`, read separately.
-fn copy_hashing(mut source: &std::fs::File, mut dest: &std::fs::File) -> io::Result<String> {
+fn copy_hashing(
+    mut source: &std::fs::File,
+    dest: &std::fs::File,
+    to: &Tally,
+) -> io::Result<String> {
     source.seek(SeekFrom::Start(0))?;
-    io::copy(&mut source, &mut dest)?;
+    copy_chunked(source, dest, to)?;
+    to.file_written();
     Ok(sha256_of(source)?.0)
 }
 
@@ -2257,7 +2275,7 @@ mod tests {
             let refs: Vec<&std::fs::File> = paths.iter().collect();
             let path = env.tmp.path().join(name);
             let file = std::fs::File::create_new(&path).unwrap();
-            repack_sources(&file, roms, &refs).unwrap();
+            repack_sources(&file, roms, &refs, &Default::default()).unwrap();
             std::fs::File::open(path).unwrap()
         };
         let one = repack("one.zip", &[(&rom, 0, None)], &[b"pong"]);

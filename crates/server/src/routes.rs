@@ -2233,7 +2233,7 @@ struct Sent(HashMap<i64, u64>);
 
 impl Sent {
     /// Whether the event is news to the client: a `state` newer than the Job's latest sent, `progress` of that state
-    /// or a newer one, or a `resync`. Records what it lets through.
+    /// or a newer one, a `resync`, or any other event. Records what it lets through.
     fn admit(&mut self, event: &JobEvent) -> bool {
         match event {
             JobEvent::State(job) => self.newer(job.id, job.version),
@@ -2244,7 +2244,7 @@ impl Sent {
                 }
                 true
             }
-            JobEvent::Settings(_) | JobEvent::RommReconciled(_) => true,
+            JobEvent::Settings(_) | JobEvent::RommReconciled(_) | JobEvent::Throughput(_) => true,
         }
     }
 
@@ -2382,6 +2382,7 @@ mod tests {
             version: 2,
             files_done,
             files_total: 100_000,
+            rates: None,
         })
     }
 
@@ -2434,6 +2435,7 @@ mod tests {
             version: running.version,
             files_done: 0,
             files_total: 1,
+            rates: None,
         };
         state.jobs.publish(JobEvent::Progress(stale));
         let done = store

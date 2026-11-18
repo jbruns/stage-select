@@ -22,6 +22,7 @@ use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
 use crate::notify::Notifier;
+use crate::throughput::Latest;
 
 /// The least time between two progress events of one Job.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
@@ -40,6 +41,8 @@ pub struct Jobs {
     romm_scan: ScanTiming,
     /// Stops every RomM scan still followed, so the Service can stop without waiting on RomM.
     romm_stop: ScanStop,
+    /// Each Running Job's latest rates, for its progress events.
+    pub latest: Latest,
 }
 
 impl Jobs {
@@ -51,6 +54,7 @@ impl Jobs {
             follow_ups: FollowUps::default(),
             romm_scan,
             romm_stop: ScanStop::default(),
+            latest: Latest::default(),
         }
     }
 
@@ -242,6 +246,8 @@ pub async fn run(
             job.kind.as_str(),
             job.ingest_folder.as_deref().unwrap_or(&job.source_set)
         );
+        // Metered from now, against the readers and hash workers the Job may use before the pace.
+        store.meter().start(job.id, job.workers);
         jobs.changed(job.clone());
         let (store, config, jobs, engine) =
             (store.clone(), config.clone(), jobs.clone(), engine.clone());
@@ -269,6 +275,23 @@ pub async fn run(
                         .await
                         .ok()
                         .flatten()
+                }
+            };
+            // Recorded as it ends, so that it keeps its average throughput.
+            let metered = {
+                let store = store.clone();
+                tokio::task::spawn_blocking(move || store.end_metering(id)).await
+            };
+            let job = match metered {
+                Ok(Ok(Some(recorded))) => Some(recorded),
+                Ok(Ok(None)) => job,
+                Ok(Err(err)) => {
+                    eprintln!("title-select: job {id}: cannot record its throughput: {err}");
+                    job
+                }
+                Err(err) => {
+                    eprintln!("title-select: job {id}: cannot record its throughput: {err}");
+                    job
                 }
             };
             if let Some(job) = job {
@@ -368,6 +391,7 @@ fn run_one(
                 version,
                 files_done: p.files_done,
                 files_total: p.files_total,
+                rates: jobs.latest.of(id),
             }));
         }
     };

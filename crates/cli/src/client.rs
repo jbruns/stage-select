@@ -204,7 +204,12 @@ impl Client {
                     }
                 }
                 Ok(JobEvent::Progress(progress)) => show_progress(progress, shown),
-                Ok(JobEvent::Resync(_) | JobEvent::Settings(_) | JobEvent::RommReconciled(_)) => {}
+                Ok(
+                    JobEvent::Resync(_)
+                    | JobEvent::Settings(_)
+                    | JobEvent::RommReconciled(_)
+                    | JobEvent::Throughput(_),
+                ) => {}
                 Err(err) => return Err(format!("unexpected event from the service: {err}")),
             }
         }
@@ -370,6 +375,7 @@ mod tests {
             evidence: None,
             error: None,
             romm_scan: None,
+            throughput: None,
             workers: Workers {
                 readers: 1,
                 hashers: 1,

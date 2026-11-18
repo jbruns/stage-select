@@ -27,6 +27,7 @@ use title_select_api::build::{
 };
 use title_select_engine::Progress;
 use title_select_engine::build::{Probe, holds_as, repack_from, verify};
+use title_select_engine::meter::Tally;
 
 use super::{
     Publishing, adopted_parent, cited_by, clear_staging, is_file, record_adopted_parent,
@@ -249,6 +250,8 @@ struct Run<'a> {
     staging: Option<(FolderDir, Identity)>,
     staged: HashMap<String, Identity>,
     built_at: SystemTime,
+    /// Where the bytes written into the folder's Root are counted.
+    to: Tally,
 }
 
 impl Run<'_> {
@@ -445,8 +448,11 @@ impl Run<'_> {
                     program,
                     threads,
                     deadline: limits.base,
+                    tally: self.store.meter.job(self.job).tally(None),
                 }
             }),
+            to: self.to.clone(),
+            scratch: self.store.meter.job(self.job).tally(None),
             limits,
             tmp: self.store.dir().join(crate::TMP),
             build: self.build,
@@ -652,7 +658,7 @@ impl Run<'_> {
         let staged_path = staging.path().join(&name);
         // The old ZIP is read once: the rewrite hashes it whole as it reads it, for keeping it aside.
         let mut read = None;
-        let written = repack_from(&file, &r.roms, &source)
+        let written = repack_from(&file, &r.roms, &source, &self.to)
             .and_then(|(sha256, size)| {
                 if sha256 != r.sha256 || size != r.file.size {
                     return Err("it is not the file the plan was made with".to_owned());
@@ -966,6 +972,7 @@ impl Store {
             staging: None,
             staged: HashMap::new(),
             built_at: SystemTime::now(),
+            to: self.meter.job(job).tally(Some(&folder_row.root)),
         };
         let probes = again.scan.as_ref().map(|s| &s.probes);
         let total = steps.len();

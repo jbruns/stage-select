@@ -1,5 +1,6 @@
 //! The `/events` stream: every Job's `state` and `progress`, a `resync` on connecting or after falling behind, and
-//! `settings` when the settings change, and `romm_reconciled` when a library folder's comparison with RomM is kept.
+//! `settings` when the settings change, `romm_reconciled` when a library folder's comparison with RomM is kept, and
+//! `throughput` a few times a second while Jobs run.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -8,6 +9,8 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{EventSource, MessageEvent};
+
+use title_select_api::{JobEvent, Throughput};
 
 use crate::api;
 use crate::jobs::{Applied, JobBook, parse_event};
@@ -44,6 +47,8 @@ pub struct Live {
     pub settings: RwSignal<u64>,
     /// By Library Folder, goes up each time a comparison of it with RomM is kept, so its RomM tab fetches again.
     pub romm: RwSignal<BTreeMap<i64, u64>>,
+    /// The latest rates the Service published, while Jobs run and once more after; none until the first.
+    pub throughput: RwSignal<Option<Throughput>>,
 }
 
 pub fn use_live() -> Live {
@@ -58,6 +63,7 @@ pub fn provide_live() -> Live {
         settled: RwSignal::new(0),
         settings: RwSignal::new(0),
         romm: RwSignal::new(BTreeMap::new()),
+        throughput: RwSignal::new(None),
     };
     provide_context(live);
     connect(live);
@@ -81,6 +87,10 @@ fn apply(live: Live, name: &str, data: &str) {
             return;
         }
     };
+    if let JobEvent::Throughput(throughput) = event {
+        live.throughput.set(Some(*throughput));
+        return;
+    }
     let applied = live.book.try_update_untracked(|book| book.apply(event));
     match applied {
         None | Some(Applied::Ignored) => {}
@@ -107,7 +117,14 @@ fn connect(live: Live) {
         return;
     };
     let mut listeners = Vec::new();
-    for name in ["state", "progress", "resync", "settings", "romm_reconciled"] {
+    for name in [
+        "state",
+        "progress",
+        "resync",
+        "settings",
+        "romm_reconciled",
+        "throughput",
+    ] {
         let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
             if let Some(data) = event.unchecked_into::<MessageEvent>().data().as_string() {
                 apply(live, name, &data);

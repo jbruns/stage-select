@@ -32,6 +32,7 @@ use title_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
+use title_select_engine::meter::{Tally, copy_chunked};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -84,6 +85,10 @@ struct Staged {
 /// cancelled the Build.
 struct ChdWork<'a> {
     store: &'a Store,
+    /// Where the bytes written into the Library Folder's Root are counted.
+    to: Tally,
+    /// Where the bytes written in the store's scratch directory, and chdman's, are counted: for the Job alone.
+    scratch: Tally,
     chdman: std::result::Result<Chdman, String>,
     /// How long each run of chdman may take, by the size of the disc.
     limits: chd::Limits,
@@ -196,9 +201,11 @@ fn stage_chd(
         match (members, roms.as_slice(), dests.as_slice()) {
             (Some(members), ..) => {
                 let refs: Vec<&File> = dests.iter().collect();
-                build::write_loose_members(&refs, &members, &opened).map(|_| ())
+                build::write_loose_members(&refs, &members, &opened, &work.scratch).map(|_| ())
             }
-            (None, [rom], [dest]) => write_loose(dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+            (None, [rom], [dest]) => {
+                write_loose(dest, &[(rom, 0, None)], &[&opened], &work.scratch).map(|_| ())
+            }
             (None, ..) => Err(format!("{}: a loose file holds one ROM", source.path)),
         }
         .map_err(Failure::Item)?;
@@ -261,7 +268,9 @@ fn stage_chd(
         hasher.update(&buf[..n]);
         io::Write::write_all(file, &buf[..n])
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+        work.to.wrote(n);
     }
+    work.to.file_written();
     let copied = hex(&hasher.finalize());
     work.store.fault_point(Fault::ChdCopied(seq));
     if seen(&built)? != before {
@@ -346,9 +355,12 @@ fn verify_found_chd(
                 .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
             match source.member.as_deref() {
                 Some(member) => {
-                    build::write_loose_members(&[&dest], &[(rom, member)], &opened).map(|_| ())
+                    build::write_loose_members(&[&dest], &[(rom, member)], &opened, &work.scratch)
+                        .map(|_| ())
                 }
-                None => write_loose(&dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+                None => {
+                    write_loose(&dest, &[(rom, 0, None)], &[&opened], &work.scratch).map(|_| ())
+                }
             }
             .map_err(Failure::Item)?;
             verify_loose(&dest, rom)
@@ -615,13 +627,14 @@ fn stage(
         };
         let whole = addition.loose == item.loose;
         if whole {
-            io::copy(&mut &from, file)
+            copy_chunked(&from, file, &chd.to)
                 .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+            chd.to.file_written();
         } else {
             let read = [(rom, 0, (!addition.loose).then_some(rom.name.as_str()))];
             match item.loose {
-                true => write_loose(file, &read, &[&from]),
-                false => repack_sources(file, &read, &[&from]),
+                true => write_loose(file, &read, &[&from], &chd.to),
+                false => repack_sources(file, &read, &[&from], &chd.to),
             }
             .map_err(Failure::Item)?;
         }
@@ -676,11 +689,16 @@ fn stage(
                 ));
             };
             let opened = open_source(set_fd, source).map_err(Failure::Item)?;
-            write_loose(file, &[(rom, 0, source.member.as_deref())], &[&opened])
-                .map_err(Failure::Item)?;
+            write_loose(
+                file,
+                &[(rom, 0, source.member.as_deref())],
+                &[&opened],
+                &chd.to,
+            )
+            .map_err(Failure::Item)?;
         }
         ItemKind::Copy => {
-            copy(&sources[0], file)
+            copy(&sources[0], file, &chd.to)
                 .map_err(|e| Failure::Item(format!("{}: {e}", sources[0].display())))?;
         }
         ItemKind::Repack => {
@@ -702,7 +720,7 @@ fn stage(
                     )
                 })
                 .collect();
-            repack(file, &pairs).map_err(Failure::Item)?;
+            repack(file, &pairs, &chd.to).map_err(Failure::Item)?;
         }
         _ => unreachable!("only copies and repacks are written"),
     }
@@ -1419,6 +1437,8 @@ impl Store {
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let (kind, state, plan_id) = self.read(|c| {
             c.query_row(
                 "SELECT kind, state, plan_id FROM jobs WHERE id = ?1",
@@ -1770,16 +1790,20 @@ impl Store {
         let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
         let limits = self.settings()?.chd_limits();
         let threads = self.pace().of(config.jobs.ceilings().hashers);
+        let meter = self.meter.job(job);
         let chd_work = ChdWork {
             chdman: match work.iter().any(|w| w.item.chd) {
                 true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
                     program,
                     threads,
                     deadline: limits.base,
+                    tally: meter.tally(None),
                 }),
                 false => Err("no item is a CHD".into()),
             },
             store: self,
+            to: meter.tally(Some(&folder_row.root)),
+            scratch: meter.tally(None),
             limits,
             tmp: self.dir().join(crate::TMP),
             build: id,

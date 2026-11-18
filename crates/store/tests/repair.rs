@@ -2027,7 +2027,7 @@ fn write_torrentzip(path: &Path, name: &str, payload: &[u8]) {
         path: &loose,
         member: None,
     };
-    title_select_engine::build::repack(&dest, &[(&rom, source)]).unwrap();
+    title_select_engine::build::repack(&dest, &[(&rom, source)], &Default::default()).unwrap();
     std::fs::remove_file(&loose).unwrap();
 }
 

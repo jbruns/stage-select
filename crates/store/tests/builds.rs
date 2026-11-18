@@ -515,6 +515,65 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
 }
 
 #[test]
+fn a_builds_written_bytes_are_counted_for_its_job_and_root_and_kept_across_a_restart() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    let plan = env.plan(&folder, id);
+    let before = env.store.meter().total();
+
+    let job = env.build(&plan);
+
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", job.error);
+    let written: Vec<u64> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes())
+        .map(|i| std::fs::metadata(dir.join(&i.target)).unwrap().len())
+        .collect();
+    // A repack writes each member's local header twice: once to hold its place, and again once its CRC is known.
+    let headers: u64 = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Repack)
+        .flat_map(|i| {
+            let bytes = std::fs::read(dir.join(&i.target)).unwrap();
+            validate(&dir.join(&i.target))
+                .into_iter()
+                .map(move |m| {
+                    let at = m.offset as usize;
+                    let len = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]) as u64;
+                    30 + len(at + 26) + len(at + 28)
+                })
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    let bytes: u64 = written.iter().sum::<u64>() + headers;
+    let play = env.store.meter().root("play");
+    assert_eq!(
+        (play.written, play.files_written),
+        (bytes, written.len() as u64)
+    );
+    assert_eq!(env.store.meter().total().written - before.written, bytes);
+
+    let ended = env.store.end_metering(job.id).unwrap().unwrap();
+    let throughput = ended.throughput.unwrap();
+    assert_eq!(throughput.bytes_written, bytes);
+    assert!(
+        ended.version > job.version,
+        "the recorded Job is published again"
+    );
+    assert_eq!(env.store.end_metering(job.id).unwrap(), None);
+
+    let (env, _) = env.restart();
+    assert_eq!(env.store.job(job.id).unwrap().throughput, Some(throughput));
+}
+
+#[test]
 fn the_digest_binds_the_plan_and_a_stale_approval_is_rejected_with_the_new_plan() {
     let env = Env::new();
     env.audit();

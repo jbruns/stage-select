@@ -427,6 +427,7 @@ mod tests {
             evidence: None,
             error: None,
             romm_scan: None,
+            throughput: None,
             workers: Workers {
                 readers: 1,
                 hashers: 1,

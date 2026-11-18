@@ -4,7 +4,7 @@
 use title_select_api::build::{KeptFile, LibraryFolder};
 use title_select_api::ingest::IngestKeptFile;
 use title_select_api::repair::SourceKeptFile;
-use title_select_api::{Job, JobState};
+use title_select_api::{Job, JobLoad, JobState, JobThroughput, Rates};
 
 use crate::build_model::keep_reason_label;
 use crate::jobs::{JobBook, LiveJob};
@@ -239,6 +239,69 @@ pub fn newest_first(mut rows: Vec<KeptRow>) -> Vec<KeptRow> {
     rows
 }
 
+/// A rate of bytes per second in binary units, terse enough for a cell: "312 MiB/s", "4.2 GiB/s", "0 B/s".
+pub fn bytes_rate(per_s: f64) -> String {
+    const UNITS: [&str; 5] = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"];
+    let mut value = per_s.max(0.0);
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    match (unit, value < 10.0) {
+        (0, _) | (_, false) => format!("{value:.0} {}", UNITS[unit]),
+        _ => format!("{value:.1} {}", UNITS[unit]),
+    }
+}
+
+/// Files read and written per second: "12 files/s", "0.5 files/s".
+pub fn files_rate(per_s: f64) -> String {
+    let per_s = per_s.max(0.0);
+    match per_s {
+        p if p == 0.0 || p >= 10.0 => format!("{p:.0} files/s"),
+        p => format!("{p:.1} files/s"),
+    }
+}
+
+/// What a Job's row shows of its throughput: while it runs, the bytes it reads and writes per second now, from the
+/// latest `rates`; once it has ended, its average over the whole Job, if it was metered.
+pub fn throughput_cell(job: &Job, rates: Option<Rates>) -> Option<String> {
+    match job.state {
+        JobState::Running => rates.map(|r| bytes_rate(r.read_bytes_per_s + r.write_bytes_per_s)),
+        JobState::Queued => None,
+        _ => job.throughput.and_then(|t| t.bytes_per_s()).map(bytes_rate),
+    }
+}
+
+/// The payload readers and hash workers at work against what the pace allows: "2 of 4 payload readers, 3 of 8 hash
+/// workers".
+pub fn workers_fact(load: &JobLoad) -> String {
+    format!(
+        "{} of {} payload readers, {} of {} hash workers",
+        load.readers, load.allowance.readers, load.hashers, load.allowance.hashers
+    )
+}
+
+/// The Service's CPU use, as a share of the CPUs it may use: "37%".
+pub fn cpu_label(share: f64) -> String {
+    format!("{:.0}%", (share * 100.0).max(0.0))
+}
+
+/// What a finished Job read and wrote, and its average throughput: "1.2 GiB read, 300 MiB written, 41 MiB/s on
+/// average".
+pub fn average_fact(t: &JobThroughput) -> String {
+    let bytes = |n: u64| bytes_rate(n as f64).trim_end_matches("/s").to_string();
+    let average = t
+        .bytes_per_s()
+        .map(|r| format!(", {} on average", bytes_rate(r)))
+        .unwrap_or_default();
+    format!(
+        "{} read, {} written{average}",
+        bytes(t.bytes_read),
+        bytes(t.bytes_written)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +329,7 @@ mod tests {
             evidence: None,
             error: None,
             romm_scan: None,
+            throughput: None,
             workers: Workers {
                 readers: 1,
                 hashers: 1,
@@ -435,6 +499,78 @@ mod tests {
                     "/ingest/My%20Drop".to_string()
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn rates_read_in_binary_units_terse_enough_for_a_cell() {
+        assert_eq!(bytes_rate(0.0), "0 B/s");
+        assert_eq!(bytes_rate(900.0), "900 B/s");
+        assert_eq!(bytes_rate(4.2 * 1024.0 * 1024.0), "4.2 MiB/s");
+        assert_eq!(bytes_rate(312.4 * 1024.0 * 1024.0), "312 MiB/s");
+        assert_eq!(bytes_rate(1.5 * 1024.0 * 1024.0 * 1024.0), "1.5 GiB/s");
+        assert_eq!(files_rate(0.0), "0 files/s");
+        assert_eq!(files_rate(0.5), "0.5 files/s");
+        assert_eq!(files_rate(12.3), "12 files/s");
+        assert_eq!(cpu_label(0.374), "37%");
+    }
+
+    #[test]
+    fn a_running_job_shows_its_rate_now_and_a_finished_one_its_average() {
+        let mib = 1024.0 * 1024.0;
+        let rates = Rates {
+            read_bytes_per_s: 300.0 * mib,
+            write_bytes_per_s: 12.0 * mib,
+            files_per_s: 4.0,
+        };
+        let running = job(1, JobState::Running);
+        assert_eq!(
+            throughput_cell(&running, Some(rates)).as_deref(),
+            Some("312 MiB/s")
+        );
+        assert_eq!(
+            throughput_cell(&running, None),
+            None,
+            "no rate before the first sample"
+        );
+        assert_eq!(
+            throughput_cell(&job(2, JobState::Queued), Some(rates)),
+            None
+        );
+        let mut done = job(3, JobState::Succeeded);
+        assert_eq!(throughput_cell(&done, None), None, "not metered");
+        let t = JobThroughput {
+            bytes_read: 3 << 30,
+            bytes_written: 1 << 30,
+            duration_ms: 100_000,
+        };
+        done.throughput = Some(t);
+        assert_eq!(
+            throughput_cell(&done, Some(rates)).as_deref(),
+            Some("41 MiB/s")
+        );
+        assert_eq!(
+            average_fact(&t),
+            "3.0 GiB read, 1.0 GiB written, 41 MiB/s on average"
+        );
+    }
+
+    #[test]
+    fn workers_read_against_what_the_pace_allows() {
+        let load = JobLoad {
+            job: 1,
+            rates: Rates::default(),
+            readers: 2,
+            hashers: 3,
+            allowance: Workers {
+                readers: 4,
+                hashers: 8,
+            },
+            chdman: false,
+        };
+        assert_eq!(
+            workers_fact(&load),
+            "2 of 4 payload readers, 3 of 8 hash workers"
         );
     }
 }

@@ -6,7 +6,7 @@ use super::audits::{check_blob_present, choose_revision, delete_audits};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
-use title_select_api::{Job, JobKind, JobState, ProfileVersionRef, Workers};
+use title_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
 use title_select_engine::{AuditEvidence, Progress};
 
 /// Why a restart Interrupted a Job.
@@ -46,7 +46,8 @@ pub(super) const JOB_QUERY: &str =
             j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
             j.kind, p.name, v.version, j.selection_id, j.library_folder_id, j.plan_id, i.root, j.evidence,
             j.repair_plan_id, j.cancel_requested_at, ad.provider || '/' || ad.name, rs.platform, rs.outcome,
-            rs.task_id, rs.detail, rs.requested_at, rs.ended_at, rs.additions
+            rs.task_id, rs.detail, rs.requested_at, rs.ended_at, rs.additions, j.bytes_read, j.bytes_written,
+            j.duration_ms
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
      LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
@@ -103,6 +104,18 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         cancel_requested_at: row.get(24)?,
         additions_set: row.get(25)?,
         romm_scan: crate::romm::scan_from_row(row, 26)?,
+        throughput: match (
+            row.get::<_, Option<i64>>(33)?,
+            row.get::<_, Option<i64>>(34)?,
+            row.get::<_, Option<i64>>(35)?,
+        ) {
+            (Some(read), Some(written), Some(ms)) => Some(JobThroughput {
+                bytes_read: read as u64,
+                bytes_written: written as u64,
+                duration_ms: ms as u64,
+            }),
+            _ => None,
+        },
         state,
         source_set: row.get(2)?,
         dat_revision: row.get(3)?,
@@ -279,6 +292,8 @@ impl Store {
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let row = self.read(|c| {
             c.query_row(
                 "SELECT id, source_set_id, dat_revision_id, readers, hashers, state, kind, evidence, requeued_from
@@ -445,6 +460,28 @@ impl Store {
 
     pub fn job(&self, id: i64) -> Result<Job> {
         self.read(|c| job_by_id(c, id))
+    }
+
+    /// Stops metering Job `id`, once it has ended, and records what it read and wrote and for how long, so that it
+    /// keeps its average throughput. Returns the Job as recorded; none if it wasn't metered.
+    pub fn end_metering(&self, id: i64) -> Result<Option<Job>> {
+        let Some(ended) = self.meter.end(id) else {
+            return Ok(None);
+        };
+        let as_sql = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE jobs SET bytes_read = ?2, bytes_written = ?3, duration_ms = ?4, version = version + 1
+                 WHERE id = ?1",
+                params![
+                    id,
+                    as_sql(ended.counted.read),
+                    as_sql(ended.counted.written),
+                    as_sql(u64::try_from(ended.duration.as_millis()).unwrap_or(u64::MAX)),
+                ],
+            )?;
+            job_by_id(tx, id).map(Some)
+        })
     }
 
     /// Every Queued or Running Job and the `recent` latest others, newest first, read in one query.

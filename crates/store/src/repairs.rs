@@ -32,6 +32,7 @@ use title_select_engine::build::{
     FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
 };
 use title_select_engine::dat::Dat;
+use title_select_engine::meter::Tally;
 use title_select_engine::{FileStamp, Progress};
 
 use crate::builds::{sha256_of, still_sha256};
@@ -497,6 +498,8 @@ type Ran = Result<std::result::Result<(), String>>;
 struct Repairing<'a> {
     plan: &'a RepairPlan,
     dir: FolderDir,
+    /// Where the bytes written into the Source Set's Root are counted.
+    to: Tally,
 }
 
 impl Repairing<'_> {
@@ -1063,6 +1066,8 @@ impl Store {
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
+        // What it reads and writes is counted for it, even where it isn't handed its meter.
+        let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         let Some(plan) = job.repair else {
             return Err(Error::Refused(format!("job {id} is not a repair")));
@@ -1230,7 +1235,11 @@ impl Store {
         {
             return Ok(Err(why));
         }
-        let repairing = Repairing { plan: &plan, dir };
+        let repairing = Repairing {
+            plan: &plan,
+            dir,
+            to: self.meter.job(job).tally(Some(&content.root)),
+        };
         let total = self.read(|c| steps_of(c, id))?.len();
         let mut cancelled = self.read(|c| {
             Ok(c.query_row(
@@ -1933,8 +1942,8 @@ impl Store {
                 .collect();
             let refs: Vec<&File> = opened.iter().collect();
             let read = match loose {
-                true => write_loose(&file, &from, &refs)?,
-                false => repack_sources(&file, &from, &refs)?,
+                true => write_loose(&file, &from, &refs, &r.to)?,
+                false => repack_sources(&file, &from, &refs, &r.to)?,
             };
             let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
             checks_as(&file, &expected, loose)
@@ -2103,7 +2112,7 @@ impl Store {
                     .iter()
                     .map(|(one, ..)| (&one.rom, one.member.as_str()))
                     .collect();
-                let read = write_loose_members(&dests, &roms, &source)?;
+                let read = write_loose_members(&dests, &roms, &source, &r.to)?;
                 for (one, _, file, _) in &staged {
                     verify_loose(file, &one.rom)
                         .map_err(|why| format!("the new {} did not check: {why}", one.target))?;

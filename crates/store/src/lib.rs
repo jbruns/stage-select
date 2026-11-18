@@ -141,6 +141,8 @@ pub struct Store {
     settings_update: std::sync::Mutex<()>,
     /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
     regions: std::sync::OnceLock<coverage::RegionReader>,
+    /// Counts the bytes and files every Job reads and writes, for each Job, each Root and in total.
+    meter: title_select_engine::meter::Meter,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -360,18 +362,25 @@ fn configure(conn: &Connection) -> Result<()> {
 
 impl Store {
     /// The bounds a 7z decodes within: the store's one gate, sized by `config`'s `archive_workers` when first used,
-    /// and `config`'s dictionary limit.
-    pub(crate) fn decoding(
-        &self,
+    /// and `config`'s dictionary limit; its bytes read are counted to `read`.
+    pub(crate) fn decoding<'a>(
+        &'a self,
         config: &config::Config,
-    ) -> title_select_engine::sevenz::Decoding<'_> {
+        read: &'a title_select_engine::meter::Tally,
+    ) -> title_select_engine::sevenz::Decoding<'a> {
         let gate = self
             .archives
             .get_or_init(|| title_select_engine::sevenz::Gate::new(config.ingest.archive_workers));
         title_select_engine::sevenz::Decoding {
             gate,
             max_dictionary_mib: config.ingest.max_dictionary_mib,
+            read,
         }
+    }
+
+    /// The meter that counts what every Job reads and writes.
+    pub fn meter(&self) -> &title_select_engine::meter::Meter {
+        &self.meter
     }
 
     /// Opens the store in `dir`, creating it if needed, migrating it, and collecting blobs that have no row.
@@ -407,6 +416,7 @@ impl Store {
             pace: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),
+            meter: title_select_engine::meter::Meter::default(),
         };
         // A store opened by a test of an earlier migration has no settings.
         if migrations.len() >= migrations::SETTINGS {

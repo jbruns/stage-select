@@ -935,6 +935,9 @@ impl Store {
                 progress,
                 evidence: running.evidence,
                 reads: Some(&reads),
+                tally: running.job.map_or_else(Default::default, |job| {
+                    self.meter.job(job).tally(Some(&running.resolved.root))
+                }),
             },
         )?;
         if let Some(err) = reads
