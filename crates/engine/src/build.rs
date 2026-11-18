@@ -362,14 +362,34 @@ pub fn repack_members(
         .map_err(|e| e.to_string())
 }
 
-/// What a test runs each time a [`repack_sources`] on its thread has added a ROM, with the ROM's name: the repack
-/// waits, holding whatever it holds, until it returns.
+/// A point at which a [`repack_sources`] pauses for a test.
 #[cfg(test)]
-type RepackPause = Box<dyn Fn(&str)>;
+#[derive(Clone, Copy)]
+enum Repacked<'a> {
+    /// Once the ROM with this name is added.
+    Added(&'a str),
+    /// Once the source at this index is finished: read to its end and hashed, and its reader given up.
+    Finished(usize),
+}
+
+/// What a test runs at each [`Repacked`] point of a [`repack_sources`] on its thread: the repack waits, holding
+/// whatever it holds, until it returns.
+#[cfg(test)]
+type RepackPause = Box<dyn Fn(Repacked)>;
 
 #[cfg(test)]
 thread_local! {
     static REPACK_PAUSE: std::cell::RefCell<Option<RepackPause>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs the test's [`RepackPause`] on this thread, if any, at `at`.
+#[cfg(test)]
+fn repack_paused(at: Repacked) {
+    REPACK_PAUSE.with_borrow(|pause| {
+        if let Some(pause) = pause {
+            pause(at)
+        }
+    });
 }
 
 /// One ROM of [`repack_sources`]: the ROM, the index of the source it is read from, and the member of that source,
@@ -440,11 +460,7 @@ pub fn repack_sources(
         };
         added.map_err(|e| format!("{}: {e}", rom.name))?;
         #[cfg(test)]
-        REPACK_PAUSE.with_borrow(|pause| {
-            if let Some(pause) = pause {
-                pause(&rom.name)
-            }
-        });
+        repack_paused(Repacked::Added(&rom.name));
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
     let file = out
@@ -457,13 +473,16 @@ pub fn repack_sources(
     reading
         .into_iter()
         .zip(sources)
-        .map(|(reading, &(source, from))| {
-            match reading {
+        .enumerate()
+        .map(|(_at, (reading, &(source, from)))| {
+            let finished = match reading {
                 Reading::Zip(archive) => archive.into_inner().into_inner().finish(),
                 Reading::Loose(hashing) => hashing.finish(),
                 Reading::Unread => Hashing::new(source, from).and_then(Hashing::finish),
-            }
-            .map_err(|e| e.to_string())
+            };
+            #[cfg(test)]
+            repack_paused(Repacked::Finished(_at));
+            finished.map_err(|e| e.to_string())
         })
         .collect()
 }
@@ -1338,21 +1357,27 @@ mod tests {
             sha256: None,
             header: None,
         };
-        // The loose source is read whole for the first ROM, and the ZIP opened only for the second.
-        let loose = file_of(b"aaaa");
-        let zip = file_of(&zip_of(&[("x.bin", b"bbbbbb")]));
+        // The ZIP is read for the first ROM, but its other member only as it is finished, after every ROM is added;
+        // the loose source is read whole for the second ROM.
+        let zip = file_of(&zip_of(&[("x.bin", b"aaaa"), ("rest.bin", &[7; 4096])]));
+        let loose = file_of(b"bbbbbb");
+        let zip_len = zip.metadata().unwrap().len();
         let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
-        // Each time the repack has added a ROM: how many of the Root's readers are taken, and whether another Job,
-        // waiting for one, would get it.
+        // At each pause: how many of the Root's readers are taken, whether another Job waiting for one would get it,
+        // and what the repack has read.
         let paused = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         REPACK_PAUSE.set(Some(Box::new({
-            let (pool, paused) = (pool.clone(), paused.clone());
-            move |rom: &str| {
+            let (pool, paused, job) = (pool.clone(), paused.clone(), job.clone());
+            move |at: Repacked| {
                 let taken = pool.taken();
                 let other = pool.enter_unless(|| true);
+                let at = match at {
+                    Repacked::Added(rom) => format!("added {rom}"),
+                    Repacked::Finished(source) => format!("finished source {source}"),
+                };
                 paused
                     .borrow_mut()
-                    .push((rom.to_owned(), taken, other.is_some()));
+                    .push((at, taken, other.is_some(), job.counted().read));
             }
         })));
 
@@ -1360,20 +1385,31 @@ mod tests {
         let dest = tempfile::tempfile().unwrap();
         repack_sources(
             &dest,
-            &[(&a, 0, None), (&b, 1, Some("x.bin"))],
-            &[(&loose, &roms), (&zip, &roms)],
+            &[(&a, 0, Some("x.bin")), (&b, 1, None)],
+            &[(&zip, &roms), (&loose, &roms)],
             &library,
         )
         .unwrap();
         REPACK_PAUSE.set(None);
 
+        let paused = paused.borrow();
+        let held: Vec<_> = paused
+            .iter()
+            .map(|(at, taken, other, _)| (at.as_str(), *taken, *other))
+            .collect();
         assert_eq!(
-            *paused.borrow(),
+            held,
             [
-                ("a.bin".to_owned(), 1, false),
-                ("b.bin".to_owned(), 1, false)
+                ("added a.bin", 1, false),
+                ("added b.bin", 1, false),
+                ("finished source 0", 1, false),
+                ("finished source 1", 0, true),
             ],
-            "the repack held the Root's only reader after its first source was finished, and another Job waited"
+            "the repack held the Root's only reader, and another Job waited, until its last source was finished"
+        );
+        assert!(
+            paused[2].3 >= zip_len + 6,
+            "the ZIP was read to its end, and the loose source whole, before the ZIP was finished: {paused:?}"
         );
         assert_eq!(pool.taken(), 0, "the repack gave its reader back");
     }
