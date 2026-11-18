@@ -351,7 +351,7 @@ impl Sinks {
         let clock = self.clock();
         if NO_WAITS.get() > 0 {
             let now = clock.now();
-            return Ok([a.reserve(n, now), b.reserve(n, now)]);
+            return Ok(crate::cap::reserve_both(a, b, n, now));
         }
         crate::cap::take_both(a, b, n, clock, &|| self.stopped()).ok_or_else(cancelled)
     }

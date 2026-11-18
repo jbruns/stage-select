@@ -765,8 +765,9 @@ sets its `write_mib_per_s`. What caps limit:
 A cap lets a short burst through after a pause, a tenth of a second's worth, so over a few seconds a root's rate stays
 within about a tenth of its cap. Each read, write or copy is let through before it moves, a quarter second's worth at
 most and never less than 64 KiB, so even a cap of 1 MiB/s holds. Reads, writes and copies take their turns under a cap
-in the order they ask, so jobs that read without pause can't hold a copy back: it moves once its turn has come under
-both its caps.
+in the order they ask, so jobs that read without pause can't hold a copy back: it takes its turn under both its caps
+at once, and moves when that turn comes. While a copy goes from a fast root to a slow one, it holds the fast root's
+cap to the slow one's pace for its own chunks, so other jobs reading the fast root may see less than its cap.
 
 A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
 running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;

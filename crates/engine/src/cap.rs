@@ -1,10 +1,10 @@
 //! Byte-rate caps (ADR 0022): a read bucket and a write bucket for each Root, shared by every Job, that hold Title
 //! Select's own reads and writes of the Root to the pace's share of its byte-rate Ceilings.
 //!
-//! A [`Bucket`] is a lock-free queue of reservations kept as one number, the time by which everything reserved so far
-//! is paid for at its rate (the "theoretical arrival time" of the generic cell rate algorithm). Reserving `n` bytes
-//! takes the slot of `n / rate` from that time, or from now if it had fallen behind, in one compare-and-swap, and
-//! hands back a [`Receipt`] for it; the bytes may move once the slot ends no more than [`BURST`] after now. So
+//! A [`Bucket`] is a queue of reservations kept as one number, the time by which everything reserved so far is paid
+//! for at its rate (the "theoretical arrival time" of the generic cell rate algorithm), under a lock held only for the
+//! arithmetic of a reservation, never across a wait. Reserving `n` bytes takes the slot of `n / rate` from that time,
+//! or from now if it had fallen behind, and hands back a [`Receipt`] for it; the bytes may move once the slot ends no more than [`BURST`] after now. So
 //! reservations are served in the order they were taken, a later one never overtaking an earlier one, and no thread
 //! can be passed over for ever: each waits only for the slots taken before its own.
 //!
@@ -37,10 +37,18 @@
 //! than the cap holds the decoder's reads.
 //!
 //! **Two caps at once.** A copy's chunk is paid for in two buckets, its source's reads and its destination's writes,
-//! and moves only once both its turns have come and before either slot ends ([`take_both`]).
+//! in one reservation ([`reserve_both`]): both queues are locked, always in the order of the buckets' addresses so
+//! copies each way between two Roots can't deadlock, and the chunk gets a slot in each that ends at the same moment,
+//! where the later queue's would. So its turn comes in both at once, it moves within [`BURST`] before both slots end,
+//! and each bucket's bound holds as for reads; the earlier queue is left a gap before its slot, capacity unused, never
+//! a burst. The copy then only waits, as a read does, and never gives up its place: however busy both queues are, it
+//! waits only behind the slots reserved before it ([`take_both`]). A change of rate in either bucket voids the pair,
+//! and starts the other bucket afresh too, once, since its queue holds the copies' slots at the old pace and a slot
+//! can't be taken out of the middle of a queue: that lets through one [`BURST`] more there, as a change of its own
+//! rate would.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 /// How far before its slot ends a reservation's bytes may move: what a bucket lets through at once after a pause, and
@@ -94,10 +102,14 @@ impl Clock for Monotonic {
 pub struct Bucket {
     /// Bytes a second; 0 while uncapped.
     rate: AtomicU64,
-    /// When, in [`Clock::now`]'s nanoseconds, the last slot reserved ends.
-    paid_until: AtomicU64,
-    /// Moved on with each change of rate, when the queue is emptied and every receipt before is void.
+    /// When, in [`Clock::now`]'s nanoseconds, the last slot reserved ends. Locked only for the arithmetic of a
+    /// reservation or a refund, never across a wait.
+    paid_until: Mutex<u64>,
+    /// Moved on with each change of rate, and each [`Bucket::reset`], when the queue is emptied and every receipt before
+    /// is void.
     epoch: AtomicU64,
+    /// Moved on with each change of rate only.
+    rates: AtomicU64,
     /// How many takes have waited, for tests.
     waits: AtomicU64,
 }
@@ -164,12 +176,35 @@ impl Bucket {
     /// Caps the bucket at `rate` bytes a second, or uncaps it. Any change starts a new epoch, with the queue empty.
     pub fn set_rate(&self, rate: Option<u64>, _now: u64) {
         let rate = rate.unwrap_or(0);
+        let mut paid = self.tail();
         if self.rate.swap(rate, Ordering::Relaxed) == rate {
             return;
         }
-        // A reservation that read the old rate just before the swap may land after this; it is off by that one slot.
-        self.paid_until.store(0, Ordering::Relaxed);
+        *paid = 0;
         self.epoch.fetch_add(1, Ordering::Relaxed);
+        self.rates.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Empties the queue and starts a new epoch, if it is still in `epoch`, as a change of rate does: for slots a
+    /// copy reserved together with another bucket's, at that bucket's pace, once that bucket's rate changed.
+    fn reset(&self, epoch: u64) {
+        let mut paid = self.tail();
+        if self.epoch() == epoch {
+            *paid = 0;
+            self.epoch.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// How many times its rate has changed.
+    fn rates(&self) -> u64 {
+        self.rates.load(Ordering::Relaxed)
+    }
+
+    /// The end of its queue, locked: a reservation reads the rate and the epoch under it, so none straddles a change.
+    fn tail(&self) -> MutexGuard<'_, u64> {
+        self.paid_until
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The epoch reservations made now belong to.
@@ -180,46 +215,20 @@ impl Bucket {
     /// Reserves the next slot for `n` bytes at `now`: none while uncapped, or for no bytes, and then the bucket isn't
     /// touched.
     pub fn reserve(&self, n: u64, now: u64) -> Option<Receipt> {
-        let epoch = self.epoch.load(Ordering::Relaxed);
-        let rate = self.rate.load(Ordering::Relaxed);
-        if rate == 0 || n == 0 {
+        if n == 0 || !self.capped() {
             return None;
         }
-        let cost = cost(n, rate);
-        let mut paid = self.paid_until.load(Ordering::Relaxed);
-        loop {
-            let start = paid.max(now);
-            let end = start.saturating_add(cost);
-            match self.paid_until.compare_exchange_weak(
-                paid,
-                end,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => {
-                    return Some(Receipt {
-                        start,
-                        end,
-                        n,
-                        epoch,
-                    });
-                }
-                Err(now_paid) => paid = now_paid,
-            }
-        }
-    }
-
-    /// When the bytes of `n` reserved at `now` would get their turn: `now` while uncapped.
-    fn peek(&self, n: u64, now: u64) -> u64 {
-        match self.rate() {
-            Some(rate) => self
-                .paid_until
-                .load(Ordering::Relaxed)
-                .max(now)
-                .saturating_add(cost(n, rate))
-                .saturating_sub(nanos(BURST)),
-            None => now,
-        }
+        let mut paid = self.tail();
+        let cost = cost(n, self.rate()?);
+        let start = (*paid).max(now);
+        let end = start.saturating_add(cost);
+        *paid = end;
+        Some(Receipt {
+            start,
+            end,
+            n,
+            epoch: self.epoch(),
+        })
     }
 
     /// Gives back, at `now`, `unused` bytes of `receipt` that didn't move, as by a read that found the end of its file
@@ -233,11 +242,12 @@ impl Bucket {
         let len = receipt.end - receipt.start;
         let tail = receipt.end - share(unused.min(receipt.n), len, receipt.n);
         let back = tail.max(now);
-        back < receipt.end
-            && self
-                .paid_until
-                .compare_exchange(receipt.end, back, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
+        let mut paid = self.tail();
+        let last = back < receipt.end && *paid == receipt.end && self.epoch() == receipt.epoch;
+        if last {
+            *paid = back;
+        }
+        last
     }
 
     /// Reserves `n` bytes and waits, by `clock`, until their turn: the receipt, or none if uncapped; `None`, with the
@@ -275,34 +285,64 @@ impl Bucket {
 
     /// Whether nothing is reserved in it, since its rate last changed.
     pub fn untouched(&self) -> bool {
-        self.paid_until.load(Ordering::Relaxed) == 0
+        *self.tail() == 0
     }
 }
 
-/// Where one of a copy's two buckets stands for its chunk.
-#[derive(Clone, Copy)]
-enum Hold {
-    /// A slot is still to be reserved.
-    Need,
-    /// Uncapped in this epoch.
-    Free(u64),
-    Held(Receipt),
+/// Reserves `n` bytes in both `a` and `b` at `now`, as one slot that ends at the same moment in each: none for an
+/// uncapped bucket, and only one, in `a`, if they are the same bucket. Both queues are locked together, in the order
+/// of their addresses, so two copies reserving the other way round can't deadlock, and no reservation in either comes
+/// between. Each slot is its own bucket's cost of `n`, ending where the later of the two queues would; the other queue
+/// is left a gap before it, capacity it doesn't use, never a burst.
+pub fn reserve_both(a: &Bucket, b: &Bucket, n: u64, now: u64) -> [Option<Receipt>; 2] {
+    if std::ptr::eq(a, b) {
+        return [a.reserve(n, now), None];
+    }
+    if n == 0 {
+        return [None, None];
+    }
+    let ordered = (a as *const Bucket) < (b as *const Bucket);
+    let (first, second) = if ordered { (a, b) } else { (b, a) };
+    let (mut first, mut second) = (first.tail(), second.tail());
+    let (pa, pb) = if ordered {
+        (&mut *first, &mut *second)
+    } else {
+        (&mut *second, &mut *first)
+    };
+    // Read under the locks, which a change of rate takes too: one bucket uncapped leaves the other a slot of its own.
+    let receipt = |bucket: &Bucket, paid: &mut u64, end: Option<u64>| {
+        let cost = cost(n, bucket.rate()?);
+        let end = end.unwrap_or((*paid).max(now).saturating_add(cost));
+        *paid = end;
+        Some(Receipt {
+            start: end - cost,
+            end,
+            n,
+            epoch: bucket.epoch(),
+        })
+    };
+    let end = match (a.rate(), b.rate()) {
+        (Some(ra), Some(rb)) => Some(
+            ((*pa).max(now).saturating_add(cost(n, ra)))
+                .max((*pb).max(now).saturating_add(cost(n, rb))),
+        ),
+        _ => None,
+    };
+    [receipt(a, pa, end), receipt(b, pb, end)]
 }
 
 /// Reserves `n` bytes in both `a` and `b`, as a copy's chunk is in its source's read cap and its destination's write
-/// cap, and waits, by `clock`, until both slots' turns have come: their receipts, none for an uncapped bucket; `None`
-/// if `stop` says to give up first, with each slot given back if it can be. No more than a receipt's
-/// [`Receipt::bytes`] may move: after a change of rate, no more than a [`piece`] at the lower of the new rates.
+/// cap, and waits, by `clock`, until their turn: their receipts, none for an uncapped bucket; `None` if `stop` says to
+/// give up first, with each slot given back if it can be. No more than a receipt's [`Receipt::bytes`] may move: after
+/// a change of rate, no more than a [`piece`] at the lower of the new rates.
 ///
-/// The chunk moves once both its turns have come and before either slot has ended, so each bucket lets it through
-/// just as it does a read, and the bound of each holds as for reads. To get two slots that overlap so without holding
-/// either bucket's capacity idle, it holds a place in one queue at a time until the other's would come near: it first
-/// reserves in the bucket whose turn would come later, then in the other once a slot there would get its turn no
-/// sooner than the first one's: both turns then come together, each slot with [`BURST`] to spare. A slot that ends before the other's turn, or that has ended, is let go, given back if it can be,
-/// and reserved again when a slot would come near. So it waits in each queue only behind the slots reserved before
-/// it there, as a read does, and readers going on reading can't keep it out. A change of rate voids a slot, which is
-/// reserved again in the new epoch, so an uncap can't release a pile of slots whose turns have gone. With both
-/// buckets busy, letting a slot go may cost the copy its place, and that bucket the slot, never more than its cap.
+/// The two slots are reserved together and end together ([`reserve_both`]), so the chunk's one turn comes in both
+/// queues at once, and it moves within [`BURST`] before both slots end: each bucket lets it through just as it does a
+/// read, and the bound of each holds as for reads. A copy never gives up a place it holds: it waits only behind the
+/// slots reserved before its own in either queue, so neither readers nor other copies, however busy both queues, can
+/// keep it out. A change of rate in either voids the pair: what of each is still to come is given back if it can be,
+/// and both are reserved again together in the new epoch, for no more than a piece at the new rates, so an uncap
+/// can't release a pile of slots whose turns have gone.
 pub fn take_both(
     a: &Bucket,
     b: &Bucket,
@@ -315,104 +355,60 @@ pub fn take_both(
     }
     let buckets = [a, b];
     let mut n = n;
-    let mut hold = [Hold::Need; 2];
-    let mut waited = [false; 2];
-    let let_go = |bucket: &Bucket, h: &mut Hold, now: u64| {
-        if let Hold::Held(r) = h {
-            bucket.refund(r, r.n, now);
-        }
-        *h = Hold::Need;
+    let reserve = |n: u64| {
+        let now = clock.now();
+        // The epochs first: a change after this voids the pair, one before it is in the receipts.
+        let epochs = buckets.map(|b| (b.epoch(), b.rates()));
+        (reserve_both(a, b, n, now), epochs)
     };
-    let turn = |h: &Hold| match h {
-        Hold::Held(r) => Some(r.turn()),
-        _ => None,
+    let (mut held, mut epochs) = reserve(n);
+    let mut waited = [false; 2];
+    let give_back = |held: &[Option<Receipt>; 2], now: u64| {
+        for (r, bucket) in held.iter().zip(buckets) {
+            if let Some(r) = r {
+                bucket.refund(r, r.n, now);
+            }
+        }
     };
     loop {
         let now = clock.now();
-        let mut changed = false;
-        for (h, bucket) in hold.iter_mut().zip(buckets) {
-            let epoch = bucket.epoch();
-            match *h {
-                Hold::Held(r) if r.epoch != epoch => (*h, changed) = (Hold::Need, true),
-                Hold::Free(e) if e != epoch => (*h, changed) = (Hold::Need, true),
-                Hold::Held(r) if r.end < now => let_go(bucket, h, now),
-                _ => {}
+        if buckets.iter().zip(epochs).any(|(b, (e, _))| b.epoch() != e) {
+            give_back(&held, now);
+            // The other bucket's queue holds this copy's slot, and every waiting copy's like it, paced by the old
+            // rate, and slots there can't be given back from the middle of the queue: it starts afresh too, rather
+            // than every copy queue again behind slots of its own it can no longer use. Once for each change of rate,
+            // at the epoch the copy saw, and never for a reset: one reset can't set off another.
+            for (i, (bucket, (_, rates))) in buckets.iter().zip(epochs).enumerate() {
+                let (other, (epoch, _)) = (buckets[1 - i], epochs[1 - i]);
+                if bucket.rates() != rates && held[1 - i].is_some() {
+                    other.reset(epoch);
+                }
             }
-            if matches!(h, Hold::Need) && !bucket.capped() {
-                *h = Hold::Free(epoch);
-            }
-        }
-        // After a change of rate, no more than a piece at the new rates moves. A slot still held for more is kept, its
-        // place in its queue with it, and only partly used.
-        if changed {
             let most = buckets
                 .iter()
                 .filter_map(|b| b.rate())
                 .map(|r| piece(r) as u64)
                 .min();
             n = n.min(most.unwrap_or(n));
+            (held, epochs) = reserve(n);
+            continue;
         }
-        // With neither held, the bucket whose turn would come later goes first.
-        let order = match hold {
-            [Hold::Need, Hold::Need] if b.peek(n, now) > a.peek(n, now) => [1, 0],
-            _ => [0, 1],
-        };
-        for i in order {
-            let bucket = buckets[i];
-            let target = hold.iter().filter_map(turn).max();
-            let near = target.is_none_or(|t| bucket.peek(n, now).max(now) >= t);
-            if !matches!(hold[i], Hold::Need) || !near {
-                continue;
-            }
-            let epoch = bucket.epoch();
-            hold[i] = match bucket.reserve(n, now) {
-                Some(r) => Hold::Held(r),
-                None => Hold::Free(epoch),
-            };
-        }
-        // A slot that ends before the other's turn is let go, to be reserved again nearer it.
-        if let [Hold::Held(ra), Hold::Held(rb)] = hold {
-            if ra.end < rb.turn() {
-                let_go(a, &mut hold[0], now);
-            } else if rb.end < ra.turn() {
-                let_go(b, &mut hold[1], now);
-            }
-        }
-        let due = |h: &Hold| match h {
-            Hold::Need => false,
-            Hold::Free(_) => true,
-            Hold::Held(r) => r.turn() <= now,
-        };
-        if hold.iter().all(due) {
-            return Some(hold.map(|h| match h {
-                Hold::Held(r) => Some(Receipt { n: r.n.min(n), ..r }),
-                _ => None,
-            }));
+        let turn = held.iter().flatten().map(Receipt::turn).max();
+        if turn.is_none_or(|t| t <= now) {
+            return Some(held);
         }
         if stop() {
-            for (h, bucket) in hold.iter_mut().zip(buckets) {
-                let_go(bucket, h, now);
-            }
+            give_back(&held, now);
             return None;
         }
-        // Until the later turn, or until a slot still needed would come near it.
-        let target = hold.iter().filter_map(turn).max().unwrap_or(now);
-        let mut wake = target;
-        for (i, (h, bucket)) in hold.iter().zip(buckets).enumerate() {
-            match h {
-                Hold::Need => {
-                    let peek = bucket.peek(n, now).max(now);
-                    wake = wake.min(now + target.saturating_sub(peek));
-                }
-                Hold::Held(r) if r.turn() > now => {}
-                _ => continue,
-            }
-            if !waited[i] {
+        for (i, r) in held.iter().enumerate() {
+            if r.is_some_and(|r| r.turn() > now) && !waited[i] {
                 waited[i] = true;
-                bucket.waits.fetch_add(1, Ordering::Relaxed);
+                buckets[i].waits.fetch_add(1, Ordering::Relaxed);
             }
         }
-        clock.sleep(Duration::from_nanos(wake.saturating_sub(now).max(1)).min(RECHECK));
+        let turn = turn.unwrap_or(now);
+        clock.sleep(Duration::from_nanos(turn - now).min(RECHECK));
     }
 }
 
@@ -920,7 +916,7 @@ mod tests {
     }
 
     fn paid_until(bucket: &Bucket) -> u64 {
-        bucket.paid_until.load(Ordering::Relaxed)
+        *bucket.tail()
     }
 
     #[test]
@@ -1006,9 +1002,9 @@ mod tests {
 
     #[test]
     fn a_chunk_on_two_caps_moves_once_both_turns_have_come_and_before_either_slot_ends() {
-        // A source at 4 MiB/s with 3 s already queued, a destination at 1 MiB/s with nothing: the source is reserved
-        // first, the destination only once its turn would reach the source's, so the destination's capacity isn't
-        // held idle for 3 s.
+        // A source at 4 MiB/s with 3 s already queued, a destination at 1 MiB/s with nothing: both slots are reserved
+        // at once, each its own length, ending together where the source's queue would end. The destination's queue
+        // is left a gap before its slot.
         let (a, b) = (capped(4), capped(1));
         a.reserve(12 * MIB, 0).unwrap();
         let clock = Fake::new();
@@ -1017,13 +1013,10 @@ mod tests {
             panic!("both capped")
         };
         let now = clock.now();
-        assert_eq!(ra.turn(), now);
-        assert!(rb.turn() <= now && now <= rb.end, "{rb:?} at {now}");
-        assert_eq!(
-            rb.turn(),
-            now,
-            "the destination was reserved only once its turn would reach the source's"
-        );
+        assert_eq!((ra.start, ra.end), (3 * SEC, 3 * SEC + 250 * MS));
+        assert_eq!((rb.start, rb.end), (2_250 * MS, 3 * SEC + 250 * MS));
+        assert_eq!((ra.turn(), rb.turn()), (now, now));
+        assert_eq!((paid_until(&a), paid_until(&b)), (ra.end, rb.end));
         assert!(clock.slept.borrow().iter().all(|d| *d <= RECHECK));
         // Uncapped, the destination isn't reserved at all.
         b.set_rate(None, now);
@@ -1065,5 +1058,125 @@ mod tests {
             "{} ms",
             paid_until(&bucket) / MS
         );
+    }
+
+    /// Runs `f` on a thread of its own, and fails if it hasn't ended within `secs` real seconds: a deadlock fails the
+    /// test rather than hang it.
+    fn within_real<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (done, ended) = std::sync::mpsc::channel();
+        std::thread::spawn(move || done.send(f()).unwrap());
+        ended
+            .recv_timeout(Duration::from_secs(secs))
+            .expect("ended in time, without a deadlock")
+    }
+
+    #[test]
+    fn a_copy_gets_its_turn_on_two_busy_caps_whose_queues_are_out_of_step() {
+        // Both caps at 1 MiB/s, each kept busy by one reader of 256 KiB slots, 250 ms apart, the write queue's 125 ms
+        // behind the read queue's: no 100 ms window of one ever meets one of the other. A copy reserving in both at
+        // once still gets its turn behind the slots already queued.
+        let (asked, took) = within_real(120, || {
+            use lockstep::Lockstep;
+            let clock = Lockstep::new();
+            let caps = Arc::new(Caps::with_clock(clock.clone()));
+            caps.set(Some(MIB), Some(MIB));
+            let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            // Spawned from a thread on the clock, so that it doesn't move on before every one is.
+            let (busy, copy) = clock
+                .clone()
+                .spawn(move || {
+                    let busy = |write: bool, from: u64| {
+                        let (clock, caps, done) = (clock.clone(), caps.clone(), done.clone());
+                        clock.clone().spawn(move || {
+                            clock.sleep(Duration::from_nanos(from));
+                            let bucket = if write { &caps.write } else { &caps.read };
+                            while !done.load(Ordering::Relaxed) && clock.now() < 60 * SEC {
+                                bucket.take(256 << 10, &*clock, &|| false).unwrap();
+                            }
+                        })
+                    };
+                    let busy = [busy(false, 0), busy(true, 125 * MS)];
+                    let copy = clock.clone().spawn(move || {
+                        clock.sleep(Duration::from_secs(1));
+                        let asked = clock.now();
+                        let stop = || clock.now() >= 30 * SEC;
+                        let receipts =
+                            take_both(&caps.read, &caps.write, 256 << 10, &*clock, &stop);
+                        let took = clock.now();
+                        done.store(true, Ordering::Relaxed);
+                        (receipts.is_some(), asked, took)
+                    });
+                    (busy, copy)
+                })
+                .join()
+                .unwrap();
+            let (got, asked, took) = copy.join().unwrap();
+            for b in busy {
+                b.join().unwrap();
+            }
+            assert!(got, "the copy never got its turn");
+            (asked, took)
+        });
+        // Behind at most a slot already queued in each, and its own.
+        assert!(took - asked <= 750 * MS, "{} ms", (took - asked) / MS);
+    }
+
+    #[test]
+    fn copies_each_way_between_two_roots_all_get_their_turns_without_a_deadlock() {
+        // Every reservation in two buckets at once locks both, in one order whichever way the copy goes.
+        within_real(120, || {
+            let (x, y) = (Arc::new(Bucket::default()), Arc::new(Bucket::default()));
+            x.set_rate(Some(u64::MAX >> 20), 0);
+            y.set_rate(Some(u64::MAX >> 20), 0);
+            let threads: Vec<_> = (0..8)
+                .map(|i| {
+                    let (x, y) = (x.clone(), y.clone());
+                    std::thread::spawn(move || {
+                        for n in 0..20_000 {
+                            let (a, b) = if (i + n) % 2 == 0 { (&x, &y) } else { (&y, &x) };
+                            let [ra, rb] = reserve_both(a, b, 1, n);
+                            assert_eq!(ra.unwrap().end, rb.unwrap().end);
+                        }
+                    })
+                })
+                .collect();
+            for t in threads {
+                t.join().unwrap();
+            }
+        });
+        // And, waiting on the fake clock, copies each way at 1 MiB/s all finish, as fast as the caps allow.
+        let ended = within_real(120, || {
+            use lockstep::Lockstep;
+            let clock = Lockstep::new();
+            let (x, y) = (
+                Arc::new(Caps::with_clock(clock.clone())),
+                Arc::new(Caps::with_clock(clock.clone())),
+            );
+            x.set(Some(MIB), Some(MIB));
+            y.set(Some(MIB), Some(MIB));
+            let copies = clock
+                .clone()
+                .spawn(move || {
+                    (0..8)
+                        .map(|i| {
+                            let (clock, x, y) = (clock.clone(), x.clone(), y.clone());
+                            clock.clone().spawn(move || {
+                                let (from, to) = if i % 2 == 0 { (&x, &y) } else { (&y, &x) };
+                                let stop = || clock.now() >= 60 * SEC;
+                                for _ in 0..4 {
+                                    take_both(&from.read, &to.write, 256 << 10, &*clock, &stop)
+                                        .expect("every copy gets its turn");
+                                }
+                                clock.now()
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .join()
+                .unwrap();
+            copies.into_iter().map(|c| c.join().unwrap()).max().unwrap()
+        });
+        // Each way moves 4 MiB through caps of 1 MiB/s: 4 s, less the burst.
+        assert!(ended <= 4 * SEC, "{} ms", ended / MS);
     }
 }
