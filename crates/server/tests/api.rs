@@ -1105,9 +1105,9 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
     let (again, first) = (&jobs[0], &jobs[1]);
     assert_eq!(first.state, JobState::Interrupted);
     assert_eq!((again.attempt, again.requeued_from), (2, Some(first.id)));
-    // The threads it starts depend on neither the pace nor the ceilings in force, which say how many work.
+    // It records the ceilings at its start, not the threads it started, which the shared pools decide as it runs.
     let cpus = std::thread::available_parallelism().unwrap().get();
-    assert_eq!(again.workers.readers, cpus.max(32));
+    assert_eq!(again.workers.readers, cpus);
     let (_, done) = client.follow(again.id);
     assert_eq!(done.state, JobState::Succeeded);
 }
@@ -1326,11 +1326,10 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceili
     client.upload("Test - System.dat", &env.dat());
     client.add_set();
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
-    let cpus = std::thread::available_parallelism().unwrap().get();
     assert_eq!(
         (job.workers.readers, job.workers.hashers),
-        (32, cpus.max(5)),
-        "a job starts the threads any ceiling or pace could set to work, and the shared pools hold back the rest"
+        (8, 5),
+        "a job records the ceilings it started with"
     );
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
 
@@ -3994,10 +3993,23 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
     let empty: title_select_api::calibration::Calibration = client.json("/calibration");
     assert!(empty.host.is_none() && empty.roots.is_empty() && empty.stale.is_empty());
 
+    let (mut events, _) = client.watch();
     let mut started = client.post("/calibrations").send_empty().unwrap();
     assert_eq!(started.status(), 202);
     let started: Job = started.body_mut().read_json().unwrap();
-    let (_, ended) = client.follow(started.id);
+    // Every watching client hears that the settings changed, with the ceilings measured, by the time it ends.
+    let mut heard_settings = false;
+    let ended = loop {
+        let (name, data) = events.next_event();
+        heard_settings |= name == "settings";
+        if let JobEvent::State(job) = serde_json::from_str(&data).unwrap()
+            && job.id == started.id
+            && job.state.is_final()
+        {
+            break *job;
+        }
+    };
+    assert!(heard_settings, "no settings event as the calibration ended");
 
     assert_eq!(ended.state, JobState::Succeeded, "{:?}", ended.error);
     let measured: title_select_api::calibration::Calibration =

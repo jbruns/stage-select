@@ -2,9 +2,10 @@
 //! handing each payload's bytes in chunks to one of `hashers` threads that checksums it. A file whose earlier read
 //! passes the change test is not read again, and a quick Audit claims a ZIP archive's members from its directory.
 //!
-//! `workers` gives the threads started. [`Pools`] may hold some of them back: each reader takes a permit of its
-//! Root's readers pool before each file, and each hash worker one of the Host's hash workers pool before each payload
-//! (ADR 0022). Other Jobs share the pools, whose size is the pace's share of each Ceiling at that moment.
+//! [`Pools`] say how many work at each moment: each reader takes a permit of its Root's readers pool before each file,
+//! and each hash worker one of the Host's hash workers pool before each payload (ADR 0022). Other Jobs share the
+//! pools, whose size is the pace's share of each Ceiling at that moment. A Job starts its threads as the pools let
+//! them work, so it grows when they do and its threads wait when they shrink (see [`Crew`]).
 //!
 //! A reader holds its permit while it waits for a hash worker; a hash worker takes its permit only once it has a
 //! payload, and then waits only for that payload's reader, which already holds its own. So no worker holding a hash
@@ -83,6 +84,9 @@ struct HashJob {
     done: SyncSender<Checksums>,
 }
 
+/// Hands a payload to a free hash worker, waiting for one: false if none is running.
+type Hand<'h> = &'h dyn Fn(HashJob) -> bool;
+
 /// The pools a Job's workers share with every other Job: the payload readers of the Root it reads, and the Host's
 /// hash workers.
 #[derive(Clone, Copy)]
@@ -91,8 +95,8 @@ pub struct Pools<'a> {
     pub hashers: &'a Pool,
 }
 
-/// Reads every file in `files`, returning one [`FileRead`] per file in the same order. `workers` threads are
-/// started, and `pools`, when given, say how many of them may work at each moment; all of them when not.
+/// Reads every file in `files`, returning one [`FileRead`] per file in the same order. `pools` say how many readers
+/// and hash workers may work at each moment; without them, `workers` does.
 pub fn read_files(
     files: &[ToRead],
     how: How,
@@ -100,78 +104,190 @@ pub fn read_files(
     pools: Option<Pools>,
     progress: Option<&(dyn Fn(Progress) + Sync)>,
 ) -> Vec<FileRead> {
-    let readers = workers.readers.clamp(1, files.len().max(1));
-    let hashers = workers.hashers.max(1);
-    let (own_readers, own_hashers) = (Pool::new(readers), Pool::new(hashers));
-    let pools = pools.unwrap_or(Pools {
-        readers: &own_readers,
-        hashers: &own_hashers,
-    });
-    let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
-    let results: Mutex<Vec<Option<FileRead>>> = Mutex::new(files.iter().map(|_| None).collect());
-    let (jobs, queue) = sync_channel::<HashJob>(0);
-    let queue = Mutex::new(queue);
-    std::thread::scope(|s| {
-        for _ in 0..hashers {
-            s.spawn(|| {
-                loop {
-                    let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
-                    let Ok(job) = job else { break };
+    read_counting_threads(files, how, workers, pools, progress).0
+}
+
+/// The threads a Job's read started: readers and hash workers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Started {
+    readers: usize,
+    hashers: usize,
+}
+
+/// A Job's readers and hash workers, and the work they share. Threads start as their pools let more of them work,
+/// rather than all at once: a reader that takes a permit and finds a file left, the pool with room, and none of the
+/// Job's readers waiting, starts another, and a reader that hands over a payload with none of the Job's hash workers
+/// free and their pool with room starts one. So a Ceiling or the pace raised while the Job runs reaches it as its
+/// workers start their next file, a Job never has more readers than files, and the threads it started stay, waiting
+/// for a permit, when the pools shrink. Each start costs a few atomic loads; a file costs nothing more.
+struct Crew<'a> {
+    files: &'a [ToRead],
+    how: How<'a>,
+    pools: Pools<'a>,
+    progress: Option<&'a (dyn Fn(Progress) + Sync)>,
+    next: AtomicUsize,
+    done: AtomicUsize,
+    results: Mutex<Vec<Option<FileRead>>>,
+    queue: Mutex<Receiver<HashJob>>,
+    readers: AtomicUsize,
+    /// Readers started that hold no permit: waiting for one, or about to.
+    readers_waiting: AtomicUsize,
+    hashers: AtomicUsize,
+    /// Hash workers started that hold no payload.
+    hashers_free: AtomicUsize,
+}
+
+impl<'a> Crew<'a> {
+    fn has_room(pool: &Pool) -> bool {
+        pool.taken() < pool.limit()
+    }
+
+    /// Starts a reader, counted as waiting until it takes a permit.
+    fn start_reader<'s, 'e>(
+        &'s self,
+        s: &'s std::thread::Scope<'s, 'e>,
+        jobs: SyncSender<HashJob>,
+    ) {
+        self.readers.fetch_add(1, Ordering::SeqCst);
+        s.spawn(move || self.read(s, jobs));
+    }
+
+    fn read<'s, 'e>(&'s self, s: &'s std::thread::Scope<'s, 'e>, jobs: SyncSender<HashJob>) {
+        let files = self.files;
+        let all_read = || self.next.load(Ordering::SeqCst) >= files.len();
+        loop {
+            // A reader with no file left to read doesn't queue for a permit another Job could use.
+            let permit = if all_read() {
+                None
+            } else {
+                self.pools.readers.enter_unless(all_read)
+            };
+            self.readers_waiting.fetch_sub(1, Ordering::SeqCst);
+            let Some(_permit) = permit else { break };
+            // So that the file's reads don't ask the Root's pool for a second permit.
+            let _held = ReaderPermit::held();
+            let i = self.next.fetch_add(1, Ordering::SeqCst);
+            let Some(file) = files.get(i) else { break };
+            if i + 1 < files.len()
+                && self.readers.load(Ordering::SeqCst) < files.len()
+                && Crew::has_room(self.pools.readers)
+                && self
+                    .readers_waiting
+                    .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            {
+                self.start_reader(s, jobs.clone());
+            }
+            let hand = |job: HashJob| {
+                // The first starts however full the pool is: a payload handed over with none running would wait for
+                // ever.
+                if self.hashers.load(Ordering::SeqCst) == 0 || Crew::has_room(self.pools.hashers) {
+                    self.start_hasher_unless_one_is_free(s);
+                }
+                jobs.send(job).is_ok()
+            };
+            let _active = self.how.tally.job().map(JobMeter::reading);
+            let read = read_or_reuse(file, self.how, &hand);
+            self.results.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(read);
+            let files_done = self.done.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some(progress) = self.progress {
+                progress(Progress {
+                    files_done,
+                    files_total: files.len(),
+                });
+            }
+            self.readers_waiting.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Starts a hash worker, counted as free until it takes a payload, unless one is free already.
+    fn start_hasher_unless_one_is_free<'s, 'e>(&'s self, s: &'s std::thread::Scope<'s, 'e>) {
+        if self
+            .hashers_free
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+        self.hashers.fetch_add(1, Ordering::SeqCst);
+        s.spawn(move || {
+            loop {
+                let job = self
+                    .queue
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .recv();
+                self.hashers_free.fetch_sub(1, Ordering::SeqCst);
+                // The hash workers stop once every reader has dropped its sender.
+                let Ok(job) = job else { break };
+                {
                     // Taken only with a payload in hand: see the module's note on deadlock.
-                    let _permit = pools.hashers.enter();
-                    let _active = how.tally.job().map(JobMeter::hashing);
+                    let _permit = self.pools.hashers.enter();
+                    let _active = self.how.tally.job().map(JobMeter::hashing);
                     let mut hasher = Hasher::with_header(job.header);
                     for chunk in job.chunks {
                         hasher.update(&chunk);
                     }
                     let _ = job.done.send(hasher.finish());
                 }
-            });
-        }
-        for _ in 0..readers {
-            let jobs = jobs.clone();
-            let (next, done, results) = (&next, &done, &results);
-            s.spawn(move || {
-                loop {
-                    // A reader with no file left to read doesn't queue for a permit another Job could use.
-                    if next.load(Ordering::Relaxed) >= files.len() {
-                        break;
-                    }
-                    let _permit = pools.readers.enter();
-                    // So that the file's reads don't ask the Root's pool for a second permit.
-                    let _held = ReaderPermit::held();
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(file) = files.get(i) else {
-                        break;
-                    };
-                    let _active = how.tally.job().map(JobMeter::reading);
-                    let read = read_or_reuse(file, how, &jobs);
-                    results.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(read);
-                    let files_done = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    if let Some(progress) = progress {
-                        progress(Progress {
-                            files_done,
-                            files_total: files.len(),
-                        });
-                    }
-                }
-            });
-        }
-        // The hash workers stop once every reader has dropped its sender.
-        drop(jobs);
+                self.hashers_free.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+    }
+}
+
+fn read_counting_threads(
+    files: &[ToRead],
+    how: How,
+    workers: Workers,
+    pools: Option<Pools>,
+    progress: Option<&(dyn Fn(Progress) + Sync)>,
+) -> (Vec<FileRead>, Started) {
+    if files.is_empty() {
+        let none = Started {
+            readers: 0,
+            hashers: 0,
+        };
+        return (Vec::new(), none);
+    }
+    let (own_readers, own_hashers) = (Pool::new(workers.readers), Pool::new(workers.hashers));
+    let pools = pools.unwrap_or(Pools {
+        readers: &own_readers,
+        hashers: &own_hashers,
     });
-    results
+    let (jobs, queue) = sync_channel::<HashJob>(0);
+    let crew = Crew {
+        files,
+        how,
+        pools,
+        progress,
+        next: AtomicUsize::new(0),
+        done: AtomicUsize::new(0),
+        results: Mutex::new(files.iter().map(|_| None).collect()),
+        queue: Mutex::new(queue),
+        readers: AtomicUsize::new(0),
+        readers_waiting: AtomicUsize::new(1),
+        hashers: AtomicUsize::new(0),
+        hashers_free: AtomicUsize::new(0),
+    };
+    std::thread::scope(|s| crew.start_reader(s, jobs));
+    let started = Started {
+        readers: crew.readers.into_inner(),
+        hashers: crew.hashers.into_inner(),
+    };
+    let results = crew
+        .results
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner)
         .into_iter()
         .map(|r| r.expect("every file is read"))
-        .collect()
+        .collect();
+    (results, started)
 }
 
 /// Reuses the file's earlier read if it passes the change test; else claims a ZIP archive's members in a quick
 /// Audit; else reads its payloads, recording the read when every one of them was read.
-fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRead {
+fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
     if let Some(reads) = how.reads {
         let now = std::fs::metadata(&file.path)
             .ok()
@@ -295,7 +411,7 @@ fn claim_file(path: &Path) -> FileRead {
 fn read_file(
     path: &Path,
     is_zip: bool,
-    jobs: &SyncSender<HashJob>,
+    jobs: Hand,
     read_at: jiff::Timestamp,
     how: How,
 ) -> (FileRead, Option<FileStamp>) {
@@ -363,20 +479,18 @@ fn read_file(
 
 /// Reads `r` to its end, once, handing its bytes to a hash worker, and returns their checksums without the Header
 /// `header` finds.
-fn checksum(
-    mut r: impl Read,
-    jobs: &SyncSender<HashJob>,
-    header: Option<HeaderRule>,
-) -> Result<Checksums, String> {
+fn checksum(mut r: impl Read, jobs: Hand, header: Option<HeaderRule>) -> Result<Checksums, String> {
     let (chunks, chunks_rx) = sync_channel(CHUNKS_IN_FLIGHT);
     let (done_tx, done) = sync_channel(1);
     // Waits for a free hash worker.
-    jobs.send(HashJob {
+    let handed = jobs(HashJob {
         chunks: chunks_rx,
         header,
         done: done_tx,
-    })
-    .map_err(|_| "no hash worker is running".to_owned())?;
+    });
+    if !handed {
+        return Err("no hash worker is running".to_owned());
+    }
     loop {
         let mut buf = vec![0u8; CHUNK];
         let n = r.read(&mut buf).map_err(|e| e.to_string())?;
@@ -594,6 +708,100 @@ mod tests {
         });
     }
 
+    /// Files of `size` bytes each, numbered.
+    fn files_of(dir: &Path, n: usize, size: usize) -> Vec<ToRead> {
+        (0..n)
+            .map(|i| {
+                let path = dir.join(format!("{i}.bin"));
+                let bytes: Vec<u8> = (0..size).map(|b| (b * 31 + i) as u8).collect();
+                std::fs::write(&path, bytes).unwrap();
+                ToRead {
+                    path,
+                    is_zip: false,
+                    rel: format!("{i}.bin"),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_running_job_starts_more_workers_than_it_began_with_when_its_ceilings_rise() {
+        bounded(|| {
+            let cpus = std::thread::available_parallelism().unwrap().get();
+            let dir = tempfile::tempdir().unwrap();
+            let files = files_of(dir.path(), 400, 64 << 10);
+            let shared = Shared::default();
+            let (readers, hashers) = (Pool::new(4), Pool::new(1));
+            let pools = Pools {
+                readers: &readers,
+                hashers: &hashers,
+            };
+            // You raise its readers from 4 to 64, and its hash workers past the CPU count, after its 10th file.
+            let progress = |p: Progress| {
+                if p.files_done == 10 {
+                    readers.set_limit(64);
+                    hashers.set_limit(cpus + 8);
+                }
+            };
+            let how = How {
+                evidence: AuditEvidence::Full,
+                reads: Some(&shared),
+                header: None,
+                might_be_headered: &|_| false,
+                tally: &Default::default(),
+            };
+            let began = Workers {
+                readers: 4,
+                hashers: 1,
+            };
+
+            let (read, started) =
+                read_counting_threads(&files, how, began, Some(pools), Some(&progress));
+
+            assert!(read.iter().all(|r| r.error.is_none()));
+            let most = shared.most.load(Ordering::SeqCst);
+            assert!(most > 32, "{most} files at once, {started:?}");
+            assert!(readers.most_at_once() > 32);
+            assert!(
+                hashers.most_at_once() > cpus,
+                "{} hash workers at once over {cpus} CPUs, {started:?}",
+                hashers.most_at_once()
+            );
+            assert!(
+                started.readers <= 64 && started.hashers <= cpus + 8,
+                "{started:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn a_small_job_starts_no_more_workers_than_it_has_files() {
+        bounded(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let files = files(dir.path(), 3);
+            let (readers, hashers) = (Pool::new(64), Pool::new(64));
+            let pools = Pools {
+                readers: &readers,
+                hashers: &hashers,
+            };
+            let how = How {
+                evidence: AuditEvidence::Full,
+                reads: Some(&Shared::default()),
+                header: None,
+                might_be_headered: &|_| false,
+                tally: &Default::default(),
+            };
+            let each = Workers {
+                readers: 64,
+                hashers: 64,
+            };
+            let (read, started) = read_counting_threads(&files, how, each, Some(pools), None);
+            assert!(read.iter().all(|r| r.error.is_none()));
+            assert!(started.readers <= 3 && started.hashers <= 3, "{started:?}");
+            assert!(started.readers >= 1 && started.hashers >= 1, "{started:?}");
+        });
+    }
+
     /// Panics as the third file starts.
     struct Panics(AtomicUsize);
 
@@ -672,7 +880,7 @@ mod tests {
                 bytes: &dump,
                 read: &read,
             };
-            checksum(counting, &jobs, Some(HeaderRule::Nes)).unwrap()
+            checksum(counting, &|j| jobs.send(j).is_ok(), Some(HeaderRule::Nes)).unwrap()
         });
 
         assert_eq!(read.load(Ordering::Relaxed), dump.len(), "read once");

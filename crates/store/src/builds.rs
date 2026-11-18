@@ -151,6 +151,7 @@ fn stage_chd(
         deadline: work
             .limits
             .for_bytes(item.roms.iter().map(|r| r.size).sum()),
+        threads: work.store.chdman_threads_now(),
         ..work.chdman.clone().map_err(Failure::Item)?
     };
     let cancelled = work.cancelled;
@@ -346,6 +347,7 @@ fn verify_found_chd(
     let before = seen(found)?;
     let chdman = Chdman {
         deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
+        threads: work.store.chdman_threads_now(),
         ..work.chdman.clone().map_err(Failure::Item)?
     };
     let dir = chd_dir(&work.tmp, work.build, seq);

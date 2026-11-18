@@ -119,6 +119,15 @@ pub fn at_pace(pace: Pace, field: CeilingField, ceiling: Option<u64>) -> String 
     }
 }
 
+/// A Ceiling's measured curve, as its row shows it: a read rate's is its readers', shown on their row.
+pub fn ceiling_curve(
+    field: CeilingField,
+    curve: &[title_select_api::calibration::CurvePoint],
+) -> Option<String> {
+    (field != CeilingField::ReadMibPerS && !curve.is_empty())
+        .then(|| crate::calibration_model::curve(curve))
+}
+
 /// Where a Ceiling's value comes from, as its source column says it.
 pub fn source_label(source: Option<CeilingSource>) -> &'static str {
     match source {
@@ -163,6 +172,29 @@ pub struct Draft {
     pub romm_token: SecretUpdate,
     /// The Root RomM's library is in, or empty for none.
     pub romm_root: String,
+}
+
+/// What the editor does with the settings fetched again while it shows `saved`, with your unsaved changes when
+/// `dirty`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refreshed {
+    /// Nothing changed.
+    Same,
+    /// Show them. Your draft is replaced only when you have no unsaved changes: with them, only what you can't edit
+    /// changed, such as a calibration's measurements and the ceilings in force, so your changes stay.
+    Show,
+    /// Someone changed something you can edit: kept aside until you save or discard yours.
+    Newer,
+}
+
+pub fn refreshed(saved: &SettingsView, now: &SettingsView, dirty: bool) -> Refreshed {
+    if saved == now {
+        Refreshed::Same
+    } else if !dirty || Draft::of(saved) == Draft::of(now) {
+        Refreshed::Show
+    } else {
+        Refreshed::Newer
+    }
 }
 
 impl Draft {
@@ -630,6 +662,48 @@ mod tests {
             draft.update(&saved),
             Err("sets: Readers: enter a whole number.".into())
         );
+    }
+
+    #[test]
+    fn a_ceilings_curve_is_on_its_workers_row_not_its_read_rate() {
+        let curve = [title_select_api::calibration::CurvePoint {
+            workers: 2,
+            bytes: 1 << 20,
+            duration_ms: 1000,
+            bytes_per_s: (1 << 20) as f64,
+        }];
+        assert!(ceiling_curve(CeilingField::Readers, &curve).is_some_and(|c| c.starts_with("2: ")));
+        assert_eq!(ceiling_curve(CeilingField::ReadMibPerS, &curve), None);
+        assert_eq!(ceiling_curve(CeilingField::Hashers, &[]), None);
+    }
+
+    #[test]
+    fn a_calibration_ending_while_you_edit_shows_its_measurements_and_keeps_your_changes() {
+        let saved = saved();
+        let mut calibrated = saved.clone();
+        calibrated.jobs.host.hashers.measured = None;
+        let readers = &mut calibrated.jobs.roots[0].readers;
+        readers.measured = Some(9);
+        readers.ceiling = Some(9);
+        assert_eq!(
+            refreshed(&saved, &calibrated, true),
+            Refreshed::Show,
+            "nothing you can edit changed"
+        );
+        assert_eq!(refreshed(&saved, &calibrated, false), Refreshed::Show);
+        assert_eq!(refreshed(&saved, &saved.clone(), true), Refreshed::Same);
+        let mut edited = calibrated.clone();
+        edited.retention.audits_keep += 1;
+        assert_eq!(refreshed(&saved, &edited, true), Refreshed::Newer);
+
+        // You typed hash workers, then use the latest measurements, which measure none: yours stay.
+        let mut draft = Draft::of(&saved);
+        let hashers = (None, CeilingField::Hashers);
+        draft.audits_keep = "7".into();
+        draft.ceilings.insert(hashers.clone(), "2".into());
+        draft.use_measured(&calibrated.jobs);
+        assert_eq!(draft.ceilings[&hashers], "2");
+        assert_eq!(draft.audits_keep, "7");
     }
 
     #[test]

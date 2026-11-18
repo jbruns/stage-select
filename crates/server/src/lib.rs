@@ -109,8 +109,8 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         }
     }
     let (notifier, delivery) = notify::Notifier::new(&store.settings()?.notify);
-    // The Ceilings are worked out before any Job runs. Each Job records the most threads it may use; the pools it
-    // shares with other Jobs say how many of them work, file by file.
+    // The Ceilings are worked out before any Job runs. Each Job records the Ceilings it starts with; the pools it
+    // shares with other Jobs say how many of its workers work, file by file.
     store.refresh_ceilings(&config)?;
     for interruption in store.recover_jobs(store.job_workers(&config))? {
         let job = &interruption.job;

@@ -10,7 +10,7 @@ use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
 use title_select_api::romm::{RommReconciled, RommReconciliation};
-use title_select_api::{Job, JobEvent, JobKind, JobProgress};
+use title_select_api::{Job, JobEvent, JobKind, JobProgress, SettingsChanged};
 use title_select_engine::Progress;
 use title_select_engine::calibrate::Limits;
 use title_select_selection::Engine;
@@ -421,7 +421,7 @@ fn run_one(
         ),
         _ => store.run_audit_job(config, id, Some(&progress)),
     };
-    match ran {
+    let ended = match ran {
         Ok(job) => Some(job),
         Err(err) => {
             eprintln!("title-select: job {id}: {err}");
@@ -430,7 +430,17 @@ fn run_one(
                 _ => store.fail_job(id, &err.to_string()).ok(),
             }
         }
+    };
+    // What it measured may have changed the Ceilings in force, so every client fetches the settings again, as it
+    // does when someone saves them.
+    if kind == JobKind::Calibration
+        && let Ok(settings) = store.settings()
+    {
+        jobs.publish(JobEvent::Settings(SettingsChanged {
+            pace: settings.pace,
+        }));
     }
+    ended
 }
 
 /// Runs one claimed Additions Job, and returns the Job as it ended.

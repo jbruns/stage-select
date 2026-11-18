@@ -78,7 +78,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// The threads a Job queued now starts: the largest of its Ceilings, of which the pace allows a share.
+    /// The Ceilings a Job queued now records: the largest of its Ceilings, of which the pace allows a share.
     fn workers(&self) -> Workers {
         self.store.job_workers(&self.config)
     }

@@ -423,17 +423,15 @@ impl Store {
         Ok(&self.ceilings)
     }
 
-    /// The threads a Job starts: as many readers as Calibration ever tries, or the largest reader Ceiling of any Root
-    /// if that's more, and as many hash workers as the CPU count, or the Host's Ceiling if that's more. None of these
-    /// depends on the pace or on what is in force now: the shared pools say how many of the threads work at each
-    /// moment, so a Ceiling or pace raised while the Job runs reaches it at each worker's next file, as one lowered
-    /// does. The threads the pools hold back wait for a permit, and cost the read path nothing.
+    /// The Ceilings a Job starts with: the largest reader Ceiling of any Root, and the Host's hash workers. A Job that
+    /// reads through the shared pools starts its threads as they let them work, whatever these say, so a Ceiling or
+    /// pace changed while it runs reaches it at each worker's next file; these are what it records, and what the
+    /// pace's share is taken of where it reads without them.
     pub fn job_workers(&self, config: &Config) -> title_select_api::Workers {
         let cpus = crate::calibration::cpus();
-        let readers = title_select_engine::calibrate::MAX_READERS;
         let Ok(view) = self.ceilings(config) else {
             return title_select_api::Workers {
-                readers,
+                readers: cpus,
                 hashers: cpus,
             };
         };
@@ -443,8 +441,9 @@ impl Store {
                 .roots
                 .iter()
                 .map(|r| ceiling(&r.readers))
-                .fold(readers, usize::max),
-            hashers: ceiling(&view.host.hashers).max(cpus),
+                .max()
+                .unwrap_or(cpus),
+            hashers: ceiling(&view.host.hashers),
         }
     }
 
@@ -469,9 +468,20 @@ impl Store {
     /// The threads chdman compresses with: the pace's share of the hash workers Ceiling, or chdman's own choice of
     /// every core when `unthrottled`.
     pub(crate) fn chdman_threads(&self, config: &Config) -> Result<Option<usize>> {
-        let view = self.ceilings(config)?;
-        let hashers = view.host.hashers.ceiling.unwrap_or(1) as usize;
-        Ok(view.pace.chdman_threads(hashers))
+        self.live_ceilings(config)?;
+        Ok(self.chdman_threads_now())
+    }
+
+    /// [`Store::chdman_threads`] as the Ceilings stand now, without looking at the database: for each chdman as it
+    /// starts, so that a pace changed during a Build reaches its next CHD. One already running keeps its threads.
+    pub(crate) fn chdman_threads_now(&self) -> Option<usize> {
+        let view = self.ceilings.view.read().unwrap_or_else(|e| e.into_inner());
+        match view.as_ref() {
+            Some(view) => view
+                .pace
+                .chdman_threads(view.host.hashers.ceiling.unwrap_or(1) as usize),
+            None => Some(1),
+        }
     }
 
     /// The gate every 7z archive decodes through, its size the pace's share of the archive workers Ceiling.
@@ -1048,7 +1058,6 @@ mod tests {
                 .update_settings(&config, &readers_of_sets(4), "Operator")
                 .unwrap();
             let workers = store.job_workers(&config);
-            assert!(workers.readers >= title_select_engine::calibrate::MAX_READERS);
             let pools = store.job_pools(&config, "sets").unwrap();
             let tally = store.meter().start(1, workers).tally(Some("sets"));
             let (_files, set, dat) = files(120);
@@ -1085,11 +1094,6 @@ mod tests {
             assert_eq!(reads.most_started(35..50), 6);
             assert_eq!(reads.most_started(65..80), 1);
             assert_eq!(reads.most_started(95..120), 3);
-            assert_eq!(
-                store.job_workers(&config),
-                workers,
-                "the threads a Job starts don't depend on the pace or the ceilings in force"
-            );
         });
     }
 

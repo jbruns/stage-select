@@ -17,8 +17,9 @@ use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StatusIcon};
 use crate::settings_model::{
-    CadenceDraft, CeilingField, CeilingKey, Draft, at_pace, ceiling, ceiling_keys, locked_reason,
-    pace_label, romm_check_lines, romm_platform_label, secret_state, source_label,
+    CadenceDraft, CeilingField, CeilingKey, Draft, Refreshed, at_pace, ceiling, ceiling_curve,
+    ceiling_keys, locked_reason, pace_label, refreshed, romm_check_lines, romm_platform_label,
+    secret_state, source_label,
 };
 
 fn event_label(event: NotifyEvent) -> &'static str {
@@ -222,14 +223,16 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     refetch.update(|n| *n += 1);
                     return;
                 }
-                if saved.with_untracked(|s| *s == now) {
-                    return;
-                }
-                if dirty.get_untracked() {
-                    newer.set(Some(now));
-                } else {
-                    draft.set(Draft::of(&now));
-                    saved.set(now);
+                let dirty = dirty.get_untracked();
+                match saved.with_untracked(|s| refreshed(s, &now, dirty)) {
+                    Refreshed::Same => {}
+                    Refreshed::Show => {
+                        if !dirty {
+                            draft.set(Draft::of(&now));
+                        }
+                        saved.set(now);
+                    }
+                    Refreshed::Newer => newer.set(Some(now)),
                 }
             });
         },
@@ -262,7 +265,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     };
     view! {
         <div class="settings">
-            <PaceSection saved draft />
+            <PaceSection saved draft newer />
             <fieldset class="setting">
                 <legend>"Retention"</legend>
                 <p class="note small">
@@ -382,7 +385,11 @@ fn Editor(saved: SettingsView) -> impl IntoView {
 }
 
 #[component]
-fn PaceSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl IntoView {
+fn PaceSection(
+    saved: RwSignal<SettingsView>,
+    draft: RwSignal<Draft>,
+    newer: RwSignal<Option<SettingsView>>,
+) -> impl IntoView {
     view! {
         <fieldset class="setting">
             <legend>"Job pace"</legend>
@@ -417,7 +424,7 @@ fn PaceSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
                         }
                     })
             }}
-            <CeilingsTable saved draft />
+            <CeilingsTable saved draft newer />
         </fieldset>
     }
 }
@@ -425,7 +432,11 @@ fn PaceSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
 /// Every Ceiling of the Host and of each Root: what the pace makes of it, where it comes from, what a calibration
 /// measured, and your own value, which you can change unless the configuration file sets it.
 #[component]
-fn CeilingsTable(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl IntoView {
+fn CeilingsTable(
+    saved: RwSignal<SettingsView>,
+    draft: RwSignal<Draft>,
+    newer: RwSignal<Option<SettingsView>>,
+) -> impl IntoView {
     let live = use_live();
     let calibration = LocalResource::new(move || {
         live.settled.get();
@@ -496,7 +507,13 @@ fn CeilingsTable(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl 
             <div class="actions">
                 <button
                     type="button"
-                    on:click=move |_| saved.with_untracked(|s| draft.update(|d| d.use_measured(&s.jobs)))
+                    on:click=move |_| {
+                        // The latest measurements, even in settings kept aside while you have changes.
+                        let latest = newer
+                            .with_untracked(|n| n.as_ref().map(|n| n.jobs.clone()))
+                            .unwrap_or_else(|| saved.with_untracked(|s| s.jobs.clone()));
+                        draft.update(|d| d.use_measured(&latest));
+                    }
                 >
                     "Use measured values"
                 </button>
@@ -591,15 +608,24 @@ fn CeilingRow(
             .into_any()
         }
     };
-    let calibrated = field.calibrated().then(|| measured(root.clone())).flatten();
-    let status = calibrated
-        .as_ref()
-        .map(|r| view! { <StatusIcon status=r.status /> }.into_any())
-        .unwrap_or_else(|| "–".into_any());
-    let curve = calibrated
-        .filter(|r| !r.curve.is_empty() && field != CeilingField::ReadMibPerS)
-        .map(|r| calibration_model::curve(&r.curve))
-        .unwrap_or_else(|| "–".into());
+    // Read as the calibration loads and each time it is fetched again, as a calibration ends.
+    let calibrated = Memo::new(move |_| {
+        field
+            .calibrated()
+            .then(|| measured(root.clone()))
+            .flatten()
+            .map(|r| (r.status, ceiling_curve(field, &r.curve)))
+    });
+    let status = move || match calibrated.get() {
+        Some((status, _)) => view! { <StatusIcon status /> }.into_any(),
+        None => "–".into_any(),
+    };
+    let curve = move || {
+        calibrated
+            .get()
+            .and_then(|(_, curve)| curve)
+            .unwrap_or_else(|| "–".into())
+    };
     view! {
         <tr>
             <td>{of}</td>

@@ -1859,6 +1859,25 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
     };
     // An earlier read of every file, which a full Audit must not reuse.
     let earlier = env.audit(None);
+    // One file at a time, so that it stops with exactly two read: a Job's threads follow the root's shared readers.
+    use title_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    let one_reader = SettingsUpdate {
+        ceilings: Some(CeilingsUpdate {
+            roots: [(
+                "sets".to_owned(),
+                RootCeilingsUpdate {
+                    readers: Some(1.into()),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    env.store
+        .update_settings(&env.config, &one_reader, "Operator")
+        .unwrap();
     let job = env
         .store
         .enqueue_audit(

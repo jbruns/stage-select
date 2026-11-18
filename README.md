@@ -739,8 +739,8 @@ than 1:
 | `default`     | half                  | the default                                             |
 | `unthrottled` | all of it, and no limit on reads or writes | an otherwise idle server; the workbench's header says so while it is on |
 
-Under `gentle` and `default`, chdman is told to compress with the pace's share of the hash workers; `unthrottled`
-leaves it its own default, every core.
+Under `gentle` and `default`, each chdman is told as it starts to compress with the pace's share of the hash
+workers; `unthrottled` leaves it its own default, every core.
 
 A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
 running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;

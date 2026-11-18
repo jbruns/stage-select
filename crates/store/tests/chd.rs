@@ -670,6 +670,65 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
     assert_eq!(detail.items[0].state, ItemState::Pending, "{detail:?}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressing() {
+    let root = tempfile::tempdir().unwrap();
+    let (log, go) = (root.path().join("args"), root.path().join("go"));
+    // Each run records its arguments; the first waits until the pace has changed, then each fails, which is enough.
+    let fake = fake_chdman(
+        root.path(),
+        &format!(
+            "echo \"$*\" >> '{log}'\n[ \"$(wc -l < '{log}')\" -gt 1 ] || while [ ! -e '{go}' ]; do sleep 0.05; done\nexit 1",
+            log = log.display(),
+            go = go.display()
+        ),
+    );
+    let env = Env::new(Some(&fake));
+    let (folder, selection) = env.folder(&[CD, DVD]);
+    let plan = env.plan(&folder, selection);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let runs = || {
+        std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    std::thread::scope(|scope| {
+        let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while runs().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "chdman never ran");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let unthrottled = title_select_api::settings::SettingsUpdate {
+            pace: Some(title_select_api::settings::Pace::Unthrottled),
+            ..Default::default()
+        };
+        env.store
+            .update_settings(&env.config, &unthrottled, "Operator")
+            .unwrap();
+        std::fs::write(&go, "").unwrap();
+        running.join().unwrap().unwrap();
+    });
+
+    let runs = runs();
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert!(
+        runs[0].contains("--numprocessors"),
+        "the first CHD keeps the default pace's share: {runs:?}"
+    );
+    assert!(
+        !runs[1].contains("--numprocessors"),
+        "the next CHD is left every core, unthrottled: {runs:?}"
+    );
+}
+
 #[test]
 fn a_disc_zipped_in_its_source_set_is_read_once_for_all_its_tracks() {
     let Some(_) = chdman() else { return };

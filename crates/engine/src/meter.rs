@@ -362,11 +362,12 @@ struct JobShared {
 }
 
 impl JobShared {
-    /// The readers and hash workers it may have at work now: its threads, as far as the pools it shares allow.
+    /// The readers and hash workers it may have at work now: as many as the pools it shares allow, since it starts
+    /// threads as they do.
     fn allowance(&self) -> Option<Workers> {
         self.pools.get().map(|(readers, hashers)| Workers {
-            readers: self.ceilings.readers.min(readers.limit()),
-            hashers: self.ceilings.hashers.min(hashers.limit()),
+            readers: readers.limit(),
+            hashers: hashers.limit(),
         })
     }
 
