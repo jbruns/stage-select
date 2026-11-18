@@ -71,6 +71,7 @@ pub(crate) fn kind_label(kind: JobKind) -> &'static str {
         JobKind::Repair => "Repair",
         JobKind::Additions => "Additions",
         JobKind::StatWalk => "Check for changes",
+        JobKind::Calibration => "Calibration",
     }
 }
 
