@@ -425,11 +425,13 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
     for solid in [true, false] {
         let source = dir.path().join(format!("{solid}.7z"));
         write_7z(&source, &borrowed(&members), Method::Lzma2, solid);
+        let meter = title_select_engine::meter::Meter::default();
+        let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
         let gate = Gate::new(1);
         let decoding = Decoding {
             gate: &gate,
             max_dictionary_mib: 128,
-            read: &Default::default(),
+            read: &job.tally(Some("sets")),
         };
         let dest = created(&dir.path().join(format!("{solid}.zip")));
         let scratch = tempfile::tempdir_in(dir.path()).unwrap();
@@ -440,9 +442,24 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
             &File::open(&source).unwrap(),
             &decoding,
             scratch.path(),
-            &Default::default(),
+            &job.tally(Some("play")),
         )
         .unwrap();
+
+        // Tracks 02 and 01 are decoded before the cue sheet TorrentZip writes first, so wait in scratch: written and
+        // read back once each, counted for the Job alone.
+        let spill = meter.total() - meter.root("sets") - meter.root("play");
+        let staged = (members[0].1.len() + members[1].1.len()) as u64;
+        assert_eq!(
+            spill,
+            title_select_engine::meter::Counted {
+                read: staged,
+                written: staged,
+                files_read: 2,
+                files_written: 2,
+            },
+            "solid: {solid}"
+        );
 
         verify(&dest, &roms, &Default::default()).unwrap();
         let blocks = if solid { 1 } else { wanted.len() };

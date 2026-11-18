@@ -91,7 +91,8 @@ struct ChdWork<'a> {
     from: Tally,
     /// Where the bytes read from the Additions Root are counted.
     additions: Tally,
-    /// Where the bytes written in the store's scratch directory, and chdman's, are counted: for the Job alone.
+    /// Where the bytes written in and read from the store, its scratch directory and its SBI packs, and chdman's, are
+    /// counted: for the Job alone.
     scratch: Tally,
     chdman: std::result::Result<Chdman, String>,
     /// How long each run of chdman may take, by the size of the disc.
@@ -274,11 +275,13 @@ fn stage_chd(
         if n == 0 {
             break;
         }
+        work.scratch.read(n);
         hasher.update(&buf[..n]);
         io::Write::write_all(file, &buf[..n])
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
         work.to.wrote(n);
     }
+    work.scratch.file_read();
     work.to.file_written();
     let copied = hex(&hasher.finalize());
     work.store.fault_point(Fault::ChdCopied(seq));
@@ -321,7 +324,9 @@ fn hex(bytes: &[u8]) -> String {
 /// CD's track metadata must not say it holds more than the disc does, and nothing past its size when first seen is
 /// copied; while chdman extracts it, it is stopped once it writes more than the DAT's files. `found` must hold
 /// still, by `fstat`, from before it is copied until after. Returns the SHA-256 of what was copied, and its header, to
-/// check it by from then on; nothing is written to the folder.
+/// check it by from then on; nothing is written to the folder. `found` is counted as read from the Library Folder's
+/// Root, `work.to`; its copy as written for the Job alone, `work.scratch`; the cue sheet as read from the Source Set's
+/// Root, `work.from`.
 fn verify_found_chd(
     found: &File,
     game: &str,
@@ -417,10 +422,14 @@ fn verify_found_chd(
         if n == 0 {
             break;
         }
+        work.to.read(n);
         hasher.update(&buf[..n]);
         io::Write::write_all(&mut copy, &buf[..n])
             .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+        work.scratch.wrote(n);
     }
+    work.to.file_read();
+    work.scratch.file_written();
     if seen(found)? != before {
         return Err(Failure::Item("it changed while it was read".into()));
     }
@@ -781,7 +790,7 @@ fn stage_generated(
     ) {
         (GeneratedKind::M3u, Some(text), ..) => text.clone().into_bytes(),
         (GeneratedKind::Sbi, _, Some(pack), Some(member)) => store
-            .sbi_member(pack, member, &generated.sha256)
+            .sbi_member(pack, member, &generated.sha256, &work.scratch)
             .map_err(|e| Failure::Item(e.to_string()))?,
         _ => {
             return Err(Failure::Item(
@@ -791,6 +800,8 @@ fn stage_generated(
     };
     let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
     file.write_all(&bytes).map_err(at)?;
+    work.to.wrote(bytes.len());
+    work.to.file_written();
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(at)?;

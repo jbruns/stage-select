@@ -443,6 +443,11 @@ impl Run<'_> {
         let config = self.config;
         let limits = self.store.settings()?.chd_limits();
         let threads = self.store.pace().of(config.jobs.ceilings().hashers);
+        let set = self
+            .store
+            .read(|c| folder_by_id(c, self.folder))?
+            .source_set_id;
+        let job = self.store.meter.job(self.job);
         let work = super::ChdWork {
             store: self.store,
             chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
@@ -450,14 +455,21 @@ impl Run<'_> {
                     program,
                     threads,
                     deadline: limits.base,
-                    tally: self.store.meter.job(self.job).tally(None),
+                    tally: job.tally(None),
                 }
             }),
+            // The CHD cleaned up is read from the Library Folder it is in.
             to: self.to.clone(),
-            // A CHD cleaned up is read from the Library Folder it is in.
-            from: self.to.clone(),
+            // Its cue sheet is extracted from the Source Set.
+            from: job.tally(Some(
+                &self
+                    .store
+                    .read(|c| crate::sets::set_by_id(c, set))?
+                    .record
+                    .root,
+            )),
             additions: Default::default(),
-            scratch: self.store.meter.job(self.job).tally(None),
+            scratch: job.tally(None),
             limits,
             tmp: self.store.dir().join(crate::TMP),
             build: self.build,
@@ -466,13 +478,7 @@ impl Run<'_> {
         let game = e.game.as_deref().unwrap_or_default();
         let set_fd = match e.sources.is_empty() {
             true => Err(String::new()),
-            false => {
-                let set = self
-                    .store
-                    .read(|c| folder_by_id(c, self.folder))?
-                    .source_set_id;
-                self.store.set_folder_dir(config, set)?
-            }
+            false => self.store.set_folder_dir(config, set)?,
         };
         let cue = e.sources.first().map(|source| (source, &set_fd));
         Ok(

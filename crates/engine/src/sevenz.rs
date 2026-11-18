@@ -887,6 +887,11 @@ pub fn repack(
         next: 0,
         staged: HashMap::new(),
         scratch,
+        spill: decoding
+            .read
+            .job()
+            .map(|job| job.tally(None))
+            .unwrap_or_default(),
     };
     turns.drain(&judged, &mut writer)?;
     let blocks: BTreeSet<usize> = wanted.iter().filter_map(|&i| judged.block_of(i)).collect();
@@ -942,6 +947,8 @@ struct Turns<'r> {
     /// Members decoded before their turn: each one's scratch file, and how many ROMs are still to be read from it.
     staged: HashMap<usize, (PathBuf, usize)>,
     scratch: &'r Path,
+    /// Where the bytes staged in `scratch`, and read back from it, are counted: for the Job alone, in no Root.
+    spill: Tally,
 }
 
 impl Turns<'_> {
@@ -960,8 +967,12 @@ impl Turns<'_> {
         } else {
             let path = self.scratch.join(i.to_string());
             let mut file = File::create_new(&path).map_err(|e| format!("{}: {e}", entry.name))?;
-            let copied = io::copy(&mut member.take(entry.size.saturating_add(1)), &mut file)
-                .map_err(|e| format!("{}: {e}", entry.name))?;
+            let copied = io::copy(
+                &mut member.take(entry.size.saturating_add(1)),
+                &mut Metered::new(&mut file, &self.spill),
+            )
+            .map_err(|e| format!("{}: {e}", entry.name))?;
+            self.spill.file_written();
             if copied != entry.size {
                 return Err(format!(
                     "{}: it expands to other than its archive says; it was not read further",
@@ -1001,14 +1012,17 @@ impl Turns<'_> {
                 return Ok(());
             };
             let name = &self.order[self.next].0.name;
-            let mut file = File::open(&*path).map_err(|e| format!("{name}: {e}"))?;
+            let file = File::open(&*path).map_err(|e| format!("{name}: {e}"))?;
             let len = file.metadata().map_err(|e| format!("{name}: {e}"))?.len();
+            let spill = self.spill.clone();
+            let mut file = Reading::new(file, &spill);
             *uses -= 1;
             if *uses == 0 {
                 let (path, _) = self.staged.remove(&i).unwrap();
                 std::fs::remove_file(&path).map_err(|e| format!("{name}: {e}"))?;
             }
             self.write(len, &mut file, writer)?;
+            spill.file_read();
         }
         Ok(())
     }
