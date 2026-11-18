@@ -1162,4 +1162,4 @@ pub struct GameRow {
     pub game: Game,
 }
 
-// Temporary: a comment-only change to measure a warm image build (#198). Reverted in the next commit.
+// Temporary: a second comment-only change to measure a warm image build (#198). Reverted in a following commit.
