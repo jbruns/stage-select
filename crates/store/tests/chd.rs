@@ -419,7 +419,9 @@ fn outcome(check: &FolderCheck, target: &str) -> (FileOutcome, bool) {
 #[cfg(unix)]
 fn fake_chdman(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join("chdman");
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/chdman").join(name);
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/chdman")
+        .join(name);
     std::os::unix::fs::symlink(script, &path).unwrap();
     path
 }

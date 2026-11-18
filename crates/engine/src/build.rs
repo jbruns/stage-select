@@ -362,12 +362,14 @@ pub fn repack_members(
         .map_err(|e| e.to_string())
 }
 
+/// What a test runs each time a [`repack_sources`] on its thread has added a ROM, with the ROM's name: the repack
+/// waits, holding whatever it holds, until it returns.
+#[cfg(test)]
+type RepackPause = Box<dyn Fn(&str)>;
+
 #[cfg(test)]
 thread_local! {
-    /// What a test runs each time a [`repack_sources`] on its thread has added a ROM, with the ROM's name: the repack
-    /// waits, holding whatever it holds, until it returns.
-    static REPACK_PAUSE: std::cell::RefCell<Option<Box<dyn Fn(&str)>>> =
-        const { std::cell::RefCell::new(None) };
+    static REPACK_PAUSE: std::cell::RefCell<Option<RepackPause>> = const { std::cell::RefCell::new(None) };
 }
 
 /// One ROM of [`repack_sources`]: the ROM, the index of the source it is read from, and the member of that source,
@@ -1363,7 +1365,10 @@ mod tests {
 
         assert_eq!(
             *paused.borrow(),
-            [("a.bin".to_owned(), 1, false), ("b.bin".to_owned(), 1, false)],
+            [
+                ("a.bin".to_owned(), 1, false),
+                ("b.bin".to_owned(), 1, false)
+            ],
             "the repack held the Root's only reader after its first source was finished, and another Job waited"
         );
         assert_eq!(pool.taken(), 0, "the repack gave its reader back");
