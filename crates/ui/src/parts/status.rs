@@ -976,6 +976,69 @@ impl Status for FetchState {
     }
 }
 
+/// How one row of the calibration results stands: the host or a root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CalibrationStatus {
+    Unreadable,
+    Stale,
+    TooSmall,
+    TimedOut,
+    NotMeasured,
+    Measured,
+}
+
+impl Status for CalibrationStatus {
+    const ALL: &'static [Self] = &[
+        CalibrationStatus::Unreadable,
+        CalibrationStatus::Stale,
+        CalibrationStatus::TooSmall,
+        CalibrationStatus::TimedOut,
+        CalibrationStatus::NotMeasured,
+        CalibrationStatus::Measured,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            CalibrationStatus::Unreadable => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Unreadable",
+                "The calibration couldn't read it; the reason is under the results.",
+            ),
+            CalibrationStatus::Stale => look(
+                Glyph::ClockAlert,
+                Tone::Review,
+                "Stale",
+                "It changed since it was measured; its results still apply until you calibrate again.",
+            ),
+            CalibrationStatus::TooSmall => look(
+                Glyph::CircleDashed,
+                Tone::Neutral,
+                "Too small",
+                "It holds too little to read for a measurement worth having.",
+            ),
+            CalibrationStatus::TimedOut => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Timed out",
+                "The calibration couldn't find enough to read in time; calibrate again when it's quieter.",
+            ),
+            CalibrationStatus::NotMeasured => look(
+                Glyph::Clock,
+                Tone::Neutral,
+                "Not measured",
+                "No calibration has measured it yet.",
+            ),
+            CalibrationStatus::Measured => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Measured",
+                "Its results are current.",
+            ),
+        }
+    }
+}
+
 impl Status for JobState {
     const ALL: &'static [Self] = &JobState::ALL;
 
@@ -1182,6 +1245,7 @@ mod tests {
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
             ("selection groups", vocabulary::<GroupStatus>()),
+            ("calibration", vocabulary::<CalibrationStatus>()),
         ]
     }
 

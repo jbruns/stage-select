@@ -259,12 +259,18 @@ impl Store {
 
     /// Moves the oldest Queued Job to Running and returns it, or returns `None` when none is Queued. A stat walk is
     /// low priority: it is claimed only when no other Job is Queued, and never while a Repair or Build of its Source
-    /// Set is Queued or Running.
+    /// Set is Queued or Running. A Calibration goes ahead of every other Queued Job and runs alone: it is claimed
+    /// once no Job is Running, and no other Job is claimed while it is Queued or Running.
     pub fn claim_job(&self) -> Result<Option<Job>> {
         self.write(|tx| {
             let id: Option<i64> = tx
                 .query_row(
                     "SELECT id FROM jobs j WHERE state = 'queued'
+                       AND CASE WHEN kind = 'calibration'
+                           THEN NOT EXISTS (SELECT 1 FROM jobs r WHERE r.state = 'running')
+                           ELSE NOT EXISTS (SELECT 1 FROM jobs c WHERE c.kind = 'calibration'
+                                            AND c.state IN ('queued', 'running'))
+                       END
                        AND NOT (kind = 'stat_walk' AND EXISTS (
                            SELECT 1 FROM jobs o WHERE o.source_set_id = j.source_set_id
                            AND o.kind IN ('build', 'repair') AND o.state IN ('queued', 'running')))
@@ -364,7 +370,8 @@ impl Store {
     /// when the store opened. A first attempt becomes Interrupted and a fresh Job is queued for it with `workers`; a
     /// Job that was itself queued again becomes Failed. A Build Job becomes Interrupted and is not queued again, since
     /// its plan may no longer hold; [`Store::recover_builds`] then cleans up its folder. A Check Job becomes
-    /// Interrupted too. Each Job's change is one transaction.
+    /// Interrupted too, as do an Ingest Scan, a stat walk and a Calibration, which keeps what it finished. Each Job's
+    /// change is one transaction.
     pub fn recover_jobs(&self, workers: Workers) -> Result<Vec<Interruption>> {
         let running: Vec<(i64, u32, String)> = self.read(|c| {
             let mut stmt = c.prepare(
@@ -392,11 +399,14 @@ impl Store {
                     if kind == JobKind::Check.as_str()
                         || kind == JobKind::IngestScan.as_str()
                         || kind == JobKind::StatWalk.as_str()
+                        || kind == JobKind::Calibration.as_str()
                     {
                         let why = if kind == JobKind::Check.as_str() {
                             CHECK_INTERRUPTED
                         } else if kind == JobKind::StatWalk.as_str() {
                             crate::stale::WALK_INTERRUPTED
+                        } else if kind == JobKind::Calibration.as_str() {
+                            crate::calibration::INTERRUPTED
                         } else {
                             SCAN_INTERRUPTED
                         };

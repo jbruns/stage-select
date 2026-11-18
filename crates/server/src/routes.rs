@@ -22,6 +22,7 @@ use title_select_api::build::{
     FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanCleanup,
     PlanKeptDeletion,
 };
+use title_select_api::calibration::Calibration;
 use title_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
 use title_select_api::ingest::{
     DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest,
@@ -235,6 +236,9 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/events", get(job_events))
         .route("/jobs/{id}/cancellation", post(cancel_job))
+        .route("/jobs/{id}/calibration", get(job_calibration))
+        .route("/calibrations", post(start_calibration))
+        .route("/calibration", get(calibration))
         .route("/events", get(all_events))
         .merge(lifecycle::routes())
         .merge(coverage::routes())
@@ -2193,7 +2197,39 @@ async fn job(
     Ok(Json(blocking(&state, move |store| store.job(id)).await?))
 }
 
-/// Asks a Repair Job to stop at its next safe point.
+/// Queues a Calibration, which runs alone once every running Job ends; `409` while one is queued or running.
+async fn start_calibration(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+    let job = blocking(&state, move |store| store.enqueue_calibration(&actor)).await?;
+    state.jobs.changed(job.clone());
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+/// The Calibration results that apply now, and why they are Stale, if they are.
+async fn calibration(State(state): State<AppState>) -> ApiResult<Json<Calibration>> {
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.calibration(&config, title_select_store::calibration::cpus())
+        })
+        .await?,
+    ))
+}
+
+/// What one Calibration Job measured.
+async fn job_calibration(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Calibration>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.job_calibration(id)).await?,
+    ))
+}
+
+/// Asks a Repair, Build, Additions or Calibration Job to stop at its next safe point.
 async fn cancel_job(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,

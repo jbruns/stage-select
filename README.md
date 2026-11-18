@@ -361,6 +361,8 @@ save it, without a restart, and is kept in the store, so a backup of the store k
 | Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
 | RomM | whether to use RomM, its address, a RomM token, and the root RomM's library is in; see "RomM" | off |
 
+Below the settings, the page also starts a calibration and shows its results; see "Calibration".
+
 The webhook's URL and secret are write-only: once saved, the workbench and the API say only whether each is set, and
 you can replace or clear it, but not read it.
 
@@ -716,6 +718,55 @@ A selection is a job too, of kind `selection`. It runs one version of a selectio
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
 may have one audit job and one selection job queued or running at once. Afterwards, selections beyond the newest
 number of selections your retention setting keeps are pruned to their summary; the latest is never pruned.
+
+### Calibration
+
+A calibration measures what this computer and your roots can do, so you can see how many workers are worth running.
+It is a job of kind `calibration`, started from the workbench (Settings, then Operations), through the API, or with:
+
+```sh
+title-select calibrate --server <url>
+```
+
+It measures:
+
+- **The host.** It hashes data it makes up in memory with 1, 2, 4… hash workers, up to the CPUs the service can use,
+  through the same hashing audits use.
+- **Each root**, ingest roots included. It reads files with 1, 2, 4… payload readers, up to 32, as audits read them.
+  It reads the payloads of source sets you audited, those never read first, then those read longest ago; a root with
+  no audits is walked instead. Each file is read at most once in a calibration, and on Linux it asks the kernel to
+  drop each file from its page cache before and after reading it. It opens each file inside the root without
+  following a symlink, so it never reads outside the root. A root that holds less than about 1 GiB is too small to
+  measure: when its sweep reads less than that, it adds up the sizes of the root's other files, without reading them,
+  to check. A root none of whose files it could open or read is reported unreadable, with why.
+
+A step finds and opens files in batches, then reads each batch, so its time counts only reading. Each step stops after
+10 seconds or 2 GiB of reading, or when the root has nothing left to read. A step that spends a minute finding files
+without reaching either limit, for example passing over files with nothing in them, ends the sweep there; if that
+happens before the first step finishes, or it can't check the root holds about 1 GiB within a minute, the root is
+reported timed out. A sweep's knee is the fewest workers within
+10% of the fastest step, never past a step that was slower than the one before; a root's sweep stops at that slower
+step. The results keep each sweep's steps, its knee and the throughput at the knee, with the CPU count and each root's
+path at the time.
+
+A calibration only reads: it never writes to a root. A filesystem that caches what it reads, such as ZFS with its ARC,
+can make a root look faster than it is, so calibrate after a quiet period, when little has been read lately.
+
+A calibration goes ahead of every queued job and starts once the running jobs finish; while it runs, no other job
+starts, scheduled checks included. The workbench shows how many running jobs it waits for. Only one is queued or
+running at a time: starting another is refused with `409`. You can cancel it; it keeps the results of each root it
+finished. A calibration found running when the service starts is interrupted, keeping what it finished, and isn't
+run again.
+
+A calibration never runs again by itself. Its results are stale when the CPUs the service can use changed since the
+host was measured, a configured root was never measured, or a root's path changed since it was measured. The service
+says so in its log when it starts, and the workbench marks those rows stale. Stale results keep applying until you
+calibrate again. Each row shows the latest calibration that measured it, so a cancelled calibration leaves the earlier
+results of the roots it didn't reach.
+
+`calibrate --server` sends your operator token as `audit --server` does, shows progress on stderr and prints a table
+of the host's and each root's knee and steps on stdout. It exits non-zero when the calibration is cancelled or fails,
+the token is refused or the service cannot be reached.
 
 ### Stale source sets
 
@@ -1465,7 +1516,10 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/failed-jobs`                          | every failed job, however old, newest first                  |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
-| `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, or a build job at the next file; `409` once it has ended |
+| `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, a build job at the next file, or a calibration at its next step (a queued one ends at once); `409` once it has ended |
+| `POST /api/v1/calibrations`                        | queue a calibration job; `202`, or `409` while one is queued or running |
+| `GET /api/v1/calibration`                          | the calibration results that apply now: `{"host", "roots", "stale"}`. `host` is `{"job", "measured_at", "cpus", "curve", "knee"}` or `null`; each root `{"root", "path", "job", "measured_at", "outcome", "available_bytes", "curve", "knee", "error"?}`, `outcome` being `measured`, `too_small`, `unreadable` or `timed_out` and `available_bytes` the bytes its sweep read; each step of a `curve` `{"workers", "bytes", "duration_ms", "bytes_per_s"}` and a `knee` `{"workers", "bytes_per_s"}` or `null`; each of `stale` `{"reason": "cpus", "measured", "now"}`, `{"reason": "unmeasured", "root"}` or `{"reason": "moved", "root", "measured", "now"}` |
+| `GET /api/v1/jobs/{id}/calibration`                | what one calibration job measured, as above with `stale` empty; `404` for another kind of job |
 | `GET /api/v1/events`                               | server-sent events for every job, opening with a `resync`    |
 
 A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` back as `?cursor=` for the next page, and

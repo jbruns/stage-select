@@ -191,6 +191,7 @@ impl Env {
             hold_jobs: false,
             fetch_endpoints: Some(Endpoints::at(&provider.url)),
             romm_scan_timing: None,
+            calibration_limits: None,
         })
         .unwrap()
     }

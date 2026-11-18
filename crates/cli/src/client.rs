@@ -5,9 +5,10 @@ use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
+use title_select_api::calibration::Calibration;
 use title_select_api::{
-    AuditEvidence, ErrorBody, Finding, GameStatus, Health, Job, JobEvent, JobProgress, JobState,
-    PREFIX, Report, SSE_KEEP_ALIVE, StartAudit,
+    AuditEvidence, ErrorBody, Finding, GameStatus, Health, Job, JobEvent, JobKind, JobProgress,
+    JobState, PREFIX, Report, SSE_KEEP_ALIVE, StartAudit,
 };
 
 /// Succeeds only when `url` answers 200 with `{"status": "ok"}` within `timeout`. The reason for a failure is one
@@ -203,7 +204,7 @@ impl Client {
                         return Ok(Stream::Ended);
                     }
                 }
-                Ok(JobEvent::Progress(progress)) => show_progress(progress, shown),
+                Ok(JobEvent::Progress(progress)) => show_progress(job.kind, progress, shown),
                 Ok(
                     JobEvent::Resync(_)
                     | JobEvent::Settings(_)
@@ -254,14 +255,18 @@ fn update(job: &mut Job, next: Job) {
 }
 
 /// Shows progress every tenth of the way.
-fn show_progress(progress: JobProgress, shown: &mut Option<usize>) {
+fn show_progress(kind: JobKind, progress: JobProgress, shown: &mut Option<usize>) {
     let tenth = (progress.files_done * 10)
         .checked_div(progress.files_total)
         .unwrap_or(10);
     if *shown != Some(tenth) {
         *shown = Some(tenth);
+        let what = match kind {
+            JobKind::Calibration => "measured: the host, then each root",
+            _ => "files read",
+        };
         eprintln!(
-            "job {}: {}/{} files read",
+            "job {}: {}/{} {what}",
             progress.job, progress.files_done, progress.files_total
         );
     }
@@ -344,6 +349,36 @@ pub fn audit(request: Request) -> Result<Report, String> {
     );
     eprintln!("{}", crate::payloads_line(&report));
     Ok(report)
+}
+
+/// Starts a Calibration Job and follows it to its end, returning the Job and what it measured, and the results that
+/// apply now. A cancelled Calibration still returns what it finished.
+pub fn calibrate(
+    server: &str,
+    token_file: Option<&Path>,
+) -> Result<(Job, Calibration, Calibration), String> {
+    let token = read_token(token_file)?;
+    let client = Client::new(server, &token, Timing::default());
+    let response = client
+        .agent
+        .post(client.url("/calibrations"))
+        .header("Authorization", &client.authorization)
+        .send_empty()
+        .map_err(|e| client.unreachable(e))?;
+    let job: Job = client
+        .check(response)?
+        .body_mut()
+        .read_json()
+        .map_err(|e| e.to_string())?;
+    eprintln!(
+        "job {}: {}: calibration; it waits for running jobs to finish, and holds queued ones until it ends",
+        job.id,
+        job.state.as_str()
+    );
+    let job = client.follow(job)?;
+    let measured = client.get(&format!("/jobs/{}/calibration", job.id))?;
+    let now = client.get("/calibration")?;
+    Ok((job, measured, now))
 }
 
 #[cfg(test)]

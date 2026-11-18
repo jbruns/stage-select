@@ -9,6 +9,7 @@ pub mod activity_model;
 pub mod api;
 pub mod app;
 pub mod build_model;
+pub mod calibration_model;
 pub mod coverage_model;
 pub mod events;
 pub mod fetch_model;

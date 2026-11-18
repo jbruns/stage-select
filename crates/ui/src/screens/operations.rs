@@ -3,15 +3,19 @@
 //! restart; the webhook's URL and secret and the RomM token are write-only.
 
 use leptos::prelude::*;
-use title_select_api::Root;
+use title_select_api::calibration::Calibration;
 use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
 use title_select_api::settings::{NotifyEvent, Pace, SecretUpdate, SettingsView};
+use title_select_api::{Job, Root};
 
 use crate::api;
 use crate::app::{Loading, Problem};
+use crate::calibration_model;
 use crate::events::use_live;
+use crate::parts::legend::{Legend, present};
 use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
+use crate::parts::status::StatusBadge;
 use crate::settings_model::{
     CadenceDraft, Draft, pace_label, romm_check_lines, romm_platform_label, secret_state,
 };
@@ -40,6 +44,145 @@ pub fn Operations() -> impl IntoView {
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(saved)) => view! { <Editor saved /> }.into_any(),
         }}
+        <CalibrationSection />
+    }
+}
+
+/// Calibration: start one, see where it stands, and the results that apply now.
+#[component]
+fn CalibrationSection() -> impl IntoView {
+    let live = use_live();
+    let results = LocalResource::new(move || {
+        live.settled.get();
+        api::get::<Calibration>("/calibration")
+    });
+    let active = Memo::new(move |_| {
+        live.book.with(|book| {
+            let jobs = book.newest_first();
+            calibration_model::active(jobs.iter().map(|l| (&l.job, l.progress.as_ref())))
+        })
+    });
+    let start =
+        Action::new_local(|_: &()| async { api::post::<_, Job>("/calibrations", &()).await });
+    let cancel = Action::new_local(|job: &i64| {
+        let path = format!("/jobs/{job}/cancellation");
+        async move { api::post::<_, Job>(&path, &serde_json::json!({})).await }
+    });
+    view! {
+        <section class="staged" aria-labelledby="calibration-title">
+            <h2 id="calibration-title">"Calibration"</h2>
+            <p class="note small">
+                "Calibration measures how fast the host hashes as hash workers are added, and how fast each root reads as payload readers are added, on files you audited. It only reads; it never writes to a root. It waits for running jobs to finish, and no other job starts until it ends. It's never run again by itself: when the host or a root changes, its results are stale and still apply until you calibrate again."
+            </p>
+            <details class="note small">
+                <summary>"Calibrate after a quiet period"</summary>
+                <p>
+                    "A filesystem that caches what it reads, such as ZFS with its ARC, can make a root look faster than it is. Calibrate when little has been read lately, and each file is read at most once in a calibration."
+                </p>
+            </details>
+            <ActionPending action=start status="Starting calibration…">
+                <ActionPending action=cancel status="Cancelling calibration…">
+                    <div class="actions">
+                        {move || match active.get() {
+                            None => view! {
+                                <button
+                                    type="button"
+                                    class="primary"
+                                    disabled=move || start.pending().get()
+                                    on:click=move |_| {
+                                        start.dispatch_local(());
+                                    }
+                                >
+                                    "Calibrate"
+                                </button>
+                            }
+                                .into_any(),
+                            Some(calibrating) => {
+                                let job = calibrating.job;
+                                view! {
+                                    <p>
+                                        {calibrating.stands} " (job " {job} ")"
+                                    </p>
+                                    <button
+                                        type="button"
+                                        disabled=calibrating.cancelling || cancel.pending().get()
+                                        on:click=move |_| {
+                                            cancel.dispatch_local(job);
+                                        }
+                                    >
+                                        "Cancel calibration"
+                                    </button>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </div>
+                </ActionPending>
+            </ActionPending>
+            {move || match results.get() {
+                None => view! { <Loading what="the calibration" /> }.into_any(),
+                Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                Some(Ok(calibration)) => view! { <CalibrationResults calibration /> }.into_any(),
+            }}
+        </section>
+    }
+}
+
+#[component]
+fn CalibrationResults(calibration: Calibration) -> impl IntoView {
+    let rows = calibration_model::rows(&calibration);
+    let statuses = present(rows.iter().map(|r| r.status));
+    let reasons: Vec<String> = rows.iter().filter_map(|r| r.reason.clone()).collect();
+    let body = rows
+        .into_iter()
+        .map(|row| {
+            let (workers, rate) = match row.knee {
+                Some(knee) => (
+                    knee.workers.to_string(),
+                    calibration_model::mib_per_s(knee.bytes_per_s),
+                ),
+                None => ("–".to_owned(), "–".to_owned()),
+            };
+            view! {
+                <tr>
+                    <td><StatusBadge status=row.status /></td>
+                    <th scope="row">{row.what}</th>
+                    <td>{row.of}</td>
+                    <td class="numeric">{workers}</td>
+                    <td class="numeric">{rate}</td>
+                    <td>{calibration_model::curve(&row.curve)}</td>
+                </tr>
+            }
+        })
+        .collect_view();
+    view! {
+        <div class="table-scroll">
+            <table aria-label="Calibration results">
+                <thead>
+                    <tr>
+                        <th scope="col"><span class="label">"Status"</span></th>
+                        <th scope="col"><span class="label">"Measured"</span></th>
+                        <th scope="col"><span class="label">"Of"</span></th>
+                        <th scope="col" class="numeric"><span class="label">"Workers at the knee"</span></th>
+                        <th scope="col" class="numeric"><span class="label">"MiB/s at the knee"</span></th>
+                        <th scope="col"><span class="label">"MiB/s by workers"</span></th>
+                    </tr>
+                </thead>
+                <tbody>{body}</tbody>
+            </table>
+        </div>
+        <Legend statuses=statuses list="calibration" />
+        {(!reasons.is_empty())
+            .then(|| {
+                view! {
+                    <ul class="note small">
+                        {reasons.into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}
+                    </ul>
+                }
+            })}
+        <p class="note small">
+            "The knee is the fewest workers within 10% of the fastest, never past a step that was slower than the one before. The host's are hash workers; a root's are payload readers."
+        </p>
     }
 }
 

@@ -9,7 +9,7 @@ use title_select_store::observe::Metrics;
 pub const CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
 /// Every Job kind, so that each counter is present from the start.
-const KINDS: [&str; 8] = [
+const KINDS: [&str; 9] = [
     "audit",
     "selection",
     "build",
@@ -18,6 +18,7 @@ const KINDS: [&str; 8] = [
     "repair",
     "additions",
     "stat_walk",
+    "calibration",
 ];
 /// Every final Job state.
 const OUTCOMES: [&str; 3] = ["succeeded", "failed", "interrupted"];

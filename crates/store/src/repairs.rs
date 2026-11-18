@@ -1114,17 +1114,26 @@ impl Store {
     /// between two steps: each step that changed something, and every step of the same item, still ends as planned;
     /// every other is skipped. A build stops between two files: each file it put in place stays, recorded as built,
     /// and the original a conversion replaced is disposed of before it stops. An Additions Job stops between two
-    /// additions: each it started is settled, and each it had not fails.
+    /// additions: each it started is settled, and each it had not fails. A Calibration stops between two steps,
+    /// keeping what it measured of the Host and each Root it finished; a Queued one ends at once.
     pub fn cancel_job(&self, id: i64) -> Result<Job> {
         self.write(|tx| {
             let job = job_by_id(tx, id)?;
-            if !matches!(job.kind, JobKind::Repair | JobKind::Build | JobKind::Additions) {
+            if !matches!(
+                job.kind,
+                JobKind::Repair | JobKind::Build | JobKind::Additions | JobKind::Calibration
+            ) {
                 return Err(Error::Refused(format!(
-                    "job {id} is not a repair, a build or an additions job; only those can be cancelled"
+                    "job {id} is not a repair, a build, an additions job or a calibration; only those can be cancelled"
                 )));
             }
             if job.state.is_final() {
                 return Err(Error::Conflict(format!("job {id} has already ended")));
+            }
+            if job.kind == JobKind::Calibration && job.state == JobState::Queued {
+                // Nothing to stop at a safe point: it ends now, so it holds back no other Job.
+                crate::calibration::end_queued(tx, id)?;
+                return job_by_id(tx, id);
             }
             tx.execute(
                 "UPDATE jobs SET cancel_requested_at = ?2, version = version + 1

@@ -3,6 +3,7 @@
 
 pub mod additions;
 pub mod build;
+pub mod calibration;
 pub mod coverage;
 pub mod dat;
 pub mod discs;
@@ -848,6 +849,8 @@ pub enum JobKind {
     Additions,
     /// Stats a Source Set's files against its latest Audit, read-only and at low priority.
     StatWalk,
+    /// Measures how many hash workers the Host and payload readers each Root sustain, read-only and alone.
+    Calibration,
 }
 
 impl JobKind {
@@ -861,6 +864,7 @@ impl JobKind {
             JobKind::Repair => "repair",
             JobKind::Additions => "additions",
             JobKind::StatWalk => "stat_walk",
+            JobKind::Calibration => "calibration",
         }
     }
 
@@ -874,6 +878,7 @@ impl JobKind {
             JobKind::Repair,
             JobKind::Additions,
             JobKind::StatWalk,
+            JobKind::Calibration,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
