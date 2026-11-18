@@ -4289,3 +4289,78 @@ fn a_game_filled_from_a_7z_into_a_loose_source_set_is_stored_loose() {
         b"pong"
     );
 }
+
+#[test]
+fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_nothing() {
+    let big: Vec<u8> = (0..4u32 << 20)
+        .map(|n| (n.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect();
+    let env = Env::with(
+        "No-Intro",
+        &[("Big (USA)", vec![rom("Big (USA).bin", &big)])],
+    );
+    env.put("Big (Anthology).bin", &big);
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    assert!(
+        plan.content
+            .steps
+            .iter()
+            .any(|s| matches!(s.step, RepairStep::Build { .. })),
+        "{:#?}",
+        plan.content.steps
+    );
+    // Half of 1 MiB/s under the default pace: the 4 MiB original alone takes 8 s to read.
+    use title_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    let slow = SettingsUpdate {
+        ceilings: Some(CeilingsUpdate {
+            roots: [(
+                "sets".to_owned(),
+                RootCeilingsUpdate {
+                    read_mib_per_s: Some(1.into()),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    env.store
+        .update_settings(&env.config, &slow, "Operator")
+        .unwrap();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let before = env.store.meter().root("sets").read;
+
+    let (ended, took) = std::thread::scope(|scope| {
+        let running = scope.spawn(|| env.run_repair_job(&approved));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while env.store.meter().root("sets").read < before + (256 << 10) {
+            assert!(std::time::Instant::now() < deadline, "the build never read");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        env.store.cancel_job(approved.job.unwrap()).unwrap();
+        let cancelled = std::time::Instant::now();
+        let ended = running.join().unwrap();
+        (ended, cancelled.elapsed())
+    });
+
+    // Far less than the 8 s the rest of the read would take under the cap, with room for a loaded machine.
+    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.finished_at.is_some(), "{done:?}");
+    for outcome in &done.outcomes {
+        assert!(
+            !outcome.done && outcome.error.as_deref().unwrap().contains("cancelled"),
+            "{outcome:?}"
+        );
+    }
+    assert_eq!(
+        env.listing(),
+        [".title-select/marker", "Big (Anthology).bin"]
+    );
+}

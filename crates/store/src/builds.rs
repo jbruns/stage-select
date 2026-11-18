@@ -1949,7 +1949,18 @@ impl Store {
                 let target = &w.item.target;
                 if let Some(keep) = &w.item.converts {
                     check_marker(&dir, &expected).map_err(Error::Refused)?;
-                    match record_original(self, (&dir, &library), folder, id, keep, target)? {
+                    // Reading the original changes nothing, so a cancel stops it as it stops staging: the unit is
+                    // then left as one the Build never got to.
+                    let interruptible = Interruptible::new();
+                    let recorded =
+                        record_original(self, (&dir, &library), folder, id, keep, target)?;
+                    let interrupted = interruptible.interrupted();
+                    drop(interruptible);
+                    match recorded {
+                        Err(_) if interrupted => {
+                            cancelled = true;
+                            break;
+                        }
                         Ok(read) => {
                             originals.insert(w.seq, read);
                         }

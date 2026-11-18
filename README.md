@@ -764,16 +764,23 @@ sets its `write_mib_per_s`. What caps limit:
 
 A cap lets a short burst through after a pause, a tenth of a second's worth, so over a few seconds a root's rate stays
 within about a tenth of its cap. Each read, write or copy is let through before it moves, a quarter second's worth at
-most and never less than 64 KiB, so even a cap of 1 MiB/s holds. A copy moves once both its caps let it through.
+most and never less than 64 KiB, so even a cap of 1 MiB/s holds. Reads, writes and copies take their turns under a cap
+in the order they ask, so jobs that read without pause can't hold a copy back: it moves once its turn has come under
+both its caps.
 
 A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
 running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;
 it only holds back the next until fewer are at work. A byte-rate cap is quicker: a new one reaches a file being read or
-copied within about a second. Cancelling a build stops its staging within a tenth of a second, even while it waits on a
-cap. What a cancelled job still does to finish or roll back what it began waits for its caps as before: a cancel never
-lets bytes past a cap, nor leaves the next jobs to wait for them. Every job that reads a root shares that root's readers, whatever
-the job: an audit, a build, an ingest, a repair or a check each takes one reader for each file it reads, and a copy
-takes one of the root it reads from.
+copied within about a second.
+
+When you cancel a job, the work it can drop stops within a tenth of a second, even while it waits on a cap: a build's
+staging of a file and its reading of an original it then leaves as it was, and a repair's build of a game it hasn't yet
+changed anything for. What a cancelled job still does to finish or roll back what it began waits for its caps as
+before: a file a build already put in place, a repair's steps for a game it already changed, and an addition it
+started. A cancel never lets bytes past a cap, nor leaves the next jobs to wait for them.
+
+Every job that reads a root shares that root's readers, whatever the job: an audit, a build, an ingest, a repair or a
+check each takes one reader for each file it reads, and a copy takes one of the root it reads from.
 
 A selection is a job too, of kind `selection`. It runs one version of a selection profile against the source set's
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
