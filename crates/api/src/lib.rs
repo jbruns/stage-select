@@ -1161,3 +1161,5 @@ pub struct GameRow {
     #[serde(flatten)]
     pub game: Game,
 }
+
+// Temporary: a comment-only change to measure a warm image build (#198). Reverted in the next commit.
