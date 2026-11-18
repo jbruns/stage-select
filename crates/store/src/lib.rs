@@ -124,7 +124,7 @@ pub struct Store {
     writer: Mutex<Connection>,
     readers: Mutex<Vec<Connection>>,
     /// Holds the exclusive lock on `lock` until the store is dropped.
-    _lock: File,
+    _lock: Lock,
     fault: Mutex<Option<FaultHook>>,
     /// Held while Additions are published, so that only one caller settles them at a time.
     publishing: Mutex<()>,
@@ -333,8 +333,18 @@ pub enum Fault {
     AdditionRestoreReturned,
 }
 
+/// The store directory's exclusive lock, released when dropped. A process forked meanwhile shares the open lock file
+/// until it runs its program, and closing the store's copy alone would leave the lock held by the child's.
+struct Lock(File);
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.
-fn lock(dir: &Path) -> Result<File> {
+fn lock(dir: &Path) -> Result<Lock> {
     let path = dir.join(LOCK);
     let file = OpenOptions::new()
         .create(true)
@@ -343,7 +353,7 @@ fn lock(dir: &Path) -> Result<File> {
         .open(&path)
         .map_err(|e| io_error(&path, e))?;
     match file.try_lock() {
-        Ok(()) => Ok(file),
+        Ok(()) => Ok(Lock(file)),
         Err(TryLockError::WouldBlock) => Err(Error::Refused(format!(
             "{}: the store is in use by another Title Select process",
             dir.display()
@@ -589,6 +599,20 @@ mod tests {
         assert_eq!(revisions, 1);
         let version = store.read(|c| Ok(pragma(c, "user_version"))).unwrap();
         assert_eq!(version, format!("Integer({})", current.len() + 1));
+    }
+
+    /// A process forked while the store is open shares its lock's open file until it runs its program; dropping the
+    /// store releases the lock even so, as a store reopened in the same process needs.
+    #[test]
+    fn a_dropped_store_is_unlocked_though_a_copy_of_its_lock_file_is_still_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let copy = store._lock.0.try_clone().unwrap();
+
+        drop(store);
+
+        Store::open(dir.path()).unwrap();
+        drop(copy);
     }
 
     #[test]
