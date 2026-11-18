@@ -1,0 +1,7 @@
+#!/bin/sh
+# A chdman that makes a CHD, and gives back tracks of a two-track CD's sizes, 300 and 200 sectors, but other bytes.
+case "$1" in
+createcd) printf 'MComprHD' > out.chd ;;
+extractcd) : > x/x.cue; head -c 705600 /dev/zero > x/t1.bin; head -c 470400 /dev/zero > x/t2.bin ;;
+*) exit 2 ;;
+esac

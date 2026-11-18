@@ -1,0 +1,5 @@
+#!/bin/sh
+# A chdman that writes without end to the file named in `writes`, in the folder it runs in, making its folder first.
+file=$(cat writes)
+mkdir -p "$(dirname "$file")"
+while :; do head -c 65536 /dev/zero >> "$file"; done

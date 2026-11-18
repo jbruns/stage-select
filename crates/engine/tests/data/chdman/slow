@@ -1,0 +1,3 @@
+#!/bin/sh
+# A chdman that never finishes in time.
+exec sleep 30

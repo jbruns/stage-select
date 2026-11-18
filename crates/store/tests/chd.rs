@@ -413,13 +413,14 @@ fn outcome(check: &FolderCheck, target: &str) -> (FileOutcome, bool) {
     (file.outcome, file.hashed)
 }
 
-/// A shell script standing in for chdman: `body` runs with its arguments.
+/// A shell script standing in for chdman: `name` in `tests/data/chdman`, linked into `dir`, where it finds and leaves
+/// the files it says. Linked, not written: a script written while another thread forks may be held open for writing
+/// in the child, and running it then fails as a busy text file.
 #[cfg(unix)]
-fn fake_chdman(dir: &Path, body: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join("fake-chdman");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+fn fake_chdman(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join("chdman");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/chdman").join(name);
+    std::os::unix::fs::symlink(script, &path).unwrap();
     path
 }
 
@@ -598,18 +599,7 @@ fn a_chd_whose_metadata_changed_over_the_same_data_is_drift() {
 fn a_chd_whose_extraction_does_not_match_the_dat_is_never_put_in_place() {
     let root = tempfile::tempdir().unwrap();
     // It makes a CHD, and gives back tracks of the right sizes but other bytes.
-    let fake = fake_chdman(
-        root.path(),
-        &format!(
-            "case \"$1\" in\n\
-             createcd) printf 'MComprHD' > out.chd ;;\n\
-             extractcd) : > x/x.cue; head -c {} /dev/zero > x/t1.bin; head -c {} /dev/zero > x/t2.bin ;;\n\
-             *) exit 2 ;;\n\
-             esac",
-            2352 * 300,
-            2352 * 200
-        ),
-    );
+    let fake = fake_chdman(root.path(), "mismatched");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -638,7 +628,7 @@ fn a_chd_whose_extraction_does_not_match_the_dat_is_never_put_in_place() {
 #[test]
 fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
     let root = tempfile::tempdir().unwrap();
-    let fake = fake_chdman(root.path(), "exec sleep 30");
+    let fake = fake_chdman(root.path(), "slow");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -674,16 +664,10 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
 #[test]
 fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressing() {
     let root = tempfile::tempdir().unwrap();
-    let (log, go) = (root.path().join("args"), root.path().join("go"));
+    let (log, held) = (root.path().join("args"), root.path().join("held"));
     // Each run records its arguments; the first waits until the pace has changed, then each fails, which is enough.
-    let fake = fake_chdman(
-        root.path(),
-        &format!(
-            "echo \"$*\" >> '{log}'\n[ \"$(wc -l < '{log}')\" -gt 1 ] || while [ ! -e '{go}' ]; do sleep 0.05; done\nexit 1",
-            log = log.display(),
-            go = go.display()
-        ),
-    );
+    std::fs::write(&held, "").unwrap();
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD, DVD]);
     let plan = env.plan(&folder, selection);
@@ -713,7 +697,7 @@ fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressin
         env.store
             .update_settings(&env.config, &unthrottled, "Operator")
             .unwrap();
-        std::fs::write(&go, "").unwrap();
+        std::fs::remove_file(&held).unwrap();
         running.join().unwrap().unwrap();
     });
 
@@ -735,10 +719,7 @@ fn a_pace_changed_while_a_chds_inputs_are_prepared_reaches_the_chdman_it_then_st
     use std::sync::atomic::{AtomicBool, Ordering};
     let root = tempfile::tempdir().unwrap();
     let log = root.path().join("args");
-    let fake = fake_chdman(
-        root.path(),
-        &format!("echo \"$*\" >> '{}'\nexit 1", log.display()),
-    );
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -906,22 +887,12 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
     }
 }
 
-/// A chdman that runs `real`, except as `disc2` says for Disc 2 of Saga: its shell commands, run in place of
-/// chdman's createcd, or after its extractcd, in the scratch directory.
+/// A chdman that runs `real`, linked beside it in `dir`, except as `name` in `tests/data/chdman` says for Disc 2 of
+/// Saga.
 #[cfg(unix)]
-fn saga_chdman(dir: &Path, real: &Path, create2: &str, extract2: &str) -> PathBuf {
-    fake_chdman(
-        dir,
-        &format!(
-            "real={real:?}\n\
-             case \"$1:$3\" in\n\
-             createcd:*\"Disc 2\"*) touch disc2; {create2} ;;\n\
-             extractcd:*) \"$real\" \"$@\" || exit $?; if [ -f disc2 ]; then {extract2}; fi ;;\n\
-             *) exec \"$real\" \"$@\" ;;\n\
-             esac",
-            real = real.display().to_string()
-        ),
-    )
+fn saga_chdman(dir: &Path, real: &Path, name: &str) -> PathBuf {
+    std::os::unix::fs::symlink(real, dir.join("real")).unwrap();
+    fake_chdman(dir, name)
 }
 
 /// An Env with both of Saga's discs built as TorrentZips, and then stored as CHD: the folder, the selection, and the
@@ -1014,12 +985,7 @@ fn when_one_disc_fails_to_verify_no_disc_of_its_game_changes_format() {
     let Some(real) = chdman() else { return };
     let root = tempfile::tempdir().unwrap();
     // Disc 2's CHD gives back other bytes.
-    let fake = saga_chdman(
-        root.path(),
-        &real,
-        "exec \"$real\" \"$@\"",
-        "printf XXXX | dd of=x/t1.bin conv=notrunc 2>/dev/null",
-    );
+    let fake = saga_chdman(root.path(), &real, "saga-disc-2-differs");
     let env = Env::new(Some(&fake));
     let (folder, _, plan) = saga_converting(&env);
     let ended = env.build(&plan);
@@ -1051,12 +1017,7 @@ fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
     let Some(real) = chdman() else { return };
     let root = tempfile::tempdir().unwrap();
     let slow = root.path().join("slow");
-    let fake = saga_chdman(
-        root.path(),
-        &real,
-        &format!("touch {:?}; exec sleep 30", slow.display().to_string()),
-        "true",
-    );
+    let fake = saga_chdman(root.path(), &real, "saga-disc-2-slow");
     let env = Env::new(Some(&fake));
     let (folder, _, plan) = saga_converting(&env);
     let job = env
@@ -1403,11 +1364,8 @@ fn only_item(env: &Env, job: &title_select_api::Job) -> title_select_api::build:
 #[test]
 fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
     let root = tempfile::tempdir().unwrap();
-    let ran = root.path().join("ran");
-    let fake = fake_chdman(
-        root.path(),
-        &format!("touch {:?}; exit 1", ran.display().to_string()),
-    );
+    let ran = root.path().join("args");
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[ECHO]);
     let ended = env.build(&env.plan(&folder, selection));
@@ -1428,7 +1386,7 @@ fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
 #[test]
 fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
     let root = tempfile::tempdir().unwrap();
-    let fake = fake_chdman(root.path(), "exec sleep 30");
+    let fake = fake_chdman(root.path(), "slow");
     let env = Env::with(Some(&fake));
     env.store
         .update_settings(
