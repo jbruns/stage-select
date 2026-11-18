@@ -5,25 +5,38 @@
 //! write. A [`Tally`] is resolved once, for a Job and a Root, before any byte moves, and every count goes through
 //! [`Tally::read`] or [`Tally::wrote`]: that is where a Root's byte-rate cap (#193) takes its tokens.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use title_select_api::{Rates, Workers};
 
-/// Bytes and files read and written, counted as they move.
+/// What one thread counted for one [`Flow`], on a cache line of its own. Only that thread writes it, so each count is
+/// a plain load and store, never a read-modify-write, and no other thread's counting touches its line; the sampler
+/// only loads it.
 #[derive(Debug, Default)]
-pub struct Counts {
+#[repr(align(128))]
+struct Slot {
     read: AtomicU64,
     written: AtomicU64,
     files_read: AtomicU64,
     files_written: AtomicU64,
 }
 
-impl Counts {
+impl Slot {
+    /// Adds `n` to `count`, which only this slot's thread writes.
+    #[inline]
+    fn add(count: &AtomicU64, n: u64) {
+        count.store(
+            count.load(Ordering::Relaxed).wrapping_add(n),
+            Ordering::Relaxed,
+        );
+    }
+
     fn now(&self) -> Counted {
         Counted {
             read: self.read.load(Ordering::Relaxed),
@@ -34,7 +47,51 @@ impl Counts {
     }
 }
 
-/// What [`Counts`] held at one moment.
+/// What one Job counted from or into one Root, or into none: a slot for each thread that counted into it, summed only
+/// when sampled.
+#[derive(Debug, Default)]
+struct Flow {
+    slots: Mutex<Vec<Arc<Slot>>>,
+}
+
+impl Flow {
+    fn now(&self) -> Counted {
+        self.slots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .fold(Counted::default(), |sum, slot| sum + slot.now())
+    }
+}
+
+thread_local! {
+    /// This thread's slot in each Flow it has counted into. A Flow is held weakly, so its memory, and the address
+    /// matched on, isn't reused while its entry is here; entries of Flows gone are dropped when a new one is added.
+    static SLOTS: RefCell<Vec<(Weak<Flow>, Arc<Slot>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Counts into this thread's slot of `flow`, registering one the first time this thread counts into it.
+#[inline]
+fn count(flow: &Arc<Flow>, add: impl FnOnce(&Slot)) {
+    SLOTS.with_borrow_mut(|slots| {
+        if let Some((_, slot)) = slots
+            .iter()
+            .find(|(f, _)| std::ptr::eq(f.as_ptr(), Arc::as_ptr(flow)))
+        {
+            return add(slot);
+        }
+        slots.retain(|(f, _)| f.strong_count() > 0);
+        let slot = Arc::new(Slot::default());
+        flow.slots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(slot.clone());
+        add(&slot);
+        slots.push((Arc::downgrade(flow), slot));
+    });
+}
+
+/// What was counted, at one moment.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counted {
     pub read: u64,
@@ -43,34 +100,38 @@ pub struct Counted {
     pub files_written: u64,
 }
 
+impl std::ops::Add for Counted {
+    type Output = Counted;
+
+    fn add(self, o: Counted) -> Counted {
+        Counted {
+            read: self.read + o.read,
+            written: self.written + o.written,
+            files_read: self.files_read + o.files_read,
+            files_written: self.files_written + o.files_written,
+        }
+    }
+}
+
 /// Where one Job's bytes from or into one Root are counted. A detached tally ([`Tally::default`]) counts nothing.
+/// Cloning it, and sharing it between threads, is cheap: each thread counts into a slot of its own.
 #[derive(Debug, Clone, Default)]
 pub struct Tally(Option<Arc<Sinks>>);
 
 #[derive(Debug)]
 struct Sinks {
     job: JobMeter,
-    root: Option<Arc<Counts>>,
-}
-
-impl Sinks {
-    fn each(&self, add: impl Fn(&Counts)) {
-        add(&self.job.0.counts);
-        if let Some(root) = &self.root {
-            add(root);
-        }
-        add(&self.job.0.total);
-    }
+    flow: Arc<Flow>,
 }
 
 impl Tally {
     /// Counts `n` payload bytes read.
+    // A Root's byte-rate cap (#193) takes its tokens here and in `wrote`, before counting, and only under a pace that
+    // caps: unthrottled, nothing waits.
     #[inline]
     pub fn read(&self, n: usize) {
         if let Some(sinks) = &self.0 {
-            sinks.each(|c| {
-                c.read.fetch_add(n as u64, Ordering::Relaxed);
-            });
+            count(&sinks.flow, |s| Slot::add(&s.read, n as u64));
         }
     }
 
@@ -78,28 +139,27 @@ impl Tally {
     #[inline]
     pub fn wrote(&self, n: usize) {
         if let Some(sinks) = &self.0 {
-            sinks.each(|c| {
-                c.written.fetch_add(n as u64, Ordering::Relaxed);
-            });
+            count(&sinks.flow, |s| Slot::add(&s.written, n as u64));
         }
     }
 
     /// Counts one file whose payloads were read.
     pub fn file_read(&self) {
         if let Some(sinks) = &self.0 {
-            sinks.each(|c| {
-                c.files_read.fetch_add(1, Ordering::Relaxed);
-            });
+            count(&sinks.flow, |s| Slot::add(&s.files_read, 1));
         }
     }
 
     /// Counts one file written.
     pub fn file_written(&self) {
         if let Some(sinks) = &self.0 {
-            sinks.each(|c| {
-                c.files_written.fetch_add(1, Ordering::Relaxed);
-            });
+            count(&sinks.flow, |s| Slot::add(&s.files_written, 1));
         }
+    }
+
+    /// A tally for Root `root` of the Job the current thread runs, or one that counts nothing when it runs none.
+    pub fn of_this_thread(root: Option<&str>) -> Tally {
+        this_thread().map_or_else(Tally::default, |job| job.tally(root))
     }
 
     /// The Job this tally counts for, if any.
@@ -108,12 +168,19 @@ impl Tally {
     }
 }
 
-/// Every Job's counts, every Root's, and the total, since the Service started.
+/// Every Job's counts, every Root's, and the total, since the Service started: summed from the Jobs metered now, and
+/// from what the Jobs that ended left behind.
 #[derive(Debug, Default)]
 pub struct Meter {
-    total: Arc<Counts>,
-    roots: Arc<RwLock<BTreeMap<String, Arc<Counts>>>>,
     jobs: Mutex<BTreeMap<i64, JobMeter>>,
+    ended: Mutex<Left>,
+}
+
+/// What the Jobs that ended counted, in total and for each Root.
+#[derive(Debug, Default)]
+struct Left {
+    total: Counted,
+    roots: BTreeMap<String, Counted>,
 }
 
 /// One Job's counts, and how many of its payload readers, hash workers and chdman runs are at work now. Cloning it
@@ -126,12 +193,22 @@ struct JobShared {
     id: i64,
     started: Instant,
     ceilings: Workers,
-    counts: Counts,
+    /// By the Root counted from or into; none for what is counted for the Job alone.
+    flows: Mutex<BTreeMap<Option<String>, Arc<Flow>>>,
     readers: AtomicUsize,
     hashers: AtomicUsize,
     chdman: AtomicUsize,
-    total: Arc<Counts>,
-    roots: Arc<RwLock<BTreeMap<String, Arc<Counts>>>>,
+}
+
+impl JobShared {
+    fn by_root(&self) -> Vec<(Option<String>, Counted)> {
+        self.flows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(root, flow)| (root.clone(), flow.now()))
+            .collect()
+    }
 }
 
 /// What a Job read and wrote, and for how long it was metered.
@@ -168,12 +245,10 @@ impl Meter {
                     id,
                     started: Instant::now(),
                     ceilings,
-                    counts: Counts::default(),
+                    flows: Mutex::default(),
                     readers: AtomicUsize::new(0),
                     hashers: AtomicUsize::new(0),
                     chdman: AtomicUsize::new(0),
-                    total: self.total.clone(),
-                    roots: self.roots.clone(),
                 }))
             })
             .clone()
@@ -190,60 +265,74 @@ impl Meter {
         )
     }
 
-    /// Stops metering Job `id`, returning what it read and wrote; none if it wasn't metered.
+    /// Stops metering Job `id`, returning what it read and wrote; none if it wasn't metered. What it counted stays in
+    /// its Roots' counts and the total; anything still counted for it after this is not.
     pub fn end(&self, id: i64) -> Option<Ended> {
-        let job = self
-            .jobs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&id)?;
+        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let job = jobs.remove(&id)?;
+        let by_root = job.0.by_root();
+        let mut ended = self.ended.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut counted = Counted::default();
+        for (root, c) in by_root {
+            counted = counted + c;
+            if let Some(root) = root {
+                let left = ended.roots.entry(root).or_default();
+                *left = *left + c;
+            }
+        }
+        ended.total = ended.total + counted;
         Some(Ended {
-            counted: job.0.counts.now(),
+            counted,
             duration: job.0.started.elapsed(),
         })
     }
 
     /// Everything counted so far.
     pub fn total(&self) -> Counted {
-        self.total.now()
+        self.sample().total
     }
 
     /// What was counted for the Root named `root` so far.
     pub fn root(&self, root: &str) -> Counted {
-        self.roots
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(root)
-            .map(|c| c.now())
+        self.sample()
+            .roots
+            .into_iter()
+            .find(|(name, _)| name == root)
+            .map(|(_, c)| c)
             .unwrap_or_default()
     }
 
     /// The counts now, with each metered Job's workers at work.
     pub fn sample(&self) -> Sample {
-        let jobs = self
-            .jobs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let ended = self.ended.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut total = ended.total;
+        let mut roots = ended.roots.clone();
+        let jobs = jobs
             .values()
-            .map(|j| JobSample {
-                id: j.0.id,
-                counted: j.0.counts.now(),
-                readers: j.0.readers.load(Ordering::Relaxed),
-                hashers: j.0.hashers.load(Ordering::Relaxed),
-                chdman: j.0.chdman.load(Ordering::Relaxed) > 0,
-                ceilings: j.0.ceilings,
+            .map(|j| {
+                let mut counted = Counted::default();
+                for (root, c) in j.0.by_root() {
+                    counted = counted + c;
+                    if let Some(root) = root {
+                        let sum = roots.entry(root).or_default();
+                        *sum = *sum + c;
+                    }
+                }
+                total = total + counted;
+                JobSample {
+                    id: j.0.id,
+                    counted,
+                    readers: j.0.readers.load(Ordering::Relaxed),
+                    hashers: j.0.hashers.load(Ordering::Relaxed),
+                    chdman: j.0.chdman.load(Ordering::Relaxed) > 0,
+                    ceilings: j.0.ceilings,
+                }
             })
             .collect();
-        let roots = self
-            .roots
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .map(|(name, c)| (name.clone(), c.now()))
-            .collect();
         Sample {
-            total: self.total.now(),
-            roots,
+            total,
+            roots: roots.into_iter().collect(),
             jobs,
         }
     }
@@ -253,33 +342,26 @@ impl JobMeter {
     /// Where this Job's bytes from or into the Root named `root` are counted; with no Root, only for the Job and in
     /// total.
     pub fn tally(&self, root: Option<&str>) -> Tally {
-        let root = root.map(|name| {
-            if let Some(counts) = self
-                .0
-                .roots
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(name)
-            {
-                return counts.clone();
-            }
-            self.0
-                .roots
-                .write()
-                .unwrap_or_else(PoisonError::into_inner)
-                .entry(name.to_owned())
-                .or_default()
-                .clone()
-        });
+        let flow = self
+            .0
+            .flows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(root.map(str::to_owned))
+            .or_default()
+            .clone();
         Tally(Some(Arc::new(Sinks {
             job: self.clone(),
-            root,
+            flow,
         })))
     }
 
     /// What this Job has read and written so far.
     pub fn counted(&self) -> Counted {
-        self.0.counts.now()
+        self.0
+            .by_root()
+            .into_iter()
+            .fold(Counted::default(), |sum, (_, c)| sum + c)
     }
 
     /// Counts a payload reader at work until the guard drops.
@@ -305,7 +387,7 @@ impl JobMeter {
 }
 
 thread_local! {
-    static THIS_THREAD: std::cell::RefCell<Option<JobMeter>> = const { std::cell::RefCell::new(None) };
+    static THIS_THREAD: RefCell<Option<JobMeter>> = const { RefCell::new(None) };
 }
 
 /// The meter of the Job the current thread runs, if one is set.
@@ -426,15 +508,19 @@ impl<W: Seek> Seek for Metered<'_, W> {
     }
 }
 
-/// A reader that counts every payload byte read through it.
-pub(crate) struct Reading<'t, R> {
+/// A reader that counts every byte read through it: wrapped round a file, the bytes read from that file.
+pub struct Reading<'t, R> {
     inner: R,
     tally: &'t Tally,
 }
 
 impl<'t, R> Reading<'t, R> {
-    pub(crate) fn new(inner: R, tally: &'t Tally) -> Self {
+    pub fn new(inner: R, tally: &'t Tally) -> Self {
         Reading { inner, tally }
+    }
+
+    pub fn into_inner(self) -> R {
+        self.inner
     }
 }
 
@@ -452,80 +538,123 @@ impl<R: Seek> Seek for Reading<'_, R> {
     }
 }
 
+/// A reader of an archive file that counts the bytes read through it only while `on` is set: those of a member's
+/// stored payload, and not of the directory or the headers read to find it.
+pub(crate) struct Switched<'t, R> {
+    inner: R,
+    tally: &'t Tally,
+    on: &'t Cell<bool>,
+}
+
+impl<'t, R> Switched<'t, R> {
+    pub(crate) fn new(inner: R, tally: &'t Tally, on: &'t Cell<bool>) -> Self {
+        Switched { inner, tally, on }
+    }
+}
+
+impl<R: Read> Read for Switched<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if self.on.get() {
+            self.tally.read(n);
+        }
+        Ok(n)
+    }
+}
+
+impl<R: Seek> Seek for Switched<'_, R> {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        self.inner.seek(to)
+    }
+}
+
 /// The bytes a copy asks the kernel for at once: a multiple of every ZFS record size and of the Btrfs and XFS block
 /// sizes, so a filesystem that shares blocks still can, and small enough that each chunk is counted as it goes.
 pub const COPY_CHUNK: usize = 64 << 20;
 
-/// Copies `from`, from its offset to its end, into `to` at its offset, counting each chunk as written to `tally`.
-/// On Linux each chunk is one `copy_file_range`, which lets the filesystem share or offload it; where the kernel or
-/// filesystem refuses it, and elsewhere, the rest is copied byte by byte. Returns the bytes copied.
-pub fn copy_chunked(from: &File, to: &File, tally: &Tally) -> io::Result<u64> {
-    copy_with(from, to, tally, COPY_CHUNK, cfg!(target_os = "linux"))
+/// Copies `from`, from its offset to its end, into `to` at its offset, counting each chunk as read from `from`'s Root
+/// to `src` and as written into `to`'s to `dst`, each on its own even where both are the same Root. On Linux each
+/// chunk is first one `copy_file_range`, which lets the filesystem share or offload it; where the kernel or filesystem
+/// refuses it, and elsewhere, the rest is copied by [`io::copy`] a chunk at a time, which still copies in the kernel
+/// where it can. Returns the bytes copied.
+pub fn copy_chunked(from: &File, src: &Tally, to: &File, dst: &Tally) -> io::Result<u64> {
+    copy_with((from, src), (to, dst), COPY_CHUNK, &mut copy_range)
 }
 
-/// [`copy_chunked`], in chunks of `chunk` bytes, trying `copy_file_range` first only if `in_kernel`.
+/// What one `copy_file_range` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InKernel {
+    /// It copied this many bytes, advancing both offsets; none at the end of the file.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Copied(usize),
+    /// The kernel or filesystem can't copy these files this way.
+    Refused,
+}
+
+/// [`copy_chunked`], in chunks of `chunk` bytes, through `kernel` for each `copy_file_range`.
 pub(crate) fn copy_with(
-    from: &File,
-    to: &File,
-    tally: &Tally,
+    (from, src): (&File, &Tally),
+    (to, dst): (&File, &Tally),
     chunk: usize,
-    in_kernel: bool,
+    kernel: &mut dyn FnMut(&File, &File, usize) -> io::Result<InKernel>,
 ) -> io::Result<u64> {
     let mut copied = 0u64;
-    if in_kernel {
-        match copy_in_kernel(from, to, tally, chunk, &mut copied) {
-            Ok(true) => return Ok(copied),
-            Ok(false) => {}
-            Err(e) => return Err(e),
+    let counted = |n: u64| {
+        src.read(n as usize);
+        dst.wrote(n as usize);
+    };
+    loop {
+        match kernel(from, to, chunk)? {
+            // A first call that copies nothing may be a filesystem that copies nothing this way, as overlayfs once
+            // did, rather than an empty file: the copy below tells them apart. Later, nothing is the end.
+            InKernel::Copied(0) if copied == 0 => break,
+            InKernel::Copied(0) => return Ok(copied),
+            InKernel::Copied(n) => {
+                counted(n as u64);
+                copied += n as u64;
+            }
+            InKernel::Refused => break,
         }
     }
-    // Byte by byte from where the kernel stopped, if it copied any: each chunk advanced both offsets.
-    let mut reader = from;
-    let mut out = Metered::new(to, tally);
-    let mut buf = vec![0; chunk.min(1 << 20)];
+    // From where the kernel stopped, if it copied any: each chunk advanced both offsets. `io::copy` between two files
+    // keeps std's own kernel copies, `sendfile` among them, before it falls back to a buffer.
     loop {
-        let n = match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => n,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        out.write_all(&buf[..n])?;
-        copied += n as u64;
+        let reader = from;
+        let mut writer = to;
+        let n = io::copy(&mut reader.take(chunk as u64), &mut writer)?;
+        if n == 0 {
+            return Ok(copied);
+        }
+        counted(n);
+        copied += n;
     }
-    Ok(copied)
 }
 
-/// Copies with `copy_file_range` until the end of `from`, returning true; false, having counted what it copied in
-/// `copied`, when the kernel or filesystem can't copy this way and the rest must be copied byte by byte.
+/// One `copy_file_range` of up to `chunk` bytes, from and to each file's offset.
 #[cfg(target_os = "linux")]
-fn copy_in_kernel(
-    from: &File,
-    to: &File,
-    tally: &Tally,
-    chunk: usize,
-    copied: &mut u64,
-) -> io::Result<bool> {
+fn copy_range(from: &File, to: &File, chunk: usize) -> io::Result<InKernel> {
     use rustix::io::Errno;
     loop {
         match rustix::fs::copy_file_range(from, None, to, None, chunk) {
-            Ok(0) => return Ok(true),
-            Ok(n) => {
-                tally.wrote(n);
-                *copied += n as u64;
-            }
+            Ok(n) => return Ok(InKernel::Copied(n)),
             Err(Errno::INTR) => {}
-            Err(Errno::XDEV | Errno::INVAL | Errno::NOSYS | Errno::OPNOTSUPP) => return Ok(false),
-            // Refused outright, as for a file open for appending.
-            Err(Errno::PERM | Errno::BADF | Errno::OVERFLOW) if *copied == 0 => return Ok(false),
+            Err(
+                Errno::XDEV
+                | Errno::INVAL
+                | Errno::NOSYS
+                | Errno::OPNOTSUPP
+                | Errno::PERM
+                | Errno::BADF
+                | Errno::OVERFLOW,
+            ) => return Ok(InKernel::Refused),
             Err(e) => return Err(e.into()),
         }
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn copy_in_kernel(_: &File, _: &File, _: &Tally, _: usize, _: &mut u64) -> io::Result<bool> {
-    Ok(false)
+fn copy_range(_: &File, _: &File, _: usize) -> io::Result<InKernel> {
+    Ok(InKernel::Refused)
 }
 
 #[cfg(test)]
@@ -621,32 +750,174 @@ mod tests {
         assert_eq!(meter.sample().jobs[0].readers, 1);
     }
 
-    fn copy_test(in_kernel: bool) {
-        let dir = tempfile::tempdir().unwrap();
-        let bytes: Vec<u8> = (0..100_003u32).map(|i| (i * 31 % 251) as u8).collect();
-        let src = dir.path().join("src");
-        std::fs::write(&src, &bytes).unwrap();
-        let dst = dir.path().join("dst");
+    #[test]
+    fn threads_count_into_slots_of_their_own_that_sum_to_every_byte() {
         let meter = Meter::default();
-        let tally = meter.start(1, workers()).tally(Some("library"));
-        let from = File::open(&src).unwrap();
-        let to = File::create_new(&dst).unwrap();
+        let job = meter.start(1, workers());
+        let roms = job.tally(Some("roms"));
+        let library = job.tally(Some("library"));
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..1000 {
+                        roms.read(3);
+                        library.wrote(2);
+                    }
+                    roms.file_read();
+                });
+            }
+        });
+        // Each thread counted in one slot of each Flow it touched.
+        assert_eq!(roms.0.as_ref().unwrap().flow.slots.lock().unwrap().len(), 8);
+        assert_eq!(std::mem::align_of::<Slot>(), 128);
+        assert_eq!(
+            job.counted(),
+            Counted {
+                read: 24_000,
+                written: 16_000,
+                files_read: 8,
+                files_written: 0
+            }
+        );
+        assert_eq!(meter.root("roms").read, 24_000);
+        assert_eq!(meter.root("library").written, 16_000);
+        assert_eq!(
+            job.tally(Some("roms"))
+                .0
+                .unwrap()
+                .flow
+                .slots
+                .lock()
+                .unwrap()
+                .len(),
+            8,
+            "one Flow per Root"
+        );
+        meter.end(1);
+        assert_eq!(meter.root("roms").read, 24_000, "kept once the job ends");
+        assert_eq!(meter.total().written, 16_000);
+    }
 
-        let copied = copy_with(&from, &to, &tally, 4096, in_kernel).unwrap();
+    /// A source file of `len` bytes, and an empty destination, in `dir`.
+    fn files(dir: &std::path::Path, len: u32) -> (Vec<u8>, File, File) {
+        let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
+        let src = dir.join("src");
+        std::fs::write(&src, &bytes).unwrap();
+        let from = File::open(&src).unwrap();
+        let to = File::create_new(dir.join("dst")).unwrap();
+        (bytes, from, to)
+    }
+
+    /// Copies as `copy_file_range` would with no offsets given: up to `chunk` bytes from and to each file's offset.
+    fn in_kernel(from: &File, to: &File, chunk: usize) -> io::Result<InKernel> {
+        let (from, mut to) = (from, to);
+        io::copy(&mut from.take(chunk as u64), &mut to).map(|n| InKernel::Copied(n as usize))
+    }
+
+    /// Copies with `kernel`, checking the copy is byte-identical and counted as read from one Root and written into
+    /// another; returns how often `kernel` was called.
+    fn copy_test(
+        len: u32,
+        mut kernel: impl FnMut(usize, &File, &File, usize) -> io::Result<InKernel>,
+    ) -> usize {
+        let dir = tempfile::tempdir().unwrap();
+        let (bytes, from, to) = files(dir.path(), len);
+        let meter = Meter::default();
+        let job = meter.start(1, workers());
+        let (src, dst) = (job.tally(Some("roms")), job.tally(Some("library")));
+        let mut calls = 0;
+        let copied = copy_with((&from, &src), (&to, &dst), 4096, &mut |f, t, c| {
+            calls += 1;
+            kernel(calls, f, t, c)
+        })
+        .unwrap();
 
         assert_eq!(copied, bytes.len() as u64);
-        assert_eq!(std::fs::read(&dst).unwrap(), bytes, "byte-identical");
+        assert_eq!(
+            std::fs::read(dir.path().join("dst")).unwrap(),
+            bytes,
+            "byte-identical"
+        );
+        assert_eq!(meter.root("roms").read, bytes.len() as u64);
+        assert_eq!(meter.root("roms").written, 0);
         assert_eq!(meter.root("library").written, bytes.len() as u64);
+        assert_eq!(meter.total().read, bytes.len() as u64);
         assert_eq!(meter.total().written, bytes.len() as u64);
+        calls
     }
 
     #[test]
-    fn a_chunked_copy_is_byte_identical_and_counted() {
-        copy_test(true);
+    fn a_chunked_copy_is_byte_identical_and_counts_each_chunk_read_and_written() {
+        let calls = copy_test(100_003, |_, f, t, c| in_kernel(f, t, c));
+        assert_eq!(calls, 100_003 / 4096 + 2, "a chunk at a time, then the end");
     }
 
     #[test]
-    fn the_byte_copy_fallback_is_byte_identical_and_counted() {
-        copy_test(false);
+    fn a_copy_the_kernel_refuses_is_copied_in_full_by_the_fallback() {
+        assert_eq!(copy_test(100_003, |_, _, _, _| Ok(InKernel::Refused)), 1);
+    }
+
+    #[test]
+    fn a_first_copy_of_nothing_falls_back_rather_than_ending_the_copy() {
+        assert_eq!(copy_test(100_003, |_, _, _, _| Ok(InKernel::Copied(0))), 1);
+    }
+
+    #[test]
+    fn a_copy_refused_part_way_is_finished_from_where_the_kernel_stopped() {
+        let calls = copy_test(100_003, |call, f, t, c| match call {
+            1..=3 => in_kernel(f, t, c),
+            _ => Ok(InKernel::Refused),
+        });
+        assert_eq!(calls, 4);
+    }
+
+    #[test]
+    fn a_later_copy_of_nothing_is_the_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, from, to) = files(dir.path(), 10_000);
+        let meter = Meter::default();
+        let job = meter.start(1, workers());
+        let (src, dst) = (job.tally(Some("roms")), job.tally(Some("library")));
+        let mut calls = 0;
+        let copied = copy_with((&from, &src), (&to, &dst), 4096, &mut |f, t, c| {
+            calls += 1;
+            match calls {
+                1 => in_kernel(f, t, c),
+                _ => Ok(InKernel::Copied(0)),
+            }
+        })
+        .unwrap();
+        assert_eq!(copied, 4096, "no fallback once the kernel has copied");
+        assert_eq!(meter.root("library").written, 4096);
+    }
+
+    #[test]
+    fn a_copy_into_its_own_root_counts_its_read_and_its_write_each() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bytes, from, to) = files(dir.path(), 5000);
+        let meter = Meter::default();
+        let job = meter.start(1, workers());
+        let roms = job.tally(Some("roms"));
+        copy_chunked(&from, &roms, &to, &roms).unwrap();
+        let n = bytes.len() as u64;
+        assert_eq!(
+            (meter.root("roms").read, meter.root("roms").written),
+            (n, n)
+        );
+    }
+
+    #[test]
+    fn a_switched_reader_counts_only_while_on() {
+        let meter = Meter::default();
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let on = Cell::new(false);
+        let mut r = Switched::new(&[0u8; 100][..], &tally, &on);
+        let mut buf = [0; 30];
+        r.read_exact(&mut buf).unwrap();
+        on.set(true);
+        r.read_exact(&mut buf).unwrap();
+        on.set(false);
+        r.read_exact(&mut buf).unwrap();
+        assert_eq!(meter.root("roms").read, 30);
     }
 }

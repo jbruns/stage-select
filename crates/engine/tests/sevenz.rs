@@ -367,7 +367,7 @@ fn members_of_a_7z_are_repacked_as_verified_torrentzip_and_the_source_hashed_as_
             )
             .unwrap();
 
-            verify(&dest, &roms).unwrap();
+            verify(&dest, &roms, &Default::default()).unwrap();
             let bytes = std::fs::read(&source).unwrap();
             assert_eq!(read, (sha256_hex(&bytes), bytes.len() as u64));
         }
@@ -400,7 +400,7 @@ fn a_member_of_a_7z_is_written_as_a_verified_loose_file() {
     )
     .unwrap();
 
-    verify_loose(&File::open(&path).unwrap(), &rom).unwrap();
+    verify_loose(&File::open(&path).unwrap(), &rom, &Default::default()).unwrap();
     assert_eq!(&std::fs::read(&path).unwrap(), bytes);
     let whole = std::fs::read(&source).unwrap();
     assert_eq!(read, (sha256_hex(&whole), whole.len() as u64));
@@ -444,7 +444,7 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
         )
         .unwrap();
 
-        verify(&dest, &roms).unwrap();
+        verify(&dest, &roms, &Default::default()).unwrap();
         let blocks = if solid { 1 } else { wanted.len() };
         assert_eq!(gate.blocks_decoded(), blocks, "solid: {solid}");
         assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
@@ -743,14 +743,59 @@ fn bytes_read_decoding_a_7z_and_written_from_it_are_counted() {
     )
     .unwrap();
 
+    // The archive is read once, hashed as its block is decoded and finished after; and is one file read.
     let archive = std::fs::metadata(&source).unwrap().len();
     let read = meter.root("ingest").read;
-    assert!(read > 0 && read <= archive, "read {read} of {archive}");
+    assert_eq!(read, archive);
+    assert_eq!(meter.root("ingest").files_read, 1);
     assert_eq!(meter.root("ingest").written, 0);
     assert_eq!(meter.root("library").written, bytes.len() as u64);
     assert_eq!(meter.root("library").files_written, 1);
     assert_eq!(
         meter.total().read + meter.total().written,
         read + bytes.len() as u64
+    );
+}
+
+#[test]
+fn probing_a_7z_of_many_blocks_counts_its_whole_file_pass_and_blocks_as_one_file_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let members = disc();
+    let source = dir.path().join("Game.7z");
+    write_7z(&source, &borrowed(&members), Method::Lzma2, false);
+    let meter = title_select_engine::meter::Meter::default();
+    let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+    let gate = Gate::new(1);
+    let decoding = Decoding {
+        gate: &gate,
+        max_dictionary_mib: 128,
+        read: &job.tally(Some("sets")),
+    };
+
+    let Probed::Read(probe) = sevenz::probe(
+        &File::open(&source).unwrap(),
+        &ZipLimits::default(),
+        &decoding,
+    )
+    .unwrap() else {
+        panic!("refused");
+    };
+
+    assert!(probe.error.is_none(), "{:?}", probe.error);
+    assert!(gate.blocks_decoded() > 1, "one block per member");
+    let archive = std::fs::metadata(&source).unwrap().len();
+    let sets = meter.root("sets");
+    // Hashed whole, then each block read again as it is decoded: never what the blocks decode to.
+    assert!(
+        sets.read > archive && sets.read < 2 * archive + 64 * 1024,
+        "read {} of {archive}",
+        sets.read
+    );
+    assert_eq!(sets.files_read, 1);
+    let sample = meter.sample();
+    assert_eq!(
+        (sample.jobs[0].readers, sample.jobs[0].hashers),
+        (0, 0),
+        "no longer at work"
     );
 }

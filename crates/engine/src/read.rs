@@ -5,15 +5,16 @@
 //! `workers` gives the threads started, the ceilings. A pace may hold some of them back: each reader and hash worker
 //! passes a [`Gate`] before each file or payload, which lets in only as many as the pace allows at that moment.
 
+use std::cell::Cell;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
-use crate::meter::{JobMeter, Tally};
+use crate::meter::{JobMeter, Reading, Switched, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
 
@@ -251,11 +252,12 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
 }
 
 /// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
-fn bounded_archive(file: File) -> Result<zip::ZipArchive<File>, String> {
+fn bounded_archive<R: Read + Seek>(
+    file: &File,
+    reader: impl FnOnce() -> std::io::Result<R>,
+) -> Result<zip::ZipArchive<R>, String> {
     use crate::zipdir::{DirectoryLimits, Gated, open};
-    match open(&file, &DirectoryLimits::default(), || file.try_clone())
-        .map_err(|e| e.to_string())?
-    {
+    match open(file, &DirectoryLimits::default(), reader).map_err(|e| e.to_string())? {
         Gated::Archive(archive) => archive.map_err(|e| e.to_string()),
         Gated::Refused(why) => Err(format!("not read: {why}")),
         Gated::NotZip => Err("not read: it is not a ZIP archive".into()),
@@ -271,7 +273,7 @@ fn claim_file(path: &Path) -> FileRead {
     };
     let mut zip = match File::open(path)
         .map_err(|e| e.to_string())
-        .and_then(|f| bounded_archive(f).map_err(|e| e.to_string()))
+        .and_then(|f| bounded_archive(&f, || f.try_clone()))
     {
         Ok(zip) => zip,
         Err(e) => {
@@ -331,13 +333,19 @@ fn read_file(
         .ok()
         .and_then(|m| FileStamp::from_metadata(&m));
     if !is_zip {
-        match checksum(file, jobs, how.header, how.tally) {
+        match checksum(Reading::new(file, how.tally), jobs, how.header) {
             Ok(sums) => read.members.push((None, Ok(Known::Payload(sums)))),
             Err(e) => read.error = Some(e),
         }
         return (read, stamp);
     }
-    let mut zip = match bounded_archive(file) {
+    // Only a member's stored bytes are counted, as they are read: not the directory, nor the headers read to find it.
+    let payload = Cell::new(false);
+    let opened = || {
+        file.try_clone()
+            .map(|f| Switched::new(f, how.tally, &payload))
+    };
+    let mut zip = match bounded_archive(&file, opened) {
         Ok(zip) => zip,
         Err(e) => {
             read.error = Some(e);
@@ -362,21 +370,20 @@ fn read_file(
                 return (read, stamp);
             }
         };
-        read.members.push((
-            Some(name),
-            checksum(member, jobs, how.header, how.tally).map(Known::Payload),
-        ));
+        payload.set(true);
+        let sums = checksum(member, jobs, how.header);
+        payload.set(false);
+        read.members.push((Some(name), sums.map(Known::Payload)));
     }
     (read, stamp)
 }
 
 /// Reads `r` to its end, once, handing its bytes to a hash worker, and returns their checksums without the Header
-/// `header` finds. Each byte read is counted to `tally`: an archive member's as it decompresses.
+/// `header` finds.
 fn checksum(
     mut r: impl Read,
     jobs: &SyncSender<HashJob>,
     header: Option<HeaderRule>,
-    tally: &Tally,
 ) -> Result<Checksums, String> {
     let (chunks, chunks_rx) = sync_channel(CHUNKS_IN_FLIGHT);
     let (done_tx, done) = sync_channel(1);
@@ -393,7 +400,6 @@ fn checksum(
         if n == 0 {
             break;
         }
-        tally.read(n);
         buf.truncate(n);
         chunks
             .send(buf)
@@ -550,7 +556,7 @@ mod tests {
                 bytes: &dump,
                 read: &read,
             };
-            checksum(counting, &jobs, Some(HeaderRule::Nes), &Default::default()).unwrap()
+            checksum(counting, &jobs, Some(HeaderRule::Nes)).unwrap()
         });
 
         assert_eq!(read.load(Ordering::Relaxed), dump.len(), "read once");

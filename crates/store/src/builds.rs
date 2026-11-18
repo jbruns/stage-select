@@ -85,8 +85,12 @@ struct Staged {
 /// cancelled the Build.
 struct ChdWork<'a> {
     store: &'a Store,
-    /// Where the bytes written into the Library Folder's Root are counted.
+    /// Where the bytes written into the Library Folder's Root are counted, and those read back to verify them.
     to: Tally,
+    /// Where the bytes read from the Source Set's Root are counted.
+    from: Tally,
+    /// Where the bytes read from the Additions Root are counted.
+    additions: Tally,
     /// Where the bytes written in the store's scratch directory, and chdman's, are counted: for the Job alone.
     scratch: Tally,
     chdman: std::result::Result<Chdman, String>,
@@ -201,11 +205,17 @@ fn stage_chd(
         match (members, roms.as_slice(), dests.as_slice()) {
             (Some(members), ..) => {
                 let refs: Vec<&File> = dests.iter().collect();
-                build::write_loose_members(&refs, &members, &opened, &work.scratch).map(|_| ())
+                build::write_loose_members(&refs, &members, &opened, &work.from, &work.scratch)
+                    .map(|_| ())
             }
-            (None, [rom], [dest]) => {
-                write_loose(dest, &[(rom, 0, None)], &[&opened], &work.scratch).map(|_| ())
-            }
+            (None, [rom], [dest]) => write_loose(
+                dest,
+                &[(rom, 0, None)],
+                &[&opened],
+                &work.from,
+                &work.scratch,
+            )
+            .map(|_| ()),
             (None, ..) => Err(format!("{}: a loose file holds one ROM", source.path)),
         }
         .map_err(Failure::Item)?;
@@ -213,7 +223,7 @@ fn stage_chd(
     }
     let mut cue = None;
     for (rom, dest) in &written {
-        verify_loose(dest, rom).map_err(Failure::Item)?;
+        verify_loose(dest, rom, &work.scratch).map_err(Failure::Item)?;
         if rom.name.to_ascii_lowercase().ends_with(".cue") {
             let read = chd::read_cue(dest).map_err(Failure::Item)?;
             // Before chdman reads it: each track it names is then checked once extracted.
@@ -354,16 +364,25 @@ fn verify_found_chd(
             let dest = File::create_new(&path)
                 .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
             match source.member.as_deref() {
-                Some(member) => {
-                    build::write_loose_members(&[&dest], &[(rom, member)], &opened, &work.scratch)
-                        .map(|_| ())
-                }
-                None => {
-                    write_loose(&dest, &[(rom, 0, None)], &[&opened], &work.scratch).map(|_| ())
-                }
+                Some(member) => build::write_loose_members(
+                    &[&dest],
+                    &[(rom, member)],
+                    &opened,
+                    &work.from,
+                    &work.scratch,
+                )
+                .map(|_| ()),
+                None => write_loose(
+                    &dest,
+                    &[(rom, 0, None)],
+                    &[&opened],
+                    &work.from,
+                    &work.scratch,
+                )
+                .map(|_| ()),
             }
             .map_err(Failure::Item)?;
-            verify_loose(&dest, rom)
+            verify_loose(&dest, rom, &work.scratch)
                 .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?;
             Some(chd::read_cue(&dest).map_err(Failure::Item)?)
         }
@@ -421,7 +440,12 @@ fn verify_found_chd(
 }
 
 /// The SHA-256 and size of `file`, read from its start.
-pub(super) fn sha256_of(mut file: &File) -> io::Result<(String, u64)> {
+pub(super) fn sha256_of(file: &File) -> io::Result<(String, u64)> {
+    sha256_counted(file, &Tally::default())
+}
+
+/// As [`sha256_of`], each byte read counted to `tally`, of the Root `file` is in.
+pub(super) fn sha256_counted(mut file: &File, tally: &Tally) -> io::Result<(String, u64)> {
     file.seek(SeekFrom::Start(0))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
@@ -431,6 +455,7 @@ pub(super) fn sha256_of(mut file: &File) -> io::Result<(String, u64)> {
         if n == 0 {
             break;
         }
+        tally.read(n);
         hasher.update(&buf[..n]);
         size += n as u64;
     }
@@ -627,14 +652,15 @@ fn stage(
         };
         let whole = addition.loose == item.loose;
         if whole {
-            copy_chunked(&from, file, &chd.to)
+            copy_chunked(&from, &chd.additions, file, &chd.to)
                 .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+            chd.additions.file_read();
             chd.to.file_written();
         } else {
             let read = [(rom, 0, (!addition.loose).then_some(rom.name.as_str()))];
             match item.loose {
-                true => write_loose(file, &read, &[&from], &chd.to),
-                false => repack_sources(file, &read, &[&from], &chd.to),
+                true => write_loose(file, &read, &[&from], &chd.additions, &chd.to),
+                false => repack_sources(file, &read, &[&from], &chd.additions, &chd.to),
             }
             .map_err(Failure::Item)?;
         }
@@ -645,15 +671,15 @@ fn stage(
             return Err(changed());
         }
         match item.loose {
-            true => verify_loose(file, rom),
-            false => verify(file, &item.roms),
+            true => verify_loose(file, rom, &chd.to),
+            false => verify(file, &item.roms, &chd.to),
         }
         .map_err(Failure::Item)?;
         file.set_modified(built_at)
             .and_then(|()| file.sync_all())
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-        let (sha256, size) =
-            sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+        let (sha256, size) = sha256_counted(file, &chd.to)
+            .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
         if whole && sha256 != addition.sha256 {
             return Err(changed());
         }
@@ -693,12 +719,13 @@ fn stage(
                 file,
                 &[(rom, 0, source.member.as_deref())],
                 &[&opened],
+                &chd.from,
                 &chd.to,
             )
             .map_err(Failure::Item)?;
         }
         ItemKind::Copy => {
-            copy(&sources[0], file, &chd.to)
+            copy(&sources[0], file, &chd.from, &chd.to)
                 .map_err(|e| Failure::Item(format!("{}: {e}", sources[0].display())))?;
         }
         ItemKind::Repack => {
@@ -720,21 +747,21 @@ fn stage(
                     )
                 })
                 .collect();
-            repack(file, &pairs, &chd.to).map_err(Failure::Item)?;
+            repack(file, &pairs, &chd.from, &chd.to).map_err(Failure::Item)?;
         }
         _ => unreachable!("only copies and repacks are written"),
     }
     match (item.loose, item.roms.as_slice()) {
-        (true, [rom]) => verify_loose(file, rom),
+        (true, [rom]) => verify_loose(file, rom, &chd.to),
         (true, _) => Err("a loose file holds one ROM".into()),
-        (false, _) => verify(file, &item.roms),
+        (false, _) => verify(file, &item.roms, &chd.to),
     }
     .map_err(Failure::Item)?;
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-    let (sha256, size) =
-        sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+    let (sha256, size) = sha256_counted(file, &chd.to)
+        .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     Ok(Staged {
         sha256,
         size,
@@ -927,6 +954,7 @@ fn converted_verified(
     dir: &FolderDir,
     item: &PlanItem,
     chd: Option<&Verified>,
+    tally: &Tally,
 ) -> std::result::Result<std::result::Result<(), String>, Error> {
     let io = |e: io::Error| Error::Io(e.to_string());
     let target = &item.target;
@@ -953,7 +981,7 @@ fn converted_verified(
             Some(v) if Identity::of(&before) != v.identity || file_stat(&before) != v.file => Err(
                 "it is not the file that was checked: its size or modification time changed".into(),
             ),
-            Some(v) => match sha256_of(&file).map_err(io)? {
+            Some(v) => match sha256_counted(&file, tally).map_err(io)? {
                 (sha256, size) if sha256 != v.sha256 || size != v.file.size => {
                     Err("it is not the file that was checked: its SHA-256 changed".into())
                 }
@@ -966,9 +994,9 @@ fn converted_verified(
                 },
             },
         },
-        (false, true, [rom]) => verify_loose(&file, rom),
+        (false, true, [rom]) => verify_loose(&file, rom, tally),
         (false, true, _) => Err("a loose file holds one ROM".into()),
-        (false, false, _) => verify(&file, &item.roms),
+        (false, false, _) => verify(&file, &item.roms, tally),
     };
     let after = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
     if crate::checks::Seen::of(&before) != crate::checks::Seen::of(&after) {
@@ -1534,6 +1562,8 @@ impl Store {
             self.read(|c| Ok((folder_by_id(c, content.folder)?, store_id(c)?)))?;
         let dir = open_writable_folder(config, &folder_row.root, &folder_row.path)
             .map_err(Error::Refused)?;
+        // What verifying a conversion's file reads back from the Library Folder's Root.
+        let library = self.meter.job(job).tally(Some(&folder_row.root));
         let expected = Marker {
             store,
             folder: content.folder,
@@ -1734,7 +1764,7 @@ impl Store {
                         self,
                         id,
                         seq,
-                        self.dispose_original(&dir, area, &k, item, delete, &approved.actor)?,
+                        self.dispose_original((&dir, &library), area, &k, item, delete, &approved.actor)?,
                     )?;
                     Ok(())
                 }
@@ -1803,6 +1833,16 @@ impl Store {
             },
             store: self,
             to: meter.tally(Some(&folder_row.root)),
+            from: match &set {
+                Some(_) => meter.tally(Some(
+                    &self
+                        .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
+                        .record
+                        .root,
+                )),
+                None => Tally::default(),
+            },
+            additions: meter.tally(Some(crate::config::ADDITIONS_ROOT)),
             scratch: meter.tally(None),
             limits,
             tmp: self.dir().join(crate::TMP),
@@ -2247,7 +2287,14 @@ impl Store {
                         original: originals.remove(&w.seq),
                     };
                     let area = retention.as_ref().expect("opened above");
-                    self.dispose_original(&dir, area, &k, w.item, delete, &approved.actor)?
+                    self.dispose_original(
+                        (&dir, &library),
+                        area,
+                        &k,
+                        w.item,
+                        delete,
+                        &approved.actor,
+                    )?
                 };
                 record_disposal(self, id, *seq, outcome)?;
                 tick(&mut done);
@@ -2380,7 +2427,7 @@ impl Store {
     /// left where it is.
     fn dispose_original(
         &self,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         area: &Retention,
         k: &Keep,
         item: &PlanItem,
@@ -2428,7 +2475,7 @@ impl Store {
             })?,
             false => None,
         };
-        let note = match converted_verified(dir, item, chd.as_ref())? {
+        let note = match converted_verified(dir, item, chd.as_ref(), tally)? {
             Err(why) => format!("{name} stays in the kept files: {why}"),
             Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {
                 outcome if outcome.deleted => {

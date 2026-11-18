@@ -11,10 +11,11 @@ use title_select_api::HeaderRule;
 use title_select_api::build::ExpectedRom;
 
 use crate::dat::Dat;
-use crate::meter::{Metered, Tally};
+use crate::meter::{Metered, Reading as Counting, Switched, Tally};
 use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
 use crate::zipdir::{self, DirectoryLimits, Gated};
+use std::cell::Cell;
 
 pub(crate) const CHUNK: usize = 1 << 16;
 
@@ -186,19 +187,27 @@ pub fn is_torrentzip(path: &Path) -> bool {
         .is_ok()
 }
 
-/// Copies `source` into `dest`, a new, empty file the caller created, counting what it writes to `to`. On Linux each
-/// chunk is a `copy_file_range`, so that the filesystem may share or offload the copy; nowhere is a hardlink made.
-pub fn copy(source: &Path, dest: &mut File, to: &Tally) -> io::Result<u64> {
-    let from = File::open(source)?;
-    let copied = crate::meter::copy_chunked(&from, dest, to)?;
+/// Copies `source` into `dest`, a new, empty file the caller created, counting what it reads to `from` and what it
+/// writes to `to`. On Linux each chunk is a `copy_file_range`, so that the filesystem may share or offload the copy;
+/// nowhere is a hardlink made.
+pub fn copy(source: &Path, dest: &mut File, from: &Tally, to: &Tally) -> io::Result<u64> {
+    let opened = File::open(source)?;
+    let copied = crate::meter::copy_chunked(&opened, from, dest, to)?;
     dest.sync_all()?;
+    from.file_read();
     to.file_written();
     Ok(copied)
 }
 
 /// Writes the TorrentZip of `roms` into `dest`, a new, empty file the caller created, each ROM's payload read from
-/// its source. A payload of the wrong size is refused; checksums are checked by [`verify`] afterwards.
-pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)], to: &Tally) -> Result<(), String> {
+/// its source, whose bytes read are counted to `from`. A payload of the wrong size is refused; checksums are checked by
+/// [`verify`] afterwards.
+pub fn repack(
+    dest: &File,
+    roms: &[(&ExpectedRom, Source)],
+    from: &Tally,
+    to: &Tally,
+) -> Result<(), String> {
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
     let mut writer =
@@ -206,7 +215,8 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)], to: &Tally) -> Resul
     for (rom, source) in order {
         let opened =
             File::open(source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
-        let mut reader = BufReader::new(&opened);
+        from.file_read();
+        let mut reader = BufReader::new(Counting::new(&opened, from));
         let failed = |e: io::Error| format!("{} ({}): {e}", source.path.display(), rom.name);
         let added = match source.member {
             None => {
@@ -242,17 +252,20 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)], to: &Tally) -> Resul
 /// that reads its central directory and then its members in order thus reads the file about once.
 pub(crate) struct Hashing<'a> {
     file: &'a File,
+    /// Where every byte read from the file is counted.
+    tally: &'a Tally,
     pos: u64,
     hashed: u64,
     sha256: Sha256,
 }
 
 impl<'a> Hashing<'a> {
-    pub(crate) fn new(file: &'a File) -> io::Result<Self> {
+    pub(crate) fn new(file: &'a File, tally: &'a Tally) -> io::Result<Self> {
         let mut file_ref = file;
         file_ref.seek(SeekFrom::Start(0))?;
         Ok(Hashing {
             file,
+            tally,
             pos: 0,
             hashed: 0,
             sha256: Sha256::new(),
@@ -264,6 +277,7 @@ impl<'a> Hashing<'a> {
         self.seek(SeekFrom::Start(self.hashed))?;
         let mut buf = vec![0; CHUNK];
         while self.read(&mut buf)? > 0 {}
+        self.tally.file_read();
         Ok((crate::hex(&self.sha256.finalize()), self.hashed))
     }
 }
@@ -272,6 +286,7 @@ impl Read for Hashing<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut file = self.file;
         let n = file.read(buf)?;
+        self.tally.read(n);
         let end = self.pos + n as u64;
         if self.pos <= self.hashed && end > self.hashed {
             self.sha256
@@ -292,15 +307,17 @@ impl Seek for Hashing<'_> {
 }
 
 /// Writes `roms` to `dest` as a TorrentZip, each read from the member of the same name in the ZIP `source`, an open
-/// file read from its start. Returns the SHA-256 and size of `source`, hashed as it was read.
+/// file read from its start, whose bytes read are counted to `from`. Returns the SHA-256 and size of `source`, hashed
+/// as it was read.
 pub fn repack_from(
     dest: &File,
     roms: &[ExpectedRom],
     source: &File,
+    from: &Tally,
     to: &Tally,
 ) -> Result<(String, u64), String> {
     let named: Vec<(&ExpectedRom, &str)> = roms.iter().map(|r| (r, r.name.as_str())).collect();
-    repack_members(dest, &named, source, to)
+    repack_members(dest, &named, source, from, to)
 }
 
 /// As [`repack_from`], each ROM read from the named member of `source`, which may be named otherwise; members not
@@ -309,11 +326,12 @@ pub fn repack_members(
     dest: &File,
     roms: &[(&ExpectedRom, &str)],
     source: &File,
+    from: &Tally,
     to: &Tally,
 ) -> Result<(String, u64), String> {
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
-    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source, from)?)))?;
     let mut writer =
         Writer::new(BufWriter::new(Metered::new(dest, to))).map_err(|e| e.to_string())?;
     for (rom, member) in order {
@@ -349,11 +367,12 @@ pub type FromSource<'a> = (&'a ExpectedRom, usize, Option<&'a str>);
 /// Writes the TorrentZip of `roms` into `dest`, a new, empty file the caller created, each ROM read from its source
 /// in `sources`, each an open file read from its start. Returns the SHA-256 and size of each source, in order, each
 /// hashed as it was read; a source no ROM is read from is read only to hash it. A source is read either as a ZIP
-/// archive or as a loose file, never both.
+/// archive or as a loose file, never both. Every byte read from `sources` is counted to `from`.
 pub fn repack_sources(
     dest: &File,
     roms: &[FromSource],
     sources: &[&File],
+    from: &Tally,
     to: &Tally,
 ) -> Result<Vec<(String, u64)>, String> {
     enum Reading<'a> {
@@ -374,7 +393,8 @@ pub fn repack_sources(
         let added = match (member, &mut *slot) {
             (Some(member), Reading::Unread | Reading::Zip(_)) => {
                 if matches!(slot, Reading::Unread) {
-                    let opened = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+                    let opened =
+                        archive(source, || Ok(BufReader::new(Hashing::new(source, from)?)))?;
                     *slot = Reading::Zip(Box::new(opened));
                 }
                 let Reading::Zip(archive) = slot else {
@@ -391,7 +411,7 @@ pub fn repack_sources(
                 writer.add(&rom.name, size, &mut payload.take(size + 1))
             }
             (None, Reading::Unread) => {
-                let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
+                let mut hashing = Hashing::new(source, from).map_err(|e| e.to_string())?;
                 let len = source.metadata().map_err(|e| e.to_string())?.len();
                 let added = sized(rom, len, &mut hashing)
                     .map_err(|e| format!("{}: {e}", rom.name))
@@ -423,7 +443,7 @@ pub fn repack_sources(
             match reading {
                 Reading::Zip(archive) => archive.into_inner().into_inner().finish(),
                 Reading::Loose(hashing) => hashing.finish(),
-                Reading::Unread => Hashing::new(source).and_then(Hashing::finish),
+                Reading::Unread => Hashing::new(source, from).and_then(Hashing::finish),
             }
             .map_err(|e| e.to_string())
         })
@@ -431,9 +451,12 @@ pub fn repack_sources(
 }
 
 /// Checks that `file`, read from its start, is valid TorrentZip whose members are exactly `roms`, under their names,
-/// and that each member's payload, decompressed and hashed again, is the one its ROM expects.
-pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
-    let mut file = BufReader::new(file);
+/// and that each member's payload, decompressed and hashed again, is the one its ROM expects. The payload bytes read
+/// again are counted to `tally`, of the Root `file` is in; the headers and directory checked around them are not.
+pub fn verify(file: &File, roms: &[ExpectedRom], tally: &Tally) -> Result<(), String> {
+    let opened = file;
+    let payload = Cell::new(false);
+    let mut file = Switched::new(BufReader::new(file), tally, &payload);
     file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     let members = torrentzip::validate(&mut file).map_err(|e| e.to_string())?;
     let mut names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
@@ -447,12 +470,15 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
             wanted.join(", ")
         ));
     }
-    let mut archive = archive(file.get_ref(), || Ok(file))?;
+    let mut archive = archive(opened, || Ok(file))?;
     for rom in roms {
         let mut member = archive
             .by_name(&rom.name)
             .map_err(|e| format!("{}: {e}", rom.name))?;
-        let sums = hash_as(rom, &mut member).map_err(|e| format!("{}: {e}", rom.name))?;
+        payload.set(true);
+        let sums = hash_as(rom, &mut member).map_err(|e| format!("{}: {e}", rom.name));
+        payload.set(false);
+        let sums = sums?;
         if !matches(&sums, rom) {
             return Err(format!(
                 "{}: its payload does not hash to the DAT's",
@@ -472,6 +498,7 @@ pub fn write_loose_members(
     dests: &[&File],
     roms: &[(&ExpectedRom, &str)],
     source: &File,
+    from: &Tally,
     to: &Tally,
 ) -> Result<(String, u64), String> {
     if dests.len() != roms.len() {
@@ -481,7 +508,7 @@ pub fn write_loose_members(
             roms.len()
         ));
     }
-    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source, from)?)))?;
     let mut order: Vec<(usize, &File, &ExpectedRom)> = Vec::with_capacity(roms.len());
     for (dest, (rom, member)) in dests.iter().zip(roms) {
         let index = archive
@@ -524,9 +551,11 @@ pub fn write_loose_member(
     rom: &ExpectedRom,
     member: &str,
     source: &File,
+    from: &Tally,
     to: &Tally,
 ) -> Result<(), String> {
-    let mut archive = archive(source, || Ok(BufReader::new(source)))?;
+    from.file_read();
+    let mut archive = archive(source, || Ok(BufReader::new(Counting::new(source, from))))?;
     let mut out = BufWriter::new(Metered::new(dest, to));
     let (copied, size) = {
         let payload = archive
@@ -554,6 +583,7 @@ pub fn write_loose(
     dest: &File,
     roms: &[FromSource],
     sources: &[&File],
+    from: &Tally,
     to: &Tally,
 ) -> Result<Vec<(String, u64)>, String> {
     let [(rom, at, member)] = roms else {
@@ -568,7 +598,7 @@ pub fn write_loose(
     let mut out = BufWriter::new(Metered::new(dest, to));
     let ((copied, size), whole) = match member {
         Some(member) => {
-            let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+            let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source, from)?)))?;
             let copied = {
                 let payload = archive
                     .by_name(member)
@@ -583,7 +613,7 @@ pub fn write_loose(
             (copied, read)
         }
         None => {
-            let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
+            let mut hashing = Hashing::new(source, from).map_err(|e| e.to_string())?;
             let len = source.metadata().map_err(|e| e.to_string())?.len();
             let copied = copy_sized(rom, len, &mut hashing, &mut out)?;
             (copied, hashing.finish().map_err(|e| e.to_string())?)
@@ -605,7 +635,7 @@ pub fn write_loose(
             read.push(whole.clone());
         } else {
             read.push(
-                Hashing::new(other)
+                Hashing::new(other, from)
                     .and_then(Hashing::finish)
                     .map_err(|e| e.to_string())?,
             );
@@ -615,10 +645,13 @@ pub fn write_loose(
 }
 
 /// Checks that `file`, read from its start, is exactly `rom` as a loose file: its size and every checksum the DAT
-/// lists.
-pub fn verify_loose(file: &File, rom: &ExpectedRom) -> Result<(), String> {
-    let mut reader = file;
-    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+/// lists. The bytes read again are counted to `tally`, of the Root `file` is in.
+pub fn verify_loose(file: &File, rom: &ExpectedRom, tally: &Tally) -> Result<(), String> {
+    let mut seeking = file;
+    seeking
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| e.to_string())?;
+    let mut reader = Counting::new(file, tally);
     let sums = hash_as(rom, &mut reader).map_err(|e| e.to_string())?;
     if !matches(&sums, rom) {
         return Err(format!("{}: it does not hash to the DAT's ROM", rom.name));
@@ -1131,7 +1164,8 @@ mod tests {
         let bytes: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
         let mut file = tempfile::tempfile().unwrap();
         io::Write::write_all(&mut file, &bytes).unwrap();
-        let mut reader = Hashing::new(&file).unwrap();
+        let tally = Tally::default();
+        let mut reader = Hashing::new(&file, &tally).unwrap();
         let mut buf = vec![0; 1000];
         // The end first, as a ZIP reader reads its central directory, then the start, then a skip ahead.
         reader.seek(SeekFrom::End(-1000)).unwrap();
@@ -1168,16 +1202,45 @@ mod tests {
         let unread = file_of(b"cc");
         let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
         let dest = tempfile::tempfile().unwrap();
+        let meter = crate::meter::Meter::default();
+        let job = meter.start(
+            1,
+            crate::Workers {
+                readers: 1,
+                hashers: 1,
+            },
+        );
+        let (roms, library) = (job.tally(Some("roms")), job.tally(Some("library")));
 
         let hashed = repack_sources(
             &dest,
             &[(&b, 1, None), (&a, 0, Some("x.bin"))],
             &[&zip, &loose, &unread],
-            &Default::default(),
+            &roms,
+            &library,
         )
         .unwrap();
 
-        verify(&dest, &[a, b]).unwrap();
+        let written = dest.metadata().unwrap().len();
+        // Every source is read whole and counted to its Root, the ZIP's directory too, as it is hashed; and what the
+        // ZIP reader reads again after each seek is read again.
+        let whole = zipped.len() as u64 + 6 + 2;
+        assert!(written > 0);
+        assert!(meter.root("roms").read >= whole);
+        assert_eq!(meter.root("roms").files_read, 3);
+        // The ZIP writer goes back to fill in each member's local header, and those bytes are written twice.
+        assert!(meter.root("library").written >= written);
+        verify(&dest, &[a, b.clone()], &library).unwrap();
+        let stored: u64 = torrentzip::validate(&mut &dest)
+            .unwrap()
+            .iter()
+            .map(|m| m.compressed)
+            .sum();
+        assert_eq!(
+            meter.root("library").read,
+            stored,
+            "verifying reads each payload again, not the headers around it"
+        );
         let sha = |bytes: &[u8]| crate::hex(&Sha256::digest(bytes));
         assert_eq!(
             hashed,
@@ -1187,6 +1250,19 @@ mod tests {
                 (sha(b"cc"), 2)
             ]
         );
+
+        let dest = tempfile::tempfile().unwrap();
+        let before = meter.root("roms");
+        let loose_hashed =
+            write_loose(&dest, &[(&b, 0, None)], &[&loose, &unread], &roms, &library).unwrap();
+        assert_eq!(loose_hashed[0], (sha(b"bbbbbb"), 6));
+        let after = meter.root("roms");
+        assert_eq!(
+            after.read - before.read,
+            6 + 2,
+            "loose sources are read once each"
+        );
+        assert_eq!(after.files_read - before.files_read, 2);
     }
 
     fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {

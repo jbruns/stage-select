@@ -36,7 +36,7 @@ use title_select_engine::payload::{Checksums, Hasher};
 use title_select_engine::sevenz;
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
-use crate::builds::sha256_of;
+use crate::builds::{sha256_counted, sha256_of};
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
@@ -1142,14 +1142,14 @@ impl Store {
                 let file = dest.open_file(dest_name).map_err(io)?;
                 let st = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
                 if Identity::of(&st) == staged && file_stat(&st) == *stamp {
-                    let (sha, _) = sha256_of(&file).map_err(io)?;
+                    let (sha, _) = sha256_counted(&file, to).map_err(io)?;
                     self.published(m.id, &sha, None)?;
                     return Ok(Ok(sha));
                 }
             }
             let staged_name = m.staged_name.clone().unwrap_or_default();
             if is_file(dest, &staged_name, staged, None).map_err(io)? {
-                return match self.check_staged(m, src, dest, &staged_name)? {
+                return match self.check_staged(m, (src, from), (dest, to), &staged_name)? {
                     Ok((file, sha)) if Identity::of_fd(&file).map_err(io)? == staged => {
                         self.publish(m, &file, dest, &staged_name, dest_name, sha)
                     }
@@ -1261,7 +1261,7 @@ impl Store {
                 let [(rom, Some(member))] = roms.as_slice() else {
                     unreachable!("one ROM of a ZIP");
                 };
-                write_loose_member(&file, rom, member, &source, to).and_then(|()| {
+                write_loose_member(&file, rom, member, &source, from, to).and_then(|()| {
                     let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
                     match Seen::of(&st) == m.seen {
                         true => Ok(planned.to_owned()),
@@ -1276,14 +1276,14 @@ impl Store {
                     .map(|(rom, member)| (rom, 0, member.as_deref()))
                     .collect();
                 match m.loose {
-                    true => write_loose(&file, &named, &[&source], to),
-                    false => repack_sources(&file, &named, &[&source], to),
+                    true => write_loose(&file, &named, &[&source], from, to),
+                    false => repack_sources(&file, &named, &[&source], from, to),
                 }
                 .map(|mut read| read.remove(0).0)
             }
             (None, _) => {
                 self.fault_point(Fault::IngestReadWhole);
-                copy_hashing(&source, &file, to).map_err(|e| e.to_string())
+                copy_hashing(&source, from, &file, to).map_err(|e| e.to_string())
             }
         };
         let source_sha = match written {
@@ -1304,7 +1304,7 @@ impl Store {
                 m.name
             ));
         }
-        let sha = match check_written(m, &file, &source_sha) {
+        let sha = match check_written(m, &file, &source_sha, to) {
             Ok(sha) => sha,
             Err(why) => return fail(why),
         };
@@ -1322,15 +1322,15 @@ impl Store {
     fn check_staged(
         &self,
         m: &MoveRow,
-        src: &FolderDir,
-        dest: &FolderDir,
+        (src, from): (&FolderDir, &Tally),
+        (dest, to): (&FolderDir, &Tally),
         staged_name: &str,
     ) -> Result<std::result::Result<(std::fs::File, String), String>> {
         let source = match open_source(src, m) {
             Ok(source) => source,
             Err(why) => return Ok(Err(why)),
         };
-        let (source_sha, _) = sha256_of(&source).map_err(io)?;
+        let (source_sha, _) = sha256_counted(&source, from).map_err(io)?;
         if m.sha256
             .as_deref()
             .is_some_and(|planned| planned != source_sha)
@@ -1341,7 +1341,7 @@ impl Store {
             )));
         }
         let file = dest.open_file(staged_name).map_err(io)?;
-        Ok(check_written(m, &file, &source_sha).map(|sha| (file, sha)))
+        Ok(check_written(m, &file, &source_sha, to).map(|sha| (file, sha)))
     }
 
     /// Renames the staged file `file`, written or checked through that descriptor, held throughout, to `dest_name`
@@ -1782,16 +1782,17 @@ fn check_written(
     m: &MoveRow,
     file: &std::fs::File,
     source_sha: &str,
+    to: &Tally,
 ) -> std::result::Result<String, String> {
     file.sync_all().map_err(|e| e.to_string())?;
-    let (sha, _) = sha256_of(file).map_err(|e| e.to_string())?;
+    let (sha, _) = sha256_counted(file, to).map_err(|e| e.to_string())?;
     match &m.roms {
         Some(roms) => {
             let roms: Vec<ExpectedRom> = roms.iter().map(|(rom, _)| rom.clone()).collect();
             match (m.loose, roms.as_slice()) {
-                (true, [rom]) => verify_loose(file, rom),
+                (true, [rom]) => verify_loose(file, rom, to),
                 (true, _) => Err("a loose file is one ROM".into()),
-                (false, _) => verify(file, &roms),
+                (false, _) => verify(file, &roms, to),
             }
             .map_err(|why| {
                 format!(
@@ -1828,13 +1829,16 @@ fn open_source(src: &FolderDir, m: &MoveRow) -> std::result::Result<std::fs::Fil
 /// filesystem may share or offload the copy. Returns the SHA-256 of `source`, read separately.
 fn copy_hashing(
     mut source: &std::fs::File,
+    from: &Tally,
     dest: &std::fs::File,
     to: &Tally,
 ) -> io::Result<String> {
     source.seek(SeekFrom::Start(0))?;
-    copy_chunked(source, dest, to)?;
+    copy_chunked(source, from, dest, to)?;
+    from.file_read();
     to.file_written();
-    Ok(sha256_of(source)?.0)
+    // Read again to hash it: the copy may never have passed through this process.
+    Ok(sha256_counted(source, from)?.0)
 }
 
 /// Records move `mv`, of kind `kind`, as pending, in `tx`. Returns its id.
@@ -2241,7 +2245,7 @@ mod tests {
             ]
         );
         let built = std::fs::File::open(env.tmp.path().join("lib/Atari/Pong (USA).zip")).unwrap();
-        verify(&built, &[rom]).unwrap();
+        verify(&built, &[rom], &Default::default()).unwrap();
         let kept = env.store.ingest_kept_files("in").unwrap();
         assert_eq!(kept[0].name, "pong.zip");
     }
@@ -2275,7 +2279,7 @@ mod tests {
             let refs: Vec<&std::fs::File> = paths.iter().collect();
             let path = env.tmp.path().join(name);
             let file = std::fs::File::create_new(&path).unwrap();
-            repack_sources(&file, roms, &refs, &Default::default()).unwrap();
+            repack_sources(&file, roms, &refs, &Default::default(), &Default::default()).unwrap();
             std::fs::File::open(path).unwrap()
         };
         let one = repack("one.zip", &[(&rom, 0, None)], &[b"pong"]);

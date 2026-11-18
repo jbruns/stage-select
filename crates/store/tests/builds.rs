@@ -473,7 +473,12 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
     for item in plan.content.items.iter().filter(|i| i.kind.writes()) {
         let path = dir.join(&item.target);
         validate(&path);
-        verify(&std::fs::File::open(&path).unwrap(), &item.roms).unwrap();
+        verify(
+            &std::fs::File::open(&path).unwrap(),
+            &item.roms,
+            &Default::default(),
+        )
+        .unwrap();
         let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
         assert!(before <= mtime && mtime <= after, "{}", item.target);
     }
@@ -559,6 +564,24 @@ fn a_builds_written_bytes_are_counted_for_its_job_and_root_and_kept_across_a_res
         (bytes, written.len() as u64)
     );
     assert_eq!(env.store.meter().total().written - before.written, bytes);
+    // Every source is read from the source set's root, at least once; each built file is read back to verify it.
+    let sources: std::collections::BTreeSet<&str> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes())
+        .flat_map(|i| i.sources.iter().map(|s| s.path.as_str()))
+        .collect();
+    let source_bytes: u64 = sources
+        .iter()
+        .map(|p| std::fs::metadata(env.set_dir().join(p)).unwrap().len())
+        .sum();
+    let sets = env.store.meter().root("sets");
+    assert!(sets.read >= source_bytes, "{} of {source_bytes}", sets.read);
+    assert!(sets.files_read >= sources.len() as u64);
+    assert_eq!(sets.written, 0, "a build only reads its source set");
+    // Each is hashed whole again once verified.
+    assert!(play.read > written.iter().sum::<u64>());
 
     let ended = env.store.end_metering(job.id).unwrap().unwrap();
     let throughput = ended.throughput.unwrap();
@@ -5501,7 +5524,8 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     assert!(
         verify(
             &std::fs::File::open(dir.join("Pong (USA).zip")).unwrap(),
-            &item(&plan, "Pong (USA)").roms
+            &item(&plan, "Pong (USA)").roms,
+            &Default::default()
         )
         .is_ok()
     );

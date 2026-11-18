@@ -452,6 +452,9 @@ impl Run<'_> {
                 }
             }),
             to: self.to.clone(),
+            // A CHD cleaned up is read from the Library Folder it is in.
+            from: self.to.clone(),
+            additions: Default::default(),
             scratch: self.store.meter.job(self.job).tally(None),
             limits,
             tmp: self.store.dir().join(crate::TMP),
@@ -658,13 +661,13 @@ impl Run<'_> {
         let staged_path = staging.path().join(&name);
         // The old ZIP is read once: the rewrite hashes it whole as it reads it, for keeping it aside.
         let mut read = None;
-        let written = repack_from(&file, &r.roms, &source, &self.to)
+        let written = repack_from(&file, &r.roms, &source, &self.to, &self.to)
             .and_then(|(sha256, size)| {
                 if sha256 != r.sha256 || size != r.file.size {
                     return Err("it is not the file the plan was made with".to_owned());
                 }
                 read = Some(sha256);
-                verify(&file, &r.roms)
+                verify(&file, &r.roms, &self.to)
             })
             .and_then(|()| {
                 file.set_modified(self.built_at)

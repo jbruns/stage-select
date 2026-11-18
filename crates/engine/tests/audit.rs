@@ -757,7 +757,8 @@ fn a_7z_in_a_source_set_is_one_opaque_file_whose_members_are_not_read() {
 fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total() {
     let fx = Fixture::new();
     let loose = noise(1, 300_000);
-    let member = noise(2, 120_000);
+    // Repeated, so it is stored in far fewer bytes than it holds.
+    let member = noise(2, 1000).repeat(120);
     write_file(&fx.set_path("Loose.bin"), &loose);
     write_zip(&fx.set_path("Zipped.zip"), &[("Zipped.bin", &member)]);
     let dat = fx.dat(&[
@@ -793,8 +794,14 @@ fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total
 
     title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
 
-    // A loose file's bytes, and a ZIP member's as it decompresses.
-    let payload = (loose.len() + member.len()) as u64;
+    // A loose file's bytes, and a ZIP member's as stored: not its directory or headers, nor what it decompresses to.
+    let stored = zip::ZipArchive::new(std::fs::File::open(fx.set_path("Zipped.zip")).unwrap())
+        .unwrap()
+        .by_index(0)
+        .unwrap()
+        .compressed_size();
+    assert!(stored < member.len() as u64 / 10);
+    let payload = loose.len() as u64 + stored;
     assert_eq!(job.counted().read, payload);
     assert_eq!(job.counted().files_read, 2);
     assert_eq!(meter.root("sets").read, payload);

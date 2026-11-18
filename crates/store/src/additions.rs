@@ -866,12 +866,13 @@ fn still_published(dir: &FolderDir, name: &str, p: &Published) -> Result<bool> {
     Ok(sha256.as_deref() == Some(p.sha256.as_str()))
 }
 
-/// Whether `file` holds `rom` and nothing else, exactly: as a TorrentZip, or, `loose`, as its bytes.
-fn holds_exactly(file: &std::fs::File, rom: &ExpectedRom, loose: bool) -> bool {
+/// Whether `file` holds `rom` and nothing else, exactly: as a TorrentZip, or, `loose`, as its bytes. What is read
+/// back to check it is counted to `tally`, of the Root `file` is in.
+fn holds_exactly(file: &std::fs::File, rom: &ExpectedRom, loose: bool, tally: &Tally) -> bool {
     if loose {
-        return verify_loose(file, rom).is_ok();
+        return verify_loose(file, rom, tally).is_ok();
     }
-    verify(file, std::slice::from_ref(rom)).is_ok()
+    verify(file, std::slice::from_ref(rom), tally).is_ok()
         && matches!(sole_payload(file), Ok((name, sums)) if name == rom.name && exactly(rom, &sums))
 }
 
@@ -1701,6 +1702,7 @@ impl Store {
             Kept::Failed(why) => self.fail_addition(id, why),
             Kept::Found {
                 dir,
+                root,
                 name,
                 identity,
                 file,
@@ -1709,8 +1711,9 @@ impl Store {
                     Ok(dest) => dest,
                     Err(why) => return self.fail_addition(id, why),
                 };
-                let to = self.meter.job(job).tally(Some(ADDITIONS_ROOT));
-                self.publish_kept(row, (&dir, &name, identity, &file), &dest, &to)
+                let meter = self.meter.job(job);
+                let (from, to) = (meter.tally(Some(&root)), meter.tally(Some(ADDITIONS_ROOT)));
+                self.publish_kept(row, (&dir, &name, identity, &file), &dest, (&from, &to))
             }
         }
     }
@@ -2232,6 +2235,7 @@ impl Store {
         };
         Ok(Kept::Found {
             dir: area.generation,
+            root: self.read(|c| crate::sets::set_by_id(c, set))?.record.root,
             name: kept_name,
             identity,
             file: FileStat {
@@ -2305,6 +2309,7 @@ impl Store {
             };
         Ok(Kept::Found {
             dir: area.generation,
+            root: row.root,
             name: kept_name,
             identity,
             file: FileStat {
@@ -2323,7 +2328,7 @@ impl Store {
         row: &AdditionRow,
         (src, name, identity, file): (&FolderDir, &str, Identity, &FileStat),
         dest: &FolderDir,
-        to: &Tally,
+        (from, to): (&Tally, &Tally),
     ) -> Result<Settled> {
         let id = row.addition.id;
         let file_name = &row.addition.file_name;
@@ -2348,7 +2353,7 @@ impl Store {
                 }
                 let held = dest.open_file(at).map_err(io)?;
                 if Identity::of_fd(&held).map_err(io)? != staged
-                    || !holds_exactly(&held, rom, row.addition.loose)
+                    || !holds_exactly(&held, rom, row.addition.loose, to)
                 {
                     return self.fail_addition(
                         id,
@@ -2436,8 +2441,8 @@ impl Store {
         // Written in the format the storage policy said for its system's source sets when it was approved.
         let read = [(&rom, 0, member.as_deref())];
         let written = match row.addition.loose {
-            true => write_loose(&staged, &read, &[&source], to),
-            false => repack_sources(&staged, &read, &[&source], to),
+            true => write_loose(&staged, &read, &[&source], from, to),
+            false => repack_sources(&staged, &read, &[&source], from, to),
         }
         .and_then(|_| staged.sync_all().map_err(|e| e.to_string()));
         if let Err(why) = written {
@@ -2446,7 +2451,7 @@ impl Store {
                 format!("{why}; the partial copy was left at {staged_name}"),
             );
         }
-        if !holds_exactly(&staged, &rom, row.addition.loose) || !unchanged(&source)? {
+        if !holds_exactly(&staged, &rom, row.addition.loose, to) || !unchanged(&source)? {
             return self.fail_addition(
                 id,
                 format!(
@@ -2583,6 +2588,8 @@ enum Kept {
     Failed(String),
     Found {
         dir: FolderDir,
+        /// The Root it was kept aside in, which reading it is counted to.
+        root: String,
         name: String,
         identity: Identity,
         file: FileStat,

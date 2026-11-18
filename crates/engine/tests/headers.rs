@@ -504,8 +504,14 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             path: &loose,
             member: None,
         };
-        repack(&file, &[(&rom, source)], &Default::default()).unwrap();
-        verify(&file, std::slice::from_ref(&rom)).unwrap();
+        repack(
+            &file,
+            &[(&rom, source)],
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        verify(&file, std::slice::from_ref(&rom), &Default::default()).unwrap();
         assert_eq!(sole_member(&out("repack-loose.zip")), dump, "{rule:?}");
 
         let file = created(&out("repack-member.zip"));
@@ -514,9 +520,10 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             std::slice::from_ref(&rom),
             &opened(&zipped),
             &Default::default(),
+            &Default::default(),
         )
         .unwrap();
-        verify(&file, std::slice::from_ref(&rom)).unwrap();
+        verify(&file, std::slice::from_ref(&rom), &Default::default()).unwrap();
         assert_eq!(sole_member(&out("repack-member.zip")), dump, "{rule:?}");
 
         for (name, member, source) in [
@@ -529,9 +536,10 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
                 &[(&rom, 0, member)],
                 &[&opened(source)],
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
-            verify(&file, std::slice::from_ref(&rom)).unwrap();
+            verify(&file, std::slice::from_ref(&rom), &Default::default()).unwrap();
             assert_eq!(sole_member(&out(name)), dump, "{rule:?} {name}");
         }
 
@@ -545,9 +553,10 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
                 &[(&rom, 0, member)],
                 &[&opened(source)],
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
-            verify_loose(&file, &rom).unwrap();
+            verify_loose(&file, &rom, &Default::default()).unwrap();
             assert_eq!(std::fs::read(out(name)).unwrap(), dump, "{rule:?} {name}");
         }
 
@@ -558,9 +567,10 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             "Game.bin",
             &opened(&zipped),
             &Default::default(),
+            &Default::default(),
         )
         .unwrap();
-        verify_loose(&file, &rom).unwrap();
+        verify_loose(&file, &rom, &Default::default()).unwrap();
         assert_eq!(std::fs::read(out("member.bin")).unwrap(), dump);
 
         let file = created(&out("members.bin"));
@@ -569,9 +579,10 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             &[(&rom, "Game.bin")],
             &opened(&zipped),
             &Default::default(),
+            &Default::default(),
         )
         .unwrap();
-        verify_loose(&file, &rom).unwrap();
+        verify_loose(&file, &rom, &Default::default()).unwrap();
         assert_eq!(std::fs::read(out("members.bin")).unwrap(), dump);
     }
 }
@@ -591,10 +602,11 @@ fn a_headerless_payload_is_written_as_it_is_under_a_rule() {
         &[(&rom, 0, None)],
         &[&opened(&loose)],
         &Default::default(),
+        &Default::default(),
     )
     .unwrap();
 
-    verify(&file, std::slice::from_ref(&rom)).unwrap();
+    verify(&file, std::slice::from_ref(&rom), &Default::default()).unwrap();
     assert_eq!(sole_member(&out), rom_bytes);
 }
 
@@ -606,11 +618,19 @@ fn without_a_rule_a_headered_payload_never_verifies_as_its_rom() {
     let path = dir.path().join("Game.nes");
     write_file(&path, &dump);
 
-    assert!(verify_loose(&opened(&path), &expected("Game.nes", &rom_bytes, None)).is_err());
     assert!(
         verify_loose(
             &opened(&path),
-            &expected("Game.nes", &rom_bytes, Some(HeaderRule::Nes))
+            &expected("Game.nes", &rom_bytes, None),
+            &Default::default()
+        )
+        .is_err()
+    );
+    assert!(
+        verify_loose(
+            &opened(&path),
+            &expected("Game.nes", &rom_bytes, Some(HeaderRule::Nes)),
+            &Default::default()
         )
         .is_ok()
     );

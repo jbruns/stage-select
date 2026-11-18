@@ -224,19 +224,26 @@ fn holds_exactly(
     seen: &Seen,
     roms: &[ExpectedRom],
     loose: bool,
+    tally: &Tally,
 ) -> io::Result<std::result::Result<(), String>> {
     let file = dir.open_file(name)?;
     if Seen::of(&rustix::fs::fstat(&file)?) != *seen {
         return Ok(Err("it changed while it was opened".into()));
     }
-    Ok(checks_as(&file, roms, loose))
+    Ok(checks_as(&file, roms, loose, tally))
 }
 
-/// Whether `file` is exactly `roms` as stored: valid TorrentZip holding them, or, `loose`, the one ROM of them.
-fn checks_as(file: &File, roms: &[ExpectedRom], loose: bool) -> std::result::Result<(), String> {
+/// Whether `file` is exactly `roms` as stored: valid TorrentZip holding them, or, `loose`, the one ROM of them. What
+/// is read back to check it is counted to `tally`, of the Root `file` is in.
+fn checks_as(
+    file: &File,
+    roms: &[ExpectedRom],
+    loose: bool,
+    tally: &Tally,
+) -> std::result::Result<(), String> {
     match (loose, roms) {
-        (false, _) => verify(file, roms),
-        (true, [rom]) => verify_loose(file, rom),
+        (false, _) => verify(file, roms, tally),
+        (true, [rom]) => verify_loose(file, rom, tally),
         (true, _) => Err("a loose file is one ROM".into()),
     }
 }
@@ -1847,7 +1854,8 @@ impl Store {
                 Some(id) if is_file(dir, staged_name, id).map_err(io_err)? => {
                     let file = dir.open_file(staged_name).map_err(io_err)?;
                     let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-                    if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
+                    if checks_as(&file, &expected, loose, &r.to).is_ok() && file.sync_all().is_ok()
+                    {
                         dir.sync_holding(staged_name).map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
                         return self.build_staged(step, &file, None, None);
@@ -1942,11 +1950,12 @@ impl Store {
                 .collect();
             let refs: Vec<&File> = opened.iter().collect();
             let read = match loose {
-                true => write_loose(&file, &from, &refs, &r.to)?,
-                false => repack_sources(&file, &from, &refs, &r.to)?,
+                // The cue packs, in the store, are read with the Source Set's files and counted with them.
+                true => write_loose(&file, &from, &refs, &r.to, &r.to)?,
+                false => repack_sources(&file, &from, &refs, &r.to, &r.to)?,
             };
             let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-            checks_as(&file, &expected, loose)
+            checks_as(&file, &expected, loose, &r.to)
                 .map_err(|why| format!("the new {target} did not check: {why}"))?;
             for ((path, seen), source) in sources.iter().zip(&opened) {
                 let st = rustix::fs::fstat(source).map_err(|e| e.to_string())?;
@@ -2112,9 +2121,9 @@ impl Store {
                     .iter()
                     .map(|(one, ..)| (&one.rom, one.member.as_str()))
                     .collect();
-                let read = write_loose_members(&dests, &roms, &source, &r.to)?;
+                let read = write_loose_members(&dests, &roms, &source, &r.to, &r.to)?;
                 for (one, _, file, _) in &staged {
-                    verify_loose(file, &one.rom)
+                    verify_loose(file, &one.rom, &r.to)
                         .map_err(|why| format!("the new {} did not check: {why}", one.target))?;
                 }
                 let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
@@ -2761,7 +2770,9 @@ impl Store {
                     format!("{from} changed since the plan was made; it was left as it is"),
                 );
             }
-            if let Err(why) = holds_exactly(parent, name, seen, roms, loose).map_err(io_err)? {
+            if let Err(why) =
+                holds_exactly(parent, name, seen, roms, loose, &r.to).map_err(io_err)?
+            {
                 return self.step_failed(
                     step,
                     "failed",
@@ -3287,7 +3298,7 @@ impl Store {
             return Ok(Err(format!("{target} no longer reads as it was written")));
         }
         let expected: Vec<ExpectedRom> = roms.iter().map(|r| r.rom.clone()).collect();
-        Ok(checks_as(&file, &expected, *loose))
+        Ok(checks_as(&file, &expected, *loose, &r.to))
     }
 
     fn run_fill(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {

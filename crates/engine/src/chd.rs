@@ -839,7 +839,7 @@ impl Chdman {
                     rom.name, rom.size
                 )));
             }
-            verify_loose(&file, rom)
+            verify_loose(&file, rom, &self.tally)
                 .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
         }
         let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
