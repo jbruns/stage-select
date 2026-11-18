@@ -48,6 +48,7 @@ zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
 
 # `cargo leptos build --release` builds the workbench (crates/ui) to WebAssembly into target/site, which
 # `title-select serve --ui target/site` serves, and the Service binary beside it.
+# The Dockerfile's cook steps repeat these packages, the output name and the workbench's profile.
 [[workspace.metadata.leptos]]
 name = "title-select"
 bin-package = "title-select"
