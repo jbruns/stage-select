@@ -11,8 +11,8 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Barrier, Mutex};
 use std::time::{Duration, Instant};
 
 use title_select_api::calibration::{CurvePoint, Knee};
@@ -328,13 +328,13 @@ const PREPARED_FILES: usize = 256;
 /// How a Root's sweep went.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RootSweep {
-    /// Its files ran out after less than [`Limits::min_bytes`] in all, these bytes, or before any step measured
-    /// enough to keep.
+    /// It holds less than [`Limits::min_bytes`], these bytes, or its files ran out before any step measured enough
+    /// to keep.
     TooSmall { read: u64 },
     /// It found nothing it could read: why the first file or folder it tried failed.
     Unreadable(String),
-    /// It couldn't find enough to read in time for its first step, having read these bytes, though the Root may hold
-    /// more.
+    /// It couldn't find enough to read in time for its first step, or to confirm it holds [`Limits::min_bytes`],
+    /// having read these bytes, though the Root may hold more.
     TimedOut { read: u64 },
     /// Its curve, never empty unless cancelled, and the bytes it read in all.
     Swept { sweep: Sweep, read: u64 },
@@ -343,15 +343,20 @@ pub enum RootSweep {
 /// Sweeps payload readers 1, 2, 4… up to [`MAX_READERS`] over `files`, read-only, in the order they come. Each file
 /// is read at most once across the sweep, so each step reads files no earlier step read.
 ///
-/// Each step goes in batches. With its clock stopped, it finds and opens up to [`PREPARED_FILES`] files, enough for
-/// what's left of its byte limit, and drops each from the page cache; then its readers read them, timed. It adds up
+/// Each step starts its readers once, before its clock, and keeps them across its batches. With its clock stopped, it
+/// finds and opens up to [`PREPARED_FILES`] files, enough for what's left of its byte limit, and drops each from the
+/// page cache; then its readers read them, timed from the first reader starting to the last finishing. It adds up
 /// the bytes and the time of its reading across batches until it has read for its time limit or its byte limit, is
 /// cancelled, or the Root has nothing left: its throughput is those bytes over that time. Files a batch finished are
 /// dropped from the page cache again once its clock stops. A step that spends [`Limits::find_time`] finding files
 /// without reaching a limit times out, and the sweep with it.
 ///
 /// A file that can't be opened or read is passed over, and the first such failure kept: a Root none of whose data
-/// could be read is unreadable. A Root whose files run out before [`Limits::min_bytes`] is read is too small.
+/// could be read is unreadable.
+///
+/// A Root must hold at least [`Limits::min_bytes`] to be measured, whether or not its sweep read that much. When the
+/// sweep read less, it counts the files it opened but didn't read and finds more, by size only, without reading them:
+/// a Root whose files run out first is too small, and one it can't confirm within [`Limits::find_time`] times out.
 pub fn root<F: Files + ?Sized>(
     files: &F,
     limits: Limits,
@@ -396,91 +401,172 @@ pub fn root<F: Files + ?Sized>(
             }
         }
     };
-    let work = |budget: &Budget| {
-        let _active = tally.job().map(JobMeter::reading);
-        let mut buf = vec![0; CHUNK];
-        while budget.going() {
-            let Some((mut payload, _)) = lock(&prepared).pop_front() else {
-                return;
-            };
-            while budget.going() {
-                match payload.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        budget.add(n as u64);
-                        read.fetch_add(n as u64, Ordering::Relaxed);
-                        tally.read(n);
-                    }
-                    Err(err) => {
-                        fail(err);
-                        break;
-                    }
-                }
-            }
-            tally.file_read();
-            lock(&finished).push(payload);
-        }
-    };
+    let nanos = |d: Duration| d.as_nanos().min(u64::MAX as u128) as u64;
     let mut ran_out = false;
     let mut timed_out = false;
     let sweep = sweep(&counts(MAX_READERS), true, limits.min_bytes / 4, |n| {
-        let mut bytes = 0;
-        let mut took = Duration::ZERO;
-        let mut finding = Duration::ZERO;
-        let end = loop {
-            if cancel.load(Ordering::Relaxed) {
-                break StepEnd::Cancelled;
-            }
-            let start = clock.elapsed();
-            let until = start + limits.find_time.saturating_sub(finding);
-            prepare(
-                n,
-                limits.step_bytes.saturating_sub(bytes),
-                until,
-                &mut ran_out,
-            );
-            finding += clock.elapsed().saturating_sub(start);
-            if lock(&prepared).is_empty() {
-                break if cancel.load(Ordering::Relaxed) {
-                    StepEnd::Cancelled
-                } else if ran_out {
-                    StepEnd::Exhausted
-                } else {
-                    timed_out = true;
-                    StepEnd::TimedOut
-                };
-            }
-            let left = Limits {
-                step_time: limits.step_time.saturating_sub(took),
-                step_bytes: limits.step_bytes.saturating_sub(bytes),
-                ..limits
-            };
-            let (batch, batch_took, end) = run(n, left, clock, cancel, &work);
-            bytes += batch;
-            took += batch_took;
-            for payload in lock(&finished).drain(..) {
-                payload.uncache();
-            }
-            if end != StepEnd::Exhausted {
-                break end;
+        let batch = Batch::default();
+        // The readers start before the step is timed, and wait at `go` for each batch and at `done` after it.
+        let go = Barrier::new(n + 1);
+        let done = Barrier::new(n + 1);
+        let going = || {
+            !cancel.load(Ordering::Relaxed)
+                && batch.bytes.load(Ordering::Relaxed) < limits.step_bytes
+                && batch.took.load(Ordering::Relaxed)
+                    + nanos(clock.elapsed()).saturating_sub(batch.start.load(Ordering::Relaxed))
+                    < nanos(limits.step_time)
+        };
+        let reader = || {
+            let _active = tally.job().map(JobMeter::reading);
+            let mut buf = vec![0; CHUNK];
+            loop {
+                go.wait();
+                if batch.stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                batch
+                    .first
+                    .fetch_min(nanos(clock.elapsed()), Ordering::Relaxed);
+                'files: loop {
+                    if !going() {
+                        batch.cut.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                    let Some((mut payload, _)) = lock(&prepared).pop_front() else {
+                        break;
+                    };
+                    loop {
+                        if !going() {
+                            batch.cut.store(true, Ordering::Relaxed);
+                            tally.file_read();
+                            lock(&finished).push(payload);
+                            break 'files;
+                        }
+                        match payload.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                batch.bytes.fetch_add(n as u64, Ordering::Relaxed);
+                                read.fetch_add(n as u64, Ordering::Relaxed);
+                                tally.read(n);
+                            }
+                            Err(err) => {
+                                fail(err);
+                                break;
+                            }
+                        }
+                    }
+                    tally.file_read();
+                    lock(&finished).push(payload);
+                }
+                batch
+                    .last
+                    .fetch_max(nanos(clock.elapsed()), Ordering::Relaxed);
+                done.wait();
             }
         };
+        let end = std::thread::scope(|s| {
+            for _ in 0..n {
+                s.spawn(reader);
+            }
+            let mut finding = Duration::ZERO;
+            let end = loop {
+                if cancel.load(Ordering::Relaxed) {
+                    break StepEnd::Cancelled;
+                }
+                let start = clock.elapsed();
+                let until = start + limits.find_time.saturating_sub(finding);
+                let wanted = limits
+                    .step_bytes
+                    .saturating_sub(batch.bytes.load(Ordering::Relaxed));
+                prepare(n, wanted, until, &mut ran_out);
+                finding += clock.elapsed().saturating_sub(start);
+                if lock(&prepared).is_empty() {
+                    break if cancel.load(Ordering::Relaxed) {
+                        StepEnd::Cancelled
+                    } else if ran_out {
+                        StepEnd::Exhausted
+                    } else {
+                        timed_out = true;
+                        StepEnd::TimedOut
+                    };
+                }
+                batch.first.store(u64::MAX, Ordering::Relaxed);
+                batch.last.store(0, Ordering::Relaxed);
+                batch.start.store(nanos(clock.elapsed()), Ordering::Relaxed);
+                go.wait();
+                done.wait();
+                // Only the time the readers spent reading: from the first to start to the last to stop.
+                let first = batch.first.load(Ordering::Relaxed);
+                let last = batch.last.load(Ordering::Relaxed);
+                batch
+                    .took
+                    .fetch_add(last.saturating_sub(first), Ordering::Relaxed);
+                for payload in lock(&finished).drain(..) {
+                    payload.uncache();
+                }
+                if cancel.load(Ordering::Relaxed) {
+                    break StepEnd::Cancelled;
+                }
+                if batch.bytes.load(Ordering::Relaxed) >= limits.step_bytes {
+                    break StepEnd::Bytes;
+                }
+                if batch.cut.load(Ordering::Relaxed) {
+                    break StepEnd::Time;
+                }
+            };
+            batch.stop.store(true, Ordering::Relaxed);
+            go.wait();
+            end
+        });
         Step {
-            point: measured(n, bytes, took),
+            point: measured(
+                n,
+                batch.bytes.into_inner(),
+                Duration::from_nanos(batch.took.into_inner()),
+            ),
             end,
         }
     });
+    let mut sweep = sweep;
     let read = read.into_inner();
     if sweep.cancelled {
         return RootSweep::Swept { sweep, read };
     }
     if read == 0
-        && let Some(why) = failed.into_inner().unwrap_or_else(|e| e.into_inner())
+        && let Some(why) = lock(&failed).clone()
     {
         return RootSweep::Unreadable(why);
     }
-    if ran_out && lock(&prepared).is_empty() && read < limits.min_bytes {
-        return RootSweep::TooSmall { read };
+    if read < limits.min_bytes {
+        // Too small is how much the Root holds, not how much a slow sweep read: what the sweep read, what it opened
+        // and didn't read, then the sizes of more files, found without reading them, until there is enough.
+        let mut held = read + lock(&prepared).iter().map(|(_, size)| size).sum::<u64>();
+        let until = clock.elapsed() + limits.find_time;
+        while held < limits.min_bytes
+            && !ran_out
+            && !cancel.load(Ordering::Relaxed)
+            && clock.elapsed() < until
+        {
+            match files.next() {
+                None => ran_out = true,
+                Some(Err(err)) => fail(err),
+                Some(Ok(payload)) => match payload.size() {
+                    Err(err) => fail(err),
+                    Ok(size) => held += size,
+                },
+            }
+        }
+        if cancel.load(Ordering::Relaxed) {
+            sweep.cancelled = true;
+            return RootSweep::Swept { sweep, read };
+        }
+        if held < limits.min_bytes {
+            return if ran_out {
+                RootSweep::TooSmall { read: held }
+            } else {
+                RootSweep::TimedOut { read }
+            };
+        }
     }
     if sweep.curve.is_empty() {
         return if timed_out {
@@ -490,6 +576,24 @@ pub fn root<F: Files + ?Sized>(
         };
     }
     RootSweep::Swept { sweep, read }
+}
+
+/// What a Root's step and its readers share across its batches, in nanoseconds on the step's clock.
+#[derive(Default)]
+struct Batch {
+    /// The bytes the step has read.
+    bytes: AtomicU64,
+    /// The time the step's earlier batches spent reading.
+    took: AtomicU64,
+    /// When this batch started, to stop at the step's time limit.
+    start: AtomicU64,
+    /// When the first reader started this batch, and the last stopped.
+    first: AtomicU64,
+    last: AtomicU64,
+    /// Whether a reader stopped at a limit with files left.
+    cut: AtomicBool,
+    /// Whether the readers are done for the step.
+    stop: AtomicBool,
 }
 
 /// Drops `file`'s pages from the page cache, so that what was read isn't read again from memory, nor was read from
@@ -822,10 +926,19 @@ mod tests {
         assert_eq!(run(&files, limits), RootSweep::TooSmall { read: 0 });
     }
 
-    /// A payload that reads at a fixed rate on the fake clock, whatever the number of readers: a millisecond a MiB.
+    /// A Root's throughput on the fake clock: a millisecond a MiB whatever the number of readers, and twice that once
+    /// `slow_after` bytes have been read. It keeps the threads that read.
+    #[derive(Default)]
+    struct Model {
+        clock: Fake,
+        read: AtomicU64,
+        slow_after: Option<u64>,
+        threads: std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
+    }
+
     struct Modelled<'a> {
         left: u64,
-        clock: &'a Fake,
+        model: &'a Model,
     }
 
     impl Payload for Modelled<'_> {
@@ -834,29 +947,37 @@ mod tests {
         }
 
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let model = self.model;
+            model
+                .threads
+                .lock()
+                .unwrap()
+                .insert(std::thread::current().id());
             let n = (buf.len() as u64).min(self.left);
             self.left -= n;
-            self.clock
-                .advance(Duration::from_nanos(n * 1_000_000 / MIB));
+            let before = model.read.fetch_add(n, Ordering::Relaxed);
+            let slow = model.slow_after.is_some_and(|after| before >= after);
+            let per_mib = if slow { 2_000_000 } else { 1_000_000 };
+            model.clock.advance(Duration::from_nanos(n * per_mib / MIB));
             Ok(n as usize)
         }
 
         fn uncache(&self) {
-            self.clock.advance(Duration::from_millis(10));
+            self.model.clock.advance(Duration::from_millis(10));
         }
     }
 
     /// Files of these sizes, each taking `find` on the fake clock to find and open.
     struct Fakes<'a> {
-        clock: &'a Fake,
+        model: &'a Model,
         find: Duration,
         sizes: std::sync::Mutex<std::vec::IntoIter<u64>>,
     }
 
     impl<'a> Fakes<'a> {
-        fn new(clock: &'a Fake, find: Duration, sizes: Vec<u64>) -> Self {
+        fn new(model: &'a Model, find: Duration, sizes: Vec<u64>) -> Self {
             Fakes {
-                clock,
+                model,
                 find,
                 sizes: std::sync::Mutex::new(sizes.into_iter()),
             }
@@ -868,19 +989,19 @@ mod tests {
 
         fn next(&self) -> Option<std::io::Result<Modelled<'a>>> {
             let left = self.sizes.lock().unwrap().next()?;
-            self.clock.advance(self.find);
+            self.model.clock.advance(self.find);
             Some(Ok(Modelled {
                 left,
-                clock: self.clock,
+                model: self.model,
             }))
         }
     }
 
-    fn modelled_root(files: &Fakes, clock: &Fake, limits: Limits) -> RootSweep {
+    fn modelled_root(files: &Fakes, limits: Limits) -> RootSweep {
         root(
             files,
             limits,
-            clock,
+            &files.model.clock,
             &AtomicBool::new(false),
             &Tally::default(),
         )
@@ -888,15 +1009,15 @@ mod tests {
 
     #[test]
     fn finding_and_opening_files_is_not_timed_as_reading() {
-        let clock = Fake::default();
-        let files = Fakes::new(&clock, Duration::from_millis(200), vec![MIB; 1000]);
+        let model = Model::default();
+        let files = Fakes::new(&model, Duration::from_millis(200), vec![MIB; 1000]);
         let limits = Limits {
             step_time: Duration::from_secs(60),
             step_bytes: 32 * MIB,
             min_bytes: MIB,
             ..Limits::default()
         };
-        let RootSweep::Swept { sweep, .. } = modelled_root(&files, &clock, limits) else {
+        let RootSweep::Swept { sweep, .. } = modelled_root(&files, limits) else {
             panic!("big enough");
         };
         assert_eq!(
@@ -916,25 +1037,25 @@ mod tests {
 
     #[test]
     fn many_tiny_files_short_of_the_minimum_are_too_small_to_measure() {
-        let clock = Fake::default();
-        let files = Fakes::new(&clock, Duration::ZERO, vec![4096; 2048]);
+        let model = Model::default();
+        let files = Fakes::new(&model, Duration::ZERO, vec![4096; 2048]);
         assert_eq!(
-            modelled_root(&files, &clock, Limits::default()),
+            modelled_root(&files, Limits::default()),
             RootSweep::TooSmall { read: 2048 * 4096 }
         );
     }
 
     #[test]
     fn small_files_enough_in_all_fill_every_step_batch_after_batch() {
-        let clock = Fake::default();
-        let files = Fakes::new(&clock, Duration::ZERO, vec![4096; 4096]);
+        let model = Model::default();
+        let files = Fakes::new(&model, Duration::ZERO, vec![4096; 4096]);
         let limits = Limits {
             step_time: Duration::from_secs(60),
             step_bytes: 2 * MIB,
             min_bytes: 4 * MIB,
             ..Limits::default()
         };
-        let RootSweep::Swept { sweep, .. } = modelled_root(&files, &clock, limits) else {
+        let RootSweep::Swept { sweep, .. } = modelled_root(&files, limits) else {
             panic!("big enough");
         };
         assert_eq!(
@@ -953,17 +1074,17 @@ mod tests {
 
     #[test]
     fn empty_files_slow_to_find_before_the_data_are_passed_over() {
-        let clock = Fake::default();
+        let model = Model::default();
         let mut sizes = vec![0; 20];
         sizes.extend([MIB; 100]);
-        let files = Fakes::new(&clock, Duration::from_secs(1), sizes);
+        let files = Fakes::new(&model, Duration::from_secs(1), sizes);
         let limits = Limits {
             step_time: Duration::from_secs(10),
             step_bytes: 8 * MIB,
             min_bytes: MIB,
             find_time: Duration::from_secs(60),
         };
-        let RootSweep::Swept { sweep, .. } = modelled_root(&files, &clock, limits) else {
+        let RootSweep::Swept { sweep, .. } = modelled_root(&files, limits) else {
             panic!("the data after the empty files is enough");
         };
         assert!(sweep.curve.len() > 1, "{:?}", sweep.curve);
@@ -971,10 +1092,10 @@ mod tests {
 
     #[test]
     fn a_root_with_nothing_found_to_read_in_time_times_out_rather_than_being_too_small() {
-        let clock = Fake::default();
+        let model = Model::default();
         let mut sizes = vec![0; 1000];
         sizes.extend([MIB; 100]);
-        let files = Fakes::new(&clock, Duration::from_secs(1), sizes);
+        let files = Fakes::new(&model, Duration::from_secs(1), sizes);
         let limits = Limits {
             step_time: Duration::from_secs(10),
             step_bytes: 8 * MIB,
@@ -982,8 +1103,100 @@ mod tests {
             find_time: Duration::from_secs(30),
         };
         assert_eq!(
-            modelled_root(&files, &clock, limits),
+            modelled_root(&files, limits),
             RootSweep::TimedOut { read: 0 }
+        );
+    }
+
+    #[test]
+    fn each_step_starts_its_readers_once_however_many_batches_it_reads() {
+        let model = Model::default();
+        // 4 KiB files: each step reads its 2 MiB over two batches of 256 or more.
+        let files = Fakes::new(&model, Duration::ZERO, vec![4096; 4096]);
+        let limits = Limits {
+            step_time: Duration::from_secs(60),
+            step_bytes: 2 * MIB,
+            min_bytes: 4 * MIB,
+            ..Limits::default()
+        };
+        let RootSweep::Swept { sweep, .. } = modelled_root(&files, limits) else {
+            panic!("big enough");
+        };
+        assert_eq!(sweep.curve.len(), counts(MAX_READERS).len());
+        let started: usize = counts(MAX_READERS).iter().sum();
+        let threads = model.threads.lock().unwrap().len();
+        assert!(
+            threads <= started,
+            "{threads} reader threads read, for {started} readers"
+        );
+    }
+
+    /// A root of `mib` MiB in 1 MiB files, reading at half the speed after its first 200 MiB: the second step drops.
+    fn dropping(model: &mut Model, mib: usize) -> Vec<u64> {
+        model.slow_after = Some(200 * MIB);
+        vec![MIB; mib]
+    }
+
+    fn dropping_limits() -> Limits {
+        Limits {
+            step_time: Duration::from_secs(600),
+            step_bytes: 200 * MIB,
+            ..Limits::default()
+        }
+    }
+
+    #[test]
+    fn a_root_under_the_minimum_whose_sweep_drops_early_is_too_small() {
+        let mut model = Model::default();
+        let sizes = dropping(&mut model, 768);
+        let files = Fakes::new(&model, Duration::ZERO, sizes);
+        assert_eq!(
+            modelled_root(&files, dropping_limits()),
+            RootSweep::TooSmall { read: 768 * MIB }
+        );
+    }
+
+    #[test]
+    fn a_large_root_whose_sweep_drops_before_reading_the_minimum_is_measured() {
+        let mut model = Model::default();
+        let sizes = dropping(&mut model, 2048);
+        let files = Fakes::new(&model, Duration::ZERO, sizes);
+        let RootSweep::Swept { sweep, read } = modelled_root(&files, dropping_limits()) else {
+            panic!("it holds 2 GiB");
+        };
+        assert_eq!(
+            sweep.curve.iter().map(|p| p.workers).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert!(read < Limits::default().min_bytes);
+        assert_eq!(sweep.knee.map(|k| k.workers), Some(1));
+    }
+
+    #[test]
+    fn a_root_under_the_minimum_whose_later_step_times_out_is_too_small_or_timed_out() {
+        let limits = Limits {
+            step_time: Duration::from_secs(600),
+            step_bytes: 20 * MIB,
+            find_time: Duration::from_secs(30),
+            ..Limits::default()
+        };
+        // 25 MiB, then empty files, each slow to find: the first step reads 20 MiB, and the second times out finding
+        // more.
+        let root_of = |empties: usize| {
+            let model = Model::default();
+            let mut sizes = vec![MIB; 25];
+            sizes.extend(std::iter::repeat_n(0, empties));
+            let files = Fakes::new(&model, Duration::from_secs(1), sizes);
+            modelled_root(&files, limits)
+        };
+        assert_eq!(
+            root_of(40),
+            RootSweep::TooSmall { read: 25 * MIB },
+            "the files ran out"
+        );
+        assert!(
+            matches!(root_of(1000), RootSweep::TimedOut { .. }),
+            "more files to find"
         );
     }
 

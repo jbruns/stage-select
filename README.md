@@ -736,13 +736,15 @@ It measures:
   It reads the payloads of source sets you audited, those never read first, then those read longest ago; a root with
   no audits is walked instead. Each file is read at most once in a calibration, and on Linux it asks the kernel to
   drop each file from its page cache before and after reading it. It opens each file inside the root without
-  following a symlink, so it never reads outside the root. A root whose files run out before about 1 GiB is read is
-  too small to measure; a root none of whose files it could open or read is reported unreadable, with why.
+  following a symlink, so it never reads outside the root. A root that holds less than about 1 GiB is too small to
+  measure: when its sweep reads less than that, it adds up the sizes of the root's other files, without reading them,
+  to check. A root none of whose files it could open or read is reported unreadable, with why.
 
 A step finds and opens files in batches, then reads each batch, so its time counts only reading. Each step stops after
 10 seconds or 2 GiB of reading, or when the root has nothing left to read. A step that spends a minute finding files
 without reaching either limit, for example passing over files with nothing in them, ends the sweep there; if that
-happens before the first step finishes, the root is reported timed out. A sweep's knee is the fewest workers within
+happens before the first step finishes, or it can't check the root holds about 1 GiB within a minute, the root is
+reported timed out. A sweep's knee is the fewest workers within
 10% of the fastest step, never past a step that was slower than the one before; a root's sweep stops at that slower
 step. The results keep each sweep's steps, its knee and the throughput at the knee, with the CPU count and each root's
 path at the time.
