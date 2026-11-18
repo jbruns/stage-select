@@ -1291,7 +1291,7 @@ mod tests {
     #[derive(Debug)]
     struct OnePool(std::sync::Arc<crate::pool::Pool>);
 
-    impl crate::meter::RootReaders for OnePool {
+    impl crate::meter::RootLimits for OnePool {
         fn readers(&self, _: &str) -> std::sync::Arc<crate::pool::Pool> {
             self.0.clone()
         }
@@ -1303,7 +1303,7 @@ mod tests {
         use std::time::{Duration, Instant};
         let pool = std::sync::Arc::new(crate::pool::Pool::new(1));
         let meter = crate::meter::Meter::default();
-        meter.share_readers(std::sync::Arc::new(OnePool(pool.clone())));
+        meter.share_limits(std::sync::Arc::new(OnePool(pool.clone())));
         let job = meter.start(
             1,
             crate::Workers {

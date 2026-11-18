@@ -2,6 +2,7 @@
 
 pub mod build;
 pub mod calibrate;
+pub mod cap;
 pub mod chd;
 pub mod dat;
 pub mod fixdat;

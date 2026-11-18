@@ -20,6 +20,7 @@ use title_select_api::settings::{
     MAX_MIB_PER_S, MAX_WORKERS, Pace, RootCeilings, RootOverrides,
 };
 use title_select_engine::Pools;
+use title_select_engine::cap::Caps;
 use title_select_engine::pool::Pool;
 use title_select_engine::sevenz::Gate;
 
@@ -321,6 +322,20 @@ impl Live {
                 }
             }
         }
+        {
+            // Each bucket takes its new rate at once: a wait under way rescales what it has left at its next look.
+            let bytes = |c: &Ceiling| c.in_force.map(|mib| mib.saturating_mul(1 << 20));
+            let mut caps = self.readers.caps.write().unwrap_or_else(|e| e.into_inner());
+            for (name, cap) in caps.iter() {
+                if !view.roots.iter().any(|r| &r.root == name) {
+                    cap.set(None, None);
+                }
+            }
+            for root in &view.roots {
+                let (read, write) = (bytes(&root.read_mib_per_s), bytes(&root.write_mib_per_s));
+                caps.entry(root.root.clone()).or_default().set(read, write);
+            }
+        }
         *self.view.write().unwrap_or_else(|e| e.into_inner()) = Some(view);
         self.ready.store(true, Ordering::Release);
     }
@@ -332,18 +347,41 @@ pub(crate) struct RootPools {
     map: RwLock<BTreeMap<String, Arc<Pool>>>,
     /// The limit of a Root the configuration doesn't name: the pace's share of the CPU count.
     unnamed: AtomicUsize,
+    /// Each Root's byte-rate caps, at the pace's share of its byte-rate Ceilings.
+    caps: RwLock<BTreeMap<String, Arc<Caps>>>,
 }
 
 impl Default for RootPools {
     fn default() -> Self {
         RootPools {
             map: RwLock::default(),
+            caps: RwLock::default(),
             unnamed: AtomicUsize::new(crate::calibration::cpus()),
         }
     }
 }
 
-impl title_select_engine::meter::RootReaders for RootPools {
+impl title_select_engine::meter::RootLimits for RootPools {
+    fn caps(&self, root: &str) -> Option<Arc<Caps>> {
+        if let Some(caps) = self
+            .caps
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(root)
+        {
+            return Some(caps.clone());
+        }
+        // A Root the configuration doesn't name has no byte-rate Ceiling, so no cap.
+        Some(
+            self.caps
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(root.to_owned())
+                .or_default()
+                .clone(),
+        )
+    }
+
     fn readers(&self, root: &str) -> Arc<Pool> {
         if let Some(pool) = self.map.read().unwrap_or_else(|e| e.into_inner()).get(root) {
             return pool.clone();
@@ -460,7 +498,7 @@ impl Store {
         let live = self.live_ceilings(config)?;
         // A Root the configuration doesn't name is read with the readers of the CPU count, at this pace.
         Ok(JobPools {
-            readers: title_select_engine::meter::RootReaders::readers(&*live.readers, root),
+            readers: title_select_engine::meter::RootLimits::readers(&*live.readers, root),
             hashers: live.hashers.clone(),
         })
     }
@@ -484,6 +522,25 @@ impl Store {
         }
     }
 
+    /// Each Root's byte-rate caps in force now, in bytes a second, by name: none for a Root under `unthrottled`, or
+    /// without a byte-rate Ceiling.
+    pub fn byte_caps(&self) -> BTreeMap<String, title_select_api::ByteCaps> {
+        self.ceilings
+            .readers
+            .caps
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(root, caps)| {
+                let caps = title_select_api::ByteCaps {
+                    read_bytes_per_s: caps.read.rate(),
+                    write_bytes_per_s: caps.write.rate(),
+                };
+                (root.clone(), caps)
+            })
+            .collect()
+    }
+
     /// The gate every 7z archive decodes through, its size the pace's share of the archive workers Ceiling.
     pub(crate) fn archive_gate(&self, config: &Config) -> &Gate {
         match self.live_ceilings(config) {
@@ -496,8 +553,10 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use title_select_api::ByteCaps;
     use title_select_api::calibration::{HostCalibration, Knee, RootCalibration, RootOutcome};
     use title_select_api::settings::{HostCeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    use title_select_engine::meter::RootLimits;
 
     use super::*;
 
@@ -923,6 +982,62 @@ mod tests {
             1,
             "a quarter of the default 2, at least 1"
         );
+    }
+
+    #[test]
+    fn the_pace_and_your_ceilings_set_each_roots_byte_caps_live() {
+        let (_dir, store) = store();
+        let config = config(
+            "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = 400\n[roots.library]\npath = \"/library\"",
+        );
+        let meter_caps = RootLimits::caps(&*store.ceilings.readers, "sets").unwrap();
+        store.refresh_ceilings(&config).unwrap();
+        let mib = 1u64 << 20;
+        let caps = |root: &str| store.byte_caps().get(root).copied().unwrap_or_default();
+        let read = |c: ByteCaps| c.read_bytes_per_s;
+        let write = |c: ByteCaps| c.write_bytes_per_s;
+        assert_eq!(
+            read(caps("sets")),
+            Some(200 * mib),
+            "half, at the default pace"
+        );
+        assert_eq!(write(caps("sets")), None, "no write cap unless you set one");
+        assert_eq!(caps("library"), ByteCaps::default(), "no byte-rate ceiling");
+        assert_eq!(
+            meter_caps.read.rate(),
+            Some(200 * mib),
+            "the Jobs' own bucket"
+        );
+
+        for (pace, cap) in [
+            (Pace::Gentle, Some(100 * mib)),
+            (Pace::Unthrottled, None),
+            (Pace::Default, Some(200 * mib)),
+        ] {
+            let update = SettingsUpdate {
+                pace: Some(pace),
+                ..SettingsUpdate::default()
+            };
+            store.update_settings(&config, &update, "Operator").unwrap();
+            assert_eq!(read(caps("sets")), cap, "{pace:?}");
+            assert_eq!(meter_caps.read.rate(), cap, "{pace:?}");
+        }
+
+        let yours = CeilingsUpdate {
+            roots: BTreeMap::from([(
+                "library".to_owned(),
+                RootCeilingsUpdate {
+                    write_mib_per_s: Some(80.into()),
+                    ..RootCeilingsUpdate::default()
+                },
+            )]),
+            ..CeilingsUpdate::default()
+        };
+        store
+            .update_settings(&config, &update(yours), "Operator")
+            .unwrap();
+        assert_eq!(write(caps("library")), Some(40 * mib));
+        assert_eq!(read(caps("library")), None);
     }
 
     /// Counts the files being read at once of one Root, by every Job reading it, and the count each file started at.

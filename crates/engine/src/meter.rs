@@ -3,7 +3,8 @@
 //!
 //! Counting is a relaxed atomic add on a buffer already in hand: no copy, syscall or lock is added to a read or a
 //! write. A [`Tally`] is resolved once, for a Job and a Root, before any byte moves, and every count goes through
-//! [`Tally::read`] or [`Tally::wrote`]: that is where a Root's byte-rate cap (#193) takes its tokens.
+//! [`Tally::read`] or [`Tally::wrote`]: that is where a Root's byte-rate caps ([`crate::cap`]) take their tokens.
+//! Under `unthrottled`, where a Root's buckets have no rate, that costs one relaxed load more and touches no bucket.
 //!
 //! A Tally also holds its Root's shared readers pool (ADR 0022), when the Service shares one: every Job-time read of a
 //! file of the Root takes one permit of it for that file, through [`Tally::reader`], the first read through a
@@ -16,18 +17,24 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use title_select_api::{Rates, Workers};
 
+use crate::cap::{Bucket, Caps, Clock, Monotonic, copy_chunk};
 use crate::pool::{OwnedPermit, Pool};
 
-/// The shared readers pool of each Root, as the Service sizes them.
-pub trait RootReaders: Send + Sync + std::fmt::Debug {
-    /// The pool every Job reading the Root `root` shares.
+/// The limits every Job shares on each Root, as the Service sets them.
+pub trait RootLimits: Send + Sync + std::fmt::Debug {
+    /// The readers pool every Job reading the Root `root` shares.
     fn readers(&self, root: &str) -> Arc<Pool>;
+
+    /// The byte-rate caps every Job reading or writing the Root `root` shares; none where it has none at all.
+    fn caps(&self, _root: &str) -> Option<Arc<Caps>> {
+        None
+    }
 }
 
 thread_local! {
@@ -257,24 +264,119 @@ struct Sinks {
     flow: Arc<Flow>,
     /// The Root's shared readers pool, when the Service shares one.
     readers: Option<Arc<Pool>>,
+    /// The Root's byte-rate caps, when the Service shares them and the Job's reads and writes are capped.
+    caps: Option<Arc<Caps>>,
+}
+
+/// Which of a Root's caps a byte counts against.
+#[derive(Clone, Copy)]
+enum Way {
+    Read,
+    Write,
+}
+
+impl Sinks {
+    /// The bucket bytes going `way` are charged to, while it caps them.
+    #[inline]
+    fn capped(&self, way: Way) -> Option<&Bucket> {
+        let caps = self.caps.as_deref()?;
+        let bucket = match way {
+            Way::Read => &caps.read,
+            Way::Write => &caps.write,
+        };
+        bucket.capped().then_some(bucket)
+    }
+
+    /// Charges `n` bytes to `bucket` and waits until they are paid for: not while this thread holds the store's
+    /// writer, which other Jobs may be waiting for, and no longer once the Job is cancelled.
+    #[cold]
+    fn pay(&self, bucket: &Bucket, n: u64) {
+        let clock = Monotonic;
+        let Some(debt) = bucket.charge(n, clock.now()) else {
+            return;
+        };
+        if NO_WAITS.get() > 0 {
+            return;
+        }
+        bucket.wait(debt, &clock, &|| self.job.cancelled());
+    }
 }
 
 impl Tally {
-    /// Counts `n` payload bytes read.
-    // A Root's byte-rate cap (#193) takes its tokens here and in `wrote`, before counting, and only under a pace that
-    // caps: unthrottled, nothing waits.
+    /// Counts `n` payload bytes read, once the Root's read cap, if any, lets them through.
     #[inline]
     pub fn read(&self, n: usize) {
         if let Some(sinks) = &self.0 {
+            if let Some(bucket) = sinks.capped(Way::Read) {
+                sinks.pay(bucket, n as u64);
+            }
             count(&sinks.flow, |s| Slot::add(&s.read, n as u64));
         }
     }
 
-    /// Counts `n` bytes written.
+    /// Counts `n` bytes written, once the Root's write cap, if any, lets them through.
     #[inline]
     pub fn wrote(&self, n: usize) {
         if let Some(sinks) = &self.0 {
+            if let Some(bucket) = sinks.capped(Way::Write) {
+                sinks.pay(bucket, n as u64);
+            }
             count(&sinks.flow, |s| Slot::add(&s.written, n as u64));
+        }
+    }
+
+    /// Counts `n` bytes another process read, such as chdman, which no cap holds back.
+    pub fn read_outside(&self, n: usize) {
+        self.counted(Way::Read, n as u64);
+    }
+
+    /// Counts `n` bytes another process wrote, such as chdman, which no cap holds back.
+    pub fn wrote_outside(&self, n: usize) {
+        self.counted(Way::Write, n as u64);
+    }
+
+    /// Counts `n` bytes going `way`, without charging them.
+    fn counted(&self, way: Way, n: u64) {
+        if let Some(sinks) = &self.0 {
+            count(&sinks.flow, |s| match way {
+                Way::Read => Slot::add(&s.read, n),
+                Way::Write => Slot::add(&s.written, n),
+            });
+        }
+    }
+
+    /// This tally, with no cap: for a Calibration, which measures what a Root gives uncapped.
+    pub fn uncapped(self) -> Tally {
+        Tally(self.0.map(|sinks| {
+            Arc::new(Sinks {
+                job: sinks.job.clone(),
+                flow: sinks.flow.clone(),
+                readers: sinks.readers.clone(),
+                caps: None,
+            })
+        }))
+    }
+
+    /// The rate of this Root's cap on bytes going `way`, while it caps them.
+    fn rate(&self, way: Way) -> Option<u64> {
+        self.0.as_ref()?.capped(way)?.rate()
+    }
+
+    /// Charges `n` bytes going `way` before they move, and waits until they are paid for.
+    fn prepay(&self, way: Way, n: u64) {
+        if let Some(sinks) = &self.0
+            && let Some(bucket) = sinks.capped(way)
+        {
+            sinks.pay(bucket, n);
+        }
+    }
+
+    /// Gives back `n` bytes going `way` charged but not moved.
+    fn refund(&self, way: Way, n: u64) {
+        if let Some(sinks) = &self.0
+            && let Some(bucket) = sinks.capped(way)
+        {
+            bucket.refund(n);
         }
     }
 
@@ -330,7 +432,7 @@ impl Tally {
 pub struct Meter {
     jobs: Mutex<BTreeMap<i64, JobMeter>>,
     ended: Mutex<Left>,
-    root_readers: std::sync::OnceLock<Arc<dyn RootReaders>>,
+    root_limits: std::sync::OnceLock<Arc<dyn RootLimits>>,
 }
 
 /// What the Jobs that ended counted, in total and for each Root.
@@ -355,10 +457,12 @@ struct JobShared {
     readers: AtomicUsize,
     hashers: AtomicUsize,
     chdman: AtomicUsize,
+    /// Set once the Job is asked to stop: none of its reads or writes waits on a cap after that.
+    cancelled: AtomicBool,
     /// The pools its readers and hash workers share with other Jobs, once it reads through them.
     pools: std::sync::OnceLock<(Arc<Pool>, Arc<Pool>)>,
-    /// Each Root's shared readers pool, which its tallies take their permits from.
-    root_readers: Option<Arc<dyn RootReaders>>,
+    /// Each Root's shared readers pool and caps, which its tallies take their permits and tokens from.
+    root_limits: Option<Arc<dyn RootLimits>>,
 }
 
 impl JobShared {
@@ -403,10 +507,23 @@ fn active(count: &AtomicUsize) -> Active<'_> {
 }
 
 impl Meter {
-    /// Has every Job metered from now take a permit of `readers`' pool for each file it reads of a Root. Only the
-    /// first call counts.
-    pub fn share_readers(&self, readers: Arc<dyn RootReaders>) {
-        let _ = self.root_readers.set(readers);
+    /// Has every Job metered from now take a permit of `limits`' readers pool for each file it reads of a Root, and
+    /// the bytes it reads and writes from the Root's caps. Only the first call counts.
+    pub fn share_limits(&self, limits: Arc<dyn RootLimits>) {
+        let _ = self.root_limits.set(limits);
+    }
+
+    /// Ends every wait of Job `id` on a cap, now and from now on, once it is asked to stop: it reaches its next safe
+    /// point within a recheck of the cap.
+    pub fn cancel(&self, id: i64) {
+        if let Some(job) = self
+            .jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&id)
+        {
+            job.0.cancelled.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Starts metering Job `id`, whose payload readers and hash workers are `ceilings` before the pace, from now; the
@@ -425,8 +542,9 @@ impl Meter {
                     readers: AtomicUsize::new(0),
                     hashers: AtomicUsize::new(0),
                     chdman: AtomicUsize::new(0),
+                    cancelled: AtomicBool::new(false),
                     pools: std::sync::OnceLock::new(),
-                    root_readers: self.root_readers.get().cloned(),
+                    root_limits: self.root_limits.get().cloned(),
                 }))
             })
             .clone()
@@ -490,17 +608,20 @@ impl Meter {
             .values()
             .map(|j| {
                 let mut counted = Counted::default();
+                let mut its = Vec::new();
                 for (root, c) in j.0.by_root() {
                     counted = counted + c;
                     if let Some(root) = root {
-                        let sum = roots.entry(root).or_default();
+                        let sum = roots.entry(root.clone()).or_default();
                         *sum = *sum + c;
+                        its.push((root, c));
                     }
                 }
                 total = total + counted;
                 JobSample {
                     id: j.0.id,
                     counted,
+                    roots: its,
                     readers: j.0.readers.load(Ordering::Relaxed),
                     hashers: j.0.hashers.load(Ordering::Relaxed),
                     chdman: j.0.chdman.load(Ordering::Relaxed) > 0,
@@ -527,9 +648,9 @@ impl JobMeter {
     /// Where this Job's bytes from or into the Root named `root` are counted; with no Root, only for the Job and in
     /// total.
     pub fn tally(&self, root: Option<&str>) -> Tally {
-        let readers = root
-            .zip(self.0.root_readers.as_ref())
-            .map(|(root, r)| r.readers(root));
+        let limits = root.zip(self.0.root_limits.as_ref());
+        let readers = limits.map(|(root, l)| l.readers(root));
+        let caps = limits.and_then(|(root, l)| l.caps(root));
         let flow = self
             .0
             .flows
@@ -542,6 +663,7 @@ impl JobMeter {
             job: self.clone(),
             flow,
             readers,
+            caps,
         })))
     }
 
@@ -551,6 +673,11 @@ impl JobMeter {
             .by_root()
             .into_iter()
             .fold(Counted::default(), |sum, (_, c)| sum + c)
+    }
+
+    /// Whether the Job was asked to stop.
+    pub fn cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::Relaxed)
     }
 
     /// Counts a payload reader at work until the guard drops.
@@ -606,6 +733,8 @@ pub struct Sample {
 pub struct JobSample {
     pub id: i64,
     pub counted: Counted,
+    /// What it counted in each Root, by name.
+    pub roots: Vec<(String, Counted)>,
     pub readers: usize,
     pub hashers: usize,
     pub chdman: bool,
@@ -802,6 +931,12 @@ pub(crate) enum InKernel {
 }
 
 /// [`copy_chunked`], in chunks of `chunk` bytes, through `kernel` for each `copy_file_range`.
+///
+/// Under a cap, each chunk is charged before it moves, as read from `from`'s Root and as written into `to`'s, even
+/// where the filesystem clones it: a clone can't be told from a copy. A capped chunk is smaller where the cap is
+/// low ([`copy_chunk`]) and starts at a multiple of its size, so a filesystem that clones blocks still can; it is
+/// charged no more than what is left of the file, so that a small file waits for its own bytes only. Uncapped, every
+/// chunk is `chunk` bytes, and nothing is charged.
 pub(crate) fn copy_with(
     (from, src): (&File, &Tally),
     (to, dst): (&File, &Tally),
@@ -811,33 +946,87 @@ pub(crate) fn copy_with(
     // Only the source's: a copy reads one Root, and a thread holds one reader permit at most.
     let _reading = src.reader();
     let mut copied = 0u64;
-    let counted = |n: u64| {
-        src.read(n as usize);
-        dst.wrote(n as usize);
+    // Where the copy starts and the file ends, looked up only once a chunk is capped.
+    let span = std::cell::OnceCell::new();
+    let span = || {
+        *span.get_or_init(|| {
+            let mut from = from;
+            let start = from.stream_position().unwrap_or(0);
+            let end = from.metadata().map_or(u64::MAX, |m| m.len());
+            (start, end)
+        })
+    };
+    // The bytes to ask for, and the bytes to charge for them.
+    let next = |copied: u64| -> (usize, u64) {
+        let rate = [src.rate(Way::Read), dst.rate(Way::Write)]
+            .into_iter()
+            .flatten()
+            .min();
+        let Some(rate) = rate else {
+            return (chunk, 0);
+        };
+        let (start, end) = span();
+        let at = start.saturating_add(copied);
+        // Up to the next multiple of a chunk's size, so that the chunks after it start at one.
+        let mut ask = copy_chunk(rate, chunk);
+        let aligned = 1u64.checked_shl(at.trailing_zeros()).unwrap_or(u64::MAX);
+        if aligned < ask as u64 && aligned >= crate::cap::MIN_COPY_CHUNK as u64 {
+            ask = aligned as usize;
+        }
+        let left = end.saturating_sub(at);
+        (ask, left.min(ask as u64))
+    };
+    let pay = |n: u64| {
+        src.prepay(Way::Read, n);
+        dst.prepay(Way::Write, n);
+    };
+    // Counts the `n` bytes a chunk charged `paid` for moved, settling the difference.
+    let moved = |paid: u64, n: u64| {
+        if n < paid {
+            src.refund(Way::Read, paid - n);
+            dst.refund(Way::Write, paid - n);
+        } else if n > paid {
+            pay(n - paid);
+        }
+        src.counted(Way::Read, n);
+        dst.counted(Way::Write, n);
     };
     loop {
-        match kernel(from, to, chunk)? {
+        let (ask, paid) = next(copied);
+        pay(paid);
+        match kernel(from, to, ask)? {
             // A first call that copies nothing may be a filesystem that copies nothing this way, as overlayfs once
             // did, rather than an empty file: the copy below tells them apart. Later, nothing is the end.
-            InKernel::Copied(0) if copied == 0 => break,
-            InKernel::Copied(0) => return Ok(copied),
+            InKernel::Copied(0) if copied == 0 => {
+                moved(paid, 0);
+                break;
+            }
+            InKernel::Copied(0) => {
+                moved(paid, 0);
+                return Ok(copied);
+            }
             InKernel::Copied(n) => {
-                counted(n as u64);
+                moved(paid, n as u64);
                 copied += n as u64;
             }
-            InKernel::Refused => break,
+            InKernel::Refused => {
+                moved(paid, 0);
+                break;
+            }
         }
     }
     // From where the kernel stopped, if it copied any: each chunk advanced both offsets. `io::copy` between two files
     // keeps std's own kernel copies, `sendfile` among them, before it falls back to a buffer.
     loop {
+        let (ask, paid) = next(copied);
+        pay(paid);
         let reader = from;
         let mut writer = to;
-        let n = io::copy(&mut reader.take(chunk as u64), &mut writer)?;
+        let n = io::copy(&mut reader.take(ask as u64), &mut writer)?;
+        moved(paid, n);
         if n == 0 {
             return Ok(copied);
         }
-        counted(n);
         copied += n;
     }
 }
@@ -1137,7 +1326,7 @@ mod tests {
     #[derive(Debug)]
     struct OnePool(Arc<Pool>);
 
-    impl RootReaders for OnePool {
+    impl RootLimits for OnePool {
         fn readers(&self, _: &str) -> Arc<Pool> {
             self.0.clone()
         }
@@ -1146,7 +1335,7 @@ mod tests {
     fn shared(limit: usize) -> (Meter, Arc<Pool>) {
         let pool = Arc::new(Pool::new(limit));
         let meter = Meter::default();
-        meter.share_readers(Arc::new(OnePool(pool.clone())));
+        meter.share_limits(Arc::new(OnePool(pool.clone())));
         (meter, pool)
     }
 
@@ -1294,5 +1483,148 @@ mod tests {
         drop(permit);
         rx.recv_timeout(Duration::from_secs(5))
             .expect("it reads once a reader is free");
+    }
+
+    /// One pool of many readers, and one pair of byte-rate caps, for every Root.
+    #[derive(Debug)]
+    struct CapAll(Arc<Caps>);
+
+    impl RootLimits for CapAll {
+        fn readers(&self, _: &str) -> Arc<Pool> {
+            Arc::new(Pool::new(64))
+        }
+
+        fn caps(&self, _: &str) -> Option<Arc<Caps>> {
+            Some(self.0.clone())
+        }
+    }
+
+    fn capped(read: Option<u64>, write: Option<u64>) -> (Meter, Arc<Caps>) {
+        let caps = Arc::new(Caps::default());
+        caps.set(read, write);
+        let meter = Meter::default();
+        meter.share_limits(Arc::new(CapAll(caps.clone())));
+        (meter, caps)
+    }
+
+    const MIB: u64 = 1 << 20;
+
+    /// The chunk sizes a copy of `len` bytes asks the kernel for, through tallies capped as `meter` caps them.
+    fn chunks_asked(meter: &Meter, len: u32, chunk: usize) -> Vec<usize> {
+        let dir = tempfile::tempdir().unwrap();
+        let (bytes, from, to) = files(dir.path(), len);
+        let job = meter.start(1, workers());
+        let (src, dst) = (job.tally(Some("roms")), job.tally(Some("library")));
+        let mut asked = Vec::new();
+        copy_with((&from, &src), (&to, &dst), chunk, &mut |f, t, c| {
+            asked.push(c);
+            in_kernel(f, t, c)
+        })
+        .unwrap();
+        assert_eq!(std::fs::read(dir.path().join("dst")).unwrap(), bytes);
+        asked
+    }
+
+    #[test]
+    fn unthrottled_nothing_is_charged_and_nothing_waits() {
+        let (meter, caps) = capped(None, None);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        for _ in 0..10_000 {
+            tally.read(1 << 20);
+            tally.wrote(1 << 20);
+        }
+        let asked = chunks_asked(&meter, 100_003, COPY_CHUNK);
+        assert_eq!(
+            asked[0], COPY_CHUNK,
+            "uncapped, a copy keeps its full chunks"
+        );
+        assert!(caps.read.untouched() && caps.write.untouched());
+        assert_eq!((caps.read.waited(), caps.write.waited()), (0, 0));
+        assert_eq!(meter.root("roms").read, (10_000 << 20) + 100_003);
+    }
+
+    #[test]
+    fn a_capped_copy_charges_its_source_read_and_its_destination_write_in_smaller_chunks() {
+        // 8 MiB/s: a quarter second is 2 MiB. The file fits in the burst, so nothing waits.
+        let (meter, caps) = capped(Some(8 * MIB), None);
+        assert_eq!(chunks_asked(&meter, 100_003, COPY_CHUNK)[0], 2 << 20);
+        assert!(!caps.read.untouched(), "the source's read is charged");
+        assert!(caps.write.untouched(), "no write cap");
+
+        let (meter, caps) = capped(None, Some(400 * MIB));
+        assert_eq!(chunks_asked(&meter, 100_003, COPY_CHUNK)[0], COPY_CHUNK);
+        assert!(caps.read.untouched());
+        assert!(
+            !caps.write.untouched(),
+            "the destination's write is charged"
+        );
+    }
+
+    #[test]
+    fn a_capped_copy_charges_only_what_is_left_of_the_file_and_settles_what_moved() {
+        // 400 MiB/s: 100 ms of burst is 40 MiB. A file of 30 MiB is charged 30 MiB, not a 64 MiB chunk, so a second
+        // one right after waits only for what is over the burst.
+        let (meter, caps) = capped(Some(400 * MIB), Some(400 * MIB));
+        let len = 30 << 20;
+        chunks_asked(&meter, len, COPY_CHUNK);
+        assert_eq!(caps.read.waited(), 0, "within the burst");
+        let job = meter.job(1);
+        let tally = job.tally(Some("roms"));
+        // Another 10 MiB fits what is left of the burst, give or take the time the copy took.
+        tally.read(9 << 20);
+        assert_eq!(
+            caps.read.waited(),
+            0,
+            "the copy was charged its bytes, not its chunk"
+        );
+    }
+
+    #[test]
+    fn a_capped_read_waits_and_a_cancel_ends_the_wait_promptly() {
+        // 1 MiB/s: 100 MiB takes about 100 s.
+        let (meter, caps) = capped(Some(MIB), None);
+        let meter = Arc::new(meter);
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        let reading = std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            tally.read(100 << 20);
+            started.elapsed()
+        });
+        let waiting = std::time::Instant::now();
+        while caps.read.waited() == 0 {
+            assert!(waiting.elapsed() < Duration::from_secs(30), "it waits");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        meter.cancel(1);
+        let waited = reading.join().unwrap();
+        // RECHECK is 100 ms; the margin is for a loaded runner.
+        assert!(waited < Duration::from_secs(20), "waited {waited:?}");
+        assert_eq!(meter.root("roms").read, 100 << 20, "counted all the same");
+    }
+
+    #[test]
+    fn a_thread_that_may_not_wait_is_charged_without_waiting() {
+        let (meter, caps) = capped(Some(MIB), Some(MIB));
+        let tally = meter.start(1, workers()).tally(Some("roms"));
+        within(move || {
+            let _writer = NoReaderWaits::new();
+            tally.read(100 << 20);
+            tally.wrote(100 << 20);
+        });
+        assert!(!caps.read.untouched() && !caps.write.untouched());
+        assert_eq!((caps.read.waited(), caps.write.waited()), (0, 0));
+    }
+
+    #[test]
+    fn what_another_process_moves_and_what_an_uncapped_tally_reads_are_counted_but_not_charged() {
+        let (meter, caps) = capped(Some(MIB), Some(MIB));
+        let job = meter.start(1, workers());
+        let tally = job.tally(Some("roms"));
+        tally.read_outside(100 << 20);
+        tally.wrote_outside(100 << 20);
+        job.tally(Some("roms")).uncapped().read(100 << 20);
+        job.tally(None).read(100 << 20);
+        assert!(caps.read.untouched() && caps.write.untouched());
+        assert_eq!(meter.root("roms").read, 200 << 20);
     }
 }

@@ -220,7 +220,8 @@ impl Store {
             let measured = match self.calibration_files(name, &root.path)? {
                 Err(err) => unreadable(err.to_string()),
                 Ok(files) => {
-                    let tally = meter.tally(Some(name));
+                    // Uncapped: a Calibration measures what the Root gives.
+                    let tally = meter.tally(Some(name)).uncapped();
                     match calibrate::root(&files, how.limits, &Instant::now(), cancel, &tally) {
                         RootSweep::Unreadable(why) => unreadable(why),
                         RootSweep::TimedOut { read } => Measured {

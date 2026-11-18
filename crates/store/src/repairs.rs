@@ -1142,6 +1142,7 @@ impl Store {
             )?;
             job_by_id(tx, id)
         })
+        .inspect(|_| self.meter.cancel(id))
     }
 
     /// Queues each incremental Audit a finished repair owes, once no other Job of its Source Set stands in the way.

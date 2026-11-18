@@ -381,6 +381,10 @@ mod tests {
                 write_bytes_per_s: 0.5,
                 files_per_s: 2.0,
             },
+            caps: title_select_api::ByteCaps {
+                read_bytes_per_s: Some(400 << 20),
+                write_bytes_per_s: None,
+            },
             roots: vec![],
             jobs: vec![],
             pace: title_select_api::settings::Pace::Default,

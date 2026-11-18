@@ -2,12 +2,12 @@
 //! Running Job, each Root and in total, with the Service's CPU use, and published on `/events` while Jobs run and
 //! until their rates decay, then once at rest.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use title_select_api::settings::Pace;
-use title_select_api::{JobEvent, JobLoad, Rates, RootRates, Throughput};
+use title_select_api::{ByteCaps, JobEvent, JobLoad, Rates, RootRates, Throughput};
 use title_select_engine::meter::{Sample, Window};
 use title_select_store::Store;
 
@@ -62,6 +62,7 @@ impl Windows {
                     .entry(root.clone())
                     .or_insert_with(window)
                     .push(at, *counted),
+                caps: ByteCaps::default(),
             })
             .collect();
         self.jobs
@@ -93,7 +94,7 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>) {
         let at = Instant::now();
         let sample = store.meter().sample();
         let cpu = cpu.sample(at);
-        let (rates, event) = publisher.next(at, &sample, cpu, store.pace());
+        let (rates, event) = publisher.next(at, &sample, cpu, store.pace(), &store.byte_caps());
         jobs.latest.set(rates);
         if let Some(event) = event {
             jobs.publish(JobEvent::Throughput(Box::new(event)));
@@ -118,8 +119,13 @@ impl Publisher {
         sample: &Sample,
         cpu: Option<f64>,
         pace: Pace,
+        caps: &BTreeMap<String, ByteCaps>,
     ) -> (HashMap<i64, Rates>, Option<Throughput>) {
-        let (total, roots, rates) = self.windows.push(at, sample);
+        let (total, mut roots, rates) = self.windows.push(at, sample);
+        let caps_of = |root: &str| caps.get(root).copied().unwrap_or_default();
+        for root in &mut roots {
+            root.caps = caps_of(&root.root);
+        }
         let moving =
             !sample.jobs.is_empty() || moves(&total) || roots.iter().any(|r| moves(&r.rates));
         let latest = rates.iter().copied().collect();
@@ -128,6 +134,7 @@ impl Publisher {
             // At rest: no rate, no Job, and no CPU use, which would otherwise stay at what it was last.
             let rest = was_moving.then(|| Throughput {
                 total: Rates::default(),
+                caps: ByteCaps::default(),
                 roots: Vec::new(),
                 jobs: Vec::new(),
                 pace,
@@ -142,14 +149,30 @@ impl Publisher {
             .map(|(j, (_, rates))| JobLoad {
                 job: j.id,
                 rates: *rates,
+                caps: ByteCaps::sum(j.roots.iter().map(|(root, c)| {
+                    (
+                        caps.get(root).unwrap_or(&NO_CAPS),
+                        c.read > 0,
+                        c.written > 0,
+                    )
+                })),
                 readers: j.readers,
                 hashers: j.hashers,
                 allowance: j.allowance.unwrap_or_else(|| pace.workers(j.ceilings)),
                 chdman: j.chdman,
             })
             .collect();
+        // The Roots moving bytes now, each way.
+        let total_caps = ByteCaps::sum(roots.iter().map(|r| {
+            (
+                &r.caps,
+                r.rates.read_bytes_per_s > 0.0,
+                r.rates.write_bytes_per_s > 0.0,
+            )
+        }));
         let event = Throughput {
             total,
+            caps: total_caps,
             roots,
             jobs,
             pace,
@@ -158,6 +181,11 @@ impl Publisher {
         (latest, Some(event))
     }
 }
+
+const NO_CAPS: ByteCaps = ByteCaps {
+    read_bytes_per_s: None,
+    write_bytes_per_s: None,
+};
 
 /// Whether `rates` count anything moving.
 fn moves(rates: &Rates) -> bool {
@@ -231,6 +259,7 @@ mod tests {
                 .map(|_| title_select_engine::meter::JobSample {
                     id: 1,
                     counted,
+                    roots: vec![("roms".into(), counted)],
                     readers: 1,
                     hashers: 1,
                     chdman: false,
@@ -249,7 +278,13 @@ mod tests {
         let pace = Pace::default();
         let mut next = |ms, read, jobs| {
             publisher
-                .next(at(ms), &sample(read, jobs), Some(0.25), pace)
+                .next(
+                    at(ms),
+                    &sample(read, jobs),
+                    Some(0.25),
+                    pace,
+                    &BTreeMap::new(),
+                )
                 .1
         };
 
@@ -272,6 +307,43 @@ mod tests {
         assert_eq!(rest.cpu, None);
         assert_eq!(next(5500, 1000, 0), None, "nothing more while at rest");
         assert!(next(6000, 2000, 0).is_some(), "until something moves again");
+    }
+
+    #[test]
+    fn caps_in_force_are_published_for_each_root_its_jobs_and_the_roots_moving_in_total() {
+        let mut publisher = Publisher::default();
+        let start = Instant::now();
+        let mib = 1u64 << 20;
+        let capped = ByteCaps {
+            read_bytes_per_s: Some(200 * mib),
+            write_bytes_per_s: None,
+        };
+        let caps = BTreeMap::from([("roms".to_owned(), capped)]);
+        let next = |publisher: &mut Publisher, ms, read, caps| {
+            publisher
+                .next(
+                    start + Duration::from_millis(ms),
+                    &sample(read, 1),
+                    None,
+                    Pace::default(),
+                    caps,
+                )
+                .1
+                .expect("a Job runs")
+        };
+        next(&mut publisher, 0, 0, &caps);
+        let event = next(&mut publisher, 500, 1000, &caps);
+        assert_eq!(event.roots[0].caps, capped);
+        assert_eq!(event.jobs[0].caps, capped, "the Job reads the capped Root");
+        assert_eq!(
+            event.caps, capped,
+            "only reads move, so no write cap counts"
+        );
+        // Unthrottled: no bucket has a rate, so nothing is capped.
+        let event = next(&mut publisher, 1000, 2000, &BTreeMap::new());
+        assert_eq!(event.roots[0].caps, ByteCaps::default());
+        assert_eq!(event.jobs[0].caps, ByteCaps::default());
+        assert_eq!(event.caps, ByteCaps::default());
     }
 
     #[test]

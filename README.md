@@ -742,9 +742,32 @@ than 1:
 Under `gentle` and `default`, each chdman is told as it starts to compress with the pace's share of the hash
 workers; `unthrottled` leaves it its own default, every core.
 
+The pace's share of a root's `read_mib_per_s` and `write_mib_per_s` is its byte-rate cap: the most every job together
+reads from that root, and writes into it, each second. Under `default`, a `read_mib_per_s` of 400 caps reads at
+200 MiB/s, and under `gentle` at 100 MiB/s; `unthrottled` caps nothing. A root has a write cap only once something
+sets its `write_mib_per_s`. What caps limit:
+
+- **Each root on its own.** Caps are per root, and roots on one storage pool add up: two roots of one disk, each capped
+  at 200 MiB/s, may read 400 MiB/s from it together. Set each root's ceilings so that their sum is what you want
+  the pool to see.
+- **Only the service's own reads and writes.** A cap holds back what jobs read and write, not other software, so it
+  can't promise jobs any bandwidth on a pool other software shares, nor keep that software's load off the pool.
+- **Copies, even cloned ones.** Under `gentle` and `default`, a copy counts against its source root's read cap and its
+  destination root's write cap even when the filesystem clones the copy rather than moving its bytes, since the
+  service can't tell a clone from a copy. A capped copy moves in smaller pieces, at most a quarter second's worth,
+  each aligned so that a filesystem that clones blocks still can. Under `unthrottled`, copies move as fast as the
+  filesystem allows.
+- **Not chdman.** chdman reads and writes on its own, so no byte-rate cap holds it back; under `gentle` and
+  `default`, only its share of the hash workers limits it.
+- **Not a calibration**, which measures what each root gives.
+
+A cap lets a short burst through after a pause, a tenth of a second's worth, so over a few seconds a root's rate stays
+within about a tenth of its cap. Caps far below a few MiB/s are rough: one file's next piece may go over.
+
 A new pace or ceiling applies without a restart, whether you raise it or lower it: to jobs not yet started, to every
 running job at its next file, and to the next 7z archive. A lower one never stops a running job or a file being read;
-it only holds back the next until fewer are at work. Every job that reads a root shares that root's readers, whatever
+it only holds back the next until fewer are at work. A byte-rate cap is quicker: a new one reaches a file being read or
+copied within about a second. Cancelling a job ends its waits on a cap within a tenth of a second. Every job that reads a root shares that root's readers, whatever
 the job: an audit, a build, an ingest, a repair or a check each takes one reader for each file it reads, and a copy
 takes one of the root it reads from.
 
@@ -1577,15 +1600,18 @@ Server-sent events carry JSON data, under one of these event names:
 | `resync`          | `{"jobs": [...]}`, newest first                 | by `/events` on connecting, and after the client fell behind              |
 | `settings`        | `{"pace"}`, never a secret                      | by `/events` when the settings change; fetch them again                   |
 | `romm_reconciled` | `{"folder_id"}`                                 | by `/events` when a folder's comparison with RomM is kept; fetch it again |
-| `throughput`      | `{"total", "roots", "jobs", "pace", "cpu"}`     | by `/events` twice a second while bytes move, then once at rest           |
+| `throughput`      | `{"total", "caps", "roots", "jobs", "pace", "cpu"}` | by `/events` twice a second while bytes move, then once at rest           |
 
 Rates are `{"read_bytes_per_s", "write_bytes_per_s", "files_per_s"}`, over the last 3 seconds; `rates` in `progress` is
 absent until the job's first sample. Bytes read are the bytes a job reads from its files as they're stored, so a ZIP
 member counts what it takes in the ZIP, not what it decompresses to: an audit's payloads, the sources of a build, a
 repair or a move, a 7z each time it's read to hash or decode it, and each file read back to verify it. Directories and
 headers read to find a payload aren't counted. Bytes written are everything a job writes into a root, copies included.
-In `throughput`, `total` and each of `roots` (`{"root", "rates"}`) cover every job; each of `jobs` is `{"job", "rates",
-"readers", "hashers", "allowance", "chdman"}`, the payload readers and hash workers at work against the `allowance`
+Caps are `{"read_bytes_per_s", "write_bytes_per_s"}`, the byte-rate caps in force now, each absent where nothing caps
+that way, as under `unthrottled`. In `throughput`, `total` and each of `roots` (`{"root", "rates", "caps"}`) cover
+every job, and `caps` beside `total` adds up the caps of the roots moving bytes that way now, absent if any of them is
+uncapped; each of `jobs` is `{"job", "rates", "caps", "readers", "hashers", "allowance", "chdman"}`, its `caps` added
+up over the roots it has read from or written into, the payload readers and hash workers at work against the `allowance`
 (`{"readers", "hashers"}`) it may use now, its own workers capped by what the pace gives the pools it shares, and `chdman` while chdman runs, whose bytes are counted from its files as
 it goes but not capped. `cpu` is the service's CPU use as a share of the CPUs it may use, from 0 to 1, absent where the
 computer has no `/proc`. Once nothing has moved for 3 seconds, one last `throughput` comes with every rate at 0, no
@@ -1782,9 +1808,11 @@ Ingest badge also counts again after each change you make on an ingest page. On 
 the icons; hover over or focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`,
 `/jobs`, `/storage-policy`, `/about`) open their new place.
 
-Once jobs have run, a strip at the top of Activity shows how fast the service reads and writes, files per second, its CPU
-use where the computer reports it, and the pace, linking to the setting. A running job's row shows its bytes per second
-now; its detail shows reading and writing apart, files per second and its workers against what the pace allows. A
+Once jobs have run, a strip at the top of Activity shows how fast the service reads and writes, against the byte-rate
+caps in force ("312 MiB/s of 400 MiB/s cap"; just the rate where nothing caps it), files per second, its CPU use where
+the computer reports it, and the pace, linking to the setting. A running job's row shows its bytes per second now; its
+detail shows reading and writing apart, each against the caps of the roots it moves bytes in, files per second and its
+workers against what the pace allows. A
 finished job shows what it read and wrote and its average.
 
 Its screens:
