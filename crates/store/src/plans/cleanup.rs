@@ -15,6 +15,7 @@ use title_select_api::build::{
 };
 use title_select_engine::build::{GameIndex, Probe, holds_as};
 use title_select_engine::dat::Dat;
+use title_select_engine::meter::Tally;
 
 use super::{
     Blocker, Folder, Found, Inputs, LaidFile, Planned, Sources as SetSources, blocker,
@@ -458,7 +459,11 @@ impl Store {
                                 (true, Some(p)) => match p.header_rule {
                                     None => Ok(p.clone()),
                                     Some(_) => crate::checks::read_whole(
-                                        &folder_found.dir,
+                                        // Counted when a Job plans, as a Build does again; not when you do.
+                                        (
+                                            &folder_found.dir,
+                                            &Tally::of_this_thread(Some(&inputs.folder.root)),
+                                        ),
                                         &d.name,
                                         f.identity,
                                         &f.file,
@@ -565,7 +570,7 @@ impl Store {
                         continue;
                     };
                     let planned = self.plan_restore(
-                        dir.as_ref(),
+                        dir.as_ref().map(|dir| (dir, inputs.folder.root.as_str())),
                         kept,
                         cached.as_ref(),
                         dat.as_ref().zip(index.as_ref()),
@@ -754,7 +759,7 @@ impl Store {
     /// or why it cannot be put back.
     fn plan_restore(
         &self,
-        dir: Option<&FolderDir>,
+        dir: Option<(&FolderDir, &str)>,
         kept: &KeptFile,
         cached: Option<&(i64, Probe)>,
         dat: Option<(&Dat, &GameIndex)>,
@@ -782,7 +787,7 @@ impl Store {
                 torrentzip: true,
             })
         };
-        let Some(dir) = dir else {
+        let Some((dir, root)) = dir else {
             return Ok(Err("the library folder cannot be opened".into()));
         };
         if let Some(why) = self.read(|c| crate::additions::managed_kept_reserved(c, kept.id))? {
@@ -829,8 +834,9 @@ impl Store {
             )
         });
         let rule = dat.and_then(|(dat, _)| dat.header());
+        // Counted when a Job plans, as a Build does again; not when you do.
         let (probe, hashed) = reuse(
-            &retention.generation,
+            (&retention.generation, &Tally::of_this_thread(Some(root))),
             &kept.kept_name,
             &st,
             cached.as_ref(),

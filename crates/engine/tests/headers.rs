@@ -534,8 +534,7 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             repack_sources(
                 &file,
                 &[(&rom, 0, member)],
-                &[&opened(source)],
-                &Default::default(),
+                &[(&opened(source), &Default::default())],
                 &Default::default(),
             )
             .unwrap();
@@ -551,8 +550,7 @@ fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
             write_loose(
                 &file,
                 &[(&rom, 0, member)],
-                &[&opened(source)],
-                &Default::default(),
+                &[(&opened(source), &Default::default())],
                 &Default::default(),
             )
             .unwrap();
@@ -600,8 +598,7 @@ fn a_headerless_payload_is_written_as_it_is_under_a_rule() {
     repack_sources(
         &file,
         &[(&rom, 0, None)],
-        &[&opened(&loose)],
-        &Default::default(),
+        &[(&opened(&loose), &Default::default())],
         &Default::default(),
     )
     .unwrap();
@@ -647,10 +644,19 @@ fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
     write_file(&loose, &dump);
     write_zip(&zipped, &[("Game.nes", &dump)]);
 
-    let whole = probe(&opened(&loose)).unwrap();
+    let whole = probe(
+        &opened(&loose),
+        &title_select_engine::meter::Tally::default(),
+    )
+    .unwrap();
     assert!(!holds_as(&whole, std::slice::from_ref(&rom), true));
 
-    let read = probe_under(&opened(&loose), Some(HeaderRule::Nes)).unwrap();
+    let read = probe_under(
+        &opened(&loose),
+        Some(HeaderRule::Nes),
+        &title_select_engine::meter::Tally::default(),
+    )
+    .unwrap();
     assert!(holds_as(&read, std::slice::from_ref(&rom), true));
     assert_eq!(read.payloads[0].header, Some(16));
     assert_eq!(
@@ -658,6 +664,11 @@ fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
         dump.len() as u64,
         "the file is still hashed whole"
     );
-    let read = probe_under(&opened(&zipped), Some(HeaderRule::Nes)).unwrap();
+    let read = probe_under(
+        &opened(&zipped),
+        Some(HeaderRule::Nes),
+        &title_select_engine::meter::Tally::default(),
+    )
+    .unwrap();
     assert!(holds_as(&read, std::slice::from_ref(&rom), false));
 }

@@ -113,6 +113,20 @@ impl std::ops::Add for Counted {
     }
 }
 
+impl std::ops::Sub for Counted {
+    type Output = Counted;
+
+    /// What was counted since `o`, an earlier reading of the same counts.
+    fn sub(self, o: Counted) -> Counted {
+        Counted {
+            read: self.read - o.read,
+            written: self.written - o.written,
+            files_read: self.files_read - o.files_read,
+            files_written: self.files_written - o.files_written,
+        }
+    }
+}
+
 /// Where one Job's bytes from or into one Root are counted. A detached tally ([`Tally::default`]) counts nothing.
 /// Cloning it, and sharing it between threads, is cheap: each thread counts into a slot of its own.
 #[derive(Debug, Clone, Default)]

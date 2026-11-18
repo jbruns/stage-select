@@ -28,6 +28,7 @@ use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id}
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
 use crate::config::Config;
+use title_select_engine::meter::Tally;
 
 /// What a kept file cites, in `audit_citations` and `selection_citations`: the provenance of the file a Build wrote,
 /// so that pruning never drops what its record needs.
@@ -617,9 +618,10 @@ pub(super) fn is_kept_entry(
 /// A kept file, recorded as the regular file `identity` with `file`'s size and mtime, as read now through `held`,
 /// opened on it: whether it is still that file, has ctime `ctime` and, read while it holds still, hashes as it did
 /// when you reviewed its deletion. The ctime is the one you reviewed until it is renamed, which moves it, and the one
-/// read through `held` just after that rename once it is. Without either, nothing shows it is unchanged.
+/// read through `held` just after that rename once it is. Without either, nothing shows it is unchanged. What it reads is
+/// counted to `tally`.
 pub(super) fn reads_as_reviewed(
-    held: &std::fs::File,
+    (held, tally): (&std::fs::File, &Tally),
     identity: Identity,
     file: &FileStat,
     reviewed: Option<&KeptFileReviewed>,
@@ -636,7 +638,7 @@ pub(super) fn reads_as_reviewed(
     {
         return Ok(false);
     }
-    Ok(super::builds::still_sha256(held, ctime)
+    Ok(super::builds::still_sha256(held, ctime, tally)
         .map_err(io)?
         .as_deref()
         == Some(reviewed.sha256.as_str()))
@@ -656,11 +658,12 @@ pub(super) enum Unlinked {
 /// is deleted: only once it is verified through `held`,
 /// a descriptor on it, still to be the regular file `identity` with `file`'s size and mtime that hashes as
 /// `reviewed` while its ctime, size and mtime hold still at `ctime`, the ctime read through the descriptor held
-/// across its rename there; and only while `held` and the entry are still that file just before it is unlinked.
+/// across its rename there; and only while `held` and the entry are still that file just before it is unlinked. What
+/// it reads is counted to `tally`.
 pub(super) fn unlink_verified(
     deleting: &FolderDir,
     slot: &str,
-    held: &std::fs::File,
+    (held, tally): (&std::fs::File, &Tally),
     identity: Identity,
     file: &FileStat,
     reviewed: Option<&KeptFileReviewed>,
@@ -671,7 +674,7 @@ pub(super) fn unlink_verified(
     if !is_entry() {
         return Ok(Unlinked::NotTheFile);
     }
-    if !reads_as_reviewed(held, identity, file, reviewed, ctime)? {
+    if !reads_as_reviewed((held, tally), identity, file, reviewed, ctime)? {
         return Ok(Unlinked::Changed);
     }
     let now = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
@@ -712,8 +715,9 @@ pub(super) fn review_kept(
     {
         return Ok(Err(format!("{kept} is no longer the file that was kept")));
     }
-    let Some(sha256) =
-        super::builds::still_sha256(&held, ctime_ns(&st)).map_err(|e| Error::Io(e.to_string()))?
+    // Read for you to review, by no Job: no Job's meter counts it.
+    let Some(sha256) = super::builds::still_sha256(&held, ctime_ns(&st), &Tally::default())
+        .map_err(|e| Error::Io(e.to_string()))?
     else {
         return Ok(Err(format!("{kept} changed while it was read")));
     };
@@ -818,10 +822,11 @@ impl Store {
     /// Keeps aside, through the folder's handle `dir`, the file `k.keep` names: only while it is the regular file the
     /// plan found there, with the SHA-256 the plan recorded, if it did. Its intent is recorded first; it is then
     /// moved by one rename that never replaces anything into the retention area `retention`, and recorded kept once
-    /// it is found there. Returns the kept file's id, or, when it was left in place, why; an error stops the Build.
+    /// it is found there. Returns the kept file's id, or, when it was left in place, why; an error stops the Build. What
+    /// it reads is counted to `tally`, of the Root `dir` is in.
     pub(super) fn keep_aside(
         &self,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         retention: &Retention,
         k: &Keep,
     ) -> Result<std::result::Result<i64, String>> {
@@ -871,7 +876,7 @@ impl Store {
                 Ok(st) => Seen::of(&st),
                 Err(e) => return left(&e.to_string()),
             };
-            let (sha256, _) = match sha256_of(&file) {
+            let (sha256, _) = match sha256_of(&file, tally) {
                 Ok(read) => read,
                 Err(e) => return left(&e.to_string()),
             };
@@ -966,7 +971,7 @@ impl Store {
             self.fault_point(Fault::KeepRead(k.seq));
             let read = dir.open_file(name).and_then(|file| {
                 let before = rustix::fs::fstat(&file)?;
-                let (read, _) = sha256_of(&file)?;
+                let (read, _) = sha256_of(&file, tally)?;
                 let after = rustix::fs::fstat(&file)?;
                 Ok((Seen::of(&before) == Seen::of(&after)
                     && Identity::of(&after) == id
@@ -1039,10 +1044,11 @@ impl Store {
     /// Deletes kept file `kept`, the original a Play Library conversion kept aside once its converted file was
     /// verified, as a deletion `actor` approved with the plan: only while it still reads as the conversion read it,
     /// with the SHA-256 it was kept with and the ctime read through the descriptor held across the rename that kept
-    /// it. Anything else, or a file kept without that stamp, stays kept. Returns what the deletion did.
+    /// it. Anything else, or a file kept without that stamp, stays kept. Returns what the deletion did. What it reads is
+    /// counted to `tally`, of the Build's Job.
     pub(super) fn delete_converted_kept(
         &self,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         kept: i64,
         actor: &str,
     ) -> Result<KeptDeletionOutcome> {
@@ -1098,7 +1104,7 @@ impl Store {
         })?;
         let outcome = match open_retention(self, file.folder, dir, file.generation, false)? {
             Ok(Some(retention)) => self.delete_one(
-                dir,
+                (dir, tally),
                 &retention,
                 &file,
                 deletion,
@@ -1524,8 +1530,9 @@ impl Store {
             }
             outcomes.push(
                 match open_retention(self, folder, &dir, file.generation, false)? {
+                    // A deletion you approved runs for no Job: no Job's meter counts what it reads.
                     Ok(Some(retention)) => self.delete_one(
-                        &dir,
+                        (&dir, &Tally::default()),
                         &retention,
                         file,
                         deletion,
@@ -1548,7 +1555,7 @@ impl Store {
     /// then put back; a file that changed stays kept, and its outcome says `changed`.
     fn delete_one(
         &self,
-        dir: &FolderDir,
+        (dir, tally): (&FolderDir, &Tally),
         retention: &Retention,
         file: &KeptFile,
         deletion: i64,
@@ -1559,7 +1566,7 @@ impl Store {
         let id = Identity::from(file.identity);
         let (gen_dir, kept) = (&retention.generation, file.kept_name.as_str());
         let reads_as = |held: &std::fs::File, ctime: Option<i128>| {
-            reads_as_reviewed(held, id, &file.file, reviewed, ctime)
+            reads_as_reviewed((held, tally), id, &file.file, reviewed, ctime)
         };
         match gen_dir.stat(kept) {
             Err(e) => return Ok(left(file, e.to_string())),
@@ -1624,7 +1631,13 @@ impl Store {
         gen_dir.sync().and_then(|()| deleting.sync()).map_err(io)?;
         self.fault_point(Fault::AfterDeleteMove(file.id));
         let why = match unlink_verified(
-            &deleting, &slot, &held, id, &file.file, reviewed, slot_ctime,
+            &deleting,
+            &slot,
+            (&held, tally),
+            id,
+            &file.file,
+            reviewed,
+            slot_ctime,
         )? {
             Unlinked::Deleted => None,
             Unlinked::NotTheFile => Some(MOVED_NOT_THE_FILE.to_owned()),
@@ -2017,8 +2030,15 @@ impl Store {
                     } else {
                         match deleting.open_file(&slot) {
                             Err(_) => Some(changed.to_owned()),
+                            // Settled when the service starts, for no Job: no Job's meter counts it.
                             Ok(held) => match unlink_verified(
-                                deleting, &slot, &held, id, &file.file, reviewed, ctime,
+                                deleting,
+                                &slot,
+                                (&held, &Tally::default()),
+                                id,
+                                &file.file,
+                                reviewed,
+                                ctime,
                             )? {
                                 Unlinked::Deleted => None,
                                 Unlinked::NotTheFile => Some(MOVED_NOT_THE_FILE.to_owned()),

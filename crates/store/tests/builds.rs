@@ -5620,7 +5620,20 @@ fn with_delete_originals_on_a_converted_original_is_deleted_once_its_new_file_ve
     set_play_policy(&env, StorageFormat::Loose, None, true);
     let plan = env.plan(&folder, id);
     assert!(plan.content.storage.delete_originals);
+    let originals: u64 = ["Pong (USA).zip", "Combat (USA).zip"]
+        .iter()
+        .map(|n| std::fs::metadata(dir.join(n)).unwrap().len())
+        .sum();
+    let play = env.store.meter().root("play");
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    // Every read of the play library is counted to its root: each original is hashed whole when its conversion
+    // records it, when it is kept aside, and twice more as it is deleted; each converted file is read three times
+    // to verify it.
+    let play = env.store.meter().root("play") - play;
+    let converted = (b"pong".len() + b"combat".len()) as u64;
+    assert_eq!(play.read, 4 * originals + 3 * converted);
+    assert_eq!((play.written, play.files_written), (converted, 2));
 
     assert!(env.store.kept_files(folder.id).unwrap().is_empty());
     assert_eq!(

@@ -619,7 +619,11 @@ fn a_7z_probed_as_a_library_file_is_one_opaque_payload() {
     let path = dir.path().join("Game.7z");
     write_7z(&path, &[("Game.bin", b"game")], Method::Lzma2, true);
 
-    let probe = title_select_engine::build::probe(&File::open(&path).unwrap()).unwrap();
+    let probe = title_select_engine::build::probe(
+        &File::open(&path).unwrap(),
+        &title_select_engine::meter::Tally::default(),
+    )
+    .unwrap();
 
     let bytes = std::fs::read(&path).unwrap();
     assert!(!probe.zip && !probe.sevenz, "{probe:?}");

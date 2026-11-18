@@ -538,6 +538,8 @@ fn check_folder(
                 sbi: inputs.sbi.as_ref(),
                 cached: &inputs.cached,
                 acks: &inputs.acks,
+                // Counted when a Job plans, as a Build does again before it writes; not when you do.
+                tally: &title_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
             },
             None,
         )),

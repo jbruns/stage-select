@@ -636,7 +636,15 @@ fn an_unmatched_source_set_entry_is_kept_aside_by_a_repair_and_added_from_the_ke
             .addition,
         Some(new("Homebrew"))
     );
-    env.repair(&plan);
+    env.repair_only(&plan);
+    let sets = env.store.meter().root("sets");
+    env.settle();
+    // The Additions Job reads the kept file twice from the source set's root: probed to check it is still what was
+    // planned, then copied.
+    let sets = env.store.meter().root("sets") - sets;
+    let kept = b"homebrew".len() as u64;
+    assert_eq!((sets.read, sets.files_read), (2 * kept, 2));
+    assert_eq!(sets.written, 0);
 
     let a = env.only_addition();
     assert_published(&env, &a, "Homebrew", "Homebrew.a26", b"homebrew");

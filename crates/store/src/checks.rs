@@ -16,6 +16,7 @@ use title_select_api::{HeaderRule, Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
 use title_select_engine::dat::Dat;
+use title_select_engine::meter::Tally;
 
 use super::audits::choose_revision;
 use super::dats::revision_by_id;
@@ -110,6 +111,8 @@ pub(super) struct ScanInput<'a> {
     pub cached: &'a HashMap<String, (Seen, Probe)>,
     /// The entries you acknowledged, by name.
     pub acks: &'a HashMap<String, Ack>,
+    /// Where what is read of the folder is counted: its Root's, for the Job that reads it, if any.
+    pub tally: &'a Tally,
 }
 
 /// The names in a folder other than Title Select's own entries, sorted, with each disc layout folder's entries in
@@ -159,9 +162,9 @@ pub(super) fn deepen(dir: &FolderDir, names: Vec<String>) -> Vec<String> {
 
 /// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: opened without following a symlink, and
 /// only trusted when it is the same file, the same size and modification time, before and after it is read. Its
-/// payloads' checksums leave out the Header `rule` finds, if any.
+/// payloads' checksums leave out the Header `rule` finds, if any. What it reads is counted to `tally`.
 fn read(
-    dir: &FolderDir,
+    (dir, tally): (&FolderDir, &Tally),
     name: &str,
     seen: &Stat,
     rule: Option<HeaderRule>,
@@ -172,7 +175,7 @@ fn read(
     if Seen::of(&before) != Seen::of(seen) {
         return Err(changed());
     }
-    let probe = probe_under(&file, rule).map_err(|e| e.to_string())?;
+    let probe = probe_under(&file, rule, tally).map_err(|e| e.to_string())?;
     still(dir, name, &file, seen)?;
     Ok(probe)
 }
@@ -210,16 +213,16 @@ fn still(dir: &FolderDir, name: &str, file: &File, seen: &Stat) -> std::result::
 }
 
 /// Reads the regular file `name` whole, with no Header left out, while it is the file a plan found as `identity` and
-/// `file`: what an addition made from it records.
+/// `file`: what an addition made from it records. What it reads is counted to `tally`.
 pub(super) fn read_whole(
-    dir: &FolderDir,
+    (dir, tally): (&FolderDir, &Tally),
     name: &str,
     identity: Identity,
     file: &FileStat,
 ) -> std::result::Result<Probe, String> {
     match dir.stat(name) {
         Ok(Some(st)) if Identity::of(&st) == identity && file_stat(&st) == *file => {
-            read(dir, name, &st, None)
+            read((dir, tally), name, &st, None)
         }
         Ok(_) => Err("it changed since the folder was checked".to_owned()),
         Err(e) => Err(e.to_string()),
@@ -228,9 +231,10 @@ pub(super) fn read_whole(
 
 /// Reuses `cached`, what an earlier check read of `name`, only when the file found by `lstat` as `seen` is the one
 /// it was read from: the same identity, size, modification time and status change time, through the folder's handle
-/// as well as by name, and it was read under the Header Rule `rule`. Otherwise reads it again, under `rule`.
+/// as well as by name, and it was read under the Header Rule `rule`. Otherwise reads it again, under `rule`, what it
+/// reads counted to `tally`.
 pub(super) fn reuse(
-    dir: &FolderDir,
+    (dir, tally): (&FolderDir, &Tally),
     name: &str,
     seen: &Stat,
     cached: Option<&(Seen, Probe)>,
@@ -244,7 +248,7 @@ pub(super) fn reuse(
     {
         return (Ok(probe.clone()), false);
     }
-    (read(dir, name, seen, rule), true)
+    (read((dir, tally), name, seen, rule), true)
 }
 
 /// The files the storage policy stores games of `dat` as other than `<game>.zip`, by game: loose, as CHD, or laid out
@@ -337,7 +341,7 @@ pub(super) fn scan(
     // Reads `name` under the Header Rule `rule`, or reuses what an earlier check read of it under that rule while it
     // is unchanged since.
     let probe_of = |name: &str, st: &Stat, rule: Option<HeaderRule>, out: &mut Scan| {
-        let (probe, hashed) = reuse(dir, name, st, input.cached.get(name), rule);
+        let (probe, hashed) = reuse((dir, input.tally), name, st, input.cached.get(name), rule);
         if let Ok(p) = &probe {
             out.probes
                 .insert(name.to_owned(), (Seen::of(st), p.clone()));
@@ -934,6 +938,7 @@ impl Store {
                         sbi: sbi.as_ref(),
                         cached: &inputs.cached,
                         acks: &inputs.acks,
+                        tally: &Tally::of_this_thread(Some(&inputs.folder.root)),
                     },
                     progress,
                 );

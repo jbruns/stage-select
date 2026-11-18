@@ -294,7 +294,9 @@ impl Run<'_> {
             original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
-        Ok(store.keep_aside(&self.dir, area, &k)?.map(|_| ()))
+        Ok(store
+            .keep_aside((&self.dir, &self.to), area, &k)?
+            .map(|_| ()))
     }
 
     /// Adopts entry `e`: renamed, by one rename that never replaces anything, to its game's file name when it is not
@@ -674,7 +676,9 @@ impl Run<'_> {
                     .and_then(|()| file.sync_all())
                     .map_err(|e| format!("{}: {e}", staged_path.display()))
             })
-            .and_then(|()| sha256_of(&file).map_err(|e| format!("{}: {e}", staged_path.display())))
+            .and_then(|()| {
+                sha256_of(&file, &self.to).map_err(|e| format!("{}: {e}", staged_path.display()))
+            })
             .and_then(|written| match rustix::fs::fstat(&source) {
                 Ok(st) if same(&st) => Ok((written, Seen::of(&st) == before)),
                 _ => Err("it changed while it was read".to_owned()),
@@ -713,7 +717,7 @@ impl Run<'_> {
             original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
-        if let Err(why) = self.store.keep_aside(&self.dir, area, &k)? {
+        if let Err(why) = self.store.keep_aside((&self.dir, &self.to), area, &k)? {
             return unstage(self, file, &why);
         }
         let (dev, ino) = file_id.to_sql();

@@ -32,7 +32,7 @@ use title_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
-use title_select_engine::meter::{Tally, copy_chunked};
+use title_select_engine::meter::{JobMeter, Tally, copy_chunked};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -211,8 +211,7 @@ fn stage_chd(
             (None, [rom], [dest]) => write_loose(
                 dest,
                 &[(rom, 0, None)],
-                &[&opened],
-                &work.from,
+                &[(&opened, &work.from)],
                 &work.scratch,
             )
             .map(|_| ()),
@@ -292,8 +291,8 @@ fn stage_chd(
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-    let (sha256, size) =
-        sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+    let (sha256, size) = sha256_of(file, &work.to)
+        .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     let again = chd::header(file).map_err(Failure::Item)?;
     if sha256 != copied || again != header {
         return Err(Failure::Item(format!(
@@ -375,8 +374,7 @@ fn verify_found_chd(
                 None => write_loose(
                     &dest,
                     &[(rom, 0, None)],
-                    &[&opened],
-                    &work.from,
+                    &[(&opened, &work.from)],
                     &work.scratch,
                 )
                 .map(|_| ()),
@@ -439,13 +437,8 @@ fn verify_found_chd(
     Ok((hex(&hasher.finalize()), header))
 }
 
-/// The SHA-256 and size of `file`, read from its start.
-pub(super) fn sha256_of(file: &File) -> io::Result<(String, u64)> {
-    sha256_counted(file, &Tally::default())
-}
-
-/// As [`sha256_of`], each byte read counted to `tally`, of the Root `file` is in.
-pub(super) fn sha256_counted(mut file: &File, tally: &Tally) -> io::Result<(String, u64)> {
+/// The SHA-256 and size of `file`, read from its start, each byte read counted to `tally`, of the Root `file` is in.
+pub(super) fn sha256_of(mut file: &File, tally: &Tally) -> io::Result<(String, u64)> {
     file.seek(SeekFrom::Start(0))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
@@ -463,8 +456,8 @@ pub(super) fn sha256_counted(mut file: &File, tally: &Tally) -> io::Result<(Stri
 }
 
 /// The SHA-256 of `file`, read through it only while its ctime is `ctime` and its ctime, size and mtime hold still
-/// across the read; `None` otherwise.
-pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String>> {
+/// across the read; `None` otherwise. Each byte read is counted to `tally`, of the Root `file` is in.
+pub(super) fn still_sha256(file: &File, ctime: i128, tally: &Tally) -> io::Result<Option<String>> {
     let at = |st: &rustix::fs::Stat| {
         (
             crate::folder_dir::ctime_ns(st),
@@ -475,7 +468,7 @@ pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String
     if at(&before).0 != ctime {
         return Ok(None);
     }
-    let (sha256, _) = sha256_of(file)?;
+    let (sha256, _) = sha256_of(file, tally)?;
     let after = rustix::fs::fstat(file)?;
     Ok((at(&before) == at(&after)).then_some(sha256))
 }
@@ -486,7 +479,7 @@ pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String
 /// Returns why it was not recorded, when it is not the file the plan was made with or did not hold still.
 fn record_original(
     store: &Store,
-    dir: &FolderDir,
+    (dir, tally): (&FolderDir, &Tally),
     folder: i64,
     build: i64,
     keep: &title_select_api::build::KeepAside,
@@ -507,7 +500,7 @@ fn record_original(
         Ok(st) if expected(&st) => Seen::of(&st),
         _ => return changed(),
     };
-    let Ok((sha256, _)) = sha256_of(&file) else {
+    let Ok((sha256, _)) = sha256_of(&file, tally) else {
         return changed();
     };
     match rustix::fs::fstat(&file) {
@@ -621,7 +614,7 @@ fn stage(
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
     if let Some(generated) = &item.generated {
-        return stage_generated(generated, file, staged, chd.store, built_at);
+        return stage_generated(generated, file, staged, chd, built_at);
     }
     if let Some(addition) = &item.addition {
         // An Addition is read from its Additions Set, through a descriptor on the file published there, while
@@ -659,8 +652,8 @@ fn stage(
         } else {
             let read = [(rom, 0, (!addition.loose).then_some(rom.name.as_str()))];
             match item.loose {
-                true => write_loose(file, &read, &[&from], &chd.additions, &chd.to),
-                false => repack_sources(file, &read, &[&from], &chd.additions, &chd.to),
+                true => write_loose(file, &read, &[(&from, &chd.additions)], &chd.to),
+                false => repack_sources(file, &read, &[(&from, &chd.additions)], &chd.to),
             }
             .map_err(Failure::Item)?;
         }
@@ -678,7 +671,7 @@ fn stage(
         file.set_modified(built_at)
             .and_then(|()| file.sync_all())
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-        let (sha256, size) = sha256_counted(file, &chd.to)
+        let (sha256, size) = sha256_of(file, &chd.to)
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
         if whole && sha256 != addition.sha256 {
             return Err(changed());
@@ -718,8 +711,7 @@ fn stage(
             write_loose(
                 file,
                 &[(rom, 0, source.member.as_deref())],
-                &[&opened],
-                &chd.from,
+                &[(&opened, &chd.from)],
                 &chd.to,
             )
             .map_err(Failure::Item)?;
@@ -760,7 +752,7 @@ fn stage(
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-    let (sha256, size) = sha256_counted(file, &chd.to)
+    let (sha256, size) = sha256_of(file, &chd.to)
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     Ok(Staged {
         sha256,
@@ -777,9 +769,10 @@ fn stage_generated(
     generated: &GeneratedFile,
     file: &mut File,
     staged: &Path,
-    store: &Store,
+    work: &ChdWork,
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
+    let store = work.store;
     let bytes = match (
         generated.kind,
         &generated.text,
@@ -801,7 +794,7 @@ fn stage_generated(
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(at)?;
-    let (sha256, size) = sha256_of(file).map_err(at)?;
+    let (sha256, size) = sha256_of(file, &work.to).map_err(at)?;
     if sha256 != generated.sha256 || size != generated.size {
         return Err(Failure::Item(
             "it is not the file the plan was made with".into(),
@@ -981,7 +974,7 @@ fn converted_verified(
             Some(v) if Identity::of(&before) != v.identity || file_stat(&before) != v.file => Err(
                 "it is not the file that was checked: its size or modification time changed".into(),
             ),
-            Some(v) => match sha256_counted(&file, tally).map_err(io)? {
+            Some(v) => match sha256_of(&file, tally).map_err(io)? {
                 (sha256, size) if sha256 != v.sha256 || size != v.file.size => {
                     Err("it is not the file that was checked: its SHA-256 changed".into())
                 }
@@ -1266,7 +1259,10 @@ fn end_failed(tx: &Transaction, job: i64, build: Option<i64>, error: &str) -> Re
 /// Checks, through `dir`, that the file at `item`'s target holds exactly the ROMs the DAT expects there, and is the
 /// same file, unchanged, from before it is read until after. Nothing is written. Returns its SHA-256, its `lstat`,
 /// and whether it is TorrentZip; or why it cannot be adopted, leaving it as it is.
-fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat, bool), String> {
+fn adopt(
+    (dir, library): (&FolderDir, &Tally),
+    item: &PlanItem,
+) -> std::result::Result<(String, Stat, bool), String> {
     let left = |why: &str| {
         format!(
             "{} cannot be adopted: {why}; it was left as it is",
@@ -1297,8 +1293,8 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
         Some(_) => None,
         None => item.roms.iter().find_map(|rom| rom.header),
     };
-    let probe =
-        title_select_engine::build::probe_under(&file, rule).map_err(|e| left(&e.to_string()))?;
+    let probe = title_select_engine::build::probe_under(&file, rule, library)
+        .map_err(|e| left(&e.to_string()))?;
     match &item.generated {
         Some(generated) if probe.sha256 != generated.sha256 => {
             return Err(left("it is not exactly the file a build writes there"));
@@ -1404,7 +1400,7 @@ fn unit_stuck(release: &str, target: &str, error: &str) -> String {
 /// Renames into place the staged file of `p`, a disc of a unit, whose target is missing, while the staged file is the
 /// one the Build verified: the same file, SHA-256 and size. `Err` says why it can't be, leaving both as they are.
 fn finish_unit(
-    dir: &FolderDir,
+    (dir, library): (&FolderDir, &Tally),
     temps: &HashMap<String, Identity>,
     p: &Publishing,
 ) -> std::result::Result<Option<(String, Identity)>, String> {
@@ -1431,7 +1427,7 @@ fn finish_unit(
     if Identity::of_fd(&file).map_err(|e| e.to_string())? != Identity::from_sql(dev, ino) {
         return gone();
     }
-    let (hash, len) = sha256_of(&file).map_err(|e| e.to_string())?;
+    let (hash, len) = sha256_of(&file, library).map_err(|e| e.to_string())?;
     if &hash != sha256 || len as i64 != size {
         return Err("its staged file is not the one that was checked".into());
     }
@@ -1506,7 +1502,7 @@ impl Store {
             let message = err.to_string();
             self.write(|tx| end_failed(tx, id, build, &message))?;
             if let Some(build) = build {
-                self.recover_build(config, build)?;
+                self.recover_build(config, build, Some(&self.meter.job(id)))?;
             }
         }
         // Additions a cleanup kept aside drift entries for are published from their kept files by their
@@ -1787,7 +1783,7 @@ impl Store {
                         original: None,
                     };
                     let area = retention.as_ref().expect("opened above");
-                    self.keep_aside(&dir, area, &k)?.map(|_| ())
+                    self.keep_aside((&dir, &library), area, &k)?.map(|_| ())
                 }
                 (RemovalKind::Forget, _) => match dir.stat(&removal.target).map_err(folder_io)? {
                     None => self.write(|tx| {
@@ -1840,6 +1836,7 @@ impl Store {
                         .record
                         .root,
                 )),
+                // With no Source Set, nothing is read from one.
                 None => Tally::default(),
             },
             additions: meter.tally(Some(crate::config::ADDITIONS_ROOT)),
@@ -1934,7 +1931,7 @@ impl Store {
                 let target = &w.item.target;
                 if let Some(keep) = &w.item.converts {
                     check_marker(&dir, &expected).map_err(Error::Refused)?;
-                    match record_original(self, &dir, folder, id, keep, target)? {
+                    match record_original(self, (&dir, &library), folder, id, keep, target)? {
                         Ok(read) => {
                             originals.insert(w.seq, read);
                         }
@@ -2073,7 +2070,7 @@ impl Store {
                                 original: None,
                             };
                             let area = retention.as_ref().expect("opened above");
-                            if let Err(error) = self.keep_aside(&dir, area, &k)? {
+                            if let Err(error) = self.keep_aside((&dir, &library), area, &k)? {
                                 failed = Some((r.w.seq, error));
                                 break;
                             }
@@ -2155,7 +2152,7 @@ impl Store {
                             original: None,
                         };
                         let area = retention.as_ref().expect("opened above");
-                        if let Err(error) = self.keep_aside(&dir, area, &k)? {
+                        if let Err(error) = self.keep_aside((&dir, &library), area, &k)? {
                             return Err(stuck(&r.w.item.target, &error));
                         }
                     }
@@ -2171,7 +2168,7 @@ impl Store {
                         open_area(&mut retention)?;
                         let area = retention.as_ref().expect("opened above");
                         match self.clear_way(
-                            &dir,
+                            (&dir, &library),
                             area,
                             (folder, id, generation),
                             &content.removals,
@@ -2308,7 +2305,7 @@ impl Store {
                 break;
             }
             check_marker(&dir, &expected).map_err(Error::Refused)?;
-            match adopt(&dir, w.item) {
+            match adopt((&dir, &library), w.item) {
                 Ok((sha256, st, torrentzip)) => {
                     let (dev, ino) = Identity::of(&st).to_sql();
                     let parent = adopted_parent(&dir, &w.item.target).map_err(folder_io)?;
@@ -2434,7 +2431,7 @@ impl Store {
         delete: bool,
         actor: &str,
     ) -> Result<std::result::Result<Option<String>, String>> {
-        let kept = match self.keep_aside(dir, area, k)? {
+        let kept = match self.keep_aside((dir, tally), area, k)? {
             Ok(kept) => kept,
             Err(why) => return Ok(Err(why)),
         };
@@ -2477,7 +2474,7 @@ impl Store {
         };
         let note = match converted_verified(dir, item, chd.as_ref(), tally)? {
             Err(why) => format!("{name} stays in the kept files: {why}"),
-            Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {
+            Ok(()) => match self.delete_converted_kept((dir, tally), kept, actor)? {
                 outcome if outcome.deleted => {
                     format!("{name} was deleted once {} was verified", item.target)
                 }
@@ -2495,7 +2492,13 @@ impl Store {
     /// the folder's marker shows it is the store's folder, at the store's generation or, with the Build's finalize
     /// intent recorded, at the Build's. Returns why the folder was left as it is, if it was; the Build then still
     /// needs recovery, and plans for its folder are blocked.
-    fn recover_build(&self, config: &Config, build: i64) -> Result<Option<String>> {
+    /// What it reads back from the Library Folder's Root is counted to `job`, the Build's Job, if it is still running.
+    fn recover_build(
+        &self,
+        config: &Config,
+        build: i64,
+        job: Option<&JobMeter>,
+    ) -> Result<Option<String>> {
         // A CHD's work space, left by a Build that stopped while chdman ran, holds nothing it needs.
         remove_chd_dirs(&self.dir().join(crate::TMP), build);
         let (unfinished, folder, store) = self.read(|c| {
@@ -2539,7 +2542,10 @@ impl Store {
                 store_id(c)?,
             ))
         })?;
-        let outcome = self.clean_folder(config, build, &unfinished, &folder, store)?;
+        let library = job
+            .map(|job| job.tally(Some(&folder.root)))
+            .unwrap_or_default();
+        let outcome = self.clean_folder(config, (build, &library), &unfinished, &folder, store)?;
         let error = outcome.as_ref().err().cloned();
         self.write(|tx| {
             tx.execute(
@@ -2563,7 +2569,7 @@ impl Store {
     /// release's originals wait until the whole unit is in place.
     fn clear_way(
         &self,
-        dir: &FolderDir,
+        (dir, library): (&FolderDir, &Tally),
         retention: &Retention,
         (folder, build, generation): (i64, i64, u64),
         removals: &[PlanRemoval],
@@ -2599,7 +2605,7 @@ impl Store {
                 hashed: None,
                 original: None,
             };
-            if let Err(why) = self.keep_aside(dir, retention, &k)? {
+            if let Err(why) = self.keep_aside((dir, library), retention, &k)? {
                 return Ok(Err(why));
             }
             self.fault_point(Fault::Cleared(seq));
@@ -2614,7 +2620,7 @@ impl Store {
     /// folder is left as it is.
     fn finish_disc(
         &self,
-        dir: &FolderDir,
+        (dir, library): (&FolderDir, &Tally),
         temps: &HashMap<String, Identity>,
         (folder, build, generation): (i64, i64, u64),
         p: &Publishing,
@@ -2634,7 +2640,7 @@ impl Store {
                 Err(why) => return Ok(Err(why)),
             };
             let cleared = self.clear_way(
-                dir,
+                (dir, library),
                 &retention,
                 (folder, build, generation),
                 removals,
@@ -2648,7 +2654,7 @@ impl Store {
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Ok(Err(e.to_string())),
             // The staged file itself, renamed into place: the same file, not only the same bytes.
-            Ok(file) => match (Identity::of_fd(&file), sha256_of(&file)) {
+            Ok(file) => match (Identity::of_fd(&file), sha256_of(&file, library)) {
                 (Ok(id), Ok((sha256, size))) => Some(
                     (p.dev, p.ino) == (Some(id.to_sql().0), Some(id.to_sql().1))
                         && Some(&sha256) == p.sha256.as_ref()
@@ -2680,13 +2686,13 @@ impl Store {
                     hashed: None,
                     original: None,
                 };
-                if let Err(why) = self.keep_aside(dir, &retention, &k)? {
+                if let Err(why) = self.keep_aside((dir, library), &retention, &k)? {
                     return Ok(Err(why));
                 }
             }
             (None, _) => {}
         }
-        match finish_unit(dir, temps, p) {
+        match finish_unit((dir, library), temps, p) {
             Ok(made) => {
                 record_layout_dir(self, folder, made)?;
                 Ok(Ok(()))
@@ -2698,7 +2704,7 @@ impl Store {
     fn clean_folder(
         &self,
         config: &Config,
-        build: i64,
+        (build, library): (i64, &Tally),
         unfinished: &Unfinished,
         folder: &super::folders::FolderRow,
         store: String,
@@ -2799,7 +2805,7 @@ impl Store {
                         return Ok(Err(reason));
                     }
                     let done = self.finish_disc(
-                        &dir,
+                        (&dir, library),
                         &temps,
                         (folder.id, build, unfinished.generation),
                         p,
@@ -2834,7 +2840,7 @@ impl Store {
                     Err(e) if e.kind() == io::ErrorKind::NotFound => None,
                     Err(e) => Some(Err(e.to_string())),
                     Ok(file) => Some(
-                        sha256_of(&file)
+                        sha256_of(&file, library)
                             .and_then(|hash| Ok((hash, rustix::fs::fstat(&file)?)))
                             .map_err(|e| e.to_string()),
                     ),
@@ -2987,7 +2993,8 @@ impl Store {
         })?;
         let mut blocked = Vec::new();
         for id in builds {
-            if let Some(reason) = self.recover_build(config, id)? {
+            // Recovery when the service starts is not a Job's I/O: no Job's meter counts it.
+            if let Some(reason) = self.recover_build(config, id, None)? {
                 blocked.push((id, reason));
             }
         }

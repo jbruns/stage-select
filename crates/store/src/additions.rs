@@ -849,8 +849,8 @@ fn io(e: io::Error) -> Error {
 
 /// Whether `name` in `dir`, found with the identity, size and mtime of the published file `p`, is still that file: it
 /// has the ctime recorded, or, when that moved, as a change of its mode or links does, it hashes as recorded, read
-/// through a descriptor held on it while its ctime, size and mtime stay still.
-fn still_published(dir: &FolderDir, name: &str, p: &Published) -> Result<bool> {
+/// through a descriptor held on it while its ctime, size and mtime stay still, what it reads counted to `tally`.
+fn still_published((dir, tally): (&FolderDir, &Tally), name: &str, p: &Published) -> Result<bool> {
     let held = match dir.open_file(name) {
         Ok(held) => held,
         Err(_) => return Ok(false),
@@ -862,7 +862,7 @@ fn still_published(dir: &FolderDir, name: &str, p: &Published) -> Result<bool> {
     if p.ctime_ns == Some(ctime_ns(&st)) {
         return Ok(true);
     }
-    let sha256 = still_sha256(&held, ctime_ns(&st)).map_err(io)?;
+    let sha256 = still_sha256(&held, ctime_ns(&st), tally).map_err(io)?;
     Ok(sha256.as_deref() == Some(p.sha256.as_str()))
 }
 
@@ -873,7 +873,7 @@ fn holds_exactly(file: &std::fs::File, rom: &ExpectedRom, loose: bool, tally: &T
         return verify_loose(file, rom, tally).is_ok();
     }
     verify(file, std::slice::from_ref(rom), tally).is_ok()
-        && matches!(sole_payload(file), Ok((name, sums)) if name == rom.name && exactly(rom, &sums))
+        && matches!(sole_payload(file, tally), Ok((name, sums)) if name == rom.name && exactly(rom, &sums))
 }
 
 /// Retires addition `id`, as [`Store::retire_addition`] does, leaving its Additions Job to be queued.
@@ -1251,7 +1251,8 @@ impl Store {
                             if regular
                                 && Identity::of(&st) == p.identity
                                 && file_stat(&st) == p.file
-                                && still_published(dir, &name, p)? =>
+                                // Checked for you, by no Job: no Job's meter counts it.
+                                && still_published((dir, &Tally::default()), &name, p)? =>
                         {
                             entry(AdditionsFinding::Intact, id, None)
                         }
@@ -1768,7 +1769,8 @@ impl Store {
         if is_kept_entry(&area, &kept.kept_name, p.identity, Some(&p.file), false) {
             return self.retired(id, kept.id);
         }
-        if !still_published(&dir, file_name, p)? {
+        let additions = Tally::of_this_thread(Some(ADDITIONS_ROOT));
+        if !still_published((&dir, &additions), file_name, p)? {
             return self.retire_ends(
                 id,
                 Some(kept.id),
@@ -1941,7 +1943,14 @@ impl Store {
         };
         let st = rustix::fs::fstat(&held).map_err(|e| io(e.into()))?;
         if file_stat(&st) != kept.file
-            || still_sha256(&held, ctime_ns(&st)).map_err(io)?.as_deref() != Some(sha.as_str())
+            || still_sha256(
+                &held,
+                ctime_ns(&st),
+                &Tally::of_this_thread(Some(ADDITIONS_ROOT)),
+            )
+            .map_err(io)?
+            .as_deref()
+                != Some(sha.as_str())
         {
             return self.unrestore_found(
                 id,
@@ -2036,7 +2045,12 @@ impl Store {
         file_name: &str,
     ) -> Result<Settled> {
         let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
-        let found = still_sha256(held, ctime_ns(&st)).map_err(io)?;
+        let found = still_sha256(
+            held,
+            ctime_ns(&st),
+            &Tally::of_this_thread(Some(ADDITIONS_ROOT)),
+        )
+        .map_err(io)?;
         let in_place = dir
             .stat(file_name)
             .map_err(io)?
@@ -2361,14 +2375,14 @@ impl Store {
                     );
                 }
                 if at != file_name.as_str() {
-                    return self.rename_staged(row, &held, at, dest);
+                    return self.rename_staged(row, &held, at, (dest, to));
                 }
                 // The rename a stop may have left unsynced: from the staged name's folder into the destination's.
                 if let Some(staged_name) = row.staged_name.as_deref() {
                     dest.sync_holding(staged_name).map_err(io)?;
                 }
                 dest.sync_holding(file_name).map_err(io)?;
-                return self.activate(row, &held, staged, dest);
+                return self.activate(row, &held, staged, (dest, to));
             }
         }
         let source = match src.open_file(name) {
@@ -2390,7 +2404,7 @@ impl Store {
                 ),
             );
         }
-        let read = probe(&source).map_err(io)?;
+        let read = probe(&source, from).map_err(io)?;
         let found = sole_rom(&read, &row.addition.origin);
         let Some((rom, member)) = found.filter(|(rom, _)| same_rom(rom, recorded)) else {
             return self.fail_addition(
@@ -2441,8 +2455,8 @@ impl Store {
         // Written in the format the storage policy said for its system's source sets when it was approved.
         let read = [(&rom, 0, member.as_deref())];
         let written = match row.addition.loose {
-            true => write_loose(&staged, &read, &[&source], from, to),
-            false => repack_sources(&staged, &read, &[&source], from, to),
+            true => write_loose(&staged, &read, &[(&source, from)], to),
+            false => repack_sources(&staged, &read, &[(&source, from)], to),
         }
         .and_then(|_| staged.sync_all().map_err(|e| e.to_string()));
         if let Err(why) = written {
@@ -2461,7 +2475,7 @@ impl Store {
             );
         }
         self.fault_point(Fault::AdditionStaged);
-        self.rename_staged(row, &staged, &staged_name, dest)
+        self.rename_staged(row, &staged, &staged_name, (dest, to))
     }
 
     /// Renames the staged file `held`, checked to hold exactly its addition's ROM, to its addition's file name without replacing
@@ -2471,7 +2485,7 @@ impl Store {
         row: &AdditionRow,
         held: &std::fs::File,
         staged_name: &str,
-        dest: &FolderDir,
+        (dest, to): (&FolderDir, &Tally),
     ) -> Result<Settled> {
         let file_name = &row.addition.file_name;
         let staged = Identity::of_fd(held).map_err(io)?;
@@ -2485,21 +2499,21 @@ impl Store {
         dest.sync_holding(staged_name)
             .and_then(|()| dest.sync_holding(file_name))
             .map_err(io)?;
-        self.activate(row, held, staged, dest)
+        self.activate(row, held, staged, (dest, to))
     }
 
     /// Records addition `row` active once its file name in `dest` is found to be `held`, the file `staged`, unchanged
-    /// while it is read back: its stamps and SHA-256 are read through `held`.
+    /// while it is read back: its stamps and SHA-256 are read through `held`, its bytes counted to `to`.
     fn activate(
         &self,
         row: &AdditionRow,
         held: &std::fs::File,
         staged: Identity,
-        dest: &FolderDir,
+        (dest, to): (&FolderDir, &Tally),
     ) -> Result<Settled> {
         let file_name = &row.addition.file_name;
         let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
-        let (sha256, _) = sha256_of(held).map_err(io)?;
+        let (sha256, _) = sha256_of(held, to).map_err(io)?;
         let after = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
         let in_place = dest
             .stat(file_name)

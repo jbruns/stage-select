@@ -964,7 +964,7 @@ fn read_item(
     let limits = ZipLimits::default();
     let probed = match sevenz::is_7z(&file).map_err(|e| e.to_string())? {
         true => sevenz::probe(&file, &limits, decoding),
-        false => probe_within(&file, &limits),
+        false => probe_within(&file, &limits, decoding.read),
     };
     let probe = match probed.map_err(|e| e.to_string())? {
         Probed::Read(probe) => probe,
