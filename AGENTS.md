@@ -32,7 +32,8 @@ cargo test --doc --locked
 cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 ```
 
-Locally, `cargo test --locked` runs the same tests. Before writing or changing tests, read `docs/agents/testing.md`.
+Locally, `cargo test --locked` runs the same tests, but its debug fixtures run checks only some of the goldens: run the
+release fixtures command above to check them all. Before writing or changing tests, read `docs/agents/testing.md`.
 
 Tests build their DATs and Source Sets from synthetic fixtures at test time. Never commit ROMs, and never commit a
 real DAT unless its licence permits redistribution.
