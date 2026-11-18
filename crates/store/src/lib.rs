@@ -5,6 +5,7 @@ mod audits;
 mod blobs;
 mod builds;
 pub mod calibration;
+pub mod ceilings;
 mod checks;
 pub mod config;
 mod coverage;
@@ -134,8 +135,9 @@ pub struct Store {
     lifecycle: Mutex<()>,
     /// What receives each occurrence as its write commits.
     observer: std::sync::OnceLock<observe::Observer>,
-    /// How many 7z archives decode at once, across every Job; sized from the configuration on first use.
-    archives: std::sync::OnceLock<title_select_engine::sevenz::Gate>,
+    /// The Ceilings in force, and the pools and gates every Job shares to keep to them: worked out from the
+    /// configuration on first use, and again as the settings or a Calibration change them.
+    ceilings: ceilings::Live,
     /// The pace in the settings, which running Jobs read at each file.
     pace: std::sync::RwLock<title_select_api::settings::Pace>,
     /// Held across each settings update's commit and publication, so they happen in the same order.
@@ -362,18 +364,15 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 impl Store {
-    /// The bounds a 7z decodes within: the store's one gate, sized by `config`'s `archive_workers` when first used,
+    /// The bounds a 7z decodes within: the store's one gate, sized by the pace's share of the archive workers Ceiling,
     /// and `config`'s dictionary limit; its bytes read are counted to `read`.
     pub(crate) fn decoding<'a>(
         &'a self,
         config: &config::Config,
         read: &'a title_select_engine::meter::Tally,
     ) -> title_select_engine::sevenz::Decoding<'a> {
-        let gate = self
-            .archives
-            .get_or_init(|| title_select_engine::sevenz::Gate::new(config.ingest.archive_workers));
         title_select_engine::sevenz::Decoding {
-            gate,
+            gate: self.archive_gate(config),
             max_dictionary_mib: config.ingest.max_dictionary_mib,
             read,
         }
@@ -413,7 +412,7 @@ impl Store {
             set_dirs: Mutex::new(()),
             lifecycle: Mutex::new(()),
             observer: std::sync::OnceLock::new(),
-            archives: std::sync::OnceLock::new(),
+            ceilings: ceilings::Live::default(),
             pace: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),

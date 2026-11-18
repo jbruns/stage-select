@@ -1826,7 +1826,7 @@ impl Store {
         };
         let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
         let limits = self.settings()?.chd_limits();
-        let threads = self.pace().of(config.jobs.ceilings().hashers);
+        let threads = self.chdman_threads(config)?;
         let meter = self.meter.job(job);
         let chd_work = ChdWork {
             chdman: match work.iter().any(|w| w.item.chd) {

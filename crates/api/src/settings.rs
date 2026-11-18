@@ -56,32 +56,180 @@ impl Pace {
         }
     }
 
-    /// This pace's share of each ceiling.
-    pub fn counts(self, ceilings: Ceilings) -> Ceilings {
-        Ceilings {
-            concurrent: self.of(ceilings.concurrent),
-            readers: self.of(ceilings.readers),
-            hashers: self.of(ceilings.hashers),
+    /// This pace's share of a byte-rate ceiling: none under `unthrottled`, which sets no byte cap, nor while there
+    /// is no ceiling.
+    pub fn rate(self, ceiling: Option<u64>) -> Option<u64> {
+        match self {
+            Pace::Unthrottled => None,
+            _ => ceiling.map(|c| self.of(usize::try_from(c).unwrap_or(usize::MAX)) as u64),
+        }
+    }
+
+    /// The threads chdman is told to compress with under this pace: its share of the hash workers under `gentle` and
+    /// `default`, and none under `unthrottled`, where chdman keeps its own default of every core.
+    pub fn chdman_threads(self, hashers: usize) -> Option<usize> {
+        match self {
+            Pace::Unthrottled => None,
+            _ => Some(self.of(hashers)),
         }
     }
 }
 
-/// The most Jobs that run at once, and the most payload readers and hash workers one Job runs, from the
-/// configuration file. The pace scales each down.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Ceilings {
-    pub concurrent: usize,
-    pub readers: usize,
-    pub hashers: usize,
+/// The most worker threads a worker ceiling may be: the most Jobs at once, hash workers or readers on a Root.
+pub const MAX_WORKERS: u64 = 1024;
+/// The most 7z archives that may decode at once.
+pub const MAX_ARCHIVE_WORKERS: u64 = 64;
+/// The largest byte-rate ceiling, in MiB/s: 1 TiB/s.
+pub const MAX_MIB_PER_S: u64 = 1 << 20;
+/// How many 7z archives decode at once unless the Operator says otherwise.
+pub const DEFAULT_ARCHIVE_WORKERS: u64 = 2;
+
+/// Where a Ceiling's value comes from: the first of these that has one (ADR 0022).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CeilingSource {
+    /// The configuration file, which locks it.
+    Config,
+    /// The Operator's value, saved in the workbench.
+    Yours,
+    /// The latest Calibration's knee.
+    Calibration,
+    /// The CPUs the Service can use.
+    Cpus,
+    /// A fixed default: 7z archive workers, which aren't measured.
+    Default,
 }
 
-impl Ceilings {
-    pub fn workers(self) -> Workers {
-        Workers {
-            readers: self.readers,
-            hashers: self.hashers,
-        }
+/// One Ceiling, where it comes from, and what the pace makes of it now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ceiling {
+    /// The Ceiling; none for a byte rate nothing sets.
+    pub ceiling: Option<u64>,
+    /// What the pace allows now: its share of `ceiling`. None for a byte rate under `unthrottled`, or with no
+    /// ceiling.
+    pub in_force: Option<u64>,
+    /// Where `ceiling` comes from; none while it has no value.
+    pub source: Option<CeilingSource>,
+    /// The Operator's saved value, whether or not it applies.
+    pub yours: Option<u64>,
+    /// What the latest Calibration measured, where it measures this Ceiling.
+    pub measured: Option<u64>,
+    /// The configuration key that sets and locks it, as `[roots.sets] readers`; none when the configuration file
+    /// doesn't set it.
+    pub locked_by: Option<String>,
+}
+
+impl Ceiling {
+    /// Whether the configuration file sets it, so that the workbench can't.
+    pub fn locked(&self) -> bool {
+        self.locked_by.is_some()
     }
+}
+
+/// The Ceilings of the Host, shared by every Job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostCeilings {
+    /// Jobs started at once.
+    pub concurrent: Ceiling,
+    /// Hash workers, one pool for every Job.
+    pub hashers: Ceiling,
+    /// 7z archives decoded at once.
+    pub archive_workers: Ceiling,
+}
+
+/// The Ceilings of one Root, shared by every Job reading or writing it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootCeilings {
+    pub root: String,
+    /// Payload readers, across every Job reading the Root.
+    pub readers: Ceiling,
+    pub read_mib_per_s: Ceiling,
+    /// Only ever the Operator's: writes are never measured.
+    pub write_mib_per_s: Ceiling,
+    /// The fastest write throughput a past Job averaged into this Root, in MiB/s: a starting value for its write
+    /// ceiling.
+    pub observed_write_mib_per_s: Option<u64>,
+}
+
+/// The Operator's own Ceilings, saved in the workbench: each one set overrides the Calibration and the CPU count,
+/// but not the configuration file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrent: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hashers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_workers: Option<u64>,
+}
+
+/// The Operator's own Ceilings for one Root.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_mib_per_s: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_mib_per_s: Option<u64>,
+}
+
+impl RootOverrides {
+    pub fn is_empty(&self) -> bool {
+        *self == RootOverrides::default()
+    }
+}
+
+/// Every Ceiling the Operator set in the workbench.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CeilingOverrides {
+    #[serde(default)]
+    pub host: HostOverrides,
+    /// By Root name; a Root with none set is left out.
+    #[serde(default)]
+    pub roots: BTreeMap<String, RootOverrides>,
+}
+
+/// A Ceiling as `PATCH /settings` takes it: any JSON value, so that one that isn't a whole number in range is
+/// refused with the reason, not as a malformed body. Null or absent clears it.
+pub type CeilingInput = Option<serde_json::Value>;
+
+/// A change to the Host's Ceilings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostCeilingsUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrent: CeilingInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hashers: CeilingInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_workers: CeilingInput,
+}
+
+/// A change to one Root's Ceilings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootCeilingsUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readers: CeilingInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_mib_per_s: CeilingInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_mib_per_s: CeilingInput,
+}
+
+/// Every Ceiling the Operator sets in the workbench, replacing those set before: one left out is cleared, and
+/// falls back to the Calibration or the CPU count. One the configuration file sets can't be given.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CeilingsUpdate {
+    #[serde(default)]
+    pub host: HostCeilingsUpdate,
+    #[serde(default)]
+    pub roots: BTreeMap<String, RootCeilingsUpdate>,
 }
 
 /// How many full Audits and Selections each Source Set keeps; older ones are pruned.
@@ -352,12 +500,13 @@ pub struct NotifyUpdate {
     pub workbench_url: Option<String>,
 }
 
-/// The Job limits: the pace you chose, the ceilings from the configuration file, and the counts the pace gives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// The Job limits: the pace you chose, and every Ceiling of the Host and of each configured Root, with where it
+/// comes from and what the pace allows now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobsView {
     pub pace: Pace,
-    pub ceilings: Ceilings,
-    pub active: Ceilings,
+    pub host: HostCeilings,
+    pub roots: Vec<RootCeilings>,
 }
 
 /// Every operational setting, as `GET /settings` returns it: never a secret.
@@ -382,6 +531,9 @@ pub struct SettingsView {
 pub struct SettingsUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pace: Option<Pace>,
+    /// Replaces every Ceiling you set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ceilings: Option<CeilingsUpdate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -407,33 +559,28 @@ mod tests {
 
     #[test]
     fn a_pace_is_a_fraction_of_each_ceiling_rounded_down_and_at_least_one() {
-        let ceilings = Ceilings {
-            concurrent: 3,
-            readers: 8,
-            hashers: 1,
-        };
-        assert_eq!(
-            Pace::Gentle.counts(ceilings),
-            Ceilings {
-                concurrent: 1,
-                readers: 2,
-                hashers: 1
-            }
-        );
-        assert_eq!(
-            Pace::Default.counts(ceilings),
-            Ceilings {
-                concurrent: 1,
-                readers: 4,
-                hashers: 1
-            }
-        );
-        assert_eq!(Pace::Unthrottled.counts(ceilings), ceilings);
         for (ceiling, gentle, default) in [(1, 1, 1), (2, 1, 1), (4, 1, 2), (7, 1, 3), (16, 4, 8)] {
             assert_eq!(Pace::Gentle.of(ceiling), gentle, "{ceiling}");
             assert_eq!(Pace::Default.of(ceiling), default, "{ceiling}");
             assert_eq!(Pace::Unthrottled.of(ceiling), ceiling);
         }
+    }
+
+    #[test]
+    fn unthrottled_sets_no_byte_cap_and_the_others_a_share_of_the_ceiling() {
+        assert_eq!(Pace::Gentle.rate(Some(400)), Some(100));
+        assert_eq!(Pace::Default.rate(Some(400)), Some(200));
+        assert_eq!(Pace::Default.rate(Some(1)), Some(1));
+        assert_eq!(Pace::Unthrottled.rate(Some(400)), None);
+        assert_eq!(Pace::Gentle.rate(None), None);
+    }
+
+    #[test]
+    fn chdman_is_given_the_paces_share_of_the_hash_workers_except_unthrottled() {
+        assert_eq!(Pace::Gentle.chdman_threads(16), Some(4));
+        assert_eq!(Pace::Default.chdman_threads(16), Some(8));
+        assert_eq!(Pace::Gentle.chdman_threads(2), Some(1));
+        assert_eq!(Pace::Unthrottled.chdman_threads(16), None);
     }
 
     #[test]

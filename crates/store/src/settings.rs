@@ -13,9 +13,10 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use title_select_api::settings::{
-    ChdTimeouts, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS, MAX_CHECK_EVERY_MINUTES,
-    MAX_KEPT, MAX_SCAN_EVERY_MINUTES, MAX_SETTLE_SECS, NotifyEvent, NotifyUpdate, NotifyView, Pace,
-    PathTemplates, Retention, SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
+    CeilingOverrides, ChdTimeouts, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS,
+    MAX_CHECK_EVERY_MINUTES, MAX_KEPT, MAX_SCAN_EVERY_MINUTES, MAX_SETTLE_SECS, NotifyEvent,
+    NotifyUpdate, NotifyView, Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate,
+    SettingsView, SourceSetChecks,
 };
 
 use crate::config::Config;
@@ -139,6 +140,8 @@ pub struct Settings {
     pub ingest_folders: BTreeMap<String, IngestCadence>,
     pub notify: Notify,
     pub romm: Romm,
+    /// The Ceilings you set in the workbench.
+    pub ceilings: CeilingOverrides,
 }
 
 impl Settings {
@@ -155,16 +158,11 @@ impl Settings {
         }
     }
 
-    /// What the API returns: every setting but the secrets, with the configured ceilings and the cadence of every
-    /// Ingest Folder `config` names.
-    pub fn view(&self, config: &Config) -> SettingsView {
-        let ceilings = config.jobs.ceilings();
+    /// What the API returns: every setting but the secrets, with the Ceilings in force, `jobs`, and the cadence of
+    /// every Ingest Folder `config` names.
+    pub fn view(&self, config: &Config, jobs: JobsView) -> SettingsView {
         SettingsView {
-            jobs: JobsView {
-                pace: self.pace,
-                ceilings,
-                active: self.pace.counts(ceilings),
-            },
+            jobs,
             retention: self.retention,
             path_templates: self.path_templates.clone(),
             source_sets: self.source_sets,
@@ -191,6 +189,7 @@ const CHD: &str = "chd";
 const INGEST_FOLDERS: &str = "ingest_folders";
 const NOTIFY: &str = "notify";
 const ROMM: &str = "romm";
+const CEILINGS: &str = "ceilings";
 
 fn parse<T: serde::de::DeserializeOwned>(section: &str, value: &str) -> Result<T> {
     serde_json::from_str(value)
@@ -215,6 +214,7 @@ pub(crate) fn load(c: &Connection) -> Result<Settings> {
             INGEST_FOLDERS => settings.ingest_folders = parse(&section, &value)?,
             NOTIFY => settings.notify = parse(&section, &value)?,
             ROMM => settings.romm = parse(&section, &value)?,
+            CEILINGS => settings.ceilings = parse(&section, &value)?,
             _ => {}
         }
     }
@@ -240,6 +240,13 @@ impl Store {
     /// Every operational setting as it is now.
     pub fn settings(&self) -> Result<Settings> {
         self.read(load)
+    }
+
+    /// Every operational setting, as the API returns it, with the Ceilings in force under `config`, worked out
+    /// afresh so that the write throughput past Jobs reached is up to date.
+    pub fn settings_view(&self, config: &Config) -> Result<SettingsView> {
+        let jobs = self.refresh_ceilings(config)?;
+        Ok(self.settings()?.view(config, jobs))
     }
 
     /// The pace running Jobs follow now.
@@ -284,6 +291,11 @@ impl Store {
         publish: impl FnOnce(&Settings),
     ) -> Result<(Settings, bool)> {
         check(config, update)?;
+        let ceilings = update
+            .ceilings
+            .as_ref()
+            .map(|c| crate::ceilings::checked(config, c))
+            .transpose()?;
         let _one_at_a_time = self
             .settings_update
             .lock()
@@ -327,10 +339,18 @@ impl Store {
                 settings.ingest_folders.extend(folders.clone());
                 put(tx, INGEST_FOLDERS, &settings.ingest_folders, actor)?;
             }
+            if let Some(ceilings) = &ceilings {
+                settings.ceilings = ceilings.clone();
+                put(tx, CEILINGS, ceilings, actor)?;
+            }
             let release = crate::romm_additions::release(tx, &was, &settings.romm)?;
             Ok((settings, release))
         })?;
         *self.pace.write().unwrap_or_else(|e| e.into_inner()) = settings.pace;
+        if update.pace.is_some() || ceilings.is_some() {
+            // Running Jobs take the new pools' sizes at their workers' next file.
+            self.refresh_ceilings(config)?;
+        }
         publish(&settings);
         Ok((settings, release))
     }
@@ -458,9 +478,14 @@ mod tests {
         assert_eq!(settings.ingest("in").settle_secs, 5);
         assert_eq!(settings.chd, ChdTimeouts::default());
         assert_eq!(settings.path_templates, PathTemplates::default());
-        let view = settings.view(&config);
+        let view = store.settings_view(&config).unwrap();
         assert_eq!(view.ingest_folders.keys().collect::<Vec<_>>(), ["in"]);
-        assert_eq!(view.jobs.active, Pace::Gentle.counts(view.jobs.ceilings));
+        let hashers = &view.jobs.host.hashers;
+        assert_eq!(view.jobs.pace, Pace::Gentle);
+        assert_eq!(
+            hashers.in_force,
+            Some(Pace::Gentle.of(hashers.ceiling.unwrap() as usize) as u64)
+        );
     }
 
     #[test]
@@ -738,7 +763,7 @@ mod tests {
         let config = romm_config();
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         assert_eq!(
-            store.settings().unwrap().view(&config).romm,
+            store.settings_view(&config).unwrap().romm,
             RommView::default()
         );
 
@@ -756,7 +781,7 @@ mod tests {
             .unwrap();
         assert_eq!(on.romm.token.as_deref(), Some("rmm_first-token"));
         assert_eq!(
-            on.view(&config).romm,
+            on.view(&config, store.ceilings(&config).unwrap()).romm,
             RommView {
                 enabled: true,
                 base_url: Some("https://romm.example".into()),
@@ -793,7 +818,9 @@ mod tests {
             )
             .unwrap();
         assert_eq!(replaced.romm.token.as_deref(), Some("rmm_second-token"));
-        let shown = serde_json::to_string(&replaced.view(&config)).unwrap();
+        let shown =
+            serde_json::to_string(&replaced.view(&config, store.ceilings(&config).unwrap()))
+                .unwrap();
         assert!(!shown.contains("rmm_"), "{shown}");
         assert!(!format!("{replaced:?}").contains("rmm_"));
 
@@ -810,7 +837,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cleared.romm.token, None);
-        assert!(!cleared.view(&config).romm.token_set);
+        assert!(
+            !cleared
+                .view(&config, store.ceilings(&config).unwrap())
+                .romm
+                .token_set
+        );
         assert_eq!(store.settings().unwrap().romm, cleared.romm);
     }
 

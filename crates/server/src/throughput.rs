@@ -144,7 +144,7 @@ impl Publisher {
                 rates: *rates,
                 readers: j.readers,
                 hashers: j.hashers,
-                allowance: pace.workers(j.ceilings),
+                allowance: j.allowance.unwrap_or_else(|| pace.workers(j.ceilings)),
                 chdman: j.chdman,
             })
             .collect();
@@ -235,6 +235,7 @@ mod tests {
                     hashers: 1,
                     chdman: false,
                     ceilings: title_select_engine::ONE_WORKER_EACH,
+                    allowance: None,
                 })
                 .collect(),
         }

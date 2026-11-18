@@ -15,7 +15,6 @@ use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Condvar, Mutex};
 
 use lzma_rust2::{Lzma2Reader, LzmaReader};
 use sevenz_rust2::{Archive, ArchiveEntry, BlockDecoder, EncoderMethod, Error, Password};
@@ -26,6 +25,7 @@ use crate::build::{
     hash_all, sized, wrong_size,
 };
 use crate::meter::{Metered, Reading, Tally};
+use crate::pool::Pool;
 use crate::torrentzip::{Writer, compare_names};
 use header::Fault;
 use zstd::{Guarded, Span, Stop};
@@ -54,50 +54,46 @@ pub fn is_7z(file: &File) -> io::Result<bool> {
     Ok(head == SIGNATURE)
 }
 
-/// How many 7z archives may decode at once: one per permit, whichever job decodes them.
+/// How many 7z archives may decode at once: one per permit, whichever job decodes them. Its size can change while
+/// archives decode, from the next archive.
 #[derive(Debug)]
 pub struct Gate {
-    permits: usize,
-    busy: Mutex<usize>,
-    freed: Condvar,
-    most: AtomicUsize,
+    permits: Pool,
     headers: AtomicUsize,
     blocks: AtomicUsize,
 }
 
 /// One archive's turn to decode, given back when dropped.
-#[derive(Debug)]
-pub struct Permit<'a> {
-    gate: &'a Gate,
-}
+pub type Permit<'a> = crate::pool::Permit<'a>;
 
 impl Gate {
     /// A gate letting `permits` archives decode at once; at least one.
     pub fn new(permits: usize) -> Gate {
         Gate {
-            permits: permits.max(1),
-            busy: Mutex::new(0),
-            freed: Condvar::new(),
-            most: AtomicUsize::new(0),
+            permits: Pool::new(permits),
             headers: AtomicUsize::new(0),
             blocks: AtomicUsize::new(0),
         }
     }
 
+    /// Lets `permits` archives decode at once, at least one, from the next archive.
+    pub fn set_permits(&self, permits: usize) {
+        self.permits.set_limit(permits);
+    }
+
+    /// How many archives may decode at once now.
+    pub fn permits(&self) -> usize {
+        self.permits.limit()
+    }
+
     /// Waits for a free permit and takes it.
     pub fn enter(&self) -> Permit<'_> {
-        let mut busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
-        while *busy >= self.permits {
-            busy = self.freed.wait(busy).unwrap_or_else(|e| e.into_inner());
-        }
-        *busy += 1;
-        self.most.fetch_max(*busy, Ordering::SeqCst);
-        Permit { gate: self }
+        self.permits.enter()
     }
 
     /// The most permits ever taken at once.
     pub fn most_at_once(&self) -> usize {
-        self.most.load(Ordering::SeqCst)
+        self.permits.most_at_once()
     }
 
     /// How many encoded headers have been decoded inside the gate.
@@ -108,14 +104,6 @@ impl Gate {
     /// How many blocks have been decoded inside the gate, each from its start.
     pub fn blocks_decoded(&self) -> usize {
         self.blocks.load(Ordering::SeqCst)
-    }
-}
-
-impl Drop for Permit<'_> {
-    fn drop(&mut self) {
-        let mut busy = self.gate.busy.lock().unwrap_or_else(|e| e.into_inner());
-        *busy -= 1;
-        self.gate.freed.notify_one();
     }
 }
 

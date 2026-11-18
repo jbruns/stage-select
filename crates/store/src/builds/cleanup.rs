@@ -442,7 +442,7 @@ impl Run<'_> {
         let cancelled = || self.store.cancel_requested(self.job).unwrap_or(false);
         let config = self.config;
         let limits = self.store.settings()?.chd_limits();
-        let threads = self.store.pace().of(config.jobs.ceilings().hashers);
+        let threads = self.store.chdman_threads(config)?;
         let set = self
             .store
             .read(|c| folder_by_id(c, self.folder))?

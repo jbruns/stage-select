@@ -7,6 +7,7 @@ pub mod dat;
 pub mod fixdat;
 pub mod meter;
 pub mod payload;
+pub mod pool;
 mod read;
 pub mod sevenz;
 pub mod torrentzip;
@@ -15,6 +16,7 @@ pub mod zipdir;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
+pub use read::Pools;
 pub use title_select_api::Workers;
 pub use title_select_api::report::*;
 
@@ -52,9 +54,10 @@ pub struct Options<'a> {
     pub confine: Option<&'a Path>,
     /// At least one of each: `readers` threads read files, and `hashers` threads checksum their payloads.
     pub workers: Workers,
-    /// How many of `workers` may work at each moment, read again before each file and payload; all of them when
-    /// absent. A lower count holds back the next file, and stops no read under way.
-    pub pace: Option<&'a (dyn Fn() -> Workers + Sync)>,
+    /// The pools `workers` share with other Jobs, which say how many of them may work at each moment: a permit is
+    /// taken before each file and payload. All of them work when absent. A smaller pool holds back the next file,
+    /// and stops no read under way.
+    pub pools: Option<Pools<'a>>,
     /// Called as each file's Entries are read, from the reader threads.
     pub progress: Option<&'a (dyn Fn(Progress) + Sync)>,
     /// Whether ZIP archives are claimed from their directories ([`AuditEvidence::Quick`]), as the report records.
@@ -162,7 +165,7 @@ pub fn audit(dat_path: &Path, root: &Path) -> Result<Report, Error> {
             file,
             confine: None,
             workers: ONE_WORKER_EACH,
-            pace: None,
+            pools: None,
             progress: None,
             evidence: AuditEvidence::Full,
             reads: None,
@@ -339,8 +342,14 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         might_be_headered: &might_be_headered,
         tally: &options.tally,
     };
-    let mut reads =
-        read::read_files(&files, how, options.workers, options.pace, options.progress).into_iter();
+    let mut reads = read::read_files(
+        &files,
+        how,
+        options.workers,
+        options.pools,
+        options.progress,
+    )
+    .into_iter();
     let game_index: HashMap<&str, usize> = dat
         .games
         .iter()

@@ -604,7 +604,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     file,
                     confine: None,
                     workers: title_select_engine::ONE_WORKER_EACH,
-                    pace: None,
+                    pools: None,
                     progress: None,
                     evidence,
                     reads: None,

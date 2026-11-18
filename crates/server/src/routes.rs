@@ -71,7 +71,6 @@ pub struct AppState {
     pub store: Arc<Store>,
     pub config: Arc<Config>,
     pub jobs: Arc<Jobs>,
-    pub workers: Workers,
     pub engine: Option<Arc<Engine>>,
     pub previews: Arc<Previews>,
     pub fetcher: Arc<Fetcher>,
@@ -79,6 +78,11 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The threads a Job queued now starts: the largest of its Ceilings, of which the pace allows a share.
+    fn workers(&self) -> Workers {
+        self.store.job_workers(&self.config)
+    }
+
     fn engine(&self) -> ApiResult<Arc<Engine>> {
         self.engine
             .clone()
@@ -584,12 +588,12 @@ async fn path_templates(State(state): State<AppState>) -> ApiResult<Json<PathTem
 async fn settings(State(state): State<AppState>) -> ApiResult<Json<SettingsView>> {
     let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| Ok(store.settings()?.view(&config))).await?,
+        blocking(&state, move |store| store.settings_view(&config)).await?,
     ))
 }
 
-/// Replaces each section of the settings the body gives, and applies it at once: a new pace to running Jobs at
-/// their next file and to the next Job to start, a webhook to the next event.
+/// Replaces each section of the settings the body gives, and applies it at once: a new pace or new Ceilings to
+/// running Jobs at their workers' next file and to the next Job to start, a webhook to the next event.
 async fn change_settings(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
@@ -598,11 +602,12 @@ async fn change_settings(
     let Json(update) = body?;
     let config = state.config.clone();
     let jobs = state.jobs.clone();
-    let (settings, released) = blocking(&state, move |store| {
-        store.update_settings_and_release(&config, &update, &actor, |now| {
+    let (view, released) = blocking(&state, move |store| {
+        let (_, released) = store.update_settings_and_release(&config, &update, &actor, |now| {
             jobs.notifier.reconfigure(&now.notify);
             jobs.publish(JobEvent::Settings(SettingsChanged { pace: now.pace }));
-        })
+        })?;
+        Ok((store.settings_view(&config)?, released))
     })
     .await?;
     // Turning RomM off, or changing its address, deletes its "Additions" collection on a task of its own, best
@@ -611,7 +616,7 @@ async fn change_settings(
         crate::jobs::delete_released_romm_collection(&state.store);
     }
     state.jobs.wake();
-    Ok(Json(settings.view(&state.config)))
+    Ok(Json(view))
 }
 
 /// Tests the RomM connection saved, or the address and token the body gives in its place, without saving it.
@@ -885,7 +890,7 @@ async fn approve_plan(
 ) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers);
+    let (config, workers) = (state.config.clone(), state.workers());
     let job = blocking(&state, move |store| {
         store.approve_plan(&config, id, &approve.digest, &actor, workers)
     })
@@ -1099,7 +1104,7 @@ async fn approve_ingest_plan(
 ) -> ApiResult<Json<IngestPlan>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers);
+    let (config, workers) = (state.config.clone(), state.workers());
     let (plan, queued) = blocking(&state, move |store| {
         let plan = store.approve_ingest_plan(&config, id, &approve.digest, &actor, workers)?;
         let queued: Vec<_> = store
@@ -1314,7 +1319,7 @@ async fn approve_repair(
 ) -> ApiResult<Json<RepairPlan>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers);
+    let (config, workers) = (state.config.clone(), state.workers());
     let plan = blocking(&state, move |store| {
         store.approve_repair(&config, id, &approve.digest, &actor, workers)
     })
@@ -1713,7 +1718,7 @@ async fn start_audit(
     body: Result<Json<StartAudit>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
     let Json(start) = body?;
-    let workers = state.workers;
+    let workers = state.workers();
     let job = blocking(&state, move |store| {
         store.enqueue_audit(
             &start.source_set,
@@ -1975,7 +1980,7 @@ async fn save_profile(
     tokio::task::spawn_blocking(move || engine.check(&profile))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
-    let workers = state.workers;
+    let workers = state.workers();
     let saved = blocking(&state, move |store| {
         store.save_profile(
             &name,
@@ -2051,7 +2056,7 @@ async fn start_selection(
 ) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
     let Json(start) = body?;
     state.engine()?;
-    let workers = state.workers;
+    let workers = state.workers();
     let job = blocking(&state, move |store| {
         store.enqueue_selection(
             &start.source_set,
@@ -2399,10 +2404,6 @@ mod tests {
                 Arc::new(crate::notify::Notifier::new(&Default::default()).0),
                 Default::default(),
             )),
-            workers: Workers {
-                readers: 1,
-                hashers: 1,
-            },
             engine: None,
             previews: Arc::default(),
             fetcher: Arc::new(Fetcher::new(title_select_store::fetch::Endpoints::at(
@@ -2455,7 +2456,7 @@ mod tests {
                 "Test - System",
                 None,
                 "Operator",
-                state.workers,
+                state.workers(),
                 title_select_api::AuditEvidence::Incremental,
             )
             .unwrap();

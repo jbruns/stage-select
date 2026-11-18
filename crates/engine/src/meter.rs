@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 
 use title_select_api::{Rates, Workers};
 
+use crate::pool::Pool;
+
 /// What one thread counted for one [`Flow`], on a cache line of its own. Only that thread writes it, so each count is
 /// a plain load and store, never a read-modify-write, and no other thread's counting touches its line; the sampler
 /// only loads it.
@@ -212,9 +214,19 @@ struct JobShared {
     readers: AtomicUsize,
     hashers: AtomicUsize,
     chdman: AtomicUsize,
+    /// The pools its readers and hash workers share with other Jobs, once it reads through them.
+    pools: std::sync::OnceLock<(Arc<Pool>, Arc<Pool>)>,
 }
 
 impl JobShared {
+    /// The readers and hash workers it may have at work now: its threads, as far as the pools it shares allow.
+    fn allowance(&self) -> Option<Workers> {
+        self.pools.get().map(|(readers, hashers)| Workers {
+            readers: self.ceilings.readers.min(readers.limit()),
+            hashers: self.ceilings.hashers.min(hashers.limit()),
+        })
+    }
+
     fn by_root(&self) -> Vec<(Option<String>, Counted)> {
         self.flows
             .lock()
@@ -263,6 +275,7 @@ impl Meter {
                     readers: AtomicUsize::new(0),
                     hashers: AtomicUsize::new(0),
                     chdman: AtomicUsize::new(0),
+                    pools: std::sync::OnceLock::new(),
                 }))
             })
             .clone()
@@ -341,6 +354,7 @@ impl Meter {
                     hashers: j.0.hashers.load(Ordering::Relaxed),
                     chdman: j.0.chdman.load(Ordering::Relaxed) > 0,
                     ceilings: j.0.ceilings,
+                    allowance: j.0.allowance(),
                 }
             })
             .collect();
@@ -353,6 +367,12 @@ impl Meter {
 }
 
 impl JobMeter {
+    /// Says which pools this Job's readers and hash workers share with other Jobs, so that its allowance follows
+    /// them. Only the first call counts.
+    pub fn shares(&self, readers: Arc<Pool>, hashers: Arc<Pool>) {
+        let _ = self.0.pools.set((readers, hashers));
+    }
+
     /// Where this Job's bytes from or into the Root named `root` are counted; with no Root, only for the Job and in
     /// total.
     pub fn tally(&self, root: Option<&str>) -> Tally {
@@ -435,6 +455,8 @@ pub struct JobSample {
     pub hashers: usize,
     pub chdman: bool,
     pub ceilings: Workers,
+    /// What the pools it shares allow it now, once it reads through them.
+    pub allowance: Option<Workers>,
 }
 
 /// Rates over a sliding window: the change between the oldest and newest counts it holds, over the time between them.

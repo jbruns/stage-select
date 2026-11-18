@@ -212,10 +212,11 @@ pub async fn run(
     engine: Option<Arc<Engine>>,
 ) {
     delete_released_romm_collection(&store);
-    let ceiling = config.jobs.ceilings().concurrent;
     let running = Arc::new(AtomicUsize::new(0));
     loop {
-        if running.load(Ordering::SeqCst) >= store.pace().of(ceiling) {
+        // The pace's share of the concurrent Jobs Ceiling, as it is now: a change wakes the runner.
+        let allowed = store.concurrent_in_force(&config).unwrap_or(1);
+        if running.load(Ordering::SeqCst) >= allowed {
             jobs.wake.notified().await;
             continue;
         }

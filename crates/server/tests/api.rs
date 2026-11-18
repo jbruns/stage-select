@@ -1286,35 +1286,42 @@ fn romm_is_off_until_you_turn_it_on_and_its_token_is_tested_but_never_shown() {
 }
 
 #[test]
-fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_configured_ceilings() {
-    use title_select_api::settings::{Ceilings, Pace, SettingsView};
+fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceilings() {
+    use title_select_api::settings::{CeilingSource, Pace, SettingsView};
     let env = Env::new();
     let service = title_select_server::spawn(
         env.settings("[jobs]\nconcurrent = 2\nreaders = 8\nhashers = 5\n"),
     )
     .unwrap();
     let client = Client::new(&service);
-    let ceilings = Ceilings {
-        concurrent: 2,
-        readers: 8,
-        hashers: 5,
-    };
     let settings: SettingsView = client.json("/settings");
+    let host = &settings.jobs.host;
     assert_eq!(settings.jobs.pace, Pace::Default);
-    assert_eq!(settings.jobs.ceilings, ceilings);
     assert_eq!(
-        settings.jobs.active,
-        Ceilings {
-            concurrent: 1,
-            readers: 4,
-            hashers: 2
-        }
+        (host.concurrent.ceiling, host.concurrent.in_force),
+        (Some(2), Some(1))
+    );
+    assert_eq!(
+        (host.hashers.ceiling, host.hashers.in_force),
+        (Some(5), Some(2))
+    );
+    assert_eq!(host.hashers.source, Some(CeilingSource::Config));
+    assert_eq!(host.hashers.locked_by.as_deref(), Some("[jobs] hashers"));
+    let sets = settings
+        .jobs
+        .roots
+        .iter()
+        .find(|r| r.root == "sets")
+        .unwrap();
+    assert_eq!(
+        (sets.readers.ceiling, sets.readers.in_force),
+        (Some(8), Some(4))
     );
 
     let (status, body) = client.change_settings(serde_json::json!({"pace": "unthrottled"}));
     assert_eq!(status, 200, "{body}");
     let settings: SettingsView = client.json("/settings");
-    assert_eq!(settings.jobs.active, ceilings);
+    assert_eq!(settings.jobs.host.hashers.in_force, Some(5));
     client.upload("Test - System.dat", &env.dat());
     client.add_set();
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
@@ -1331,6 +1338,66 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_configured_c
     assert_eq!(status, 400);
     let (status, _) = client.change_settings(serde_json::json!({"pace": "fast"}));
     assert_eq!(status, 422);
+}
+
+#[test]
+fn a_ceiling_you_set_applies_at_once_and_one_the_file_locks_or_out_of_range_is_refused() {
+    use title_select_api::settings::{CeilingSource, SettingsView};
+    let env = Env::new();
+    let service = title_select_server::spawn(env.settings("[jobs]\nhashers = 4\n")).unwrap();
+    let client = Client::new(&service);
+
+    let (status, body) =
+        client.change_settings(serde_json::json!({"ceilings": {"host": {"hashers": 6}}}));
+    assert_eq!(status, 400, "{body}");
+    let why = body["error"].as_str().unwrap();
+    assert!(
+        why.contains("configuration file sets the hash workers ([jobs] hashers)"),
+        "{why}"
+    );
+    for bad in [
+        serde_json::json!(0),
+        serde_json::json!(-2),
+        serde_json::json!(2.5),
+        serde_json::json!("lots"),
+    ] {
+        let (status, body) = client.change_settings(
+            serde_json::json!({"ceilings": {"roots": {"sets": {"readers": bad}}}}),
+        );
+        assert_eq!(status, 400, "{bad}: {body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("the readers on sets to a whole number"),
+            "{body}"
+        );
+    }
+
+    let (status, body) = client.change_settings(serde_json::json!({"ceilings": {
+        "host": {"concurrent": 3, "archive_workers": 6},
+        "roots": {"sets": {"readers": 6, "write_mib_per_s": 120}}
+    }}));
+    assert_eq!(status, 200, "{body}");
+    let settings: SettingsView = serde_json::from_value(body).unwrap();
+    let host = &settings.jobs.host;
+    assert_eq!(host.archive_workers.source, Some(CeilingSource::Yours));
+    assert_eq!(
+        (host.archive_workers.ceiling, host.archive_workers.in_force),
+        (Some(6), Some(3))
+    );
+    let sets = settings
+        .jobs
+        .roots
+        .iter()
+        .find(|r| r.root == "sets")
+        .unwrap();
+    assert_eq!(
+        (sets.readers.ceiling, sets.readers.in_force),
+        (Some(6), Some(3))
+    );
+    assert_eq!(sets.write_mib_per_s.in_force, Some(60));
+    assert_eq!(settings, client.json::<SettingsView>("/settings"));
 }
 
 #[test]
