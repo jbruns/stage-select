@@ -157,6 +157,8 @@ pub struct Store {
     /// The bytes free a test says every Root has, in place of what its filesystem says: set by
     /// [`Store::pretend_free_space`]. `u64::MAX` says none.
     free_space: std::sync::atomic::AtomicU64,
+    /// How many of this store's syncs of the RomM Additions collection wait their turn, for tests.
+    romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -499,6 +501,7 @@ impl Store {
             meter: title_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
             free_space: std::sync::atomic::AtomicU64::new(u64::MAX),
+            romm_syncs_waiting: std::sync::Arc::default(),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.

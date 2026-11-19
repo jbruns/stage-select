@@ -103,7 +103,7 @@ impl Gate {
         let state = self.state.lock().unwrap();
         let _held = self
             .signal
-            .wait_timeout_while(state, Duration::from_secs(10), |(_, waiting)| !*waiting)
+            .wait_timeout_while(state, Duration::from_secs(30), |(_, waiting)| !*waiting)
             .unwrap();
         assert!(_held.0.1, "a request reached the gate");
     }
@@ -912,7 +912,14 @@ fn a_sync_reads_the_built_additions_once_it_has_its_turn() {
         scope.spawn(|| env.sync(first));
         romm.gate.wait_for_one();
         scope.spawn(|| env.sync(second));
-        std::thread::sleep(Duration::from_millis(200));
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while env.store.romm_syncs_waiting() == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the second sync never waited its turn"
+            );
+            std::thread::yield_now();
+        }
         env.store.retire_addition(env.addition("My Hack")).unwrap();
         env.settle();
         env.build_only();

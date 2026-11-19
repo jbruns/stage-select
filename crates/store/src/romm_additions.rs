@@ -4,6 +4,7 @@
 //! turned off or its address changes, until RomM confirms it is gone. Keeping it in step is a warning on the Job when it goes wrong, never the Job's failure.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, Weak};
 
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -27,6 +28,30 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
     ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Counts one sync waiting its turn until dropped.
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl Waiting<'_> {
+    fn new(count: &AtomicUsize) -> Waiting<'_> {
+        count.fetch_add(1, Ordering::SeqCst);
+        Waiting(count)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+impl Store {
+    /// How many of this store's syncs of the Additions collection wait their turn now.
+    #[doc(hidden)]
+    pub fn romm_syncs_waiting(&self) -> usize {
+        self.romm_syncs_waiting.load(Ordering::SeqCst)
+    }
 }
 
 /// The fields of RomM's collection that Title Select reads.
@@ -530,7 +555,11 @@ impl Store {
         stop: &ScanStop,
         changed: &mut dyn FnMut(&Job),
     ) -> Result<Option<Job>> {
-        let _one = one_at_a_time();
+        let waiting = store.upgrade().map(|s| s.romm_syncs_waiting.clone());
+        let _one = {
+            let _waiting = waiting.as_deref().map(Waiting::new);
+            one_at_a_time()
+        };
         // A deletion RomM refused is tried again first; it never stops the sync.
         let _ = delete_released(store, Some(timing.request));
         // What is built is read only now it is this sync's turn, so it never undoes a later one.
