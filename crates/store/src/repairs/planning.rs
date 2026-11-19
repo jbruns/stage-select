@@ -59,9 +59,9 @@ fn located(path: &str) -> Located {
     split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
 }
 
-/// Why a repair leaves a Placed Game it would have to convert, or fill from an ingest folder.
-const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks or replaces its \
-     files but doesn't yet convert them or fill them from an ingest folder";
+/// Why a repair leaves a Placed Game it would have to convert.
+const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks, replaces or \
+     completes its files but doesn't yet convert them";
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
@@ -1515,7 +1515,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     keep_uncovered(i, &by_path, &reported, &mut proposed, &mut notes);
 
-    // A Placed Game is renamed, repacked or replaced where it is placed; never converted, nor filled there.
+    // A Placed Game is renamed, repacked, replaced or completed where it is placed, never converted. One with a file
+    // still there is completed there, from an ingest folder too, so that a Game is never split between two folders;
+    // one with none left is no Placed Game here, and is filled in the Source Set's folder.
     let writes_placed: Vec<usize> = proposed
         .iter()
         .enumerate()
@@ -1525,14 +1527,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .path
                     .as_deref()
                     .is_some_and(|t| split_placed(t).is_some())
-                && !(p.converts.is_empty()
-                    && match &p.proposal {
-                        Some(Proposal::Rename { .. } | Proposal::Build { .. }) => true,
-                        Some(Proposal::Folder { parts }) => parts
-                            .iter()
-                            .all(|p| matches!(p, Part::Rename { .. } | Part::Build { .. })),
-                        _ => false,
-                    })
+                && !(p.converts.is_empty() && p.proposal.is_some())
         })
         .map(|(n, _)| n)
         .collect();

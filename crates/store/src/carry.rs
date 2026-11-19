@@ -194,10 +194,40 @@ pub(crate) fn copy(
     }
 }
 
-/// Deletes `o` once [`copy`] published its copy: only while it is still exactly what was copied, read through the
-/// descriptor held as it is moved to be deleted. Otherwise it is put back, and the reason it was left is returned.
+/// Whether the copy [`copy`] published as `d` is still the copy it made, reading as the SHA-256 recorded: what every
+/// deletion of the original is checked against first, so that a copy changed since it was published, before a stop
+/// or after, never stands in for the original. Returns why not.
+pub(crate) fn published_holds(
+    d: &Dest,
+    intents: &dyn Intents,
+) -> Result<std::result::Result<(), String>> {
+    let intent = intents.load()?;
+    let (Some(id), Some(sha)) = (intent.staged_id, intent.sha256) else {
+        return Ok(Err("no copy of it is recorded".into()));
+    };
+    let file = match d.dir.open_file(d.name) {
+        Ok(file) => file,
+        Err(e) => return Ok(Err(format!("its copy can't be read ({e})"))),
+    };
+    let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+    if Identity::of(&st) != id {
+        return Ok(Err(
+            "what is in place of its copy is not the copy Title Select made".into(),
+        ));
+    }
+    let (read, _) = sha256_of(&file, d.tally).map_err(io_err)?;
+    Ok(match read == sha {
+        true => Ok(()),
+        false => Err("its copy changed since it was published".into()),
+    })
+}
+
+/// Deletes `o` once [`copy`] published its copy as `d`: only while that copy still holds ([`published_holds`]), and
+/// `o` is still exactly what was copied, read through the descriptor held as it is moved to be deleted. Otherwise it
+/// is put back, and the reason it was left is returned.
 pub(crate) fn dispose(
     o: &Original,
+    d: &Dest,
     intents: &dyn Intents,
 ) -> Result<std::result::Result<(), String>> {
     let mut intent = intents.load()?;
@@ -216,8 +246,11 @@ pub(crate) fn dispose(
         Some(slot) => slot,
         None => {
             match o.dir.stat(o.name).map_err(io_err)? {
-                // Gone already, by another hand: nothing is left to delete.
-                None => return Ok(Ok(())),
+                // Gone already, by another hand: nothing is left to delete, while its copy holds.
+                None => {
+                    return Ok(published_holds(d, intents)?
+                        .map_err(|why| format!("{} is gone, and {why}", o.label)));
+                }
                 Some(st) if is_file(&st, o.id) && file_stat(&st) == o.file => {}
                 Some(_) => {
                     return Ok(Err(format!(
@@ -268,22 +301,25 @@ pub(crate) fn dispose(
             .is_some_and(|st| is_file(&st, o.id));
         unslot(&mut intent)?;
         return match still {
-            true => dispose(o, intents),
+            true => dispose(o, d, intents),
             false => Ok(Ok(())),
         };
     };
-    let trusted = match intent.moved_ctime {
-        Some(ctime) if is_file(&st, o.id) => {
-            let file = o.deleting.open_file(&slot).map_err(io_err)?;
-            let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-            Identity::of(&held) == o.id
-                && file_stat(&held) == o.file
-                && still_sha256(&file, ctime, o.tally)
-                    .map_err(io_err)?
-                    .is_some_and(|read| read == sha)
-        }
-        _ => false,
-    };
+    // Deleted only while its copy holds: checked last, once nothing else can still put it back.
+    let holds = published_holds(d, intents)?;
+    let trusted = holds.is_ok()
+        && match intent.moved_ctime {
+            Some(ctime) if is_file(&st, o.id) => {
+                let file = o.deleting.open_file(&slot).map_err(io_err)?;
+                let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+                Identity::of(&held) == o.id
+                    && file_stat(&held) == o.file
+                    && still_sha256(&file, ctime, o.tally)
+                        .map_err(io_err)?
+                        .is_some_and(|read| read == sha)
+            }
+            _ => false,
+        };
     if trusted {
         o.deleting.unlink(&slot).map_err(io_err)?;
         o.deleting.sync().map_err(io_err)?;
@@ -291,10 +327,13 @@ pub(crate) fn dispose(
         return Ok(Ok(()));
     }
     // Never deleted unproven: put back where it was.
-    let why = format!(
-        "{} could not be confirmed unchanged once it was set aside to delete",
-        o.label
-    );
+    let why = match holds {
+        Err(why) => format!("{} was not deleted, since {why}", o.label),
+        Ok(()) => format!(
+            "{} could not be confirmed unchanged once it was set aside to delete",
+            o.label
+        ),
+    };
     match o.deleting.rename_new(&slot, o.dir, o.name) {
         Ok(()) => {
             o.deleting.sync().map_err(io_err)?;

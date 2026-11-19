@@ -478,6 +478,36 @@ pub(super) fn scan(
                 }
             }
         }
+        // A file both built and placed is its Game's only copy too: trusted unread only while it is the same file,
+        // unchanged, by its device, inode and change time as well.
+        if let (Some(placed), Some(st)) = (input.placed.iter().find(|p| p.path == *target), st)
+            && FolderDir::kind(&st) == FileType::RegularFile
+            && !crate::placements::unchanged(placed, &st)
+            && !matches!(file.outcome, FileOutcome::Missing | FileOutcome::Unreadable)
+        {
+            // Its SHA-256 is of all of it, whatever the DAT's Header Rule.
+            let (probe, hashed) = probe_of(target, &st, None, &mut out);
+            file.hashed |= hashed;
+            match probe {
+                Err(e) => {
+                    file.outcome = FileOutcome::Unreadable;
+                    file.detail = Some(e);
+                }
+                Ok(p) if p.sha256 == placed.sha256 => {
+                    if file.outcome == FileOutcome::Unchanged {
+                        file.outcome = FileOutcome::Refreshed;
+                    }
+                    out.placed_updates
+                        .push((target.clone(), placed.clone(), st));
+                }
+                Ok(_) => {
+                    file.outcome = FileOutcome::Conflict;
+                    file.detail = Some(
+                        "it changed since it was placed; an audit of its source set says what it holds now".into(),
+                    );
+                }
+            }
+        }
         out.files.push(file);
         tick();
     }
@@ -500,7 +530,15 @@ pub(super) fn scan(
             placed: true,
             detail: None,
         };
-        let found = by_lower.get(&target.to_lowercase()).copied();
+        // One in a folder of its own, a loose Game's, is looked for by its path; the folder holding it is no drift.
+        let found = match (by_lower.get(&target.to_lowercase()), target.split_once('/')) {
+            (Some(name), _) => Some(*name),
+            (None, Some((top, _))) => by_lower.get(&top.to_lowercase()).map(|top| {
+                consumed.insert((*top).to_owned());
+                target.as_str()
+            }),
+            (None, None) => None,
+        };
         if let Some(name) = found {
             consumed.insert(name.to_owned());
         }

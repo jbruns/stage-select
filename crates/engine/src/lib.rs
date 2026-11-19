@@ -80,12 +80,13 @@ pub struct Options<'a> {
 pub struct Placed<'a> {
     /// The Library Folder's id, which names each Entry's path ([`title_select_api::storage::placed_path`]).
     pub id: i64,
-    /// The Library Folder.
-    pub folder: &'a Path,
+    /// The canonical path of the folder's Root. Everything below it, the folder itself included, is opened without
+    /// following a symbolic link.
+    pub root: &'a Path,
+    /// The Library Folder, relative to its Root, with `/` separators.
+    pub folder: &'a str,
     /// Each file, relative to the folder, with `/` separators.
     pub files: Vec<String>,
-    /// The canonical path of the folder's Root, which each file must resolve inside, as [`Options::confine`].
-    pub confine: Option<&'a Path>,
     /// The pools of the folder's Root, as [`Options::pools`]; the Host's hash workers are the Source Set's.
     pub pools: Option<Pools<'a>>,
     /// Where the payload bytes read of it are counted: the Library Folder's Root's.
@@ -296,8 +297,8 @@ fn walk(
 
 /// What an Audit reads of the Placed Games in one Library Folder: each recorded file still there, in path order,
 /// named by its path in the Source Set's report, with its stamp. One that is gone is left out; one that can't be
-/// reached, is no longer a regular file or is a symbolic link is Unreadable. No symbolic link below the folder is
-/// followed, and the folder itself must resolve within its Root.
+/// reached, is no longer a regular file or is a symbolic link is Unreadable. No symbolic link below the folder's Root
+/// is followed: a folder that is one, or is in one, reads as Unreadable, never as the folder it leads to.
 fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
     let mut recorded: Vec<&String> = placed.files.iter().collect();
     recorded.sort();
@@ -307,28 +308,22 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
         )
     };
-    let base = match placed.folder.canonicalize() {
-        Ok(real) if placed.confine.is_none_or(|c| real.starts_with(c)) => Ok(Some(real)),
-        Ok(_) => Err("its play library folder resolves outside the Root".to_owned()),
-        Err(e) if gone(&e) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    };
+    let base = placed.root;
     let mut items = Vec::new();
     let mut files = Vec::new();
     let mut stamps = Vec::new();
     for rel in recorded {
         let at = title_select_api::storage::placed_path(placed.id, rel);
-        let found = match &base {
-            Err(reason) => Err(reason.clone()),
-            Ok(None) => continue,
-            Ok(Some(base)) => {
-                let path = base.join(rel);
-                match read::open_beneath(base, &path) {
-                    Ok(file) => Ok((path, base, file.metadata().ok())),
-                    Err(e) if gone(&e) => continue,
-                    Err(e) => Err(e.to_string()),
-                }
-            }
+        let path = placed
+            .folder
+            .split('/')
+            .chain(rel.split('/'))
+            .filter(|part| !part.is_empty())
+            .fold(base.to_path_buf(), |path, part| path.join(part));
+        let found = match read::open_beneath(base, &path) {
+            Ok(file) => Ok((path, base, file.metadata().ok())),
+            Err(e) if gone(&e) => continue,
+            Err(e) => Err(e.to_string()),
         };
         match found {
             Err(reason) => items.push(Item::Unreadable { rel: at, reason }),
@@ -341,7 +336,7 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
                     path,
                     is_zip,
                     rel: at,
-                    beneath: Some(base.clone()),
+                    beneath: Some(base.to_path_buf()),
                 });
                 stamps.push(metadata.and_then(|m| FileStamp::from_metadata(&m)));
             }

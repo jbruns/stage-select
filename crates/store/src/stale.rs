@@ -331,9 +331,9 @@ impl Store {
             walked.extend(title_select_engine::stat_placed(
                 &title_select_engine::Placed {
                     id: folder,
-                    folder: &placed.path,
+                    root: &placed.canonical_root,
+                    folder: &placed.rel,
                     files,
-                    confine: Some(&placed.canonical_root),
                     pools: None,
                     tally: Default::default(),
                 },

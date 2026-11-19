@@ -257,15 +257,17 @@ fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
             } => std::iter::once(target.as_str())
                 .chain(sources.keys().map(String::as_str))
                 .collect(),
-            RepairStep::Publish { target, .. } => vec![target.as_str()],
-            RepairStep::Fill { .. } | RepairStep::Delete { .. } => Vec::new(),
+            RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
+                vec![target.as_str()]
+            }
+            RepairStep::Delete { .. } => Vec::new(),
         })
         .filter_map(|path| split_placed(path).map(|(folder, _)| folder))
         .collect()
 }
 
-/// Why the steps of `content` can't be carried out as planned: one that fills or deletes a Placed Game's file, or
-/// writes or renames a file from one folder into another, Library Folder or Source Set. None when every step can.
+/// Why the steps of `content` can't be carried out as planned: one that deletes a Placed Game's file, or writes or
+/// renames a file from one folder into another, Library Folder or Source Set. None when every step can.
 fn unplaceable(content: &RepairPlanContent) -> Option<String> {
     let folder = |path: &str| split_placed(path).map(|(folder, _)| folder);
     content.steps.iter().find_map(|s| {
@@ -273,10 +275,9 @@ fn unplaceable(content: &RepairPlanContent) -> Option<String> {
             RepairStep::Build {
                 target, sources, ..
             } => sources.keys().any(|p| folder(p) != folder(target)),
-            RepairStep::Fill { target, .. } => folder(target).is_some(),
             RepairStep::Delete { path, .. } => folder(path).is_some(),
             RepairStep::Rename { from, to, .. } => folder(from) != folder(to),
-            RepairStep::Publish { .. } | RepairStep::Keep { .. } => false,
+            RepairStep::Publish { .. } | RepairStep::Keep { .. } | RepairStep::Fill { .. } => false,
         };
         placed.then(|| {
             format!(
@@ -3145,7 +3146,7 @@ impl Store {
             Ok(id) => id,
             Err(why) => return Ok(Err(why)),
         };
-        if let Err(why) = crate::carry::dispose(&original, &intents)? {
+        if let Err(why) = crate::carry::dispose(&original, &dest, &intents)? {
             self.fail_step(
                 step,
                 "failed",
@@ -3507,8 +3508,8 @@ impl Store {
         match placed {
             true => self.publish_placed(r, step, &built, target, &st)?,
             false => {
-                self.step_done(step, None)?;
-                self.unplace_vanished(config, r, step)?;
+                let vanished = self.vanished(config, r, step)?;
+                self.done_unplacing(step, None, &vanished, None)?;
             }
         }
         self.fault_point(Fault::RepairStepDone(step.seq));
@@ -3596,6 +3597,16 @@ impl Store {
             }
         };
         self.fault_point(Fault::RepairMoved(step.seq));
+        // The staged file stands in for nothing until its copy in place is checked to hold, now or after a stop:
+        // otherwise it is kept aside as one not published is, and nothing is recorded placed.
+        if let Err(why) = crate::carry::published_holds(&dest, &intents)? {
+            let why = format!("the new {target} was copied into place, but {why}");
+            let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
+                Ok(kept) => kept,
+                Err(left) => return self.step_failed(step, "failed", left),
+            };
+            return self.keep_unpublished(r, step, staged_name, staged, &kept, why);
+        }
         // The staged file, copied, is deleted as one not published is: only while it is still what was staged.
         if let Err(why) = self.discard_staged(r, built, staged_name, staged)? {
             return Ok(Err(why));
@@ -3639,10 +3650,16 @@ impl Store {
         })
     }
 
-    /// Forgets each file of the Placed Game step `step`'s item makes whole in the Source Set's folder that is gone from
-    /// where it was placed: the Game is in the Source Set's folder again. A file still there, or in a Library Folder
-    /// that can't be read now, stays placed.
-    fn unplace_vanished(&self, config: &Config, r: &Repairing, step: &StepRow) -> Result<()> {
+    /// The files of the Placed Game step `step`'s item makes whole that are gone from where they were placed, by
+    /// Library Folder and path: forgotten as the step ends ([`Store::done_unplacing`]), since the Game is in the Source
+    /// Set's folder again, or each file it is completed with where it is placed is recorded anew. A file still there,
+    /// or in a Library Folder that can't be read now, stays placed.
+    fn vanished(
+        &self,
+        config: &Config,
+        r: &Repairing,
+        step: &StepRow,
+    ) -> Result<Vec<(i64, String)>> {
         let Some(game) = r
             .plan
             .content
@@ -3651,22 +3668,96 @@ impl Store {
             .find(|i| i.key == step.item)
             .and_then(|i| i.game.as_deref())
         else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         let set = r.plan.content.set_id;
         let placed = self.read(|c| crate::placements::placed_files_of(c, set))?;
-        for file in placed.iter().filter(|f| f.game == game) {
+        let mut gone = Vec::new();
+        for file in placed.into_iter().filter(|f| f.game == game) {
             let row = self.read(|c| folder_by_id(c, file.library_folder))?;
             let Ok(dir) = open_folder(config, &row.root, &row.path) else {
                 continue;
             };
             if dir.stat(&file.path).map_err(io_err)?.is_none() {
-                self.write(|tx| {
-                    crate::placements::forget_placed(tx, file.library_folder, &file.path)
-                })?;
+                gone.push((file.library_folder, file.path));
             }
         }
-        Ok(())
+        Ok(gone)
+    }
+
+    /// The file Fill step `step` wrote as `target`, where the Placed Game its item completes is placed, to record
+    /// placed: its Game, its stat and its SHA-256, `sha256` when the move recorded it. Err says why it can't be.
+    fn filled_placed(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        target: &str,
+        sha256: Option<String>,
+    ) -> Result<std::result::Result<Filled, String>> {
+        let game = r
+            .plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == step.item)
+            .and_then(|i| i.game.clone())
+            .ok_or_else(|| Error::Io(format!("step {} names no game", step.seq)))?;
+        let file = match r.open_source(target) {
+            Ok(file) => file,
+            Err(e) => {
+                return Ok(Err(format!(
+                    "{target} was written, but can't be read now ({e})"
+                )));
+            }
+        };
+        let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+        let sha256 = match sha256 {
+            Some(sha256) => sha256,
+            None => match sha256_of(&file, r.tally(target)) {
+                Ok((sha256, _)) => sha256,
+                Err(e) => {
+                    return Ok(Err(format!(
+                        "{target} was written, but can't be read now ({e})"
+                    )));
+                }
+            },
+        };
+        let (folder, rel) = split_placed(target).expect("a placed target");
+        Ok(Ok(Filled {
+            set: r.plan.content.set_id,
+            folder,
+            path: rel.to_owned(),
+            game,
+            st,
+            sha256,
+        }))
+    }
+
+    /// Records `step` done, with `note`, forgets the placed files `vanished` and records the file it filled where its
+    /// Game is placed, `filled`, in the same transaction: a stop never leaves the Game recorded placed once it is
+    /// written in the Source Set's folder, nor a file it completed it with where it is placed unrecorded.
+    fn done_unplacing(
+        &self,
+        step: &StepRow,
+        note: Option<String>,
+        vanished: &[(i64, String)],
+        filled: Option<Filled>,
+    ) -> Result<()> {
+        self.write(|tx| {
+            for (folder, path) in vanished {
+                crate::placements::forget_placed(tx, *folder, path)?;
+            }
+            if let Some(f) = &filled {
+                crate::placements::place_file(
+                    tx, f.set, f.folder, &f.path, &f.game, &f.st, &f.sha256,
+                )?;
+            }
+            tx.execute(
+                "UPDATE repair_steps SET state = 'done', note = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, note, now()],
+            )?;
+            Ok(())
+        })
     }
 
     /// Records the intent to keep the staged file `staged_name`, `staged`, that could not be published as `target`,
@@ -4124,10 +4215,15 @@ impl Store {
                         format!("ingest folder {ingest_root} is no longer registered"),
                     );
                 };
-                // A file of a loose folder goes into the folder, made first if it is missing.
-                if target.contains('/')
-                    && let Err(e) = parent_made(&r.dir, target)
-                {
+                // A file of a loose folder goes into the folder, made first if it is missing: a Placed Game's in the
+                // Library Folder holding it, where it is completed.
+                let made = r
+                    .locate(target)
+                    .and_then(|(base, rel)| match rel.contains('/') {
+                        true => parent_made(base, rel).map(drop),
+                        false => Ok(()),
+                    });
+                if let Err(e) = made {
                     return self.step_failed(
                         step,
                         "failed",
@@ -4138,6 +4234,13 @@ impl Store {
                     );
                 }
                 let content = &r.plan.content;
+                let (root, rel, into) = match split_placed(target) {
+                    Some((folder, rel)) => {
+                        let row = self.read(|c| folder_by_id(c, folder))?;
+                        (row.root, row.path, rel.to_owned())
+                    }
+                    None => (content.root.clone(), content.path.clone(), target.clone()),
+                };
                 let mv = Move {
                     folder,
                     plan: None,
@@ -4146,9 +4249,9 @@ impl Store {
                     seen: seen_of(seen),
                     sha256: sha256.clone(),
                     dest: Destination::Path {
-                        root: content.root.clone(),
-                        rel: content.path.clone(),
-                        name: target.clone(),
+                        root,
+                        rel,
+                        name: into,
                         generation,
                     },
                     // A loose file of the one ROM is moved as it is, unless a later fill still reads it; anything else
@@ -4180,8 +4283,16 @@ impl Store {
         };
         match self.drive_move(config, move_id)? {
             Ok(moved) => {
-                self.step_done(step, moved.note)?;
-                self.unplace_vanished(config, r, step)?;
+                let vanished = self.vanished(config, r, step)?;
+                let placed = match split_placed(target) {
+                    Some(_) => match self.filled_placed(r, step, target, moved.dest_sha256)? {
+                        Ok(placed) => Some(placed),
+                        Err(why) => return self.step_failed(step, "failed", why),
+                    },
+                    None => None,
+                };
+                self.done_unplacing(step, moved.note, &vanished, placed)?;
+                self.fault_point(Fault::RepairStepDone(step.seq));
                 Ok(Ok(()))
             }
             Err(why) => {
@@ -4199,6 +4310,17 @@ impl Store {
             }
         }
     }
+}
+
+/// A file a Fill step wrote where the Placed Game it completes is placed: Library Folder `folder`'s `path`, a file of
+/// Source Set `set`'s Game `game`, statted as `st` and read as `sha256`.
+struct Filled {
+    set: i64,
+    folder: i64,
+    path: String,
+    game: String,
+    st: rustix::fs::Stat,
+    sha256: String,
 }
 
 /// The Ingest Folder registration ingest item `item` was found in.

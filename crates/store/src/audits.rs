@@ -971,9 +971,9 @@ impl Store {
             .iter()
             .map(|p| Placed {
                 id: p.folder,
-                folder: &p.resolved.path,
+                root: &p.resolved.canonical_root,
+                folder: &p.resolved.rel,
                 files: p.files.clone(),
-                confine: Some(&p.resolved.canonical_root),
                 pools: p.pools.as_ref().map(crate::ceilings::JobPools::pools),
                 // Read from the Library Folder's Root, so counted against it.
                 tally: running.job.map_or_else(Default::default, |job| {

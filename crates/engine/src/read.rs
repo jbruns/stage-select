@@ -108,7 +108,23 @@ pub fn open_beneath(base: &Path, path: &Path) -> std::io::Result<File> {
             return Err(other("its path is not a plain one"));
         };
         if names.peek().is_some() {
-            at = openat(&at, name, dir | OFlags::NOFOLLOW, Mode::empty()).map_err(link)?;
+            at = match openat(&at, name, dir | OFlags::NOFOLLOW, Mode::empty()) {
+                Ok(next) => next,
+                // A folder that is a symbolic link is refused as one, whatever the platform calls the refusal.
+                Err(e) => {
+                    let found =
+                        rustix::fs::statat(&at, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW);
+                    return Err(match found {
+                        Ok(st) if rustix::fs::FileType::from_raw_mode(st.st_mode).is_symlink() => {
+                            other(
+                                "a folder of its path is a symbolic link, which is never followed to a placed \
+                                 game's file",
+                            )
+                        }
+                        _ => link(e),
+                    });
+                }
+            };
             continue;
         }
         // Not blocking, so a FIFO put in its place is refused below rather than waited on.
