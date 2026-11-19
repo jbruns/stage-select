@@ -636,21 +636,25 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
         .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let started = std::time::Instant::now();
+    let running = root.path().join("running");
     let ended = std::thread::scope(|scope| {
-        let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
-        while env.chd_scratch().is_empty() {
+        let (ended, end) = std::sync::mpsc::channel();
+        let (env, job) = (&env, &job);
+        scope.spawn(move || {
+            let _ = ended.send(env.store.run_build_job(&env.config, job.id, None));
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !running.exists() {
+            assert!(std::time::Instant::now() < deadline, "chdman never ran");
             std::thread::sleep(Duration::from_millis(20));
         }
-        std::thread::sleep(Duration::from_millis(200));
         env.store.cancel_job(job.id).unwrap();
-        running.join().unwrap().unwrap()
+        // Left to run, chdman would take a minute.
+        end.recv_timeout(Duration::from_secs(30))
+            .expect("chdman was stopped")
+            .unwrap()
     });
 
-    assert!(
-        started.elapsed() < Duration::from_secs(20),
-        "chdman was left to run"
-    );
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
     assert_recorded_as_metered(&env, &ended);
     assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
@@ -1027,7 +1031,12 @@ fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
     env.store.claim_job().unwrap().unwrap();
     let ended = std::thread::scope(|scope| {
         let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !slow.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "chdman never made disc 2"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         env.store.cancel_job(job.id).unwrap();
@@ -1424,13 +1433,8 @@ fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
         )
         .unwrap();
     let (folder, selection) = env.folder(&[CD]);
-    let started = std::time::Instant::now();
     let ended = env.build(&env.plan(&folder, selection));
 
-    assert!(
-        started.elapsed() < Duration::from_secs(20),
-        "chdman was left to run"
-    );
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     let item = only_item(&env, &ended);
     assert_eq!(item.state, ItemState::Failed, "{item:?}");

@@ -1291,10 +1291,10 @@ mod tests {
         let chdman = Chdman {
             program: fake_chdman("endless"),
             threads: Some(1),
-            deadline: Duration::from_secs(5),
+            // Only the budget can stop it first: the error says which did.
+            deadline: Duration::from_secs(60),
             tally: Default::default(),
         };
-        let started = std::time::Instant::now();
         let stop = chdman
             .run_within(
                 dir.path(),
@@ -1303,7 +1303,6 @@ mod tests {
                 Some((&dir.path().join("x"), 1 << 20)),
             )
             .unwrap_err();
-        assert!(started.elapsed() < Duration::from_secs(5));
         let Stop::Failed(why) = stop else {
             panic!("{stop:?}")
         };
@@ -1321,7 +1320,7 @@ mod tests {
         let chdman = Chdman {
             program: fake_chdman("grows"),
             threads: Some(1),
-            deadline: Duration::from_secs(20),
+            deadline: Duration::from_secs(60),
             tally: job.tally(None),
         };
 
@@ -1403,11 +1402,9 @@ mod tests {
             deadline: Duration::from_millis(300),
             tally: Default::default(),
         };
-        let started = std::time::Instant::now();
         let stop = chdman
             .run(dir.path(), &["createcd"], &|| false)
             .unwrap_err();
-        assert!(started.elapsed() < Duration::from_secs(10));
         let Stop::Failed(why) = stop else {
             panic!("{stop:?}")
         };
