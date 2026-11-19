@@ -1,9 +1,6 @@
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::process::Command;
 
-use common::*;
+use crate::common::*;
 
 fn title_select() -> Command {
     Command::new(env!("CARGO_BIN_EXE_title-select"))
@@ -495,7 +492,7 @@ fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
 
 #[test]
 fn version_prints_the_pinned_clone_list_commit() {
-    let pins = include_str!("../../../third_party/clone-lists/pins.toml");
+    let pins = include_str!("../../../../third_party/clone-lists/pins.toml");
     let commits: Vec<&str> = pins
         .lines()
         .filter_map(|l| l.strip_prefix("commit = \""))

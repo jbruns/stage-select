@@ -1,10 +1,7 @@
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use common::*;
+use crate::common::*;
 use title_select_server::{Handle, Settings};
 use title_select_store::Store;
 use title_select_store::config::Config;
