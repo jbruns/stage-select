@@ -237,49 +237,52 @@ mod tests {
 
     #[test]
     fn a_pool_lets_in_as_many_as_its_limit_says_at_each_entry() {
-        let pool = Pool::new(3);
-        let all_in = Barrier::new(3);
-        let permits = std::thread::scope(|s| {
-            let workers: Vec<_> = (0..3)
-                .map(|_| {
-                    s.spawn(|| {
-                        let permit = pool.enter();
-                        all_in.wait();
-                        permit
+        // A pool letting in fewer than its limit would leave the barrier waiting for ever.
+        bounded(|| {
+            let pool = Pool::new(3);
+            let all_in = Barrier::new(3);
+            let permits = std::thread::scope(|s| {
+                let workers: Vec<_> = (0..3)
+                    .map(|_| {
+                        s.spawn(|| {
+                            let permit = pool.enter();
+                            all_in.wait();
+                            permit
+                        })
                     })
-                })
-                .collect();
-            workers
-                .into_iter()
-                .map(|w| w.join().unwrap())
-                .collect::<Vec<_>>()
-        });
-        assert_eq!(pool.most_at_once(), 3);
+                    .collect();
+                workers
+                    .into_iter()
+                    .map(|w| w.join().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            assert_eq!(pool.most_at_once(), 3);
 
-        // Made smaller, it keeps those already in, and lets in nobody more until fewer than its limit are left.
-        pool.set_limit(1);
-        let mut permits = permits.into_iter();
-        for _ in 0..3 {
-            assert!(pool.enter_unless(|| true).is_none(), "{} in", pool.taken());
-            drop(permits.next());
-        }
-        assert!(pool.enter_unless(|| true).is_some());
-
-        let (inside, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
-        std::thread::scope(|s| {
-            for _ in 0..6 {
-                s.spawn(|| {
-                    for _ in 0..20 {
-                        let _permit = pool.enter();
-                        let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
-                        most.fetch_max(now, Ordering::SeqCst);
-                        std::thread::yield_now();
-                        inside.fetch_sub(1, Ordering::SeqCst);
-                    }
-                });
+            // Made smaller, it keeps those already in, and lets in nobody more until fewer than its limit are left.
+            pool.set_limit(1);
+            let mut permits = permits.into_iter();
+            for _ in 0..3 {
+                assert!(pool.enter_unless(|| true).is_none(), "{} in", pool.taken());
+                drop(permits.next());
             }
+            assert!(pool.enter_unless(|| true).is_some());
+
+            let (inside, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+            std::thread::scope(|s| {
+                for _ in 0..6 {
+                    s.spawn(|| {
+                        for _ in 0..20 {
+                            let _permit = pool.enter();
+                            let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                            most.fetch_max(now, Ordering::SeqCst);
+                            std::thread::yield_now();
+                            inside.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    });
+                }
+            });
+            assert_eq!(most.load(Ordering::SeqCst), 1);
         });
-        assert_eq!(most.load(Ordering::SeqCst), 1);
     }
 
     #[test]
