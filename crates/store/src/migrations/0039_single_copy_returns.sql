@@ -52,7 +52,8 @@ ALTER TABLE build_items_new RENAME TO build_items;
 -- (none for a rename, which reads nothing). keeps says the Library Folder keeps it as a built copy of its Game, which
 -- is still selected there. One that goes is moved into the Library Folder's private .deleting folder as slot, recorded
 -- first, and its change time read through the descriptor held across that move is moved_ctime_ns; it is deleted once
--- the release is committed, only while it still has that change time and SHA-256. state: 'placed', 'deleted', 'gone'
+-- the release is committed, only while it still has that change time and SHA-256. One renamed home records there its
+-- change time read the same way right after its rename: it is taken as home only while it still has it. state: 'placed', 'deleted', 'gone'
 -- when it was gone before it could be deleted, or 'left' when it could not be proven unchanged and was put back.
 CREATE TABLE return_placed (
     build_id INTEGER NOT NULL REFERENCES builds (id),

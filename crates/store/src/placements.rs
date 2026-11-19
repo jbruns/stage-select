@@ -108,9 +108,9 @@ pub(crate) fn restamp(
 }
 
 /// Records the Placed Game's file `path` in Library Folder `folder`, recorded as `identity` and `file`, as statted as
-/// `now` and read as `sha256`: what a return that put the file back where it was placed, and read it again whole
-/// there as holding what it did as it was set aside, records. A rename changed its change time, which alone stood for
-/// it while it was never read.
+/// `now` and read as `sha256`: what a return that put the file back where it was placed records, once it has read it
+/// again whole there, holding what it did as it was set aside, or verified against the DAT after a rename home. Moving
+/// it changed its change time, which alone stood for it while it was never read.
 pub(crate) fn reread(
     tx: &Transaction,
     folder: i64,

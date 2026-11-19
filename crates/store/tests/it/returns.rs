@@ -207,6 +207,8 @@ fn turning_single_copy_off_moves_nothing_and_the_next_plan_returns_every_placed_
     );
     let built = env.store.built_files(env.folder.id).unwrap();
     assert_eq!(built.len(), 1, "{built:?}");
+    // No longer the only copy, but an ordinary copy built here.
+    assert_eq!(built[0].kind, ItemKind::Copy, "{built:?}");
     // The next plan finds it built here and copied, nothing left to return.
     let again = env.plan(&env.folder, selection);
     assert!(
@@ -214,6 +216,41 @@ fn turning_single_copy_off_moves_nothing_and_the_next_plan_returns_every_placed_
         "{:?}",
         again.content.returns
     );
+    assert_eq!(item(&again, "Pong (USA)").kind, ItemKind::Unchanged);
+}
+
+#[test]
+fn a_game_still_selected_and_stored_loose_here_is_converted_home_and_kept_as_an_ordinary_built_file()
+ {
+    let env = Env::new();
+    let bytes = place_pong(&env, StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.single_copy = false;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+
+    let plan = env.plan(&env.folder, selection);
+    let r = returned(&plan, "Pong (USA)");
+    assert_eq!(r.how, ReturnHow::Convert);
+    assert!(r.placed.iter().all(|p| p.keeps), "{r:?}");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).zip")).unwrap(),
+        bytes
+    );
+    // Written from its ROMs here, as a repack is.
+    let built = env.store.built_files(env.folder.id).unwrap();
+    assert_eq!(
+        built
+            .iter()
+            .map(|b| (b.target.as_str(), b.kind))
+            .collect::<Vec<_>>(),
+        [("Pong (USA).a26", ItemKind::Repack)],
+        "{built:?}"
+    );
+    let again = env.plan(&env.folder, selection);
+    assert!(again.content.returns.is_empty());
     assert_eq!(item(&again, "Pong (USA)").kind, ItemKind::Unchanged);
 }
 
@@ -241,6 +278,12 @@ fn naming_another_holding_folder_returns_the_games_home_then_the_new_folder_plac
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert!(env.store.placed_files(SET).unwrap().is_empty());
     assert_eq!(names(&env.set()), ["Pong (USA).zip"]);
+    let built = env.store.built_files(env.folder.id).unwrap();
+    assert_eq!(
+        built.iter().map(|b| b.kind).collect::<Vec<_>>(),
+        [ItemKind::Copy],
+        "{built:?}"
+    );
     env.audit(AuditEvidence::Incremental);
 
     // There is no move between the folders: the new one places the game from the source set's folder.
@@ -881,4 +924,193 @@ fn a_release_of_several_files_stopped_between_them_is_returned_whole_or_not_at_a
         assert_eq!(env.build(&again).state, JobState::Succeeded, "{label}");
         pitfall_home(&env);
     }
+}
+
+/// Whether Pong is still placed, recorded as the file placed, nothing of it home, and the Source Set's latest Audit
+/// names nothing of it home either: no Evidence was carried there for it.
+fn pong_left_placed(env: &Env, label: &str) {
+    let rows = env.store.placed_files(SET).unwrap();
+    assert_eq!(rows.len(), 1, "{label}: {rows:?}");
+    let (set, library) = env.files();
+    assert!(set.is_empty(), "{label}: {set:?}");
+    assert_eq!(library, ["Pong (USA).zip"], "{label}");
+    let st = std::fs::metadata(env.library().join("Pong (USA).zip")).unwrap();
+    assert_eq!((st.dev(), st.ino()), (rows[0].dev, rows[0].ino), "{label}");
+    let report = env.audit(AuditEvidence::Incremental);
+    assert!(
+        report.entries.iter().all(|e| e.path != "Pong (USA).zip"),
+        "{label}: {:?}",
+        report.entries
+    );
+    // Changed, it is flagged, and stays placed.
+    let selection = env.select(&["Combat (USA)"]);
+    let again = env.plan(&env.folder, selection);
+    assert!(
+        again.content.returns.is_empty(),
+        "{label}: {:?}",
+        again.content.returns
+    );
+    assert!(
+        again
+            .content
+            .notes
+            .iter()
+            .any(|n| n.contains("Pong (USA) stays placed here")),
+        "{label}: {:?}",
+        again.content.notes
+    );
+}
+
+#[test]
+fn a_file_changed_just_after_its_rename_home_is_never_taken_as_home_with_its_evidence() {
+    for stop in [false, true] {
+        let label = if stop { "recovered" } else { "checked" };
+        let env = Env::new();
+        place_pong(&env, StorageFormat::TorrentZip);
+        let selection = env.select(&["Combat (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        assert_eq!(returned(&plan, "Pong (USA)").how, ReturnHow::Rename);
+        // Changed home, the same size and modification time, right after its rename.
+        let home = env.set().join("Pong (USA).zip");
+        let env = match stop {
+            false => {
+                let job = build_meddling(
+                    &env,
+                    &plan,
+                    |f| matches!(f, Fault::ReturnMoved(_)),
+                    move || overwrite_keeping_stamp(&home),
+                );
+                assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+                let it = env.item(job.id, "Pong (USA)");
+                assert_eq!(it.state, ItemState::Failed, "{it:?}");
+                env
+            }
+            true => {
+                env.build_until(&plan, move |f| {
+                    let at = matches!(f, Fault::ReturnMoved(_));
+                    if at {
+                        overwrite_keeping_stamp(&home);
+                    }
+                    at
+                });
+                let (env, blocked) = env.restart();
+                assert!(blocked.is_empty(), "{blocked:?}");
+                env
+            }
+        };
+        pong_left_placed(&env, label);
+    }
+}
+
+/// A DAT whose Pitfall is a game of two discs, one release, which the Source Set holds as two TorrentZips.
+fn two_discs() -> Vec<(&'static str, Vec<RomSpec>)> {
+    vec![
+        (
+            "Pitfall (USA) (Disc 1)",
+            vec![rom("Pitfall (USA) (Disc 1).a26", b"pitfall")],
+        ),
+        (
+            "Pitfall (USA) (Disc 2)",
+            vec![rom("Pitfall (USA) (Disc 2).a26", b"harry")],
+        ),
+        ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+    ]
+}
+
+const DISCS: [&str; 2] = ["Pitfall (USA) (Disc 1).zip", "Pitfall (USA) (Disc 2).zip"];
+
+/// Places both discs of Pitfall in the folder, by renames; then plans their return, no longer selected: renamed
+/// back, file by file. Returns the plan and each disc's bytes.
+fn renaming_pitfall(env: &Env) -> (Plan, Vec<Vec<u8>>) {
+    let mut bytes = Vec::new();
+    for (zip, payload) in DISCS.iter().zip([&b"pitfall"[..], b"harry"]) {
+        let member = zip.replace(".zip", ".a26");
+        torrentzip(&env.set().join(zip), &[(&member, payload)]);
+        bytes.push(std::fs::read(env.set().join(zip)).unwrap());
+    }
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pitfall (USA) (Disc 1)", "Pitfall (USA) (Disc 2)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pitfall (USA) (Disc 1)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+    env.audit(AuditEvidence::Full);
+    let selection = env.select(&["Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    let r = returned(&plan, "Pitfall (USA)");
+    assert_eq!(r.how, ReturnHow::Rename, "{r:?}");
+    assert_eq!(r.placed.len(), 2);
+    (plan, bytes)
+}
+
+/// Whether Pitfall is still placed whole, both its discs here and none home, and the next plan returns it, by
+/// renames, and that build puts it home whole.
+fn pitfall_returns_next(env: &Env, bytes: &[Vec<u8>], label: &str) {
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2, "{label}");
+    assert!(env.files().0.is_empty(), "{label}: {:?}", env.files());
+    assert_eq!(env.files().1, DISCS, "{label}");
+    assert!(private_files(&env.library()).is_empty(), "{label}");
+    env.audit(AuditEvidence::Incremental);
+    let selection = env.select(&["Combat (USA)"]);
+    let again = env.plan(&env.folder, selection);
+    let r = again
+        .content
+        .returns
+        .iter()
+        .find(|r| r.release == "Pitfall (USA)")
+        .unwrap_or_else(|| panic!("{label}: {:?}", again.content.notes));
+    assert_eq!(r.how, ReturnHow::Rename, "{label}");
+    assert_eq!(env.build(&again).state, JobState::Succeeded, "{label}");
+    assert!(env.store.placed_files(SET).unwrap().is_empty(), "{label}");
+    for (zip, bytes) in DISCS.iter().zip(bytes) {
+        assert_eq!(
+            &std::fs::read(env.set().join(zip)).unwrap(),
+            bytes,
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn a_release_partly_renamed_home_when_the_service_stopped_is_put_back_and_returned_by_the_next_build()
+ {
+    let env = Env::with(&two_discs());
+    let (plan, bytes) = renaming_pitfall(&env);
+    // Stopped after the first of its two discs was renamed home.
+    env.build_until(&plan, |f| matches!(f, Fault::ReturnMoved(_)));
+    assert_eq!(env.files().0.len(), 1, "{:?}", env.files());
+    let (env, blocked) = env.restart();
+    assert!(blocked.is_empty(), "{blocked:?}");
+    pitfall_returns_next(&env, &bytes, "recovered");
+}
+
+#[test]
+fn a_rename_home_rolled_back_by_its_last_check_leaves_the_release_to_return_next() {
+    let env = Env::with(&two_discs());
+    let (plan, bytes) = renaming_pitfall(&env);
+    // The source set's folder replaced as the last file is renamed: the check finds it no longer in place, and puts
+    // every file back.
+    let set = env.set();
+    let seen = std::sync::atomic::AtomicUsize::new(0);
+    let meddle = std::sync::Mutex::new(Some(move || replace_with_marked_copy(&set, &set)));
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::ReturnMoved(_))
+                && seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1
+                && let Some(meddle) = meddle.lock().unwrap().take()
+            {
+                meddle();
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let build = env.store.build_of_job(job.id).unwrap().unwrap();
+    let items = env.store.build(build.id).unwrap().items;
+    let it = items.iter().find(|i| i.kind == ItemKind::Return).unwrap();
+    assert_eq!(it.state, ItemState::Failed, "{it:?}");
+    // The folder that was replaced goes, and the source set's folder is the one there now.
+    std::fs::remove_dir_all(format!("{}.moved", env.set().display())).unwrap();
+    pitfall_returns_next(&env, &bytes, "checked");
 }

@@ -32,6 +32,7 @@ use title_select_api::build::{
 };
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::storage::placed_path;
+use title_select_engine::build::{verify, verify_loose};
 use title_select_engine::meter::Tally;
 
 use super::place::SetDirs;
@@ -428,6 +429,7 @@ impl Store {
             set_return_state(tx, p.build, seq, Some("renaming"))
         })?;
         let mut moved: Vec<usize> = Vec::new();
+        let mut moved_ctimes: Vec<i128> = Vec::new();
         for (i, (&(_, k), h)) in pairs.iter().zip(&homes).enumerate() {
             let pl = &r.placed[k];
             self.fault_point(Fault::ReturnRenaming(seq));
@@ -448,12 +450,26 @@ impl Store {
                 return self.unrename(p, seq, r, &pairs, &homes, &moved, &why);
             }
             moved.push(i);
+            // Its change time, read through the descriptor held across the rename right after it, stands for it
+            // from here: the last check, and recovery, take it as home only while it still has it.
+            let ctime = ctime_ns(&rustix::fs::fstat(&held[i]).map_err(io_err)?);
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE return_placed SET moved_ctime_ns = ?4 WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
+                    params![p.build, seq, k as i64, ctime.to_string()],
+                )?;
+                Ok(())
+            })?;
+            moved_ctimes.push(ctime);
             self.fault_point(Fault::ReturnMoved(seq));
         }
         // Every file moved: each checked, through the descriptor held across its rename, to be the file the plan
-        // found, and to be in place, below the folders recorded; then all recorded home together, or all put back.
+        // found, unchanged since it was moved, and to be in place, below the folders recorded; then all recorded
+        // home together, or all put back.
         let mut found = Vec::new();
-        for ((&(n, k), h), file) in pairs.iter().zip(&homes).zip(&held) {
+        for (((&(n, k), h), file), &moved_ctime) in
+            pairs.iter().zip(&homes).zip(&held).zip(&moved_ctimes)
+        {
             let pl = &r.placed[k];
             if let Ok((parent, _)) = parent_of(p.dir, &pl.path) {
                 parent.as_ref().unwrap_or(p.dir).sync().map_err(io_err)?;
@@ -466,7 +482,8 @@ impl Store {
                 Some(at)
                     if is_regular(at, id)
                         && Identity::of(&now) == id
-                        && file_stat(&now) == pl.file =>
+                        && file_stat(&now) == pl.file
+                        && ctime_ns(&now) == moved_ctime =>
                 {
                     self.in_set(p, &h.chain, &r.files[n].path)?.err()
                 }
@@ -545,7 +562,7 @@ impl Store {
         why: &str,
     ) -> Result<std::result::Result<(), String>> {
         for &i in moved {
-            let (_, k) = pairs[i];
+            let (n, k) = pairs[i];
             let pl = &r.placed[k];
             let h = &homes[i];
             if let Err(e) = move_back(p.dir, pl, &h.dir, &h.leaf) {
@@ -556,12 +573,43 @@ impl Store {
                     h.dir.path().join(&h.leaf).display()
                 )));
             }
+            self.reverify(p, pl, &r.files[n])?;
         }
         let why = match moved.is_empty() {
             true => why.to_owned(),
             false => format!("{why}, so its files were put back"),
         };
         self.fail_return(p, seq, r, &why)
+    }
+
+    /// Records the placed file `pl`, put back where it was placed after a rename home gave it a new change time, as
+    /// found: while it is the file the plan found, of its size and modification time, verified against the DAT as
+    /// `f`, the file it was to be home, then read whole through its own descriptor while that holds. Placed by a
+    /// rename, it was never read, and its change time alone stood for it. Otherwise it is left recorded as it was,
+    /// for a check to flag as changed.
+    fn reverify(&self, p: &Returning, pl: &ReturnPlaced, f: &ReturnFile) -> Result<()> {
+        let Ok(file) = p.dir.open_file(&pl.path) else {
+            return Ok(());
+        };
+        let st = rustix::fs::fstat(&file).map_err(io_err)?;
+        let id = Identity::from(pl.identity);
+        if !is_regular(&st, id) || file_stat(&st) != pl.file {
+            return Ok(());
+        }
+        let verified = match (f.loose, f.roms.as_slice()) {
+            (true, [rom]) => verify_loose(&file, rom, p.from),
+            (true, _) => Err("a loose file holds one ROM".into()),
+            (false, roms) => verify(&file, roms, p.from),
+        };
+        if verified.is_err() {
+            return Ok(());
+        }
+        let Some(sha) = still_sha256(&file, ctime_ns(&st), p.from).map_err(io_err)? else {
+            return Ok(());
+        };
+        self.write(|tx| {
+            crate::placements::reread(tx, p.folder, &pl.path, (id, &pl.file), &st, &sha)
+        })
     }
 
     /// Whether `path` is still below `chain`, the folders it was put in, in the Source Set's folder at its registered
@@ -884,7 +932,22 @@ impl Store {
                         "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2",
                         params![p.folder, pl.path],
                     )?;
+                    continue;
                 }
+                // Kept here, it is no longer the Game's only copy, but an ordinary built one: copied whole, when the
+                // Source Set's file is written from it whole, or else written from the verified ROMs.
+                let whole = r.files.iter().any(|f| f.from.as_deref() == Some(&pl.path));
+                tx.execute(
+                    "UPDATE built_files SET kind = ?3 WHERE folder_id = ?1 AND target = ?2 AND kind = 'place'",
+                    params![
+                        p.folder,
+                        pl.path,
+                        match whole {
+                            true => ItemKind::Copy.as_str(),
+                            false => ItemKind::Repack.as_str(),
+                        }
+                    ],
+                )?;
             }
             set_return_state(tx, p.build, seq, Some("committed"))?;
             tx.execute(
@@ -1245,6 +1308,9 @@ impl Store {
             }
         }
         if placed == 0 {
+            // Each home is taken as the file the plan found only while it has the change time recorded right after
+            // its rename; one moved with none recorded, as a stop just after it leaves, is not proven, and goes back.
+            let rows = self.read(|c| placed_rows(c, p.build, seq))?;
             let mut found = Vec::new();
             let mut changed = None;
             for (&(_, k), h) in pairs.iter().zip(&homes) {
@@ -1252,7 +1318,14 @@ impl Store {
                 let h = h.as_ref().expect("each is home");
                 let file = h.dir.open_file(&h.leaf).map_err(io_err)?;
                 let now = rustix::fs::fstat(&file).map_err(io_err)?;
-                if Identity::of(&now) != Identity::from(pl.identity) || file_stat(&now) != pl.file {
+                let moved_ctime = rows
+                    .iter()
+                    .find(|row| row.n == k)
+                    .and_then(|row| row.moved_ctime);
+                if Identity::of(&now) != Identity::from(pl.identity)
+                    || file_stat(&now) != pl.file
+                    || Some(ctime_ns(&now)) != moved_ctime
+                {
                     changed = Some(format!("{} changed as it was moved", pl.path));
                     break;
                 }
@@ -1264,7 +1337,7 @@ impl Store {
             }
         }
         for &i in &moved {
-            let (_, k) = pairs[i];
+            let (n, k) = pairs[i];
             let pl = &r.placed[k];
             let h = homes[i].as_ref().expect("moved home");
             if let Err(e) = move_back(p.dir, pl, &h.dir, &h.leaf) {
@@ -1276,6 +1349,7 @@ impl Store {
                     h.dir.path().join(&h.leaf).display()
                 )));
             }
+            self.reverify(p, pl, &r.files[n])?;
         }
         self.fail_return(
             p,
