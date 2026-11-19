@@ -60,8 +60,13 @@ style-file = "crates/ui/style/main.css"
 assets-dir = "crates/ui/assets"
 browserquery = "defaults and fully supports wasm"
 lib-profile-release = "wasm-release"
+# In place of cargo-leptos's -Oz, with the same features: -O1 runs about three times faster, and its output, though
+# larger raw, compresses about 5% smaller in Brotli (#198). The Dockerfile's workbench stage checks these were used.
+wasm-opt-features = ["-O1", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
+# Sixteen codegen units compile the workbench faster than one, for a Brotli bundle about 5% larger, which wasm-opt's
+# -O1 more than makes up: fat LTO still optimizes across crates (#198).
 [profile.wasm-release]
 inherits = "release"
 lto = true
-codegen-units = 1
+codegen-units = 16
