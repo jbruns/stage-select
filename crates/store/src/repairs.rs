@@ -331,6 +331,7 @@ fn open_placed(
 struct StepCarry<'a> {
     store: &'a Store,
     step: i64,
+    seq: u32,
 }
 
 impl crate::carry::Intents for StepCarry<'_> {
@@ -357,6 +358,10 @@ impl crate::carry::Intents for StepCarry<'_> {
                 },
             )?)
         })
+    }
+
+    fn verifying(&self) {
+        self.store.fault_point(Fault::RepairCarryChecking(self.seq));
     }
 
     fn save(&self, intent: &crate::carry::Intent) -> Result<()> {
@@ -3082,6 +3087,7 @@ impl Store {
         let intents = StepCarry {
             store: self,
             step: step.id,
+            seq: step.seq,
         };
         self.step_state(step, "moving")?;
         let dest = crate::carry::Dest {
@@ -3583,6 +3589,7 @@ impl Store {
         let intents = StepCarry {
             store: self,
             step: step.id,
+            seq: step.seq,
         };
         self.step_state(step, "moving")?;
         let st = match crate::carry::copy(&original, &dest, &intents)? {
@@ -3683,6 +3690,33 @@ impl Store {
             }
         }
         Ok(gone)
+    }
+
+    /// The Library Folder `folder` this repair opened and checked, held, while it is still the folder at its path: not
+    /// moved away, nor replaced. Returns why not.
+    fn held_in_place<'r>(
+        &self,
+        config: &Config,
+        r: &'r Repairing,
+        folder: i64,
+    ) -> Result<std::result::Result<&'r FolderDir, String>> {
+        let Some((held, _)) = r.placed.get(&folder) else {
+            return Ok(Err(format!("play library folder {folder} is not open")));
+        };
+        let row = self.read(|c| folder_by_id(c, folder))?;
+        let label = format!("play library folder {}/{}", row.root, row.path);
+        let at = match open_folder(config, &row.root, &row.path) {
+            Ok(at) => at,
+            Err(why) => return Ok(Err(format!("{label}: {why}"))),
+        };
+        Ok(
+            match at.identity().map_err(io_err)? == held.identity().map_err(io_err)? {
+                true => Ok(held),
+                false => Err(format!(
+                    "{label} was moved or replaced since this repair began"
+                )),
+            },
+        )
     }
 
     /// The file Fill step `step` wrote as `target`, where the Placed Game its item completes is placed, to record
@@ -4171,6 +4205,10 @@ impl Store {
         else {
             unreachable!("a fill step");
         };
+        // A Placed Game is completed through the Library Folder this repair opened and checked, held: never through
+        // whatever is at its path now.
+        let placed_in = split_placed(target).map(|(folder, _)| folder);
+        let held = placed_in.and_then(|folder| r.placed.get(&folder).map(|(dir, _)| dir));
         let move_id = match (step.state.as_str(), step.move_id) {
             ("moving", Some(move_id)) => move_id,
             _ => {
@@ -4233,6 +4271,16 @@ impl Store {
                         ),
                     );
                 }
+                // Begun only while the folder held is still the one at its path.
+                if let Some(folder) = placed_in
+                    && let Err(why) = self.held_in_place(config, r, folder)?
+                {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!("{why}; {name} in ingest folder {ingest_root} was left as it is"),
+                    );
+                }
                 let content = &r.plan.content;
                 let (root, rel, into) = match split_placed(target) {
                     Some((folder, rel)) => {
@@ -4268,7 +4316,7 @@ impl Store {
                     loose: *loose,
                     leave: *leave,
                 };
-                let recorded = self.record_move(config, mv, &mut |tx, move_id| {
+                let recorded = self.record_move(config, mv, held, &mut |tx, move_id| {
                     tx.execute(
                         "UPDATE repair_steps SET state = 'moving', move_id = ?2 WHERE id = ?1",
                         params![step.id, move_id],
@@ -4281,14 +4329,21 @@ impl Store {
                 }
             }
         };
-        match self.drive_move(config, move_id)? {
+        match self.drive_move_into(config, move_id, held)? {
             Ok(moved) => {
                 let vanished = self.vanished(config, r, step)?;
-                let placed = match split_placed(target) {
-                    Some(_) => match self.filled_placed(r, step, target, moved.dest_sha256)? {
-                        Ok(placed) => Some(placed),
-                        Err(why) => return self.step_failed(step, "failed", why),
-                    },
+                // Recorded placed only while the folder it was written in is still the one at its path.
+                let placed = match placed_in {
+                    Some(folder) => {
+                        let filled = match self.held_in_place(config, r, folder)? {
+                            Ok(_) => self.filled_placed(r, step, target, moved.dest_sha256)?,
+                            Err(why) => Err(format!("{target} was written, but {why}")),
+                        };
+                        match filled {
+                            Ok(filled) => Some(filled),
+                            Err(why) => return self.step_failed(step, "failed", why),
+                        }
+                    }
                     None => None,
                 };
                 self.done_unplacing(step, moved.note, &vanished, placed)?;

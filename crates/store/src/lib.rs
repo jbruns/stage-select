@@ -275,6 +275,9 @@ pub enum Fault {
     RepairMoved(u32),
     /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
     RepairStepDone(u32),
+    /// After the original a repair's step with this sequence number carried across filesystems is set aside to delete
+    /// and read back, before its published copy is checked a last time and the original deleted.
+    RepairCarryChecking(u32),
     /// After a repair's outcome, the Audit it owes and its Job's end are recorded, before that Audit is queued.
     RepairFinished,
     /// After a Source Set's first marker is written and synced under its recorded temporary name, before it is

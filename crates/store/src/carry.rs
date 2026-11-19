@@ -6,9 +6,11 @@
 //! read as while it held still, and published by a rename that never replaces anything. Only then is the original
 //! deleted, under the trusted-stamp rule (ADR 0010): moved into its folder's private `.deleting` area under a slot
 //! recorded first, and deleted there only while it still has the change time read through the descriptor held across
-//! that rename, and that SHA-256. Otherwise it is put back where it was and left. Each step is recorded through
+//! that rename, and that SHA-256, and while the published copy, held open throughout, is still the copy at its name
+//! and still reads as that SHA-256. Otherwise it is put back where it was and left. Each step is recorded through
 //! [`Intents`] before it is taken, so a stop resumes from where it was.
 
+use std::fs::File;
 use std::io;
 
 use rustix::fs::{FileType, Stat};
@@ -68,6 +70,9 @@ pub(crate) struct Intent {
 pub(crate) trait Intents {
     fn load(&self) -> Result<Intent>;
     fn save(&self, intent: &Intent) -> Result<()>;
+    /// Called once the original is set aside to delete and read back, just before its published copy is checked a
+    /// last time: a point a test can change the copy at.
+    fn verifying(&self) {}
 }
 
 fn io_err(e: io::Error) -> Error {
@@ -194,15 +199,15 @@ pub(crate) fn copy(
     }
 }
 
-/// Whether the copy [`copy`] published as `d` is still the copy it made, reading as the SHA-256 recorded: what every
-/// deletion of the original is checked against first, so that a copy changed since it was published, before a stop
-/// or after, never stands in for the original. Returns why not.
-pub(crate) fn published_holds(
-    d: &Dest,
-    intents: &dyn Intents,
-) -> Result<std::result::Result<(), String>> {
-    let intent = intents.load()?;
-    let (Some(id), Some(sha)) = (intent.staged_id, intent.sha256) else {
+/// The copy [`copy`] published, opened without following a symlink and held, with its stat as it was opened.
+pub(crate) struct Held {
+    file: File,
+    st: Stat,
+}
+
+/// Opens the copy [`copy`] published as `d`, while it is the copy it made, to hold it. Returns why not.
+fn open_published(d: &Dest, intent: &Intent) -> Result<std::result::Result<Held, String>> {
+    let Some(id) = intent.staged_id else {
         return Ok(Err("no copy of it is recorded".into()));
     };
     let file = match d.dir.open_file(d.name) {
@@ -215,16 +220,52 @@ pub(crate) fn published_holds(
             "what is in place of its copy is not the copy Title Select made".into(),
         ));
     }
-    let (read, _) = sha256_of(&file, d.tally).map_err(io_err)?;
-    Ok(match read == sha {
-        true => Ok(()),
-        false => Err("its copy changed since it was published".into()),
+    Ok(Ok(Held { file, st }))
+}
+
+/// Whether `held` is still the copy at `d`'s name, unchanged since it was opened, and reads, through its own
+/// descriptor, as the SHA-256 `sha` recorded. Returns why not.
+fn still_holds(d: &Dest, held: &Held, sha: &str) -> Result<std::result::Result<(), String>> {
+    let id = Identity::of(&held.st);
+    match d.dir.stat(d.name).map_err(io_err)? {
+        Some(st) if is_file(&st, id) => {}
+        _ => {
+            return Ok(Err(
+                "what is in place of its copy is not the copy Title Select made".into(),
+            ));
+        }
+    }
+    let now = rustix::fs::fstat(&held.file).map_err(|e| io_err(e.into()))?;
+    if file_stat(&now) != file_stat(&held.st) {
+        return Ok(Err("its copy changed since it was published".into()));
+    }
+    Ok(
+        match still_sha256(&held.file, ctime_ns(&held.st), d.tally).map_err(io_err)? {
+            Some(read) if read == sha => Ok(()),
+            _ => Err("its copy changed since it was published".into()),
+        },
+    )
+}
+
+/// Whether the copy [`copy`] published as `d` is still the copy it made, reading as the SHA-256 recorded: so that a
+/// copy changed since it was published, before a stop or after, never stands in for the original. Returns why not.
+pub(crate) fn published_holds(
+    d: &Dest,
+    intents: &dyn Intents,
+) -> Result<std::result::Result<(), String>> {
+    let intent = intents.load()?;
+    let Some(sha) = &intent.sha256 else {
+        return Ok(Err("no copy of it is recorded".into()));
+    };
+    Ok(match open_published(d, &intent)? {
+        Ok(held) => still_holds(d, &held, sha)?,
+        Err(why) => Err(why),
     })
 }
 
-/// Deletes `o` once [`copy`] published its copy as `d`: only while that copy still holds ([`published_holds`]), and
-/// `o` is still exactly what was copied, read through the descriptor held as it is moved to be deleted. Otherwise it
-/// is put back, and the reason it was left is returned.
+/// Deletes `o` once [`copy`] published its copy as `d`: only while `o` is still exactly what was copied, read through
+/// the descriptor held as it is moved to be deleted, and then, last, that copy, held open from before `o` is moved,
+/// still holds ([`still_holds`]). Otherwise it is put back, and the reason it was left is returned.
 pub(crate) fn dispose(
     o: &Original,
     d: &Dest,
@@ -237,6 +278,8 @@ pub(crate) fn dispose(
             o.label
         )));
     };
+    // Held from before the original is touched until it is deleted, so that the copy checked last is the one held.
+    let held = open_published(d, &intent)?;
     let unslot = |intent: &mut Intent| -> Result<()> {
         intent.slot = None;
         intent.moved_ctime = None;
@@ -250,6 +293,12 @@ pub(crate) fn dispose(
                 None => {
                     return Ok(published_holds(d, intents)?
                         .map_err(|why| format!("{} is gone, and {why}", o.label)));
+                }
+                Some(_) if let Err(why) = &held => {
+                    return Ok(Err(format!(
+                        "{} was not deleted, since {why}, so it was left as it is",
+                        o.label
+                    )));
                 }
                 Some(st) if is_file(&st, o.id) && file_stat(&st) == o.file => {}
                 Some(_) => {
@@ -305,22 +354,30 @@ pub(crate) fn dispose(
             false => Ok(Ok(())),
         };
     };
-    // Deleted only while its copy holds: checked last, once nothing else can still put it back.
-    let holds = published_holds(d, intents)?;
-    let trusted = holds.is_ok()
-        && match intent.moved_ctime {
-            Some(ctime) if is_file(&st, o.id) => {
-                let file = o.deleting.open_file(&slot).map_err(io_err)?;
-                let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-                Identity::of(&held) == o.id
-                    && file_stat(&held) == o.file
-                    && still_sha256(&file, ctime, o.tally)
-                        .map_err(io_err)?
-                        .is_some_and(|read| read == sha)
-            }
-            _ => false,
-        };
-    if trusted {
+    let unchanged = match intent.moved_ctime {
+        Some(ctime) if is_file(&st, o.id) => {
+            let file = o.deleting.open_file(&slot).map_err(io_err)?;
+            let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+            Identity::of(&held) == o.id
+                && file_stat(&held) == o.file
+                && still_sha256(&file, ctime, o.tally)
+                    .map_err(io_err)?
+                    .is_some_and(|read| read == sha)
+        }
+        _ => false,
+    };
+    // Deleted only while its copy holds: checked last, through the descriptor held since before the original was
+    // moved, once nothing but the unlink is left. A change to the copy after this check can't be stopped by any lock;
+    // it is as any later change to a kept or placed file, which the next audit or check finds.
+    let holds = match (&held, unchanged) {
+        (Ok(held), true) => {
+            intents.verifying();
+            still_holds(d, held, &sha)?
+        }
+        (Ok(_), false) => Ok(()),
+        (Err(why), _) => Err(why.clone()),
+    };
+    if unchanged && holds.is_ok() {
         o.deleting.unlink(&slot).map_err(io_err)?;
         o.deleting.sync().map_err(io_err)?;
         unslot(&mut intent)?;

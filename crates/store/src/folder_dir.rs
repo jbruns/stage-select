@@ -234,6 +234,14 @@ impl FolderDir {
         Ok(Ok(Identity::of(&st)))
     }
 
+    /// This same open directory, on a descriptor of its own.
+    pub fn try_clone(&self) -> io::Result<FolderDir> {
+        Ok(FolderDir {
+            fd: self.fd.try_clone()?,
+            path: self.path.clone(),
+        })
+    }
+
     /// The identity of this directory as it was opened.
     pub fn identity(&self) -> io::Result<Identity> {
         Identity::of_fd(&self.fd).map_err(|e| with_path(&self.path, e))

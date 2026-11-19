@@ -25,7 +25,7 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{ExpectedRom, FileStat, STATE, kept_name};
+use title_select_api::build::{ExpectedRom, FileStat, Marker, STATE, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
@@ -40,7 +40,7 @@ use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
-use crate::folders::store_id;
+use crate::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use crate::kept::{Scope, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
 use crate::repairs::{MarkerRule, open_repairable};
@@ -430,18 +430,20 @@ impl Store {
     /// Records the intent to make `mv`, then makes it. `Err` says why it was not made, or not finished; one not
     /// finished is rolled forward when the service next starts.
     pub(crate) fn move_out(&self, config: &Config, mv: Move) -> Outcome {
-        match self.record_move(config, mv, &mut |_, _| Ok(()))? {
+        match self.record_move(config, mv, None, &mut |_, _| Ok(()))? {
             Ok(id) => self.drive_move(config, id),
             Err(why) => Ok(Err(why)),
         }
     }
 
     /// Records the intent to make `mv`, and runs `also` with its id in the same transaction, without making it.
-    /// Returns its id, or why it cannot be made.
+    /// Returns its id, or why it cannot be made. `into` is its destination folder, already opened and checked, when
+    /// the caller holds it.
     pub(crate) fn record_move(
         &self,
         config: &Config,
         mv: Move,
+        into: Option<&FolderDir>,
         also: &mut dyn FnMut(&Transaction, i64) -> Result<()>,
     ) -> Result<std::result::Result<i64, String>> {
         let row = self.read(|c| ingest_by_id(c, mv.folder))?;
@@ -453,12 +455,19 @@ impl Store {
             (Some(_), _) => "repack",
             (None, Destination::Kept { .. }) => "rename",
             (None, Destination::Path { root, rel, .. }) => {
-                let dest = match self.open_dest_folder(config, root, rel)? {
-                    Ok(dest) => dest,
-                    Err(why) => return Ok(Err(why)),
+                let opened;
+                let dest = match into {
+                    Some(dest) => dest,
+                    None => match self.open_dest_folder(config, root, rel)? {
+                        Ok(dest) => {
+                            opened = dest;
+                            &opened
+                        }
+                        Err(why) => return Ok(Err(why)),
+                    },
                 };
                 let same = src.identity().map_err(io)?.dev == dest.identity().map_err(io)?.dev;
-                if same && !force_copy() {
+                if same && !force_copy() && !self.across_filesystems(None) {
                     "rename"
                 } else {
                     "copy"
@@ -497,6 +506,17 @@ impl Store {
     /// Advances move `id` from the step it was recorded at to its end, after checking that its folder is open, in a
     /// writable Root, with this store's marker.
     pub(crate) fn drive_move(&self, config: &Config, id: i64) -> Outcome {
+        self.drive_move_into(config, id, None)
+    }
+
+    /// As [`Store::drive_move`], writing a move to a path through `into`, its destination folder already opened and
+    /// checked, when the caller holds it: then nothing is written in whatever is at that folder's path now.
+    pub(crate) fn drive_move_into(
+        &self,
+        config: &Config,
+        id: i64,
+        into: Option<&FolderDir>,
+    ) -> Outcome {
         let m = self.read(|c| move_by_id(c, id))?;
         if m.state == "done" {
             return Ok(Ok(Moved {
@@ -546,12 +566,13 @@ impl Store {
                     Err(why) => return precondition(why),
                 }
             }
-            Destination::Path { root, rel, .. } => {
-                match self.open_dest_folder(config, root, rel)? {
+            Destination::Path { root, rel, .. } => match into {
+                Some(into) => into.try_clone().map_err(io)?,
+                None => match self.open_dest_folder(config, root, rel)? {
                     Ok(dest) => dest,
                     Err(why) => return precondition(why),
-                }
-            }
+                },
+            },
         };
         // A file of a loose folder: moved into that folder, which the repair made, under its own name.
         let (dest, m) = match &m.dest {
@@ -1431,6 +1452,29 @@ impl Store {
         })?;
         if let Some(set) = set {
             return open_repairable(self, config, set, MarkerRule::Required);
+        }
+        // A Library Folder, written into to complete a Placed Game: only while it has this store's marker for it, so
+        // that nothing is written into whatever was put at its path in its place.
+        let folder: Option<i64> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
+                params![root, rel],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        if let Some(folder) = folder {
+            let (row, store) = self.read(|c| Ok((folder_by_id(c, folder)?, store_id(c)?)))?;
+            let dir = match open_writable_folder(config, root, rel) {
+                Ok(dir) => dir,
+                Err(why) => return Ok(Err(why)),
+            };
+            let expected = Marker {
+                store,
+                folder,
+                generation: row.generation,
+            };
+            return Ok(check_marker(&dir, &expected).map(|()| dir));
         }
         Ok(match config.root(root) {
             Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),

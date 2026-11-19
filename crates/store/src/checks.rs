@@ -165,6 +165,42 @@ pub(super) fn deepen(dir: &FolderDir, names: Vec<String>) -> Vec<String> {
     out
 }
 
+/// `entries`, with each folder holding a Placed Game's file, a loose Game's, replaced by its entries, as
+/// `<folder>/<entry>`, as [`deepen`] does a disc layout folder's: each file in it is a placed file, or drift. One that
+/// is no directory, a symbolic link included, is empty, or can't be read, stays itself.
+fn with_placed_folders(dir: &FolderDir, entries: &[String], placed: &[PlacedFile]) -> Vec<String> {
+    let holding: HashSet<&str> = placed
+        .iter()
+        .flat_map(|p| p.path.match_indices('/').map(|(at, _)| &p.path[..at]))
+        .collect();
+    if holding.is_empty() {
+        return entries.to_vec();
+    }
+    fn expand(dir: &FolderDir, holding: &HashSet<&str>, name: String, out: &mut Vec<String>) {
+        let inner = holding
+            .contains(name.as_str())
+            .then(|| dir.stat(&name).ok().flatten())
+            .flatten()
+            .filter(|st| FolderDir::kind(st) == FileType::Directory)
+            .and_then(|_| dir.sub(&name).and_then(|sub| sub.entries()).ok())
+            .filter(|entries| !entries.is_empty());
+        match inner {
+            Some(inner) => {
+                for (entry, _) in inner {
+                    expand(dir, holding, format!("{name}/{entry}"), out);
+                }
+            }
+            None => out.push(name),
+        }
+    }
+    let mut out = Vec::new();
+    for name in entries {
+        expand(dir, &holding, name.clone(), &mut out);
+    }
+    out.sort();
+    out
+}
+
 /// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: opened without following a symlink, and
 /// only trusted when it is the same file, the same size and modification time, before and after it is read. Its
 /// payloads' checksums leave out the Header `rule` finds, if any. What it reads is counted to `tally`.
@@ -306,6 +342,7 @@ pub(super) fn scan(
     input: &ScanInput,
     progress: Option<&(dyn Fn(Progress) + Sync)>,
 ) -> Scan {
+    let entries = &with_placed_folders(dir, entries, input.placed);
     let loose = loose_names(input.storage, input.dat);
     let selected = &storage_targets(input.selected, &loose);
     let laid = input
@@ -530,15 +567,7 @@ pub(super) fn scan(
             placed: true,
             detail: None,
         };
-        // One in a folder of its own, a loose Game's, is looked for by its path; the folder holding it is no drift.
-        let found = match (by_lower.get(&target.to_lowercase()), target.split_once('/')) {
-            (Some(name), _) => Some(*name),
-            (None, Some((top, _))) => by_lower.get(&top.to_lowercase()).map(|top| {
-                consumed.insert((*top).to_owned());
-                target.as_str()
-            }),
-            (None, None) => None,
-        };
+        let found = by_lower.get(&target.to_lowercase()).copied();
         if let Some(name) = found {
             consumed.insert(name.to_owned());
         }

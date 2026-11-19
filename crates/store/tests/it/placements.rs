@@ -1232,6 +1232,101 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changed_even_across_a_stop
 }
 
 #[test]
+fn a_placed_file_is_never_deleted_once_its_copy_aside_changes_after_it_was_first_checked() {
+    // Its copy written over in place, or replaced by another file, once the original is set aside to delete and read
+    // back: in the run that copied it, and in one resumed after a stop there, with the original's slot recorded.
+    for (replace, resumed) in [(false, false), (true, false), (false, true), (true, true)] {
+        let case = format!("replace={replace} resumed={resumed}");
+        let env = Env::new();
+        env.store.copy_across_filesystems(true);
+        env.place("Combat (USA)", &[("junk.bin", b"junk")]);
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan(&[]);
+        let (seq, kept) = plan
+            .content
+            .steps
+            .iter()
+            .enumerate()
+            .find_map(|(n, s)| match &s.step {
+                RepairStep::Keep { kept_name, .. } => Some((n as u32, kept_name.clone())),
+                _ => None,
+            })
+            .unwrap();
+        let copy = env
+            .set()
+            .join(".title-select/retained")
+            .join(plan.content.generation.to_string())
+            .join(&kept);
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let mut job = approved.job.unwrap();
+        assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+        if resumed {
+            env.store
+                .inject_fault(Some(Fault::RepairCarryChecking(seq)));
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.store.run_repair_job(&env.config, job, None)
+            }));
+            assert!(ran.is_err(), "{case}: {ran:?}");
+            env.store.inject_fault(None);
+            assert!(
+                !Env::files_under(&env.library().join(".title-select/retained/.deleting"))
+                    .is_empty(),
+                "{case}: stopped with the original set aside to delete"
+            );
+            job = env.store.recover_jobs(WORKERS).unwrap()[0]
+                .requeued
+                .clone()
+                .unwrap()
+                .id;
+            assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+        }
+        let spoiled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (at, did) = (copy.clone(), spoiled.clone());
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if fault == Fault::RepairCarryChecking(seq) {
+                    if replace {
+                        std::fs::remove_file(&at).unwrap();
+                    }
+                    std::fs::write(&at, b"spoiled").unwrap();
+                    did.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            })));
+        env.store.run_repair_job(&env.config, job, None).unwrap();
+        env.store.hook_faults(None);
+
+        assert!(spoiled.load(std::sync::atomic::Ordering::SeqCst), "{case}");
+        assert!(
+            env.library().join("Combat (USA).zip").is_file(),
+            "{case}: the original stays where it was placed"
+        );
+        assert_eq!(env.store.placed_files(SET).unwrap().len(), 1, "{case}");
+        let combat = placed_path(env.folder.id, "Combat (USA).zip");
+        let done = env.store.repair_plan(plan.id).unwrap();
+        let outcome = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == format!("file:{combat}"))
+            .unwrap();
+        assert!(
+            !outcome.done
+                && outcome
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("was not deleted, since")),
+            "{case}: {outcome:?}"
+        );
+        assert!(
+            Env::files_under(&env.library().join(".title-select/retained/.deleting")).is_empty(),
+            "{case}: it was put back, not left to be deleted"
+        );
+    }
+}
+
+#[test]
 fn a_repacked_placed_file_whose_copy_in_place_changed_is_never_recorded_placed() {
     let env = Env::new();
     env.store.copy_across_filesystems(true);
@@ -1567,6 +1662,174 @@ fn a_fill_of_a_partly_vanished_zipped_placed_game_rebuilds_it_in_place() {
     assert_eq!(
         placed(&env),
         [("Joust (USA).zip".to_owned(), "Joust (USA)".to_owned())]
+    );
+    let latest = env.store.history(SET).unwrap()[0].id;
+    let statuses = Env::statuses(&env.store.report(latest).unwrap());
+    assert_eq!(statuses["Joust (USA)"], GameStatus::Complete);
+    assert!(
+        env.check()
+            .files
+            .iter()
+            .all(|f| f.outcome == FileOutcome::Unchanged)
+    );
+}
+
+#[test]
+fn a_fill_where_a_game_is_placed_writes_only_through_the_folder_it_checked_and_records_only_what_is_there()
+ {
+    // The Library Folder moved away and an empty folder put at its path: before the fill begins, or while its file is
+    // being written.
+    for during in [false, true] {
+        let env = Env::new();
+        env.place("Joust (USA)", &[("Joust (USA) (Side A).a26", b"joust-a")]);
+        let whole = env.tmp.path().join("joust.zip");
+        torrentzip(
+            &whole,
+            &[
+                ("Joust (USA) (Side A).a26", b"joust-a"),
+                ("Joust (USA) (Side B).a26", b"joust-b"),
+            ],
+        );
+        env.ingest("joust.zip", &std::fs::read(&whole).unwrap());
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan(&[]);
+        let keep = plan
+            .content
+            .steps
+            .iter()
+            .position(|s| matches!(s.step, RepairStep::Keep { .. }))
+            .unwrap() as u32;
+        let (library, moved) = (env.library(), env.tmp.path().join("roots/play/moved"));
+        let swapped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let did = swapped.clone();
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                let now = match during {
+                    false => fault == Fault::RepairStepDone(keep),
+                    true => matches!(fault, Fault::IngestRenaming | Fault::IngestStaged),
+                };
+                if now && !did.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    std::fs::rename(&library, &moved).unwrap();
+                    std::fs::create_dir(&library).unwrap();
+                }
+            })));
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let job = approved.job.unwrap();
+        assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+        env.store.run_repair_job(&env.config, job, None).unwrap();
+        env.store.hook_faults(None);
+
+        assert!(
+            swapped.load(std::sync::atomic::Ordering::SeqCst),
+            "during={during}"
+        );
+        assert!(
+            Env::files_under(&env.library()).is_empty(),
+            "during={during}: nothing is written in what was put in the folder's place"
+        );
+        let done = env.store.repair_plan(plan.id).unwrap();
+        let fill = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Joust (USA)")
+            .unwrap();
+        assert!(
+            !fill.done
+                && fill
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("was moved or replaced since this repair began")),
+            "during={during}: {:#?}",
+            done.outcomes
+        );
+        // Nothing is recorded placed where no file of it is.
+        for (path, _) in placed(&env) {
+            assert!(
+                env.library().join(&path).is_file(),
+                "during={during}: {path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_check_of_a_loose_placed_game_reports_a_file_beside_its_files_as_drift() {
+    let env = Env::new();
+    let (a, b) = (
+        "Joust (USA)/Joust (USA) (Side A).a26",
+        "Joust (USA)/Joust (USA) (Side B).a26",
+    );
+    std::fs::create_dir_all(env.library().join("Joust (USA)")).unwrap();
+    std::fs::write(env.library().join(a), b"joust-a").unwrap();
+    std::fs::write(env.library().join(b), b"joust-b").unwrap();
+    env.store
+        .record_placement(&env.config, SET, "Joust (USA)", env.folder.id, &[a, b])
+        .unwrap();
+    std::fs::write(env.library().join("Joust (USA)/extra.a26"), b"unrecorded").unwrap();
+
+    let check = env.check();
+
+    assert!(
+        check
+            .files
+            .iter()
+            .all(|f| f.outcome == FileOutcome::Unchanged),
+        "{check:#?}"
+    );
+    let drift: Vec<&str> = check.drift.iter().map(|d| d.name.as_str()).collect();
+    assert_eq!(drift, ["Joust (USA)/extra.a26"], "{check:#?}");
+}
+
+#[test]
+fn a_fill_where_a_game_is_placed_copies_across_filesystems() {
+    let env = Env::new();
+    env.store.copy_across_filesystems(true);
+    let (a, b) = (
+        "Joust (USA)/Joust (USA) (Side A).a26",
+        "Joust (USA)/Joust (USA) (Side B).a26",
+    );
+    std::fs::create_dir_all(env.library().join("Joust (USA)")).unwrap();
+    std::fs::write(env.library().join(a), b"joust-a").unwrap();
+    env.store
+        .record_placement(&env.config, SET, "Joust (USA)", env.folder.id, &[a])
+        .unwrap();
+    env.ingest("side-b.a26", b"joust-b");
+    env.audit(AuditEvidence::Full);
+    let ingested = std::fs::metadata(env.tmp.path().join("in/side-b.a26")).unwrap();
+    let copied = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let did = copied.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::IngestStaged {
+                did.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })));
+
+    let plan = env.plan(&[]);
+    env.repair(&plan);
+    env.store.hook_faults(None);
+
+    assert!(
+        copied.load(std::sync::atomic::Ordering::SeqCst),
+        "it was copied, not renamed"
+    );
+    let written = std::fs::metadata(env.library().join(b)).unwrap();
+    assert_ne!(
+        std::os::unix::fs::MetadataExt::ino(&written),
+        std::os::unix::fs::MetadataExt::ino(&ingested),
+        "a copy is a new file"
+    );
+    assert_eq!(std::fs::read(env.library().join(b)).unwrap(), b"joust-b");
+    assert!(!env.tmp.path().join("in/side-b.a26").exists());
+    assert_eq!(
+        placed(&env),
+        [
+            (a.to_owned(), "Joust (USA)".to_owned()),
+            (b.to_owned(), "Joust (USA)".to_owned())
+        ]
     );
     let latest = env.store.history(SET).unwrap()[0].id;
     let statuses = Env::statuses(&env.store.report(latest).unwrap());
