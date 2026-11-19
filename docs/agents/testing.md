@@ -25,6 +25,14 @@ the debug nextest run, and into the Build and test block in `AGENTS.md`.
 The CHD tests need chdman. They skip without it, except where `CI` is set, where a missing chdman is a failure;
 `TITLE_SELECT_CHDMAN` names the binary when it isn't on `PATH`.
 
+## Where integration tests go
+
+Each crate's integration tests build into one test binary, `tests/it/`, as each binary links the crate and its
+dependencies again. A new integration test goes in a module under `tests/it/`, declared in `tests/it/main.rs`, not in a
+new file under `tests/`. Under `cargo test` the modules share one process, so a test that changes process-wide state
+gets a binary of its own: the engine's `sevenz_memory` installs a global allocator, and the store's `fetch_proxy` sets
+the environment. Selection's `fixtures` is a binary of its own too, as CI runs it alone in release.
+
 ## No retries
 
 CI runs nextest with no retries. A flaky test is a failure until it is fixed at its cause; never add retries or

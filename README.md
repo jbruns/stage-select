@@ -2136,7 +2136,7 @@ which it replaced). It reads Retool's clone lists, metadata, MIAs and RetroAchie
 (gitignored), which the Selection tests use through `TITLE_SELECT_CLONE_LISTS` (cargo sets it); the image build runs
 it too. It needs curl, tar and sha256sum (or shasum), and does nothing when the folder already holds the pinned commit. It
 refuses an archive holding anything but regular files and folders, naming a path outside its own folder, or
-naming anything that starts with `-`, and unpacks only what selection reads; `crates/selection/tests/fetch.rs` checks it against such archives.
+naming anything that starts with `-`, and unpacks only what selection reads; `crates/selection/tests/it/fetch.rs` checks it against such archives.
 The tests fail, rather than skip, without it.
 
 - **Clone-list pin:** Renovate proposes upstream's newest `main` commit in `pins.toml`, and the `clone-list pin`
@@ -2158,8 +2158,9 @@ The tests fail, rather than skip, without it.
 - **Regenerating:** after a deliberate change to the engine, the derivation or the clone-list pin, regenerate with
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test --release -p title-select-selection` and review the diff: every
   changed line is a changed selection.
-- **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test selection --
-  --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
+- **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test it --
+  selection::a_real_dat --ignored --nocapture` selects from it, checks every group has a rule and prints the counts.
+  Never commit the DAT.
 
 ## Licence
 
