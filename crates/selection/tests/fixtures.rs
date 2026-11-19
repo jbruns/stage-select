@@ -326,7 +326,7 @@ fn the_built_in_engine_keeps_its_selections_on_retools_fixtures() {
     let options = support::options();
     let next = AtomicUsize::new(0);
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let failures: Vec<String> = std::thread::scope(|scope| {
+    let mut failures: Vec<String> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..threads.min(units.len()))
             .map(|_| {
                 scope.spawn(|| {
@@ -372,6 +372,7 @@ fn the_built_in_engine_keeps_its_selections_on_retools_fixtures() {
             .flat_map(|h| h.join().unwrap())
             .collect()
     });
+    failures.sort();
     assert!(
         failures.is_empty(),
         "{} of {} DATs differ:\n{}",
