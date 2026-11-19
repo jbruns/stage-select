@@ -4360,3 +4360,89 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
         [".title-select/marker", "Big (Anthology).bin"]
     );
 }
+
+#[test]
+fn a_repair_that_cannot_start_ends_failed_with_why_even_after_a_stop_as_it_is_abandoned() {
+    for stopped in [false, true] {
+        let env = Env::new();
+        env.put("Pong (Anthology).a26", b"pong");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        // Another folder in its place: no longer the folder the plan was made for.
+        let set = env.set();
+        std::fs::rename(&set, set.with_file_name("Alpha.old")).unwrap();
+        std::fs::create_dir(&set).unwrap();
+        let states = || -> Vec<String> {
+            let db =
+                rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+            let mut stmt = db
+                .prepare("SELECT state FROM repair_steps WHERE plan_id = ?1 ORDER BY seq")
+                .unwrap();
+            stmt.query_map([plan.id], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        let mut job = approved.job;
+        if stopped {
+            env.store.inject_fault(Some(Fault::RepairAbandoning));
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.run_repair_job(&approved)
+            }));
+            assert!(ran.is_err(), "{ran:?}");
+            env.store.inject_fault(None);
+            assert_eq!(states(), ["pending"; 3]);
+            let unfinished = env.store.repair_plan(plan.id).unwrap();
+            assert!(unfinished.finished_at.is_none(), "{unfinished:#?}");
+
+            let recovered = env.store.recover_jobs(WORKERS).unwrap();
+
+            assert_eq!(recovered.len(), 1, "{recovered:?}");
+            assert_eq!(recovered[0].job.state, JobState::Interrupted);
+            let requeued = recovered[0].requeued.clone().expect("a repair runs on");
+            assert_eq!(requeued.repair, Some(plan.id));
+            assert!(env.store.recover_repairs().unwrap().is_empty());
+            assert_eq!(states(), ["pending"; 3]);
+            job = Some(requeued.id);
+        }
+
+        let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+        assert_eq!(Some(ended.id), job, "{stopped}");
+        assert_eq!(ended.state, JobState::Failed, "{stopped}: {ended:?}");
+        let why = ended.error.clone().unwrap();
+        assert!(
+            why.contains("is no longer the folder the plan was made for"),
+            "{stopped}: {why}"
+        );
+        assert_eq!(env.store.failed_jobs().unwrap(), [ended], "{stopped}");
+        assert_eq!(states(), ["failed"; 3], "{stopped}");
+        let done = env.store.repair_plan(plan.id).unwrap();
+        assert!(done.finished_at.is_some(), "{stopped}: {done:#?}");
+        assert!(!done.audit_owed, "{stopped}: {done:#?}");
+        assert_eq!(done.audit_job, None, "{stopped}: {done:#?}");
+        assert!(
+            !done.outcomes.is_empty()
+                && done
+                    .outcomes
+                    .iter()
+                    .all(|o| !o.done && o.error.as_deref() == Some(why.as_str())),
+            "{stopped}: {:#?}",
+            done.outcomes
+        );
+        assert!(
+            env.store.fulfil_repair_audits().unwrap().queued.is_empty(),
+            "{stopped}"
+        );
+        assert!(
+            env.store.recover_jobs(WORKERS).unwrap().is_empty(),
+            "{stopped}"
+        );
+        assert!(env.store.recover_repairs().unwrap().is_empty(), "{stopped}");
+        assert!(env.listing().is_empty(), "{stopped}: {:?}", env.listing());
+    }
+}
