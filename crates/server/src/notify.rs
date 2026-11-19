@@ -21,7 +21,7 @@ const QUEUE: usize = 256;
 /// How many times one event is sent before it is dropped.
 const ATTEMPTS: usize = 3;
 /// The wait before each attempt after the first.
-const BACKOFF: [Duration; ATTEMPTS - 1] = [Duration::from_secs(1), Duration::from_secs(4)];
+pub const BACKOFF: [Duration; ATTEMPTS - 1] = [Duration::from_secs(1), Duration::from_secs(4)];
 /// The longest one attempt may take.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How many ended Jobs are remembered, so that each is notified once.
@@ -63,6 +63,8 @@ struct Queued {
 /// What the delivery task needs, until the Service starts it.
 pub struct Delivery {
     queue: mpsc::Receiver<Queued>,
+    /// The wait before each attempt after the first: [`BACKOFF`], or shorter under test.
+    pub backoff: [Duration; ATTEMPTS - 1],
 }
 
 impl Notifier {
@@ -75,7 +77,13 @@ impl Notifier {
             jobs: Mutex::default(),
         };
         notifier.reconfigure(notify);
-        (notifier, Delivery { queue: receive })
+        (
+            notifier,
+            Delivery {
+                queue: receive,
+                backoff: BACKOFF,
+            },
+        )
     }
 
     /// Sends each later event as `notify` says.
@@ -153,7 +161,7 @@ impl Notifier {
 
 /// Sends each queued event, signed, until the queue closes: up to [`ATTEMPTS`] times, then drops it with a log line.
 pub async fn deliver(delivery: Delivery) {
-    let Delivery { mut queue } = delivery;
+    let Delivery { mut queue, backoff } = delivery;
     let http = Arc::new(Http::new());
     while let Some(Queued {
         payload,
@@ -169,7 +177,7 @@ pub async fn deliver(delivery: Delivery) {
         let mut delivered = false;
         for attempt in 0..ATTEMPTS {
             if attempt > 0 {
-                tokio::time::sleep(BACKOFF[attempt - 1]).await;
+                tokio::time::sleep(backoff[attempt - 1]).await;
             }
             let (http, url, body, signature) =
                 (http.clone(), url.clone(), body.clone(), signature.clone());

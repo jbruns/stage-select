@@ -56,6 +56,9 @@ pub struct Settings {
     /// When each step of a Calibration stops, so tests needn't wait seconds a step.
     #[doc(hidden)]
     pub calibration_limits: Option<CalibrationLimits>,
+    /// The wait before the second and third attempt at a webhook event, so tests needn't wait seconds.
+    #[doc(hidden)]
+    pub notify_backoff: Option<[std::time::Duration; 2]>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -92,6 +95,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         fetch_endpoints,
         romm_scan_timing,
         calibration_limits,
+        notify_backoff,
     } = settings;
     let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
@@ -108,7 +112,8 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             Err(err) => eprintln!("title-select: coverage is unavailable: {err}"),
         }
     }
-    let (notifier, delivery) = notify::Notifier::new(&store.settings()?.notify);
+    let (notifier, mut delivery) = notify::Notifier::new(&store.settings()?.notify);
+    delivery.backoff = notify_backoff.unwrap_or(notify::BACKOFF);
     // The Ceilings are worked out before any Job runs. Each Job records the Ceilings it starts with; the pools it
     // shares with other Jobs say how many of its workers work, file by file.
     store.refresh_ceilings(&config)?;

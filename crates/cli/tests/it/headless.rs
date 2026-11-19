@@ -51,6 +51,7 @@ impl Env {
             fetch_endpoints: None,
             romm_scan_timing: None,
             calibration_limits: None,
+            notify_backoff: None,
         })
         .unwrap();
         Env { fx, service }
@@ -293,6 +294,7 @@ fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
             min_bytes: 1,
             ..title_select_server::CalibrationLimits::default()
         }),
+        notify_backoff: None,
     })
     .unwrap();
 

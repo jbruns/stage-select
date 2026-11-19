@@ -59,6 +59,7 @@ impl Env {
             fetch_endpoints: None,
             romm_scan_timing: None,
             calibration_limits: None,
+            notify_backoff: None,
         }
     }
 
@@ -2855,6 +2856,7 @@ mod selections {
         let service = title_select_server::spawn(Settings {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
+            notify_backoff: None,
             ..env.settings(&format!(
                 "\n[roots.play]\npath = {:?}\nwritable = true\n",
                 play.display().to_string()

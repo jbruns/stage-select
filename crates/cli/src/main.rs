@@ -676,6 +676,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 fetch_endpoints: None,
                 romm_scan_timing: None,
                 calibration_limits: None,
+                notify_backoff: None,
             })
             .map_err(|e| e.to_string())
         }
