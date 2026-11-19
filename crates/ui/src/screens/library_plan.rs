@@ -17,8 +17,9 @@ use title_select_api::build::{
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::build_model::{
-    ConflictChoice, blocker_label, cause_label, cleanup_action_label, group_href, item_change,
-    keep_reason_label, plan_kinds, restore_kind_label, with_conflict_choices,
+    ConflictChoice, approve_label, blocker_label, cause_label, cleanup_action_label, group_href,
+    item_change, keep_reason_label, place_facts, plan_kinds, restore_kind_label, return_facts,
+    return_games, space_lines, with_conflict_choices,
 };
 use crate::events::use_live;
 use crate::model::when;
@@ -28,6 +29,11 @@ use crate::parts::plan::{Change, PlanReview, PlanRow, apply_to_all, set_actions}
 use crate::parts::plan_model::{apply_choice, offered_by_any};
 use crate::parts::status::{BuildKind, Status, StatusIcon};
 use crate::screens::library_folders::{BuildProgress, Planner, use_planner};
+
+/// What approving a plan that places or returns games does to your source set.
+const CHANGES_SOURCE_SET: &str = "Approving this plan also changes your source set: each game placed is taken out \
+of it, and each game returned is put back. A file that changed since the plan was made is never taken: it stays in \
+your source set, or in its kept files.";
 
 /// The plan `plan` of the folder `folder`, loaded. `refresh` reloads the folder once you approve.
 #[component]
@@ -159,13 +165,19 @@ impl ItemRow {
         self
     }
 
+    fn facts(mut self, facts: Vec<(&'static str, String)>) -> Self {
+        self.facts.extend(facts);
+        self
+    }
+
     /// The choice, where you may change it.
     fn choosing(&self) -> Option<Chooser> {
         self.chooser.filter(|_| !self.offers.is_empty())
     }
 }
 
-/// The plan's rows: a build plan's items and removals, or a cleanup's entries, kept files put back and repacks.
+/// The plan's rows: a build plan's returns, items and removals, or a cleanup's entries, kept files put back and
+/// repacks.
 fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
     let Some(cleanup) = &content.cleanup else {
         let items = content.items.iter().map(|i| {
@@ -193,6 +205,16 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
                         }),
                     )
                     .fact("ROMs", i.roms.len().to_string())
+                    .facts(i.place.as_ref().map(place_facts).unwrap_or_default())
+            }
+        });
+        // Returns run first in the build.
+        let returns = return_games(content).into_iter().map(|r| {
+            // Apart from any item for the same file, such as the built copy a still selected game leaves.
+            let key = format!("{} (return)", r.current.first().unwrap_or(&r.game));
+            ItemRow {
+                current: r.current.join(", "),
+                ..ItemRow::new(&key, &r.game, r.proposed.join(", ")).facts(return_facts(&r))
             }
         });
         let removals = content.removals.iter().map(|r| {
@@ -203,7 +225,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
             };
             ItemRow::new(&r.target, &r.game, to).fact("Why", r.reason.clone())
         });
-        return with_kinds(content, items.chain(removals));
+        return with_kinds(content, returns.chain(items).chain(removals));
     };
     let entries = cleanup.entries.iter().filter_map(|e| {
         let action = e.action?;
@@ -401,7 +423,6 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         });
     };
     let approvable = plan.approvable() && plan.approval.is_none();
-    let writes = plan.summary.copy + plan.summary.repack;
     // Your choices are part of the plan: changing one plans again, and you review the new plan.
     let choices = plan.content.choices.clone();
     let planner = use_planner();
@@ -432,19 +453,20 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             }
         })
     };
-    // As the strip counts it: replacements, conflicts kept aside and removals that keep their file.
-    let removes = plan.summary.keep;
     let cleanup = plan.content.cleanup.as_ref();
     let is_cleanup = cleanup.is_some();
     // A cleanup's entries it leaves as they are aren't its items.
     let left = cleanup.map_or(0, |c| {
         c.entries.iter().filter(|e| e.action.is_none()).count()
     });
-    let approve_label = match (is_cleanup, removes) {
-        (true, _) => "Approve the cleanup".to_string(),
-        (false, 0) => format!("Approve and build {writes} files"),
-        (false, n) => format!("Approve and build {writes} files, setting {n} aside"),
+    let approve_label = if is_cleanup {
+        "Approve the cleanup".to_string()
+    } else {
+        approve_label(&plan.summary)
     };
+    let space = space_lines(&plan.summary);
+    let changes_set =
+        !plan.content.returns.is_empty() || plan.content.items.iter().any(|i| i.changes_source_set);
     let heading = if is_cleanup {
         format!("Cleanup plan #{id}")
     } else {
@@ -574,6 +596,18 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                                     .collect_view()}
                             </ul>
                         </div>
+                    }
+                })}
+            {(!space.is_empty() || changes_set)
+                .then(|| {
+                    view! {
+                        <section class="single-copy" aria-labelledby="single-copy-title">
+                            <h3 id="single-copy-title">"Single copy"</h3>
+                            {space.iter().map(|l| view! { <p>{l.clone()}</p> }).collect_view()}
+                            {changes_set.then(|| view! {
+                                <p class="note">{CHANGES_SOURCE_SET}</p>
+                            })}
+                        </section>
                     }
                 })}
             {partial}

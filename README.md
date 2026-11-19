@@ -1222,6 +1222,71 @@ planning until you remove it.
 
 The current build of each library folder keeps its selection and its audit from being pruned.
 
+### Single copy
+
+A build copies each selected game from its source set into a library folder, so every game you play is kept twice:
+once in your source set and once in the library folder. Block cloning makes the second copy free only when both use
+the same format on a filesystem that clones. Single copy keeps each game once instead.
+
+Single copy is a storage policy setting for play libraries, set globally and for each system, and off by default.
+With it on, a build of the library folder that holds your source set's placed games places each selected game there
+instead of copying it: the game leaves your source set and lives in your library folder. A placed game is still your
+source set's: its audits, coverage, game status, fixdats and repairs follow it to where it is. The source set's
+overview says how many of its games are placed, as "N of M games placed in *folder*", linking to the folder; the
+audit's game statuses show each game's placement; and the library folder's built files mark each placed file
+**Only copy**.
+
+What it trades: your source set no longer holds a copy of what you play. A placed file is the game's only copy, so
+deleting or changing it by hand loses the game. Title Select keeps no other copy of it: your own backups are the only
+other copy. Keep single copy off for any system you want kept twice.
+
+How a game moves depends on where the folders are:
+
+- **Rename**, when your source set and the library folder are on one mount. Nothing is copied or read again, and the
+  audit's evidence moves with the file.
+- **Copy**, when they are on different mounts. The file is copied into the library folder and read back, then the
+  original is deleted, but only while it is still the file the plan found. An original that changed goes to your
+  source set's kept files instead.
+- **Conversion**, when the library folder stores the game in another format, such as loose where your source set
+  keeps TorrentZip. The new file is written and checked, then the originals are deleted.
+
+Renames need one mount. A deployment that binds the source set and the library folder as two separate mounts, such
+as two volumes of one container, sees two filesystems even when they share a disk, so its games are copied, read
+back and deleted, not renamed. Bind one folder that holds both to get renames.
+
+Games are placed in one library folder: the one that holds the source set's placed games. When one library folder is
+built from the source set, that one holds them. When several are, choose one on the source set's overview (or with
+`PUT /api/v1/source-sets/{name}/holding-folder`); until you do, builds place nothing and copy each game, and the plan
+says why. The other library folders build their copies from the placed files. Choosing another folder moves nothing
+at once: the next build of the old folder returns its placed games to your source set, then the next build of the
+new folder places them there. Games never move directly between library folders.
+
+A placed game goes back to your source set, never to kept files, when its library folder's selection no longer
+selects it, when you turn single copy off for its system, when you choose another holding folder, or when you remove
+the folder's built files. Returns run first in a build, by a rename on one mount and otherwise by a copy or
+conversion verified against the DAT. A game that is still selected leaves an ordinary built copy behind in the
+library folder. A return that needs more space than your source set's root has free is refused before anything
+moves.
+
+A build plan lists each placement and return, says whether it renames, copies or converts, and why a game is copied
+rather than placed. Its single copy section totals the bytes placing frees in your source set and writes in the
+library folder, and the space returns need in your source set's root. The freed and written figures are estimates,
+since block cloning, compression and archive headers change them; the space a return needs is an upper bound.
+Approving the plan approves the changes to your source set. Saving the setting moves no file: the next plan proposes
+placing or returning, a plan made under the old storage policy is refused at approval, and nothing moves until you
+approve.
+
+**Place converted games**, set globally and for each system, off by default and only where single copy is on,
+extends placing to games a play library stores as CHD, a format no source set holds. The disc's CHD is then its only
+copy. An audit can't read the tracks inside a CHD directly: a full audit copies it to the store's `tmp/` folder and
+extracts it with chdman to hash each track, which takes longer and needs free space there; an incremental audit
+reuses that read while the CHD is unchanged; and a quick inventory only takes claims from its header, so it never
+verifies the game. Title Select keeps the disc's `.cue` sheet in the store, exactly as the DAT lists it, checks it on
+every audit, and writes it back when the game returns to your source set: back up the store along with your library
+folders. If a build finds a placed CHD doesn't hold its disc as the DAT lists it, it leaves the CHD in place, deletes
+nothing, and flags the game **Needs review** with the reason, on its source set's overview and in its audit's game
+statuses. A full audit that verifies the file, or returning the game, clears the flag.
+
 ### Ingest folders
 
 An ingest folder is a writable root of kind `ingest` where new files arrive, such as a downloader's completed folder
@@ -1439,7 +1504,8 @@ Instead of unregistering in place, you can:
 - **Set aside** a whole additions set: you review the additions it retires, then approve, and each one's file
   becomes a kept file before the set is unregistered.
 - **Remove the built files** of a library folder: a build plan, which you review and approve, that moves every file
-  its builds placed into its kept files. Then unregister it, or delete the kept files.
+  its builds wrote into its kept files, and returns each game placed there under single copy to its source set.
+  Then unregister it, or delete the kept files.
 - **Move or rename** a library folder within its root: a plan that renames the folder in place, files and all, never
   copying them. You approve it with its digest; if the service stops part way, it finds where the folder ended up
   when it starts again.
@@ -1477,6 +1543,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
 | `PUT /api/v1/source-sets/{name}/coverage`          | set its coverage: `{"coverage": [region]}`, or `{"coverage": null}` to cover every game; returns the source set, its regions in the vocabulary's order. Moves no file and needs no new audit; `400` for an unknown region or an empty list, `409` while an approved repair of it hasn't finished, `503` to set regions without the clone lists |
+| `GET /api/v1/source-sets/{name}/placements`        | where it keeps its games under single copy: `{"holding_folder", "placed"?, "review_flags"?}`, the id of the library folder that holds its placed games (`null` when several are bound and you chose none), each library folder its games are placed in now with how many, `{"library_folder", "games"}`, and the games a build found need review, `{"game", "path", "reason", "build", "raised_at"}` |
+| `PUT /api/v1/source-sets/{name}/holding-folder`    | choose the library folder that holds its placed games: `{"folder": id}`, or `{"folder": null}` for none; returns its placements. Moves no file: the next builds return and place its games. `400` for a folder bound to another source set, `404` for no such folder, `409` while a build placing or returning its games is queued or running |
 | `GET /api/v1/source-sets/{name}/regions`           | its latest audit's games counted by region: `{"audit", "total", "regions"}`, `total` every game once by game status, and each region a game carries, `World` and `Unknown` included, `{"region", "covered", "games"}` in the vocabulary's order; a game counts under each of its regions. `404` before its first audit |
 | `POST /api/v1/source-sets/{name}/coverage/preview` | what setting its coverage would change, saving nothing: the body as for `PUT …/coverage`; returns `{"coverage", "audit"?, "missing_before"?, "missing_after"?, "stale_library_folders"}`, the missing games its coverage counts now and would count after, absent before its first audit, and the library folders that would become stale, each `{"id", "root", "path"}` |
 | `POST /api/v1/source-sets/{name}/stat-walks`       | queue a check for changes; `202`, or `400` when it has never been audited |
@@ -1862,8 +1930,11 @@ Its screens:
   to check single regions, grouped by preset, with **Other regions** last. World games are always covered, and a
   game with no region tag only when you choose Unknown. Before you save, a line previews the change, such as
   "Missing in your coverage: 1204 now, 312 after saving. 2 library folders will become stale." **Save coverage**
-  saves it; no file changes and no new audit is needed. Its header checks it for changes and follows its DAT. **Games** and **Entries** show the latest audit's game statuses and
-  entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
+  saves it; no file changes and no new audit is needed. **Single copy**, shown once a library folder is built from
+  it, says how many of its games each library folder holds as their only copy, linking to it, names the library
+  folder that holds its placed games, lets you choose it when several are built from it, and lists the games a build
+  flagged as needing review, with why. Its header checks it for changes and follows its DAT. **Games** and
+  **Entries** show the latest audit's game statuses and entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
   what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
@@ -1889,7 +1960,9 @@ Its screens:
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
   heuristic), the size of the header matching left out, and the ROMs it matches. Selecting a game shows its warnings,
   such as "may not play: most NES emulators need the iNES header", and its absent ROMs, each one inside another
-  game's ZIP or folder marked "available in <other game>". A pruned audit shows only its summary.
+  game's ZIP or folder marked "available in <other game>". Each game's placement shows beside its status: in your
+  source set, or placed in a library folder as its only copy, which its detail links to. A game a build flagged as
+  needing review is marked beside its status, and its detail says why. A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
   and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes
@@ -1921,7 +1994,8 @@ Its screens:
   into a library folder bound to its source set and selection profile.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
-  play libraries put SBI files beside its discs, with a global settings tab and a tab per
+  play libraries put SBI files beside its discs, whether play libraries keep each game once under single copy and
+  place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
   **Roots** lists the roots in the service's configuration file, read-only: each one's path, whether it's writable
@@ -1939,9 +2013,10 @@ Its screens:
   profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
   plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
   **Overview**, its facts, with the coverage it has from its source set and a link to edit it there, what it lacks
-  and the files built into it; **Selection**, the selection it was built
+  and the files built into it, each placed file marked **Only copy**; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
-  blocks it, its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
+  blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs,
+  its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
   **Builds**; **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept
   files**, by generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers
   to build resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict

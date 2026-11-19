@@ -1,6 +1,6 @@
 //! The `/api/v1` routes.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -38,10 +38,10 @@ use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
 use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
-    ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, Preview,
-    PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, Root, SSE_KEEP_ALIVE, SaveProfile,
-    SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow, SettingsChanged,
-    SourceSetSystem, StartAudit, StartSelection, Vocabulary,
+    ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, PlacedIn, Placements,
+    Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, Root, SSE_KEEP_ALIVE,
+    SaveProfile, SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow,
+    SetHoldingFolder, SettingsChanged, SourceSetSystem, StartAudit, StartSelection, Vocabulary,
 };
 use title_select_selection::Engine;
 use title_select_store::config::Config;
@@ -120,6 +120,11 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/source-sets/{name}/have-miss.csv", get(have_miss))
         .route("/source-sets/{name}/follow", put(set_follow))
         .route("/source-sets/{name}/coverage", put(set_coverage))
+        .route("/source-sets/{name}/placements", get(placements))
+        .route(
+            "/source-sets/{name}/holding-folder",
+            put(set_holding_folder),
+        )
         .route(
             "/source-sets/{name}/stat-walks",
             get(stat_walks).post(start_stat_walk),
@@ -1413,6 +1418,57 @@ async fn set_follow(
     let Json(request) = body?;
     Ok(Json(
         blocking(&state, move |store| store.set_follow(&name, request.follow)).await?,
+    ))
+}
+
+/// Where a Source Set keeps its Games under Single Copy: the folder holding its Placed Games, how many each folder
+/// holds, and the Games a Build found need review.
+async fn placements(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Placements>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| placements_of(store, &name)).await?,
+    ))
+}
+
+fn placements_of(store: &Store, name: &str) -> Result<Placements, Error> {
+    let mut games: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
+    for file in store.placed_files(name)? {
+        games
+            .entry(file.library_folder)
+            .or_default()
+            .insert(file.game);
+    }
+    Ok(Placements {
+        holding_folder: store.holding_folder(name)?,
+        placed: games
+            .into_iter()
+            .map(|(library_folder, games)| PlacedIn {
+                library_folder,
+                games: games.len() as u64,
+            })
+            .collect(),
+        review_flags: store.review_flags(name)?,
+    })
+}
+
+/// Names the Library Folder that holds a Source Set's Placed Games, or none. No file changes: the next Builds return
+/// and place them.
+async fn set_holding_folder(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<SetHoldingFolder>, JsonRejection>,
+) -> ApiResult<Json<Placements>> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.set_holding_folder(&name, request.folder)?;
+            placements_of(store, &name)
+        })
+        .await?,
     ))
 }
 

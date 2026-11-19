@@ -45,7 +45,7 @@ pub const MAKING_PLAN: &str = "Making the repair plan… a large source set can 
 /// What the storage policy says for the plan's system, as the plan follows it.
 pub fn storage_line(storage: &Storage) -> String {
     format!(
-        "The storage policy says this system stores games {}{}, and it must still say so when you approve.",
+        "The storage policy says this system stores games {}{}{}, and it must still say so when you approve.",
         match storage.format {
             StorageFormat::TorrentZip => "as TorrentZip",
             StorageFormat::Loose => "loose where a game has one ROM",
@@ -57,6 +57,15 @@ pub fn storage_line(storage: &Storage) -> String {
             "; delete originals after conversion is on, so each original is deleted once its converted file is verified"
         } else {
             "; each original a conversion replaces goes to kept files"
+        },
+        match (storage.single_copy, storage.place_converted) {
+            (false, _) => "",
+            (true, false) =>
+                "; single copy is on, so a build places each selected game as its only copy",
+            (true, true) => {
+                "; single copy and place converted games are on, so a build places each selected game as its only \
+                 copy, CHD included"
+            }
         }
     )
 }

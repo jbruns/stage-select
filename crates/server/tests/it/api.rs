@@ -3398,6 +3398,119 @@ mod selections {
             json!([{"kind": "profile_saved", "built": 1, "latest": 2}])
         );
     }
+
+    /// Single copy over HTTP: naming the folder that holds the source set's placed games when several are bound, and
+    /// how many games each folder holds once a build places them.
+    #[test]
+    fn the_api_names_the_folder_holding_placed_games_and_counts_the_games_placed_in_it() {
+        use title_select_api::build::{LibraryFolder, Plan};
+        use title_select_api::storage::StoragePolicy;
+        use title_select_api::{PlacedIn, Placements};
+        let env = Env::new();
+        let play = env.tmp.path().join("roots/play");
+        std::fs::create_dir_all(&play).unwrap();
+        let service = title_select_server::spawn(env.settings(&format!(
+            "writable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+            play.display().to_string()
+        )))
+        .unwrap();
+        let client = Client::new(&service);
+        client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
+        client.add_set();
+        let job: Job = client.start_audit().body_mut().read_json().unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let (_, selection) = save(&client, json!({"region_order": ["USA", "Europe"]}));
+        let folder = |path: &str| -> LibraryFolder {
+            let (status, folder) = send(
+                client.post("/libraries"),
+                json!({"root": "play", "path": path, "source_set": SET, "profile": "Everyday"}),
+            );
+            assert_eq!(status, 201, "{folder}");
+            serde_json::from_value(folder).unwrap()
+        };
+        let (a, b) = (folder("a"), folder("b"));
+        const PLACEMENTS: &str = "/source-sets/Test%20-%20System/placements";
+        let put = |body: Value| {
+            let (name, value) = client.auth.clone().unwrap();
+            let mut response = agent()
+                .put(format!(
+                    "{}/source-sets/Test%20-%20System/holding-folder",
+                    client.base
+                ))
+                .header(name, value)
+                .send_json(body)
+                .unwrap();
+            let status = response.status().as_u16();
+            (status, response.body_mut().read_json::<Value>().unwrap())
+        };
+
+        assert_eq!(
+            client.json::<Placements>(PLACEMENTS),
+            Placements::default(),
+            "with two folders bound and none named, none holds its games"
+        );
+        let (status, named) = put(json!({"folder": a.id}));
+        assert_eq!(status, 200, "{named}");
+        assert_eq!(
+            serde_json::from_value::<Placements>(named)
+                .unwrap()
+                .holding_folder,
+            Some(a.id)
+        );
+        let (status, body) = put(json!({"folder": a.id + b.id + 1}));
+        assert_eq!(status, 404, "no such folder: {body}");
+
+        let mut policy: StoragePolicy = client.json("/storage-policy");
+        policy.play_libraries.single_copy = true;
+        let (name, value) = client.auth.clone().unwrap();
+        let response = agent()
+            .put(format!("{}/storage-policy", client.base))
+            .header(name, value)
+            .send_json(serde_json::to_value(&policy).unwrap())
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let (status, plan) = send(
+            client.post(&format!("/libraries/{}/plans", a.id)),
+            json!({"selection": selection.id}),
+        );
+        assert_eq!(status, 201, "{plan}");
+        let plan: Plan = serde_json::from_value(plan).unwrap();
+        assert!(plan.summary.place > 0, "{:?}", plan.content.notes);
+        let (status, job) = send(
+            client.post(&format!("/plans/{}/approval", plan.id)),
+            json!({"digest": plan.digest}),
+        );
+        assert_eq!(status, 202, "{job}");
+        let job: Job = serde_json::from_value(job).unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let placed = client.json::<Placements>(PLACEMENTS);
+        assert_eq!(
+            placed.placed,
+            [PlacedIn {
+                library_folder: a.id,
+                games: plan.summary.place,
+            }],
+            "one count per game, however many files it has"
+        );
+        assert!(placed.review_flags.is_empty());
+
+        let (status, moved) = put(json!({"folder": b.id}));
+        assert_eq!(status, 200, "{moved}");
+        let moved: Placements = serde_json::from_value(moved).unwrap();
+        assert_eq!(moved.holding_folder, Some(b.id));
+        assert_eq!(
+            moved.placed, placed.placed,
+            "naming another folder moves nothing until a build returns them"
+        );
+        let (status, cleared) = put(json!({"folder": null}));
+        assert_eq!(status, 200, "{cleared}");
+        assert_eq!(
+            serde_json::from_value::<Placements>(cleared)
+                .unwrap()
+                .holding_folder,
+            None
+        );
+    }
 }
 
 #[test]

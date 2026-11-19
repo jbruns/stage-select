@@ -254,6 +254,11 @@ pub fn bytes_rate(per_s: f64) -> String {
     }
 }
 
+/// A size in binary units, terse enough for a cell: "312 MiB", "4.2 GiB", "0 B".
+pub fn bytes(n: u64) -> String {
+    bytes_rate(n as f64).trim_end_matches("/s").to_string()
+}
+
 /// A rate against the byte-rate cap in force, if any: "312 MiB/s of 400 MiB/s cap", or "312 MiB/s" uncapped.
 pub fn capped_rate(per_s: f64, cap: Option<u64>) -> String {
     match cap {
@@ -298,7 +303,6 @@ pub fn cpu_label(share: f64) -> String {
 /// What a finished Job read and wrote, and its average throughput: "1.2 GiB read, 300 MiB written, 41 MiB/s on
 /// average".
 pub fn average_fact(t: &JobThroughput) -> String {
-    let bytes = |n: u64| bytes_rate(n as f64).trim_end_matches("/s").to_string();
     let average = t
         .bytes_per_s()
         .map(|r| format!(", {} on average", bytes_rate(r)))

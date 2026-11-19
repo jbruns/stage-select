@@ -4,10 +4,12 @@
 use title_select_api::SelectionRecord;
 use title_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
-    IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder,
-    PlanChoices, PlanContent, PlanItem, PlanRemoval, RemovalKind, RestoreKind, UnfinishedBuild,
+    IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, PlaceHow,
+    PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval, PlanSummary, RemovalKind,
+    RestoreKind, ReturnHow, UnfinishedBuild,
 };
 
+use crate::activity_model::bytes;
 use crate::parts::status::BuildKind;
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
@@ -243,6 +245,13 @@ pub fn item_change(item: &PlanItem) -> (String, String) {
         }
         ItemKind::Unchanged => (target, "as it is".into()),
         ItemKind::Adopt => (target, "recorded as built".into()),
+        ItemKind::Place => match &item.place {
+            Some(place) => {
+                let from: Vec<&str> = place.originals.iter().map(|o| o.path.as_str()).collect();
+                (from.join(", "), target)
+            }
+            None => (target, "placed".into()),
+        },
         _ => (target, "skipped".into()),
     }
 }
@@ -282,8 +291,12 @@ pub fn restore_kind(kind: RestoreKind) -> BuildKind {
 /// The kinds a plan's rows count under, each with what else it does, in the order its review lists them.
 pub fn plan_kinds(content: &PlanContent) -> Vec<(BuildKind, Option<BuildKind>)> {
     let Some(cleanup) = &content.cleanup else {
+        let returns = return_games(content)
+            .into_iter()
+            .map(|_| (BuildKind::Return, None));
         let items = content.items.iter().map(item_kinds);
-        return items
+        return returns
+            .chain(items)
             .chain(content.removals.iter().map(removal_kinds))
             .collect();
     };
@@ -301,6 +314,208 @@ pub fn plan_kinds(content: &PlanContent) -> Vec<(BuildKind, Option<BuildKind>)> 
         .iter()
         .map(|_| (BuildKind::Repack, Some(BuildKind::SetAside)));
     entries.chain(restores).chain(repacks).collect()
+}
+
+/// How a plan places a game, for its detail.
+pub fn place_how_label(how: PlaceHow) -> &'static str {
+    match how {
+        PlaceHow::Rename => {
+            "Renamed: your source set and this folder share a filesystem, so nothing is copied"
+        }
+        PlaceHow::Copy => {
+            "Copied: this folder is on another filesystem, so the file is copied here and read back, then the original deleted"
+        }
+        PlaceHow::Convert => {
+            "Converted: written here in this folder's format and checked, then the originals deleted"
+        }
+        PlaceHow::Built => {
+            "Already built here: your source set's copy is deleted once the built file is checked again"
+        }
+    }
+}
+
+/// How a plan returns a release to its source set, for its detail.
+pub fn return_how_label(how: ReturnHow) -> &'static str {
+    match how {
+        ReturnHow::Rename => {
+            "Renamed home: your source set and this folder share a filesystem, so nothing is copied"
+        }
+        ReturnHow::Copy => {
+            "Copied home and verified against the DAT, then deleted here unless this folder keeps it"
+        }
+        ReturnHow::Convert => {
+            "Written home in your source set's format and verified against the DAT, then deleted here unless this folder keeps it"
+        }
+    }
+}
+
+/// What placing a game does, for its detail: how, the source set files it takes, and the space it frees and writes,
+/// labelled as estimates where they are.
+pub fn place_facts(place: &PlanPlace) -> Vec<(&'static str, String)> {
+    let originals: Vec<&str> = place.originals.iter().map(|o| o.path.as_str()).collect();
+    let written = match place.how {
+        PlaceHow::Rename | PlaceHow::Built => "Nothing".to_string(),
+        PlaceHow::Copy => bytes(place.written),
+        PlaceHow::Convert => estimate(place.written),
+    };
+    vec![
+        ("How", place_how_label(place.how).to_string()),
+        ("Takes from your source set", originals.join(", ")),
+        ("Frees in your source set", estimate(place.freed)),
+        ("Writes here", written),
+    ]
+}
+
+/// "About 3.0 MiB, an estimate".
+fn estimate(n: u64) -> String {
+    format!("About {}, an estimate", bytes(n))
+}
+
+/// "1 game", "3 games".
+fn games(n: u64) -> String {
+    match n {
+        1 => "1 game".to_string(),
+        n => format!("{n} games"),
+    }
+}
+
+/// One game a plan returns to its source set's folder: its release goes whole, with every other game of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReturnGame {
+    pub game: String,
+    pub release: String,
+    /// Its placed files, in the folder.
+    pub current: Vec<String>,
+    /// The files it becomes in the source set's folder.
+    pub proposed: Vec<String>,
+    pub how: ReturnHow,
+    pub reason: String,
+    /// The most its release writes in the source set's root.
+    pub needs: u64,
+    /// Whether the folder keeps its files as built copies once it is home.
+    pub keeps: bool,
+}
+
+/// Each game a plan returns, release by release.
+pub fn return_games(content: &PlanContent) -> Vec<ReturnGame> {
+    content
+        .returns
+        .iter()
+        .flat_map(|r| {
+            r.games.iter().map(move |game| {
+                let placed = r.placed.iter().filter(|p| &p.game == game);
+                ReturnGame {
+                    game: game.clone(),
+                    release: r.release.clone(),
+                    current: placed.clone().map(|p| p.path.clone()).collect(),
+                    proposed: r
+                        .files
+                        .iter()
+                        .filter(|f| &f.game == game)
+                        .map(|f| f.path.clone())
+                        .collect(),
+                    how: r.how,
+                    reason: r.reason.clone(),
+                    needs: r.needs,
+                    keeps: placed.clone().any(|p| p.keeps),
+                }
+            })
+        })
+        .collect()
+}
+
+/// What returning a game does, for its detail.
+pub fn return_facts(game: &ReturnGame) -> Vec<(&'static str, String)> {
+    let needs = match game.needs {
+        0 => "Nothing".to_string(),
+        n => format!("At most {} for its release, an upper bound", bytes(n)),
+    };
+    let mut facts = vec![
+        ("Why", game.reason.clone()),
+        ("How", return_how_label(game.how).to_string()),
+        ("Release", format!("{}, returned whole", game.release)),
+        ("Needs in your source set", needs),
+    ];
+    if game.keeps {
+        facts.push((
+            "Kept here",
+            "Still selected, so this folder keeps its file as an ordinary built copy".to_string(),
+        ));
+    }
+    facts
+}
+
+/// What the plan's placements and returns do to space, as estimates where they are: one line each, none without
+/// either.
+pub fn space_lines(summary: &PlanSummary) -> Vec<String> {
+    let s = summary;
+    let mut lines = Vec::new();
+    if s.place > 0 {
+        let copy = if s.place == 1 {
+            "its only copy"
+        } else {
+            "their only copy"
+        };
+        let how = match s.place - s.place_renamed {
+            0 => "all by a rename".to_string(),
+            n if n == s.place => "copied, converted or already built here".to_string(),
+            n => format!(
+                "{} by a rename, {n} copied, converted or already built here",
+                s.place_renamed
+            ),
+        };
+        lines.push(format!("Places {} here as {copy}: {how}.", games(s.place)));
+        lines.push(match s.place_written {
+            0 => format!(
+                "Frees about {} in your source set and writes nothing new here. That's an estimate: block \
+                 cloning may already share those bytes.",
+                bytes(s.place_freed)
+            ),
+            written => format!(
+                "Frees about {} in your source set and writes about {} here. Both are estimates: block \
+                 cloning, compression and archive headers change them.",
+                bytes(s.place_freed),
+                bytes(written)
+            ),
+        });
+    }
+    if s.returned > 0 {
+        lines.push(match s.return_needs {
+            0 => format!(
+                "Returns {} to your source set by a rename, needing no space there.",
+                games(s.returned)
+            ),
+            needs => format!(
+                "Returns {} to your source set, needing at most {} free in its root. That's an upper \
+                 bound: a rename needs none.",
+                games(s.returned),
+                bytes(needs)
+            ),
+        });
+    }
+    lines
+}
+
+/// The approve button of a build plan: what approving it does.
+pub fn approve_label(summary: &PlanSummary) -> String {
+    let s = summary;
+    let writes = s.copy + s.repack;
+    if s.place + s.returned + s.keep == 0 {
+        return format!("Approve and build {writes} files");
+    }
+    let files = if writes == 1 {
+        "1 file".to_string()
+    } else {
+        format!("{writes} files")
+    };
+    let parts = [
+        (writes > 0).then(|| format!("build {files}")),
+        (s.place > 0).then(|| format!("place {}", games(s.place))),
+        (s.returned > 0).then(|| format!("return {}", games(s.returned))),
+        (s.keep > 0).then(|| format!("set {} aside", s.keep)),
+    ];
+    let parts: Vec<String> = parts.into_iter().flatten().collect();
+    format!("Approve: {}", parts.join(", "))
 }
 
 pub fn keep_reason_label(reason: KeepReason) -> &'static str {
@@ -744,5 +959,161 @@ mod tests {
             assert_eq!(summary_of(&plan, kind) as u64, n, "{kind:?}");
         }
         assert_eq!(s.keep, 3);
+    }
+
+    fn place(how: &str, freed: u64, written: u64) -> PlanPlace {
+        serde_json::from_value(serde_json::json!({
+            "how": how, "freed": freed, "written": written,
+            "originals": [{
+                "path": "Pong (USA).zip", "file": { "size": 1, "mtime_ns": 0 },
+                "identity": { "dev": 1, "ino": 2 }, "ctime_ns": 0,
+            }],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_placement_reads_from_the_source_set_file_it_takes() {
+        let placed = PlanItem {
+            place: Some(place("rename", 1024, 0)),
+            ..item("Pong (USA)", ItemKind::Place)
+        };
+        assert_eq!(
+            item_change(&placed),
+            ("Pong (USA).zip".into(), "Pong (USA).zip".into())
+        );
+    }
+
+    #[test]
+    fn a_placements_space_is_exact_for_a_copy_and_an_estimate_otherwise() {
+        let facts =
+            |p: PlanPlace| -> BTreeMap<&str, String> { place_facts(&p).into_iter().collect() };
+        let renamed = facts(place("rename", 3 * 1024 * 1024, 0));
+        assert!(renamed["How"].starts_with("Renamed"), "{renamed:?}");
+        assert_eq!(renamed["Takes from your source set"], "Pong (USA).zip");
+        assert_eq!(
+            renamed["Frees in your source set"],
+            "About 3.0 MiB, an estimate"
+        );
+        assert_eq!(renamed["Writes here"], "Nothing");
+        let copied = facts(place("copy", 2048, 2048));
+        assert_eq!(copied["Writes here"], "2.0 KiB");
+        let converted = facts(place("convert", 2048, 1500));
+        assert_eq!(converted["Writes here"], "About 1.5 KiB, an estimate");
+    }
+
+    fn summary(json: serde_json::Value) -> PlanSummary {
+        let mut s = serde_json::json!({
+            "copy": 0, "repack": 0, "unchanged": 0, "no_source": 0, "conflict": 0, "blocked": 0,
+        });
+        s.as_object_mut()
+            .unwrap()
+            .extend(json.as_object().unwrap().clone());
+        serde_json::from_value(s).unwrap()
+    }
+
+    #[test]
+    fn the_plans_space_figures_say_which_are_estimates_and_how_many_rename() {
+        assert!(space_lines(&summary(serde_json::json!({}))).is_empty());
+        let placing = space_lines(&summary(serde_json::json!({
+            "place": 3, "place_renamed": 2,
+            "place_freed": 5 * 1024 * 1024 * 1024u64, "place_written": 300 * 1024 * 1024,
+        })));
+        assert_eq!(
+            placing,
+            [
+                "Places 3 games here as their only copy: 2 by a rename, 1 copied, converted or already built here.",
+                "Frees about 5.0 GiB in your source set and writes about 300 MiB here. Both are estimates: block \
+                 cloning, compression and archive headers change them.",
+            ]
+        );
+        let renamed = space_lines(&summary(serde_json::json!({
+            "place": 1, "place_renamed": 1, "place_freed": 1024, "place_written": 0,
+        })));
+        assert_eq!(
+            renamed,
+            [
+                "Places 1 game here as its only copy: all by a rename.",
+                "Frees about 1.0 KiB in your source set and writes nothing new here. That's an estimate: block \
+                 cloning may already share those bytes.",
+            ]
+        );
+        let returning = space_lines(&summary(serde_json::json!({
+            "returned": 2, "return_needs": 64 * 1024,
+        })));
+        assert_eq!(
+            returning,
+            [
+                "Returns 2 games to your source set, needing at most 64 KiB free in its root. That's an upper \
+              bound: a rename needs none."
+            ]
+        );
+        let renamed_home = space_lines(&summary(
+            serde_json::json!({ "returned": 1, "return_needs": 0 }),
+        ));
+        assert_eq!(
+            renamed_home,
+            ["Returns 1 game to your source set by a rename, needing no space there."]
+        );
+    }
+
+    #[test]
+    fn approving_says_what_it_builds_places_returns_and_sets_aside() {
+        assert_eq!(
+            approve_label(&summary(serde_json::json!({ "copy": 1, "repack": 2 }))),
+            "Approve and build 3 files"
+        );
+        assert_eq!(
+            approve_label(&summary(serde_json::json!({
+                "repack": 1, "place": 2, "returned": 1, "keep": 1,
+            }))),
+            "Approve: build 1 file, place 2 games, return 1 game, set 1 aside"
+        );
+    }
+
+    #[test]
+    fn a_return_is_listed_by_game_with_its_releases_files() {
+        let plan = PlanContent {
+            returns: vec![serde_json::from_value(serde_json::json!({
+                "release": "Orbit", "games": ["Orbit (Disc 1)", "Orbit (Disc 2)"], "how": "convert",
+                "reason": "single copy is off for its system", "needs": 65536,
+                "placed": [
+                    { "path": "Orbit (Disc 1).chd", "game": "Orbit (Disc 1)", "file": { "size": 1, "mtime_ns": 0 },
+                      "identity": { "dev": 1, "ino": 2 }, "ctime_ns": 0, "keeps": true },
+                    { "path": "Orbit (Disc 2).chd", "game": "Orbit (Disc 2)", "file": { "size": 1, "mtime_ns": 0 },
+                      "identity": { "dev": 1, "ino": 3 }, "ctime_ns": 0 },
+                ],
+                "files": [
+                    { "path": "Orbit (Disc 1)/Orbit (Disc 1).cue", "game": "Orbit (Disc 1)", "roms": [], "sources": [] },
+                    { "path": "Orbit (Disc 1)/Orbit (Disc 1).bin", "game": "Orbit (Disc 1)", "roms": [], "sources": [] },
+                    { "path": "Orbit (Disc 2)/Orbit (Disc 2).cue", "game": "Orbit (Disc 2)", "roms": [], "sources": [] },
+                ],
+            }))
+            .unwrap()],
+            ..content(Vec::new(), Vec::new())
+        };
+        let games = return_games(&plan);
+        assert_eq!(games.len(), 2);
+        assert_eq!(games[0].current, ["Orbit (Disc 1).chd"]);
+        assert_eq!(
+            games[0].proposed,
+            [
+                "Orbit (Disc 1)/Orbit (Disc 1).cue",
+                "Orbit (Disc 1)/Orbit (Disc 1).bin"
+            ]
+        );
+        assert!(games[0].keeps && !games[1].keeps);
+        let facts: BTreeMap<&str, String> = return_facts(&games[1]).into_iter().collect();
+        assert_eq!(facts["Why"], "single copy is off for its system");
+        assert_eq!(facts["Release"], "Orbit, returned whole");
+        assert_eq!(
+            facts["Needs in your source set"],
+            "At most 64 KiB for its release, an upper bound"
+        );
+        assert_eq!(
+            summary_of(&plan, BuildKind::Return) as u64,
+            plan.summary().returned,
+            "one row per game, as the summary counts them"
+        );
     }
 }
