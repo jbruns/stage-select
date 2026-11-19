@@ -49,3 +49,15 @@ ends and emulators widely prefer CHD and `.m3u` playlists.
 - A disc Source Set needs its full uncompressed size. If a system is too large to keep so, revisit for that system
   rather than weakening Evidence everywhere.
 - RVZ, CSO and ZSO are later Build conversions, under the same verify-once rule.
+
+## Amendment (2026-11-18): a DAT of compressed images
+
+The rule is that a Source Set holds the bytes its DAT lists, not that some formats are banned. Some DATs list
+compressed images themselves, such as No-Intro's NKit RVZ DATs of Redump's Wii and GameCube discs, which give each
+`.rvz` file's own size and checksums. Against such a DAT, the `.rvz` is the DAT-exact file: an Audit verifies it by
+payload like any other loose ROM, without decompressing it, so a Source Set may hold it. What stays excluded is a
+compressed image held against a DAT of its uncompressed tracks or image, such as a CHD or RVZ against a Redump ISO DAT.
+
+Such a DAT's header may name Redump's site without Redump having published it, so its DAT Provider is unknown and its
+system is not a disc system. Its Source Sets then default to TorrentZip; a per-system Storage Policy override to loose
+keeps each image as it is.
