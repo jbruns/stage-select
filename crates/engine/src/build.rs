@@ -1356,11 +1356,21 @@ mod tests {
             sha256: None,
             header: None,
         };
-        // The ZIP is read for the first ROM, but its other member only as it is finished, after every ROM is added;
-        // the loose source is read whole for the second ROM.
-        let zip = file_of(&zip_of(&[("x.bin", b"aaaa"), ("rest.bin", &[7; 4096])]));
-        let loose = file_of(b"bbbbbb");
+        // The ZIP is read for the first ROM, but its other member, stored and far larger than any read ahead of
+        // it, only as it is finished, after every ROM is added; the loose source is read whole for the second ROM.
+        let rest: Vec<u8> = (0..256u32 << 10)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect();
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("x.bin", stored).unwrap();
+        io::Write::write_all(&mut zip, b"aaaa").unwrap();
+        zip.start_file("rest.bin", stored).unwrap();
+        io::Write::write_all(&mut zip, &rest).unwrap();
+        let zip = file_of(&zip.finish().unwrap().into_inner());
         let zip_len = zip.metadata().unwrap().len();
+        let loose = file_of(b"bbbbbb");
         let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
         // At each pause: how many of the Root's readers are taken, whether another Job waiting for one would get it,
         // and what the repack has read.
@@ -1411,8 +1421,8 @@ mod tests {
             "the repack held the Root's only reader, and another Job waited, until its last source was finished"
         );
         assert!(
-            paused[2].3 >= zip_len + 6,
-            "the ZIP was read to its end, and the loose source whole, before the ZIP was finished: {paused:?}"
+            paused[1].3 < rest.len() as u64 / 4 && paused[2].3 >= zip_len + 6,
+            "most of the ZIP was read as it was finished, under the reader it still held: {paused:?}"
         );
         assert_eq!(pool.taken(), 0, "the repack gave its reader back");
     }
