@@ -217,6 +217,8 @@ struct Inputs {
     placed_rows: HashMap<i64, (String, String)>,
     /// Whether a test has said to treat the Source Set and the folder as on different filesystems.
     copy_across: bool,
+    /// The files of the Source Set's Placed Games that are CHDs, by their paths as its Audits name them.
+    placed_chds: HashSet<String>,
 }
 
 fn load(
@@ -391,6 +393,10 @@ fn load(
             })?
             .collect::<rusqlite::Result<_>>()?,
         copy_across: false,
+        placed_chds: crate::placements::placed_chds_of(c, folder.source_set_id)?
+            .into_iter()
+            .map(|p| title_select_api::storage::placed_path(p.folder, &p.path))
+            .collect(),
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -1662,6 +1668,21 @@ fn plan_items(
                         missing.join(", ")
                     )
                 });
+                unkeep(&mut item);
+            }
+            // A Game placed as a CHD in the folder holding the Source Set's Placed Games is read by extracting it,
+            // which a build of another folder doesn't do: it is built here once it is back in its Source Set.
+            Ok(chosen)
+                if chosen
+                    .iter()
+                    .any(|c| inputs.placed_chds.contains(&c.entry.path)) =>
+            {
+                item.kind = ItemKind::NoSource;
+                item.reason = Some(format!(
+                    "it is placed as a CHD in the play library folder holding source set {}'s games, and is built \
+                     here once it is back in the source set",
+                    inputs.folder.source_set
+                ));
                 unkeep(&mut item);
             }
             Ok(chosen) => {

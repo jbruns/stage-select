@@ -81,6 +81,8 @@ struct Staged {
     mtime_ns: i128,
     chd_sha1: Option<String>,
     chd_raw_sha1: Option<String>,
+    /// For a CD made a CHD, its DAT-exact cue sheet, which the CHD doesn't hold.
+    cue: Option<Vec<u8>>,
 }
 
 /// What a Build needs to make a CHD: chdman, or why it can't be run, the store's scratch directory, and whether you
@@ -320,10 +322,11 @@ fn stage_chd(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: Some(header.sha1),
         chd_raw_sha1: Some(header.raw_sha1),
+        cue,
     })
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -375,30 +378,18 @@ fn verify_found_chd(
                 .find(|r| r.name == source.rom)
                 .ok_or_else(|| Failure::Item(format!("the DAT lists no {}", source.rom)))?;
             let opened = open_either(set_fd, &work.placed, source).map_err(Failure::Item)?;
-            let path = dir.join("dat.cue");
-            let dest = File::create_new(&path)
-                .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
-            match source.member.as_deref() {
-                Some(member) => build::write_loose_members(
-                    &[&dest],
-                    &[(rom, member)],
-                    &opened,
-                    &work.from,
-                    &work.scratch,
-                )
-                .map(|_| ()),
-                None => write_loose(
-                    &dest,
-                    &[(rom, 0, None)],
-                    &[(&opened, &work.from)],
-                    &work.scratch,
-                )
-                .map(|_| ()),
-            }
-            .map_err(Failure::Item)?;
-            verify_loose(&dest, rom, &work.scratch)
-                .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?;
-            Some(chd::read_cue(&dest).map_err(Failure::Item)?)
+            let read = dat_cue(
+                rom,
+                source,
+                &opened,
+                &dir.join("dat.cue"),
+                (&work.from, &work.scratch),
+            );
+            Some(
+                read.map_err(|why| {
+                    Failure::Item(format!("its cue sheet in the source set: {why}"))
+                })?,
+            )
         }
     };
     let bins = match &cue {
@@ -455,6 +446,33 @@ fn verify_found_chd(
             )),
         })?;
     Ok((hex(&hasher.finalize()), header))
+}
+
+/// The DAT-exact cue sheet `rom`, written loose from `source`, opened as `opened`, as the new file `path` in a scratch
+/// directory, checked against the DAT, and read: what a CD's CHD doesn't hold. `opened` is counted as read from the
+/// Root it is in, `from`; the scratch file as written and read for the Job alone, `scratch`.
+fn dat_cue(
+    rom: &ExpectedRom,
+    source: &PlanSource,
+    opened: &File,
+    path: &Path,
+    (from, scratch): (&Tally, &Tally),
+) -> std::result::Result<Vec<u8>, String> {
+    let dest = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    match source.member.as_deref() {
+        Some(member) => {
+            build::write_loose_members(&[&dest], &[(rom, member)], opened, from, scratch)
+                .map(|_| ())
+        }
+        None => write_loose(&dest, &[(rom, 0, None)], &[(opened, from)], scratch).map(|_| ()),
+    }?;
+    verify_loose(&dest, rom, scratch)?;
+    chd::read_cue(&dest)
 }
 
 /// The SHA-256 and size of `file`, read from its start, each byte read counted to `tally`, of the Root `file` is in.
@@ -747,6 +765,7 @@ fn stage_by_fd(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
 }
 
@@ -833,6 +852,7 @@ fn stage(
             mtime_ns: staged_mtime(file)?,
             chd_sha1: None,
             chd_raw_sha1: None,
+            cue: None,
         });
     }
     // A Placed Game is read from the Library Folder holding it, by descriptor.
@@ -920,6 +940,7 @@ fn stage(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
 }
 
@@ -969,6 +990,7 @@ fn stage_generated(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
 }
 
@@ -2055,14 +2077,15 @@ impl Store {
         let threads = self.chdman_threads(config)?;
         let meter = self.meter.job(job);
         let chd_work = ChdWork {
-            chdman: match work.iter().any(|w| w.item.chd) {
+            // A return extracts any CHD it takes home.
+            chdman: match work.iter().any(|w| w.item.chd) || !returning.is_empty() {
                 true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
                     program,
                     threads,
                     deadline: limits.base,
                     tally: meter.tally(None),
                 }),
-                false => Err("no item is a CHD".into()),
+                false => Err("no item is a CHD, and nothing is returned".into()),
             },
             store: self,
             to: meter.tally(Some(&folder_row.root)),
@@ -2181,6 +2204,7 @@ impl Store {
                 config,
                 to: &to,
                 from: &library,
+                chd: Some(&chd_work),
             };
             for (seq, r) in &returning {
                 if cancelled || self.cancel_requested(job)? {
@@ -2204,7 +2228,13 @@ impl Store {
             if let Some(set) = &placing
                 && unit[0].item.kind == ItemKind::Place
             {
-                self.place_unit(&placer, set, unit, (&staging, &mut staged_ids, built_at))?;
+                self.place_unit(
+                    &placer,
+                    set,
+                    unit,
+                    (&staging, &mut staged_ids, built_at),
+                    &chd_work,
+                )?;
                 for _ in unit {
                     tick(&mut done);
                 }

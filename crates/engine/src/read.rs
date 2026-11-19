@@ -64,6 +64,14 @@ pub struct ToRead {
     /// The folder below which no symbolic link is followed to reach `path`, when there is one: a Library Folder
     /// holding Placed Games, whose files are read only where they were placed.
     pub beneath: Option<PathBuf>,
+    /// For a Placed Game's CHD, what it holds and how chdman reads it.
+    pub chd: Option<Box<ChdRead>>,
+}
+
+/// A placed CHD to read, and how.
+pub struct ChdRead {
+    pub placed: crate::PlacedChd,
+    pub audit: crate::ChdAudit,
 }
 
 impl ToRead {
@@ -506,6 +514,9 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
             };
         }
     }
+    if let Some(chd) = &file.chd {
+        return read_chd(file, chd, how, jobs);
+    }
     if how.evidence == AuditEvidence::Quick && file.is_zip {
         let stamp = file.stamp();
         let claimed = claim_file(file);
@@ -546,6 +557,225 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
         }
     }
     read
+}
+
+/// Reads the placed CHD `file`, as `chd` says: in a quick inventory, claims each track by its header's SHA-1; else
+/// extracts it and reads each track, and records the read, as any file's. A CD's cue sheet is read from the store.
+fn read_chd(file: &ToRead, chd: &ChdRead, how: How, jobs: Hand) -> FileRead {
+    if how.evidence == AuditEvidence::Quick {
+        let (claimed, stamp) = claim_chd(file, chd, jobs, how.header);
+        if let (Some(reads), Some(stamp), None) = (how.reads, stamp, &claimed.error) {
+            reads.claimed(&file.rel, &stamp);
+        }
+        return claimed;
+    }
+    let read_at = jiff::Timestamp::now();
+    let (read, stamp) = extract_chd(file, chd, jobs, read_at, how);
+    how.tally.file_read();
+    if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+        let members: Option<Vec<_>> = read
+            .members
+            .iter()
+            .map(|(m, sums)| match sums {
+                Ok(Known::Payload(sums)) => Some((m.clone(), sums.clone())),
+                _ => None,
+            })
+            .collect();
+        match members {
+            Some(members) if read.error.is_none() => reads.record(
+                &file.rel,
+                &PayloadRead {
+                    stamp,
+                    read_at,
+                    members,
+                    header_rule: how.header,
+                },
+            ),
+            _ => reads.record_unreadable(&file.rel, &stamp),
+        }
+    }
+    read
+}
+
+/// A placed CHD's disc: whether it is a CD or a DVD, and the ROMs its tracks are, in order. Its cue sheet's read, or
+/// why it can't be.
+type Disc<'r> = (
+    title_select_api::storage::ChdKind,
+    Vec<&'r title_select_api::build::ExpectedRom>,
+);
+
+fn disc<'r>(chd: &'r crate::PlacedChd) -> Result<Disc<'r>, String> {
+    let cue = match &chd.cue {
+        Some(Ok(cue)) => Some(cue.as_slice()),
+        Some(Err(why)) => return Err(format!("its cue sheet can't be read: {why}")),
+        None => None,
+    };
+    crate::chd::disc_of(&chd.game, &chd.roms, cue)
+}
+
+/// The cue sheet member of a placed CHD's read, read from where the store keeps it, if it has one.
+fn cue_member(
+    chd: &crate::PlacedChd,
+    jobs: Hand,
+    header: Option<HeaderRule>,
+) -> Option<(Option<String>, Result<Known, String>)> {
+    let rom = chd
+        .roms
+        .iter()
+        .find(|r| r.name.to_ascii_lowercase().ends_with(".cue"))?;
+    let known = match &chd.cue {
+        Some(Ok(cue)) => checksum(cue.as_slice(), jobs, header).map(Known::Payload),
+        Some(Err(why)) => Err(format!(
+            "its cue sheet, kept in the store, can't be read: {why}"
+        )),
+        None => Err("no cue sheet is kept for it in the store".into()),
+    };
+    Some((Some(rom.name.clone()), known))
+}
+
+/// Claims each track of the placed CHD `file` from its header, while the header's SHA-1 is the one it held when it was
+/// placed: a track by the size and CRC32 the DAT gave it then.
+fn claim_chd(
+    file: &ToRead,
+    chd: &ChdRead,
+    jobs: Hand,
+    header: Option<HeaderRule>,
+) -> (FileRead, Option<FileStamp>) {
+    let mut read = FileRead {
+        members: Vec::new(),
+        error: None,
+        origin: Origin::Claimed,
+    };
+    let placed = &chd.placed;
+    // Its cue sheet is claimed with its tracks, by the size and CRC32 of the bytes the store keeps: an inventory makes
+    // no Game Verified.
+    read.members
+        .extend(cue_member(placed, jobs, header).map(|(name, known)| {
+            let claim = known.map(|known| match known {
+                Known::Payload(sums) => Known::Claim {
+                    size: sums.size,
+                    crc: sums.crc,
+                },
+                claim => claim,
+            });
+            (name, claim)
+        }));
+    let opened = match file.open() {
+        Ok(opened) => opened,
+        Err(e) => {
+            read.error = Some(e.to_string());
+            return (read, None);
+        }
+    };
+    let stamp = opened
+        .metadata()
+        .ok()
+        .and_then(|m| FileStamp::from_metadata(&m));
+    let claimed = crate::chd::header(&opened).and_then(|h| match h.sha1 == placed.sha1 {
+        true => disc(placed),
+        false => Err(
+            "its CHD header no longer holds the SHA-1 it was placed with, so it claims nothing; a full audit reads \
+             what it holds"
+                .into(),
+        ),
+    });
+    match claimed {
+        Ok((_, bins)) => {
+            for rom in bins {
+                let known = rom
+                    .crc
+                    .clone()
+                    .map(|crc| Known::Claim {
+                        size: rom.size,
+                        crc,
+                    })
+                    .ok_or_else(|| "the DAT gave no CRC32 to claim it by".to_owned());
+                read.members.push((Some(rom.name.clone()), known));
+            }
+        }
+        Err(why) => read.error = Some(why),
+    }
+    (read, stamp)
+}
+
+/// One CHD's folder in the scratch directory, removed with what is in it once dropped.
+struct ChdScratch(PathBuf);
+
+impl Drop for ChdScratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Extracts the placed CHD `file` from a private copy in the scratch directory, and reads each track it gives back as
+/// the ROM it is to be; and a CD's cue sheet from the store. Returns what was read, and the file as it was when opened.
+fn extract_chd(
+    file: &ToRead,
+    chd: &ChdRead,
+    jobs: Hand,
+    read_at: jiff::Timestamp,
+    how: How,
+) -> (FileRead, Option<FileStamp>) {
+    static SCRATCH: AtomicUsize = AtomicUsize::new(0);
+    let mut read = FileRead {
+        members: Vec::new(),
+        error: None,
+        origin: Origin::Read(read_at),
+    };
+    let placed = &chd.placed;
+    read.members.extend(cue_member(placed, jobs, how.header));
+    let opened = match file.open() {
+        Ok(opened) => opened,
+        Err(e) => {
+            read.error = Some(e.to_string());
+            return (read, None);
+        }
+    };
+    let stamp = opened
+        .metadata()
+        .ok()
+        .and_then(|m| FileStamp::from_metadata(&m));
+    // A folder of its own, removed with what is in it once every track is read.
+    let dir = chd.audit.tmp.join(format!(
+        "audit-chd-{}-{}",
+        std::process::id(),
+        SCRATCH.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _scratch = ChdScratch(dir.clone());
+    let extracted = (|| -> Result<Vec<(String, PathBuf)>, String> {
+        let (kind, bins) = disc(placed)?;
+        let chdman = crate::chd::Chdman {
+            deadline: chd
+                .audit
+                .limits
+                .for_bytes(placed.roms.iter().map(|r| r.size).sum()),
+            ..chd.audit.chdman.clone()?
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        crate::chd::copy_for_chdman(&opened, kind, &bins, &dir.join("out.chd"), how.tally)?;
+        let given = chdman
+            .extract(&dir, kind, &bins, &|| false)
+            .map_err(|stop| match stop {
+                crate::chd::Stop::Failed(why) => why,
+                crate::chd::Stop::Cancelled => "chdman was stopped".to_owned(),
+            })?;
+        Ok(bins.iter().map(|r| r.name.clone()).zip(given).collect())
+    })();
+    match extracted {
+        Ok(tracks) => {
+            // Read in the scratch directory, not from any Root.
+            let scratch = Tally::default();
+            for (name, path) in tracks {
+                let sums = File::open(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|f| checksum(Reading::new(f, &scratch), jobs, how.header));
+                read.members.push((Some(name), sums.map(Known::Payload)));
+            }
+        }
+        Err(why) => read.error = Some(why),
+    }
+    (read, stamp)
 }
 
 /// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
@@ -754,6 +984,7 @@ mod tests {
                     is_zip: false,
                     rel: format!("{i}.bin"),
                     beneath: None,
+                    chd: None,
                 }
             })
             .collect()
@@ -920,6 +1151,7 @@ mod tests {
                     is_zip: false,
                     rel: format!("{i}.bin"),
                     beneath: None,
+                    chd: None,
                 }
             })
             .collect()

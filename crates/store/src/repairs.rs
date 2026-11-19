@@ -867,10 +867,14 @@ impl Store {
         let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         let mut placed = HashMap::new();
         let mut placed_files = HashMap::new();
+        let mut placed_chds = HashSet::new();
         let mut placed_dirs = BTreeMap::new();
         for file in self.read(|c| crate::placements::placed_files_of(c, set.id))? {
             let at = placed_path(file.library_folder, &file.path);
             placed_files.insert(at.clone(), file.game.clone());
+            if file.chd {
+                placed_chds.insert(at.clone());
+            }
             if !reported.contains(at.as_str()) {
                 continue;
             }
@@ -925,6 +929,7 @@ impl Store {
             covers: &|game| covering.covers(game),
             placed: &placed,
             placed_files: &placed_files,
+            placed_chds: &placed_chds,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file

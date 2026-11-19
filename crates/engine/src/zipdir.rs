@@ -417,6 +417,7 @@ mod tests {
             is_zip: true,
             rel: "a.zip".into(),
             beneath: None,
+            chd: None,
         }];
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,
@@ -638,6 +639,7 @@ mod tests {
             is_zip: true,
             rel: "a.zip".into(),
             beneath: None,
+            chd: None,
         }];
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,

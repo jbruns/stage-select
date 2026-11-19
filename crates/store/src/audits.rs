@@ -63,6 +63,9 @@ struct PlacedRead {
     files: Vec<String>,
     /// For a Job, its pools for the folder's Root: its readers, and the Host's hash workers.
     pools: Option<crate::ceilings::JobPools>,
+    /// Those of `files` that are CHDs, and how chdman reads them.
+    chds: Vec<title_select_engine::PlacedChd>,
+    chd: title_select_engine::ChdAudit,
 }
 
 /// The payload reads recorded for a Source Set, as an Audit of it reuses and records them.
@@ -892,17 +895,56 @@ impl Store {
     /// What an Audit of Source Set `set` reads of its Placed Games, by the Library Folder that holds them, with the
     /// pools of each folder's Root for the Job `job`, if it runs in one.
     fn placed_reads(&self, config: &Config, set: i64, job: Option<i64>) -> Result<Vec<PlacedRead>> {
+        let chds = self.read(|c| crate::placements::placed_chds_of(c, set))?;
+        // chdman, found as a Build finds it, only for an Audit that has a CHD to read.
+        let chdman = match chds.is_empty() {
+            true => Err("no placed game is a CHD".to_owned()),
+            false => {
+                let threads = self.chdman_threads(config)?;
+                let tally =
+                    job.map_or_else(Default::default, |job| self.meter.job(job).tally(None));
+                title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
+                    title_select_engine::chd::Chdman {
+                        program,
+                        threads,
+                        deadline: Default::default(),
+                        tally,
+                    }
+                })
+            }
+        };
+        let chd = title_select_engine::ChdAudit {
+            chdman,
+            limits: self.settings()?.chd_limits(),
+            tmp: self.dir().join(crate::TMP),
+        };
         self.placed_folders(config, set)?
             .into_iter()
             .map(|(folder, resolved, files)| {
                 let pools = job
                     .map(|_| self.job_pools(config, &resolved.root))
                     .transpose()?;
+                let chds = chds
+                    .iter()
+                    .filter(|c| c.folder == folder)
+                    .map(|c| title_select_engine::PlacedChd {
+                        rel: c.path.clone(),
+                        game: c.game.clone(),
+                        sha1: c.sha1.clone(),
+                        roms: c.roms.clone(),
+                        cue: c
+                            .cue
+                            .as_deref()
+                            .map(|sha| self.kept_cue(sha).map_err(|e| e.to_string())),
+                    })
+                    .collect();
                 Ok(PlacedRead {
                     folder,
                     resolved,
                     files,
                     pools,
+                    chds,
+                    chd: chd.clone(),
                 })
             })
             .collect()
@@ -979,6 +1021,8 @@ impl Store {
                 tally: running.job.map_or_else(Default::default, |job| {
                     self.meter.job(job).tally(Some(&p.resolved.root))
                 }),
+                chds: p.chds.clone(),
+                chd: p.chd.clone(),
             })
             .collect();
         let report = title_select_engine::audit_with(

@@ -47,7 +47,8 @@ pub(crate) fn holding_folder(c: &Connection, set: i64) -> Result<Option<i64>> {
 }
 
 const PLACED_QUERY: &str =
-    "SELECT game, folder_id, path, size, mtime_ns, dev, ino, ctime_ns, sha256 FROM placed_files";
+    "SELECT game, folder_id, path, size, mtime_ns, dev, ino, ctime_ns, sha256,
+                                   chd_roms IS NOT NULL FROM placed_files";
 
 fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
     Ok(PlacedFile {
@@ -62,6 +63,7 @@ fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
         ino: r.get::<_, i64>(6)? as u64,
         ctime_ns: r.get::<_, i64>(7)? as i128,
         sha256: r.get(8)?,
+        chd: r.get(9)?,
     })
 }
 
@@ -271,6 +273,68 @@ pub(crate) fn place_file_as(
         ],
     )?;
     Ok(())
+}
+
+/// Records the Placed Game's file `path` in Library Folder `folder`, recorded placed in this transaction, as a CHD of
+/// the disc whose ROMs are `roms`: one whose header held `sha1` when extracting it gave back every track exactly, and
+/// for a CD whose DAT-exact cue sheet is kept in the store as `cue`, which the blob must already be, written and synced.
+pub(crate) fn place_chd(
+    tx: &Transaction,
+    folder: i64,
+    path: &str,
+    sha1: &str,
+    roms: &[title_select_api::build::ExpectedRom],
+    cue: Option<&str>,
+) -> Result<()> {
+    let roms = serde_json::to_string(roms).map_err(|e| Error::Io(e.to_string()))?;
+    tx.execute(
+        "UPDATE placed_files SET chd_sha1 = ?3, chd_roms = ?4, cue_sha256 = ?5 WHERE folder_id = ?1 AND path = ?2",
+        params![folder, path, sha1, roms, cue],
+    )?;
+    Ok(())
+}
+
+/// A Placed Game's file that is a CHD, as [`place_chd`] recorded it.
+#[derive(Debug, Clone)]
+pub(crate) struct PlacedChd {
+    pub folder: i64,
+    pub path: String,
+    pub game: String,
+    pub sha1: String,
+    pub roms: Vec<title_select_api::build::ExpectedRom>,
+    pub cue: Option<String>,
+}
+
+/// The files of Source Set `set`'s Placed Games that are CHDs, by Library Folder and path.
+pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>> {
+    let mut stmt = c.prepare(
+        "SELECT folder_id, path, game, chd_sha1, chd_roms, cue_sha256 FROM placed_files
+         WHERE source_set_id = ?1 AND chd_roms IS NOT NULL ORDER BY folder_id, path",
+    )?;
+    let rows = stmt
+        .query_map([set], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(folder, path, game, sha1, roms, cue)| {
+            Ok(PlacedChd {
+                folder,
+                path,
+                game,
+                sha1: sha1.unwrap_or_default(),
+                roms: serde_json::from_str(&roms).map_err(|e| Error::Io(e.to_string()))?,
+                cue,
+            })
+        })
+        .collect()
 }
 
 /// The Game the Placed Game's file `path` in Library Folder `folder` is a file of; none when it is no such file.
@@ -825,5 +889,145 @@ pub(crate) fn returned_entries(
             params![set, path],
         )?;
     }
+    Ok(())
+}
+
+/// Records, in Source Set `set`'s latest finished Audit, that its Placed Game's CHD `path` in Library Folder `folder`
+/// did not give back its disc as the DAT lists it when a return extracted it, so that its Game needs review, and why:
+/// its Entries are replaced by one Unreadable Entry with the reason, the ROMs only they held are missing from its Game,
+/// and the payload read an Incremental Audit would reuse is forgotten, so that the next Audit reads it again. Nothing
+/// when the Source Set has no finished Audit.
+pub(crate) fn flag_for_review(
+    tx: &Transaction,
+    set: i64,
+    folder: i64,
+    path: &str,
+    why: &str,
+) -> Result<()> {
+    use std::collections::BTreeSet;
+    use title_select_api::report::{Finding, GameStatus};
+    let path = title_select_api::storage::placed_path(folder, path);
+    tx.execute(
+        "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+        params![set, path],
+    )?;
+    let Some(audit) = tx
+        .query_row(
+            "SELECT id FROM audits WHERE source_set_id = ?1 AND status = 'finished' AND pruned_at IS NULL
+             ORDER BY finish_seq DESC LIMIT 1",
+            [set],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+    else {
+        return Ok(());
+    };
+    let corrupt = |e: serde_json::Error| Error::Io(e.to_string());
+    let mut was = Vec::new();
+    {
+        let mut stmt = tx.prepare(&format!(
+            "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
+            crate::audits::ENTRY_COLUMNS
+        ))?;
+        let mut rows = stmt.query(params![audit, path])?;
+        while let Some(row) = rows.next()? {
+            was.push(crate::audits::entry_from_row(row)?);
+        }
+    }
+    tx.execute(
+        "DELETE FROM audit_entries WHERE audit_id = ?1 AND path = ?2",
+        params![audit, path],
+    )?;
+    let seq: i64 = tx.query_row(
+        "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
+        [audit],
+        |r| r.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
+                                    evidence_level, algorithms, reason, read_at, reused, header_bytes)
+         VALUES (?1, ?2, ?3, NULL, ?4, '[]', NULL, NULL, NULL, NULL, ?5, NULL, 0, NULL)",
+        params![audit, seq, path, Finding::Unreadable.as_str(), why],
+    )?;
+    let mut counts: Vec<(&str, i64)> = vec![(Finding::Unreadable.as_str(), 1)];
+    for e in &was {
+        counts.push((e.finding.as_str(), -1));
+    }
+    // Each Game whose ROMs the CHD held: those no other Entry of the Audit still holds are missing.
+    let games: BTreeSet<&str> = was
+        .iter()
+        .flat_map(|e| e.roms.iter().map(|r| r.game.as_str()))
+        .collect();
+    for game in games {
+        let Some((status, missing, claimed)) = tx
+            .query_row(
+                "SELECT status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 AND name = ?2",
+                params![audit, game],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        let mut missing: Vec<String> = serde_json::from_str(&missing).map_err(corrupt)?;
+        let mut claimed: Vec<String> = serde_json::from_str(&claimed).map_err(corrupt)?;
+        let held: BTreeSet<String> = {
+            let mut stmt =
+                tx.prepare("SELECT roms FROM audit_entries WHERE audit_id = ?1 AND roms != '[]'")?;
+            let rows = stmt.query_map([audit], |r| r.get::<_, String>(0))?;
+            let mut held = BTreeSet::new();
+            for roms in rows {
+                let roms: Vec<title_select_api::report::RomRef> =
+                    serde_json::from_str(&roms?).map_err(corrupt)?;
+                held.extend(roms.into_iter().filter(|r| r.game == game).map(|r| r.name));
+            }
+            held
+        };
+        for name in was
+            .iter()
+            .flat_map(|e| &e.roms)
+            .filter(|r| r.game == game && !held.contains(&r.name))
+            .map(|r| r.name.clone())
+        {
+            claimed.retain(|c| *c != name);
+            if !missing.contains(&name) {
+                missing.push(name);
+            }
+        }
+        let now = match held.is_empty() {
+            true => GameStatus::Missing,
+            false if missing.is_empty() => GameStatus::Complete,
+            false => GameStatus::Incomplete,
+        };
+        tx.execute(
+            "UPDATE audit_games SET status = ?3, missing_roms = ?4, claimed_roms = ?5
+             WHERE audit_id = ?1 AND name = ?2",
+            params![
+                audit,
+                game,
+                now.as_str(),
+                serde_json::to_string(&missing).map_err(corrupt)?,
+                serde_json::to_string(&claimed).map_err(corrupt)?
+            ],
+        )?;
+        if let Some(was) = GameStatus::parse(&status)
+            && was != now
+        {
+            counts.push((now.as_str(), 1));
+            counts.push((was.as_str(), -1));
+        }
+    }
+    for (column, n) in counts {
+        // Every column named is a Finding's or a Game Status's, as the report names it.
+        tx.execute(
+            &format!("UPDATE audits SET {column} = {column} + ?2 WHERE id = ?1"),
+            params![audit, n],
+        )?;
+    }
+    let content = crate::audits::content_sha256(tx, audit)?;
+    tx.execute(
+        "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
+        params![audit, content],
+    )?;
     Ok(())
 }

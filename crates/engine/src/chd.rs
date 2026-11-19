@@ -793,6 +793,36 @@ impl Chdman {
         expected: &[&ExpectedRom],
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Header, Stop> {
+        let given = self.extract(dir, kind, expected, cancelled)?;
+        for (path, rom) in given.iter().zip(expected.iter().copied()) {
+            if cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            let file = File::open(path).map_err(|e| format!("{}: {e}", rom.name))?;
+            let len = file.metadata().map_err(|e| e.to_string())?.len();
+            if len != rom.size {
+                return Err(Stop::Failed(format!(
+                    "{}: chdman gave back {len} bytes, not the DAT's {}",
+                    rom.name, rom.size
+                )));
+            }
+            verify_loose(&file, rom, &self.tally)
+                .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
+        }
+        let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
+        header(&chd).map_err(Stop::Failed)
+    }
+
+    /// Extracts `dir/out.chd` into `dir/x`, and returns what it gave back, in order: a file for each track of a CD, or
+    /// a DVD's image, as many as `expected`, the disc's tracks; chdman is stopped once it writes more than they take
+    /// and a cue sheet. What it gave back is not checked against them.
+    pub fn extract(
+        &self,
+        dir: &Path,
+        kind: ChdKind,
+        expected: &[&ExpectedRom],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<PathBuf>, Stop> {
         let out = dir.join("x");
         std::fs::create_dir(&out).map_err(|e| format!("{}: {e}", out.display()))?;
         let tracks = expected.len();
@@ -831,24 +861,88 @@ impl Chdman {
                 given.len()
             )));
         }
-        for (path, rom) in given.iter().zip(expected.iter().copied()) {
-            if cancelled() {
-                return Err(Stop::Cancelled);
-            }
-            let file = File::open(path).map_err(|e| format!("{}: {e}", rom.name))?;
-            let len = file.metadata().map_err(|e| e.to_string())?.len();
-            if len != rom.size {
-                return Err(Stop::Failed(format!(
-                    "{}: chdman gave back {len} bytes, not the DAT's {}",
-                    rom.name, rom.size
-                )));
-            }
-            verify_loose(&file, rom, &self.tally)
-                .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
-        }
-        let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
-        header(&chd).map_err(Stop::Failed)
+        Ok(given)
     }
+}
+
+/// The disc a placed CHD holds, as its ROMs `roms` of Game `game` say: whether it is a CD or a DVD, a CD's cue sheet,
+/// `cue`, which it doesn't hold, and the ROMs it gives back once extracted, in order: each track the cue sheet names,
+/// or a DVD's image.
+pub fn disc_of<'r>(
+    game: &str,
+    roms: &'r [ExpectedRom],
+    cue: Option<&[u8]>,
+) -> Result<(ChdKind, Vec<&'r ExpectedRom>), String> {
+    let sized: Vec<(&str, u64)> = roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
+    let kind = title_select_api::storage::chd_of(game, &sized).map_err(str::to_owned)?;
+    let bins = match (kind, cue) {
+        (ChdKind::Cd, Some(cue)) => cue_matches(&cue_tracks(cue)?, roms)?,
+        (ChdKind::Cd, None) => return Err("a CD is extracted by its cue sheet".into()),
+        (ChdKind::Dvd, _) => roms.iter().collect(),
+    };
+    Ok((kind, bins))
+}
+
+/// Copies the CHD `file`, of a disc whose tracks are `bins`, to the new file `dest` in a scratch directory, for chdman
+/// to read rather than the file where it is: its header and a CD's track metadata are first checked not to say it
+/// holds more than the disc does, nothing past its size as first seen is copied, and the copy is checked the same.
+/// `file` must hold still, by its size, modification time and change time, from before it is copied until after.
+/// Returns the SHA-256 of what was copied. What is read of `file` is counted to `from`.
+pub fn copy_for_chdman(
+    file: &File,
+    kind: ChdKind,
+    bins: &[&ExpectedRom],
+    dest: &Path,
+    from: &Tally,
+) -> Result<String, String> {
+    use sha2::Digest;
+    use std::os::unix::fs::MetadataExt;
+    let seen = |file: &File| {
+        file.metadata()
+            .map(|m| {
+                (
+                    m.len(),
+                    m.mtime(),
+                    m.mtime_nsec(),
+                    m.ctime(),
+                    m.ctime_nsec(),
+                )
+            })
+            .map_err(|e| e.to_string())
+    };
+    let before = seen(file)?;
+    let unfit = |why: String| format!("{why}; it was not extracted");
+    fits(file, kind, bins).map_err(unfit)?;
+    let mut copy = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    let mut reader = file;
+    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut reader = reader.take(before.0);
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0; 1 << 16];
+    let _reading = from.reader();
+    loop {
+        let n = from
+            .read_from(&mut reader, &mut buf)
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        std::io::Write::write_all(&mut copy, &buf[..n])
+            .map_err(|e| format!("{}: {e}", dest.display()))?;
+    }
+    from.file_read();
+    if seen(file)? != before {
+        return Err("it changed while it was read".into());
+    }
+    fits(&copy, kind, bins).map_err(unfit)?;
+    copy.sync_all().map_err(|e| e.to_string())?;
+    Ok(crate::hex(&hasher.finalize()))
 }
 
 /// Reads at most [`CUE_MAX`] bytes of the cue sheet `file` from its start.

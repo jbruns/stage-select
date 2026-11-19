@@ -336,6 +336,13 @@ impl Store {
                     files,
                     pools: None,
                     tally: Default::default(),
+                    // A stat walk reads no file.
+                    chds: Vec::new(),
+                    chd: title_select_engine::ChdAudit {
+                        chdman: Err("a stat walk runs no chdman".into()),
+                        limits: self.settings()?.chd_limits(),
+                        tmp: self.dir().join(crate::TMP),
+                    },
                 },
             ));
         }

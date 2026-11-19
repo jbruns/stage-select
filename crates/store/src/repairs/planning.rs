@@ -48,6 +48,8 @@ pub(super) struct Inputs<'a> {
     pub placed: &'a HashMap<String, Located>,
     /// The Game each Placed Game's file is a file of, by its path in the Audit: never a source for another.
     pub placed_files: &'a HashMap<String, String>,
+    /// The Placed Games' files that are CHDs, by their paths in the Audit.
+    pub placed_chds: &'a HashSet<String>,
 }
 
 /// Where a file, or a Game's files, are: a Library Folder, by its id, and the folder in it holding them (empty for
@@ -62,6 +64,10 @@ fn located(path: &str) -> Located {
 /// Why a repair leaves a Placed Game it would have to convert.
 const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks, replaces or \
      completes its files but doesn't yet convert them";
+
+/// Why a repair leaves a Game placed as a CHD, and every file of it.
+const PLACED_CHD: &str = "it is placed as a CHD in a play library folder, and a repair doesn't change a CHD; once \
+     it is back in the source set, a repair can";
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
@@ -1537,6 +1543,39 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
         item.note = Some(format!("left as it is: {PLACED_WRITES}"));
+        leave_release(&mut proposed, n);
+    }
+
+    // A Game placed as a CHD is read only by extracting it, which a repair doesn't do: it, and each file at its CHD's
+    // path, is left as it is, whatever the Audit found there.
+    let chd_games: HashSet<&str> = i
+        .placed_chds
+        .iter()
+        .filter_map(|path| i.placed_files.get(path))
+        .map(String::as_str)
+        .collect();
+    let touches_chd: Vec<usize> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.item
+                .game
+                .as_deref()
+                .is_some_and(|g| chd_games.contains(g))
+                || p.item
+                    .path
+                    .as_deref()
+                    .is_some_and(|t| i.placed_chds.contains(t))
+                || p.displaces.iter().any(|(d, _)| i.placed_chds.contains(d))
+        })
+        .map(|(n, _)| n)
+        .collect();
+    for n in touches_chd {
+        let item = &mut proposed[n].item;
+        item.choices = vec![RepairChoice::Leave];
+        item.default = RepairChoice::Leave;
+        item.chosen = RepairChoice::Leave;
+        item.note = Some(format!("left as it is: {PLACED_CHD}"));
         leave_release(&mut proposed, n);
     }
 

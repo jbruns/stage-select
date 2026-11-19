@@ -1938,3 +1938,892 @@ fn a_zip_converted_to_several_files_is_deleted_only_once_every_file_holds() {
         }
     }
 }
+
+// Place Converted Games (#216): under single copy, a disc the play library stores as CHD is placed there as its CHD,
+// its cue sheet kept in the store, rather than copied.
+
+/// Turns single copy on for `env`, with its source set's folder writable and the system's games stored in play
+/// libraries as CHD, converted games placed, by `chdman`.
+fn placing_chds(env: &mut Env, chdman: &Path) {
+    placing(env, Some(chdman));
+    let mut policy = env.store.storage_policy().unwrap();
+    let system = policy
+        .play_libraries
+        .systems
+        .entry(SYSTEM.into())
+        .or_default();
+    system.format = Some(StorageFormat::Chd);
+    system.place_converted = Some(true);
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+impl Env {
+    /// A Selection of `titles`, each the winner of its own group.
+    fn select(&self, titles: &[&str]) -> i64 {
+        self.store
+            .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
+            .unwrap();
+        let job = self.store.claim_job().unwrap().unwrap();
+        let selection = Selection {
+            pins: SelectionPins::default(),
+            dat_sha256: self.sha256.clone(),
+            system: SET.into(),
+            system_settings: false,
+            summary: SelectionSummary::default(),
+            coverage_drift: CoverageDrift::default(),
+            groups: titles.iter().map(|t| group(t)).collect(),
+            stale_choices: Default::default(),
+        };
+        self.store
+            .record_selection(job.id, &selection)
+            .unwrap()
+            .selection
+            .unwrap()
+    }
+
+    fn audit(
+        &self,
+        evidence: title_select_engine::AuditEvidence,
+    ) -> title_select_api::report::Report {
+        self.store
+            .audit_source_set(&self.config, SET, None, evidence)
+            .unwrap()
+            .report
+    }
+
+    /// Every cue sheet the store keeps.
+    fn cues(&self) -> Vec<Vec<u8>> {
+        let mut cues: Vec<Vec<u8>> = std::fs::read_dir(self.store.dir().join("cues"))
+            .into_iter()
+            .flatten()
+            .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+            .collect();
+        cues.sort();
+        cues
+    }
+
+    /// The files of `game` in the source set's folder.
+    fn in_set(&self, game: &str) -> Vec<String> {
+        tree(&self.tmp.path().join("roots/sets").join(SET))
+            .into_iter()
+            .filter(|f| f.starts_with(game))
+            .collect()
+    }
+}
+
+/// The cue sheet the DAT lists for Orbit.
+fn orbit_cue() -> Vec<u8> {
+    cd()[0].payload.clone()
+}
+
+/// Places Orbit as a CHD in a new folder, and audits the source set again; returns the folder.
+fn place_orbit(env: &mut Env, chdman: &Path) -> LibraryFolder {
+    placing_chds(env, chdman);
+    let (folder, selection) = env.folder(&[CD]);
+    let plan = env.plan(&folder, selection);
+    let item = &plan.content.items[0];
+    assert!(item.chd && item.place.is_some(), "{:?}", plan.content);
+    let job = env.build(&plan);
+    assert_eq!(
+        job.state,
+        JobState::Succeeded,
+        "{job:?} {:?}",
+        env.items(&job)
+    );
+    folder
+}
+
+#[test]
+fn a_disc_placed_as_chd_keeps_its_cue_sheet_in_the_store_and_its_tracks_go() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let _folder = place_orbit(&mut env, &chdman);
+    assert_eq!(tree(&env.dir()), ["Orbit (USA).chd"]);
+    assert_eq!(env.in_set(CD), Vec::<String>::new());
+    let placed = env.store.placed_files(SET).unwrap();
+    assert_eq!(placed.len(), 1, "{placed:?}");
+    assert!(placed[0].chd, "{placed:?}");
+    assert_eq!(placed[0].path, "Orbit (USA).chd");
+    assert_eq!(env.cues(), [orbit_cue()]);
+    // The cue sheet is kept for as long as the disc is placed.
+    env.store.collect_garbage().unwrap();
+    assert_eq!(env.cues(), [orbit_cue()]);
+    assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
+}
+
+#[test]
+fn a_dvd_placed_as_chd_needs_no_cue_sheet() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    placing_chds(&mut env, &chdman);
+    let (folder, selection) = env.folder(&[DVD]);
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(
+        job.state,
+        JobState::Succeeded,
+        "{job:?} {:?}",
+        env.items(&job)
+    );
+    assert_eq!(tree(&env.dir()), ["Atlas (USA).chd"]);
+    assert_eq!(env.in_set(DVD), Vec::<String>::new());
+    assert!(env.cues().is_empty());
+}
+
+#[test]
+fn placing_converted_games_is_off_by_default_and_a_choice_for_play_libraries_alone() {
+    let env = Env::new(None);
+    let policy = env.store.storage_policy().unwrap();
+    assert!(!policy.play_libraries.place_converted);
+    let mut refused = policy.clone();
+    refused.source_sets.place_converted = true;
+    assert!(env.store.set_storage_policy(&refused, "Operator").is_err());
+    let mut refused = policy.clone();
+    refused
+        .source_sets
+        .systems
+        .entry(SYSTEM.into())
+        .or_default()
+        .place_converted = Some(true);
+    assert!(env.store.set_storage_policy(&refused, "Operator").is_err());
+    // Without single copy, placing converted games places nothing.
+    let mut on = policy;
+    on.play_libraries.place_converted = true;
+    env.store.set_storage_policy(&on, "Operator").unwrap();
+    let (folder, selection) = env.folder(&[CD]);
+    let plan = env.plan(&folder, selection);
+    let item = &plan.content.items[0];
+    assert!(
+        item.chd && item.place.is_none() && !item.changes_source_set,
+        "{item:?}"
+    );
+}
+
+/// A quick inventory takes a placed CHD's tracks on claims, by its header's SHA-1, never decompressing it; a full audit
+/// extracts it and verifies each against the DAT; an incremental audit reuses that read while the CHD's stamp holds.
+/// As for any file, a quick inventory also reuses a payload read of the CHD as it is: so it runs first here, before
+/// any audit has read it where it is placed.
+#[test]
+fn a_quick_inventory_claims_a_placed_chd_a_full_audit_verifies_it_and_an_incremental_reuses_that() {
+    use title_select_api::report::{EvidenceLevel, Finding, GameStatus};
+    use title_select_engine::AuditEvidence;
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let folder = place_orbit(&mut env, &chdman);
+    let placed = title_select_api::storage::placed_path(folder.id, "Orbit (USA).chd");
+    let of_orbit = |report: &title_select_api::report::Report| {
+        let mut entries: Vec<_> = report
+            .entries
+            .iter()
+            .filter(|e| e.path == placed)
+            .cloned()
+            .collect();
+        entries.sort_by(|a, b| a.member.cmp(&b.member));
+        let game = report.games.iter().find(|g| g.name == CD).unwrap().clone();
+        (entries, game)
+    };
+    let members = [
+        Some("Orbit (USA) (Track 1).bin"),
+        Some("Orbit (USA) (Track 2).bin"),
+        Some("Orbit (USA).cue"),
+    ];
+
+    let quick = env.audit(AuditEvidence::Quick);
+    let (entries, game) = of_orbit(&quick);
+    let named: Vec<Option<&str>> = entries.iter().map(|e| e.member.as_deref()).collect();
+    assert_eq!(named, members, "{entries:?}");
+    for e in &entries {
+        assert_eq!(e.finding, Finding::Matched, "{e:?}");
+        assert_eq!(
+            e.evidence.as_ref().unwrap().level,
+            EvidenceLevel::Claim,
+            "{e:?}"
+        );
+    }
+    assert_eq!(game.status, GameStatus::Complete);
+    assert_eq!(game.claimed_roms.len(), 3, "{game:?}");
+
+    let full = env.audit(AuditEvidence::Full);
+    let (entries, game) = of_orbit(&full);
+    let named: Vec<Option<&str>> = entries.iter().map(|e| e.member.as_deref()).collect();
+    assert_eq!(named, members, "{entries:?}");
+    for e in &entries {
+        assert_eq!(e.finding, Finding::Matched, "{e:?}");
+        let evidence = e.evidence.as_ref().unwrap();
+        assert_eq!(evidence.level, EvidenceLevel::Payload, "{e:?}");
+        assert!(evidence.reused.is_none(), "{e:?}");
+    }
+    assert_eq!(game.status, GameStatus::Complete, "{game:?}");
+    assert!(game.claimed_roms.is_empty(), "{game:?}");
+
+    let incremental = env.audit(AuditEvidence::Incremental);
+    let (entries, game) = of_orbit(&incremental);
+    assert_eq!(entries.len(), 3, "{entries:?}");
+    for e in &entries {
+        let evidence = e.evidence.as_ref().unwrap();
+        assert_eq!(evidence.level, EvidenceLevel::Payload, "{e:?}");
+        assert!(evidence.reused.is_some(), "{e:?}");
+    }
+    assert_eq!(game.status, GameStatus::Complete);
+    assert!(game.claimed_roms.is_empty(), "{game:?}");
+}
+
+/// A placed CHD's cue sheet is checked from the store: one whose blob no longer holds the DAT's bytes is unreadable,
+/// and its game not complete.
+#[test]
+fn a_placed_chds_cue_sheet_is_audited_from_the_store() {
+    use title_select_api::report::{Finding, GameStatus};
+    use title_select_engine::AuditEvidence;
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let folder = place_orbit(&mut env, &chdman);
+    let blob = std::fs::read_dir(env.store.dir().join("cues"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut bytes = std::fs::read(&blob).unwrap();
+    bytes[0] ^= 0xff;
+    std::fs::write(&blob, &bytes).unwrap();
+    let report = env.audit(AuditEvidence::Full);
+    let placed = title_select_api::storage::placed_path(folder.id, "Orbit (USA).chd");
+    let cue = report
+        .entries
+        .iter()
+        .find(|e| e.path == placed && e.member.as_deref() == Some("Orbit (USA).cue"));
+    assert!(
+        cue.is_none_or(|e| e.finding != Finding::Matched),
+        "{:?}",
+        report.entries
+    );
+    let game = report.games.iter().find(|g| g.name == CD).unwrap();
+    assert_ne!(game.status, GameStatus::Complete, "{game:?}");
+}
+
+/// What `job` did with each of its items, by target: its state and any error.
+fn states(env: &Env, job: &title_select_api::Job) -> Vec<(String, ItemState, Option<String>)> {
+    env.items(job)
+        .into_iter()
+        .map(|i| (i.target, i.state, i.error))
+        .collect()
+}
+
+/// Every file of Orbit in the source set's folder, by name, as the bytes of each ROM it holds, loose or in a ZIP.
+fn orbit_home(env: &Env) -> Vec<(String, Vec<u8>)> {
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    let mut found = Vec::new();
+    for f in env.in_set(CD) {
+        let path = set.join(&f);
+        match f.ends_with(".zip") {
+            true => {
+                let mut zip = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+                for n in 0..zip.len() {
+                    let mut member = zip.by_index(n).unwrap();
+                    let mut bytes = Vec::new();
+                    std::io::Read::read_to_end(&mut member, &mut bytes).unwrap();
+                    found.push((member.name().unwrap().into_owned(), bytes));
+                }
+            }
+            false => found.push((
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                std::fs::read(&path).unwrap(),
+            )),
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Orbit's ROMs as the DAT lists them, by name.
+fn orbit_roms() -> Vec<(String, Vec<u8>)> {
+    let mut roms: Vec<(String, Vec<u8>)> = cd()
+        .into_iter()
+        .map(|r| (r.name.to_owned(), r.payload))
+        .collect();
+    roms.sort();
+    roms
+}
+
+/// Places Orbit as a CHD, audits the source set, then plans its return home, Orbit no longer selected.
+fn returning_orbit(env: &mut Env, chdman: &Path) -> (LibraryFolder, Plan) {
+    let (folder, plan, _) = returning_orbit_by(env, chdman);
+    (folder, plan)
+}
+
+/// As [`returning_orbit`], with the Selection the plan was made from.
+fn returning_orbit_by(env: &mut Env, chdman: &Path) -> (LibraryFolder, Plan, i64) {
+    let folder = place_orbit(env, chdman);
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let selection = env.select(&[DVD]);
+    let plan = env.plan(&folder, selection);
+    let r = plan
+        .content
+        .returns
+        .iter()
+        .find(|r| r.release == CD)
+        .unwrap_or_else(|| panic!("{:?}", plan.content));
+    assert_eq!(r.how, title_select_api::build::ReturnHow::Convert, "{r:?}");
+    (folder, plan, selection)
+}
+
+#[test]
+fn a_placed_chd_is_returned_home_byte_exact_its_cue_sheet_from_the_store() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (_, plan) = returning_orbit(&mut env, &chdman);
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!(orbit_home(&env), orbit_roms());
+    assert!(
+        env.store
+            .placed_files(SET)
+            .unwrap()
+            .iter()
+            .all(|p| p.game != CD)
+    );
+    assert!(!env.dir().join("Orbit (USA).chd").exists());
+    // Once home, the cue sheet the store kept for it goes.
+    env.store.collect_garbage().unwrap();
+    assert!(env.cues().is_empty());
+    // What the return wrote home is what the next audit finds.
+    let report = env.audit(title_select_engine::AuditEvidence::Full);
+    let game = report.games.iter().find(|g| g.name == CD).unwrap();
+    assert_eq!(game.status, title_select_api::report::GameStatus::Complete);
+    let scratch: Vec<String> = std::fs::read_dir(env.store.dir().join("tmp"))
+        .into_iter()
+        .flatten()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(scratch.is_empty(), "{scratch:?}");
+}
+
+/// A placed CHD that doesn't give back its disc as the DAT lists it stays placed, nothing of it is deleted or written
+/// home, and its game needs review in the latest audit, which says why.
+#[test]
+fn a_placed_chd_with_a_damaged_track_stays_placed_and_is_flagged_for_review() {
+    use title_select_api::report::{Finding, GameStatus};
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, plan) = returning_orbit(&mut env, &chdman);
+    // However chdman takes damage, it never runs long.
+    env.store
+        .update_settings(
+            &env.config,
+            &title_select_api::settings::SettingsUpdate {
+                chd: Some(title_select_api::settings::ChdTimeouts {
+                    seconds: 20,
+                    seconds_per_gib: 0,
+                }),
+                ..Default::default()
+            },
+            "Operator",
+        )
+        .unwrap();
+    let chd = env.dir().join("Orbit (USA).chd");
+    let before = std::fs::read(&chd).unwrap();
+    let placed_before = env.store.placed_files(SET).unwrap();
+    // The copy chdman reads is damaged once it is read whole: as a CHD damaged where it is placed would read, past
+    // its header, but holding still, as it must to be returned at all.
+    let tmp = env.store.dir().join("tmp");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, title_select_store::Fault::ReturnChdCopied(_)) {
+                for e in std::fs::read_dir(&tmp).unwrap() {
+                    let copy = e.unwrap().path().join("out.chd");
+                    if copy.is_file() {
+                        let mut bytes = std::fs::read(&copy).unwrap();
+                        let last = bytes.len() - 1;
+                        bytes[last] ^= 0xff;
+                        std::fs::write(&copy, &bytes).unwrap();
+                    }
+                }
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    let item = env.items(&job).into_iter().find(|i| i.game == CD).unwrap();
+    assert_eq!(item.state, ItemState::Failed, "{item:?}");
+    let error = item.error.clone().unwrap();
+    assert!(error.contains("stays placed"), "{error}");
+    assert!(
+        error.contains("did not give back the DAT's files"),
+        "{error}"
+    );
+    // Still placed, as it was, and nothing of it home.
+    assert_eq!(std::fs::read(&chd).unwrap(), before);
+    let orbit = |rows: Vec<title_select_api::build::PlacedFile>| {
+        rows.into_iter()
+            .filter(|p| p.game == CD)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        orbit(env.store.placed_files(SET).unwrap()),
+        orbit(placed_before)
+    );
+    assert!(env.in_set(CD).is_empty(), "{:?}", env.in_set(CD));
+    assert_eq!(env.cues(), [orbit_cue()]);
+    // The latest audit flags it, with the reason.
+    let audit = env
+        .store
+        .latest_audit_rows(SET, |_, _| {}, |_| {})
+        .unwrap()
+        .unwrap();
+    let report = env.store.report(audit.id).unwrap();
+    let placed = title_select_api::storage::placed_path(folder.id, "Orbit (USA).chd");
+    let entries: Vec<_> = report.entries.iter().filter(|e| e.path == placed).collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0].finding, Finding::Unreadable);
+    assert!(
+        entries[0]
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.contains("did not give back the DAT's files")),
+        "{entries:?}"
+    );
+    let game = report.games.iter().find(|g| g.name == CD).unwrap();
+    assert_eq!(game.status, GameStatus::Missing, "{game:?}");
+    assert_eq!(report.summary.findings[&Finding::Unreadable], 1);
+    assert_eq!(
+        report.summary.games[&GameStatus::Missing],
+        1,
+        "{:?}",
+        report.summary
+    );
+}
+
+/// Runs `plan`'s build until the `nth` fault `stop` matches, killed there as by a stop of the service, then restarts
+/// it, which recovers what the stop left.
+fn killed_at(
+    env: Env,
+    plan: &Plan,
+    (stop, nth): (fn(title_select_store::Fault) -> bool, usize),
+    label: &str,
+) -> Env {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let seen = AtomicUsize::new(0);
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if stop(fault) && seen.fetch_add(1, Ordering::SeqCst) + 1 == nth {
+                panic!("killed at {fault:?}");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{label}: never reached the stop: {ran:?}");
+    env.restart()
+}
+
+/// Whether Orbit has exactly one recorded copy: placed in `folder` as its CHD, recorded so, its cue sheet kept in the
+/// store even once garbage is collected, and nothing of it in the source set; or in the source set as the DAT lists it,
+/// not placed, and no CHD of it in the folder. No CHD work space is left. Returns whether it is placed.
+fn orbit_once(env: &Env, label: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    env.store.collect_garbage().unwrap();
+    assert!(
+        env.chd_scratch().is_empty(),
+        "{label}: {:?}",
+        env.chd_scratch()
+    );
+    let rows: Vec<_> = env
+        .store
+        .placed_files(SET)
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.game == CD)
+        .collect();
+    let chd = env.dir().join("Orbit (USA).chd");
+    match rows.as_slice() {
+        [] => {
+            assert_eq!(orbit_home(env), orbit_roms(), "{label}: home");
+            assert!(!chd.exists(), "{label}: home, yet in the folder");
+            false
+        }
+        [row] => {
+            assert!(row.chd, "{label}: {row:?}");
+            assert!(
+                env.in_set(CD).is_empty(),
+                "{label}: placed, yet {:?}",
+                env.in_set(CD)
+            );
+            let st = std::fs::metadata(&chd).unwrap();
+            assert_eq!(
+                (st.dev(), st.ino()),
+                (row.dev, row.ino),
+                "{label}: the file recorded"
+            );
+            assert!(
+                env.cues().contains(&orbit_cue()),
+                "{label}: its cue sheet is gone"
+            );
+            true
+        }
+        rows => panic!("{label}: {rows:?}"),
+    }
+}
+
+type Kill = (&'static str, fn(title_select_store::Fault) -> bool, usize);
+
+/// A stop at each step of placing a disc as CHD leaves it with exactly one recorded copy, and the next build places it.
+#[test]
+fn a_disc_whose_placement_as_chd_stops_at_any_step_has_one_recorded_copy_and_is_placed_next() {
+    use title_select_store::Fault;
+    let Some(chdman) = chdman() else { return };
+    let kills: [Kill; 11] = [
+        ("chd copied", |f| matches!(f, Fault::ChdCopied(_)), 1),
+        ("cue sheet kept", |f| matches!(f, Fault::PlaceCueKept(_)), 1),
+        ("staged", |f| matches!(f, Fault::Staged(_)), 1),
+        (
+            "before publish",
+            |f| matches!(f, Fault::BeforePublish(_)),
+            1,
+        ),
+        (
+            "published unsynced",
+            |f| matches!(f, Fault::PublishedUnsynced(_)),
+            1,
+        ),
+        ("after publish", |f| matches!(f, Fault::AfterPublish(_)), 1),
+        ("recorded", |f| matches!(f, Fault::PlaceRecorded(_)), 1),
+        (
+            "checking the first original",
+            |f| matches!(f, Fault::PlaceChecking(_)),
+            1,
+        ),
+        (
+            "checking the last original",
+            |f| matches!(f, Fault::PlaceChecking(_)),
+            3,
+        ),
+        (
+            "disposed of the first original",
+            |f| matches!(f, Fault::PlaceDisposed(_)),
+            1,
+        ),
+        (
+            "disposed of the last original",
+            |f| matches!(f, Fault::PlaceDisposed(_)),
+            3,
+        ),
+    ];
+    for (label, stop, nth) in kills {
+        let mut env = Env::new(Some(&chdman));
+        placing_chds(&mut env, &chdman);
+        let (folder, selection) = env.folder(&[CD]);
+        let plan = env.plan(&folder, selection);
+        let env = killed_at(env, &plan, (stop, nth), label);
+        orbit_once(&env, label);
+        env.audit(title_select_engine::AuditEvidence::Incremental);
+        let job = env.build(&env.plan(&folder, selection));
+        assert_eq!(
+            job.state,
+            JobState::Succeeded,
+            "{label}: {:?}",
+            states(&env, &job)
+        );
+        assert!(
+            orbit_once(&env, label),
+            "{label}: the next build didn't place it"
+        );
+        assert_eq!(env.cues(), [orbit_cue()], "{label}");
+    }
+}
+
+/// A stop at each step of returning a placed CHD home leaves its disc with exactly one recorded copy, and the next
+/// build returns it.
+#[test]
+fn a_placed_chd_whose_return_stops_at_any_step_has_one_recorded_copy_and_is_returned_next() {
+    use title_select_store::Fault;
+    let Some(chdman) = chdman() else { return };
+    let kills: [Kill; 9] = [
+        (
+            "copied for chdman",
+            |f| matches!(f, Fault::ReturnChdCopied(_)),
+            1,
+        ),
+        (
+            "staged the first file",
+            |f| matches!(f, Fault::ReturnStaged(_)),
+            1,
+        ),
+        (
+            "staged the last file",
+            |f| matches!(f, Fault::ReturnStaged(_)),
+            3,
+        ),
+        (
+            "published the first file",
+            |f| matches!(f, Fault::ReturnPublished(_)),
+            1,
+        ),
+        (
+            "published the last file",
+            |f| matches!(f, Fault::ReturnPublished(_)),
+            3,
+        ),
+        ("set aside", |f| matches!(f, Fault::ReturnSetAside(_)), 1),
+        ("checking", |f| matches!(f, Fault::ReturnChecking(_)), 1),
+        ("recorded", |f| matches!(f, Fault::ReturnRecorded(_)), 1),
+        ("disposed", |f| matches!(f, Fault::ReturnDisposed(_)), 1),
+    ];
+    for (label, stop, nth) in kills {
+        let mut env = Env::new(Some(&chdman));
+        let (folder, plan, selection) = returning_orbit_by(&mut env, &chdman);
+        let env = killed_at(env, &plan, (stop, nth), label);
+        orbit_once(&env, label);
+        env.audit(title_select_engine::AuditEvidence::Incremental);
+        let job = env.build(&env.plan(&folder, selection));
+        assert_eq!(
+            job.state,
+            JobState::Succeeded,
+            "{label}: {:?}",
+            states(&env, &job)
+        );
+        assert!(
+            !orbit_once(&env, label),
+            "{label}: the next build didn't return it"
+        );
+        assert!(env.cues().is_empty(), "{label}: {:?}", env.cues().len());
+    }
+}
+
+/// Another folder doesn't build from a disc placed as a CHD, which only a return or an audit extracts: it says why, and
+/// the placed CHD is left as it was.
+#[test]
+fn another_folder_builds_nothing_from_a_disc_placed_as_chd() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let holding = place_orbit(&mut env, &chdman);
+    env.audit(title_select_engine::AuditEvidence::Full);
+    env.store.set_holding_folder(SET, Some(holding.id)).unwrap();
+    let other = env
+        .store
+        .add_library_folder(
+            &env.config,
+            &AddLibraryFolder {
+                root: "play".into(),
+                path: Some("more".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            },
+        )
+        .unwrap();
+    let selection = env.select(&[CD]);
+    let plan = env.plan(&other, selection);
+    let item = plan.content.items.iter().find(|i| i.game == CD).unwrap();
+    assert_eq!(
+        item.kind,
+        title_select_api::build::ItemKind::NoSource,
+        "{item:?}"
+    );
+    assert!(
+        item.reason
+            .as_deref()
+            .is_some_and(|r| r.contains("placed as a CHD")),
+        "{item:?}"
+    );
+    let placed = env.store.placed_files(SET).unwrap();
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!(env.store.placed_files(SET).unwrap(), placed);
+    assert_eq!(tree(&env.dir()), ["Orbit (USA).chd"]);
+}
+
+/// A disc a folder already holds as a CHD it built, verified then, is placed as that CHD once converted games are
+/// placed: its cue sheet kept in the store from the source set, checked against the DAT, and its tracks gone.
+#[test]
+fn a_chd_built_earlier_is_placed_as_it_is_once_converted_games_are_placed() {
+    use std::os::unix::fs::MetadataExt;
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, selection) = env.folder(&[CD]);
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    let chd = env.dir().join("Orbit (USA).chd");
+    let built = std::fs::metadata(&chd).unwrap();
+    assert_eq!(env.in_set(CD).len(), 3);
+
+    placing_chds(&mut env, &chdman);
+    let plan = env.plan(&folder, selection);
+    let item = plan.content.items.iter().find(|i| i.game == CD).unwrap();
+    assert_eq!(
+        item.place.as_ref().map(|p| p.how),
+        Some(title_select_api::build::PlaceHow::Built),
+        "{item:?}"
+    );
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert!(env.in_set(CD).is_empty(), "{:?}", env.in_set(CD));
+    let now = std::fs::metadata(&chd).unwrap();
+    assert_eq!((now.dev(), now.ino()), (built.dev(), built.ino()));
+    let placed = env.store.placed_files(SET).unwrap();
+    assert_eq!(placed.len(), 1, "{placed:?}");
+    assert!(placed[0].chd);
+    assert_eq!(env.cues(), [orbit_cue()]);
+    // And it goes home as any placed CHD does.
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let selection = env.select(&[DVD]);
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!(orbit_home(&env), orbit_roms());
+}
+
+/// A repair leaves a game placed as a CHD as it is, and says why: it doesn't change a CHD, as it would otherwise
+/// repack it into the play library's files for its disc. A copy of its tracks elsewhere is only kept aside.
+#[test]
+fn a_repair_leaves_a_disc_placed_as_chd_as_it_is() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let folder = place_orbit(&mut env, &chdman);
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    for (n, rom) in cd().into_iter().enumerate() {
+        std::fs::write(set.join(format!("stray {n}.bin")), &rom.payload).unwrap();
+    }
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let repair = env
+        .store
+        .plan_repair(&env.config, SET, &Default::default())
+        .unwrap();
+    let placed = title_select_api::storage::placed_path(folder.id, "");
+    let touching: Vec<_> = repair
+        .content
+        .items
+        .iter()
+        .filter(|i| {
+            i.game.as_deref() == Some(CD)
+                || i.path.as_deref().is_some_and(|p| p.starts_with(&placed))
+        })
+        .collect();
+    assert!(!touching.is_empty(), "{:?}", repair.content.items);
+    for item in touching {
+        assert_eq!(
+            item.chosen,
+            title_select_api::repair::RepairChoice::Leave,
+            "{item:?}"
+        );
+        assert_eq!(
+            item.choices,
+            [title_select_api::repair::RepairChoice::Leave],
+            "{item:?}"
+        );
+        assert!(
+            item.note
+                .as_deref()
+                .is_some_and(|n| n.contains("placed as a CHD")),
+            "{item:?}"
+        );
+    }
+}
+
+/// Garbage collected after a cue sheet is kept in the store but before its item records it takes the unreferenced
+/// blob: the item then finds it gone in the transaction that would record it, and fails, its disc left in the source
+/// set as it was, never placed without its cue sheet. The next build places it.
+#[test]
+fn a_cue_sheet_collected_before_its_placement_is_recorded_never_leaves_a_chd_placed_without_it() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    placing_chds(&mut env, &chdman);
+    let (folder, selection) = env.folder(&[CD]);
+    let plan = env.plan(&folder, selection);
+    let store = std::sync::Arc::new(std::sync::Mutex::new(None::<Vec<String>>));
+    let collected = store.clone();
+    let dir = env.store.dir().to_path_buf();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, title_select_store::Fault::PlaceCueKept(_)) {
+                // As a collection would, between the keep and the record: what no row holds goes.
+                let cues = dir.join("cues");
+                let gone: Vec<String> = std::fs::read_dir(&cues)
+                    .unwrap()
+                    .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect();
+                for name in &gone {
+                    std::fs::remove_file(cues.join(name)).unwrap();
+                }
+                *collected.lock().unwrap() = Some(gone);
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(store.lock().unwrap().as_ref().map(Vec::len), Some(1));
+    let item = env.items(&job).into_iter().find(|i| i.game == CD).unwrap();
+    assert_eq!(item.state, ItemState::Failed, "{item:?}");
+    assert!(!orbit_once(&env, "collected"));
+    env.audit(title_select_engine::AuditEvidence::Incremental);
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert!(orbit_once(&env, "placed next"));
+}
+
+/// Every disc of a release goes as a CHD together, or none does: placed whole, recovered whole after a stop between
+/// its two discs going in place, and returned whole.
+#[test]
+fn a_release_of_two_discs_is_placed_as_chds_and_returned_whole() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    placing_chds(&mut env, &chdman);
+    let (folder, selection) = env.folder(&SAGA);
+    let plan = env.plan(&folder, selection);
+    let placing: Vec<_> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.chd && i.place.is_some())
+        .collect();
+    assert_eq!(placing.len(), 2, "{:?}", plan.content.items);
+    // Stopped once the first disc is in place: recovery puts the second in place too.
+    let env = killed_at(
+        env,
+        &plan,
+        (
+            |f| matches!(f, title_select_store::Fault::AfterPublish(_)),
+            1,
+        ),
+        "between the discs",
+    );
+    let saga_placed = |env: &Env| {
+        env.store
+            .placed_files(SET)
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.game.starts_with("Saga"))
+            .count()
+    };
+    let in_set = |env: &Env| env.in_set("Saga").len();
+    match saga_placed(&env) {
+        0 => assert_eq!(in_set(&env), 4),
+        2 => assert_eq!(in_set(&env), 0),
+        n => panic!("{n} of Saga's discs are placed"),
+    }
+    env.audit(title_select_engine::AuditEvidence::Incremental);
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!((saga_placed(&env), in_set(&env)), (2, 0));
+    let mut chds: Vec<String> = tree(&env.dir())
+        .into_iter()
+        .filter(|f| f.ends_with(".chd"))
+        .collect();
+    chds.sort();
+    assert_eq!(chds, SAGA_CHDS);
+    assert_eq!(env.cues().len(), 2);
+
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let selection = env.select(&[DVD]);
+    let plan = env.plan(&folder, selection);
+    assert!(
+        plan.content.returns.iter().any(|r| r.games.len() == 2),
+        "{:?}",
+        plan.content.returns
+    );
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!((saga_placed(&env), in_set(&env)), (0, 4));
+    assert!(!tree(&env.dir()).iter().any(|f| f.starts_with("Saga")));
+}

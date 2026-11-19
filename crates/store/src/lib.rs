@@ -61,6 +61,9 @@ pub use title_select_api::{
 pub const DATABASE: &str = "title-select.sqlite";
 /// The directory, in the store directory, that holds DAT blobs.
 pub const DATS: &str = "dats";
+/// The directory, in the store directory, that holds the DAT-exact cue sheets of CDs placed as CHD, which a CHD doesn't
+/// hold, as content-addressed blobs `cues/<sha256>` (ADR 0023).
+pub const CUES: &str = "cues";
 /// The directory, in the store directory, that holds the backups taken before migrations.
 pub const BACKUPS: &str = "backups";
 /// The directory, in the store directory, that holds per-run scratch folders, such as a Selection's Retool run.
@@ -247,6 +250,9 @@ pub enum Fault {
     /// After the Game of a placing item with this sequence number is recorded placed, before its Source Set files are
     /// deleted.
     PlaceRecorded(i64),
+    /// After the cue sheet of a placing item with this sequence number that places a CD as CHD is kept in the store,
+    /// written and synced, before the item records it.
+    PlaceCueKept(i64),
     /// After a Source Set file of a placing item with this sequence number is set aside to delete and read back,
     /// before the placed file is checked a last time and it is deleted.
     PlaceChecking(i64),
@@ -262,6 +268,9 @@ pub enum Fault {
     /// After a placed file of a returning item with this sequence number, renamed home, is put back where it was
     /// placed, before it is verified and its new stamp recorded.
     ReturnPutBack(i64),
+    /// After a placed CHD of a returning item with this sequence number is copied into the store's scratch directory
+    /// and read whole, before chdman extracts it.
+    ReturnChdCopied(i64),
     /// After a file a returning item with this sequence number writes home is staged and verified, before it is put in
     /// place.
     ReturnStaged(i64),
@@ -575,6 +584,11 @@ impl Store {
     /// Where the blob of the DAT Revision with this SHA-256 is kept.
     pub fn blob_path(&self, sha256: &str) -> PathBuf {
         self.dir.join(DATS).join(sha256)
+    }
+
+    /// Where the cue sheet blob whose SHA-256 is `sha256` is kept.
+    pub fn cue_path(&self, sha256: &str) -> PathBuf {
+        self.dir.join(CUES).join(sha256)
     }
 
     fn read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
@@ -1071,6 +1085,49 @@ mod tests {
         );
         let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
         assert_eq!(foreign_keys, "Integer(1)");
+    }
+
+    /// Placing converted games came with schema 40: a store from before keeps each Placed Game's file as it was, none
+    /// of them a CHD, and each system's Storage Policy as it was, placing no converted game, and collecting garbage
+    /// keeps working over the columns it gained.
+    #[test]
+    fn a_store_from_before_placing_converted_games_keeps_its_placements_and_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..39]).unwrap();
+        store
+            .write(|tx| {
+                tx.execute_batch(
+                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
+                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
+                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
+                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
+                         SELECT 'play', 'discs', s.id, p.id, 'then' FROM source_sets s, profiles p;
+                     INSERT INTO placed_games (source_set_id, game, folder_id, placed_at)
+                         SELECT s.id, 'Orbit (USA)', f.id, 'then' FROM library_folders f, source_sets s;
+                     INSERT INTO placed_files (folder_id, path, source_set_id, game, size, mtime_ns, dev, ino, ctime_ns)
+                         SELECT f.id, 'Orbit (USA)/Orbit (USA).cue', s.id, 'Orbit (USA)', 1, 2, 3, 4, 5
+                         FROM library_folders f, source_sets s;
+                     INSERT INTO storage_policy (scope, system, single_copy, updated_by, updated_at)
+                         VALUES ('play_libraries', 'Redump/Test', 1, 'Operator', 'then');",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        let placed = store.placed_files("Set").unwrap();
+        assert_eq!(placed.len(), 1, "{placed:?}");
+        assert!(!placed[0].chd, "{placed:?}");
+        let policy = store.storage_policy().unwrap();
+        let system = &policy.play_libraries.systems["Redump/Test"];
+        assert_eq!(
+            (system.single_copy, system.place_converted),
+            (Some(true), None)
+        );
+        assert!(!policy.play_libraries.place_converted);
+        store.collect_garbage().unwrap();
     }
 
     #[test]
