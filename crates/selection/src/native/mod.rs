@@ -77,9 +77,17 @@ pub(crate) struct Limits {
 const CANCELLED: &str = "\0cancelled";
 const TIMED_OUT: &str = "\0timed out";
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread checked whether its run must stop.
+    pub(crate) static CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Limits {
     /// Fails when the run must stop.
     pub fn check(&self) -> py::PyResult<()> {
+        #[cfg(test)]
+        CHECKS.with(|checks| checks.set(checks.get() + 1));
         if self
             .cancel
             .as_ref()
