@@ -93,7 +93,7 @@ pub(super) struct Scan {
     pub acknowledged: Vec<DriftEntry>,
     updates: Vec<Update>,
     /// The records of Placed Games' files to bring up to date: each path, as it was recorded and as it now is.
-    placed_updates: Vec<(String, FileStat, FileStat)>,
+    placed_updates: Vec<(String, PlacedFile, Stat)>,
     /// What was read of each entry, by name, with the file as it was when read.
     pub probes: HashMap<String, (Seen, Probe)>,
     /// The acknowledgements the check was made with: only these can it find changed.
@@ -519,7 +519,9 @@ pub(super) fn scan(
                 file.outcome = FileOutcome::Conflict;
                 file.detail = Some("it is no longer a regular file".into());
             }
-            Some((_, Ok(Some(st)))) if file_stat(&st) == placed.file => {}
+            // Trusted unread only while it is the same file, unchanged: one put in its place, or written over with
+            // its size and modification time set back, is read again.
+            Some((_, Ok(Some(st)))) if crate::placements::unchanged(placed, &st) => {}
             Some((_, Ok(Some(st)))) => {
                 // Its SHA-256 is of all of it, whatever the DAT's Header Rule.
                 let (probe, hashed) = probe_of(target, &st, None, &mut out);
@@ -531,11 +533,8 @@ pub(super) fn scan(
                     }
                     Ok(p) if p.sha256 == placed.sha256 => {
                         file.outcome = FileOutcome::Refreshed;
-                        out.placed_updates.push((
-                            target.clone(),
-                            placed.file.clone(),
-                            file_stat(&st),
-                        ));
+                        out.placed_updates
+                            .push((target.clone(), placed.clone(), st));
                     }
                     Ok(_) => {
                         file.outcome = FileOutcome::Conflict;
@@ -751,18 +750,7 @@ pub(super) fn store_check(
             )?;
         }
         for (path, was, now) in &scan.placed_updates {
-            tx.execute(
-                "UPDATE placed_files SET size = ?5, mtime_ns = ?6
-                 WHERE folder_id = ?1 AND path = ?2 AND size = ?3 AND mtime_ns = ?4",
-                params![
-                    folder,
-                    path,
-                    was.size as i64,
-                    was.mtime_ns as i64,
-                    now.size as i64,
-                    now.mtime_ns as i64
-                ],
-            )?;
+            crate::placements::restamp(tx, folder, path, was, now)?;
         }
         tx.execute("DELETE FROM folder_probes WHERE folder_id = ?1", [folder])?;
         // An acknowledgement lasts only while its entry is as it was: one the check found changed, or gone, is

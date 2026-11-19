@@ -2396,15 +2396,34 @@ impl Store {
             load(&tx, folder, selection, choices)
         })?;
         // A Build reads each Game where its Source Set's latest Audit found it, and a Placed Game's file is not in
-        // the Source Set's folder: until Builds read Placed Games, none is built from a Source Set that has any.
+        // the Source Set's folder: until Builds read Placed Games, none is built from a Source Set that has any. A
+        // cleanup removes every built file, and a Placed Game's file is its only copy: never a kept file of the
+        // folder. Until a Placed Game can go back to its Source Set's folder (#215), no folder holding one is
+        // cleaned up.
+        let games = |n: u64| match n {
+            1 => "1 game".to_owned(),
+            n => format!("{n} games"),
+        };
+        if choices.remove_all && !inputs.placed.is_empty() {
+            let held: BTreeSet<&str> = inputs.placed.iter().map(|p| p.game.as_str()).collect();
+            return Err(Error::Refused(format!(
+                "this play library folder holds {} of source set {}, placed there as their only copy, and removing \
+                 the folder would remove them; nothing was planned",
+                games(held.len() as u64),
+                inputs.folder.source_set
+            )));
+        }
         if inputs.placed_games > 0 && !choices.remove_all {
             return Err(Error::Refused(format!(
-                "{} of source set {} placed in a play library folder, and a build can't read a placed game yet;                  nothing was planned",
-                match inputs.placed_games {
-                    1 => "1 game".to_owned(),
-                    n => format!("{n} games"),
-                },
-                inputs.folder.source_set
+                "{} of source set {} {} placed in a play library folder, and a build can't read a placed game yet; \
+                 nothing was planned",
+                games(inputs.placed_games),
+                inputs.folder.source_set,
+                if inputs.placed_games == 1 {
+                    "is"
+                } else {
+                    "are"
+                }
             )));
         }
         if inputs.storage.sbi {

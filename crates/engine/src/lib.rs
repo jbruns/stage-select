@@ -283,46 +283,56 @@ fn walk(
             .is_some_and(|e| e.eq_ignore_ascii_case("zip"));
         let rel = rel(item.path());
         items.push(Item::File { rel: rel.clone() });
-        files.push(ToRead { path, is_zip, rel });
+        files.push(ToRead {
+            path,
+            is_zip,
+            rel,
+            beneath: None,
+        });
     }
 
     Ok(Some(Walked { items, files }))
 }
 
 /// What an Audit reads of the Placed Games in one Library Folder: each recorded file still there, in path order,
-/// named by its path in the Source Set's report. One that is gone is left out; one that can't be reached, or is no
-/// longer a regular file, is Unreadable.
-fn walk_placed(placed: &Placed) -> Walked {
+/// named by its path in the Source Set's report, with its stamp. One that is gone is left out; one that can't be
+/// reached, is no longer a regular file or is a symbolic link is Unreadable. No symbolic link below the folder is
+/// followed, and the folder itself must resolve within its Root.
+fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
     let mut recorded: Vec<&String> = placed.files.iter().collect();
     recorded.sort();
+    let gone = |e: &std::io::Error| {
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+        )
+    };
+    let base = match placed.folder.canonicalize() {
+        Ok(real) if placed.confine.is_none_or(|c| real.starts_with(c)) => Ok(Some(real)),
+        Ok(_) => Err("its play library folder resolves outside the Root".to_owned()),
+        Err(e) if gone(&e) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    };
     let mut items = Vec::new();
     let mut files = Vec::new();
+    let mut stamps = Vec::new();
     for rel in recorded {
         let at = title_select_api::storage::placed_path(placed.id, rel);
-        let path = placed.folder.join(rel);
-        let found = match std::fs::metadata(&path) {
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-                ) =>
-            {
-                continue;
-            }
-            Err(e) => Err(e.to_string()),
-            Ok(m) if !m.is_file() => Err("it is no longer a regular file".to_owned()),
-            Ok(_) => match placed.confine {
-                None => Ok(path),
-                Some(confine) => match path.canonicalize() {
-                    Ok(real) if real.starts_with(confine) => Ok(real),
-                    Ok(_) => Err("resolves outside the Root".to_owned()),
+        let found = match &base {
+            Err(reason) => Err(reason.clone()),
+            Ok(None) => continue,
+            Ok(Some(base)) => {
+                let path = base.join(rel);
+                match read::open_beneath(base, &path) {
+                    Ok(file) => Ok((path, base, file.metadata().ok())),
+                    Err(e) if gone(&e) => continue,
                     Err(e) => Err(e.to_string()),
-                },
-            },
+                }
+            }
         };
         match found {
             Err(reason) => items.push(Item::Unreadable { rel: at, reason }),
-            Ok(path) => {
+            Ok((path, base, metadata)) => {
                 let is_zip = rel
                     .rsplit_once('.')
                     .is_some_and(|(_, e)| e.eq_ignore_ascii_case("zip"));
@@ -331,29 +341,28 @@ fn walk_placed(placed: &Placed) -> Walked {
                     path,
                     is_zip,
                     rel: at,
+                    beneath: Some(base.clone()),
                 });
+                stamps.push(metadata.and_then(|m| FileStamp::from_metadata(&m)));
             }
         }
     }
-    Walked { items, files }
+    (Walked { items, files }, stamps)
 }
 
 /// The recorded files of the Placed Games in `placed` that are still there, each statted as [`stat_walk`] does and
 /// named by its path in the Source Set's report.
 pub fn stat_placed(placed: &Placed) -> Vec<StatEntry> {
-    let Walked { items, files } = walk_placed(placed);
-    let mut files = files.into_iter();
+    let (Walked { items, .. }, stamps) = walk_placed(placed);
+    let mut stamps = stamps.into_iter();
     items
         .into_iter()
         .map(|item| match item {
             Item::Unreadable { rel, .. } => StatEntry::Unreadable { rel },
-            Item::File { rel } => {
-                let file = files.next().expect("one file per item");
-                StatEntry::File {
-                    rel,
-                    stamp: FileStamp::of(&file.path),
-                }
-            }
+            Item::File { rel } => StatEntry::File {
+                rel,
+                stamp: stamps.next().expect("one stamp per file"),
+            },
         })
         .collect()
 }
@@ -417,7 +426,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
     let dat = Dat::read(dat_path)?;
     let Walked { items, files } =
         walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
-    let placed: Vec<Walked> = options.placed.iter().map(walk_placed).collect();
+    let placed: Vec<Walked> = options.placed.iter().map(|p| walk_placed(p).0).collect();
 
     let header = dat.header();
     let sizes: HashSet<u64> = match header {

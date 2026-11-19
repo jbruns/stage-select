@@ -17,8 +17,9 @@ CREATE TABLE placed_games (
 CREATE INDEX placed_games_by_folder ON placed_games (folder_id);
 
 -- Each file of a Placed Game, by its path relative to its Library Folder, laid out as the Storage Policy says, with
--- the size, modification time and SHA-256 it had when it was placed or a Repair last moved it: what a check of the
--- folder compares it with. An Audit reads only these files of the folder.
+-- the size, modification time, device, inode, status change time and SHA-256 it had when it was placed, or a Repair
+-- or check last recorded it: what a check of the folder compares it with. A file whose stamp differs in any of them
+-- is read again. An Audit reads only these files of the folder.
 CREATE TABLE placed_files (
     folder_id INTEGER NOT NULL,
     path TEXT NOT NULL,
@@ -26,8 +27,23 @@ CREATE TABLE placed_files (
     game TEXT NOT NULL,
     size INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL,
+    dev INTEGER NOT NULL,
+    ino INTEGER NOT NULL,
+    ctime_ns INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     PRIMARY KEY (folder_id, path),
     FOREIGN KEY (source_set_id, game, folder_id) REFERENCES placed_games (source_set_id, game, folder_id)
 );
 CREATE INDEX placed_files_by_game ON placed_files (source_set_id, game);
+
+-- A repair step that carries a file to a folder on another filesystem (crate::carry): it copies it under a staged name
+-- in the destination's folder, recorded with its identity before and once it is made, records the SHA-256 the
+-- original was read as, publishes the copy, then moves the original into its folder's private .deleting folder under
+-- a slot recorded first, and deletes it there only while it still has the change time read, through the descriptor
+-- held across that rename, and that SHA-256.
+ALTER TABLE repair_steps ADD COLUMN copy_staged TEXT;
+ALTER TABLE repair_steps ADD COLUMN copy_dev INTEGER;
+ALTER TABLE repair_steps ADD COLUMN copy_ino INTEGER;
+ALTER TABLE repair_steps ADD COLUMN copy_sha256 TEXT;
+ALTER TABLE repair_steps ADD COLUMN copy_slot TEXT;
+ALTER TABLE repair_steps ADD COLUMN copy_ctime_ns TEXT;

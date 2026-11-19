@@ -46,6 +46,8 @@ pub(super) struct Inputs<'a> {
     /// Where each Placed Game is (ADR 0023), by its name: the Library Folder holding it and the folder its files are
     /// in there.
     pub placed: &'a HashMap<String, Located>,
+    /// The Game each Placed Game's file is a file of, by its path in the Audit: never a source for another.
+    pub placed_files: &'a HashMap<String, String>,
 }
 
 /// Where a file, or a Game's files, are: a Library Folder, by its id, and the folder in it holding them (empty for
@@ -57,9 +59,9 @@ fn located(path: &str) -> Located {
     split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
 }
 
-/// Why a repair leaves a Placed Game it would have to write a new file of.
-const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames its files or keeps them \
-     aside but doesn't yet write new ones";
+/// Why a repair leaves a Placed Game it would have to convert, or fill from an ingest folder.
+const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks or replaces its \
+     files but doesn't yet convert them or fill them from an ingest folder";
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
@@ -877,6 +879,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 || kept_conflicts.contains(path)
                 || left_conflicts.contains(path)
                 || located(path) != location
+                || i.placed_files.get(*path).is_some_and(|of| of != game)
             {
                 continue;
             }
@@ -1512,7 +1515,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     keep_uncovered(i, &by_path, &reported, &mut proposed, &mut notes);
 
-    // A Placed Game is renamed where it is placed, never written anew there.
+    // A Placed Game is renamed, repacked or replaced where it is placed; never converted, nor filled there.
     let writes_placed: Vec<usize> = proposed
         .iter()
         .enumerate()
@@ -1522,14 +1525,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .path
                     .as_deref()
                     .is_some_and(|t| split_placed(t).is_some())
-                && !match &p.proposal {
-                    Some(Proposal::Rename { .. }) => true,
-                    Some(Proposal::Folder { parts }) => {
-                        p.converts.is_empty()
-                            && parts.iter().all(|p| matches!(p, Part::Rename { .. }))
-                    }
-                    _ => false,
-                }
+                && !(p.converts.is_empty()
+                    && match &p.proposal {
+                        Some(Proposal::Rename { .. } | Proposal::Build { .. }) => true,
+                        Some(Proposal::Folder { parts }) => parts
+                            .iter()
+                            .all(|p| matches!(p, Part::Rename { .. } | Part::Build { .. })),
+                        _ => false,
+                    })
         })
         .map(|(n, _)| n)
         .collect();

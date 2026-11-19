@@ -1,9 +1,11 @@
 //! Placements (ADR 0023): where a Source Set keeps each of its Games, in its own folder or in the Library Folder that
 //! holds its Placed Games. A Placed Game stays its Source Set's: its Audits read its recorded files where they are
-//! placed, a Repair renames them or keeps them aside there, and while any Game is placed neither the Library Folder
-//! nor the Source Set can be unregistered. Builds don't place Games yet; [`Store::record_placement`] records one.
+//! placed, a Repair renames, repacks or replaces them there or keeps them aside into the Source Set's kept files, and
+//! while any Game is placed neither the Library Folder nor the Source Set can be unregistered. Builds don't place
+//! Games yet; [`Store::record_placement`] records one.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rustix::fs::Stat;
 use title_select_api::build::{FileStat, PlacedFile};
 use title_select_api::paths::relative_path;
 use title_select_api::storage::is_reserved_name;
@@ -11,7 +13,7 @@ use title_select_engine::meter::Tally;
 
 use crate::builds::sha256_of;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, file_stat};
+use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::{folder_by_id, open_folder};
 use crate::sets::{Resolved, resolve, set_by_id, set_by_name};
 use crate::{Error, Result, Store, now};
@@ -44,7 +46,8 @@ pub(crate) fn holding_folder(c: &Connection, set: i64) -> Result<Option<i64>> {
     })
 }
 
-const PLACED_QUERY: &str = "SELECT game, folder_id, path, size, mtime_ns, sha256 FROM placed_files";
+const PLACED_QUERY: &str =
+    "SELECT game, folder_id, path, size, mtime_ns, dev, ino, ctime_ns, sha256 FROM placed_files";
 
 fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
     Ok(PlacedFile {
@@ -55,8 +58,53 @@ fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
             size: r.get::<_, i64>(3)? as u64,
             mtime_ns: r.get::<_, i64>(4)? as i128,
         },
-        sha256: r.get(5)?,
+        dev: r.get::<_, i64>(5)? as u64,
+        ino: r.get::<_, i64>(6)? as u64,
+        ctime_ns: r.get::<_, i64>(7)? as i128,
+        sha256: r.get(8)?,
     })
+}
+
+/// Whether the file statted as `st` is the Placed Game's file `placed` as recorded: the same size and modification
+/// time, and the same file, unchanged since, by its device, inode and status change time. Only then is it trusted
+/// without being read again.
+pub(crate) fn unchanged(placed: &PlacedFile, st: &Stat) -> bool {
+    let identity = Identity::of(st);
+    file_stat(st) == placed.file
+        && (identity.dev, identity.ino) == (placed.dev, placed.ino)
+        && ctime_ns(st) == placed.ctime_ns
+}
+
+/// Records the Placed Game's file `path` in Library Folder `folder` as statted as `now`, while it is still recorded
+/// as `was`: what a check that read it again, and found it holding what it did, records.
+pub(crate) fn restamp(
+    tx: &Transaction,
+    folder: i64,
+    path: &str,
+    was: &PlacedFile,
+    now: &Stat,
+) -> Result<()> {
+    let (file, identity) = (file_stat(now), Identity::of(now));
+    tx.execute(
+        "UPDATE placed_files SET size = ?8, mtime_ns = ?9, dev = ?10, ino = ?11, ctime_ns = ?12
+         WHERE folder_id = ?1 AND path = ?2
+         AND size = ?3 AND mtime_ns = ?4 AND dev = ?5 AND ino = ?6 AND ctime_ns = ?7",
+        params![
+            folder,
+            path,
+            was.file.size as i64,
+            was.file.mtime_ns as i64,
+            was.dev as i64,
+            was.ino as i64,
+            was.ctime_ns as i64,
+            file.size as i64,
+            file.mtime_ns as i64,
+            identity.dev as i64,
+            identity.ino as i64,
+            ctime_ns(now) as i64
+        ],
+    )?;
+    Ok(())
 }
 
 /// The files of Source Set `set`'s Placed Games, by Library Folder and path.
@@ -119,37 +167,77 @@ fn games(n: i64) -> String {
     }
 }
 
-/// Records that the Placed Game's file `from` in Library Folder `folder` is now `to` there, a file of `game` as it
-/// now is: as a Repair renamed it. The Game it was a file of is no longer placed once it has no file left.
+/// Records that the Placed Game's file `from` in Library Folder `folder` is now `to` there, statted as `now`: as a
+/// Repair renamed it. It stays a file of the Game it was placed as.
 pub(crate) fn move_placed(
     tx: &Transaction,
     folder: i64,
     from: &str,
     to: &str,
-    game: &str,
-    file: &FileStat,
+    now: &Stat,
 ) -> Result<()> {
-    let (set, was): (i64, String) = tx.query_row(
-        "SELECT source_set_id, game FROM placed_files WHERE folder_id = ?1 AND path = ?2",
-        params![folder, from],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
+    let (file, identity) = (file_stat(now), Identity::of(now));
     tx.execute(
-        "INSERT OR IGNORE INTO placed_games (source_set_id, game, folder_id, placed_at) VALUES (?1, ?2, ?3, ?4)",
-        params![set, game, folder, now()],
-    )?;
-    tx.execute(
-        "UPDATE placed_files SET path = ?3, game = ?4, size = ?5, mtime_ns = ?6 WHERE folder_id = ?1 AND path = ?2",
+        "UPDATE placed_files SET path = ?3, size = ?4, mtime_ns = ?5, dev = ?6, ino = ?7, ctime_ns = ?8
+         WHERE folder_id = ?1 AND path = ?2",
         params![
             folder,
             from,
             to,
-            game,
             file.size as i64,
-            file.mtime_ns as i64
+            file.mtime_ns as i64,
+            identity.dev as i64,
+            identity.ino as i64,
+            ctime_ns(now) as i64
         ],
     )?;
-    drop_unplaced(tx, set, &was)
+    Ok(())
+}
+
+/// Records the file `path` in Library Folder `folder`, statted as `st` and read as `sha256`, as a file of Source Set
+/// `set`'s Placed Game `game`: one a Repair wrote there.
+pub(crate) fn place_file(
+    tx: &Transaction,
+    set: i64,
+    folder: i64,
+    path: &str,
+    game: &str,
+    st: &Stat,
+    sha256: &str,
+) -> Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO placed_games (source_set_id, game, folder_id, placed_at) VALUES (?1, ?2, ?3, ?4)",
+        params![set, game, folder, now()],
+    )?;
+    let (file, identity) = (file_stat(st), Identity::of(st));
+    tx.execute(
+        "INSERT OR REPLACE INTO placed_files
+         (folder_id, path, source_set_id, game, size, mtime_ns, dev, ino, ctime_ns, sha256)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            folder,
+            path,
+            set,
+            game,
+            file.size as i64,
+            file.mtime_ns as i64,
+            identity.dev as i64,
+            identity.ino as i64,
+            ctime_ns(st) as i64,
+            sha256
+        ],
+    )?;
+    Ok(())
+}
+
+/// The Game the Placed Game's file `path` in Library Folder `folder` is a file of; none when it is no such file.
+pub(crate) fn placed_game_of(c: &Connection, folder: i64, path: &str) -> Result<Option<String>> {
+    Ok(c.query_row(
+        "SELECT game FROM placed_files WHERE folder_id = ?1 AND path = ?2",
+        params![folder, path],
+        |r| r.get(0),
+    )
+    .optional()?)
 }
 
 /// Forgets the Placed Game's file `path` in Library Folder `folder`, which a Repair moved into its Source Set's kept
@@ -304,10 +392,12 @@ impl Store {
                 }
                 e => e.into(),
             })?;
-            for (path, (file, sha256)) in &files {
+            for (path, (st, sha256)) in &files {
+                let (file, identity) = (file_stat(st), Identity::of(st));
                 tx.execute(
-                    "INSERT INTO placed_files (folder_id, path, source_set_id, game, size, mtime_ns, sha256)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    "INSERT INTO placed_files
+                     (folder_id, path, source_set_id, game, size, mtime_ns, dev, ino, ctime_ns, sha256)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         folder,
                         path,
@@ -315,6 +405,9 @@ impl Store {
                         game,
                         file.size as i64,
                         file.mtime_ns as i64,
+                        identity.dev as i64,
+                        identity.ino as i64,
+                        ctime_ns(st) as i64,
                         sha256
                     ],
                 )
@@ -330,24 +423,29 @@ impl Store {
     }
 }
 
-/// The regular file `rel` in `dir`, as it is, with the SHA-256 of all of it.
-fn read(dir: &FolderDir, rel: &str) -> Result<(FileStat, String)> {
+/// The regular file `rel` in `dir`, statted as it is, with the SHA-256 of all of it.
+fn read(dir: &FolderDir, rel: &str) -> Result<(Stat, String)> {
     let io = |e: std::io::Error| Error::Io(format!("{}: {e}", dir.path().join(rel).display()));
     let file = dir.open_file(rel).map_err(io)?;
     let st = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
     // Recorded for you, by no Job: no Job's meter counts it.
     let (sha256, _) = sha256_of(&file, &Tally::default()).map_err(io)?;
-    Ok((file_stat(&st), sha256))
+    Ok((st, sha256))
 }
 
-/// The Library Folders an Audit of Source Set `set` reads besides its own folder: each that holds one of its Placed
-/// Games. Until a Build places Games (#214), a Build of a holding folder that holds none changes nothing it reads.
+/// The Library Folders an Audit of Source Set `set` reads besides its own folder, or is to: the one holding its
+/// Placed Games, whether or not it holds one yet, and any other that holds one of them.
 fn read_folders(c: &Connection, set: i64) -> Result<Vec<i64>> {
-    Ok(
-        c.prepare("SELECT DISTINCT folder_id FROM placed_games WHERE source_set_id = ?1")?
-            .query_map([set], |r| r.get(0))?
-            .collect::<Result<_, _>>()?,
-    )
+    let mut folders: Vec<i64> = c
+        .prepare("SELECT DISTINCT folder_id FROM placed_games WHERE source_set_id = ?1")?
+        .query_map([set], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    if let Some(holding) = holding_folder(c, set)?
+        && !folders.contains(&holding)
+    {
+        folders.push(holding);
+    }
+    Ok(folders)
 }
 
 /// Refuses to start an Audit of Source Set `set_name` (`set`) while a Build or cleanup of a Library Folder holding
@@ -373,9 +471,9 @@ pub(crate) fn check_no_holding_build(c: &Connection, set: i64, set_name: &str) -
     Ok(())
 }
 
-/// Refuses to queue a Build or cleanup of Library Folder `folder` while it holds Placed Games of a Source Set an
-/// Audit is queued for or reading: it would change files the Audit reads. Called in the transaction that queues the
-/// Build.
+/// Refuses to queue a Build or cleanup of Library Folder `folder` while it holds, or is to hold, the Placed Games of
+/// a Source Set an Audit is queued for or reading: it would change files the Audit reads. Called in the transaction
+/// that queues the Build.
 pub(crate) fn check_no_audit_reading(c: &Connection, folder: i64) -> Result<()> {
     let set: i64 = c.query_row(
         "SELECT source_set_id FROM library_folders WHERE id = ?1",

@@ -61,6 +61,72 @@ pub struct ToRead {
     pub path: PathBuf,
     pub is_zip: bool,
     pub rel: String,
+    /// The folder below which no symbolic link is followed to reach `path`, when there is one: a Library Folder
+    /// holding Placed Games, whose files are read only where they were placed.
+    pub beneath: Option<PathBuf>,
+}
+
+impl ToRead {
+    /// Opens the file to read it, following no symbolic link below [`ToRead::beneath`].
+    pub fn open(&self) -> std::io::Result<File> {
+        match &self.beneath {
+            None => File::open(&self.path),
+            Some(base) => open_beneath(base, &self.path),
+        }
+    }
+
+    /// The file's stamp as it is now; none where it can't be opened or the platform has none.
+    fn stamp(&self) -> Option<FileStamp> {
+        match &self.beneath {
+            None => FileStamp::of(&self.path),
+            Some(_) => FileStamp::from_metadata(&self.open().ok()?.metadata().ok()?),
+        }
+    }
+}
+
+/// Opens the regular file at `path`, in the folder `base`, following no symbolic link below `base`: one found on the
+/// way, or at `path` itself, is an error, never followed.
+#[cfg(unix)]
+pub fn open_beneath(base: &Path, path: &Path) -> std::io::Result<File> {
+    use rustix::fs::{CWD, Mode, OFlags, openat};
+    use std::path::Component;
+    let other = |why: &str| std::io::Error::other(why.to_owned());
+    let link = |e: rustix::io::Errno| match e {
+        rustix::io::Errno::LOOP => {
+            other("it is a symbolic link, which is never followed to a placed game's file")
+        }
+        e => e.into(),
+    };
+    let rel = path
+        .strip_prefix(base)
+        .map_err(|_| other("it is not in its folder"))?;
+    let dir = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let mut at = openat(CWD, base, dir, Mode::empty())?;
+    let mut names = rel.components().peekable();
+    while let Some(component) = names.next() {
+        let Component::Normal(name) = component else {
+            return Err(other("its path is not a plain one"));
+        };
+        if names.peek().is_some() {
+            at = openat(&at, name, dir | OFlags::NOFOLLOW, Mode::empty()).map_err(link)?;
+            continue;
+        }
+        // Not blocking, so a FIFO put in its place is refused below rather than waited on.
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let file = File::from(openat(&at, name, flags, Mode::empty()).map_err(link)?);
+        if !file.metadata()?.is_file() {
+            return Err(other("it is no longer a regular file"));
+        }
+        return Ok(file);
+    }
+    Err(other("its path names no file"))
+}
+
+#[cfg(not(unix))]
+pub fn open_beneath(_: &Path, _: &Path) -> std::io::Result<File> {
+    Err(std::io::Error::other(
+        "a placed game's file can't be read safely on this platform",
+    ))
 }
 
 /// How each file is read.
@@ -407,9 +473,7 @@ fn read_counting_threads(
 /// Audit; else reads its payloads, recording the read when every one of them was read.
 fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
     if let Some(reads) = how.reads {
-        let now = std::fs::metadata(&file.path)
-            .ok()
-            .and_then(|m| FileStamp::from_metadata(&m));
+        let now = file.stamp();
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
             && prior.header_rule == how.header
@@ -427,8 +491,8 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
         }
     }
     if how.evidence == AuditEvidence::Quick && file.is_zip {
-        let stamp = FileStamp::of(&file.path);
-        let claimed = claim_file(&file.path);
+        let stamp = file.stamp();
+        let claimed = claim_file(file);
         let headered = how.header.is_some()
             && claimed.members.iter().any(|(_, known)| {
                 matches!(known, Ok(Known::Claim { size, .. }) if (how.might_be_headered)(*size))
@@ -441,7 +505,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
         }
     }
     let read_at = jiff::Timestamp::now();
-    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how);
+    let (read, stamp) = read_file(file, jobs, read_at, how);
     how.tally.file_read();
     if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
         let members: Option<Vec<_>> = read
@@ -481,14 +545,15 @@ fn bounded_archive<R: Read + Seek>(
     }
 }
 
-/// Claims each member of the ZIP archive at `path` from its directory: its name, size and CRC32.
-fn claim_file(path: &Path) -> FileRead {
+/// Claims each member of the ZIP archive `file` from its directory: its name, size and CRC32.
+fn claim_file(file: &ToRead) -> FileRead {
     let mut read = FileRead {
         members: Vec::new(),
         error: None,
         origin: Origin::Claimed,
     };
-    let mut zip = match File::open(path)
+    let mut zip = match file
+        .open()
         .map_err(|e| e.to_string())
         .and_then(|f| bounded_archive(&f, || f.try_clone()))
     {
@@ -525,10 +590,9 @@ fn claim_file(path: &Path) -> FileRead {
     read
 }
 
-/// Reads every payload of the file at `path`, returning what was read and the file as it was when opened.
+/// Reads every payload of `file`, returning what was read and the file as it was when opened.
 fn read_file(
-    path: &Path,
-    is_zip: bool,
+    to_read: &ToRead,
     jobs: Hand,
     read_at: jiff::Timestamp,
     how: How,
@@ -538,7 +602,8 @@ fn read_file(
         error: None,
         origin: Origin::Read(read_at),
     };
-    let file = match File::open(path) {
+    let is_zip = to_read.is_zip;
+    let file = match to_read.open() {
         Ok(file) => file,
         Err(e) => {
             read.error = Some(e.to_string());
@@ -672,6 +737,7 @@ mod tests {
                     path,
                     is_zip: false,
                     rel: format!("{i}.bin"),
+                    beneath: None,
                 }
             })
             .collect()
@@ -837,6 +903,7 @@ mod tests {
                     path,
                     is_zip: false,
                     rel: format!("{i}.bin"),
+                    beneath: None,
                 }
             })
             .collect()

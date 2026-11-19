@@ -868,8 +868,13 @@ pub struct PlacedFile {
     pub library_folder: i64,
     /// Relative to the Library Folder, with `/` separators.
     pub path: String,
-    /// As it was when it was placed, or when a repair last moved it.
+    /// As it was when it was placed, or when a repair or check last recorded it.
     pub file: FileStat,
+    /// Its device, inode and status change time then. A file put in its place, or written over with its size and
+    /// modification time set back, differs in at least one.
+    pub dev: u64,
+    pub ino: u64,
+    pub ctime_ns: i128,
     pub sha256: String,
 }
 

@@ -1,0 +1,309 @@
+//! Carrying a file into a folder that no rename reaches, on another filesystem (ADR 0023): a Placed Game's file a
+//! repair keeps aside into its Source Set's kept files, or a file a repair wrote put in place in the Library Folder
+//! holding its Game. Builds that place Games carry them the same way.
+//!
+//! The copy is made under a staged name recorded first, read back and checked against the SHA-256 the original was
+//! read as while it held still, and published by a rename that never replaces anything. Only then is the original
+//! deleted, under the trusted-stamp rule (ADR 0010): moved into its folder's private `.deleting` area under a slot
+//! recorded first, and deleted there only while it still has the change time read through the descriptor held across
+//! that rename, and that SHA-256. Otherwise it is put back where it was and left. Each step is recorded through
+//! [`Intents`] before it is taken, so a stop resumes from where it was.
+
+use std::io;
+
+use rustix::fs::{FileType, Stat};
+use title_select_api::build::FileStat;
+use title_select_engine::meter::{Tally, copy_chunked};
+
+use crate::builds::{sha256_of, still_sha256};
+use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
+use crate::kept::unique;
+use crate::{Error, Result};
+
+/// The file carried.
+pub(crate) struct Original<'a> {
+    /// The folder it is in, and its name there.
+    pub dir: &'a FolderDir,
+    pub name: &'a str,
+    /// How it is named to you.
+    pub label: &'a str,
+    /// The file it must still be: its identity, size and modification time, and its change time when that is known.
+    pub id: Identity,
+    pub file: FileStat,
+    pub ctime: Option<i128>,
+    /// What it must read as, when that is known already: a file Title Select wrote.
+    pub sha256: Option<&'a str>,
+    /// Its folder's private `.deleting` area, on its filesystem.
+    pub deleting: &'a FolderDir,
+    /// Where what is read of it is counted.
+    pub tally: &'a Tally,
+}
+
+/// Where it is carried.
+pub(crate) struct Dest<'a> {
+    /// The folder Title Select manages that the copy is staged in, on the destination's filesystem.
+    pub root: &'a FolderDir,
+    /// The folder it is put in, and its name there.
+    pub dir: &'a FolderDir,
+    pub name: &'a str,
+    /// Where what is written of it, and read back, is counted.
+    pub tally: &'a Tally,
+}
+
+/// What a carry has recorded of itself, each part before what it records is done.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Intent {
+    /// The name the copy is staged under, in [`Dest::root`], and its identity once it is made.
+    pub staged: Option<String>,
+    pub staged_id: Option<Identity>,
+    /// The SHA-256 the original was read as, and its copy read back as, before the copy was published.
+    pub sha256: Option<String>,
+    /// The original's slot in its folder's `.deleting` area, and its change time once moved there, read through the
+    /// descriptor held across the rename.
+    pub slot: Option<String>,
+    pub moved_ctime: Option<i128>,
+}
+
+/// Where a carry records its [`Intent`], durably.
+pub(crate) trait Intents {
+    fn load(&self) -> Result<Intent>;
+    fn save(&self, intent: &Intent) -> Result<()>;
+}
+
+fn io_err(e: io::Error) -> Error {
+    Error::Io(e.to_string())
+}
+
+fn is_file(st: &Stat, id: Identity) -> bool {
+    FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == id
+}
+
+/// Copies `o` to `d` and publishes the copy, leaving `o` where it is. Returns the published copy, as it is; or why
+/// nothing was published, with nothing of the copy left behind.
+pub(crate) fn copy(
+    o: &Original,
+    d: &Dest,
+    intents: &dyn Intents,
+) -> Result<std::result::Result<Stat, String>> {
+    let mut intent = intents.load()?;
+    // Published before a stop: the copy recorded, checked, is at its name.
+    if let (Some(id), Some(_)) = (intent.staged_id, &intent.sha256)
+        && let Some(st) = d.dir.stat(d.name).map_err(io_err)?
+        && is_file(&st, id)
+    {
+        return Ok(Ok(st));
+    }
+    // A copy a stop left unpublished is removed, only while it is the file recorded, and made again.
+    if let Some(staged) = &intent.staged {
+        match (d.root.stat(staged).map_err(io_err)?, intent.staged_id) {
+            (None, _) => {}
+            (Some(st), Some(id)) if is_file(&st, id) => {
+                d.root.unlink(staged).map_err(io_err)?;
+                d.root.sync_holding(staged).map_err(io_err)?;
+            }
+            (Some(_), _) => {
+                return Ok(Err(format!(
+                    "{}/{staged} is not the copy Title Select was making of {}; it was left as it is",
+                    d.root.path().display(),
+                    o.label
+                )));
+            }
+        }
+    }
+    let leaf = d.name.rsplit('/').next().unwrap_or(d.name);
+    let staged = staged_name(leaf);
+    intent = Intent {
+        staged: Some(staged.clone()),
+        ..Intent::default()
+    };
+    intents.save(&intent)?;
+    let out = match create_staged(d.root, &staged) {
+        Ok(out) => out,
+        Err(e) => {
+            intents.save(&Intent::default())?;
+            return Ok(Err(format!("{} could not be copied: {e}", o.label)));
+        }
+    };
+    let id = Identity::of_fd(&out).map_err(io_err)?;
+    intent.staged_id = Some(id);
+    intents.save(&intent)?;
+    let checked = (|| -> Result<std::result::Result<String, String>> {
+        let src = match o.dir.open_file(o.name) {
+            Ok(src) => src,
+            Err(e) => return Ok(Err(format!("{} could not be read: {e}", o.label))),
+        };
+        let st = rustix::fs::fstat(&src).map_err(|e| io_err(e.into()))?;
+        let ctime = o.ctime.unwrap_or(ctime_ns(&st));
+        if Identity::of(&st) != o.id || file_stat(&st) != o.file || ctime_ns(&st) != ctime {
+            return Ok(Err(format!("{} changed since the plan was made", o.label)));
+        }
+        if let Err(e) = copy_chunked(&src, o.tally, &out, d.tally) {
+            return Ok(Err(format!("{} could not be copied: {e}", o.label)));
+        }
+        out.sync_all().map_err(io_err)?;
+        let Some(sha) = still_sha256(&src, ctime, o.tally).map_err(io_err)? else {
+            return Ok(Err(format!("{} changed while it was copied", o.label)));
+        };
+        if o.sha256.is_some_and(|want| want != sha) {
+            return Ok(Err(format!(
+                "{} no longer reads as the file Title Select wrote",
+                o.label
+            )));
+        }
+        let (copied, _) = sha256_of(&out, d.tally).map_err(io_err)?;
+        if copied != sha {
+            return Ok(Err(format!(
+                "the copy of {} didn't read back as it",
+                o.label
+            )));
+        }
+        Ok(Ok(sha))
+    })()?;
+    let discard = |why: String| -> Result<std::result::Result<Stat, String>> {
+        if let Some(st) = d.root.stat(&staged).map_err(io_err)?
+            && is_file(&st, id)
+        {
+            d.root.unlink(&staged).map_err(io_err)?;
+            d.root.sync_holding(&staged).map_err(io_err)?;
+        }
+        intents.save(&Intent::default())?;
+        Ok(Err(why))
+    };
+    let sha = match checked {
+        Ok(sha) => sha,
+        Err(why) => return discard(why),
+    };
+    intent.sha256 = Some(sha);
+    intents.save(&intent)?;
+    d.root.sync_holding(&staged).map_err(io_err)?;
+    let _pin = d.root.pin(&staged, id);
+    if let Err(e) = d.root.rename_new(&staged, d.dir, d.name) {
+        return discard(format!(
+            "the copy of {} could not be put in place: {e}",
+            o.label
+        ));
+    }
+    d.dir.sync().map_err(io_err)?;
+    d.root.sync_holding(&staged).map_err(io_err)?;
+    match d.dir.stat(d.name).map_err(io_err)? {
+        Some(st) if is_file(&st, id) => Ok(Ok(st)),
+        _ => Ok(Err(format!(
+            "what is in place of the copy of {} is not the copy Title Select made",
+            o.label
+        ))),
+    }
+}
+
+/// Deletes `o` once [`copy`] published its copy: only while it is still exactly what was copied, read through the
+/// descriptor held as it is moved to be deleted. Otherwise it is put back, and the reason it was left is returned.
+pub(crate) fn dispose(
+    o: &Original,
+    intents: &dyn Intents,
+) -> Result<std::result::Result<(), String>> {
+    let mut intent = intents.load()?;
+    let Some(sha) = intent.sha256.clone() else {
+        return Ok(Err(format!(
+            "{} has no copy recorded, so it was left as it is",
+            o.label
+        )));
+    };
+    let unslot = |intent: &mut Intent| -> Result<()> {
+        intent.slot = None;
+        intent.moved_ctime = None;
+        intents.save(intent)
+    };
+    let slot = match intent.slot.clone() {
+        Some(slot) => slot,
+        None => {
+            match o.dir.stat(o.name).map_err(io_err)? {
+                // Gone already, by another hand: nothing is left to delete.
+                None => return Ok(Ok(())),
+                Some(st) if is_file(&st, o.id) && file_stat(&st) == o.file => {}
+                Some(_) => {
+                    return Ok(Err(format!(
+                        "{} changed after it was copied, so it was left as it is",
+                        o.label
+                    )));
+                }
+            }
+            let slot = format!("carried-{}", unique());
+            intent.slot = Some(slot.clone());
+            intent.moved_ctime = None;
+            intents.save(&intent)?;
+            let pin = o.dir.pin(o.name, o.id);
+            if pin.is_none() {
+                unslot(&mut intent)?;
+                return Ok(Err(format!(
+                    "{} changed after it was copied, so it was left as it is",
+                    o.label
+                )));
+            }
+            if let Err(e) = o.dir.rename_new(o.name, o.deleting, &slot) {
+                unslot(&mut intent)?;
+                return Ok(Err(format!(
+                    "{} could not be set aside to delete ({e}), so it was left as it is",
+                    o.label
+                )));
+            }
+            // Its change time, which the rename moved, read through the descriptor held across it.
+            if let Some(held) = &pin {
+                let moved = rustix::fs::fstat(held).map_err(|e| io_err(e.into()))?;
+                if Identity::of(&moved) == o.id {
+                    intent.moved_ctime = Some(ctime_ns(&moved));
+                    intents.save(&intent)?;
+                }
+            }
+            slot
+        }
+    };
+    // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
+    o.dir.sync().map_err(io_err)?;
+    o.deleting.sync().map_err(io_err)?;
+    let Some(st) = o.deleting.stat(&slot).map_err(io_err)? else {
+        // Deleted before a stop; or never moved, when it is still where it was.
+        let still = o
+            .dir
+            .stat(o.name)
+            .map_err(io_err)?
+            .is_some_and(|st| is_file(&st, o.id));
+        unslot(&mut intent)?;
+        return match still {
+            true => dispose(o, intents),
+            false => Ok(Ok(())),
+        };
+    };
+    let trusted = match intent.moved_ctime {
+        Some(ctime) if is_file(&st, o.id) => {
+            let file = o.deleting.open_file(&slot).map_err(io_err)?;
+            let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+            Identity::of(&held) == o.id
+                && file_stat(&held) == o.file
+                && still_sha256(&file, ctime, o.tally)
+                    .map_err(io_err)?
+                    .is_some_and(|read| read == sha)
+        }
+        _ => false,
+    };
+    if trusted {
+        o.deleting.unlink(&slot).map_err(io_err)?;
+        o.deleting.sync().map_err(io_err)?;
+        unslot(&mut intent)?;
+        return Ok(Ok(()));
+    }
+    // Never deleted unproven: put back where it was.
+    let why = format!(
+        "{} could not be confirmed unchanged once it was set aside to delete",
+        o.label
+    );
+    match o.deleting.rename_new(&slot, o.dir, o.name) {
+        Ok(()) => {
+            o.deleting.sync().map_err(io_err)?;
+            o.dir.sync().map_err(io_err)?;
+            unslot(&mut intent)?;
+            Ok(Err(format!("{why}, so it was put back and left as it is")))
+        }
+        Err(e) => Ok(Err(format!(
+            "{why}, and could not be put back ({e}); it was left at .title-select/retained/.deleting/{slot}"
+        ))),
+    }
+}

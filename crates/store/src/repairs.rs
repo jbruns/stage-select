@@ -12,7 +12,7 @@
 pub(crate) mod deletion;
 pub(crate) mod planning;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io;
 
@@ -244,7 +244,7 @@ fn walk_with_placed(
     Ok((entries, files))
 }
 
-/// The Library Folders holding Placed Games whose files the steps of `content` rename or keep aside.
+/// The Library Folders holding Placed Games whose files the steps of `content` read, write, rename or keep aside.
 fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
     content
         .steps
@@ -252,30 +252,31 @@ fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
         .flat_map(|s| match &s.step {
             RepairStep::Keep { path, .. } => vec![path.as_str()],
             RepairStep::Rename { from, to, .. } => vec![from.as_str(), to.as_str()],
-            _ => Vec::new(),
+            RepairStep::Build {
+                target, sources, ..
+            } => std::iter::once(target.as_str())
+                .chain(sources.keys().map(String::as_str))
+                .collect(),
+            RepairStep::Publish { target, .. } => vec![target.as_str()],
+            RepairStep::Fill { .. } | RepairStep::Delete { .. } => Vec::new(),
         })
         .filter_map(|path| split_placed(path).map(|(folder, _)| folder))
         .collect()
 }
 
-/// Why the steps of `content` can't be carried out as planned: one that writes, fills or deletes a Placed Game's
-/// file, or renames a file between a Library Folder and another folder. None when every step can.
+/// Why the steps of `content` can't be carried out as planned: one that fills or deletes a Placed Game's file, or
+/// writes or renames a file from one folder into another, Library Folder or Source Set. None when every step can.
 fn unplaceable(content: &RepairPlanContent) -> Option<String> {
+    let folder = |path: &str| split_placed(path).map(|(folder, _)| folder);
     content.steps.iter().find_map(|s| {
         let placed = match &s.step {
             RepairStep::Build {
                 target, sources, ..
-            } => {
-                split_placed(target).is_some() || sources.keys().any(|p| split_placed(p).is_some())
-            }
-            RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
-                split_placed(target).is_some()
-            }
-            RepairStep::Delete { path, .. } => split_placed(path).is_some(),
-            RepairStep::Rename { from, to, .. } => {
-                split_placed(from).map(|(f, _)| f) != split_placed(to).map(|(f, _)| f)
-            }
-            RepairStep::Keep { .. } => false,
+            } => sources.keys().any(|p| folder(p) != folder(target)),
+            RepairStep::Fill { target, .. } => folder(target).is_some(),
+            RepairStep::Delete { path, .. } => folder(path).is_some(),
+            RepairStep::Rename { from, to, .. } => folder(from) != folder(to),
+            RepairStep::Publish { .. } | RepairStep::Keep { .. } => false,
         };
         placed.then(|| {
             format!(
@@ -286,9 +287,9 @@ fn unplaceable(content: &RepairPlanContent) -> Option<String> {
     })
 }
 
-/// Opens Library Folder `folder`, holding Placed Games a repair renames or keeps aside, for it to write to: only
-/// while its Root is writable and its marker is this store's for it at its build generation, and nothing else changes
-/// it now.
+/// Opens Library Folder `folder`, holding Placed Games a repair reads, writes, renames or keeps aside, for it to write
+/// to: only while its Root is writable and its marker is this store's for it at its build generation, and nothing
+/// else changes it now.
 fn open_placed(
     store: &Store,
     config: &Config,
@@ -323,6 +324,71 @@ fn open_placed(
         generation: row.generation,
     };
     Ok(check_marker(&dir, &expected).map(|()| dir))
+}
+
+/// Where a repair step that carries a file across filesystems records its [`crate::carry::Intent`]: on its own row.
+struct StepCarry<'a> {
+    store: &'a Store,
+    step: i64,
+}
+
+impl crate::carry::Intents for StepCarry<'_> {
+    fn load(&self) -> Result<crate::carry::Intent> {
+        self.store.read(|c| {
+            Ok(c.query_row(
+                "SELECT copy_staged, copy_dev, copy_ino, copy_sha256, copy_slot, copy_ctime_ns FROM repair_steps
+                 WHERE id = ?1",
+                [self.step],
+                |r| {
+                    let staged_id = match (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?) {
+                        (Some(dev), Some(ino)) => Some(Identity::from_sql(dev, ino)),
+                        _ => None,
+                    };
+                    Ok(crate::carry::Intent {
+                        staged: r.get(0)?,
+                        staged_id,
+                        sha256: r.get(3)?,
+                        slot: r.get(4)?,
+                        moved_ctime: r
+                            .get::<_, Option<String>>(5)?
+                            .and_then(|ns| ns.parse().ok()),
+                    })
+                },
+            )?)
+        })
+    }
+
+    fn save(&self, intent: &crate::carry::Intent) -> Result<()> {
+        let (dev, ino) = intent.staged_id.map(Identity::to_sql).unzip();
+        self.store.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET copy_staged = ?2, copy_dev = ?3, copy_ino = ?4, copy_sha256 = ?5,
+                     copy_slot = ?6, copy_ctime_ns = ?7
+                 WHERE id = ?1",
+                params![
+                    self.step,
+                    intent.staged,
+                    dev,
+                    ino,
+                    intent.sha256,
+                    intent.slot,
+                    intent.moved_ctime.map(|ns| ns.to_string())
+                ],
+            )?;
+            Ok(())
+        })
+    }
+}
+
+/// Whether repair step `step` has begun to carry a file across filesystems, by a copy.
+fn carrying(store: &Store, step: i64) -> Result<bool> {
+    store.read(|c| {
+        Ok(c.query_row(
+            "SELECT copy_staged IS NOT NULL FROM repair_steps WHERE id = ?1",
+            [step],
+            |r| r.get(0),
+        )?)
+    })
 }
 
 fn seen_file(seen: &Seen) -> SeenFile {
@@ -689,8 +755,8 @@ struct Repairing<'a> {
     dir: FolderDir,
     /// Where the bytes written into the Source Set's Root are counted.
     to: Tally,
-    /// The Library Folders holding the Placed Games whose files it renames or keeps aside, opened for it to write to,
-    /// with where what is read of each is counted.
+    /// The Library Folders holding the Placed Games whose files it reads, writes, renames or keeps aside, opened for it
+    /// to write to, with where what is read of each is counted.
     placed: BTreeMap<i64, (FolderDir, Tally)>,
 }
 
@@ -719,6 +785,17 @@ impl Repairing<'_> {
         split_placed(path)
             .and_then(|(folder, _)| self.placed.get(&folder))
             .map_or(&self.to, |(_, tally)| tally)
+    }
+
+    /// Opens `path`, as the plan names it, to read it: in the Library Folder holding it, for a Placed Game's file.
+    fn open_source(&self, path: &str) -> std::result::Result<File, String> {
+        let (base, rel) = self.locate(path).map_err(|e| e.to_string())?;
+        let (parent, name) = parent_of(base, rel).map_err(|e| e.to_string())?;
+        parent
+            .as_ref()
+            .unwrap_or(base)
+            .open_file(name)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -777,9 +854,19 @@ impl Store {
         let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
         let candidates =
             self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;
+        // Where each Placed Game is, while the Audit found a file of it there: one whose every file is gone is
+        // filled, or written, in the Source Set's folder, as any missing Game is. Each placed file is a source for
+        // its own Game only.
+        let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         let mut placed = HashMap::new();
+        let mut placed_files = HashMap::new();
         let mut placed_dirs = BTreeMap::new();
         for file in self.read(|c| crate::placements::placed_files_of(c, set.id))? {
+            let at = placed_path(file.library_folder, &file.path);
+            placed_files.insert(at.clone(), file.game.clone());
+            if !reported.contains(at.as_str()) {
+                continue;
+            }
             placed.entry(file.game.clone()).or_insert_with(|| {
                 let dir = file.path.rsplit_once('/').map_or("", |(dir, _)| dir);
                 Some((file.library_folder, dir.to_owned()))
@@ -830,6 +917,7 @@ impl Store {
             cues: &cues,
             covers: &|game| covering.covers(game),
             placed: &placed,
+            placed_files: &placed_files,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -2049,7 +2137,9 @@ impl Store {
                 roms,
                 loose,
             } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
-            RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
+            RepairStep::Publish { build, target } => {
+                self.run_publish(config, r, step, *build, target)
+            }
             RepairStep::Fill { .. } => self.run_fill(config, r, step),
             RepairStep::Delete {
                 path,
@@ -2143,12 +2233,7 @@ impl Store {
             let mut opened: Vec<File> = Vec::new();
             let mut index: HashMap<&str, usize> = HashMap::new();
             for (path, seen) in sources {
-                let (parent, name) = parent_of(dir, path).map_err(|e| e.to_string())?;
-                let file = parent
-                    .as_ref()
-                    .unwrap_or(dir)
-                    .open_file(name)
-                    .map_err(|e| e.to_string())?;
+                let file = r.open_source(path)?;
                 let st = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
                 if Seen::of(&st) != seen_of(seen) {
                     return Err(format!(
@@ -2182,13 +2267,14 @@ impl Store {
                     (&rom.rom, at, rom.member.as_deref())
                 })
                 .collect();
-            // The Source Set's files are read from its Root; the cue packs, kept in the store and in no Root, are
-            // counted for the Job alone.
+            // The Source Set's files are read from its Root, and a Placed Game's from its Library Folder's; the cue
+            // packs, kept in the store and in no Root, are counted for the Job alone.
             let store = r.to.job().map(|job| job.tally(None)).unwrap_or_default();
+            let tallies: Vec<&Tally> = sources.keys().map(|path| r.tally(path)).collect();
             let refs: Vec<(&File, &Tally)> = opened
                 .iter()
                 .enumerate()
-                .map(|(i, file)| (file, if i < in_set { &r.to } else { &store }))
+                .map(|(i, file)| (file, if i < in_set { tallies[i] } else { &store }))
                 .collect();
             let read = match loose {
                 true => write_loose(&file, &from, &refs, &r.to)?,
@@ -2353,12 +2439,7 @@ impl Store {
         let written = match failed {
             Some(why) => Err(why),
             None => (|| -> std::result::Result<(String, u64), String> {
-                let (parent, name) = parent_of(dir, path).map_err(|e| e.to_string())?;
-                let source = parent
-                    .as_ref()
-                    .unwrap_or(dir)
-                    .open_file(name)
-                    .map_err(|e| e.to_string())?;
+                let source = r.open_source(path)?;
                 let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
                 if Seen::of(&st) != seen_of(seen) {
                     return Err(format!(
@@ -2370,7 +2451,7 @@ impl Store {
                     .iter()
                     .map(|(one, ..)| (&one.rom, one.member.as_str()))
                     .collect();
-                let read = write_loose_members(&dests, &roms, &source, &r.to, &r.to)?;
+                let read = write_loose_members(&dests, &roms, &source, r.tally(path), &r.to)?;
                 for (one, _, file, _) in &staged {
                     verify_loose(file, &one.rom, &r.to)
                         .map_err(|why| format!("the new {} did not check: {why}", one.target))?;
@@ -2815,6 +2896,23 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         let generation = &retention.generation;
+        // A Placed Game's file no rename takes into the Source Set's kept files is copied there instead.
+        let across = |e: Option<&io::Error>| -> Result<bool> {
+            Ok(split_placed(path).is_some()
+                && (carrying(self, step.id)? || self.across_filesystems(e)))
+        };
+        if across(None)? && (step.state == "pending" || carrying(self, step.id)?) {
+            return self.keep_across(
+                r,
+                step,
+                path,
+                (base, parent, name),
+                kept,
+                reason,
+                seen,
+                finish,
+            );
+        }
         let in_place = is_seen(parent, name, seen).map_err(io_err)?;
         let mut pin = None;
         if step.state == "pending" || (in_place && step.state == "moving") {
@@ -2829,14 +2927,24 @@ impl Store {
             self.step_state(step, "moving")?;
             pin = parent.pin(name, seen.identity);
             if let Err(e) = parent.rename_new(name, generation, kept) {
-                let why = match e.raw_os_error() == Some(rustix::io::Errno::XDEV.raw_os_error()) {
-                    true => format!(
-                        "{path} could not be kept aside: its play library folder is on another filesystem than the \
-                         source set's kept files, and a file is moved there only by a rename; it was left as it is"
-                    ),
-                    false => format!("{path} could not be kept aside: {e}; it was left as it is"),
-                };
-                self.fail_step(step, "failed", why)?;
+                if across(Some(&e))? {
+                    drop(pin);
+                    return self.keep_across(
+                        r,
+                        step,
+                        path,
+                        (base, parent, name),
+                        kept,
+                        reason,
+                        seen,
+                        finish,
+                    );
+                }
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path} could not be kept aside: {e}; it was left as it is"),
+                )?;
                 return Ok(Ok(None));
             }
             self.fault_point(Fault::RepairMoved(step.seq));
@@ -2922,6 +3030,137 @@ impl Store {
             Ok(Ok(id))
         })?;
         Ok(kept_id.map(Some))
+    }
+
+    /// Keeps the Placed Game's file `path`, in the Library Folder `lib` as `name` in `parent`, aside as `kept` in the
+    /// Source Set's kept files of this repair's generation, where no rename takes it: copied there and recorded kept
+    /// first, so its Game always has a copy recorded, then deleted where it was placed only while it is still exactly
+    /// what was copied ([`crate::carry`]). Then it is no longer placed, and `finish` runs in the same transaction.
+    /// When it can't be proven unchanged, it stays placed, its copy stays kept, and the step fails saying why.
+    #[allow(clippy::too_many_arguments)]
+    fn keep_across(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+        (lib, parent, name): (&FolderDir, &FolderDir, &str),
+        kept: &str,
+        reason: &str,
+        seen: &Seen,
+        finish: &dyn Fn(&Transaction, i64) -> Result<()>,
+    ) -> Result<std::result::Result<Option<i64>, String>> {
+        let content = &r.plan.content;
+        let Some((folder, rel)) = split_placed(path) else {
+            return Ok(Err(format!("{path} is not a placed game's file")));
+        };
+        let generation = match open_retention(self, r.scope(), &r.dir, content.generation, true)? {
+            Ok(Some(retention)) => retention.generation,
+            Ok(None) => return Ok(Err("the kept files folder is missing".into())),
+            Err(why) => return Ok(Err(why)),
+        };
+        let deleting = match open_area_deleting(self, Scope::Library(folder), lib, true)? {
+            Ok(Some(deleting)) => deleting,
+            Ok(None) => {
+                return Ok(Err(
+                    "the play library folder's private .deleting folder is missing".into(),
+                ));
+            }
+            Err(why) => return Ok(Err(why)),
+        };
+        let original = crate::carry::Original {
+            dir: parent,
+            name,
+            label: path,
+            id: seen.identity,
+            file: seen.file.clone(),
+            ctime: Some(seen.ctime_ns),
+            sha256: None,
+            deleting: &deleting,
+            tally: r.tally(path),
+        };
+        let intents = StepCarry {
+            store: self,
+            step: step.id,
+        };
+        self.step_state(step, "moving")?;
+        let dest = crate::carry::Dest {
+            root: &r.dir,
+            dir: &generation,
+            name: kept,
+            tally: &r.to,
+        };
+        let st = match crate::carry::copy(&original, &dest, &intents)? {
+            Ok(st) => st,
+            Err(why) => {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path} could not be kept aside: {why}; it was left as it is"),
+                )?;
+                return Ok(Ok(None));
+            }
+        };
+        self.fault_point(Fault::RepairMoved(step.seq));
+        let file = file_stat(&st);
+        let (dev, ino) = Identity::of(&st).to_sql();
+        let kept_id = self.write(|tx| {
+            let recorded: Option<(i64, i64, i64)> = tx
+                .query_row(
+                    "SELECT id, dev, ino FROM source_kept
+                     WHERE source_set_id = ?1 AND generation = ?2 AND kept_name = ?3",
+                    params![content.set_id, content.generation as i64, kept],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            match recorded {
+                Some((id, rdev, rino)) if (rdev, rino) == (dev, ino) => Ok(Ok(id)),
+                Some(_) => Ok(Err(format!(
+                    "{kept} in the kept files is recorded as another file than {path}'s copy; it was left as it is"
+                ))),
+                None => {
+                    tx.execute(
+                        "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
+                                                  mtime_ns, dev, ino, kept_at, kept_ctime_ns)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![
+                            content.set_id,
+                            r.plan.id,
+                            content.generation as i64,
+                            path,
+                            kept,
+                            reason,
+                            file.size as i64,
+                            file.mtime_ns.to_string(),
+                            dev,
+                            ino,
+                            now(),
+                            ctime_ns(&st).to_string()
+                        ],
+                    )?;
+                    Ok(Ok(tx.last_insert_rowid()))
+                }
+            }
+        })?;
+        let kept_id = match kept_id {
+            Ok(id) => id,
+            Err(why) => return Ok(Err(why)),
+        };
+        if let Err(why) = crate::carry::dispose(&original, &intents)? {
+            self.fail_step(
+                step,
+                "failed",
+                format!(
+                    "{path} was copied into the kept files as {kept}, but {why}; it stays placed"
+                ),
+            )?;
+            return Ok(Ok(None));
+        }
+        let done = self.write(|tx| {
+            crate::placements::forget_placed(tx, folder, rel)?;
+            finish(tx, kept_id)?;
+            Ok(kept_id)
+        })?;
+        Ok(Ok(Some(done)))
     }
 
     /// Settles `st`, found kept as `kept` where the rename of `path` should have put the file planned: another file
@@ -3041,6 +3280,28 @@ impl Store {
                 return self.step_failed(step, "failed", format!("{e}; it was left as it is"));
             }
         };
+        // A Placed Game's file stays a file of the Game it was placed as: never renamed as another's.
+        if let Some((folder, rel)) = split_placed(from) {
+            let game = r
+                .plan
+                .content
+                .items
+                .iter()
+                .find(|i| i.key == step.item)
+                .and_then(|i| i.game.as_deref());
+            let placed = self.read(|c| crate::placements::placed_game_of(c, folder, rel))?;
+            if placed.is_none() || placed.as_deref() != game {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!(
+                        "{from} is a file of {}, placed as its only copy, not of {}; it was left as it is",
+                        placed.as_deref().unwrap_or("no placed game"),
+                        game.unwrap_or("this game")
+                    ),
+                );
+            }
+        }
         let (parent, name) = match parent_of(base, from_rel) {
             Ok(found) => found,
             Err(e) => {
@@ -3122,21 +3383,18 @@ impl Store {
             return self.step_failed(step, "failed", why);
         }
         remove_emptied(base, from_rel);
-        // A Placed Game's file stays placed under its new name, as a file of the Game its item repairs.
+        // A Placed Game's file stays placed under its new name, recorded as it now is.
         match (split_placed(from), split_placed(to)) {
             (Some((folder, from_rel)), Some((_, to_rel))) => {
-                let game = r
-                    .plan
-                    .content
-                    .items
-                    .iter()
-                    .find(|i| i.key == step.item)
-                    .and_then(|i| i.game.clone())
-                    .ok_or_else(|| Error::Io(format!("step {} names no game", step.seq)))?;
+                let Some(st) = to_dir.stat(to_name).map_err(io_err)? else {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!("{to} is gone as it was renamed"),
+                    );
+                };
                 self.write(|tx| {
-                    crate::placements::move_placed(
-                        tx, folder, from_rel, to_rel, &game, &seen.file,
-                    )?;
+                    crate::placements::move_placed(tx, folder, from_rel, to_rel, &st)?;
                     tx.execute(
                         "UPDATE repair_steps SET state = 'done', finished_at = ?2 WHERE id = ?1",
                         params![step.id, now()],
@@ -3152,7 +3410,14 @@ impl Store {
 
     /// Publishes the staged file of Build step `build` as `target`, by one rename that never replaces anything. A
     /// staged file that cannot be published is kept aside rather than left.
-    fn run_publish(&self, r: &Repairing, step: &StepRow, build: u32, target: &str) -> Ran {
+    fn run_publish(
+        &self,
+        config: &Config,
+        r: &Repairing,
+        step: &StepRow,
+        build: u32,
+        target: &str,
+    ) -> Ran {
         let built = self.other_step(r.plan.id, build)?;
         let (Some(staged_name), Some(staged), "done") =
             (&built.staged_name, built.staged, built.state.as_str())
@@ -3171,6 +3436,21 @@ impl Store {
             return self.keep_unpublished(r, step, staged_name, staged, kept, why);
         }
         let dir = &r.dir;
+        // A Placed Game's new file is put in place in the Library Folder holding it.
+        let (base, rel) = match r.locate(target) {
+            Ok(found) => found,
+            Err(e) => {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("{e}; the new {target} was left at {staged_name}"),
+                );
+            }
+        };
+        let placed = split_placed(target).is_some();
+        if placed && (carrying(self, step.id)? || self.across_filesystems(None)) {
+            return self.publish_across(r, step, &built, (staged_name, staged), target);
+        }
         let at_staged = is_file(dir, staged_name, staged).map_err(io_err)?;
         let mut _pin = None;
         if step.state == "pending" || (at_staged && step.state == "moving") {
@@ -3183,10 +3463,14 @@ impl Store {
             }
             self.step_state(step, "moving")?;
             _pin = dir.pin(staged_name, staged);
-            let published = parent_made(dir, target).and_then(|(parent, name)| {
-                dir.rename_new(staged_name, parent.as_ref().unwrap_or(dir), name)
+            let published = parent_made(base, rel).and_then(|(parent, name)| {
+                dir.rename_new(staged_name, parent.as_ref().unwrap_or(base), name)
             });
             if let Err(e) = published {
+                if placed && self.across_filesystems(Some(&e)) {
+                    drop(_pin);
+                    return self.publish_across(r, step, &built, (staged_name, staged), target);
+                }
                 let why = format!("the new {target} could not be put in place: {e}");
                 let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
                     Ok(kept) => kept,
@@ -3197,24 +3481,192 @@ impl Store {
             self.fault_point(Fault::RepairMoved(step.seq));
         }
         dir.sync_holding(staged_name).map_err(io_err)?;
-        let in_place = match parent_of(dir, target) {
+        let in_place = match parent_of(base, rel) {
             Ok((parent, name)) => {
-                let parent = parent.as_ref().unwrap_or(dir);
+                let parent = parent.as_ref().unwrap_or(base);
                 parent.sync().map_err(io_err)?;
-                is_file(parent, name, staged).map_err(io_err)?
+                match parent.stat(name).map_err(io_err)? {
+                    Some(st)
+                        if FolderDir::kind(&st) == FileType::RegularFile
+                            && Identity::of(&st) == staged =>
+                    {
+                        Some(st)
+                    }
+                    _ => None,
+                }
             }
-            Err(_) => false,
+            Err(_) => None,
         };
-        if !in_place {
+        let Some(st) = in_place else {
             return self.step_failed(
                 step,
                 "failed",
                 format!("{target} is not the new file Title Select wrote"),
             );
+        };
+        match placed {
+            true => self.publish_placed(r, step, &built, target, &st)?,
+            false => {
+                self.step_done(step, None)?;
+                self.unplace_vanished(config, r, step)?;
+            }
         }
-        self.step_done(step, None)?;
         self.fault_point(Fault::RepairStepDone(step.seq));
         Ok(Ok(()))
+    }
+
+    /// Puts the file Build step `built` staged as `staged_name`, `staged`, in place as the Placed Game's file
+    /// `target`, in a Library Folder no rename from the Source Set's folder reaches: copied there and checked against
+    /// the SHA-256 it was staged with ([`crate::carry`]), then the staged file deleted, only while it is still exactly
+    /// that, as one not published is.
+    fn publish_across(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        built: &StepRow,
+        (staged_name, staged): (&str, Identity),
+        target: &str,
+    ) -> Ran {
+        let (base, rel) = r.locate(target).map_err(io_err)?;
+        let stamp = self.staged_stamp(r.plan.id, built.seq)?;
+        let sha: Option<String> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT sha256 FROM repair_steps WHERE id = ?1",
+                [built.id],
+                |r| r.get(0),
+            )?)
+        })?;
+        let (Some(stamp), Some(sha)) = (stamp, sha) else {
+            return self.step_failed(
+                step,
+                "failed",
+                format!("the new {target} has no stamp recorded; it was left at {staged_name}"),
+            );
+        };
+        let deleting = match open_area_deleting(self, r.scope(), &r.dir, true)? {
+            Ok(Some(deleting)) => deleting,
+            Ok(None) => return Ok(Err("the private .deleting folder is missing".into())),
+            Err(why) => return Ok(Err(why)),
+        };
+        let (parent, name) = match parent_made(base, rel) {
+            Ok(found) => found,
+            Err(e) => {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!(
+                        "the folder of {target} could not be made ({e}); the new {target} was left at \
+                         {staged_name}"
+                    ),
+                );
+            }
+        };
+        let label = format!("the new {target}");
+        let original = crate::carry::Original {
+            dir: &r.dir,
+            name: staged_name,
+            label: &label,
+            id: staged,
+            file: stamp,
+            ctime: None,
+            sha256: Some(&sha),
+            deleting: &deleting,
+            tally: &r.to,
+        };
+        let dest = crate::carry::Dest {
+            root: base,
+            dir: parent.as_ref().unwrap_or(base),
+            name,
+            tally: r.tally(target),
+        };
+        let intents = StepCarry {
+            store: self,
+            step: step.id,
+        };
+        self.step_state(step, "moving")?;
+        let st = match crate::carry::copy(&original, &dest, &intents)? {
+            Ok(st) => st,
+            Err(why) => {
+                let why = format!("the new {target} could not be put in place: {why}");
+                let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
+                    Ok(kept) => kept,
+                    Err(left) => return self.step_failed(step, "failed", left),
+                };
+                return self.keep_unpublished(r, step, staged_name, staged, &kept, why);
+            }
+        };
+        self.fault_point(Fault::RepairMoved(step.seq));
+        // The staged file, copied, is deleted as one not published is: only while it is still what was staged.
+        if let Err(why) = self.discard_staged(r, built, staged_name, staged)? {
+            return Ok(Err(why));
+        }
+        self.publish_placed(r, step, built, target, &st)?;
+        self.fault_point(Fault::RepairStepDone(step.seq));
+        Ok(Ok(()))
+    }
+
+    /// Records the file Build step `built` wrote, now in place as `target`, statted as `st`, as a file of the Placed
+    /// Game its item repairs, in the transaction that ends `step`: placed where it was put.
+    fn publish_placed(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        built: &StepRow,
+        target: &str,
+        st: &rustix::fs::Stat,
+    ) -> Result<()> {
+        let (folder, rel) = split_placed(target).expect("a placed target");
+        let game = r
+            .plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == step.item)
+            .and_then(|i| i.game.clone())
+            .ok_or_else(|| Error::Io(format!("step {} names no game", step.seq)))?;
+        self.write(|tx| {
+            let sha: String = tx.query_row(
+                "SELECT sha256 FROM repair_steps WHERE id = ?1",
+                [built.id],
+                |r| r.get(0),
+            )?;
+            crate::placements::place_file(tx, r.plan.content.set_id, folder, rel, &game, st, &sha)?;
+            tx.execute(
+                "UPDATE repair_steps SET state = 'done', finished_at = ?2 WHERE id = ?1",
+                params![step.id, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Forgets each file of the Placed Game step `step`'s item makes whole in the Source Set's folder that is gone from
+    /// where it was placed: the Game is in the Source Set's folder again. A file still there, or in a Library Folder
+    /// that can't be read now, stays placed.
+    fn unplace_vanished(&self, config: &Config, r: &Repairing, step: &StepRow) -> Result<()> {
+        let Some(game) = r
+            .plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == step.item)
+            .and_then(|i| i.game.as_deref())
+        else {
+            return Ok(());
+        };
+        let set = r.plan.content.set_id;
+        let placed = self.read(|c| crate::placements::placed_files_of(c, set))?;
+        for file in placed.iter().filter(|f| f.game == game) {
+            let row = self.read(|c| folder_by_id(c, file.library_folder))?;
+            let Ok(dir) = open_folder(config, &row.root, &row.path) else {
+                continue;
+            };
+            if dir.stat(&file.path).map_err(io_err)?.is_none() {
+                self.write(|tx| {
+                    crate::placements::forget_placed(tx, file.library_folder, &file.path)
+                })?;
+            }
+        }
+        Ok(())
     }
 
     /// Records the intent to keep the staged file `staged_name`, `staged`, that could not be published as `target`,
@@ -3729,6 +4181,7 @@ impl Store {
         match self.drive_move(config, move_id)? {
             Ok(moved) => {
                 self.step_done(step, moved.note)?;
+                self.unplace_vanished(config, r, step)?;
                 Ok(Ok(()))
             }
             Err(why) => {

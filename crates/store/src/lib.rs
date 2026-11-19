@@ -5,6 +5,7 @@ mod audits;
 mod blobs;
 mod builds;
 pub mod calibration;
+mod carry;
 pub mod ceilings;
 mod checks;
 pub mod config;
@@ -147,6 +148,9 @@ pub struct Store {
     regions: std::sync::OnceLock<coverage::RegionReader>,
     /// Counts the bytes and files every Job reads and writes, for each Job, each Root and in total.
     meter: title_select_engine::meter::Meter,
+    /// Whether a repair carries a Placed Game's file between folders by a copy, as across filesystems, though one
+    /// rename would do: set by [`Store::copy_across_filesystems`].
+    copy_across: std::sync::atomic::AtomicBool,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -431,6 +435,7 @@ impl Store {
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),
             meter: title_select_engine::meter::Meter::default(),
+            copy_across: std::sync::atomic::AtomicBool::new(false),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.
@@ -443,6 +448,21 @@ impl Store {
         store.discard_unfinished_audits()?;
         store.collect_garbage()?;
         Ok(store)
+    }
+
+    /// Makes a repair carry a Placed Game's file between its Library Folder and its Source Set's folder by a copy,
+    /// as it does across filesystems, though they share one: what a test can't otherwise arrange.
+    #[doc(hidden)]
+    pub fn copy_across_filesystems(&self, on: bool) {
+        self.copy_across
+            .store(on, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether `e`, from a rename between folders, says they are on different filesystems; or a test has said to
+    /// treat them as if they were.
+    fn across_filesystems(&self, e: Option<&std::io::Error>) -> bool {
+        self.copy_across.load(std::sync::atomic::Ordering::SeqCst)
+            || e.is_some_and(|e| e.raw_os_error() == Some(rustix::io::Errno::XDEV.raw_os_error()))
     }
 
     #[doc(hidden)]
