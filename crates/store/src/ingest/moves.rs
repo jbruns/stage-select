@@ -645,15 +645,27 @@ impl Store {
             }
             Err(why) => return precondition(why),
         };
+        // Only a move not yet begun records the folders it goes into. One begun before they were recorded, by an
+        // earlier version, never takes the folders at its path now for them: it goes on only while its original, or
+        // its file, is still where it left it, and is otherwise left unfinished until they are found.
         if let (Some(chain), None) = (&chain, &m.dest_chain) {
-            let chain: Vec<(i64, i64)> = chain.iter().map(|id| id.to_sql()).collect();
-            self.write(|tx| {
-                tx.execute(
-                    "UPDATE ingest_moves SET dest_chain = ?2 WHERE id = ?1",
-                    params![m.id, to_json(&chain)],
-                )?;
-                Ok(())
-            })?;
+            if m.state == "pending" {
+                let chain: Vec<(i64, i64)> = chain.iter().map(|id| id.to_sql()).collect();
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE ingest_moves SET dest_chain = ?2 WHERE id = ?1",
+                        params![m.id, to_json(&chain)],
+                    )?;
+                    Ok(())
+                })?;
+            } else if !self.left_as_it_was(&m, &src, &dest)? {
+                return self.block(
+                    &m,
+                    &row.root,
+                    "neither it nor its file is where the move left it, so the folder there may not be the one it \
+                     went into",
+                );
+            }
         }
         // The folders moved into, as they were opened: checked again, from the destination's path down, as the last
         // step before the original is consumed, so that it is consumed only once its file is in the folder at that
@@ -1922,6 +1934,30 @@ impl Store {
         self.blocked(m.id, &blocked)
     }
 
+    /// Whether move `m`, begun before the folders it goes into were recorded, still has its original, or its file,
+    /// where it left them: in the Ingest Folder, set aside there to delete, or at its name in `dest`, the folder the
+    /// file goes in; or is keeping its original, which no longer depends on its file.
+    fn left_as_it_was(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Result<bool> {
+        if matches!(m.state.as_str(), "keeping" | "retaining")
+            || is_seen(src, &m.name, &m.seen).map_err(io)?
+        {
+            return Ok(true);
+        }
+        if let Ok(Some(deleting)) = open_area_deleting(self, Scope::Ingest(m.folder), src, false)?
+            && deleting
+                .stat(&format!("move-{}", m.id))
+                .map_err(io)?
+                .is_some_and(|st| Identity::of(&st) == m.seen.identity)
+        {
+            return Ok(true);
+        }
+        let leaf = m.dest_name().rsplit('/').next().unwrap_or_default();
+        Ok(dest.stat(leaf).map_err(io)?.is_some_and(|st| {
+            let id = Identity::of(&st);
+            id == m.seen.identity || Some(id) == m.staged || Some(id) == m.found
+        }))
+    }
+
     /// Records why move `id` is left unfinished, and returns it.
     fn blocked(&self, id: i64, why: &str) -> Outcome {
         self.write(|tx| {
@@ -2430,6 +2466,83 @@ mod tests {
             name: name.into(),
             generation: 1,
         }
+    }
+
+    /// A move into a loose folder that schema 36's service began, and stopped just after it renamed its original into
+    /// place, before the folders it went into were recorded: once the store is upgraded, recovery never takes a
+    /// folder put in their place for them.
+    #[test]
+    fn a_move_begun_before_its_folders_were_recorded_never_adopts_a_folder_put_in_their_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        for dir in ["in", "lib/Atari/Pong (USA)"] {
+            std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
+        }
+        let config = Config::parse(&format!(
+            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[roots.lib]\npath = {:?}\nwritable = true\n",
+            tmp.path().join("in").display().to_string(),
+            tmp.path().join("lib").display().to_string(),
+        ))
+        .unwrap();
+        let at = tmp.path().join("store");
+        let old = Store::open_with(&at, &crate::migrations::MIGRATIONS[..36]).unwrap();
+        let folder = old
+            .register_ingest_folder(&config, "in")
+            .unwrap()
+            .id
+            .unwrap();
+        let original = tmp.path().join("in/pong.a26");
+        std::fs::write(&original, b"pong").unwrap();
+        let st = rustix::fs::lstat(&original).unwrap();
+        let mv = Move {
+            folder,
+            plan: None,
+            item: None,
+            name: "pong.a26",
+            seen: Seen::of(&st),
+            sha256: Some(hex(&Sha256::digest(b"pong"))),
+            dest: atari("Pong (USA)/Pong (USA).a26"),
+            repack: None,
+            exact: None,
+            loose: false,
+            leave: false,
+        };
+        let id = old
+            .record_move(&config, mv, None, &mut |_, _| Ok(()))
+            .unwrap()
+            .unwrap();
+        // Stopped just after the rename, as schema 36's service left it.
+        old.set_state(id, "moving").unwrap();
+        let placed = tmp.path().join("lib/Atari/Pong (USA)/Pong (USA).a26");
+        std::fs::rename(&original, &placed).unwrap();
+        drop(old);
+        let store = Store::open(&at).unwrap();
+        // The folder moved aside, and an empty one, as good as any at that path, put in its place.
+        let (atari, aside) = (tmp.path().join("lib/Atari"), tmp.path().join("lib/Aside"));
+        std::fs::rename(&atari, &aside).unwrap();
+        std::fs::create_dir_all(atari.join("Pong (USA)")).unwrap();
+        let state = || store.read(|c| move_by_id(c, id)).unwrap().state;
+
+        for _ in 0..2 {
+            let left = store.recover_ingest_moves(&config).unwrap();
+            assert!(
+                left.iter()
+                    .any(|(at, why)| *at == id && why.contains("put the folder back at lib/Atari")),
+                "{left:?}"
+            );
+            assert_eq!(
+                state(),
+                "moving",
+                "neither failed nor done, and tried again"
+            );
+        }
+
+        std::fs::remove_dir_all(&atari).unwrap();
+        std::fs::rename(&aside, &atari).unwrap();
+        let left = store.recover_ingest_moves(&config).unwrap();
+
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(state(), "done");
+        assert_eq!(std::fs::read(&placed).unwrap(), b"pong");
     }
 
     #[test]
