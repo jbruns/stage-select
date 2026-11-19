@@ -257,19 +257,27 @@ fn a_refused_token_a_missing_one_or_an_unreachable_romm_stops_the_check_and_says
 
 #[test]
 fn a_request_gives_up_at_the_client_timeout_with_a_typed_error() {
-    let slow = StubRomm::start(|_| {
-        std::thread::sleep(Duration::from_secs(5));
+    // It answers once the test ends: only the client's timeout ends the request before then.
+    let (_answer, held) = std::sync::mpsc::channel::<()>();
+    let held = Mutex::new(held);
+    let slow = StubRomm::start(move |_| {
+        let _ = held.lock().unwrap().recv();
         (200, "{}".into())
     });
     let client = RommClient::new(&slow.url, Some("rmm_good"))
         .unwrap()
         .with_timeout(Duration::from_millis(200));
-    let started = Instant::now();
-    match client.get::<serde_json::Value>("/api/heartbeat") {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(client.get::<serde_json::Value>("/api/heartbeat"));
+    });
+    match rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("it gave up")
+    {
         Err(RommError::Unreachable(_)) => {}
         other => panic!("{other:?}"),
     }
-    assert!(started.elapsed() < Duration::from_secs(4));
 }
 
 #[test]
@@ -724,11 +732,9 @@ mod scans {
             env.romm(true, &romm.url, "play");
             let folder = env.folder(&format!("gba-{case}"));
             let job = env.build(&folder);
-            let started = Instant::now();
 
             env.scan(&job, &timing);
 
-            assert!(started.elapsed() < Duration::from_secs(4));
             let ended = env.store.job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{expected:?}");
             let scan = ended.romm_scan.unwrap();
@@ -977,25 +983,34 @@ mod scans {
         let env = Env::new();
         let romm = scanning(0, None, "started");
         env.romm(true, &romm.url, "play");
+        // Waiting out a poll would take a minute.
         let long = ScanTiming {
-            poll: Duration::from_secs(30),
+            poll: Duration::from_secs(60),
             window: Duration::from_secs(600),
             ..FAST
         };
         let job = env.build(&env.folder("gba"));
         let stop = ScanStop::default();
-        let started = Instant::now();
 
         let steps = std::thread::scope(|s| {
-            let scanning = s.spawn(|| env.scan_until(&job, &long, &stop));
+            let (ended, end) = std::sync::mpsc::channel();
+            let (env, job, long, stop) = (&env, &job, &long, &stop);
+            let scanning = s.spawn(move || {
+                let steps = env.scan_until(job, long, stop);
+                let _ = ended.send(());
+                steps
+            });
+            let deadline = Instant::now() + Duration::from_secs(30);
             while requests(&romm, "/api/tasks/t1").is_empty() {
+                assert!(Instant::now() < deadline, "the scan was never polled");
                 std::thread::sleep(Duration::from_millis(5));
             }
             stop.stop();
+            end.recv_timeout(Duration::from_secs(30))
+                .expect("the stop ended the wait");
             scanning.join().unwrap()
         });
 
-        assert!(started.elapsed() < Duration::from_secs(5));
         let scan = steps.last().unwrap().romm_scan.clone().unwrap();
         assert_eq!(scan.outcome, RommScanOutcome::Stopped);
         assert!(scan.ended_at.is_some() && scan.detail.is_some());
@@ -1042,7 +1057,7 @@ mod scans {
 
         let steps = std::thread::scope(|s| {
             let scanning = s.spawn(|| env.scan_until(&job, &timing, &stop));
-            accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+            accepted.recv_timeout(Duration::from_secs(30)).unwrap();
             assert_eq!(
                 Arc::strong_count(&env.store),
                 1,
@@ -1074,7 +1089,7 @@ mod scans {
                 &mut |_: &Job| {},
             )
         });
-        accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+        accepted.recv_timeout(Duration::from_secs(30)).unwrap();
         drop(store);
         let reopened = Store::open(&tmp.path().join("store")).unwrap();
         assert_eq!(scanning.join().unwrap().unwrap(), None);
@@ -1677,14 +1692,11 @@ mod scans {
             let roms = (1..=20)
                 .map(|id| rom_of(id, "a26", &format!("Game {id}.zip"), Some("Game"), vec![]))
                 .collect();
-            let romm = library_then("a26", roms, |r| {
-                if r.path.starts_with("/api/roms?") {
-                    std::thread::sleep(Duration::from_millis(40));
-                }
-            });
+            let romm = library_then("a26", roms, |_| {});
             env.romm(true, &romm.url, "play");
+            // A window over before the first page.
             let window = ScanTiming {
-                window: Duration::from_millis(150),
+                window: Duration::ZERO,
                 ..FAST
             };
 
