@@ -1692,13 +1692,18 @@ mod scans {
             let roms = (1..=20)
                 .map(|id| rom_of(id, "a26", &format!("Game {id}.zip"), Some("Game"), vec![]))
                 .collect();
-            let romm = library_then("a26", roms, |_| {});
-            env.romm(true, &romm.url, "play");
-            // A window over before the first page.
+            // The first page outlasts the window, which starts before it is asked for, so the window is over when
+            // the next page is due.
             let window = ScanTiming {
-                window: Duration::ZERO,
+                window: Duration::from_millis(50),
                 ..FAST
             };
+            let romm = library_then("a26", roms, move |r| {
+                if r.path.starts_with("/api/roms?") {
+                    std::thread::sleep(window.window);
+                }
+            });
+            env.romm(true, &romm.url, "play");
 
             let ended = Store::reconcile_romm(
                 &Arc::downgrade(&env.store),
@@ -1719,7 +1724,8 @@ mod scans {
                 .iter()
                 .filter(|r| r.path.starts_with("/api/roms?"))
                 .count();
-            assert!(pages < 20, "it stopped paging: {pages} pages");
+            assert_eq!(pages, 1, "it checks the window between pages");
+            assert!(error.contains("(1 read)"), "{error}");
         }
 
         /// [`library`], holding its answer to the first request for a page of ROMs until the test has done what it

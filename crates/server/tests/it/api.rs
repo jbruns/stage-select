@@ -2401,11 +2401,11 @@ mod selections {
         assert!(usa.rule.is_coverage(), "{usa:?}");
     }
 
-    /// A client that goes away mid-preview ends the engine run: its run folder under the store's `tmp` goes. That the
-    /// engine stops at once when told is the selection engine's to test; that a dropped request tells it, the
-    /// previews'.
+    /// A client that goes away mid-preview leaves no run folder under the store's `tmp`. Whether the run was cancelled
+    /// or finished isn't seen here: that a dropped request raises its cancel flag is the previews' unit test, and that
+    /// the engine stops when it's raised, the selection engine's.
     #[test]
-    fn a_preview_whose_client_goes_away_stops_the_engine() {
+    fn a_preview_whose_client_goes_away_leaves_no_run_folder() {
         use std::io::Write as _;
         let env = Env::new();
         let names: Vec<String> = (0..10_000)
@@ -4036,7 +4036,9 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
     assert_eq!(ended.state, JobState::Succeeded, "{:?}", ended.error);
     let measured: title_select_api::calibration::Calibration =
         client.json(&format!("/jobs/{}/calibration", started.id));
-    assert_eq!(measured.host.map(|h| h.job), Some(started.id));
+    let host = measured.host.expect("the host's sweep");
+    assert_eq!(host.job, started.id);
+    assert!(!host.curve.is_empty() && host.knee.is_some());
     assert_eq!(measured.roots.len(), 1);
     assert_eq!(measured.roots[0].root, "sets");
     let now: title_select_api::calibration::Calibration = client.json("/calibration");
