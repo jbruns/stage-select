@@ -61,8 +61,8 @@ assets-dir = "crates/ui/assets"
 browserquery = "defaults and fully supports wasm"
 lib-profile-release = "wasm-release"
 
-# Sixteen codegen units compile the workbench in well under half the time one does, for a bundle about 5% larger:
-# fat LTO still optimizes across crates (#198).
+# Sixteen codegen units compile the workbench faster than one, for a Brotli bundle about 5% larger: fat LTO still
+# optimizes across crates (#198).
 [profile.wasm-release]
 inherits = "release"
 lto = true
