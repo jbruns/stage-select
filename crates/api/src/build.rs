@@ -520,8 +520,8 @@ pub struct PlanPlace {
     /// The bytes deleted from the Source Set: an estimate, since block cloning may already share them with another
     /// file.
     pub freed: u64,
-    /// The bytes written into the folder: none for a rename or a built file; for a conversion to TorrentZip, at most
-    /// this.
+    /// The bytes written into the folder: none for a rename or a built file, the original's size for a copy, and for
+    /// a conversion an estimate, the sum of its ROMs' sizes, which compression and an archive's headers change.
     pub written: u64,
 }
 
@@ -694,7 +694,7 @@ pub struct PlanSummary {
     pub place: u64,
     #[serde(default)]
     pub place_renamed: u64,
-    /// The bytes placing frees in the Source Set, an estimate, and writes in the folder.
+    /// The bytes placing frees in the Source Set, and writes in the folder: estimates (see [`PlanPlace`]).
     #[serde(default)]
     pub place_freed: u64,
     #[serde(default)]

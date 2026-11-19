@@ -1,53 +1,63 @@
-//! Placing Games (ADR 0023): a Build item of kind `place` makes its Game's file in the Library Folder holding its
-//! Source Set's Placed Games that Game's only copy, and so changes the Source Set.
+//! Placing Games (ADR 0023): the Build items of kind `place` of one release make its files in the Library Folder
+//! holding its Source Set's Placed Games their Games' only copy, and so change the Source Set. A release is placed
+//! whole, every file of it the one way, or not at all.
 //!
-//! - **Rename**: the Source Set's file is the file the folder stores, on the same filesystem. It is held open, checked
-//!   to be the file the plan found by its device, inode, size, modification time and change time, and renamed into
-//!   place by a rename that never replaces anything. It is checked again through the descriptor held across the
+//! - **Rename**: each Source Set file is the file the folder stores, on the same filesystem. Each is held open,
+//!   checked to be the file the plan found by its device, inode, size, modification time and change time, and renamed
+//!   into place by a rename that never replaces anything. Each is checked again through the descriptor held across the
 //!   rename, and its new change time read through it is recorded: it is never read, and its Audit's Entries and the
 //!   payload read an Incremental Audit reuses follow it, their Evidence carried over.
-//! - **Copy**: the same file on another filesystem, or where a rename can't reach. It is copied under a staged name,
-//!   read back against what the original read as while it held still, and published by a rename that never replaces
-//!   anything ([`crate::carry::copy`]).
-//! - **Convert**: the folder stores the Game in another format. Each Source Set file it is written from is read whole
-//!   while it holds still and recorded first; the new file is written and checked in the staging folder as any built
-//!   file is, and published the same way.
-//! - **Built**: the folder holds the Game's file already, as built. The Source Set's files are read and recorded as for
-//!   a conversion, and the built file is read again to check it still holds what it was built as.
+//! - **Copy**: the same files on another filesystem, or where a rename can't reach. Each is copied under a staged
+//!   name, read back against what the original read as while it held still, and published by a rename that never
+//!   replaces anything ([`crate::carry::copy`]).
+//! - **Convert**: the folder stores the Games in another format. Each Source Set file they are written from is read
+//!   whole while it holds still and recorded first; the new files are written and checked in the staging folder as
+//!   any built file is, and published together, as one unit, the same way.
+//! - **Built**: the folder holds the release's files already, as built. The Source Set's files are read and recorded
+//!   as for a conversion, and each built file is read again to check it still holds what it was built as.
 //!
-//! The Game is recorded placed, its file recorded built, and its Source Set's Audit made to name it there, in the one
-//! transaction that ends the step that put it in place, and only for the file found there. Only then is each Source
-//! Set file it consumed deleted, under ADR 0010's trusted-stamp rule ([`crate::carry::dispose_as`]): set aside into the
-//! Source Set's private `.deleting` folder through a descriptor held across that rename, read back, and deleted only
-//! while it still reads as recorded and the placed file, held open, still reads as it was placed. One that can't be
-//! proven unchanged is put back and kept in the Source Set. So at every step the Game has a recorded copy: its
-//! Source Set's file until it is placed, then its placed file. Each step is recorded before it is taken, and recovery
-//! rolls it forward or back; one it can't finish is left outstanding, with why, for the next start.
+//! Before anything moves, each folder a file goes in is made, and the identity of every folder from the Library Folder
+//! down to it recorded. Every file is checked to be in place, in those folders, walked again without following a
+//! symbolic link from the Library Folder's registered path with its marker, before the release is recorded placed and
+//! again as the last step before each Source Set file is consumed.
+//!
+//! The release's Games are recorded placed, their files recorded built, and their Source Set's Audit made to name
+//! them there, in the one transaction that ends the step that put them in place, and only for the files found there.
+//! Only then is each Source Set file they consumed deleted, under ADR 0010's trusted-stamp rule
+//! ([`crate::carry::dispose_as`]): set aside into the Source Set's private `.deleting` folder through a descriptor
+//! held across that rename, read back, and deleted only while it still reads as recorded and the placed file, held
+//! open, still reads as it was placed. One that can't be proven unchanged is moved into the Source Set's kept files,
+//! recorded as kept by the Build. So at every step each Game has a recorded copy in one place: its Source Set's files
+//! until it is placed, then its placed files. Each step is recorded before it is taken, and recovery rolls it forward
+//! or back; one it can't finish is left outstanding, with why, for the next start.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
+use std::io;
 use std::time::SystemTime;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use title_select_api::build::{
-    FileIdentity, ItemState, Marker, PlaceHow, PlacedOriginal, PlanItem, PlanPlace,
+    FileIdentity, ItemState, Marker, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, kept_name,
 };
 use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::placed_path;
+use title_select_api::storage::{placed_path, release_of};
 use title_select_engine::meter::Tally;
 
 use super::{
-    Failure, Staged, Work, is_file, open_source, record_applied, record_temp, remove_staged,
-    set_item, stage_by_fd, staged_temp, still_sha256,
+    Failure, Staged, Work, is_file, make_parents, open_source, record_applied, record_layout_dir,
+    record_temp, remove_staged, set_item, stage_by_fd, staged_temp, still_sha256,
 };
 use crate::carry::{self, Intent, Intents};
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_of};
-use crate::folders::check_marker;
-use crate::kept::{Scope, open_area_deleting, settle_dir_temps};
+use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
+use crate::folders::{check_marker, open_writable_folder};
+use crate::ingest::moves::descend;
+use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps};
+use crate::placements::Rewritten;
 use crate::repairs::{MarkerRule, open_repairable, source_folder};
-use crate::{Error, Fault, Result, Store};
+use crate::{Error, Fault, Result, Store, now};
 
 fn io_err(e: impl std::fmt::Display) -> Error {
     Error::Io(e.to_string())
@@ -59,7 +69,7 @@ pub(super) struct SetDirs {
     pub deleting: FolderDir,
 }
 
-/// What placing an item needs of its Build.
+/// What placing a release needs of its Build.
 pub(super) struct Placing<'a> {
     pub build: i64,
     pub folder: i64,
@@ -70,6 +80,12 @@ pub(super) struct Placing<'a> {
     /// The Library Folder, opened to write to, and its marker as the Build found it.
     pub dir: &'a FolderDir,
     pub expected: &'a Marker,
+    /// Where the Library Folder is registered: walked again from there to check a placed file is in place.
+    pub config: &'a Config,
+    pub root: &'a str,
+    pub path: &'a str,
+    /// The Source Set folder's generation, which a Source Set file kept instead of deleted is kept under.
+    pub generation: u64,
     /// Where what is read and written in the Library Folder's Root is counted, and in the Source Set's.
     pub to: &'a Tally,
     pub from: &'a Tally,
@@ -78,17 +94,21 @@ pub(super) struct Placing<'a> {
 /// A placing item a stop left part way: its seq, target, placement state and item state.
 type Stopped = (i64, String, String, String);
 
-/// A Source Set file a placing item recorded before it changed anything: as the plan found it, and what it read as.
+/// A Source Set file a placing item recorded before it changed anything: as the plan found it, what it read as, and
+/// where it was set aside to delete, or is being kept, with why.
 struct OriginalRow {
     n: i64,
     original: PlacedOriginal,
     sha256: Option<String>,
+    slot: Option<String>,
+    kept: Option<(String, u64)>,
+    detail: Option<String>,
 }
 
 fn original_rows(c: &rusqlite::Connection, build: i64, seq: i64) -> Result<Vec<OriginalRow>> {
     let mut stmt = c.prepare(
-        "SELECT n, path, size, mtime_ns, dev, ino, ctime_ns, sha256 FROM placement_originals
-         WHERE build_id = ?1 AND seq = ?2 AND state = 'pending' ORDER BY n",
+        "SELECT n, path, size, mtime_ns, dev, ino, ctime_ns, sha256, slot, kept_name, kept_generation, detail
+         FROM placement_originals WHERE build_id = ?1 AND seq = ?2 AND state = 'pending' ORDER BY n",
     )?;
     let rows = stmt.query_map(params![build, seq], |r| {
         Ok(OriginalRow {
@@ -106,6 +126,12 @@ fn original_rows(c: &rusqlite::Connection, build: i64, seq: i64) -> Result<Vec<O
                 ctime_ns: r.get::<_, i64>(6)? as i128,
             },
             sha256: r.get(7)?,
+            slot: r.get(8)?,
+            kept: match (r.get::<_, Option<String>>(9)?, r.get::<_, Option<i64>>(10)?) {
+                (Some(name), Some(generation)) => Some((name, generation as u64)),
+                _ => None,
+            },
+            detail: r.get(11)?,
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -145,7 +171,102 @@ fn set_place_state(tx: &Transaction, build: i64, seq: i64, state: Option<&str>) 
     Ok(())
 }
 
-/// Where the copy of a placing item's one Source Set file records its [`Intent`]: on the item's row.
+fn set_original_state(
+    tx: &Transaction,
+    build: i64,
+    (seq, n): (i64, i64),
+    state: &str,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE placement_originals SET state = ?4 WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
+        params![build, seq, n, state],
+    )?;
+    Ok(())
+}
+
+/// The placement of `w`, an item of kind `place`.
+fn placement<'a>(w: &Work<'a>) -> Result<&'a PlanPlace> {
+    w.item
+        .place
+        .as_ref()
+        .ok_or_else(|| Error::Io(format!("{} has no placement", w.item.target)))
+}
+
+/// Where a placing item's file goes in the Library Folder: the folder it goes in, opened from the Library Folder
+/// without following a symbolic link, its name there, and the identity of each folder from the Library Folder down to
+/// it.
+struct Spot {
+    dir: FolderDir,
+    leaf: String,
+    chain: Vec<Identity>,
+}
+
+impl Spot {
+    fn dest<'a>(&'a self, p: &'a Placing) -> carry::Dest<'a> {
+        carry::Dest {
+            root: p.dir,
+            dir: &self.dir,
+            name: &self.leaf,
+            tally: p.to,
+        }
+    }
+}
+
+fn spot(dir: &FolderDir, target: &str) -> io::Result<Spot> {
+    let (at, chain) = descend(dir.try_clone()?, target)?;
+    Ok(Spot {
+        dir: at,
+        leaf: target.rsplit('/').next().unwrap_or(target).to_owned(),
+        chain,
+    })
+}
+
+fn save_chain(tx: &Transaction, build: i64, seq: i64, chain: &[Identity]) -> Result<()> {
+    let chain: Vec<(i64, i64)> = chain.iter().map(|id| id.to_sql()).collect();
+    tx.execute(
+        "UPDATE build_items SET place_chain = ?3 WHERE build_id = ?1 AND seq = ?2",
+        params![build, seq, serde_json::to_string(&chain).map_err(io_err)?],
+    )?;
+    Ok(())
+}
+
+fn chain_of(c: &rusqlite::Connection, build: i64, seq: i64) -> Result<Option<Vec<Identity>>> {
+    let json: Option<String> = c.query_row(
+        "SELECT place_chain FROM build_items WHERE build_id = ?1 AND seq = ?2",
+        params![build, seq],
+        |r| r.get(0),
+    )?;
+    let Some(json) = json else {
+        return Ok(None);
+    };
+    let chain: Vec<(i64, i64)> = serde_json::from_str(&json).map_err(io_err)?;
+    Ok(Some(
+        chain
+            .into_iter()
+            .map(|(dev, ino)| Identity::from_sql(dev, ino))
+            .collect(),
+    ))
+}
+
+/// Whether `target` is still below `chain`, the folders it was put in, in the Library Folder at its registered path,
+/// with its marker: each walked again from there without following a symbolic link. Returns why not.
+fn in_place(p: &Placing, chain: &[Identity], target: &str) -> std::result::Result<(), String> {
+    let dir = open_writable_folder(p.config, p.root, p.path).map_err(|why| {
+        format!("the play library folder can't be opened where it is registered: {why}")
+    })?;
+    check_marker(&dir, p.expected)?;
+    match descend(dir, target) {
+        Ok((_, now)) if now == chain => Ok(()),
+        Ok(_) => Err(format!(
+            "the folder {target} was put in is no longer the one at the play library folder's path"
+        )),
+        Err(e) => Err(format!(
+            "the folder {target} was put in can't be opened from the play library folder's path ({e})"
+        )),
+    }
+}
+
+/// Where Copy or Convert records the copy of a placing item's one Source Set file's [`Intent`]: on the item's row.
 struct CopyIntents<'a> {
     store: &'a Store,
     build: i64,
@@ -199,12 +320,16 @@ impl Intents for CopyIntents<'_> {
 
 /// Where the deletion of a placing item's Source Set file `n` records its [`Intent`]: its slot in the private
 /// `.deleting` folder on its own row; the placed file it stands in for, `published`, and what the original read as,
-/// are recorded already.
+/// are recorded already. It is deleted only while the placed file is in place, below `chain`; otherwise, or when it
+/// can't be proven unchanged, it is kept.
 struct DisposeIntents<'a> {
     store: &'a Store,
-    build: i64,
+    p: &'a Placing<'a>,
+    set: &'a SetDirs,
     seq: i64,
     n: i64,
+    target: &'a str,
+    chain: &'a [Identity],
     published: Identity,
 }
 
@@ -214,7 +339,7 @@ impl Intents for DisposeIntents<'_> {
             Ok(c.query_row(
                 "SELECT sha256, slot, moved_ctime_ns FROM placement_originals
                  WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
-                params![self.build, self.seq, self.n],
+                params![self.p.build, self.seq, self.n],
                 |r| {
                     Ok(Intent {
                         staged: None,
@@ -236,7 +361,7 @@ impl Intents for DisposeIntents<'_> {
                 "UPDATE placement_originals SET slot = ?4, moved_ctime_ns = ?5
                  WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
                 params![
-                    self.build,
+                    self.p.build,
                     self.seq,
                     self.n,
                     intent.slot,
@@ -250,9 +375,30 @@ impl Intents for DisposeIntents<'_> {
     fn verifying(&self) {
         self.store.fault_point(Fault::PlaceChecking(self.seq));
     }
+
+    fn in_place(&self) -> Result<std::result::Result<(), String>> {
+        Ok(in_place(self.p, self.chain, self.target))
+    }
+
+    fn keep_instead(
+        &self,
+        o: &carry::Original,
+        slot: &str,
+        why: &str,
+    ) -> Result<Option<std::result::Result<String, String>>> {
+        Ok(Some(self.store.keep_placed_original(
+            self.p,
+            self.set,
+            (self.seq, self.n, o.label),
+            (o.deleting, slot),
+            None,
+            why,
+        )?))
+    }
 }
 
 /// How a placed file is recorded built, in the transaction that records it placed.
+#[derive(Clone, Copy)]
 enum Built {
     /// Put in place without a publish intent, by a rename or a copy: its stamp, as found, is its intent.
     Found,
@@ -264,12 +410,12 @@ enum Built {
     Earlier,
 }
 
-/// How the Source Set's Audit is made to name a placed file.
-enum Entries<'a> {
-    /// Moved as it was, renamed or copied: its Entries follow it, as `was` found it.
-    Moved(&'a PlacedOriginal),
-    /// Converted from, or stood in for by a built file: each ROM's Entry is now of it.
-    Rewritten,
+/// A file of a release, in place: found at its target as `at`, statted through a descriptor as `now`, and read as
+/// `sha` if it was read.
+struct Found {
+    at: Stat,
+    now: Stat,
+    sha: Option<String>,
 }
 
 /// The file `rel` in `dir`, held open while it is the regular file `o`, as the plan found it: the same device and inode,
@@ -294,6 +440,18 @@ fn hold(dir: &FolderDir, o: &PlacedOriginal) -> Result<std::result::Result<File,
         return Ok(Err(format!("{} changed since the plan was made", o.path)));
     }
     Ok(Ok(file))
+}
+
+/// The one Source Set file a renamed or copied item moves.
+fn one<'a>(w: &Work<'a>) -> Result<Option<&'a PlacedOriginal>> {
+    Ok(match placement(w)?.originals.as_slice() {
+        [o] => Some(o),
+        _ => None,
+    })
+}
+
+fn is_regular(st: &Stat, id: Identity) -> bool {
+    FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == id
 }
 
 impl Store {
@@ -342,277 +500,490 @@ impl Store {
         Ok(Ok(SetDirs { dir, deleting }))
     }
 
-    /// Places the Game of `w`, an item of kind `place`, as its plan says. Each failure that leaves the Game as it was,
-    /// in its Source Set, fails only the item; one that leaves anything to finish stops the Build, for recovery.
-    pub(super) fn place(
+    /// Places the release of `unit`, its items of kind `place`, as its plan says: every file of it, or none. Each
+    /// failure that leaves the release as it was, in its Source Set, fails only its items; one that leaves anything
+    /// to finish stops the Build, for recovery.
+    pub(super) fn place_unit(
         &self,
         p: &Placing,
         set: &SetDirs,
-        w: &Work,
+        unit: &[&Work],
         (staging, staged_ids, built_at): (&FolderDir, &mut HashMap<String, Identity>, SystemTime),
     ) -> Result<()> {
-        let place = w
-            .item
-            .place
-            .as_ref()
-            .ok_or_else(|| Error::Io(format!("{} has no placement", w.item.target)))?;
         check_marker(p.dir, p.expected).map_err(Error::Refused)?;
-        match place.how {
-            PlaceHow::Rename => self.place_rename(p, set, w, place),
-            PlaceHow::Copy => self.place_copy(p, set, w, place),
-            PlaceHow::Convert => {
-                self.place_convert(p, set, w, place, (staging, staged_ids, built_at))
+        let how = placement(unit[0])?.how;
+        for w in unit {
+            if placement(w)?.how != how {
+                return self.fail_unit(p, unit, "its files are not all placed the same way");
             }
-            PlaceHow::Built => self.place_built(p, set, w, place),
+        }
+        // Each folder a file goes in is made, and every folder down to it recorded, before anything moves.
+        let mut spots = Vec::new();
+        for w in unit {
+            let target = &w.item.target;
+            let found = make_parents(p.dir, target)
+                .map_err(|e| e.to_string())
+                .and_then(|made| {
+                    record_layout_dir(self, p.folder, made).map_err(|e| e.to_string())?;
+                    spot(p.dir, target).map_err(|e| e.to_string())
+                });
+            match found {
+                Ok(found) => spots.push(found),
+                Err(e) => {
+                    return self.fail_unit(
+                        p,
+                        unit,
+                        &format!("the folder {target} goes in could not be opened: {e}"),
+                    );
+                }
+            }
+        }
+        self.write(|tx| {
+            for (w, s) in unit.iter().zip(&spots) {
+                save_chain(tx, p.build, w.seq, &s.chain)?;
+            }
+            Ok(())
+        })?;
+        match how {
+            PlaceHow::Rename => self.place_rename(p, set, unit, &spots),
+            PlaceHow::Copy => self.place_copy(p, set, unit, &spots),
+            PlaceHow::Convert => {
+                self.place_convert(p, set, unit, &spots, (staging, staged_ids, built_at))
+            }
+            PlaceHow::Built => self.place_built(p, set, unit, &spots),
         }
     }
 
-    /// Fails `w` with `why`, its Game left in its Source Set as it was.
-    fn place_failed(&self, p: &Placing, w: &Work, why: &str) -> Result<()> {
+    /// Fails every item of `unit` with `why`, its release left in its Source Set as it was.
+    fn fail_unit(&self, p: &Placing, unit: &[&Work], why: &str) -> Result<()> {
         self.write(|tx| {
-            set_place_state(tx, p.build, w.seq, None)?;
-            set_item(
-                tx,
-                p.build,
-                w.seq,
-                ItemState::Failed,
-                &format!(
-                    "{why}; {} stays in source set {} as it was",
-                    w.item.game, p.set_name
-                ),
-            )
+            for w in unit {
+                set_place_state(tx, p.build, w.seq, None)?;
+                set_item(
+                    tx,
+                    p.build,
+                    w.seq,
+                    ItemState::Failed,
+                    &format!(
+                        "{why}; {} stays in source set {} as it was",
+                        w.item.game, p.set_name
+                    ),
+                )?;
+            }
+            Ok(())
         })
     }
 
-    fn place_rename(&self, p: &Placing, set: &SetDirs, w: &Work, place: &PlanPlace) -> Result<()> {
-        let [o] = place.originals.as_slice() else {
-            return self.place_failed(p, w, "a rename moves one file");
-        };
-        let (parent, name) = parent_of(&set.dir, &o.path).map_err(io_err)?;
-        let from = parent.as_ref().unwrap_or(&set.dir);
-        let held = match hold(&set.dir, o)? {
-            Ok(held) => held,
-            Err(why) => return self.place_failed(p, w, &why),
-        };
-        self.write(|tx| set_place_state(tx, p.build, w.seq, Some("renaming")))?;
-        self.fault_point(Fault::PlaceRenaming(w.seq));
-        let target = &w.item.target;
-        if let Err(e) = from.rename_new(name, p.dir, target) {
-            drop(held);
-            if self.across_filesystems(Some(&e)) {
-                // No rename reaches the folder from here: it is copied instead.
-                self.write(|tx| set_place_state(tx, p.build, w.seq, None))?;
-                return self.place_copy(p, set, w, place);
-            }
-            return self.place_failed(
-                p,
-                w,
-                &format!("{} could not be moved into the folder: {e}", o.path),
-            );
-        }
-        self.fault_point(Fault::PlaceMoved(w.seq));
-        match self.finish_rename(p, set, w, o, Some(&held))? {
-            Ok(()) => Ok(()),
-            Err(why) => Err(Error::Refused(why)),
-        }
-    }
-
-    /// Ends the rename of `o`, the Source Set file of `w`, into the folder, now or after a stop: both folders synced,
-    /// and `o`, at its target, recorded placed as it is through `held`, the descriptor held across the rename, or one
-    /// opened on it now. What is at its target is put back unless it is `o`, unchanged. `Err` says why it is left
-    /// outstanding.
-    fn finish_rename(
+    fn place_rename(
         &self,
         p: &Placing,
         set: &SetDirs,
-        w: &Work,
-        o: &PlacedOriginal,
-        held: Option<&File>,
+        unit: &[&Work],
+        spots: &[Spot],
+    ) -> Result<()> {
+        let mut held = Vec::new();
+        for w in unit {
+            let Some(o) = one(w)? else {
+                return self.fail_unit(p, unit, "a rename moves one file for each of its files");
+            };
+            match hold(&set.dir, o)? {
+                Ok(file) => held.push(file),
+                Err(why) => return self.fail_unit(p, unit, &why),
+            }
+        }
+        self.write(|tx| {
+            for w in unit {
+                set_place_state(tx, p.build, w.seq, Some("renaming"))?;
+            }
+            Ok(())
+        })?;
+        let mut moved: Vec<(&Work, &Spot)> = Vec::new();
+        for (w, s) in unit.iter().zip(spots) {
+            let o = one(w)?.expect("checked above");
+            self.fault_point(Fault::PlaceRenaming(w.seq));
+            let renamed = parent_of(&set.dir, &o.path).and_then(|(parent, name)| {
+                parent
+                    .as_ref()
+                    .unwrap_or(&set.dir)
+                    .rename_new(name, &s.dir, &s.leaf)
+            });
+            if let Err(e) = renamed {
+                if moved.is_empty() && self.across_filesystems(Some(&e)) {
+                    // No rename reaches the folder from here: the release is copied instead.
+                    drop(held);
+                    self.write(|tx| {
+                        for w in unit {
+                            set_place_state(tx, p.build, w.seq, None)?;
+                        }
+                        Ok(())
+                    })?;
+                    return self.place_copy(p, set, unit, spots);
+                }
+                let why = format!("{} could not be moved into the folder: {e}", o.path);
+                return self.unmove(p, set, unit, &moved, &why);
+            }
+            moved.push((w, s));
+            self.fault_point(Fault::PlaceMoved(w.seq));
+        }
+        // Every file moved: each checked, through the descriptor held across its rename, to be the file the plan
+        // found, and to be in place, below the folders recorded; then all recorded placed together, or all put back.
+        let mut found = Vec::new();
+        for ((w, s), file) in moved.iter().zip(&held) {
+            let o = one(w)?.expect("checked above");
+            sync_home(set, o)?;
+            s.dir.sync().map_err(io_err)?;
+            let id = Identity::from(o.identity);
+            let at = s.dir.stat(&s.leaf).map_err(io_err)?;
+            let now = rustix::fs::fstat(file).map_err(io_err)?;
+            let why = match &at {
+                Some(at)
+                    if is_regular(at, id)
+                        && Identity::of(&now) == id
+                        && file_stat(&now) == o.file =>
+                {
+                    in_place(p, &s.chain, &w.item.target).err()
+                }
+                Some(at) if is_regular(at, id) => {
+                    Some(format!("{} changed as it was moved", o.path))
+                }
+                _ => Some(format!("{} was replaced as it was moved", o.path)),
+            };
+            if let Some(why) = why {
+                return self.unmove(p, set, unit, &moved, &why);
+            }
+            found.push(Found {
+                at: at.expect("checked above"),
+                now,
+                sha: None,
+            });
+        }
+        self.record_unit(p, unit, &found, Built::Found, "done", None)
+    }
+
+    /// Puts each file of `moved`, items of `unit` renamed into the folder by this Build, back where it was, then fails
+    /// `unit` with `why`. Whatever was renamed goes back, whether it is the file the plan found or one that took its
+    /// name first. One that can't be put back stops the Build, leaving `unit` for recovery.
+    fn unmove(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        unit: &[&Work],
+        moved: &[(&Work, &Spot)],
+        why: &str,
+    ) -> Result<()> {
+        for (w, s) in moved {
+            let o = one(w)?.expect("a renamed item");
+            if let Err(e) = move_home(set, o, s) {
+                return Err(Error::Refused(format!(
+                    "{why}, and {} could not be put back ({e}); it is at {} until it can be",
+                    o.path,
+                    s.dir.path().join(&s.leaf).display()
+                )));
+            }
+        }
+        let why = match moved.is_empty() {
+            true => why.to_owned(),
+            false => format!("{why}, so its files were put back"),
+        };
+        self.fail_unit(p, unit, &why)
+    }
+
+    /// Finishes the renames of `unit` a stop left part way. Once every file is at its target, below the folders
+    /// recorded, the release is recorded placed; otherwise each one moved goes back. `Err` says why it is left
+    /// outstanding: a file neither where it was nor in place.
+    fn recover_rename(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        unit: &[&Work],
     ) -> Result<std::result::Result<(), String>> {
-        let target = &w.item.target;
-        let (parent, name) = parent_of(&set.dir, &o.path).map_err(io_err)?;
-        let from = parent.as_ref().unwrap_or(&set.dir);
-        from.sync().map_err(io_err)?;
-        p.dir.sync().map_err(io_err)?;
-        let id = Identity::from(o.identity);
-        let at = p.dir.stat(target).map_err(io_err)?;
-        let moved = at.as_ref().is_some_and(|st| {
-            FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == id
-        });
-        if !moved {
-            let home = from
-                .stat(name)
-                .map_err(io_err)?
-                .is_some_and(|st| Identity::of(&st) == id);
-            if home {
-                self.place_failed(p, w, &format!("{} was not moved", o.path))?;
+        let mut moved: Vec<(&Work, Spot, Stat)> = Vec::new();
+        let mut home = 0;
+        for w in unit {
+            let Some(o) = one(w)? else {
+                return Ok(Err(format!(
+                    "{} was being moved, but its plan moves no one file",
+                    w.item.target
+                )));
+            };
+            let id = Identity::from(o.identity);
+            let at_home = match parent_of(&set.dir, &o.path) {
+                Ok((parent, name)) => parent
+                    .as_ref()
+                    .unwrap_or(&set.dir)
+                    .stat(name)
+                    .map_err(io_err)?
+                    .is_some_and(|st| is_regular(&st, id)),
+                Err(_) => false,
+            };
+            if at_home {
+                home += 1;
+                continue;
+            }
+            let at_target = match self.recorded_spot(p, w)? {
+                Ok(s) => match s.dir.stat(&s.leaf).map_err(io_err)? {
+                    Some(st) if is_regular(&st, id) => Ok((s, st)),
+                    _ => Err(format!("it is not at {}", w.item.target)),
+                },
+                Err(why) => Err(why),
+            };
+            match at_target {
+                Ok((s, st)) => moved.push((w, s, st)),
+                // Neither where it was nor where it was going: nothing records a copy of the game, so the placement is
+                // left outstanding rather than ended.
+                Err(why) => {
+                    return Ok(Err(format!(
+                        "{} is no longer in source set {}, and {why}; it is left as it is until it is back in the \
+                         source set or in place, and the build finishes then",
+                        o.path, p.set_name
+                    )));
+                }
+            }
+        }
+        if home == 0 {
+            let mut found = Vec::new();
+            let mut changed = None;
+            for (w, s, st) in &moved {
+                let o = one(w)?.expect("checked above");
+                let file = s.dir.open_file(&s.leaf).map_err(io_err)?;
+                let now = rustix::fs::fstat(&file).map_err(io_err)?;
+                if Identity::of(&now) != Identity::of(st) || file_stat(&now) != o.file {
+                    changed = Some(format!("{} changed as it was moved", o.path));
+                    break;
+                }
+                found.push(Found {
+                    at: *st,
+                    now,
+                    sha: None,
+                });
+            }
+            if changed.is_none() {
+                self.record_unit(p, unit, &found, Built::Found, "done", None)?;
                 return Ok(Ok(()));
             }
-            // Renamed here, but not the original: another file took its name first. It goes back.
-            if held.is_some() {
-                return match p.dir.rename_new(target, from, name) {
-                    Ok(()) => {
-                        p.dir.sync().map_err(io_err)?;
-                        from.sync().map_err(io_err)?;
-                        self.place_failed(
-                            p,
-                            w,
-                            &format!(
-                                "{} was replaced as it was moved, so what replaced it was put back",
-                                o.path
-                            ),
-                        )?;
-                        Ok(Ok(()))
-                    }
-                    Err(e) => Ok(Err(format!(
-                        "{} was replaced as it was moved into the folder, and what replaced it could not be put \
-                         back ({e}); it is at {} until it can be",
-                        o.path,
-                        p.dir.path().join(target).display()
-                    ))),
-                };
-            }
-            // Neither where it was nor where it was going: nothing records a copy of the game, so the placement is
-            // left outstanding rather than ended.
-            return Ok(Err(format!(
-                "{} is neither in source set {} nor at {}; find it and put it back in the source set",
-                o.path,
-                p.set_name,
-                p.dir.path().join(target).display()
-            )));
         }
-        let opened;
-        let held = match held {
-            Some(held) => held,
-            None => {
-                opened = p.dir.open_file(target).map_err(io_err)?;
-                &opened
-            }
-        };
-        let now = rustix::fs::fstat(held).map_err(io_err)?;
-        if Identity::of(&now) != id || file_stat(&now) != o.file {
-            // It changed on the way: back where it was, unplaced, or outstanding until it can be.
-            return match p.dir.rename_new(target, from, name) {
-                Ok(()) => {
-                    p.dir.sync().map_err(io_err)?;
-                    from.sync().map_err(io_err)?;
-                    self.place_failed(
-                        p,
-                        w,
-                        &format!("{} changed as it was moved, so it was put back", o.path),
-                    )?;
-                    Ok(Ok(()))
-                }
-                Err(e) => Ok(Err(format!(
-                    "{} changed as it was moved into the folder, and could not be put back ({e}); it is at {} \
-                     until it can be",
+        for (w, s, _) in &moved {
+            let o = one(w)?.expect("checked above");
+            if let Err(e) = move_home(set, o, s) {
+                return Ok(Err(format!(
+                    "the build stopped before every file of {} was moved, and {} could not be put back ({e}); it is \
+                     at {} until it can be",
+                    w.item.game,
                     o.path,
-                    p.dir.path().join(target).display()
-                ))),
-            };
+                    s.dir.path().join(&s.leaf).display()
+                )));
+            }
         }
-        let st = at.expect("checked above");
-        self.record_placed(
+        self.fail_unit(
             p,
-            w,
-            (&st, &now),
-            None,
-            Entries::Moved(o),
-            "done",
-            Built::Found,
+            unit,
+            "the build stopped before its files were all moved and checked, so those moved were put back",
         )?;
         Ok(Ok(()))
     }
 
-    fn place_copy(&self, p: &Placing, set: &SetDirs, w: &Work, place: &PlanPlace) -> Result<()> {
-        let [o] = place.originals.as_slice() else {
-            return self.place_failed(p, w, "a copy is of one file");
+    /// Where `w`'s file goes, in the Library Folder opened now, while every folder down to it is the one recorded
+    /// before anything of its release moved. Returns why not.
+    fn recorded_spot(&self, p: &Placing, w: &Work) -> Result<std::result::Result<Spot, String>> {
+        let target = &w.item.target;
+        let Some(chain) = self.read(|c| chain_of(c, p.build, w.seq))? else {
+            return Ok(Err(format!("where {target} was put isn't recorded")));
         };
+        Ok(match spot(p.dir, target) {
+            Ok(s) if s.chain == chain => Ok(s),
+            Ok(_) => Err(format!(
+                "the folder {target} was put in is no longer the one at the play library folder's path"
+            )),
+            Err(e) => Err(format!(
+                "the folder {target} was put in can't be opened ({e})"
+            )),
+        })
+    }
+
+    fn place_copy(&self, p: &Placing, set: &SetDirs, unit: &[&Work], spots: &[Spot]) -> Result<()> {
+        for w in unit {
+            if one(w)?.is_none() {
+                return self.fail_unit(p, unit, "a copy is of one file for each of its files");
+            }
+        }
         self.write(|tx| {
-            insert_original(tx, (p.build, w.seq, 0), o, None)?;
-            set_place_state(tx, p.build, w.seq, Some("copying"))
+            for w in unit {
+                let o = one(w)?.expect("checked above");
+                insert_original(tx, (p.build, w.seq, 0), o, None)?;
+                set_place_state(tx, p.build, w.seq, Some("copying"))?;
+            }
+            Ok(())
         })?;
-        match self.finish_copy(p, set, w, o)? {
+        match self.copy_unit(p, set, unit, spots)? {
             Ok(()) => Ok(()),
             Err(why) => Err(Error::Refused(why)),
         }
     }
 
-    /// Copies `o`, the Source Set file of `w`, into the folder, or finishes the copy a stop left: published, checked
-    /// to hold what `o` read as, recorded placed, then `o` deleted. `Err` says why it is left outstanding.
-    fn finish_copy(
+    /// Copies each file of `unit` into the folder, or finishes the copies a stop left: each published and checked to
+    /// hold what its original read as, in place below the folders recorded; then all recorded placed together, and
+    /// only then each original deleted. A copy that fails undoes every copy of the release. `Err` says why it is left
+    /// outstanding.
+    fn copy_unit(
         &self,
         p: &Placing,
         set: &SetDirs,
-        w: &Work,
-        o: &PlacedOriginal,
+        unit: &[&Work],
+        spots: &[Spot],
     ) -> Result<std::result::Result<(), String>> {
-        let (parent, name) = match parent_of(&set.dir, &o.path) {
-            Ok(found) => found,
-            Err(e) => {
-                self.place_failed(p, w, &format!("{} can't be reached: {e}", o.path))?;
-                return Ok(Ok(()));
+        let mut published = Vec::new();
+        for (w, s) in unit.iter().zip(spots) {
+            let o = one(w)?.expect("a copied item");
+            let (parent, name) = match parent_of(&set.dir, &o.path) {
+                Ok(found) => found,
+                Err(e) => {
+                    let why = format!("{} can't be reached: {e}", o.path);
+                    return self.discard_copies(p, unit, spots, &why);
+                }
+            };
+            let original = carry::Original {
+                dir: parent.as_ref().unwrap_or(&set.dir),
+                name,
+                label: &o.path,
+                id: Identity::from(o.identity),
+                file: o.file.clone(),
+                ctime: Some(o.ctime_ns),
+                sha256: None,
+                deleting: &set.deleting,
+                tally: p.from,
+            };
+            let intents = CopyIntents {
+                store: self,
+                build: p.build,
+                seq: w.seq,
+            };
+            match carry::copy(&original, &s.dest(p), &intents)? {
+                Ok(st) => published.push(st),
+                Err(why) => return self.discard_copies(p, unit, spots, &why),
             }
-        };
-        let original = carry::Original {
-            dir: parent.as_ref().unwrap_or(&set.dir),
-            name,
-            label: &o.path,
-            id: Identity::from(o.identity),
-            file: o.file.clone(),
-            ctime: Some(o.ctime_ns),
-            sha256: None,
-            deleting: &set.deleting,
-            tally: p.from,
-        };
-        let dest = carry::Dest {
-            root: p.dir,
-            dir: p.dir,
-            name: &w.item.target,
-            tally: p.to,
-        };
-        let intents = CopyIntents {
-            store: self,
-            build: p.build,
-            seq: w.seq,
-        };
-        let st = match carry::copy(&original, &dest, &intents)? {
-            Ok(st) => st,
-            Err(why) => {
-                self.place_failed(p, w, &why)?;
-                return Ok(Ok(()));
-            }
-        };
-        self.fault_point(Fault::PlaceCopied(w.seq));
-        // Checked again before it stands in for the original, here or after a stop.
-        if let Err(why) = carry::published_holds(&dest, &intents)? {
-            self.place_failed(
-                p,
-                w,
-                &format!("{} was copied into the folder, but {why}", o.path),
-            )?;
-            return Ok(Ok(()));
+            self.fault_point(Fault::PlaceCopied(w.seq));
         }
-        let intent = intents.load()?;
-        let sha = intent.sha256.as_deref();
+        // Each checked again before it stands in for its original, here or after a stop.
+        let mut found = Vec::new();
+        for ((w, s), st) in unit.iter().zip(spots).zip(published) {
+            let o = one(w)?.expect("a copied item");
+            let intents = CopyIntents {
+                store: self,
+                build: p.build,
+                seq: w.seq,
+            };
+            let checked = match carry::published_holds(&s.dest(p), &intents)? {
+                Ok(()) => in_place(p, &s.chain, &w.item.target),
+                Err(why) => Err(why),
+            };
+            if let Err(why) = checked {
+                let why = format!("{} was copied into the folder, but {why}", o.path);
+                return self.discard_copies(p, unit, spots, &why);
+            }
+            found.push(Found {
+                at: st,
+                now: st,
+                sha: intents.load()?.sha256,
+            });
+        }
         self.write(|tx| {
-            tx.execute(
-                "UPDATE placement_originals SET sha256 = ?3 WHERE build_id = ?1 AND seq = ?2 AND n = 0",
-                params![p.build, w.seq, sha],
-            )?;
+            for (w, f) in unit.iter().zip(&found) {
+                tx.execute(
+                    "UPDATE placement_originals SET sha256 = ?3 WHERE build_id = ?1 AND seq = ?2 AND n = 0",
+                    params![p.build, w.seq, f.sha],
+                )?;
+            }
             Ok(())
         })?;
-        self.record_placed(
-            p,
-            w,
-            (&st, &st),
-            sha,
-            Entries::Moved(o),
-            "disposing",
-            Built::Found,
-        )?;
-        self.fault_point(Fault::PlaceRecorded(w.seq));
-        self.dispose_originals(p, set, w)
+        self.record_unit(p, unit, &found, Built::Found, "disposing", None)?;
+        self.dispose_unit(p, set, unit, spots)
+    }
+
+    /// Removes each copy of `unit` published or staged, while it is the copy recorded, then fails `unit` with `why`:
+    /// nothing of its originals has changed. Anything else at a copy's name is left.
+    fn discard_copies(
+        &self,
+        p: &Placing,
+        unit: &[&Work],
+        spots: &[Spot],
+        why: &str,
+    ) -> Result<std::result::Result<(), String>> {
+        for (w, s) in unit.iter().zip(spots) {
+            let intents = CopyIntents {
+                store: self,
+                build: p.build,
+                seq: w.seq,
+            };
+            let intent = intents.load()?;
+            if let Some(id) = intent.staged_id {
+                if let Some(st) = s.dir.stat(&s.leaf).map_err(io_err)?
+                    && is_regular(&st, id)
+                {
+                    s.dir.unlink(&s.leaf).map_err(io_err)?;
+                    s.dir.sync().map_err(io_err)?;
+                }
+                if let Some(staged) = &intent.staged
+                    && let Some(st) = p.dir.stat(staged).map_err(io_err)?
+                    && is_regular(&st, id)
+                {
+                    p.dir.unlink(staged).map_err(io_err)?;
+                    p.dir.sync_holding(staged).map_err(io_err)?;
+                }
+            }
+            intents.save(&Intent::default())?;
+        }
+        self.fail_unit(p, unit, why)?;
+        Ok(Ok(()))
+    }
+
+    /// Finishes the copies of `unit` a stop left part way: once every copy is published, in place below the folders
+    /// recorded, they are checked and recorded placed, then the originals deleted; before that, every copy is undone.
+    /// `Err` says why it is left outstanding.
+    fn recover_copy(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        unit: &[&Work],
+    ) -> Result<std::result::Result<(), String>> {
+        let mut spots = Vec::new();
+        for w in unit {
+            match self.recorded_spot(p, w)? {
+                Ok(s) => spots.push(s),
+                Err(why) => {
+                    return Ok(Err(format!(
+                        "{} was being copied into the folder, but {why}; it is left as it is until the folder is \
+                         back, and the build finishes then",
+                        w.item.target
+                    )));
+                }
+            }
+        }
+        let mut all = true;
+        for (w, s) in unit.iter().zip(&spots) {
+            let intent = CopyIntents {
+                store: self,
+                build: p.build,
+                seq: w.seq,
+            }
+            .load()?;
+            all &= match (intent.staged_id, &intent.sha256) {
+                (Some(id), Some(_)) => s
+                    .dir
+                    .stat(&s.leaf)
+                    .map_err(io_err)?
+                    .is_some_and(|st| is_regular(&st, id)),
+                _ => false,
+            };
+        }
+        match all {
+            true => self.copy_unit(p, set, unit, &spots),
+            false => self.discard_copies(
+                p,
+                unit,
+                &spots,
+                "the build stopped before every file of it was copied into the folder",
+            ),
+        }
     }
 
     /// Reads each Source Set file `w` is placed from whole, while it holds still as the plan found it, and records
@@ -622,8 +993,8 @@ impl Store {
         p: &Placing,
         set: &SetDirs,
         w: &Work,
-        place: &PlanPlace,
     ) -> Result<std::result::Result<(), String>> {
+        let place = placement(w)?;
         let mut read = Vec::new();
         for o in &place.originals {
             let held = match hold(&set.dir, o)? {
@@ -648,117 +1019,162 @@ impl Store {
         &self,
         p: &Placing,
         set: &SetDirs,
-        w: &Work,
-        place: &PlanPlace,
+        unit: &[&Work],
+        spots: &[Spot],
         (staging, staged_ids, built_at): (&FolderDir, &mut HashMap<String, Identity>, SystemTime),
     ) -> Result<()> {
-        if let Err(why) = self.record_originals(p, set, w, place)? {
-            return self.place_failed(p, w, &why);
+        for w in unit {
+            if let Err(why) = self.record_originals(p, set, w)? {
+                return self.fail_unit(p, unit, &why);
+            }
         }
-        let name = format!("{}.zip", w.seq);
-        let mut file = staging.create_new(&name).map_err(io_err)?;
-        let file_id = Identity::of_fd(&file).map_err(io_err)?;
-        record_temp(self, p.folder, &staged_temp(&name), file_id)?;
-        staged_ids.insert(name.clone(), file_id);
-        let staged = match stage_placed(w.item, &mut file, &set.dir, (p.from, p.to), built_at) {
-            Ok(staged) => staged,
-            Err(Failure::Folder(why)) => return Err(Error::Io(why)),
-            Err(Failure::Item(why)) => {
+        // Every file of the release written and verified before any is put in place.
+        let mut ready: Vec<(String, File, Identity, Staged)> = Vec::new();
+        for w in unit {
+            let name = format!("{}.zip", w.seq);
+            let mut file = staging.create_new(&name).map_err(io_err)?;
+            let file_id = Identity::of_fd(&file).map_err(io_err)?;
+            record_temp(self, p.folder, &staged_temp(&name), file_id)?;
+            staged_ids.insert(name.clone(), file_id);
+            let why = match stage_placed(w.item, &mut file, &set.dir, (p.from, p.to), built_at) {
+                Ok(staged) => {
+                    ready.push((name, file, file_id, staged));
+                    self.fault_point(Fault::Staged(w.seq));
+                    continue;
+                }
+                Err(Failure::Folder(why)) => return Err(Error::Io(why)),
+                Err(Failure::Item(why)) => why,
+                Err(Failure::Cancelled) => "you cancelled the build".to_owned(),
+            };
+            drop(file);
+            remove_staged(staging, &name, file_id).map_err(Error::Refused)?;
+            for (name, file, id, _) in ready {
                 drop(file);
-                remove_staged(staging, &name, file_id).map_err(Error::Refused)?;
-                return self.place_failed(p, w, &why);
+                remove_staged(staging, &name, id).map_err(Error::Refused)?;
             }
-            Err(Failure::Cancelled) => {
-                drop(file);
-                remove_staged(staging, &name, file_id).map_err(Error::Refused)?;
-                return self.place_failed(p, w, "you cancelled the build");
-            }
-        };
-        self.fault_point(Fault::Staged(w.seq));
-        let (dev, ino) = file_id.to_sql();
+            return self.fail_unit(p, unit, &why);
+        }
+        // Then committed: once one is put in place the rest follow, here or, after a stop, in recovery.
+        let key = unit_key(&unit[0].item.game);
         self.write(|tx| {
             tx.execute(
-                "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6,
-                                        mtime_ns = ?7
-                 WHERE build_id = ?1 AND seq = ?2",
-                params![
-                    p.build,
-                    w.seq,
-                    staged.sha256,
-                    staged.size as i64,
-                    dev,
-                    ino,
-                    staged.mtime_ns as i64
-                ],
+                "INSERT INTO build_units (build_id, unit, state) VALUES (?1, ?2, 'committing')",
+                params![p.build, key],
             )?;
+            for (w, (_, _, id, staged)) in unit.iter().zip(&ready) {
+                let (dev, ino) = id.to_sql();
+                tx.execute(
+                    "UPDATE build_items SET unit = ?3, state = 'publishing', sha256 = ?4, size = ?5, dev = ?6,
+                                            ino = ?7, mtime_ns = ?8
+                     WHERE build_id = ?1 AND seq = ?2",
+                    params![
+                        p.build,
+                        w.seq,
+                        key,
+                        staged.sha256,
+                        staged.size as i64,
+                        dev,
+                        ino,
+                        staged.mtime_ns as i64
+                    ],
+                )?;
+            }
             Ok(())
         })?;
-        self.fault_point(Fault::BeforePublish(w.seq));
-        let target = &w.item.target;
-        let renamed = check_marker(p.dir, p.expected)
-            .and_then(|()| match is_file(staging, &name, file_id)? {
-                true => Ok(()),
-                false => Err(format!(
-                    "{} was replaced after it was verified; it was left as it is",
-                    staging.path().join(&name).display()
-                )),
-            })
-            .and_then(|()| {
-                staging
-                    .rename_new(&name, p.dir, target)
-                    .map_err(|e| match e.kind() {
-                        std::io::ErrorKind::AlreadyExists => format!(
-                            "{target} appeared in the folder during the build; it was left as it is"
-                        ),
-                        _ => e.to_string(),
-                    })
-            });
-        if let Err(why) = renamed {
-            self.place_failed(p, w, &why)?;
-            return Err(Error::Refused(why));
+        for ((w, s), (name, _, id, _)) in unit.iter().zip(spots).zip(&ready) {
+            self.fault_point(Fault::BeforePublish(w.seq));
+            let target = &w.item.target;
+            let renamed = check_marker(p.dir, p.expected)
+                .and_then(|()| match is_file(staging, name, *id)? {
+                    true => Ok(()),
+                    false => Err(format!(
+                        "{} was replaced after it was verified; it was left as it is",
+                        staging.path().join(name).display()
+                    )),
+                })
+                .and_then(|()| {
+                    staging
+                        .rename_new(name, &s.dir, &s.leaf)
+                        .map_err(|e| match e.kind() {
+                            io::ErrorKind::AlreadyExists => format!(
+                                "{target} appeared in the folder during the build; it was left as it is"
+                            ),
+                            _ => e.to_string(),
+                        })
+                });
+            if let Err(why) = renamed {
+                return Err(Error::Refused(format!(
+                    "the files of {} go in place together, but {target} could not be put in place: {why}. The \
+                     build finishes it when the service next starts, once {target} can be put in place",
+                    w.item.game
+                )));
+            }
+            self.fault_point(Fault::PublishedUnsynced(w.seq));
+            staging.sync().map_err(io_err)?;
+            s.dir.sync().map_err(io_err)?;
+            self.fault_point(Fault::AfterPublish(w.seq));
         }
-        self.fault_point(Fault::PublishedUnsynced(w.seq));
-        staging.sync().map_err(io_err)?;
-        p.dir.sync().map_err(io_err)?;
-        self.fault_point(Fault::AfterPublish(w.seq));
-        drop(file);
-        match self.finish_convert(p, set, w, true)? {
+        drop(ready);
+        match self.finish_convert(p, set, unit, spots, true)? {
             Ok(()) => Ok(()),
             Err(why) => Err(Error::Refused(why)),
         }
     }
 
-    /// Records `w`'s converted file, published at its target, placed, once it is the file the Build verified, then
-    /// deletes the Source Set files it was converted from; now or after a stop, when `record` says it is not yet
-    /// recorded built. `Err` says why it is left outstanding.
+    /// Records `unit`'s converted files, published at their targets in `spots`, placed, once each is the file the
+    /// Build verified and in place below the folders recorded, then deletes the Source Set files they were converted
+    /// from; now or after a stop, when `record` says they are not yet recorded built. `Err` says why it is left
+    /// outstanding.
     fn finish_convert(
         &self,
         p: &Placing,
         set: &SetDirs,
-        w: &Work,
+        unit: &[&Work],
+        spots: &[Spot],
         record: bool,
     ) -> Result<std::result::Result<(), String>> {
-        let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT dev, ino, sha256 FROM build_items WHERE build_id = ?1 AND seq = ?2",
-                params![p.build, w.seq],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )?)
-        })?;
-        let (Some(dev), Some(ino), Some(sha)) = (dev, ino, sha) else {
-            self.place_failed(p, w, "nothing it wrote is recorded")?;
-            return Ok(Ok(()));
-        };
-        let id = Identity::from_sql(dev, ino);
-        let target = &w.item.target;
-        let st = match p.dir.stat(target).map_err(io_err)? {
-            Some(st)
-                if FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id =>
-            {
-                st
+        let mut found = Vec::new();
+        let mut wrong = None;
+        for (w, s) in unit.iter().zip(spots) {
+            let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT dev, ino, sha256 FROM build_items WHERE build_id = ?1 AND seq = ?2",
+                    params![p.build, w.seq],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?)
+            })?;
+            let target = &w.item.target;
+            let (Some(dev), Some(ino), Some(sha)) = (dev, ino, sha) else {
+                wrong = Some(format!("nothing written for {target} is recorded"));
+                break;
+            };
+            match s.dir.stat(&s.leaf).map_err(io_err)? {
+                Some(st) if is_regular(&st, Identity::from_sql(dev, ino)) => {
+                    if let Err(why) = in_place(p, &s.chain, target) {
+                        wrong = Some(why);
+                        break;
+                    }
+                    found.push(Found {
+                        at: st,
+                        now: st,
+                        sha: Some(sha),
+                    });
+                }
+                _ => {
+                    wrong = Some(format!("{target} is not the file the build put there"));
+                    break;
+                }
             }
-            _ => {
-                self.write(|tx| {
+        }
+        if let Some(why) = wrong {
+            // Nothing of the Source Set's has changed: the release stays there, and what is in the folder is left.
+            let key = unit_key(&unit[0].item.game);
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE build_units SET state = 'done' WHERE build_id = ?1 AND unit = ?2",
+                    params![p.build, key],
+                )?;
+                for w in unit {
                     set_place_state(tx, p.build, w.seq, None)?;
                     set_item(
                         tx,
@@ -766,177 +1182,221 @@ impl Store {
                         w.seq,
                         ItemState::Uncertain,
                         &format!(
-                            "{target} is not the file the build put there; it was left as it is, and {} stays in \
-                             source set {}",
+                            "{why}; what is in the folder was left as it is, and {} stays in source set {}",
                             w.item.game, p.set_name
                         ),
-                    )
-                })?;
-                return Ok(Ok(()));
-            }
+                    )?;
+                }
+                Ok(())
+            })?;
+            return Ok(Ok(()));
+        }
+        let built = match record {
+            true => Built::Published,
+            false => Built::Recorded,
         };
-        self.record_placed(
-            p,
-            w,
-            (&st, &st),
-            Some(&sha),
-            Entries::Rewritten,
-            "disposing",
-            match record {
-                true => Built::Published,
-                false => Built::Recorded,
-            },
-        )?;
-        self.fault_point(Fault::PlaceRecorded(w.seq));
-        self.dispose_originals(p, set, w)
+        let key = unit_key(&unit[0].item.game);
+        self.record_unit(p, unit, &found, built, "disposing", Some(&key))?;
+        self.dispose_unit(p, set, unit, spots)
     }
 
-    fn place_built(&self, p: &Placing, set: &SetDirs, w: &Work, place: &PlanPlace) -> Result<()> {
-        let target = &w.item.target;
-        let built: Option<(Option<String>, i64, i64)> = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT sha256, size, mtime_ns FROM built_files WHERE folder_id = ?1 AND target = ?2",
-                params![p.folder, target],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .optional()?)
-        })?;
-        let Some((Some(sha), size, mtime_ns)) = built else {
-            return self.place_failed(
-                p,
-                w,
-                &format!("{target} has no record of what it was built as"),
-            );
-        };
-        let st = match p.dir.stat(target).map_err(io_err)? {
-            Some(st)
-                if FolderDir::kind(&st) == FileType::RegularFile
-                    && file_stat(&st).size == size as u64
-                    && file_stat(&st).mtime_ns == mtime_ns as i128 =>
-            {
-                st
+    fn place_built(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        unit: &[&Work],
+        spots: &[Spot],
+    ) -> Result<()> {
+        let mut found = Vec::new();
+        for (w, s) in unit.iter().zip(spots) {
+            let target = &w.item.target;
+            let built: Option<(Option<String>, i64, i64)> = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT sha256, size, mtime_ns FROM built_files WHERE folder_id = ?1 AND target = ?2",
+                    params![p.folder, target],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?)
+            })?;
+            let Some((Some(sha), size, mtime_ns)) = built else {
+                return self.fail_unit(
+                    p,
+                    unit,
+                    &format!("{target} has no record of what it was built as"),
+                );
+            };
+            let st = match s.dir.stat(&s.leaf).map_err(io_err)? {
+                Some(st)
+                    if FolderDir::kind(&st) == FileType::RegularFile
+                        && file_stat(&st).size == size as u64
+                        && file_stat(&st).mtime_ns == mtime_ns as i128 =>
+                {
+                    st
+                }
+                _ => {
+                    return self.fail_unit(
+                        p,
+                        unit,
+                        &format!("{target} changed since it was built"),
+                    );
+                }
+            };
+            if let Err(why) = self.record_originals(p, set, w)? {
+                return self.fail_unit(p, unit, &why);
             }
-            _ => return self.place_failed(p, w, &format!("{target} changed since it was built")),
-        };
-        if let Err(why) = self.record_originals(p, set, w, place)? {
-            return self.place_failed(p, w, &why);
+            // Read again before it stands in for its Source Set's files: still the file built, as built, in place.
+            let held = match carry::Held::open(&s.dir, &s.leaf, Identity::of(&st))? {
+                Ok(held) => held,
+                Err(why) => return self.fail_unit(p, unit, &format!("{target}: {why}")),
+            };
+            let checked = match held.still(&s.dir, &s.leaf, &sha, p.to)? {
+                Ok(()) => in_place(p, &s.chain, target),
+                Err(why) => Err(format!("{target}: {why}")),
+            };
+            if let Err(why) = checked {
+                return self.fail_unit(p, unit, &why);
+            }
+            found.push(Found {
+                at: st,
+                now: st,
+                sha: Some(sha),
+            });
         }
-        // Read again before it stands in for its Source Set's files: still the file built, as built.
-        let held = match carry::Held::open(p.dir, target, Identity::of(&st))? {
-            Ok(held) => held,
-            Err(why) => return self.place_failed(p, w, &format!("{target}: {why}")),
-        };
-        if let Err(why) = held.still(p.dir, target, &sha, p.to)? {
-            return self.place_failed(p, w, &format!("{target}: {why}"));
-        }
-        self.record_placed(
-            p,
-            w,
-            (&st, &st),
-            Some(&sha),
-            Entries::Rewritten,
-            "disposing",
-            Built::Earlier,
-        )?;
-        self.fault_point(Fault::PlaceRecorded(w.seq));
-        match self.dispose_originals(p, set, w)? {
+        self.record_unit(p, unit, &found, Built::Earlier, "disposing", None)?;
+        match self.dispose_unit(p, set, unit, spots)? {
             Ok(()) => Ok(()),
             Err(why) => Err(Error::Refused(why)),
         }
     }
 
-    /// Records `w`'s Game placed as its file at its target, found there as `at` and statted through a descriptor as
-    /// `now`, read as `sha` if it was read: its file recorded built, the Game placed, its Source Set's Audit made to
-    /// Records `w`'s Game placed as its file at its target, found there as `at` and statted through a descriptor as
-    /// `now`, read as `sha` if it was read: its file recorded built as `built` says, the Game placed, its Source
-    /// Set's Audit made to name it there, and the item applied, with its placement at `next`, in one transaction.
-    #[allow(clippy::too_many_arguments)]
-    fn record_placed(
+    /// Records the release of `unit` placed as its files, `found` in place: each recorded built as `built` says, its
+    /// Game placed, its Source Set's Audit made to name it there, and the item applied, with its placement at `next`;
+    /// and its unit `unit` done, if it has one. All in one transaction.
+    fn record_unit(
         &self,
         p: &Placing,
-        w: &Work,
-        (at, now): (&Stat, &Stat),
-        sha: Option<&str>,
-        entries: Entries,
-        next: &str,
+        unit: &[&Work],
+        found: &[Found],
         built: Built,
+        next: &str,
+        key: Option<&str>,
     ) -> Result<()> {
-        let item = w.item;
-        let place = item.place.as_ref().expect("a placing item");
-        let path = placed_path(p.folder, &item.target);
-        let (dev, ino) = Identity::of(at).to_sql();
-        let file = file_stat(at);
+        let paths: Vec<String> = unit
+            .iter()
+            .map(|w| placed_path(p.folder, &w.item.target))
+            .collect();
         self.write(|tx| {
-            let stamp = |tx: &Transaction| -> Result<()> {
-                tx.execute(
-                    "UPDATE build_items SET sha256 = ?3, size = ?4, dev = ?5, ino = ?6, mtime_ns = ?7
-                     WHERE build_id = ?1 AND seq = ?2",
-                    params![
-                        p.build,
-                        w.seq,
-                        sha,
-                        file.size as i64,
-                        dev,
-                        ino,
-                        file.mtime_ns as i64
-                    ],
-                )?;
-                Ok(())
-            };
-            if matches!(built, Built::Found | Built::Earlier) {
-                stamp(tx)?;
-            }
-            match built {
-                Built::Found | Built::Published => {
-                    if !record_applied(tx, p.build, p.folder, w.seq, item, at, true)? {
-                        return Err(Error::Io(format!(
-                            "{} is not the file the build put there",
-                            item.target
-                        )));
-                    }
-                }
-                Built::Recorded | Built::Earlier => {
+            for ((w, f), path) in unit.iter().zip(found).zip(&paths) {
+                let item = w.item;
+                let (dev, ino) = Identity::of(&f.at).to_sql();
+                let file = file_stat(&f.at);
+                if matches!(built, Built::Found | Built::Earlier) {
                     tx.execute(
-                        "UPDATE build_items SET state = 'applied', error = NULL WHERE build_id = ?1 AND seq = ?2",
-                        params![p.build, w.seq],
+                        "UPDATE build_items SET sha256 = ?3, size = ?4, dev = ?5, ino = ?6, mtime_ns = ?7
+                         WHERE build_id = ?1 AND seq = ?2",
+                        params![
+                            p.build,
+                            w.seq,
+                            f.sha,
+                            file.size as i64,
+                            dev,
+                            ino,
+                            file.mtime_ns as i64
+                        ],
                     )?;
                 }
-            }
-            crate::placements::place_file_as(tx, p.set, p.folder, &item.target, &item.game, now, sha)?;
-            match entries {
-                Entries::Moved(was) => crate::placements::moved_entries(
-                    tx,
-                    (p.set, p.audit),
-                    &was.path,
-                    &path,
-                    was,
-                    now,
-                )?,
-                Entries::Rewritten => {
-                    let from: Vec<&str> = place.originals.iter().map(|o| o.path.as_str()).collect();
-                    crate::placements::rewritten_entries(
-                        tx,
-                        (p.set, p.audit),
-                        &from,
-                        &path,
-                        &item.game,
-                        (&item.roms, item.loose),
-                    )?
+                match built {
+                    Built::Found | Built::Published => {
+                        if !record_applied(tx, p.build, p.folder, w.seq, item, &f.at, true)? {
+                            return Err(Error::Io(format!(
+                                "{} is not the file the build put there",
+                                item.target
+                            )));
+                        }
+                    }
+                    Built::Recorded | Built::Earlier => {
+                        tx.execute(
+                            "UPDATE build_items SET state = 'applied', error = NULL WHERE build_id = ?1 AND seq = ?2",
+                            params![p.build, w.seq],
+                        )?;
+                    }
                 }
+                crate::placements::place_file_as(
+                    tx,
+                    p.set,
+                    p.folder,
+                    &item.target,
+                    &item.game,
+                    &f.now,
+                    f.sha.as_deref(),
+                )?;
+                if let (Built::Found, [was]) = (built, placement(w)?.originals.as_slice()) {
+                    crate::placements::moved_entries(tx, (p.set, p.audit), &was.path, path, was, &f.now)?;
+                }
+                set_place_state(tx, p.build, w.seq, Some(next))?;
             }
-            set_place_state(tx, p.build, w.seq, Some(next))
-        })
+            if !matches!(built, Built::Found) {
+                let mut from: Vec<&str> = Vec::new();
+                for w in unit {
+                    for o in &placement(w)?.originals {
+                        if !from.contains(&o.path.as_str()) {
+                            from.push(&o.path);
+                        }
+                    }
+                }
+                let to: Vec<Rewritten> = unit
+                    .iter()
+                    .zip(&paths)
+                    .map(|(w, path)| Rewritten {
+                        path,
+                        game: &w.item.game,
+                        roms: &w.item.roms,
+                        loose: w.item.loose,
+                    })
+                    .collect();
+                crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, &to)?;
+            }
+            if let Some(key) = key {
+                tx.execute(
+                    "UPDATE build_units SET state = 'done' WHERE build_id = ?1 AND unit = ?2",
+                    params![p.build, key],
+                )?;
+            }
+            Ok(())
+        })?;
+        for w in unit {
+            self.fault_point(Fault::PlaceRecorded(w.seq));
+        }
+        Ok(())
     }
 
-    /// Deletes each Source Set file `w`'s Game, now placed, was placed from and has not yet disposed of, under the
-    /// trusted-stamp rule ([`carry::dispose_as`]). One that can't be proven unchanged is put back and kept in the
-    /// Source Set, and the item says so. `Err` says why one is left outstanding: set aside to delete and neither
-    /// deleted nor put back.
+    /// Deletes the Source Set files of each item of `unit`, its release now placed at `spots`. `Err` says why one is
+    /// left outstanding.
+    fn dispose_unit(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        unit: &[&Work],
+        spots: &[Spot],
+    ) -> Result<std::result::Result<(), String>> {
+        for (w, s) in unit.iter().zip(spots) {
+            if let Err(why) = self.dispose_originals(p, set, w, s)? {
+                return Ok(Err(why));
+            }
+        }
+        Ok(Ok(()))
+    }
+
+    /// Deletes each Source Set file `w`'s Game, now placed at `s`, was placed from and has not yet disposed of, under
+    /// the trusted-stamp rule ([`carry::dispose_as`]). One that can't be proven unchanged, or whose placed file is no
+    /// longer in place, is moved into the Source Set's kept files instead, and the item says so. `Err` says why one is
+    /// left outstanding: set aside to delete, or being kept, and neither deleted nor kept.
     fn dispose_originals(
         &self,
         p: &Placing,
         set: &SetDirs,
         w: &Work,
+        s: &Spot,
     ) -> Result<std::result::Result<(), String>> {
         let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
             Ok(c.query_row(
@@ -956,84 +1416,117 @@ impl Store {
         let mut kept = Vec::new();
         for row in self.read(|c| original_rows(c, p.build, w.seq))? {
             let o = &row.original;
-            let Some(original_sha) = &row.sha256 else {
-                kept.push((
-                    row.n,
-                    format!("{} was not read, so it stays in the source set", o.path),
-                ));
+            // One a keep began for is kept, before anything else is done with it.
+            if let Some(name) = &row.kept {
+                match self.finish_keep(p, set, w.seq, &row, name)? {
+                    Ok(why) => kept.push(why),
+                    Err(why) => return Ok(Err(why)),
+                }
                 continue;
-            };
-            let (parent, name) = match parent_of(&set.dir, &o.path) {
-                Ok(found) => found,
-                Err(e) => {
-                    kept.push((
-                        row.n,
-                        format!("{} can't be reached ({e}), so it stays as it is", o.path),
-                    ));
+            }
+            let found = match parent_of(&set.dir, &o.path) {
+                Ok(found) => Ok(found),
+                // Its folder is gone. Set aside already, it goes back into that folder made again, without following a
+                // symbolic link; otherwise it is gone with it.
+                Err(_) if row.slot.is_some() => parent_made(&set.dir, &o.path).map_err(|e| {
+                    format!(
+                        "{} is set aside to delete, and its folder in source set {} is gone and could not be made \
+                         again ({e}); it is left in the source set's private .deleting folder until it can be",
+                        o.path, p.set_name
+                    )
+                }),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    self.write(|tx| set_original_state(tx, p.build, (w.seq, row.n), "gone"))?;
                     continue;
                 }
+                Err(e) => Err(format!(
+                    "{} can't be reached ({e}), so it is left as it is until it can be",
+                    o.path
+                )),
             };
+            let (parent, name) = match found {
+                Ok(found) => found,
+                Err(why) => return Ok(Err(why)),
+            };
+            let dir = parent.as_ref().unwrap_or(&set.dir);
             let original = carry::Original {
-                dir: parent.as_ref().unwrap_or(&set.dir),
+                dir,
                 name,
                 label: &o.path,
                 id: Identity::from(o.identity),
                 file: o.file.clone(),
                 ctime: Some(o.ctime_ns),
-                sha256: Some(original_sha),
+                sha256: row.sha256.as_deref(),
                 deleting: &set.deleting,
                 tally: p.from,
             };
-            let dest = carry::Dest {
-                root: p.dir,
-                dir: p.dir,
-                name: &w.item.target,
-                tally: p.to,
-            };
             let intents = DisposeIntents {
                 store: self,
-                build: p.build,
+                p,
+                set,
                 seq: w.seq,
                 n: row.n,
+                target: &w.item.target,
+                chain: &s.chain,
                 published,
             };
-            let outcome = carry::dispose_as(&original, &dest, &intents, Some(&sha))?;
+            let outcome = carry::dispose_as(&original, &s.dest(p), &intents, Some(&sha))?;
             self.fault_point(Fault::PlaceDisposed(w.seq));
-            match outcome {
-                Ok(()) => self.write(|tx| {
-                    tx.execute(
-                        "UPDATE placement_originals SET state = 'deleted' WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
-                        params![p.build, w.seq, row.n],
-                    )?;
-                    Ok(())
-                })?,
-                // Set aside to delete, and not put back: never recorded kept, and never deleted, until it is one or
-                // the other.
-                Err(why) if intents.load()?.slot.is_some() => return Ok(Err(why)),
-                Err(why) => kept.push((row.n, why)),
+            let why = match outcome {
+                Ok(()) => {
+                    self.write(|tx| set_original_state(tx, p.build, (w.seq, row.n), "deleted"))?;
+                    continue;
+                }
+                Err(why) => why,
+            };
+            let state: String = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT state FROM placement_originals WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
+                    params![p.build, w.seq, row.n],
+                    |r| r.get(0),
+                )?)
+            })?;
+            // Kept from its slot, as it was set aside to delete.
+            if state == "kept" {
+                kept.push(why);
+                continue;
+            }
+            // Set aside to delete, and neither deleted nor kept: never recorded either, until it is one or the other.
+            if intents.load()?.slot.is_some() {
+                return Ok(Err(why));
+            }
+            // Never set aside, since it changed or its placed file can't be held: kept from where it is, if it is.
+            match dir.stat(name).map_err(io_err)? {
+                Some(st) if FolderDir::kind(&st) == FileType::RegularFile => {
+                    match self.keep_placed_original(
+                        p,
+                        set,
+                        (w.seq, row.n, &o.path),
+                        (dir, name),
+                        None,
+                        &why,
+                    )? {
+                        Ok(kept_as) => kept.push(format!("{why}, so it was {kept_as}")),
+                        Err(e) => {
+                            return Ok(Err(format!(
+                                "{why}, and it could not be kept ({e}); it is left as it is until it can be"
+                            )));
+                        }
+                    }
+                }
+                _ => {
+                    self.write(|tx| set_original_state(tx, p.build, (w.seq, row.n), "gone"))?;
+                }
             }
         }
         self.write(|tx| {
-            for (n, why) in &kept {
-                tx.execute(
-                    "UPDATE placement_originals SET state = 'kept', detail = ?4
-                     WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
-                    params![p.build, w.seq, n, why],
-                )?;
-            }
             if !kept.is_empty() {
-                let whys: Vec<&str> = kept.iter().map(|(_, why)| why.as_str()).collect();
                 tx.execute(
                     "UPDATE build_items SET error = ?3 WHERE build_id = ?1 AND seq = ?2",
                     params![
                         p.build,
                         w.seq,
-                        format!(
-                            "{} is placed here, and kept in source set {} too: {}",
-                            w.item.game,
-                            p.set_name,
-                            whys.join("; ")
-                        )
+                        format!("{} is placed here: {}", w.item.game, kept.join("; "))
                     ],
                 )?;
             }
@@ -1042,7 +1535,208 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// Rolls forward or back each Game Build `build`, of plan `plan`, was placing when it stopped, once its Library
+    /// Moves the Source Set file `path` of item `seq`'s original `n`, `name` in `dir` (where it is, or its slot in the
+    /// private `.deleting` folder), into the Source Set's kept files as `kept`, or a free name recorded first, and
+    /// records it kept by the Build, because `why`. Returns how it was kept, or why it could not be.
+    fn keep_placed_original(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        (seq, n, path): (i64, i64, &str),
+        (dir, name): (&FolderDir, &str),
+        kept: Option<(&str, u64)>,
+        why: &str,
+    ) -> Result<std::result::Result<String, String>> {
+        let generation = kept.map_or(p.generation, |(_, g)| g);
+        let retention =
+            match open_retention(self, Scope::Source(p.set), &set.dir, generation, true)? {
+                Ok(Some(retention)) => retention.generation,
+                Ok(None) => return Ok(Err("the kept files folder is missing".into())),
+                Err(why) => return Ok(Err(why)),
+            };
+        let st = match dir.stat(name).map_err(io_err)? {
+            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
+            _ => return Ok(Err(format!("{path} is not where it was left"))),
+        };
+        let kept = match kept {
+            Some((kept, _)) => kept.to_owned(),
+            None => {
+                let leaf = path.rsplit('/').next().unwrap_or(path);
+                let kept = (1..)
+                    .map(|nth| kept_name(leaf, nth))
+                    .find(|k| matches!(retention.stat(k), Ok(None)))
+                    .expect("a free name");
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE placement_originals SET kept_name = ?4, kept_generation = ?5, detail = ?6
+                         WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
+                        params![p.build, seq, n, kept, generation as i64, why],
+                    )?;
+                    Ok(())
+                })?;
+                kept
+            }
+        };
+        let pin = dir.pin(name, Identity::of(&st));
+        if let Err(e) = dir.rename_new(name, &retention, &kept) {
+            return Ok(Err(format!(
+                "it could not be moved into the kept files: {e}"
+            )));
+        }
+        dir.sync().map_err(io_err)?;
+        self.record_kept(
+            p,
+            (seq, n, path),
+            &retention,
+            (&kept, generation),
+            pin.as_ref(),
+            why,
+        )
+    }
+
+    /// Records the Source Set file `path` of item `seq`'s original `n`, moved into the kept files folder `retention`
+    /// of `generation` as `kept`, kept by the Build because `why`: its change time read through `pin`, the descriptor
+    /// held across that move, when there is one.
+    fn record_kept(
+        &self,
+        p: &Placing,
+        (seq, n, path): (i64, i64, &str),
+        retention: &FolderDir,
+        (kept, generation): (&str, u64),
+        pin: Option<&File>,
+        why: &str,
+    ) -> Result<std::result::Result<String, String>> {
+        retention.sync().map_err(io_err)?;
+        let st = match retention.stat(kept).map_err(io_err)? {
+            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
+            _ => return Ok(Err(format!("{kept} is not in the kept files"))),
+        };
+        let kept_ctime = pin
+            .and_then(|pin| rustix::fs::fstat(pin).ok())
+            .filter(|held| Identity::of(held) == Identity::of(&st))
+            .map(|held| ctime_ns(&held).to_string());
+        let (dev, ino) = Identity::of(&st).to_sql();
+        let file = file_stat(&st);
+        self.write(|tx| {
+            let recorded: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM source_kept WHERE source_set_id = ?1 AND generation = ?2 AND kept_name = ?3
+                       AND build_id = ?4",
+                    params![p.set, generation as i64, kept, p.build],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = match recorded {
+                Some(id) => id,
+                None => {
+                    tx.execute(
+                        "INSERT INTO source_kept (source_set_id, build_id, generation, name, kept_name, reason, size,
+                                                  mtime_ns, dev, ino, kept_at, kept_ctime_ns)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![
+                            p.set,
+                            p.build,
+                            generation as i64,
+                            path,
+                            kept,
+                            why,
+                            file.size as i64,
+                            file.mtime_ns.to_string(),
+                            dev,
+                            ino,
+                            now(),
+                            kept_ctime
+                        ],
+                    )?;
+                    tx.last_insert_rowid()
+                }
+            };
+            tx.execute(
+                "UPDATE placement_originals SET state = 'kept', kept_id = ?4, detail = ?5
+                 WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
+                params![p.build, seq, n, id, why],
+            )?;
+            Ok(())
+        })?;
+        Ok(Ok(format!(
+            "kept in source set {}'s kept files as {kept}",
+            p.set_name
+        )))
+    }
+
+    /// Finishes keeping `row`, item `seq`'s original, that a stop left part way as `kept`: recorded once it is in the
+    /// kept files, moved there again while it is still in its slot or where it was. Returns how it was kept, with
+    /// why; `Err` says why it is left outstanding.
+    fn finish_keep(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        seq: i64,
+        row: &OriginalRow,
+        (kept, generation): &(String, u64),
+    ) -> Result<std::result::Result<String, String>> {
+        let o = &row.original;
+        let why = row
+            .detail
+            .clone()
+            .unwrap_or_else(|| format!("{} could not be confirmed unchanged", o.path));
+        let retention =
+            match open_retention(self, Scope::Source(p.set), &set.dir, *generation, true)? {
+                Ok(Some(retention)) => retention.generation,
+                Ok(None) => return Ok(Err("the kept files folder is missing".into())),
+                Err(why) => return Ok(Err(why)),
+            };
+        let done = |how: std::result::Result<String, String>| {
+            how.map(|how| format!("{why}, so it was {how}"))
+                .map_err(|e| format!("{why}, and it could not be kept ({e}); the build keeps it when the service next starts"))
+        };
+        if retention.stat(kept).map_err(io_err)?.is_some() {
+            return Ok(done(self.record_kept(
+                p,
+                (seq, row.n, &o.path),
+                &retention,
+                (kept, *generation),
+                None,
+                &why,
+            )?));
+        }
+        if let Some(slot) = &row.slot
+            && set.deleting.stat(slot).map_err(io_err)?.is_some()
+        {
+            return Ok(done(self.keep_placed_original(
+                p,
+                set,
+                (seq, row.n, &o.path),
+                (&set.deleting, slot),
+                Some((kept, *generation)),
+                &why,
+            )?));
+        }
+        if let Ok((parent, name)) = parent_of(&set.dir, &o.path) {
+            let dir = parent.as_ref().unwrap_or(&set.dir);
+            if dir
+                .stat(name)
+                .map_err(io_err)?
+                .is_some_and(|st| is_regular(&st, Identity::from(o.identity)))
+            {
+                return Ok(done(self.keep_placed_original(
+                    p,
+                    set,
+                    (seq, row.n, &o.path),
+                    (dir, name),
+                    Some((kept, *generation)),
+                    &why,
+                )?));
+            }
+        }
+        Ok(Err(format!(
+            "{} was being kept in source set {}'s kept files, and is neither there nor where it was; find it and \
+             put it back in the source set",
+            o.path, p.set_name
+        )))
+    }
+
+    /// Rolls forward or back each release Build `build`, of plan `plan`, was placing when it stopped, once its Library
     /// Folder `folder` is cleaned up: through the folder, with its marker at the store's generation, and the Source
     /// Set's folder. `Err` says why one is left outstanding.
     pub(super) fn recover_placing(
@@ -1064,7 +1758,7 @@ impl Store {
         if !open {
             return Ok(Ok(()));
         }
-        let dir = match crate::folders::open_writable_folder(config, &folder.root, &folder.path) {
+        let dir = match open_writable_folder(config, &folder.root, &folder.path) {
             Ok(dir) => dir,
             Err(why) => return Ok(Err(why)),
         };
@@ -1077,24 +1771,26 @@ impl Store {
             return Ok(Err(why));
         }
         let items = self.plan(plan)?.content.items;
-        self.recover_placements(config, build, &items, (&dir, &expected))
+        self.recover_placements(config, build, &items, (&dir, &expected), folder)
     }
 
-    /// Rolls forward or back each placing item of Build `build`, of plan `items`, that a stop left part way, through
-    /// the Library Folder `dir` and the Source Set's folder, opened now. `Err` says why one is left outstanding.
+    /// Rolls forward or back each release of Build `build`, of plan `items`, that a stop left part way, through the
+    /// Library Folder `dir` and the Source Set's folder, opened now. `Err` says why one is left outstanding.
     fn recover_placements(
         &self,
         config: &Config,
         build: i64,
         items: &[PlanItem],
         (dir, expected): (&FolderDir, &Marker),
+        row: &crate::folders::FolderRow,
     ) -> Result<std::result::Result<(), String>> {
-        let (folder, set, set_name, audit, open): (i64, i64, String, i64, Vec<Stopped>) =
+        let (set, set_name, audit, generation, open): (i64, String, i64, i64, Vec<Stopped>) =
             self.read(|c| {
-                let (folder, set, name, audit) = c.query_row(
-                    "SELECT b.folder_id, f.source_set_id, s.name, b.audit_id
+                let (set, name, audit, generation) = c.query_row(
+                    "SELECT f.source_set_id, s.name, b.audit_id, COALESCE(sf.generation, 0)
                      FROM builds b JOIN library_folders f ON f.id = b.folder_id
-                     JOIN source_sets s ON s.id = f.source_set_id WHERE b.id = ?1",
+                     JOIN source_sets s ON s.id = f.source_set_id
+                     LEFT JOIN source_folders sf ON sf.source_set_id = s.id WHERE b.id = ?1",
                     [build],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )?;
@@ -1106,7 +1802,7 @@ impl Store {
                     )?
                     .query_map([build], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
                     .collect::<rusqlite::Result<_>>()?;
-                Ok((folder, set, name, audit, open))
+                Ok((set, name, audit, generation, open))
             })?;
         if open.is_empty() {
             return Ok(Ok(()));
@@ -1123,15 +1819,21 @@ impl Store {
         let tally = Tally::default();
         let p = Placing {
             build,
-            folder,
+            folder: row.id,
             set,
             set_name: &set_name,
             audit,
             dir,
             expected,
+            config,
+            root: &row.root,
+            path: &row.path,
+            generation: generation as u64,
             to: &tally,
             from: &tally,
         };
+        // Each release's items left part way, together: a release is placed whole or not at all.
+        let mut works: Vec<(Work, String, String)> = Vec::new();
         for (seq, target, state, item_state) in open {
             let Some(item) = items
                 .iter()
@@ -1141,27 +1843,57 @@ impl Store {
                     "{target} was being placed, but its plan no longer names it"
                 )));
             };
-            let place = item.place.as_ref().expect("found with one");
-            let w = Work { seq, item };
-            let outcome = match state.as_str() {
-                "renaming" => match place.originals.as_slice() {
-                    [o] => self.finish_rename(&p, &set_dirs, &w, o, None)?,
-                    _ => Ok(()),
-                },
-                "copying" => match place.originals.as_slice() {
-                    [o] => self.recover_copy(&p, &set_dirs, &w, o)?,
-                    _ => Ok(()),
-                },
-                // Its new file put in place and recorded built, by the Build or by recovery: it is placed. Otherwise
-                // nothing of it is in place, and the Game stays in its Source Set.
-                "converting" if item_state == "applied" => {
-                    self.finish_convert(&p, &set_dirs, &w, false)?
+            works.push((Work { seq, item }, state, item_state));
+        }
+        let mut releases: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (i, (w, _, _)) in works.iter().enumerate() {
+            releases
+                .entry(release_of(&w.item.game))
+                .or_default()
+                .push(i);
+        }
+        for members in releases.values() {
+            let in_state = |state: &str| -> Vec<&Work> {
+                members
+                    .iter()
+                    .filter(|&&i| works[i].1 == state)
+                    .map(|&i| &works[i].0)
+                    .collect()
+            };
+            let (renaming, copying, converting, disposing) = (
+                in_state("renaming"),
+                in_state("copying"),
+                in_state("converting"),
+                in_state("disposing"),
+            );
+            let outcome = if !renaming.is_empty() {
+                self.recover_rename(&p, &set_dirs, &renaming)?
+            } else if !copying.is_empty() {
+                self.recover_copy(&p, &set_dirs, &copying)?
+            } else if !converting.is_empty() {
+                // Its new files put in place and recorded built, by the Build or by recovery: it is placed. Otherwise
+                // nothing of it is in place, and the release stays in its Source Set.
+                let applied = members
+                    .iter()
+                    .filter(|&&i| works[i].1 == "converting")
+                    .all(|&i| works[i].2 == "applied");
+                match applied {
+                    true => match self.recorded_spots(&p, &converting)? {
+                        Ok(spots) => {
+                            self.finish_convert(&p, &set_dirs, &converting, &spots, false)?
+                        }
+                        Err(why) => Err(why),
+                    },
+                    false => {
+                        self.fail_unit(&p, &converting, "the build stopped before it was placed")?;
+                        Ok(())
+                    }
                 }
-                "converting" => {
-                    self.place_failed(&p, &w, "the build stopped before it was placed")?;
-                    Ok(())
+            } else {
+                match self.recorded_spots(&p, &disposing)? {
+                    Ok(spots) => self.dispose_unit(&p, &set_dirs, &disposing, &spots)?,
+                    Err(why) => Err(why),
                 }
-                _ => self.dispose_originals(&p, &set_dirs, &w)?,
             };
             if let Err(why) = outcome {
                 return Ok(Err(why));
@@ -1170,51 +1902,51 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// Finishes the copy of `o` a stop left part way: once published, it is checked and recorded placed, then `o`
-    /// deleted; before that, the copy is undone and `o` left.
-    fn recover_copy(
+    /// Where each of `unit`'s files is, as [`Store::recorded_spot`]. Returns why one is not where it was put, for the
+    /// release to be left outstanding: its Source Set's files are consumed only once it is back.
+    fn recorded_spots(
         &self,
         p: &Placing,
-        set: &SetDirs,
-        w: &Work,
-        o: &PlacedOriginal,
-    ) -> Result<std::result::Result<(), String>> {
-        let intents = CopyIntents {
-            store: self,
-            build: p.build,
-            seq: w.seq,
-        };
-        let intent = intents.load()?;
-        let published = match (intent.staged_id, &intent.sha256) {
-            (Some(id), Some(_)) => p
-                .dir
-                .stat(&w.item.target)
-                .map_err(io_err)?
-                .is_some_and(|st| {
-                    FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id
-                }),
-            _ => false,
-        };
-        if published {
-            return self.finish_copy(p, set, w, o);
+        unit: &[&Work],
+    ) -> Result<std::result::Result<Vec<Spot>, String>> {
+        let mut spots = Vec::new();
+        for w in unit {
+            match self.recorded_spot(p, w)? {
+                Ok(s) => spots.push(s),
+                Err(why) => {
+                    return Ok(Err(format!(
+                        "{} is placed, but {why}; its source set's files are left as they are until the folder is \
+                         back, and the build finishes then",
+                        w.item.game
+                    )));
+                }
+            }
         }
-        // Never published: a copy staged is removed while it is the one recorded; anything else there is left.
-        if let (Some(staged), Some(id)) = (&intent.staged, intent.staged_id)
-            && let Some(st) = p.dir.stat(staged).map_err(io_err)?
-            && FolderDir::kind(&st) == FileType::RegularFile
-            && Identity::of(&st) == id
-        {
-            p.dir.unlink(staged).map_err(io_err)?;
-            p.dir.sync_holding(staged).map_err(io_err)?;
-        }
-        intents.save(&Intent::default())?;
-        self.place_failed(
-            p,
-            w,
-            "the build stopped before it was copied into the folder",
-        )?;
-        Ok(Ok(()))
+        Ok(Ok(spots))
     }
+}
+
+/// The unit a release placed by converting it commits as, apart from the files of it written fresh beside it.
+fn unit_key(game: &str) -> String {
+    format!("{} (placed)", release_of(game))
+}
+
+/// Syncs the folder `o` was in, in the Source Set's folder, if it is still there.
+fn sync_home(set: &SetDirs, o: &PlacedOriginal) -> Result<()> {
+    if let Ok((parent, _)) = parent_of(&set.dir, &o.path) {
+        parent.as_ref().unwrap_or(&set.dir).sync().map_err(io_err)?;
+    }
+    Ok(())
+}
+
+/// Renames what is at `s` back to `o`'s place in the Source Set's folder, making its folders again, without following
+/// a symbolic link, if they are gone; never replacing anything.
+fn move_home(set: &SetDirs, o: &PlacedOriginal, s: &Spot) -> io::Result<()> {
+    let (parent, name) = parent_made(&set.dir, &o.path)?;
+    let home = parent.as_ref().unwrap_or(&set.dir);
+    s.dir.rename_new(&s.leaf, home, name)?;
+    s.dir.sync()?;
+    home.sync()
 }
 
 /// Writes `item`, a Game placed by converting it, to `file`, new in the staging folder, from its sources in the

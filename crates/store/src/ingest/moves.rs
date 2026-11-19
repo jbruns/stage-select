@@ -124,7 +124,7 @@ thread_local! {
 /// Opens the folder a move to `name` in `top` puts its file in, without following a symbolic link: `top` itself, or,
 /// for a file of a loose folder, each folder below it in turn. Returns it, with the identity of each folder on the
 /// way, `top`'s first.
-fn descend(top: FolderDir, name: &str) -> io::Result<(FolderDir, Vec<Identity>)> {
+pub(crate) fn descend(top: FolderDir, name: &str) -> io::Result<(FolderDir, Vec<Identity>)> {
     let mut chain = vec![top.identity()?];
     let mut at = top;
     if let Some((parents, _)) = name.rsplit_once('/') {

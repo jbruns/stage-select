@@ -187,7 +187,7 @@ fn stage_chd(
         if cancelled() {
             return Err(Failure::Cancelled);
         }
-        let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+        let opened = open_either(set_fd, &work.placed, source).map_err(Failure::Item)?;
         work.store.fault_point(Fault::ChdSourceRead(seq));
         let dests = roms
             .iter()
@@ -373,7 +373,7 @@ fn verify_found_chd(
                 .iter()
                 .find(|r| r.name == source.rom)
                 .ok_or_else(|| Failure::Item(format!("the DAT lists no {}", source.rom)))?;
-            let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+            let opened = open_either(set_fd, &work.placed, source).map_err(Failure::Item)?;
             let path = dir.join("dat.cue");
             let dest = File::create_new(&path)
                 .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
@@ -652,6 +652,19 @@ fn open_placed_source(
     Ok(file)
 }
 
+/// Opens `source` where it is: in the Source Set's folder `set`, or, for a Placed Game's file, in the Library Folder
+/// holding it, one of `placed`; in either only while it is the regular file the plan found there.
+fn open_either(
+    set: &std::result::Result<FolderDir, String>,
+    placed: &HashMap<i64, std::result::Result<FolderDir, String>>,
+    source: &PlanSource,
+) -> std::result::Result<File, String> {
+    match title_select_api::storage::split_placed(&source.path) {
+        Some(_) => open_placed_source(placed, source),
+        None => open_source(set, source),
+    }
+}
+
 /// Writes `item` to `file`, new in the staging directory, from its sources, each opened by `open` only while it is
 /// the file the plan found and checked again once read: copied whole for a copy, else written from its ROMs. Then
 /// verifies it.
@@ -827,11 +840,7 @@ fn stage(
         .iter()
         .any(|s| title_select_api::storage::split_placed(&s.path).is_some())
     {
-        let open = |source: &PlanSource| match title_select_api::storage::split_placed(&source.path)
-        {
-            Some(_) => open_placed_source(&chd.placed, source),
-            None => open_source(set_fd, source),
-        };
+        let open = |source: &PlanSource| open_either(set_fd, &chd.placed, source);
         return stage_by_fd(item, file, &open, (&chd.from, &chd.to), built_at);
     }
     let sources: Vec<PathBuf> = item
@@ -1803,17 +1812,19 @@ impl Store {
             ),
             false => None,
         };
-        if placing.is_some() {
-            // The Source Set's folder changes: a repair planned before this Build is refused, as one planned before
-            // another repair is.
-            self.write(|tx| {
-                tx.execute(
-                    "UPDATE source_folders SET generation = generation + 1 WHERE source_set_id = ?1",
+        // The Source Set's folder changes: a repair planned before this Build is refused, as one planned before
+        // another repair is. A Source Set file it keeps rather than deletes is kept under the generation it makes.
+        let set_generation = match placing.is_some() {
+            true => self.write(|tx| {
+                Ok(tx.query_row(
+                    "UPDATE source_folders SET generation = generation + 1 WHERE source_set_id = ?1
+                     RETURNING generation",
                     [folder_row.source_set_id],
-                )?;
-                Ok(())
-            })?;
-        }
+                    |r| r.get::<_, i64>(0),
+                )? as u64)
+            })?,
+            false => 0,
+        };
         // Then the built files no longer selected: each kept aside, or forgotten when it is gone already.
         let removals: Vec<(i64, &PlanRemoval)> = content
             .removals
@@ -2085,12 +2096,16 @@ impl Store {
         // between two units, or before a unit's first rename.
         let mut cleared: HashSet<i64> = HashSet::new();
         let mut units: Vec<Vec<&Work>> = Vec::new();
-        let mut releases: HashMap<String, usize> = HashMap::new();
+        let mut releases: HashMap<(String, bool), usize> = HashMap::new();
         for w in work {
             // Every file of a release goes in place with the rest of it, whatever its format and layout: each disc,
-            // each track, and the files generated beside them. An addition goes alone.
+            // each track, and the files generated beside them. An addition goes alone. The files of a release placed
+            // under Single Copy are placed together, apart from those written fresh beside them.
             if w.item.addition.is_none() {
-                let release = title_select_api::storage::release_of(&w.item.game);
+                let release = (
+                    title_select_api::storage::release_of(&w.item.game),
+                    w.item.kind == ItemKind::Place,
+                );
                 if let Some(&u) = releases.get(&release) {
                     units[u].push(w);
                     continue;
@@ -2117,6 +2132,10 @@ impl Store {
             audit,
             dir: &dir,
             expected: &expected,
+            config,
+            root: &folder_row.root,
+            path: &folder_row.path,
+            generation: set_generation,
             to: &chd_work.to,
             from: &chd_work.from,
         };
@@ -2128,12 +2147,14 @@ impl Store {
                 cancelled = true;
                 break;
             }
-            // A Game placed is alone in its release, and its unit is its placement.
-            if let ([w], Some(set)) = (unit.as_slice(), &placing)
-                && w.item.kind == ItemKind::Place
+            // A release placed is placed whole, or not at all.
+            if let Some(set) = &placing
+                && unit[0].item.kind == ItemKind::Place
             {
-                self.place(&placer, set, w, (&staging, &mut staged_ids, built_at))?;
-                tick(&mut done);
+                self.place_unit(&placer, set, unit, (&staging, &mut staged_ids, built_at))?;
+                for _ in unit {
+                    tick(&mut done);
+                }
                 continue;
             }
             // A release of several files, or any disc release, which may clear its other layout or keep an original

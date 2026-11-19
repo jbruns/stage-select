@@ -74,6 +74,21 @@ pub(crate) trait Intents {
     /// Called once the original is set aside to delete and read back, just before its published copy is checked a
     /// last time: a point a test can change the copy at.
     fn verifying(&self) {}
+    /// Whether the folder the copy was published in is still the one at its registered path, checked last, once the
+    /// copy holds: why not, otherwise, and the original is then not deleted.
+    fn in_place(&self) -> Result<std::result::Result<(), String>> {
+        Ok(Ok(()))
+    }
+    /// Takes the original, set aside in `slot` of its `.deleting` folder and not proven unchanged, somewhere other
+    /// than back where it was, saying where; `None` puts it back. `Err` leaves it in its slot, recorded, for recovery.
+    fn keep_instead(
+        &self,
+        _o: &Original,
+        _slot: &str,
+        _why: &str,
+    ) -> Result<Option<std::result::Result<String, String>>> {
+        Ok(None)
+    }
 }
 
 fn io_err(e: io::Error) -> Error {
@@ -421,7 +436,10 @@ pub(crate) fn dispose_as(
     let holds = match (&held, unchanged) {
         (Ok(held), true) => {
             intents.verifying();
-            still_holds(d, held, published.unwrap_or(&sha))?
+            match still_holds(d, held, published.unwrap_or(&sha))? {
+                Ok(()) => intents.in_place()?,
+                Err(why) => Err(why),
+            }
         }
         (Ok(_), false) => Ok(()),
         (Err(why), _) => Err(why.clone()),
@@ -432,7 +450,7 @@ pub(crate) fn dispose_as(
         unslot(&mut intent)?;
         return Ok(Ok(()));
     }
-    // Never deleted unproven: put back where it was.
+    // Never deleted unproven: kept, or put back where it was.
     let why = match holds {
         Err(why) => format!("{} was not deleted, since {why}", o.label),
         Ok(()) => format!(
@@ -440,6 +458,17 @@ pub(crate) fn dispose_as(
             o.label
         ),
     };
+    if let Some(kept) = intents.keep_instead(o, &slot, &why)? {
+        return match kept {
+            Ok(kept) => {
+                unslot(&mut intent)?;
+                Ok(Err(format!("{why}, so it was {kept}")))
+            }
+            Err(e) => Ok(Err(format!(
+                "{why}, and could not be kept ({e}); it was left at .title-select/retained/.deleting/{slot}"
+            ))),
+        };
+    }
     match o.deleting.rename_new(&slot, o.dir, o.name) {
         Ok(()) => {
             o.deleting.sync().map_err(io_err)?;

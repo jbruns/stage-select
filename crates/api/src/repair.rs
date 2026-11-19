@@ -340,8 +340,12 @@ pub struct SourceKeptFile {
     pub id: i64,
     /// The Source Set it was kept in; for a kept file of an Additions Set, that Additions Set.
     pub source_set: i64,
-    /// The repair that kept it; for a kept file of an Additions Set, the Addition retired.
-    pub plan: i64,
+    /// The repair that kept it; for a kept file of an Additions Set, the Addition retired. None when a Build kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<i64>,
+    /// The Build that kept it: an original a Build placing its Game could not prove unchanged (Single Copy, ADR 0023).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<i64>,
     pub generation: u64,
     /// Where it was, relative to the Source Set's folder.
     pub name: String,

@@ -1,9 +1,10 @@
 //! Single Copy (ADR 0023): which of a plan's items place their Game in the Library Folder holding its Source Set's
-//! Placed Games, and how. Only a Game the folder stores as one file, TorrentZip or loose, alone in its release, is
-//! placed; and only from Source Set files that hold nothing but it, each matched on its payload, so that consuming
-//! them loses nothing. Every other Game is copied as before, and the plan's notes say why.
+//! Placed Games, and how. A release is placed whole or not at all: every file the folder stores of each of its Games,
+//! TorrentZip, loose or in a loose folder, from Source Set files that hold nothing but those Games, each matched on its
+//! payload, so that consuming them loses nothing. A file the Source Set doesn't hold, such as a disc's `.m3u` or SBI
+//! file, is written into the folder as before. Every other release is copied as before, and the plan's notes say why.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 
 use title_select_api::build::{
@@ -15,18 +16,27 @@ use title_select_api::storage::{release_of, split_placed};
 use super::{Folder, Inputs, Sources};
 use crate::config::Config;
 
-/// Why a Game a plan could place is copied instead.
+/// Why a release a plan could place is copied instead.
 const CHD: &str = "it is stored as CHD here, and a CHD is copied, not placed";
-const RELEASE: &str = "it goes in place with other files of its release, and only a game stored as one file is placed";
-const SHARED: &str = "its files in the source set hold more than this game, so they stay there";
+const SHARED: &str = "its files in the source set hold more than its games, so they stay there";
 const UNMATCHED: &str = "the latest audit didn't match each of its files in the source set exactly, by their \
                          contents";
 const REPLACING: &str = "a file of it built here earlier is replaced or converted first";
-const UNCHECKED: &str =
-    "its file here wasn't found as it was built, so it can't stand in for its source set's files";
+const UNCHECKED: &str = "its files here weren't all found as they were built, so they can't stand in for its source \
+                         set's files";
+const MIXED: &str = "some of its files are built here already and others aren't";
+const NOT_BUILT: &str = "not every file of it can be built here";
 
-/// Makes each of `items` that can place its Game here a placement, under Single Copy, when this folder holds the
-/// Source Set's Placed Games; and says in `notes` what placing does, and why any Game is copied instead.
+/// How one item of a release is placed, before the release decides how all of them are.
+struct Found {
+    built: bool,
+    whole: bool,
+    originals: Vec<PlacedOriginal>,
+    sources: Vec<PlanSource>,
+}
+
+/// Makes each release of `items` that can be placed here placements, under Single Copy, when this folder holds the
+/// Source Set's Placed Games; and says in `notes` what placing does, and why any release is copied instead.
 pub(super) fn place(
     config: &Config,
     inputs: &Inputs,
@@ -76,51 +86,78 @@ pub(super) fn place(
         (Ok(set), Ok(here)) => set.dev() == here.dev && !inputs.copy_across,
         _ => false,
     };
-    let mut releases: BTreeMap<String, usize> = BTreeMap::new();
-    for item in items.iter().filter(|i| i.addition.is_none()) {
-        *releases.entry(release_of(&item.game)).or_default() += 1;
+    // Each release's items, in plan order: the files the Source Set holds, then those written fresh.
+    let mut releases: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, item) in items.iter().enumerate() {
+        if item.addition.is_none() {
+            releases.entry(release_of(&item.game)).or_default().push(i);
+        }
     }
     let mut copied: BTreeMap<&'static str, usize> = BTreeMap::new();
     let (mut renamed, mut copies, mut converted, mut built) = (0, 0, 0, 0);
     let (mut freed, mut written) = (0u64, 0u64);
-    for item in items.iter_mut() {
-        if !matches!(
-            item.kind,
-            ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged
-        ) || item.addition.is_some()
-            || item.generated.is_some()
-            || item.roms.is_empty()
-            || inputs.placed.iter().any(|p| p.game == item.game)
+    for members in releases.values() {
+        let placing: Vec<usize> = members
+            .iter()
+            .copied()
+            .filter(|&i| items[i].generated.is_none())
+            .collect();
+        // Placed already, or nothing of the Source Set's to place.
+        if placing.is_empty()
+            || placing.iter().any(|&i| {
+                items[i].roms.is_empty() || inputs.placed.iter().any(|p| p.game == items[i].game)
+            })
         {
             continue;
         }
-        let placement = match releases.get(&release_of(&item.game)) {
-            _ if item.chd => Err(Some(CHD)),
-            // A file in a folder of its own is part of a layout, which goes in place whole.
-            _ if item.target.contains('/') => Err(Some(RELEASE)),
-            Some(1) => placement(inputs, folder, sources, item, same_fs),
-            _ => Err(Some(RELEASE)),
-        };
-        let (place, from) = match placement {
-            Ok(found) => found,
+        let planned = match release(inputs, folder, sources, items, &placing) {
+            Ok(planned) => planned,
             Err(Some(why)) => {
                 *copied.entry(why).or_default() += 1;
                 continue;
             }
             Err(None) => continue,
         };
-        match place.how {
-            PlaceHow::Rename => renamed += 1,
-            PlaceHow::Copy => copies += 1,
-            PlaceHow::Convert => converted += 1,
-            PlaceHow::Built => built += 1,
+        let how = match (
+            planned.iter().all(|f| f.built),
+            planned.iter().any(|f| f.built),
+            planned.iter().all(|f| f.whole),
+        ) {
+            (true, ..) => PlaceHow::Built,
+            (false, true, _) => {
+                *copied.entry(MIXED).or_default() += 1;
+                continue;
+            }
+            (false, false, true) if same_fs => PlaceHow::Rename,
+            (false, false, true) => PlaceHow::Copy,
+            (false, false, false) => PlaceHow::Convert,
+        };
+        match how {
+            PlaceHow::Rename => renamed += placing.len(),
+            PlaceHow::Copy => copies += placing.len(),
+            PlaceHow::Convert => converted += placing.len(),
+            PlaceHow::Built => built += placing.len(),
         }
-        freed += place.freed;
-        written += place.written;
-        item.kind = ItemKind::Place;
-        item.sources = from;
-        item.place = Some(place);
-        item.changes_source_set = true;
+        for (&i, found) in placing.iter().zip(planned) {
+            let item = &mut items[i];
+            let item_freed = found.originals.iter().map(|o| o.file.size).sum();
+            let item_written = match how {
+                PlaceHow::Rename | PlaceHow::Built => 0,
+                PlaceHow::Copy => item_freed,
+                PlaceHow::Convert => item.roms.iter().map(|r| r.size).sum(),
+            };
+            freed += item_freed;
+            written += item_written;
+            item.kind = ItemKind::Place;
+            item.sources = found.sources;
+            item.place = Some(PlanPlace {
+                how,
+                originals: found.originals,
+                freed: item_freed,
+                written: item_written,
+            });
+            item.changes_source_set = true;
+        }
     }
     let placed = renamed + copies + converted + built;
     if placed > 0 {
@@ -135,11 +172,11 @@ pub(super) fn place(
         .map(|(n, how)| format!("{n} {how}"))
         .collect();
         notes.push(format!(
-            "single copy places {} here as {} only copy, taking {} out of source set {set}: {}. It frees about {} \
-             there, an estimate, as block cloning may already share some of it with other files, and writes {} \
-             here",
-            games(placed),
-            if placed == 1 { "its" } else { "their" },
+            "single copy places {} here as {} only copy, taking {} out of source set {set}: {}. It frees \
+             about {} there and writes about {} here. Both are estimates: block cloning may already share some of \
+             what it frees with other files, and a converted file's size depends on how it is compressed",
+            files(placed),
+            if placed == 1 { "its game's" } else { "their games'" },
             if placed == 1 { "it" } else { "them" },
             ways.join(", "),
             bytes(freed),
@@ -148,16 +185,16 @@ pub(super) fn place(
     }
     for (why, n) in copied {
         notes.push(match n {
-            1 => format!("1 game is copied rather than placed: {why}"),
-            n => format!("{n} games are copied rather than placed, each because {why}"),
+            1 => format!("1 game's files are copied rather than placed: {why}"),
+            n => format!("{n} releases' files are copied rather than placed, each because {why}"),
         });
     }
 }
 
-fn games(n: usize) -> String {
+fn files(n: usize) -> String {
     match n {
-        1 => "1 game".into(),
-        n => format!("{n} games"),
+        1 => "1 file".into(),
+        n => format!("{n} files"),
     }
 }
 
@@ -168,15 +205,79 @@ fn bytes(n: u64) -> String {
     }
 }
 
-/// How `item`'s Game is placed, and the sources it is written from, one per ROM; or why it is copied instead, if it
+/// How each of `placing`, the items of one release the Source Set holds files for, is placed, in their order; or why
+/// the release is copied instead, if it says, or none when it is not the Source Set's to place.
+fn release(
+    inputs: &Inputs,
+    folder: &Folder,
+    sources: &mut Sources,
+    items: &[PlanItem],
+    placing: &[usize],
+) -> Result<Vec<Found>, Option<&'static str>> {
+    let mut found: Vec<Found> = Vec::new();
+    for &i in placing {
+        let item = &items[i];
+        if !matches!(
+            item.kind,
+            ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged
+        ) {
+            return Err(Some(NOT_BUILT));
+        }
+        if item.chd {
+            return Err(Some(CHD));
+        }
+        found.push(placement(inputs, folder, sources, item)?);
+    }
+    // Each Source Set file consumed holds this release alone, every Entry of it matched on its payload and taken by
+    // one of its items: nothing else in it is lost. A file two items are written from is consumed once.
+    let games: HashSet<&str> = placing.iter().map(|&i| items[i].game.as_str()).collect();
+    let taken: HashSet<(String, Option<String>)> = found
+        .iter()
+        .flat_map(|f| &f.sources)
+        .map(|s| (s.path.clone(), s.member.clone()))
+        .collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    for f in &mut found {
+        let mut own = Vec::new();
+        for o in f.originals.drain(..) {
+            let entries = sources
+                .by_path
+                .get(o.path.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if entries.iter().any(|e| {
+                e.finding != Finding::Matched
+                    || e.evidence
+                        .as_ref()
+                        .is_none_or(|ev| ev.level != EvidenceLevel::Payload)
+            }) {
+                return Err(Some(UNMATCHED));
+            }
+            let all_ours = entries.iter().all(|e| {
+                !e.roms.is_empty()
+                    && e.roms.iter().all(|r| games.contains(r.game.as_str()))
+                    && taken.contains(&(e.path.clone(), e.member.clone()))
+            });
+            if entries.is_empty() || !all_ours {
+                return Err(Some(SHARED));
+            }
+            if seen.insert(o.path.clone()) {
+                own.push(o);
+            }
+        }
+        f.originals = own;
+    }
+    Ok(found)
+}
+
+/// How `item` is placed, and the sources it is written from, one per ROM; or why its release is copied instead, if it
 /// says, or none when it is not the Source Set's to place.
 fn placement(
     inputs: &Inputs,
     folder: &Folder,
     sources: &mut Sources,
     item: &PlanItem,
-    same_fs: bool,
-) -> Result<(PlanPlace, Vec<PlanSource>), Option<&'static str>> {
+) -> Result<Found, Option<&'static str>> {
     if item.keep.is_some() || item.converts.is_some() {
         return Err(Some(REPLACING));
     }
@@ -229,31 +330,6 @@ fn placement(
         if split_placed(&source.path).is_some() {
             return Err(None);
         }
-        // Each file consumed holds this Game alone, every Entry of it matched on its payload and taken: nothing else
-        // in it is lost.
-        let entries = sources
-            .by_path
-            .get(source.path.as_str())
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        if entries.iter().any(|e| {
-            e.finding != Finding::Matched
-                || e.evidence
-                    .as_ref()
-                    .is_none_or(|ev| ev.level != EvidenceLevel::Payload)
-        }) {
-            return Err(Some(UNMATCHED));
-        }
-        let all_ours = entries.iter().all(|e| {
-            !e.roms.is_empty()
-                && e.roms.iter().all(|r| r.game == item.game)
-                && from
-                    .iter()
-                    .any(|s| s.path == e.path && s.member == e.member)
-        });
-        if entries.is_empty() || !all_ours {
-            return Err(Some(SHARED));
-        }
         let (file, identity, ctime_ns) = sources
             .file(chosen_path(&chosen, &source.path))
             .ok_or(None)?;
@@ -281,27 +357,12 @@ fn placement(
         }
         _ => false,
     };
-    let freed = originals.iter().map(|o| o.file.size).sum();
-    let how = match (built, whole, same_fs) {
-        (true, ..) => PlaceHow::Built,
-        (false, true, true) => PlaceHow::Rename,
-        (false, true, false) => PlaceHow::Copy,
-        (false, false, _) => PlaceHow::Convert,
-    };
-    let written = match how {
-        PlaceHow::Rename | PlaceHow::Built => 0,
-        PlaceHow::Copy => freed,
-        PlaceHow::Convert => item.roms.iter().map(|r| r.size).sum(),
-    };
-    Ok((
-        PlanPlace {
-            how,
-            originals,
-            freed,
-            written,
-        },
-        from,
-    ))
+    Ok(Found {
+        built,
+        whole,
+        originals,
+        sources: from,
+    })
 }
 
 /// The path as `chosen` holds it, borrowed for as long as [`Sources`] caches what it found there.

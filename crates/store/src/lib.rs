@@ -1304,7 +1304,12 @@ mod tests {
              INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id,
                                       dat_revision_id, roms, sources, size, mtime_ns, sha256, torrentzip, loose, chd,
                                       chd_sha1, chd_raw_sha1)
-                 VALUES (1, 'Combat.zip', 'Combat', 'copy', 1, 1, 1, 1, '[]', '[]', 6, 5, 'g', 1, 0, 0, NULL, NULL);",
+                 VALUES (1, 'Combat.zip', 'Combat', 'copy', 1, 1, 1, 1, '[]', '[]', 6, 5, 'g', 1, 0, 0, NULL, NULL);
+             INSERT INTO repair_plans (id, source_set_id, audit_id, content, digest, created_at, readers, hashers)
+                 VALUES (1, 1, 1, '{}', 'h', 'then', 1, 1);
+             INSERT INTO source_kept (id, source_set_id, plan_id, generation, name, kept_name, reason, sha256, size,
+                                      mtime_ns, dev, ino, state, kept_at, kept_ctime_ns)
+                 VALUES (5, 1, 1, 2, 'Old.zip', 'Old.zip.kept', 'why', 'i', 3, '11', 12, 13, 'kept', 'then', '14');",
         )
         .unwrap();
         drop(conn);
@@ -1365,6 +1370,42 @@ mod tests {
                 text("g"),
                 Integer(6),
                 Integer(5)
+            ]
+        );
+        // A file a repair kept stays kept by it, with its id and every column, so its deletion can still be planned.
+        let kept = store
+            .read(|c| {
+                Ok(c.query_row(
+                    "SELECT id, plan_id, build_id, generation, name, kept_name, reason, sha256, size, mtime_ns, dev,
+                            ino, state, kept_at, kept_ctime_ns
+                     FROM source_kept",
+                    [],
+                    |r| {
+                        (0..15)
+                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    },
+                )?)
+            })
+            .unwrap();
+        assert_eq!(
+            kept,
+            [
+                Integer(5),
+                Integer(1),
+                Null,
+                Integer(2),
+                text("Old.zip"),
+                text("Old.zip.kept"),
+                text("why"),
+                text("i"),
+                Integer(3),
+                text("11"),
+                Integer(12),
+                Integer(13),
+                text("kept"),
+                text("then"),
+                text("14")
             ]
         );
     }

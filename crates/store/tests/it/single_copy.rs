@@ -412,8 +412,17 @@ fn on_one_filesystem_a_game_is_placed_by_a_rename_its_evidence_carried_over_and_
     assert_eq!((plan.summary.place, plan.summary.place_renamed), (1, 1));
     assert!(
         plan.content.notes.iter().any(
-            |n| n.contains("single copy places 1 game here") && n.contains("moved by a rename")
+            |n| n.contains("single copy places 1 file here") && n.contains("moved by a rename")
         ),
+        "{:?}",
+        plan.content.notes
+    );
+    // What it frees and writes are estimates, and say so.
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Both are estimates")),
         "{:?}",
         plan.content.notes
     );
@@ -527,7 +536,8 @@ fn across_filesystems_a_game_is_copied_read_back_and_its_original_deleted() {
 }
 
 #[test]
-fn a_copy_whose_original_changes_before_it_is_deleted_keeps_the_original_in_the_source_set() {
+fn a_copy_whose_original_changes_before_it_is_deleted_keeps_the_original_in_the_source_sets_kept_files()
+ {
     let env = Env::new();
     pong_zip(&env);
     env.audit(AuditEvidence::Full);
@@ -551,16 +561,37 @@ fn a_copy_whose_original_changes_before_it_is_deleted_keeps_the_original_in_the_
     let pong = env.item(job.id, "Pong (USA)");
     assert_eq!(pong.state, ItemState::Applied);
     let error = pong.error.unwrap();
-    assert!(error.contains("kept in source set Alpha too"), "{error}");
-    assert_eq!(
-        env.files(),
-        (vec!["Pong (USA).zip".into()], vec!["Pong (USA).zip".into()])
+    assert!(
+        error.contains("kept in source set Alpha's kept files as Pong (USA).zip.kept"),
+        "{error}"
     );
-    assert_eq!(private_files(&env.set()), Vec::<String>::new());
+    // Never deleted, and never left in the source set as a second copy: kept, by the build.
+    assert_eq!(env.files(), (vec![], vec!["Pong (USA).zip".into()]));
+    assert_kept_by_build(&env, job.id, None);
+}
+
+/// Asserts that the source set's one kept file is its Pong (USA).zip, kept by the build of job `job`, and holds
+/// `bytes` if given; nothing else is left in its private folders.
+fn assert_kept_by_build(env: &Env, job: i64, bytes: Option<&[u8]>) {
+    let build = env.store.build_of_job(job).unwrap().unwrap().id;
+    let kept = env.store.source_kept_files(SET).unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].build, Some(build));
+    assert_eq!(kept[0].plan, None);
+    assert_eq!(kept[0].name, "Pong (USA).zip");
+    assert_eq!(kept[0].kept_name, "Pong (USA).zip.kept");
+    let path = format!(
+        ".title-select/retained/{}/Pong (USA).zip.kept",
+        kept[0].generation
+    );
+    assert_eq!(private_files(&env.set()), vec![path.clone()]);
+    if let Some(bytes) = bytes {
+        assert_eq!(std::fs::read(env.set().join(path)).unwrap(), bytes);
+    }
 }
 
 #[test]
-fn a_copy_changed_before_the_last_check_keeps_the_original_in_the_source_set() {
+fn a_copy_changed_before_the_last_check_keeps_the_original_in_the_source_sets_kept_files() {
     let env = Env::new();
     let bytes = pong_zip(&env);
     env.audit(AuditEvidence::Full);
@@ -581,12 +612,12 @@ fn a_copy_changed_before_the_last_check_keeps_the_original_in_the_source_set() {
     env.store.hook_faults(None);
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
     let error = env.item(job.id, "Pong (USA)").error.unwrap();
-    assert!(error.contains("kept in source set Alpha too"), "{error}");
-    assert_eq!(
-        std::fs::read(env.set().join("Pong (USA).zip")).unwrap(),
-        bytes
+    assert!(
+        error.contains("kept in source set Alpha's kept files as Pong (USA).zip.kept"),
+        "{error}"
     );
-    assert_eq!(private_files(&env.set()), Vec::<String>::new());
+    assert!(!env.set().join("Pong (USA).zip").exists());
+    assert_kept_by_build(&env, job.id, Some(&bytes));
 }
 
 #[test]
@@ -807,7 +838,7 @@ fn a_game_that_shares_its_source_set_file_with_another_is_copied_not_placed() {
             .notes
             .iter()
             .any(|n| n.contains("copied rather than placed")
-                && n.contains("hold more than this game")),
+                && n.contains("hold more than its games")),
         "{:?}",
         plan.content.notes
     );
@@ -915,10 +946,11 @@ fn a_conversion_the_service_stopped_in_leaves_exactly_one_recorded_copy() {
         false,
         &[
             ("staged", |f| matches!(f, Fault::Staged(_)), false),
+            // Committed to go in place once every file of it is written: recovery finishes it.
             (
                 "before publish",
                 |f| matches!(f, Fault::BeforePublish(_)),
-                false,
+                true,
             ),
             (
                 "published",
@@ -1166,4 +1198,315 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("places the source set's games")),
         "{refused:?}"
     );
+}
+
+/// Replaces `dir`, the play library folder `library` or a folder above it, with a new folder, as if another were
+/// mounted where it was, leaving it at `<dir>.moved`: the library folder's path then leads to a new folder holding a
+/// copy of its marker.
+fn replace_with_marked_copy(dir: &Path, library: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let moved = PathBuf::from(format!("{}.moved", dir.display()));
+    let was = moved.join(library.strip_prefix(dir).unwrap());
+    std::fs::rename(dir, &moved).unwrap();
+    std::fs::create_dir_all(library.join(".title-select")).unwrap();
+    std::fs::set_permissions(
+        library.join(".title-select"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    for entry in std::fs::read_dir(was.join(".title-select")).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            std::fs::copy(
+                entry.path(),
+                library.join(".title-select").join(entry.file_name()),
+            )
+            .unwrap();
+        }
+    }
+}
+
+/// The folder a test replaces while a game is placed: the play library folder itself, or the root above it.
+fn replaced(env: &Env, parent: bool) -> (PathBuf, PathBuf) {
+    let dir = match parent {
+        false => env.library(),
+        true => env.tmp.path().join("roots/play"),
+    };
+    (dir, env.library())
+}
+
+#[test]
+fn a_folder_replaced_before_its_rename_is_checked_puts_the_original_back() {
+    for parent in [false, true] {
+        let env = Env::new();
+        let bytes = pong_zip(&env);
+        env.audit(AuditEvidence::Full);
+        env.single_copy(StorageFormat::TorrentZip);
+        let selection = env.select(&["Pong (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        assert_eq!(
+            item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+            PlaceHow::Rename
+        );
+
+        // Another folder, marked as the play library folder, appears at its path just before the rename.
+        let (dir, library) = replaced(&env, parent);
+        let once = std::sync::Once::new();
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if matches!(fault, Fault::PlaceRenaming(_)) {
+                    once.call_once(|| replace_with_marked_copy(&dir, &library));
+                }
+            })));
+        let job = env.build(&plan);
+        env.store.hook_faults(None);
+        let pong = env.item(job.id, "Pong (USA)");
+        assert_eq!(pong.state, ItemState::Failed, "{parent}: {pong:?}");
+        let error = pong.error.unwrap_or_default();
+        assert!(
+            error.contains("no longer the one at the play library folder's path")
+                && error.contains("put back"),
+            "{parent}: {error}"
+        );
+        assert_eq!(
+            std::fs::read(env.set().join("Pong (USA).zip")).unwrap(),
+            bytes,
+            "{parent}"
+        );
+        assert!(env.store.placed_files(SET).unwrap().is_empty(), "{parent}");
+    }
+}
+
+#[test]
+fn a_folder_replaced_before_the_last_check_keeps_the_copied_original() {
+    for parent in [false, true] {
+        let env = Env::new();
+        let bytes = pong_zip(&env);
+        env.audit(AuditEvidence::Full);
+        env.single_copy(StorageFormat::TorrentZip);
+        env.store.copy_across_filesystems(true);
+        let selection = env.select(&["Pong (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+
+        // Its copy recorded placed, and its original set aside to delete, the folder is replaced before the last
+        // check: the copy is no longer at the folder's path, so the original is never deleted.
+        let (dir, library) = replaced(&env, parent);
+        let once = std::sync::Once::new();
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if matches!(fault, Fault::PlaceChecking(_)) {
+                    once.call_once(|| replace_with_marked_copy(&dir, &library));
+                }
+            })));
+        let job = env.build(&plan);
+        env.store.hook_faults(None);
+        let error = env.item(job.id, "Pong (USA)").error.unwrap_or_default();
+        assert!(
+            error.contains("no longer the one at the play library folder's path")
+                && error.contains("kept in source set Alpha's kept files"),
+            "{parent}: {error}"
+        );
+        assert_kept_by_build(&env, job.id, Some(&bytes));
+    }
+}
+
+#[test]
+fn after_a_stop_a_folder_replaced_leaves_its_placement_outstanding() {
+    // Stopped once the original is moved into the folder, and once it is set aside to delete.
+    type Across = (bool, fn(Fault) -> bool);
+    let stops: [Across; 2] = [
+        (false, |f| matches!(f, Fault::PlaceMoved(_))),
+        (true, |f| matches!(f, Fault::PlaceChecking(_))),
+    ];
+    for (across, stop) in stops {
+        let env = Env::new();
+        let bytes = pong_zip(&env);
+        env.audit(AuditEvidence::Full);
+        env.single_copy(StorageFormat::TorrentZip);
+        env.store.copy_across_filesystems(across);
+        let selection = env.select(&["Pong (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        let library = env.library();
+        env.build_until(&plan, move |fault| {
+            if stop(fault) {
+                replace_with_marked_copy(&library, &library);
+                return true;
+            }
+            false
+        });
+
+        let (env, blocked) = env.restart();
+        assert_eq!(blocked.len(), 1, "{across}: {blocked:?}");
+        assert!(
+            blocked[0]
+                .1
+                .contains("no longer the one at the play library folder's path"),
+            "{across}: {blocked:?}"
+        );
+        // Neither done nor failed: the original is where the stop left it, the build unfinished.
+        let moved = PathBuf::from(format!("{}.moved", env.library().display()));
+        match across {
+            false => assert_eq!(std::fs::read(moved.join("Pong (USA).zip")).unwrap(), bytes),
+            true => {
+                let aside = private_files(&env.set());
+                assert_eq!(aside.len(), 1, "{aside:?}");
+                assert!(aside[0].contains(".deleting/"), "{aside:?}");
+                assert_eq!(std::fs::read(env.set().join(&aside[0])).unwrap(), bytes);
+            }
+        }
+        assert!(env.store.source_kept_files(SET).unwrap().is_empty());
+        assert!(matches!(
+            env.store
+                .enqueue_audit(SET, None, "Operator", WORKERS, AuditEvidence::Incremental),
+            Err(Error::Conflict(_))
+        ));
+    }
+}
+
+#[test]
+fn an_original_set_aside_whose_folder_is_gone_after_a_stop_is_never_stranded() {
+    let env = Env::new();
+    std::fs::create_dir(env.set().join("nested")).unwrap();
+    torrentzip(
+        &env.set().join("nested/Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.copy_across_filesystems(true);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+
+    // Stopped with the original set aside to delete; its folder, empty now, is removed before the service starts.
+    env.build_until(&plan, |f| matches!(f, Fault::PlaceChecking(_)));
+    std::fs::remove_dir(env.set().join("nested")).unwrap();
+    let (env, blocked) = env.restart();
+    assert_eq!(blocked, Vec::<(i64, String)>::new());
+
+    // Proven unchanged, through its folder made again, it is deleted: nothing is left set aside, and the game is
+    // placed.
+    assert_eq!(private_files(&env.set()), Vec::<String>::new());
+    assert_eq!(env.files().1, vec!["Pong (USA).zip".to_owned()]);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+    assert!(!env.set().join("nested/Pong (USA).zip").exists());
+}
+
+#[test]
+fn a_placed_file_missing_or_changed_is_reported_and_never_written_over() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    assert_eq!(
+        env.build(&env.plan(&env.folder, selection)).state,
+        JobState::Succeeded
+    );
+    let placed = env.library().join("Pong (USA).zip");
+
+    // Changed: a conflict, left as it is.
+    std::fs::write(&placed, b"something else").unwrap();
+    let plan = env.plan(&env.folder, selection);
+    let pong = item(&plan, "Pong (USA)");
+    assert_eq!(pong.kind, ItemKind::Conflict, "{pong:?}");
+    assert!(
+        pong.reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("only copy"),
+        "{pong:?}"
+    );
+    let job = env.build(&plan);
+    assert_eq!(std::fs::read(&placed).unwrap(), b"something else");
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    let incomplete = folder.incomplete.unwrap();
+    assert_eq!(incomplete.conflict, 1, "{incomplete:?}");
+
+    // Missing: blocked, nothing written in its place.
+    std::fs::remove_file(&placed).unwrap();
+    let plan = env.plan(&env.folder, selection);
+    let pong = item(&plan, "Pong (USA)");
+    assert_eq!(pong.kind, ItemKind::Blocked, "{pong:?}");
+    assert!(
+        pong.reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("missing"),
+        "{pong:?}"
+    );
+    let job = env.build(&plan);
+    assert!(!placed.exists());
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    let incomplete = folder.incomplete.unwrap();
+    assert_eq!(incomplete.blocked, 1, "{incomplete:?}");
+}
+
+#[test]
+fn a_source_set_stays_locked_while_a_placing_build_is_queued_whatever_folder_holds_its_games() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    env.store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    // A second folder leaves none chosen to hold the games, and choosing it is refused while the build is queued.
+    let second = add_folder(&env.store, &env.config, "atari2");
+    let refused = env.store.set_holding_folder(SET, Some(second.id));
+    assert!(
+        matches!(&refused, Err(e) if e.to_string().contains("places the source set's games")),
+        "{refused:?}"
+    );
+    // The source set is still locked, though no folder is chosen to hold its games now.
+    let audit = env
+        .store
+        .enqueue_audit(SET, None, "Operator", WORKERS, AuditEvidence::Incremental);
+    assert!(
+        matches!(&audit, Err(Error::Conflict(why)) if why.contains("places the source set's games")),
+        "{audit:?}"
+    );
+}
+
+#[test]
+fn an_original_rewritten_before_it_is_set_aside_goes_to_the_source_sets_kept_files() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.copy_across_filesystems(true);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+
+    // Written over with other bytes once its copy is recorded placed: it is never set aside to delete.
+    let original = env.set().join("Pong (USA).zip");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::PlaceRecorded(_)) {
+                std::fs::write(&original, b"rewritten").unwrap();
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let error = env.item(job.id, "Pong (USA)").error.unwrap();
+    assert!(
+        error.contains("changed after it was copied")
+            && error.contains("kept in source set Alpha's kept files as Pong (USA).zip.kept"),
+        "{error}"
+    );
+    assert_eq!(env.files(), (vec![], vec!["Pong (USA).zip".into()]));
+    assert_kept_by_build(&env, job.id, Some(b"rewritten"));
 }

@@ -1519,11 +1519,284 @@ fn under_single_copy_a_game_stored_as_chd_is_copied_not_placed() {
     assert_ne!(item.kind, title_select_api::build::ItemKind::Place);
     assert!(item.place.is_none() && !item.changes_source_set, "{item:?}");
     assert!(
-        plan.content
-            .notes
-            .iter()
-            .any(|n| n.contains("1 game is copied rather than placed") && n.contains("CHD")),
+        plan.content.notes.iter().any(|n| n
+            .contains("1 game's files are copied rather than placed")
+            && n.contains("CHD")),
         "{:?}",
         plan.content.notes
     );
+}
+
+/// Turns single copy on for `env`, with its source set's folder writable and the system's games stored in play
+/// libraries as loose folders, so that each disc's files can be placed; with `chdman`, when one is given.
+fn placing(env: &mut Env, chdman: Option<&Path>) {
+    let mut text = format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+        env.tmp.path().join("roots/sets").display().to_string(),
+        env.tmp.path().join("roots/play").display().to_string(),
+    );
+    if let Some(chdman) = chdman {
+        text += &format!("\n[chd]\nchdman = {:?}\n", chdman.display().to_string());
+    }
+    env.config = Config::parse(&text).unwrap();
+    env.set_format(Some(StorageFormat::LooseFolder), false);
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.single_copy = true;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+/// Every file under `dir`, relative to it, but for the folder Title Select keeps for itself.
+fn tree(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut walk = vec![dir.to_path_buf()];
+    while let Some(at) = walk.pop() {
+        for entry in std::fs::read_dir(&at).into_iter().flatten() {
+            let entry = entry.unwrap();
+            if entry.file_name() == ".title-select" {
+                continue;
+            }
+            match entry.file_type().unwrap().is_dir() {
+                true => walk.push(entry.path()),
+                false => found.push(
+                    entry
+                        .path()
+                        .strip_prefix(dir)
+                        .unwrap()
+                        .display()
+                        .to_string(),
+                ),
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The targets of `plan`'s items that place a file of `game`.
+fn placing_targets(plan: &Plan, games: &[&str]) -> Vec<String> {
+    let mut targets: Vec<String> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| games.contains(&i.game.as_str()))
+        .filter(|i| i.kind == title_select_api::build::ItemKind::Place)
+        .map(|i| i.target.clone())
+        .collect();
+    targets.sort();
+    targets
+}
+
+/// Under single copy, every file of a disc, and of each disc of a multi-disc release, is placed, and the release's
+/// playlist, which the source set doesn't hold, is written fresh beside them.
+#[test]
+fn under_single_copy_every_file_of_a_disc_and_of_a_multi_disc_release_is_placed() {
+    let mut env = Env::new(None);
+    placing(&mut env, None);
+    let (folder, selection) = env.folder(&[CD, SAGA[0], SAGA[1]]);
+    let plan = env.plan(&folder, selection);
+    let orbit = placing_targets(&plan, &[CD]);
+    let saga = placing_targets(&plan, &SAGA);
+    assert_eq!(
+        (orbit.len(), saga.len()),
+        (3, 4),
+        "{:?}",
+        plan.content.items
+    );
+    for item in plan.content.items.iter().filter(|i| i.place.is_some()) {
+        assert_eq!(
+            item.place.as_ref().unwrap().how,
+            title_select_api::build::PlaceHow::Rename,
+            "{item:?}"
+        );
+    }
+    let playlist: Vec<&str> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.generated.is_some())
+        .map(|i| i.target.as_str())
+        .collect();
+    assert_eq!(playlist.len(), 1, "{:?}", plan.content.items);
+
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert!(
+        env.items(&job)
+            .iter()
+            .all(|i| i.state == ItemState::Applied),
+        "{:?}",
+        env.items(&job)
+    );
+    // Nothing of them is left in the source set, and each is placed, with the playlist beside them.
+    assert_eq!(
+        tree(&env.tmp.path().join("roots/sets").join(SET))
+            .into_iter()
+            .filter(|f| f.starts_with("Orbit") || f.starts_with("Saga"))
+            .collect::<Vec<_>>(),
+        Vec::<String>::new()
+    );
+    let mut placed: Vec<String> = orbit.iter().chain(&saga).cloned().collect();
+    placed.push(playlist[0].to_owned());
+    placed.sort();
+    assert_eq!(tree(&env.dir()), placed);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 7);
+}
+
+/// A disc's files are placed together: after a stop between two of them, on the rename and the copy path, the disc
+/// is recorded whole in one place, its source set or the play library folder, and the next build places it.
+#[test]
+fn a_disc_whose_placement_stops_between_its_files_is_recorded_whole_in_one_place() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use title_select_store::Fault;
+    // Where the stop is, as the nth fault of a kind; whether the disc is placed once recovery settles it.
+    type Stop = (&'static str, bool, fn(Fault) -> bool, usize, bool);
+    let stops: [Stop; 5] = [
+        (
+            "renaming the second file",
+            false,
+            |f| matches!(f, Fault::PlaceRenaming(_)),
+            2,
+            false,
+        ),
+        (
+            "moved the first file",
+            false,
+            |f| matches!(f, Fault::PlaceMoved(_)),
+            1,
+            false,
+        ),
+        (
+            "moved every file",
+            false,
+            |f| matches!(f, Fault::PlaceMoved(_)),
+            3,
+            true,
+        ),
+        (
+            "copied the first file",
+            true,
+            |f| matches!(f, Fault::PlaceCopied(_)),
+            1,
+            false,
+        ),
+        (
+            "deleting the second original",
+            true,
+            |f| matches!(f, Fault::PlaceChecking(_)),
+            2,
+            true,
+        ),
+    ];
+    for (name, across, stop, nth, placed) in stops {
+        let mut env = Env::new(None);
+        placing(&mut env, None);
+        env.store.copy_across_filesystems(across);
+        let (folder, selection) = env.folder(&[CD]);
+        let plan = env.plan(&folder, selection);
+        let targets = placing_targets(&plan, &[CD]);
+        assert_eq!(targets.len(), 3, "{name}: {:?}", plan.content.items);
+
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap().unwrap();
+        let seen = AtomicUsize::new(0);
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if stop(fault) && seen.fetch_add(1, Ordering::SeqCst) + 1 == nth {
+                    panic!("killed at {fault:?}");
+                }
+            })));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.store.run_build_job(&env.config, job.id, None)
+        }));
+        env.store.hook_faults(None);
+        assert!(ran.is_err(), "{name}: {ran:?}");
+
+        let mut env = env.restart();
+        let set = tree(&env.tmp.path().join("roots/sets").join(SET))
+            .into_iter()
+            .filter(|f| f.starts_with("Orbit"))
+            .count();
+        let (library, recorded) = (tree(&env.dir()), env.store.placed_files(SET).unwrap());
+        match placed {
+            false => {
+                assert_eq!(
+                    (set, library.len(), recorded.len()),
+                    (3, 0, 0),
+                    "{name}: {library:?}"
+                )
+            }
+            true => {
+                assert_eq!((set, recorded.len()), (0, 3), "{name}: {recorded:?}");
+                assert_eq!(library, targets, "{name}");
+            }
+        }
+        // The next build places whatever the stop left in the source set.
+        placing(&mut env, None);
+        env.store.copy_across_filesystems(across);
+        env.store
+            .audit_source_set(
+                &env.config,
+                SET,
+                None,
+                title_select_engine::AuditEvidence::Incremental,
+            )
+            .unwrap();
+        let job = env.build(&env.plan(&folder, selection));
+        assert_eq!(job.state, JobState::Succeeded, "{name}: {job:?}");
+        assert_eq!(tree(&env.dir()), targets, "{name}");
+        assert_eq!(env.store.placed_files(SET).unwrap().len(), 3, "{name}");
+    }
+}
+
+/// Another play library folder builds a disc's CHD from its files where they are placed, in the folder holding them.
+#[test]
+fn another_folder_builds_a_chd_from_a_disc_placed_in_the_folder_holding_it() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    placing(&mut env, Some(&chdman));
+    let (holding, selection) = env.folder(&[CD]);
+    let job = env.build(&env.plan(&holding, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 3);
+
+    // A second folder stores the system's games as CHD, and copies them from where they are.
+    let other = env
+        .store
+        .add_library_folder(
+            &env.config,
+            &AddLibraryFolder {
+                root: "play".into(),
+                path: Some("chds".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            },
+        )
+        .unwrap();
+    env.store.set_holding_folder(SET, Some(holding.id)).unwrap();
+    env.set_format(Some(StorageFormat::Chd), false);
+    let plan = env.plan(&other, selection);
+    let item = &plan.content.items[0];
+    assert!(item.chd, "{item:?}");
+    assert!(
+        item.sources
+            .iter()
+            .all(|s| title_select_api::storage::split_placed(&s.path).is_some()),
+        "{item:?}"
+    );
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let items = env.items(&job);
+    assert_eq!(items[0].state, ItemState::Applied, "{items:?}");
+    assert!(
+        env.tmp
+            .path()
+            .join("roots/play/chds/Orbit (USA).chd")
+            .is_file()
+    );
+    // The placed disc is as it was.
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 3);
 }

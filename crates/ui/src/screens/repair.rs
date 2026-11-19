@@ -1014,7 +1014,8 @@ pub fn KeptFiles(
     files_path: String,
     plan_path: String,
     approval_prefix: &'static str,
-    /// What `plan` of each kept file names: the repair that kept it, or the addition retired.
+    /// What `plan` of each kept file names: the repair that kept it, or the addition retired. A kept file a build
+    /// kept names that build instead.
     kept_by: &'static str,
     title: &'static str,
     lede: &'static str,
@@ -1114,12 +1115,16 @@ pub fn KeptFiles(
                                     <code>{f.name.clone()}</code>
                                 </label>
                                 {format!(
-                                    " as {RETENTION}/{}/{}: {}, {} bytes, {kept_by} #{}, {}",
+                                    " as {RETENTION}/{}/{}: {}, {} bytes, {}, {}",
                                     f.generation,
                                     f.kept_name,
                                     f.reason,
                                     f.file.size,
-                                    f.plan,
+                                    match (f.plan, f.build) {
+                                        (_, Some(build)) => format!("build #{build}"),
+                                        (Some(plan), None) => format!("{kept_by} #{plan}"),
+                                        (None, None) => kept_by.to_owned(),
+                                    },
                                     when(&f.kept_at),
                                 )}
                             </li>

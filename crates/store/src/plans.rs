@@ -1445,12 +1445,21 @@ fn plan_items(
         // A Game placed in this folder is its Source Set's only copy: it stays as it is placed. Nothing is written
         // over it or kept aside, and a file another game needs at its name is blocked.
         if addition.is_none()
-            && let Some(placed) =
-                placed_here(inputs, game, &target, inputs.built.get(&target), &item)
+            && let Some(placed) = placed_here(
+                inputs,
+                scan,
+                game,
+                &target,
+                inputs.built.get(&target),
+                &item,
+            )
         {
             match placed {
                 Ok(()) => item.kind = ItemKind::Unchanged,
-                Err(why) => item.reason = Some(why),
+                Err((kind, why)) => {
+                    item.kind = kind;
+                    item.reason = Some(why);
+                }
             }
             items.push(item);
             continue;
@@ -1749,40 +1758,68 @@ fn plan_items(
 }
 
 /// What becomes of `item`, a file of `game` at `target`, when a Placed Game's file is there or `game` is placed in this
-/// folder: `Ok` when it is the game's one placed file, at its target and as the plan stores it, so in place already;
-/// else why it is blocked. None when neither is so.
+/// folder: `Ok` when it is one of the game's placed files, at its target and as the plan stores it, and the check made
+/// with the plan found it as it was placed, so in place already; else what the item is and why. It is never written
+/// over or kept aside: a placed file the check found missing or changed is reported, and left as it is. None when
+/// neither is so.
 fn placed_here(
     inputs: &Inputs,
+    scan: Option<&Scan>,
     game: &str,
     target: &str,
     built: Option<&Built>,
     item: &PlanItem,
-) -> Option<std::result::Result<(), String>> {
+) -> Option<std::result::Result<(), (ItemKind, String)>> {
     let of_game: Vec<&str> = inputs
         .placed
         .iter()
         .filter(|p| p.game == game)
         .map(|p| p.path.as_str())
         .collect();
+    let set = &inputs.folder.source_set;
     if of_game.is_empty() {
         let other = inputs
             .placed
             .iter()
             .find(|p| name_key(&p.path) == name_key(target))?;
-        return Some(Err(format!(
-            "{} is the only copy of {}, placed here from source set {}, so it stays and this file can't go there",
-            other.path, other.game, inputs.folder.source_set
+        return Some(Err((
+            ItemKind::Blocked,
+            format!(
+                "{} is the only copy of {}, placed here from source set {set}, so it stays and this file can't go \
+                 there",
+                other.path, other.game
+            ),
         )));
     }
     let replacing =
         built.is_some_and(|b| b.game != item.game || b.roms != item.roms || !b.stored_as(item));
-    if of_game == [target] && !replacing {
-        return Some(Ok(()));
+    if !of_game.contains(&target) || replacing {
+        return Some(Err((
+            ItemKind::Blocked,
+            format!(
+                "{game} is placed in this folder as {}, its source set's only copy, so it stays as it is placed",
+                of_game.join(" and ")
+            ),
+        )));
     }
-    Some(Err(format!(
-        "{game} is placed in this folder as {}, its source set's only copy, so it stays as it is placed",
-        of_game.join(" and ")
-    )))
+    let found = scan.and_then(|s| s.files.iter().find(|f| f.target == target));
+    Some(match found.map(|f| f.outcome) {
+        Some(FileOutcome::Missing) => Err((
+            ItemKind::Blocked,
+            format!(
+                "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \
+                 missing; nothing is written in its place. Find it and put it back, or repair the source set"
+            ),
+        )),
+        Some(FileOutcome::Conflict | FileOutcome::Unreadable) => Err((
+            ItemKind::Conflict,
+            format!(
+                "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \
+                 changed or unreadable; it is left as it is. Audit the source set to see what it holds"
+            ),
+        )),
+        _ => Ok(()),
+    })
 }
 
 /// Whether an item of `kind` is in place once its unit commits.
