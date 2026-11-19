@@ -1032,6 +1032,10 @@ pub struct PlacedFile {
     /// it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Whether it is a CHD, placed under Place Converted Games: its disc's tracks, which an Audit reads by extracting
+    /// it, and for a CD the cue sheet kept in the store beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chd: bool,
 }
 
 /// Why a Library Folder is Incomplete: why its current build lacks a selected game.

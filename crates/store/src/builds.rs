@@ -81,6 +81,8 @@ struct Staged {
     mtime_ns: i128,
     chd_sha1: Option<String>,
     chd_raw_sha1: Option<String>,
+    /// For a CD made a CHD, its DAT-exact cue sheet, which the CHD doesn't hold.
+    cue: Option<Vec<u8>>,
 }
 
 /// What a Build needs to make a CHD: chdman, or why it can't be run, the store's scratch directory, and whether you
@@ -105,6 +107,9 @@ struct ChdWork<'a> {
     /// The Library Folders holding the Source Set's Placed Games that the Build reads, each opened without following
     /// a symlink, or why it can't be.
     placed: HashMap<i64, std::result::Result<FolderDir, String>>,
+    /// The Source Set's Placed Games' files that are CHDs, by their paths as its Audits name them, and the Source Set.
+    placed_chds: HashMap<String, crate::placements::PlacedChd>,
+    set: i64,
 }
 
 /// The scratch directory, in the store's, where item `seq` of Build `build` makes its CHD.
@@ -130,6 +135,131 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// Why a placed CHD wasn't extracted.
+enum Unextracted {
+    /// Extracting it proved it doesn't hold its disc as the DAT lists it, why: a track or image of other bytes, a
+    /// header or track list saying it holds more, a header no longer the one verified, its kept cue sheet changed, or
+    /// chdman's word that it is damaged. Its Game needs review.
+    Content(String),
+    /// Anything else, why: chdman missing, stopped at its deadline or crashed, a file that couldn't be read or written,
+    /// or one that changed while it was read. It says nothing of what the CHD holds.
+    Operational(String),
+    /// You cancelled the Build; chdman was stopped.
+    Cancelled,
+}
+
+/// A placed CHD extracted into a scratch directory of its own, removed once dropped: the file in it for each ROM of its
+/// disc, every one checked against the DAT, a CD's cue sheet written from the store.
+struct ExtractedChd {
+    _scratch: Scratch,
+    files: Vec<(String, PathBuf)>,
+}
+
+/// Extracts `placed`, a placed CHD held open as `held` while it is the file a plan found, into the new scratch
+/// directory `dir`, as a build checks a CHD it made: copied there through `held`, never read where it is by chdman,
+/// its header and track list checked first not to say it holds more than its disc, the copy checked to hash to `sha256`
+/// when it is given, then extracted there once and every track it gives back matched against the DAT's, by the cue
+/// sheet kept in the store, which is written beside them, and its header checked to be the one verified when it was
+/// placed. `copied` runs once the copy is made, before chdman extracts it. What is read of `held` is counted to `from`.
+fn extract_placed_chd(
+    work: &ChdWork,
+    placed: &crate::placements::PlacedChd,
+    held: &File,
+    dir: PathBuf,
+    (sha256, from): (Option<&str>, &Tally),
+    copied: &dyn Fn(),
+) -> std::result::Result<ExtractedChd, Unextracted> {
+    use Unextracted::{Content, Operational};
+    let chdman = match &work.chdman {
+        Ok(chdman) => Chdman {
+            deadline: work
+                .limits
+                .for_bytes(placed.roms.iter().map(|r| r.size).sum()),
+            ..chdman.clone()
+        },
+        Err(why) => return Err(Operational(format!("it can't be extracted: {why}"))),
+    };
+    // Without the cue sheet it was placed with, a CD can't be extracted as the DAT lists it.
+    let cue = match &placed.cue {
+        Some(sha) => match work.store.kept_cue_as(sha) {
+            Ok(cue) => Some(cue),
+            Err(crate::blobs::Unkept::Changed(why)) => return Err(Content(why)),
+            Err(crate::blobs::Unkept::Unread(why)) => {
+                return Err(Operational(format!(
+                    "its cue sheet, kept in the store, can't be read: {why}"
+                )));
+            }
+        },
+        None => None,
+    };
+    let (kind, bins) = chd::disc_of(&placed.game, &placed.roms, cue.as_deref())
+        .map_err(|why| Operational(format!("what it holds can't be told: {why}")))?;
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| Operational(format!("{}: {e}", dir.display())))?;
+    let scratch = Scratch(dir.clone());
+    // Its header or track list saying it holds more than its disc does is what it holds; anything else is not.
+    let copy = chd::copy_for_chdman(held, kind, &bins, &dir.join("out.chd"), from).map_err(
+        |why| match why.ends_with("it was not extracted") {
+            true => Content(why),
+            false => Operational(why),
+        },
+    )?;
+    if sha256.is_some_and(|sha| sha != copy) {
+        return Err(Operational("it changed while it was read".into()));
+    }
+    copied();
+    let header = chdman
+        .verify(&dir, kind, cue.as_deref(), &placed.roms, work.cancelled)
+        .map_err(|stop| match stop {
+            chd::Stop::Cancelled => Unextracted::Cancelled,
+            chd::Stop::Corrupt(why) => Content(format!(
+                "extracting it did not give back the DAT's files: {why}"
+            )),
+            chd::Stop::Failed(why) => Operational(format!("it couldn't be extracted: {why}")),
+        })?;
+    if header.sha1 != placed.sha1 {
+        return Err(Content(format!(
+            "its header's SHA-1 is {}, not the {} it had when it was placed",
+            header.sha1, placed.sha1
+        )));
+    }
+    let mut files: Vec<(String, PathBuf)> = match kind {
+        ChdKind::Cd => bins
+            .iter()
+            .enumerate()
+            .map(|(n, rom)| {
+                (
+                    rom.name.clone(),
+                    dir.join("x").join(format!("t{}.bin", n + 1)),
+                )
+            })
+            .collect(),
+        ChdKind::Dvd => bins
+            .iter()
+            .map(|rom| (rom.name.clone(), dir.join("x").join("x.iso")))
+            .collect(),
+    };
+    if let Some(cue) = &cue {
+        let rom = placed
+            .roms
+            .iter()
+            .find(|r| !bins.iter().any(|b| b.name == r.name))
+            .ok_or_else(|| Operational("the DAT lists no cue sheet for it".into()))?;
+        let path = dir.join("dat.cue");
+        File::options()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut f| io::Write::write_all(&mut f, cue).and_then(|()| f.sync_all()))
+            .map_err(|e| Operational(format!("{}: {e}", path.display())))?;
+        files.push((rom.name.clone(), path));
+    }
+    Ok(ExtractedChd {
+        _scratch: scratch,
+        files,
+    })
 }
 
 /// Writes `item`'s CHD to `file`, new in the staging directory at `staged`: each ROM of the disc is written loose
@@ -161,7 +291,7 @@ fn stage_chd(
     let cancelled = work.cancelled;
     let stop = |s: chd::Stop| match s {
         chd::Stop::Cancelled => Failure::Cancelled,
-        chd::Stop::Failed(why) => Failure::Item(why),
+        chd::Stop::Failed(why) | chd::Stop::Corrupt(why) => Failure::Item(why),
     };
     let dir = chd_dir(&work.tmp, work.build, seq);
     let _ = std::fs::remove_dir_all(&dir);
@@ -320,10 +450,11 @@ fn stage_chd(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: Some(header.sha1),
         chd_raw_sha1: Some(header.raw_sha1),
+        cue,
     })
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -375,30 +506,18 @@ fn verify_found_chd(
                 .find(|r| r.name == source.rom)
                 .ok_or_else(|| Failure::Item(format!("the DAT lists no {}", source.rom)))?;
             let opened = open_either(set_fd, &work.placed, source).map_err(Failure::Item)?;
-            let path = dir.join("dat.cue");
-            let dest = File::create_new(&path)
-                .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
-            match source.member.as_deref() {
-                Some(member) => build::write_loose_members(
-                    &[&dest],
-                    &[(rom, member)],
-                    &opened,
-                    &work.from,
-                    &work.scratch,
-                )
-                .map(|_| ()),
-                None => write_loose(
-                    &dest,
-                    &[(rom, 0, None)],
-                    &[(&opened, &work.from)],
-                    &work.scratch,
-                )
-                .map(|_| ()),
-            }
-            .map_err(Failure::Item)?;
-            verify_loose(&dest, rom, &work.scratch)
-                .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?;
-            Some(chd::read_cue(&dest).map_err(Failure::Item)?)
+            let read = dat_cue(
+                rom,
+                source,
+                &opened,
+                &dir.join("dat.cue"),
+                (&work.from, &work.scratch),
+            );
+            Some(
+                read.map_err(|why| {
+                    Failure::Item(format!("its cue sheet in the source set: {why}"))
+                })?,
+            )
         }
     };
     let bins = match &cue {
@@ -450,11 +569,38 @@ fn verify_found_chd(
         .verify_adopted(&dir, kind, cue.as_deref(), roms, work.cancelled)
         .map_err(|s| match s {
             chd::Stop::Cancelled => Failure::Cancelled,
-            chd::Stop::Failed(why) => Failure::Item(format!(
+            chd::Stop::Failed(why) | chd::Stop::Corrupt(why) => Failure::Item(format!(
                 "extracting it did not give back the DAT's files: {why}"
             )),
         })?;
     Ok((hex(&hasher.finalize()), header))
+}
+
+/// The DAT-exact cue sheet `rom`, written loose from `source`, opened as `opened`, as the new file `path` in a scratch
+/// directory, checked against the DAT, and read: what a CD's CHD doesn't hold. `opened` is counted as read from the
+/// Root it is in, `from`; the scratch file as written and read for the Job alone, `scratch`.
+fn dat_cue(
+    rom: &ExpectedRom,
+    source: &PlanSource,
+    opened: &File,
+    path: &Path,
+    (from, scratch): (&Tally, &Tally),
+) -> std::result::Result<Vec<u8>, String> {
+    let dest = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    match source.member.as_deref() {
+        Some(member) => {
+            build::write_loose_members(&[&dest], &[(rom, member)], opened, from, scratch)
+                .map(|_| ())
+        }
+        None => write_loose(&dest, &[(rom, 0, None)], &[(opened, from)], scratch).map(|_| ()),
+    }?;
+    verify_loose(&dest, rom, scratch)?;
+    chd::read_cue(&dest)
 }
 
 /// The SHA-256 and size of `file`, read from its start, each byte read counted to `tally`, of the Root `file` is in.
@@ -747,6 +893,7 @@ fn stage_by_fd(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
 }
 
@@ -761,6 +908,13 @@ fn stage(
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
     let (set_dir, set_root, set_fd) = set;
+    if let Some(placed) = item
+        .sources
+        .iter()
+        .find_map(|s| chd.placed_chds.get(&s.path))
+    {
+        return stage_from_placed_chd((item, seq), file, placed, chd, built_at);
+    }
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
@@ -833,6 +987,7 @@ fn stage(
             mtime_ns: staged_mtime(file)?,
             chd_sha1: None,
             chd_raw_sha1: None,
+            cue: None,
         });
     }
     // A Placed Game is read from the Library Folder holding it, by descriptor.
@@ -920,7 +1075,137 @@ fn stage(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
+}
+
+/// Writes `item`, the Build's item `seq`, to `file`, new in the staging directory, from `placed`, the CHD its Game
+/// is placed as in the folder holding it, opened by descriptor while it is the file the plan found there. A folder that
+/// stores the Game as CHD copies it whole, and the copy must be the CHD verified by extraction when it was placed, by its
+/// SHA-256 and its header's; any other is written from what extracting it gives back, every file checked against the
+/// DAT, as a return writes it home. One extraction proves isn't its disc as the DAT lists it flags its Game for review.
+fn stage_from_placed_chd(
+    (item, seq): (&PlanItem, i64),
+    file: &mut File,
+    placed: &crate::placements::PlacedChd,
+    work: &ChdWork,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let path = title_select_api::storage::placed_path(placed.folder, &placed.path);
+    if item.sources.iter().any(|s| s.path != path) {
+        return Err(Failure::Item(format!(
+            "{} is placed as a CHD, and is built from it alone",
+            item.game
+        )));
+    }
+    let source = &item.sources[0];
+    let held = open_placed_source(&work.placed, source).map_err(Failure::Item)?;
+    let staged =
+        |e: io::Error| Failure::Folder(format!("the staged file for {}: {e}", item.target));
+    let same_disc =
+        item.roms.len() == placed.roms.len() && item.roms.iter().all(|r| placed.roms.contains(r));
+    if item.chd {
+        if !same_disc {
+            return Err(Failure::Item(format!(
+                "{} is placed as a CHD of another disc than the DAT lists now; audit the source set",
+                source.path
+            )));
+        }
+        let before = rustix::fs::fstat(&held).map_err(|e| Failure::Item(e.to_string()))?;
+        copy_chunked(&held, &work.from, file, &work.to)
+            .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+        work.from.file_read();
+        work.to.file_written();
+        file.sync_all().map_err(staged)?;
+        let after = rustix::fs::fstat(&held).map_err(|e| Failure::Item(e.to_string()))?;
+        if file_stat(&after) != file_stat(&before)
+            || crate::folder_dir::ctime_ns(&after) != crate::folder_dir::ctime_ns(&before)
+        {
+            return Err(Failure::Item(format!(
+                "{} changed while it was read",
+                source.path
+            )));
+        }
+        let (sha256, size) = sha256_of(file, &work.to).map_err(staged)?;
+        if placed.sha256.as_deref() != Some(sha256.as_str()) {
+            return Err(Failure::Item(format!(
+                "{} is not the CHD verified when it was placed; audit the source set",
+                source.path
+            )));
+        }
+        let header = chd::header(file).map_err(Failure::Item)?;
+        if header.sha1 != placed.sha1 {
+            return Err(Failure::Item(format!(
+                "{}: its header's SHA-1 is not the one verified when it was placed",
+                source.path
+            )));
+        }
+        file.set_modified(built_at)
+            .and_then(|()| file.sync_all())
+            .map_err(staged)?;
+        return Ok(Staged {
+            sha256,
+            size,
+            mtime_ns: staged_mtime(file)?,
+            chd_sha1: Some(header.sha1),
+            chd_raw_sha1: Some(header.raw_sha1),
+            cue: None,
+        });
+    }
+    let dir = chd_dir(&work.tmp, work.build, seq);
+    let extracted = match extract_placed_chd(
+        work,
+        placed,
+        &held,
+        dir,
+        (placed.sha256.as_deref(), &work.from),
+        &|| (),
+    ) {
+        Ok(extracted) => extracted,
+        Err(Unextracted::Content(why)) => {
+            let why = format!("{}: {why}", source.path);
+            work.store
+                .write(|tx| {
+                    crate::placements::raise_review(
+                        tx,
+                        (work.set, &placed.game),
+                        &path,
+                        &why,
+                        work.build,
+                    )
+                })
+                .map_err(|e| Failure::Folder(e.to_string()))?;
+            return Err(Failure::Item(why));
+        }
+        Err(Unextracted::Operational(why)) => {
+            return Err(Failure::Item(format!("{}: {why}", source.path)));
+        }
+        Err(Unextracted::Cancelled) => return Err(Failure::Cancelled),
+    };
+    let mut from = item.clone();
+    for source in &mut from.sources {
+        let Some((_, at)) = extracted.files.iter().find(|(rom, _)| *rom == source.rom) else {
+            return Err(Failure::Item(format!(
+                "extracting {} gave back no {}",
+                source.path, source.rom
+            )));
+        };
+        source.path = at.display().to_string();
+        source.member = None;
+    }
+    let ours: Vec<String> = extracted
+        .files
+        .iter()
+        .map(|(_, at)| at.display().to_string())
+        .collect();
+    let open = |source: &PlanSource| match ours.contains(&source.path) {
+        true => File::open(&source.path).map_err(|e| format!("{}: {e}", source.path)),
+        false => Err(format!(
+            "{} is not what extracting the CHD gave back",
+            source.path
+        )),
+    };
+    stage_by_fd(&from, file, &open, (&work.scratch, &work.to), built_at)
 }
 
 /// Writes `generated`, a file no ROM is, to `file`, new in the staging directory at `staged`: an `.m3u` from its
@@ -969,6 +1254,7 @@ fn stage_generated(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
     })
 }
 
@@ -2054,15 +2340,28 @@ impl Store {
         let limits = self.settings()?.chd_limits();
         let threads = self.chdman_threads(config)?;
         let meter = self.meter.job(job);
+        let placed_chds: HashMap<String, crate::placements::PlacedChd> = self
+            .read(|c| crate::placements::placed_chds_of(c, folder_row.source_set_id))?
+            .into_iter()
+            .map(|p| (title_select_api::storage::placed_path(p.folder, &p.path), p))
+            .collect();
         let chd_work = ChdWork {
-            chdman: match work.iter().any(|w| w.item.chd) {
+            // A return extracts any CHD it takes home, and an item read from a placed CHD reads it so.
+            chdman: match work.iter().any(|w| {
+                w.item.chd
+                    || w.item
+                        .sources
+                        .iter()
+                        .any(|s| placed_chds.contains_key(&s.path))
+            }) || !returning.is_empty()
+            {
                 true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
                     program,
                     threads,
                     deadline: limits.base,
                     tally: meter.tally(None),
                 }),
-                false => Err("no item is a CHD".into()),
+                false => Err("no item is a CHD, and nothing is returned".into()),
             },
             store: self,
             to: meter.tally(Some(&folder_row.root)),
@@ -2078,6 +2377,8 @@ impl Store {
             },
             additions: meter.tally(Some(crate::config::ADDITIONS_ROOT)),
             scratch: meter.tally(None),
+            set: folder_row.source_set_id,
+            placed_chds: placed_chds.clone(),
             limits,
             tmp: self.dir().join(crate::TMP),
             build: id,
@@ -2181,6 +2482,7 @@ impl Store {
                 config,
                 to: &to,
                 from: &library,
+                chd: Some(&chd_work),
             };
             for (seq, r) in &returning {
                 if cancelled || self.cancel_requested(job)? {
@@ -2204,7 +2506,13 @@ impl Store {
             if let Some(set) = &placing
                 && unit[0].item.kind == ItemKind::Place
             {
-                self.place_unit(&placer, set, unit, (&staging, &mut staged_ids, built_at))?;
+                self.place_unit(
+                    &placer,
+                    set,
+                    unit,
+                    (&staging, &mut staged_ids, built_at),
+                    &chd_work,
+                )?;
                 for _ in unit {
                     tick(&mut done);
                 }

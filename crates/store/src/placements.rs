@@ -47,7 +47,8 @@ pub(crate) fn holding_folder(c: &Connection, set: i64) -> Result<Option<i64>> {
 }
 
 const PLACED_QUERY: &str =
-    "SELECT game, folder_id, path, size, mtime_ns, dev, ino, ctime_ns, sha256 FROM placed_files";
+    "SELECT game, folder_id, path, size, mtime_ns, dev, ino, ctime_ns, sha256,
+                                   chd_roms IS NOT NULL FROM placed_files";
 
 fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
     Ok(PlacedFile {
@@ -62,6 +63,7 @@ fn placed_from_row(r: &rusqlite::Row) -> rusqlite::Result<PlacedFile> {
         ino: r.get::<_, i64>(6)? as u64,
         ctime_ns: r.get::<_, i64>(7)? as i128,
         sha256: r.get(8)?,
+        chd: r.get(9)?,
     })
 }
 
@@ -220,6 +222,13 @@ pub(crate) fn move_placed(
             ctime_ns(now) as i64
         ],
     )?;
+    tx.execute(
+        "UPDATE review_flags SET path = ?2 WHERE path = ?1",
+        params![
+            title_select_api::storage::placed_path(folder, from),
+            title_select_api::storage::placed_path(folder, to)
+        ],
+    )?;
     Ok(())
 }
 
@@ -273,6 +282,72 @@ pub(crate) fn place_file_as(
     Ok(())
 }
 
+/// Records the Placed Game's file `path` in Library Folder `folder`, recorded placed in this transaction, as a CHD of
+/// the disc whose ROMs are `roms`: one whose header held `sha1` when extracting it gave back every track exactly, and
+/// for a CD whose DAT-exact cue sheet is kept in the store as `cue`, which the blob must already be, written and synced.
+pub(crate) fn place_chd(
+    tx: &Transaction,
+    folder: i64,
+    path: &str,
+    sha1: &str,
+    roms: &[title_select_api::build::ExpectedRom],
+    cue: Option<&str>,
+) -> Result<()> {
+    let roms = serde_json::to_string(roms).map_err(|e| Error::Io(e.to_string()))?;
+    tx.execute(
+        "UPDATE placed_files SET chd_sha1 = ?3, chd_roms = ?4, cue_sha256 = ?5 WHERE folder_id = ?1 AND path = ?2",
+        params![folder, path, sha1, roms, cue],
+    )?;
+    Ok(())
+}
+
+/// A Placed Game's file that is a CHD, as [`place_chd`] recorded it.
+#[derive(Debug, Clone)]
+pub(crate) struct PlacedChd {
+    pub folder: i64,
+    pub path: String,
+    pub game: String,
+    pub sha1: String,
+    pub roms: Vec<title_select_api::build::ExpectedRom>,
+    pub cue: Option<String>,
+    /// The SHA-256 of the file, as placed or last read whole and checked.
+    pub sha256: Option<String>,
+}
+
+/// The files of Source Set `set`'s Placed Games that are CHDs, by Library Folder and path.
+pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>> {
+    let mut stmt = c.prepare(
+        "SELECT folder_id, path, game, chd_sha1, chd_roms, cue_sha256, sha256 FROM placed_files
+         WHERE source_set_id = ?1 AND chd_roms IS NOT NULL ORDER BY folder_id, path",
+    )?;
+    let rows = stmt
+        .query_map([set], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(folder, path, game, sha1, roms, cue, sha256)| {
+            Ok(PlacedChd {
+                folder,
+                path,
+                game,
+                sha1: sha1.unwrap_or_default(),
+                roms: serde_json::from_str(&roms).map_err(|e| Error::Io(e.to_string()))?,
+                cue,
+                sha256,
+            })
+        })
+        .collect()
+}
+
 /// The Game the Placed Game's file `path` in Library Folder `folder` is a file of; none when it is no such file.
 pub(crate) fn placed_game_of(c: &Connection, folder: i64, path: &str) -> Result<Option<String>> {
     Ok(c.query_row(
@@ -299,6 +374,12 @@ pub(crate) fn forget_placed(tx: &Transaction, folder: i64, path: &str) -> Result
     tx.execute(
         "DELETE FROM placed_files WHERE folder_id = ?1 AND path = ?2",
         params![folder, path],
+    )?;
+    // A file no longer placed needs no review as one.
+    clear_review_at(
+        tx,
+        set,
+        &title_select_api::storage::placed_path(folder, path),
     )?;
     drop_unplaced(tx, set, &game)
 }
@@ -376,6 +457,27 @@ impl Store {
     /// The files of the Placed Games of Source Set `name`, by Library Folder and path.
     pub fn placed_files(&self, name: &str) -> Result<Vec<PlacedFile>> {
         self.read(|c| placed_files_of(c, set_by_name(c, name)?.id))
+    }
+
+    /// The Games of Source Set `name` that a Build found need review, by name.
+    pub fn review_flags(&self, name: &str) -> Result<Vec<title_select_api::report::ReviewFlag>> {
+        self.read(|c| {
+            let set = set_by_name(c, name)?.id;
+            let mut stmt = c.prepare(
+                "SELECT game, path, reason, build_id, raised_at FROM review_flags WHERE source_set_id = ?1
+                 ORDER BY game",
+            )?;
+            let rows = stmt.query_map([set], |r| {
+                Ok(title_select_api::report::ReviewFlag {
+                    game: r.get(0)?,
+                    path: r.get(1)?,
+                    reason: r.get(2)?,
+                    build: r.get(3)?,
+                    raised_at: r.get(4)?,
+                })
+            })?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })
     }
 
     /// Records Source Set `name`'s Game `game` as placed in Library Folder `folder`, the one holding its Placed Games,
@@ -823,6 +925,62 @@ pub(crate) fn returned_entries(
         tx.execute(
             "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
             params![set, path],
+        )?;
+    }
+    Ok(())
+}
+
+/// Flags Game `game` of Source Set `set` as needing review, raised by Build `build`, its placed file `path` as Audits
+/// name it, and why: what a Build proved of it by extracting it. No Audit's verdict changes; the payload read an
+/// Incremental Audit would reuse is forgotten, so that the next Audit reads the file again, and verifies it, or not.
+pub(crate) fn raise_review(
+    tx: &Transaction,
+    (set, game): (i64, &str),
+    path: &str,
+    why: &str,
+    build: i64,
+) -> Result<()> {
+    tx.execute(
+        "INSERT OR REPLACE INTO review_flags (source_set_id, game, path, reason, build_id, raised_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![set, game, path, why, build, now()],
+    )?;
+    tx.execute(
+        "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+        params![set, path],
+    )?;
+    Ok(())
+}
+
+/// The placed files of Source Set `set` flagged for review, as Audits name them.
+pub(crate) fn reviewed_paths(tx: &Transaction, set: i64) -> Result<Vec<String>> {
+    let mut stmt =
+        tx.prepare("SELECT path FROM review_flags WHERE source_set_id = ?1 ORDER BY path")?;
+    let paths = stmt
+        .query_map([set], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(paths)
+}
+
+/// Clears the review flag of Source Set `set`'s placed file `path`, as Audits name it.
+pub(crate) fn clear_review_at(tx: &Transaction, set: i64, path: &str) -> Result<()> {
+    tx.execute(
+        "DELETE FROM review_flags WHERE source_set_id = ?1 AND path = ?2",
+        params![set, path],
+    )?;
+    Ok(())
+}
+
+/// Clears the review flag of each of `games` of Source Set `set`, once each was verified home.
+pub(crate) fn clear_reviews<'a>(
+    tx: &Transaction,
+    set: i64,
+    games: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
+    for game in games {
+        tx.execute(
+            "DELETE FROM review_flags WHERE source_set_id = ?1 AND game = ?2",
+            params![set, game],
         )?;
     }
     Ok(())

@@ -3,8 +3,9 @@
 //! folder's Selection no longer chooses one of its Games, when Single Copy is off for the folder's system, when the
 //! folder no longer holds the Source Set's Placed Games, or when you remove every built file. It goes back in the
 //! format the Source Set's Storage Policy says: renamed when each placed file is a file of that format on the same
-//! filesystem, otherwise written there, from its placed files, and verified against the DAT. A Game still selected in
-//! the folder keeps its file there, as a built copy.
+//! filesystem, otherwise written there, from its placed files, and verified against the DAT: a CHD's tracks extracted
+//! from it, and a CD's cue sheet kept in the store. A Game still selected in the folder keeps its file there, as a built
+//! copy.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -240,10 +241,12 @@ fn one<'a>(
                 p.path
             ));
         }
+        // A CHD goes back as its disc's files, extracted from it and verified against the DAT, with a CD's cue sheet
+        // from the store.
         let Some(built) = inputs
             .built
             .get(&p.path)
-            .filter(|b| !b.roms.is_empty() && !b.chd)
+            .filter(|b| !b.roms.is_empty() && b.chd == p.chd)
         else {
             return Err(format!("what {} holds isn't recorded", p.path));
         };
@@ -304,7 +307,8 @@ fn one<'a>(
             let from = of_game
                 .iter()
                 .find(|f| {
-                    f.built.loose == loose
+                    !f.built.chd
+                        && f.built.loose == loose
                         && (loose || f.built.torrentzip)
                         && same_roms(&f.built.roms, &roms)
                 })
@@ -320,7 +324,7 @@ fn one<'a>(
                 sources.push(PlanSource {
                     rom: rom.name.clone(),
                     path: f.placed.path.clone(),
-                    member: (!f.built.loose).then(|| rom.name.clone()),
+                    member: (!f.built.loose || f.built.chd).then(|| rom.name.clone()),
                     finding: None,
                     evidence: None,
                     file: f.placed.file.clone(),

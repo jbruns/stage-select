@@ -91,6 +91,35 @@ pub struct Placed<'a> {
     pub pools: Option<Pools<'a>>,
     /// Where the payload bytes read of it are counted: the Library Folder's Root's.
     pub tally: meter::Tally,
+    /// Those of `files` that are CHDs, placed under Place Converted Games, and how to run chdman to read them.
+    pub chds: Vec<PlacedChd>,
+    pub chd: ChdAudit,
+}
+
+/// A Placed Game's file that is a CHD (ADR 0023): a full Audit extracts it with chdman and reads each track it gives
+/// back as a payload of its own, named for the ROM it is to be; a quick inventory takes its header's SHA-1, while it is
+/// the one it held when it was placed, as Claim Evidence of each. A CD's cue sheet, which a CHD doesn't hold, is read
+/// from where it is kept, in the store, in either.
+#[derive(Debug, Clone)]
+pub struct PlacedChd {
+    /// Relative to the Library Folder, with `/` separators, as in [`Placed::files`].
+    pub rel: String,
+    pub game: String,
+    /// The SHA-1 its header held when extracting it gave back every track of its disc exactly.
+    pub sha1: String,
+    /// Its disc's ROMs as the DAT listed them when it was placed: a CD's cue sheet and tracks, or a DVD's image.
+    pub roms: Vec<title_select_api::build::ExpectedRom>,
+    /// A CD's cue sheet as kept in the store, or why it can't be read.
+    pub cue: Option<Result<Vec<u8>, String>>,
+}
+
+/// How an Audit runs chdman to read a placed CHD: chdman, or why it can't be run; how long each run may take; and the
+/// scratch directory it extracts into, a folder of its own for each CHD, removed once read.
+#[derive(Debug, Clone)]
+pub struct ChdAudit {
+    pub chdman: Result<chd::Chdman, String>,
+    pub limits: chd::Limits,
+    pub tmp: std::path::PathBuf,
 }
 
 /// A file as `stat` sees it: what the change test compares. An earlier read of a file is reused only while every
@@ -289,6 +318,7 @@ fn walk(
             is_zip,
             rel,
             beneath: None,
+            chd: None,
         });
     }
 
@@ -331,12 +361,19 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
                 let is_zip = rel
                     .rsplit_once('.')
                     .is_some_and(|(_, e)| e.eq_ignore_ascii_case("zip"));
+                let chd = placed.chds.iter().find(|c| c.rel == *rel).map(|c| {
+                    Box::new(read::ChdRead {
+                        placed: c.clone(),
+                        audit: placed.chd.clone(),
+                    })
+                });
                 items.push(Item::File { rel: at.clone() });
                 files.push(ToRead {
                     path,
-                    is_zip,
+                    is_zip: is_zip && chd.is_none(),
                     rel: at,
                     beneath: Some(base.to_path_buf()),
+                    chd,
                 });
                 stamps.push(metadata.and_then(|m| FileStamp::from_metadata(&m)));
             }

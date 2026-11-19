@@ -389,6 +389,21 @@ impl Store {
     /// [`Store::recover_builds`] then cleans up its folder. A Check Job becomes Interrupted too, as do an Ingest Scan,
     /// a stat walk and a Calibration, which keeps what it finished. Each Job's change is one transaction.
     pub fn recover_jobs(&self, workers: Workers) -> Result<Vec<Interruption>> {
+        // What an Audit killed while chdman extracted a placed CHD left in the store's scratch directory: no Job runs
+        // yet, so none of it is in use.
+        for entry in std::fs::read_dir(self.dir().join(crate::TMP))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("audit-chd-")
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
         let running: Vec<(i64, u32, String, Option<String>)> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id, attempt, kind, error FROM jobs WHERE state = 'running' ORDER BY id",

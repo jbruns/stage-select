@@ -13,7 +13,6 @@ use std::time::Duration;
 use title_select_api::build::ExpectedRom;
 use title_select_api::storage::ChdKind;
 
-use crate::build::verify_loose;
 use crate::meter::{JobMeter, Tally};
 
 /// The environment variable naming the chdman to run, where the configuration names none.
@@ -23,7 +22,7 @@ pub const CHDMAN_ENV: &str = "TITLE_SELECT_CHDMAN";
 pub const V5_HEADER: usize = 124;
 
 /// The bytes of a cue sheet read to find its tracks; a Redump sheet is a few kilobytes.
-const CUE_MAX: u64 = 1 << 20;
+pub const CUE_MAX: u64 = 1 << 20;
 
 /// The bytes of chdman's output kept for an error.
 const LOG_TAIL: u64 = 2048;
@@ -566,6 +565,38 @@ pub enum Stop {
     Cancelled,
     /// It failed, or what it gave back does not match the DAT: why.
     Failed(String),
+    /// What chdman gave back, or chdman itself, proves the CHD doesn't hold the disc the DAT lists: a track or image
+    /// of another size, other bytes or another count, or a CHD chdman reports as damaged. Never a timeout, a crash or
+    /// a failure to read or write: those say nothing of what the CHD holds.
+    Corrupt(String),
+}
+
+impl Stop {
+    /// Why it stopped, however it did.
+    pub fn why(&self) -> String {
+        match self {
+            Stop::Cancelled => "you cancelled it, and chdman was stopped".into(),
+            Stop::Failed(why) | Stop::Corrupt(why) => why.clone(),
+        }
+    }
+}
+
+/// What chdman says of a CHD whose data or metadata is damaged, as its errors read: its own word that the CHD doesn't
+/// hold what it should, rather than that it couldn't read or write a file.
+const CORRUPT: [&str; 7] = [
+    "decompression error",
+    "invalid data",
+    "invalid file",
+    "invalid metadata",
+    "hunk out of range",
+    "codec error",
+    "metadata not found",
+];
+
+/// Whether chdman's log `tail` says the CHD it read is damaged.
+fn says_corrupt(tail: &str) -> bool {
+    let tail = tail.to_ascii_lowercase();
+    CORRUPT.iter().any(|c| tail.contains(c))
 }
 
 impl From<String> for Stop {
@@ -696,10 +727,13 @@ impl Chdman {
         if status.success() {
             return Ok(());
         }
-        Err(Stop::Failed(format!(
-            "chdman {verb} failed ({status}): {}",
-            tail(&log_path)
-        )))
+        let said = tail(&log_path);
+        let why = format!("chdman {verb} failed ({status}): {said}");
+        // Only an exit chdman chose, saying the CHD is damaged: a crash proves nothing of it.
+        match status.code().is_some() && says_corrupt(&said) {
+            true => Err(Stop::Corrupt(why)),
+            false => Err(Stop::Failed(why)),
+        }
     }
 
     /// Builds `dir/out.chd` from the disc whose ROMs are written loose in `dir/in`, `main` being its `.cue` or
@@ -793,6 +827,42 @@ impl Chdman {
         expected: &[&ExpectedRom],
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Header, Stop> {
+        let given = self.extract(dir, kind, expected, cancelled)?;
+        for (path, rom) in given.iter().zip(expected.iter().copied()) {
+            if cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            let file = File::open(path).map_err(|e| format!("{}: {e}", rom.name))?;
+            let len = file.metadata().map_err(|e| e.to_string())?.len();
+            if len != rom.size {
+                return Err(Stop::Corrupt(format!(
+                    "{}: chdman gave back {len} bytes, not the DAT's {}",
+                    rom.name, rom.size
+                )));
+            }
+            let sums = crate::build::hash_loose(&file, rom, &self.tally)
+                .map_err(|e| Stop::Failed(format!("{}: {e}", rom.name)))?;
+            if !crate::build::matches(&sums, rom) {
+                return Err(Stop::Corrupt(format!(
+                    "chdman gave back other bytes: {}: it does not hash to the DAT's ROM",
+                    rom.name
+                )));
+            }
+        }
+        let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
+        header(&chd).map_err(Stop::Failed)
+    }
+
+    /// Extracts `dir/out.chd` into `dir/x`, and returns what it gave back, in order: a file for each track of a CD, or
+    /// a DVD's image, as many as `expected`, the disc's tracks; chdman is stopped once it writes more than they take
+    /// and a cue sheet. What it gave back is not checked against them.
+    pub fn extract(
+        &self,
+        dir: &Path,
+        kind: ChdKind,
+        expected: &[&ExpectedRom],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<PathBuf>, Stop> {
         let out = dir.join("x");
         std::fs::create_dir(&out).map_err(|e| format!("{}: {e}", out.display()))?;
         let tracks = expected.len();
@@ -826,29 +896,93 @@ impl Chdman {
             .filter(|e| e.as_ref().map_or(true, |e| e.file_name() != "x.cue"))
             .count();
         if found != given.len() {
-            return Err(Stop::Failed(format!(
+            return Err(Stop::Corrupt(format!(
                 "chdman gave back {found} tracks, not the {} the DAT lists",
                 given.len()
             )));
         }
-        for (path, rom) in given.iter().zip(expected.iter().copied()) {
-            if cancelled() {
-                return Err(Stop::Cancelled);
-            }
-            let file = File::open(path).map_err(|e| format!("{}: {e}", rom.name))?;
-            let len = file.metadata().map_err(|e| e.to_string())?.len();
-            if len != rom.size {
-                return Err(Stop::Failed(format!(
-                    "{}: chdman gave back {len} bytes, not the DAT's {}",
-                    rom.name, rom.size
-                )));
-            }
-            verify_loose(&file, rom, &self.tally)
-                .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
-        }
-        let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
-        header(&chd).map_err(Stop::Failed)
+        Ok(given)
     }
+}
+
+/// The disc a placed CHD holds, as its ROMs `roms` of Game `game` say: whether it is a CD or a DVD, a CD's cue sheet,
+/// `cue`, which it doesn't hold, and the ROMs it gives back once extracted, in order: each track the cue sheet names,
+/// or a DVD's image.
+pub fn disc_of<'r>(
+    game: &str,
+    roms: &'r [ExpectedRom],
+    cue: Option<&[u8]>,
+) -> Result<(ChdKind, Vec<&'r ExpectedRom>), String> {
+    let sized: Vec<(&str, u64)> = roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
+    let kind = title_select_api::storage::chd_of(game, &sized).map_err(str::to_owned)?;
+    let bins = match (kind, cue) {
+        (ChdKind::Cd, Some(cue)) => cue_matches(&cue_tracks(cue)?, roms)?,
+        (ChdKind::Cd, None) => return Err("a CD is extracted by its cue sheet".into()),
+        (ChdKind::Dvd, _) => roms.iter().collect(),
+    };
+    Ok((kind, bins))
+}
+
+/// Copies the CHD `file`, of a disc whose tracks are `bins`, to the new file `dest` in a scratch directory, for chdman
+/// to read rather than the file where it is: its header and a CD's track metadata are first checked not to say it
+/// holds more than the disc does, nothing past its size as first seen is copied, and the copy is checked the same.
+/// `file` must hold still, by its size, modification time and change time, from before it is copied until after.
+/// Returns the SHA-256 of what was copied. What is read of `file` is counted to `from`.
+pub fn copy_for_chdman(
+    file: &File,
+    kind: ChdKind,
+    bins: &[&ExpectedRom],
+    dest: &Path,
+    from: &Tally,
+) -> Result<String, String> {
+    use sha2::Digest;
+    use std::os::unix::fs::MetadataExt;
+    let seen = |file: &File| {
+        file.metadata()
+            .map(|m| {
+                (
+                    m.len(),
+                    m.mtime(),
+                    m.mtime_nsec(),
+                    m.ctime(),
+                    m.ctime_nsec(),
+                )
+            })
+            .map_err(|e| e.to_string())
+    };
+    let before = seen(file)?;
+    let unfit = |why: String| format!("{why}; it was not extracted");
+    fits(file, kind, bins).map_err(unfit)?;
+    let mut copy = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    let mut reader = file;
+    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut reader = reader.take(before.0);
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0; 1 << 16];
+    let _reading = from.reader();
+    loop {
+        let n = from
+            .read_from(&mut reader, &mut buf)
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        std::io::Write::write_all(&mut copy, &buf[..n])
+            .map_err(|e| format!("{}: {e}", dest.display()))?;
+    }
+    from.file_read();
+    if seen(file)? != before {
+        return Err("it changed while it was read".into());
+    }
+    fits(&copy, kind, bins).map_err(unfit)?;
+    copy.sync_all().map_err(|e| e.to_string())?;
+    Ok(crate::hex(&hasher.finalize()))
 }
 
 /// Reads at most [`CUE_MAX`] bytes of the cue sheet `file` from its start.

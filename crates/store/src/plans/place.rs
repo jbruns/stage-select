@@ -17,7 +17,8 @@ use super::{Folder, Inputs, Sources};
 use crate::config::Config;
 
 /// Why a release a plan could place is copied instead.
-const CHD: &str = "it is stored as CHD here, and a CHD is copied, not placed";
+const CHD: &str = "it is stored as CHD here, and a CHD is copied, not placed, unless you choose to place converted \
+                   games too";
 const SHARED: &str = "its files in the source set hold more than its games, so they stay there";
 const UNMATCHED: &str = "the latest audit didn't match each of its files in the source set exactly, by their \
                          contents";
@@ -95,6 +96,7 @@ pub(super) fn place(
     }
     let mut copied: BTreeMap<&'static str, usize> = BTreeMap::new();
     let (mut renamed, mut copies, mut converted, mut built) = (0, 0, 0, 0);
+    let mut chds = 0;
     let (mut freed, mut written) = (0u64, 0u64);
     for members in releases.values() {
         let placing: Vec<usize> = members
@@ -140,6 +142,7 @@ pub(super) fn place(
         }
         for (&i, found) in placing.iter().zip(planned) {
             let item = &mut items[i];
+            chds += usize::from(item.chd);
             let item_freed = found.originals.iter().map(|o| o.file.size).sum();
             let item_written = match how {
                 PlaceHow::Rename | PlaceHow::Built => 0,
@@ -183,6 +186,17 @@ pub(super) fn place(
             bytes(written)
         ));
     }
+    if chds > 0 {
+        notes.push(format!(
+            "{} placed as CHD, its game's only copy: each is checked by extracting it before it is placed, and a \
+             CD's cue sheet, which a CHD doesn't hold, is kept in Title Select's store until it goes back to source \
+             set {set}",
+            match chds {
+                1 => "1 disc is".to_owned(),
+                n => format!("{n} discs are"),
+            }
+        ));
+    }
     for (why, n) in copied {
         notes.push(match n {
             1 => format!("1 game's files are copied rather than placed: {why}"),
@@ -223,7 +237,7 @@ fn release(
         ) {
             return Err(Some(NOT_BUILT));
         }
-        if item.chd {
+        if item.chd && !inputs.storage.place_converted {
             return Err(Some(CHD));
         }
         found.push(placement(inputs, folder, sources, item)?);

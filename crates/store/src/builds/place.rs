@@ -46,8 +46,9 @@ use title_select_api::storage::{placed_path, release_of};
 use title_select_engine::meter::Tally;
 
 use super::{
-    Failure, Staged, Work, is_file, make_parents, open_source, record_applied, record_layout_dir,
-    record_temp, remove_staged, set_item, stage_by_fd, staged_temp, still_sha256,
+    ChdWork, Failure, Scratch, Staged, Work, chd_dir, dat_cue, is_file, make_parents, open_source,
+    record_applied, record_layout_dir, record_temp, remove_staged, set_item, stage_by_fd,
+    stage_chd, staged_temp, still_sha256,
 };
 use crate::carry::{self, Intent, Intents};
 use crate::config::Config;
@@ -558,6 +559,7 @@ impl Store {
         set: &SetDirs,
         unit: &[&Work],
         (staging, staged_ids, built_at): (&FolderDir, &mut HashMap<String, Identity>, SystemTime),
+        chd: &ChdWork,
     ) -> Result<()> {
         check_marker(p.dir, p.expected).map_err(Error::Refused)?;
         let how = placement(unit[0])?.how;
@@ -597,9 +599,9 @@ impl Store {
             PlaceHow::Rename => self.place_rename(p, set, unit, &spots),
             PlaceHow::Copy => self.place_copy(p, set, unit, &spots),
             PlaceHow::Convert => {
-                self.place_convert(p, set, unit, &spots, (staging, staged_ids, built_at))
+                self.place_convert(p, set, unit, &spots, (staging, staged_ids, built_at), chd)
             }
-            PlaceHow::Built => self.place_built(p, set, unit, &spots),
+            PlaceHow::Built => self.place_built(p, set, unit, &spots, chd),
         }
     }
 
@@ -1073,6 +1075,64 @@ impl Store {
         Ok(Ok(()))
     }
 
+    /// Keeps the cue sheet of `w`, a CD built in the folder as CHD already, in the store, and records it on the item:
+    /// read from its source in the Source Set, the file the plan found there, and checked against the DAT. Returns why
+    /// not. A DVD has none.
+    fn keep_built_cue(
+        &self,
+        p: &Placing,
+        set: &SetDirs,
+        w: &Work,
+        chd: &ChdWork,
+    ) -> Result<std::result::Result<(), String>> {
+        let Some(rom) = cue_rom(w.item) else {
+            return Ok(Ok(()));
+        };
+        let Some(source) = w.item.sources.iter().find(|s| s.rom == rom.name) else {
+            return Ok(Err(format!("no source was found for {}", rom.name)));
+        };
+        let opened = match open_source(&set.dir.try_clone().map_err(|e| e.to_string()), source) {
+            Ok(opened) => opened,
+            Err(why) => return Ok(Err(why)),
+        };
+        let dir = chd_dir(&chd.tmp, p.build, w.seq);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(io_err)?;
+        let _scratch = Scratch(dir.clone());
+        let bytes = match dat_cue(
+            rom,
+            source,
+            &opened,
+            &dir.join("dat.cue"),
+            (p.from, &chd.scratch),
+        ) {
+            Ok(bytes) => bytes,
+            Err(why) => return Ok(Err(format!("its cue sheet in the source set: {why}"))),
+        };
+        let sha = match self.keep_cue(&bytes) {
+            Ok(sha) => sha,
+            Err(e) => {
+                return Ok(Err(format!(
+                    "its cue sheet could not be kept in the store: {e}"
+                )));
+            }
+        };
+        self.fault_point(Fault::PlaceCueKept(w.seq));
+        // Recorded only while it is still kept, within the write a collection of unheld blobs waits for.
+        self.write(|tx| {
+            if let Err(e) = self.kept_cue(&sha) {
+                return Ok(Err(format!(
+                    "its cue sheet was no longer kept in the store when it was to be recorded: {e}"
+                )));
+            }
+            tx.execute(
+                "UPDATE build_items SET cue_sha256 = ?3 WHERE build_id = ?1 AND seq = ?2",
+                params![p.build, w.seq, sha],
+            )?;
+            Ok(Ok(()))
+        })
+    }
+
     fn place_convert(
         &self,
         p: &Placing,
@@ -1080,21 +1140,38 @@ impl Store {
         unit: &[&Work],
         spots: &[Spot],
         (staging, staged_ids, built_at): (&FolderDir, &mut HashMap<String, Identity>, SystemTime),
+        chd: &ChdWork,
     ) -> Result<()> {
         for w in unit {
             if let Err(why) = self.record_originals(p, set, w)? {
                 return self.fail_unit(p, unit, &why);
             }
         }
-        // Every file of the release written and verified before any is put in place.
+        // Every file of the release written and verified before any is put in place: a CHD made by chdman, and
+        // extracted again, every track it gives back matched against the DAT, as any CHD a Build makes.
         let mut ready: Vec<(String, File, Identity, Staged)> = Vec::new();
+        let set_fd = set.dir.try_clone().map_err(|e| e.to_string());
+        let discard = |ready: Vec<(String, File, Identity, Staged)>| -> Result<()> {
+            for (name, file, id, _) in ready {
+                drop(file);
+                remove_staged(staging, &name, id).map_err(Error::Refused)?;
+            }
+            Ok(())
+        };
         for w in unit {
             let name = format!("{}.zip", w.seq);
             let mut file = staging.create_new(&name).map_err(io_err)?;
             let file_id = Identity::of_fd(&file).map_err(io_err)?;
             record_temp(self, p.folder, &staged_temp(&name), file_id)?;
             staged_ids.insert(name.clone(), file_id);
-            let why = match stage_placed(w.item, &mut file, &set.dir, (p.from, p.to), built_at) {
+            let staged = match w.item.chd {
+                true => {
+                    let at = staging.path().join(&name);
+                    stage_chd(w.item, w.seq, &mut file, &at, &set_fd, chd, built_at)
+                }
+                false => stage_placed(w.item, &mut file, &set.dir, (p.from, p.to), built_at),
+            };
+            let why = match staged {
                 Ok(staged) => {
                     ready.push((name, file, file_id, staged));
                     self.fault_point(Fault::Staged(w.seq));
@@ -1106,24 +1183,49 @@ impl Store {
             };
             drop(file);
             remove_staged(staging, &name, file_id).map_err(Error::Refused)?;
-            for (name, file, id, _) in ready {
-                drop(file);
-                remove_staged(staging, &name, id).map_err(Error::Refused)?;
-            }
+            discard(ready)?;
             return self.fail_unit(p, unit, &why);
         }
-        // Then committed: once one is put in place the rest follow, here or, after a stop, in recovery.
+        // A CD's cue sheet, which its CHD doesn't hold, kept in the store, written and synced, before anything records
+        // it: then recorded with the unit, and so held, from before the CHD can be put in place.
+        let mut cues: Vec<Option<String>> = Vec::new();
+        for (w, (_, _, _, staged)) in unit.iter().zip(&ready) {
+            let Some(bytes) = &staged.cue else {
+                cues.push(None);
+                continue;
+            };
+            match self.keep_cue(bytes) {
+                Ok(sha) => cues.push(Some(sha)),
+                Err(e) => {
+                    discard(ready)?;
+                    let why = format!("its cue sheet could not be kept in the store: {e}");
+                    return self.fail_unit(p, unit, &why);
+                }
+            }
+            self.fault_point(Fault::PlaceCueKept(w.seq));
+        }
+        // Then committed: once one is put in place the rest follow, here or, after a stop, in recovery. Each cue sheet
+        // is checked to be kept still within the commit, which a collection of unheld blobs waits for: from it on, the
+        // unit holds them.
         let key = unit_key(&unit[0].item.game);
-        self.write(|tx| {
+        let committed = self.write(|tx| {
+            for sha in cues.iter().flatten() {
+                if let Err(e) = self.kept_cue(sha) {
+                    return Ok(Err(format!(
+                        "its cue sheet was no longer kept in the store when it was to be recorded: {e}"
+                    )));
+                }
+            }
             tx.execute(
                 "INSERT INTO build_units (build_id, unit, state) VALUES (?1, ?2, 'committing')",
                 params![p.build, key],
             )?;
-            for (w, (_, _, id, staged)) in unit.iter().zip(&ready) {
+            for ((w, (_, _, id, staged)), cue) in unit.iter().zip(&ready).zip(&cues) {
                 let (dev, ino) = id.to_sql();
                 tx.execute(
                     "UPDATE build_items SET unit = ?3, state = 'publishing', sha256 = ?4, size = ?5, dev = ?6,
-                                            ino = ?7, mtime_ns = ?8
+                                            ino = ?7, mtime_ns = ?8, chd_sha1 = ?9, chd_raw_sha1 = ?10,
+                                            cue_sha256 = ?11
                      WHERE build_id = ?1 AND seq = ?2",
                     params![
                         p.build,
@@ -1133,12 +1235,19 @@ impl Store {
                         staged.size as i64,
                         dev,
                         ino,
-                        staged.mtime_ns as i64
+                        staged.mtime_ns as i64,
+                        staged.chd_sha1,
+                        staged.chd_raw_sha1,
+                        cue
                     ],
                 )?;
             }
-            Ok(())
+            Ok(Ok(()))
         })?;
+        if let Err(why) = committed {
+            discard(ready)?;
+            return self.fail_unit(p, unit, &why);
+        }
         for ((w, s), (name, _, id, _)) in unit.iter().zip(spots).zip(&ready) {
             self.fault_point(Fault::BeforePublish(w.seq));
             let target = &w.item.target;
@@ -1194,18 +1303,24 @@ impl Store {
         let mut found = Vec::new();
         let mut wrong = None;
         for (w, s) in unit.iter().zip(spots) {
-            let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
-                Ok(c.query_row(
-                    "SELECT dev, ino, sha256 FROM build_items WHERE build_id = ?1 AND seq = ?2",
-                    params![p.build, w.seq],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                )?)
-            })?;
+            let (dev, ino, sha, cue): (Option<i64>, Option<i64>, Option<String>, Option<String>) =
+                self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT dev, ino, sha256, cue_sha256 FROM build_items WHERE build_id = ?1 AND seq = ?2",
+                        params![p.build, w.seq],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )?)
+                })?;
             let target = &w.item.target;
             let (Some(dev), Some(ino), Some(sha)) = (dev, ino, sha) else {
                 wrong = Some(format!("nothing written for {target} is recorded"));
                 break;
             };
+            // A CD placed as CHD is placed only with its cue sheet kept.
+            if let Err(why) = cue_kept(self, w.item, cue.as_deref()) {
+                wrong = Some(why);
+                break;
+            }
             match s.dir.stat(&s.leaf).map_err(io_err)? {
                 Some(st) if is_regular(&st, Identity::from_sql(dev, ino)) => {
                     if let Err(why) = in_place(p, &s.chain, target) {
@@ -1264,6 +1379,7 @@ impl Store {
         set: &SetDirs,
         unit: &[&Work],
         spots: &[Spot],
+        chd: &ChdWork,
     ) -> Result<()> {
         let mut found = Vec::new();
         for (w, s) in unit.iter().zip(spots) {
@@ -1300,6 +1416,13 @@ impl Store {
                 }
             };
             if let Err(why) = self.record_originals(p, set, w)? {
+                return self.fail_unit(p, unit, &why);
+            }
+            // A CD built here as CHD, checked by extracting it when it was built, is placed with its cue sheet, read
+            // from the Source Set and checked against the DAT, kept in the store first.
+            if w.item.chd
+                && let Err(why) = self.keep_built_cue(p, set, w, chd)?
+            {
                 return self.fail_unit(p, unit, &why);
             }
             // Read again before it stands in for its Source Set's files: still the file built, as built, in place.
@@ -1388,6 +1511,9 @@ impl Store {
                     &f.now,
                     f.sha.as_deref(),
                 )?;
+                if item.chd {
+                    record_chd(self, tx, p, w)?;
+                }
                 if let (Built::Found, [was]) = (built, placement(w)?.originals.as_slice()) {
                     crate::placements::moved_entries(tx, (p.set, p.audit), &was.path, path, was, &f.now)?;
                 }
@@ -2072,5 +2198,67 @@ fn stage_placed(
         &|source| open_source(&set, source),
         tallies,
         built_at,
+    )
+}
+
+/// Whether `item`'s cue sheet, recorded as `cue`, is kept in the store, as a CD placed as CHD needs: none needed for a
+/// DVD. Returns why not.
+fn cue_kept(store: &Store, item: &PlanItem, cue: Option<&str>) -> std::result::Result<(), String> {
+    if !item.chd || cue_rom(item).is_none() {
+        return Ok(());
+    }
+    match cue {
+        Some(sha) => store.kept_cue(sha).map(|_| ()).map_err(|e| {
+            format!(
+                "the cue sheet of {} kept in the store can't be read: {e}",
+                item.game
+            )
+        }),
+        None => Err(format!(
+            "no cue sheet of {} is recorded kept in the store",
+            item.game
+        )),
+    }
+}
+
+/// The cue sheet among `item`'s ROMs, a CD's.
+fn cue_rom(item: &PlanItem) -> Option<&title_select_api::build::ExpectedRom> {
+    item.roms
+        .iter()
+        .find(|r| r.name.to_ascii_lowercase().ends_with(".cue"))
+}
+
+/// Records item `w`'s file, placed as a CHD in this transaction `tx`, as one: with the header SHA-1 its built file was
+/// recorded with once extracting it matched the DAT, its disc's ROMs, and for a CD the cue sheet its item recorded
+/// kept, read back from the store first.
+fn record_chd(store: &Store, tx: &Transaction, p: &Placing, w: &Work) -> Result<()> {
+    let item = w.item;
+    let sha1: Option<String> = tx
+        .query_row(
+            "SELECT chd_sha1 FROM built_files WHERE folder_id = ?1 AND target = ?2 AND chd",
+            params![p.folder, item.target],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let cue: Option<String> = tx.query_row(
+        "SELECT cue_sha256 FROM build_items WHERE build_id = ?1 AND seq = ?2",
+        params![p.build, w.seq],
+        |r| r.get(0),
+    )?;
+    let Some(sha1) = sha1 else {
+        return Err(Error::Io(format!(
+            "{} is placed as a CHD, but what its header held when it was checked isn't recorded",
+            item.target
+        )));
+    };
+    cue_kept(store, item, cue.as_deref()).map_err(Error::Io)?;
+    crate::placements::place_chd(
+        tx,
+        p.folder,
+        &item.target,
+        &sha1,
+        &item.roms,
+        cue.as_deref(),
     )
 }

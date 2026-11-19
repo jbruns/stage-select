@@ -36,7 +36,7 @@ use title_select_engine::build::{verify, verify_loose};
 use title_select_engine::meter::Tally;
 
 use super::place::SetDirs;
-use super::{Failure, remove_layout_dir, set_item, stage_by_fd, still_sha256};
+use super::{ChdWork, Failure, remove_layout_dir, set_item, stage_by_fd, still_sha256};
 use crate::carry::Held;
 use crate::config::Config;
 use crate::folder_dir::{
@@ -66,6 +66,38 @@ pub(super) struct Returning<'a> {
     /// Folder's.
     pub to: &'a Tally,
     pub from: &'a Tally,
+    /// chdman, to extract a placed CHD, and the store's scratch directory it extracts into; none in recovery, which
+    /// only finishes or undoes what a return began.
+    pub chd: Option<&'a ChdWork<'a>>,
+}
+
+/// The placed CHDs of a release, each extracted into a scratch directory of its own, removed once dropped, and every
+/// file it gave back checked against the DAT: by the placed file it was extracted from and the ROM it is, the file
+/// in the scratch directory a return writes that ROM home from. A CD's cue sheet is there too, read from the store.
+#[derive(Default)]
+struct Extracted {
+    _dirs: Vec<super::ExtractedChd>,
+    files: std::collections::HashMap<(String, String), std::path::PathBuf>,
+}
+
+impl Extracted {
+    /// `source`, a ROM of a placed CHD, as the file extracted for it, by a name of its own.
+    fn source(&self, source: &PlanSource) -> Option<PlanSource> {
+        let member = source.member.as_deref()?;
+        let path = self.files.get(&(source.path.clone(), member.to_owned()))?;
+        Some(PlanSource {
+            path: path.display().to_string(),
+            member: None,
+            ..source.clone()
+        })
+    }
+}
+
+/// Why a release's placed CHDs weren't extracted: one was proved not to hold its disc as the DAT lists it, its Game,
+/// its path and why, so that Game needs review; or anything else, why, which says nothing of what it holds.
+enum Unextracted {
+    Review(String, String, String),
+    Other(String),
 }
 
 /// Where a file a return puts home goes in the Source Set's folder: the folder it goes in, opened from the Source Set's
@@ -734,6 +766,25 @@ impl Store {
             }
             set_return_state(tx, p.build, seq, Some("writing"))
         })?;
+        // A placed CHD is extracted, and what it gives back checked against the DAT, before anything is written home.
+        // One that doesn't verify stays placed, and the latest Audit says so of it.
+        let extracted = match self.extract_placed(p, seq, r)? {
+            Ok(extracted) => extracted,
+            Err(Unextracted::Review(game, path, why)) => {
+                // A condition of its Game until something verifies it; no Audit's verdict changes.
+                self.write(|tx| {
+                    crate::placements::raise_review(
+                        tx,
+                        (p.set, &game),
+                        &placed_path(p.folder, &path),
+                        &why,
+                        p.build,
+                    )
+                })?;
+                return self.unwind(p, set, seq, r, &why);
+            }
+            Err(Unextracted::Other(why)) => return self.unwind(p, set, seq, r, &why),
+        };
         // Every file written home and verified against the DAT in the Source Set's private folder before any is put
         // in place.
         let mut ready = Vec::new();
@@ -762,8 +813,21 @@ impl Store {
                 )?;
                 Ok(())
             })?;
-            let item = output_item(f);
-            let open = |source: &PlanSource| open_placed(p.dir, source);
+            let mut item = output_item(f);
+            for source in &mut item.sources {
+                if let Some(from) = extracted.source(source) {
+                    *source = from;
+                }
+            }
+            let open = |source: &PlanSource| match source.member.is_none()
+                && extracted
+                    .files
+                    .values()
+                    .any(|x| x.display().to_string() == source.path)
+            {
+                true => File::open(&source.path).map_err(|e| format!("{}: {e}", source.path)),
+                false => open_placed(p.dir, source),
+            };
             match stage_by_fd(&item, &mut file, &open, (p.from, p.to), built_at) {
                 Ok(done) => ready.push((staged, id, done)),
                 Err(Failure::Item(why) | Failure::Folder(why)) => {
@@ -831,6 +895,65 @@ impl Store {
             set.dir.sync_holding(staged).map_err(io_err)?;
         }
         self.finish_write(p, set, seq, r, &homes)
+    }
+
+    /// Extracts each placed CHD of the release of `r`, Build item `seq`, as [`super::extract_placed_chd`] does: held
+    /// while it is the file the plan found, and copied while it is the file read whole before, into a scratch
+    /// directory of its own. Nothing is written home.
+    fn extract_placed(
+        &self,
+        p: &Returning,
+        seq: i64,
+        r: &PlanReturn,
+    ) -> Result<std::result::Result<Extracted, Unextracted>> {
+        let chds = self.read(|c| crate::placements::placed_chds_of(c, p.set))?;
+        let rows = self.read(|c| placed_rows(c, p.build, seq))?;
+        let mut out = Extracted::default();
+        for (k, pl) in r.placed.iter().enumerate() {
+            let Some(placed) = chds
+                .iter()
+                .find(|c| c.folder == p.folder && c.path == pl.path)
+            else {
+                continue;
+            };
+            let other = |why: String| Ok(Err(Unextracted::Other(format!("{}: {why}", pl.path))));
+            let Some(work) = p.chd else {
+                return other("it can't be extracted now".into());
+            };
+            let held = match hold(p.dir, pl)? {
+                Ok(held) => held,
+                Err(why) => return Ok(Err(Unextracted::Other(why))),
+            };
+            // What chdman reads is what was read of it before, and what a return verified it by.
+            let read = rows
+                .iter()
+                .find(|row| row.n == k)
+                .and_then(|row| row.sha256.as_deref());
+            let dir = work.tmp.join(format!("chd-{}-return-{seq}-{k}", p.build));
+            let copied = || self.fault_point(Fault::ReturnChdCopied(seq));
+            match super::extract_placed_chd(work, placed, &held, dir, (read, p.from), &copied) {
+                Ok(extracted) => {
+                    for (rom, path) in &extracted.files {
+                        out.files
+                            .insert((pl.path.clone(), rom.clone()), path.clone());
+                    }
+                    out._dirs.push(extracted);
+                }
+                Err(super::Unextracted::Content(why)) => {
+                    let why = format!("{}: {why}", pl.path);
+                    return Ok(Err(Unextracted::Review(
+                        placed.game.clone(),
+                        pl.path.clone(),
+                        why,
+                    )));
+                }
+                Err(super::Unextracted::Operational(why)) => return other(why),
+                Err(super::Unextracted::Cancelled) => {
+                    return Ok(Err(Unextracted::Other("you cancelled the build".into())));
+                }
+            }
+        }
+        Ok(Ok(out))
     }
 
     /// Takes the release of `r`, its files put home at `homes`, the rest of the way: the placed files that go set
@@ -972,6 +1095,8 @@ impl Store {
     /// transaction, which commits it: from here it is rolled forward.
     fn commit_write(&self, p: &Returning, seq: i64, r: &PlanReturn) -> Result<()> {
         self.write(|tx| {
+            // Every file put home was verified against the DAT: no Game of the release needs review now.
+            crate::placements::clear_reviews(tx, p.set, r.games.iter().map(String::as_str))?;
             if let Some(audit) = latest_audit(tx, p.set)? {
                 crate::placements::returned_entries(tx, (p.set, audit), p.folder, r)?;
             } else {
@@ -1283,6 +1408,7 @@ impl Store {
             config,
             to: &tally,
             from: &tally,
+            chd: None,
         };
         for (seq, release, state) in open {
             let Some(r) = returns.iter().find(|r| r.release == release) else {

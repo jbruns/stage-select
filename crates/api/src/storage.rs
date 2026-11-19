@@ -138,6 +138,9 @@ pub struct SystemStorage {
     /// there, as its only copy, rather than copying it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub single_copy: Option<bool>,
+    /// Whether, under single copy, a game stored in a format no source set holds, CHD, is placed rather than copied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place_converted: Option<bool>,
 }
 
 impl SystemStorage {
@@ -148,6 +151,7 @@ impl SystemStorage {
             && self.layout.is_none()
             && self.sbi.is_none()
             && self.single_copy.is_none()
+            && self.place_converted.is_none()
     }
 }
 
@@ -166,6 +170,10 @@ pub struct ScopePolicy {
     /// Whether builds place games rather than copy them (Single Copy); play libraries only, off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub single_copy: bool,
+    /// Whether single copy places games stored in a format no source set holds, CHD, too (Place Converted Games);
+    /// play libraries only, off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub place_converted: bool,
     #[serde(default)]
     pub systems: BTreeMap<String, SystemStorage>,
 }
@@ -197,6 +205,11 @@ impl ScopePolicy {
             sbi: discs && own.and_then(|s| s.sbi).unwrap_or(false),
             single_copy: scope == StorageScope::PlayLibraries
                 && own.and_then(|s| s.single_copy).unwrap_or(self.single_copy),
+            place_converted: scope == StorageScope::PlayLibraries
+                && own.and_then(|s| s.single_copy).unwrap_or(self.single_copy)
+                && own
+                    .and_then(|s| s.place_converted)
+                    .unwrap_or(self.place_converted),
         }
     }
 }
@@ -240,6 +253,10 @@ pub struct Storage {
     /// (Single Copy, ADR 0023); never for a Source Set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub single_copy: bool,
+    /// Whether, under Single Copy, a Game the Play Library stores in a format no Source Set holds, CHD, is placed
+    /// rather than copied (Place Converted Games, ADR 0023); never without Single Copy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub place_converted: bool,
 }
 
 /// Whether `storage` is the default, TorrentZip with originals kept, which a plan leaves out of its JSON.

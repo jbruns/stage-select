@@ -867,10 +867,14 @@ impl Store {
         let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         let mut placed = HashMap::new();
         let mut placed_files = HashMap::new();
+        let mut placed_chds = HashSet::new();
         let mut placed_dirs = BTreeMap::new();
         for file in self.read(|c| crate::placements::placed_files_of(c, set.id))? {
             let at = placed_path(file.library_folder, &file.path);
             placed_files.insert(at.clone(), file.game.clone());
+            if file.chd {
+                placed_chds.insert(at.clone());
+            }
             if !reported.contains(at.as_str()) {
                 continue;
             }
@@ -925,6 +929,7 @@ impl Store {
             covers: &|game| covering.covers(game),
             placed: &placed,
             placed_files: &placed_files,
+            placed_chds: &placed_chds,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -2113,6 +2118,46 @@ impl Store {
 
     /// Runs `step`; a Build `droppable` by a cancel stops its reads and writes for one ([`Interruptible`]).
     fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
+        // A disc placed as a CHD is never completed where it is placed: no file of another format is written beside
+        // it, whatever the plan says.
+        let writes = match &step.step {
+            RepairStep::Build { target, .. }
+            | RepairStep::Fill { target, .. }
+            | RepairStep::Publish { target, .. } => Some(target.as_str()),
+            RepairStep::Rename { to, .. } => Some(to.as_str()),
+            _ => None,
+        };
+        if let Some(target) = writes.filter(|t| split_placed(t).is_some()) {
+            let game = r
+                .plan
+                .content
+                .items
+                .iter()
+                .find(|i| i.key == step.item)
+                .and_then(|i| i.game.as_deref());
+            let set = r.plan.content.set_id;
+            let as_chd = match game {
+                Some(game) => self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT EXISTS (SELECT 1 FROM placed_files
+                         WHERE source_set_id = ?1 AND game = ?2 AND chd_roms IS NOT NULL)",
+                        params![set, game],
+                        |r| r.get::<_, bool>(0),
+                    )?)
+                })?,
+                None => false,
+            };
+            if as_chd {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!(
+                        "{} is placed as a CHD, so {target} is never written beside it; it was left as it is",
+                        game.unwrap_or_default()
+                    ),
+                );
+            }
+        }
         match &step.step {
             RepairStep::Build {
                 target,
@@ -2149,7 +2194,7 @@ impl Store {
                 seen,
                 roms,
                 loose,
-            } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
+            } => self.run_rename(config, r, step, from, to, &seen_of(seen), roms, *loose),
             RepairStep::Publish { build, target } => {
                 self.run_publish(config, r, step, *build, target)
             }
@@ -3270,6 +3315,7 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     fn run_rename(
         &self,
+        config: &Config,
         r: &Repairing,
         step: &StepRow,
         from: &str,
@@ -3415,6 +3461,11 @@ impl Store {
                     )?;
                     Ok(())
                 })?;
+            }
+            // Written in the Source Set's folder: its Game's placed files that are gone are no longer placed.
+            (_, None) => {
+                let vanished = self.vanished(config, r, step)?;
+                self.done_unplacing(step, None, &vanished, None)?;
             }
             _ => self.step_done(step, None)?,
         }
