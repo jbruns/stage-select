@@ -99,21 +99,21 @@ impl Endpoints {
 }
 
 /// Where a [`Fetcher`] reads the time and waits: the real clocks, or a fake in tests, so they needn't wait seconds.
-pub trait Pace: Clock + Send + Sync {
+pub trait FetchClock: Clock + Send + Sync {
     /// The time now, which requests are recorded at.
     fn wall(&self) -> jiff::Timestamp {
         jiff::Timestamp::now()
     }
 }
 
-impl Pace for Monotonic {}
+impl FetchClock for Monotonic {}
 
 /// The HTTP client and endpoints fetches use, and what paces them: when each provider was last sent a request, and
 /// which providers a fetch is running for. One per Service.
 pub struct Fetcher {
     http: Http,
     endpoints: Endpoints,
-    pace: Arc<dyn Pace>,
+    pace: Arc<dyn FetchClock>,
     /// When each provider was last sent a request, in nanoseconds by `pace`'s clock: before its start, if a request
     /// recorded before then paces it.
     last: Mutex<HashMap<FetchProvider, i128>>,
@@ -127,7 +127,7 @@ impl Fetcher {
 
     /// A Fetcher whose requests `pace` spaces, so tests can stand in a fake clock.
     #[doc(hidden)]
-    pub fn paced(endpoints: Endpoints, pace: Arc<dyn Pace>) -> Fetcher {
+    pub fn paced(endpoints: Endpoints, pace: Arc<dyn FetchClock>) -> Fetcher {
         Fetcher {
             http: Http::new(),
             endpoints,

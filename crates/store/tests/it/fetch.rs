@@ -14,7 +14,9 @@ use title_select_api::settings::{FetchSettings, SettingsUpdate};
 use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
 use title_select_engine::cap::Clock;
 use title_select_store::config::Config;
-use title_select_store::fetch::{Allowed, Endpoints, FetchError, Fetcher, Http, MIN_GAP, Pace};
+use title_select_store::fetch::{
+    Allowed, Endpoints, FetchClock, FetchError, Fetcher, Http, MIN_GAP,
+};
 use title_select_store::{Error, Store};
 
 /// What the fake provider answers a path with.
@@ -282,8 +284,6 @@ fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-/// A store with the Source Set `PSX`, bound to `Redump/Sony - PlayStation` at version 1, audited and Following, and a
-/// fake provider standing in for every official endpoint.
 /// A fetcher's fake clock: time moves only as the fetcher waits, from the wall time it started at, and it records each
 /// wait. A fetcher waits before each request, so the waits are the gaps between them.
 struct Paced {
@@ -317,12 +317,14 @@ impl Clock for Paced {
     }
 }
 
-impl Pace for Paced {
+impl FetchClock for Paced {
     fn wall(&self) -> jiff::Timestamp {
         self.started + Duration::from_nanos(self.now())
     }
 }
 
+/// A store with the Source Set `PSX`, bound to `Redump/Sony - PlayStation` at version 1, audited and Following, and a
+/// fake provider standing in for every official endpoint.
 struct Env {
     _tmp: tempfile::TempDir,
     store: Store,
