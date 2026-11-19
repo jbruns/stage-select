@@ -11,8 +11,8 @@ mod http;
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 use std::path::Path;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use title_select_api::fetch::{
@@ -20,6 +20,7 @@ use title_select_api::fetch::{
     FetchProviderStatus, FetchReport, FetchStatus, FetchSystem, FetchTrigger,
 };
 use title_select_api::{CuePackOrigin, ImportOutcome};
+use title_select_engine::cap::{Clock, Monotonic};
 use title_select_engine::dat::Dat;
 
 pub use http::{Allowed, FetchError, Fetched, Http, Method, USER_AGENT, refusal, refusal_unnamed};
@@ -97,20 +98,40 @@ impl Endpoints {
     }
 }
 
+/// Where a [`Fetcher`] reads the time and waits: the real clocks, or a fake in tests, so they needn't wait seconds.
+pub trait Pace: Clock + Send + Sync {
+    /// The time now, which requests are recorded at.
+    fn wall(&self) -> jiff::Timestamp {
+        jiff::Timestamp::now()
+    }
+}
+
+impl Pace for Monotonic {}
+
 /// The HTTP client and endpoints fetches use, and what paces them: when each provider was last sent a request, and
 /// which providers a fetch is running for. One per Service.
 pub struct Fetcher {
     http: Http,
     endpoints: Endpoints,
-    last: Mutex<HashMap<FetchProvider, Instant>>,
+    pace: Arc<dyn Pace>,
+    /// When each provider was last sent a request, in nanoseconds by `pace`'s clock: before its start, if a request
+    /// recorded before then paces it.
+    last: Mutex<HashMap<FetchProvider, i128>>,
     running: Mutex<HashSet<FetchProvider>>,
 }
 
 impl Fetcher {
     pub fn new(endpoints: Endpoints) -> Fetcher {
+        Fetcher::paced(endpoints, Arc::new(Monotonic))
+    }
+
+    /// A Fetcher whose requests `pace` spaces, so tests can stand in a fake clock.
+    #[doc(hidden)]
+    pub fn paced(endpoints: Endpoints, pace: Arc<dyn Pace>) -> Fetcher {
         Fetcher {
             http: Http::new(),
             endpoints,
+            pace,
             last: Mutex::default(),
             running: Mutex::default(),
         }
@@ -140,11 +161,10 @@ impl Fetcher {
         let mut paced = self.last.lock().unwrap();
         paced.entry(provider).or_insert_with(|| {
             let ago = last
-                .and_then(|at| Duration::try_from(jiff::Timestamp::now().duration_since(at)).ok())
+                .and_then(|at| Duration::try_from(self.pace.wall().duration_since(at)).ok())
                 .unwrap_or_default()
                 .min(MIN_GAP);
-            let now = Instant::now();
-            now.checked_sub(ago).unwrap_or(now)
+            i128::from(self.pace.now()) - ago.as_nanos() as i128
         });
     }
 
@@ -161,10 +181,12 @@ impl Fetcher {
         self.http
             .get_paced(url, allowed, accept, limit, &mut |answered| {
                 let mut last = self.last.lock().unwrap();
-                if !answered && let Some(at) = last.get(&provider) {
-                    std::thread::sleep(MIN_GAP.saturating_sub(at.elapsed()));
+                if !answered && let Some(&at) = last.get(&provider) {
+                    let since = u64::try_from(i128::from(self.pace.now()) - at).unwrap_or(0);
+                    self.pace
+                        .sleep(MIN_GAP.saturating_sub(Duration::from_nanos(since)));
                 }
-                last.insert(provider, Instant::now());
+                last.insert(provider, i128::from(self.pace.now()));
             })
     }
 }
