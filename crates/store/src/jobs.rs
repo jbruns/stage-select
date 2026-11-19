@@ -7,6 +7,7 @@ use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
 use title_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
+use title_select_engine::meter::Meter;
 use title_select_engine::{AuditEvidence, Progress};
 
 /// Why a restart Interrupted a Job.
@@ -141,17 +142,31 @@ pub(crate) fn job_by_id(c: &Connection, id: i64) -> Result<Job> {
         .ok_or_else(|| Error::NotFound(format!("no job {id}")))
 }
 
-/// Moves the Running Job `id` to `to`, failing if it is not Running.
+/// Moves the Running Job `id` to `to`, failing if it is not Running. What `meter` counted for it so far is recorded
+/// in the same write, so that it keeps its average throughput and whoever sees it end sees that too; nothing, if it
+/// isn't metered.
 pub(crate) fn finish_running(
     tx: &Transaction,
+    meter: &Meter,
     id: i64,
     to: JobState,
     error: Option<&str>,
 ) -> Result<()> {
+    let metered = meter.so_far(id);
+    let as_sql = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     let updated = tx.execute(
-        "UPDATE jobs SET state = ?2, error = ?3, finished_at = ?4, version = version + 1
+        "UPDATE jobs SET state = ?2, error = ?3, finished_at = ?4, bytes_read = ?5, bytes_written = ?6,
+                         duration_ms = ?7, version = version + 1
          WHERE id = ?1 AND state = 'running'",
-        params![id, to.as_str(), error, now()],
+        params![
+            id,
+            to.as_str(),
+            error,
+            now(),
+            metered.map(|m| as_sql(m.counted.read)),
+            metered.map(|m| as_sql(m.counted.written)),
+            metered.map(|m| as_sql(u64::try_from(m.duration.as_millis()).unwrap_or(u64::MAX))),
+        ],
     )?;
     if updated != 1 {
         return Err(Error::Io(format!("job {id} is no longer running")));
@@ -176,8 +191,8 @@ fn release_holds(tx: &Transaction, id: i64) -> Result<()> {
 }
 
 /// Marks the Running Job `id` Succeeded, having recorded `audit_id`.
-pub(super) fn succeed(tx: &Transaction, id: i64, audit_id: i64) -> Result<()> {
-    finish_running(tx, id, JobState::Succeeded, None)?;
+pub(super) fn succeed(tx: &Transaction, meter: &Meter, id: i64, audit_id: i64) -> Result<()> {
+    finish_running(tx, meter, id, JobState::Succeeded, None)?;
     tx.execute(
         "UPDATE jobs SET audit_id = ?2 WHERE id = ?1",
         params![id, audit_id],
@@ -186,8 +201,8 @@ pub(super) fn succeed(tx: &Transaction, id: i64, audit_id: i64) -> Result<()> {
 }
 
 /// Marks the Running Job `id` Failed with `error`, and discards its running Audit, which releases its DAT Revision.
-pub(super) fn fail(tx: &Transaction, id: i64, error: &str) -> Result<()> {
-    finish_running(tx, id, JobState::Failed, Some(error))?;
+pub(super) fn fail(tx: &Transaction, meter: &Meter, id: i64, error: &str) -> Result<()> {
+    finish_running(tx, meter, id, JobState::Failed, Some(error))?;
     delete_audits(tx, "job_id = ?1 AND status = 'running'", [id])?;
     Ok(())
 }
@@ -343,7 +358,7 @@ impl Store {
         if let Err(err) = &outcome {
             // A failure before the Audit's row existed leaves the Job Running; one after has Failed it already.
             let message = err.to_string();
-            let _ = self.write(|tx| match fail(tx, id, &message) {
+            let _ = self.write(|tx| match fail(tx, &self.meter, id, &message) {
                 Err(Error::Io(_)) => Ok(()),
                 other => other,
             });
@@ -360,7 +375,7 @@ impl Store {
     /// Marks the Running Job `id` Failed with `error` and discards its running Audit, if any, in one transaction.
     /// Does nothing to a Job that is not Running.
     pub fn fail_job(&self, id: i64, error: &str) -> Result<Job> {
-        self.write(|tx| match fail(tx, id, error) {
+        self.write(|tx| match fail(tx, &self.meter, id, error) {
             Err(Error::Io(_)) | Ok(()) => job_by_id(tx, id),
             Err(err) => Err(err),
         })
@@ -369,23 +384,35 @@ impl Store {
     /// Run when the Service starts: every Job still Running was cut off by a stop. Its Audit was already discarded
     /// when the store opened. A first attempt becomes Interrupted and a fresh Job is queued for it with `workers`; a
     /// Job that was itself queued again becomes Failed. A Build Job becomes Interrupted and is not queued again, since
-    /// its plan may no longer hold; [`Store::recover_builds`] then cleans up its folder. A Check Job becomes
-    /// Interrupted too, as do an Ingest Scan, a stat walk and a Calibration, which keeps what it finished. Each Job's
-    /// change is one transaction.
+    /// its plan may no longer hold, or Failed with its error when it had failed and was recovering its folder;
+    /// [`Store::recover_builds`] then cleans up its folder. A Check Job becomes Interrupted too, as do an Ingest Scan,
+    /// a stat walk and a Calibration, which keeps what it finished. Each Job's change is one transaction.
     pub fn recover_jobs(&self, workers: Workers) -> Result<Vec<Interruption>> {
-        let running: Vec<(i64, u32, String)> = self.read(|c| {
+        let running: Vec<(i64, u32, String, Option<String>)> = self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT id, attempt, kind FROM jobs WHERE state = 'running' ORDER BY id",
+                "SELECT id, attempt, kind, error FROM jobs WHERE state = 'running' ORDER BY id",
             )?;
-            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
             Ok(rows.collect::<Result<_, _>>()?)
         })?;
         running
             .into_iter()
-            .map(|(id, attempt, kind)| {
+            .map(|(id, attempt, kind, error)| {
                 self.write(|tx| {
                     if kind == JobKind::Build.as_str() {
-                        finish_running(tx, id, JobState::Interrupted, Some(BUILD_INTERRUPTED))?;
+                        // One that had failed was stopped while it recovered its folder: it ends with its error.
+                        match &error {
+                            Some(error) => {
+                                finish_running(tx, &self.meter, id, JobState::Failed, Some(error))?
+                            }
+                            None => finish_running(
+                                tx,
+                                &self.meter,
+                                id,
+                                JobState::Interrupted,
+                                Some(BUILD_INTERRUPTED),
+                            )?,
+                        }
                         tx.execute(
                             "UPDATE builds SET state = 'interrupted', finished_at = ?2
                              WHERE job_id = ?1 AND state = 'running'",
@@ -410,7 +437,7 @@ impl Store {
                         } else {
                             SCAN_INTERRUPTED
                         };
-                        finish_running(tx, id, JobState::Interrupted, Some(why))?;
+                        finish_running(tx, &self.meter, id, JobState::Interrupted, Some(why))?;
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
                             requeued: None,
@@ -418,7 +445,7 @@ impl Store {
                     }
                     if kind == JobKind::Repair.as_str() {
                         // Every step is a durable intent, so the repair always runs on from where it stopped.
-                        finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
+                        finish_running(tx, &self.meter, id, JobState::Interrupted, Some(INTERRUPTED))?;
                         let plan: i64 = tx.query_row(
                             "SELECT repair_plan_id FROM jobs WHERE id = ?1",
                             [id],
@@ -432,7 +459,7 @@ impl Store {
                     }
                     if kind == JobKind::Additions.as_str() {
                         // Every addition records its step before it is taken; another Job settles what this left.
-                        finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
+                        finish_running(tx, &self.meter, id, JobState::Interrupted, Some(INTERRUPTED))?;
                         let requeued = crate::additions::queue_additions_jobs(tx)?;
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
@@ -443,13 +470,13 @@ impl Store {
                         });
                     }
                     if attempt > 1 {
-                        finish_running(tx, id, JobState::Failed, Some(INTERRUPTED_AGAIN))?;
+                        finish_running(tx, &self.meter, id, JobState::Failed, Some(INTERRUPTED_AGAIN))?;
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
                             requeued: None,
                         });
                     }
-                    finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
+                    finish_running(tx, &self.meter, id, JobState::Interrupted, Some(INTERRUPTED))?;
                     tx.execute(
                         "INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, attempt, requeued_from,
                                            readers, hashers, created_at, kind, profile_version_id, evidence)
@@ -472,26 +499,10 @@ impl Store {
         self.read(|c| job_by_id(c, id))
     }
 
-    /// Stops metering Job `id`, once it has ended, and records what it read and wrote and for how long, so that it
-    /// keeps its average throughput. Returns the Job as recorded; none if it wasn't metered.
-    pub fn end_metering(&self, id: i64) -> Result<Option<Job>> {
-        let Some(ended) = self.meter.end(id) else {
-            return Ok(None);
-        };
-        let as_sql = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
-        self.write(|tx| {
-            tx.execute(
-                "UPDATE jobs SET bytes_read = ?2, bytes_written = ?3, duration_ms = ?4, version = version + 1
-                 WHERE id = ?1",
-                params![
-                    id,
-                    as_sql(ended.counted.read),
-                    as_sql(ended.counted.written),
-                    as_sql(u64::try_from(ended.duration.as_millis()).unwrap_or(u64::MAX)),
-                ],
-            )?;
-            job_by_id(tx, id).map(Some)
-        })
+    /// Stops metering Job `id`, once it has ended: what it read and wrote, and for how long, was recorded as it
+    /// ended. Whether it was metered.
+    pub fn end_metering(&self, id: i64) -> bool {
+        self.meter.end(id).is_some()
     }
 
     /// Every Queued or Running Job and the `recent` latest others, newest first, read in one query.

@@ -1,0 +1,7 @@
+#!/bin/sh
+# The chdman `real` beside it, except that making Disc 2 of Saga adds `slow` beside it, and never finishes in time.
+here=$(dirname "$0")
+case "$1:$3" in
+createcd:*"Disc 2"*) touch "$here/slow"; exec sleep 30 ;;
+*) exec "$here/real" "$@" ;;
+esac

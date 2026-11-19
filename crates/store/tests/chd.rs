@@ -413,13 +413,16 @@ fn outcome(check: &FolderCheck, target: &str) -> (FileOutcome, bool) {
     (file.outcome, file.hashed)
 }
 
-/// A shell script standing in for chdman: `body` runs with its arguments.
+/// A shell script standing in for chdman: `name` in `tests/data/chdman`, linked into `dir`, where it finds and leaves
+/// the files it says. Linked, not written: a script written while another thread forks may be held open for writing
+/// in the child, and running it then fails as a busy text file.
 #[cfg(unix)]
-fn fake_chdman(dir: &Path, body: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join("fake-chdman");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+fn fake_chdman(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join("chdman");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/chdman")
+        .join(name);
+    std::os::unix::fs::symlink(script, &path).unwrap();
     path
 }
 
@@ -598,18 +601,7 @@ fn a_chd_whose_metadata_changed_over_the_same_data_is_drift() {
 fn a_chd_whose_extraction_does_not_match_the_dat_is_never_put_in_place() {
     let root = tempfile::tempdir().unwrap();
     // It makes a CHD, and gives back tracks of the right sizes but other bytes.
-    let fake = fake_chdman(
-        root.path(),
-        &format!(
-            "case \"$1\" in\n\
-             createcd) printf 'MComprHD' > out.chd ;;\n\
-             extractcd) : > x/x.cue; head -c {} /dev/zero > x/t1.bin; head -c {} /dev/zero > x/t2.bin ;;\n\
-             *) exit 2 ;;\n\
-             esac",
-            2352 * 300,
-            2352 * 200
-        ),
-    );
+    let fake = fake_chdman(root.path(), "mismatched");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -638,7 +630,7 @@ fn a_chd_whose_extraction_does_not_match_the_dat_is_never_put_in_place() {
 #[test]
 fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
     let root = tempfile::tempdir().unwrap();
-    let fake = fake_chdman(root.path(), "exec sleep 30");
+    let fake = fake_chdman(root.path(), "slow");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -663,6 +655,7 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
         "chdman was left to run"
     );
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
     assert!(!env.dir().join("Orbit (USA).chd").exists());
     let build = env.store.library_folder(&env.config, folder.id).unwrap();
@@ -674,16 +667,10 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
 #[test]
 fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressing() {
     let root = tempfile::tempdir().unwrap();
-    let (log, go) = (root.path().join("args"), root.path().join("go"));
+    let (log, held) = (root.path().join("args"), root.path().join("held"));
     // Each run records its arguments; the first waits until the pace has changed, then each fails, which is enough.
-    let fake = fake_chdman(
-        root.path(),
-        &format!(
-            "echo \"$*\" >> '{log}'\n[ \"$(wc -l < '{log}')\" -gt 1 ] || while [ ! -e '{go}' ]; do sleep 0.05; done\nexit 1",
-            log = log.display(),
-            go = go.display()
-        ),
-    );
+    std::fs::write(&held, "").unwrap();
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD, DVD]);
     let plan = env.plan(&folder, selection);
@@ -713,7 +700,7 @@ fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressin
         env.store
             .update_settings(&env.config, &unthrottled, "Operator")
             .unwrap();
-        std::fs::write(&go, "").unwrap();
+        std::fs::remove_file(&held).unwrap();
         running.join().unwrap().unwrap();
     });
 
@@ -735,10 +722,7 @@ fn a_pace_changed_while_a_chds_inputs_are_prepared_reaches_the_chdman_it_then_st
     use std::sync::atomic::{AtomicBool, Ordering};
     let root = tempfile::tempdir().unwrap();
     let log = root.path().join("args");
-    let fake = fake_chdman(
-        root.path(),
-        &format!("echo \"$*\" >> '{}'\nexit 1", log.display()),
-    );
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[CD]);
     let plan = env.plan(&folder, selection);
@@ -906,22 +890,12 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
     }
 }
 
-/// A chdman that runs `real`, except as `disc2` says for Disc 2 of Saga: its shell commands, run in place of
-/// chdman's createcd, or after its extractcd, in the scratch directory.
+/// A chdman that runs `real`, linked beside it in `dir`, except as `name` in `tests/data/chdman` says for Disc 2 of
+/// Saga.
 #[cfg(unix)]
-fn saga_chdman(dir: &Path, real: &Path, create2: &str, extract2: &str) -> PathBuf {
-    fake_chdman(
-        dir,
-        &format!(
-            "real={real:?}\n\
-             case \"$1:$3\" in\n\
-             createcd:*\"Disc 2\"*) touch disc2; {create2} ;;\n\
-             extractcd:*) \"$real\" \"$@\" || exit $?; if [ -f disc2 ]; then {extract2}; fi ;;\n\
-             *) exec \"$real\" \"$@\" ;;\n\
-             esac",
-            real = real.display().to_string()
-        ),
-    )
+fn saga_chdman(dir: &Path, real: &Path, name: &str) -> PathBuf {
+    std::os::unix::fs::symlink(real, dir.join("real")).unwrap();
+    fake_chdman(dir, name)
 }
 
 /// An Env with both of Saga's discs built as TorrentZips, and then stored as CHD: the folder, the selection, and the
@@ -1014,12 +988,7 @@ fn when_one_disc_fails_to_verify_no_disc_of_its_game_changes_format() {
     let Some(real) = chdman() else { return };
     let root = tempfile::tempdir().unwrap();
     // Disc 2's CHD gives back other bytes.
-    let fake = saga_chdman(
-        root.path(),
-        &real,
-        "exec \"$real\" \"$@\"",
-        "printf XXXX | dd of=x/t1.bin conv=notrunc 2>/dev/null",
-    );
+    let fake = saga_chdman(root.path(), &real, "saga-disc-2-differs");
     let env = Env::new(Some(&fake));
     let (folder, _, plan) = saga_converting(&env);
     let ended = env.build(&plan);
@@ -1051,12 +1020,7 @@ fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
     let Some(real) = chdman() else { return };
     let root = tempfile::tempdir().unwrap();
     let slow = root.path().join("slow");
-    let fake = saga_chdman(
-        root.path(),
-        &real,
-        &format!("touch {:?}; exec sleep 30", slow.display().to_string()),
-        "true",
-    );
+    let fake = saga_chdman(root.path(), &real, "saga-disc-2-slow");
     let env = Env::new(Some(&fake));
     let (folder, _, plan) = saga_converting(&env);
     let job = env
@@ -1074,6 +1038,7 @@ fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
     });
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(saga_files(&env), SAGA_ZIPS);
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
     assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
@@ -1139,6 +1104,7 @@ fn a_cancel_while_the_last_disc_is_copied_and_hashed_leaves_its_game_as_it_was()
     );
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(saga_files(&env), SAGA_ZIPS);
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
     assert!(!env.dir().join(title_select_api::build::STAGING).exists());
@@ -1172,6 +1138,23 @@ fn a_cancel_once_a_games_discs_are_going_in_place_lets_them_all_finish() {
     }
 }
 
+/// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
+/// failed included.
+fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+    let counted = env.store.meter().so_far(job.id).expect("metered").counted;
+    let recorded = job.throughput.expect("its throughput");
+    assert_eq!(
+        (recorded.bytes_read, recorded.bytes_written),
+        (counted.read, counted.written),
+        "recorded as it ended, against counted by its meter"
+    );
+    assert_eq!(
+        env.store.job(job.id).unwrap(),
+        *job,
+        "nothing is recorded after it ends"
+    );
+}
+
 /// Recovers the store's unfinished Builds, and says why each that is still unfinished is.
 fn recover(env: &Env) -> Vec<String> {
     env.store
@@ -1200,6 +1183,7 @@ fn a_disc_that_cannot_be_put_in_place_holds_its_game_until_recovery_finishes_it(
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert!(env.dir().join(SAGA_CHDS[0]).is_file());
     assert_eq!(std::fs::read(&intruder).unwrap(), b"not a CHD");
     // Disc 2 isn't failed, and its verified CHD stays staged, while the build waits to finish the game.
@@ -1246,6 +1230,7 @@ fn a_keep_that_fails_on_disc_2_holds_its_game_until_recovery_finishes_it() {
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert_eq!(env.kept(&folder), [SAGA_CHDS[0]]);
     assert_eq!(std::fs::read(&disc2).unwrap(), b"changed");
     // Recovery, run as the build failed, put Disc 1 in place, and holds the folder at Disc 2, which it can't.
@@ -1372,6 +1357,7 @@ fn a_copy_of_a_discs_checked_file_at_its_target_is_not_taken_for_it() {
     });
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     let blocked = recover(&env);
     assert!(
         blocked.len() == 1 && blocked[0].contains(SAGA_CHDS[1]),
@@ -1403,17 +1389,14 @@ fn only_item(env: &Env, job: &title_select_api::Job) -> title_select_api::build:
 #[test]
 fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
     let root = tempfile::tempdir().unwrap();
-    let ran = root.path().join("ran");
-    let fake = fake_chdman(
-        root.path(),
-        &format!("touch {:?}; exit 1", ran.display().to_string()),
-    );
+    let args = root.path().join("args");
+    let fake = fake_chdman(root.path(), "records");
     let env = Env::new(Some(&fake));
     let (folder, selection) = env.folder(&[ECHO]);
     let ended = env.build(&env.plan(&folder, selection));
 
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
-    assert!(!ran.exists(), "chdman ran");
+    assert!(!args.exists(), "chdman ran");
     let item = only_item(&env, &ended);
     assert_eq!(item.state, ItemState::Failed, "{item:?}");
     let error = item.error.unwrap();
@@ -1428,7 +1411,7 @@ fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
 #[test]
 fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
     let root = tempfile::tempdir().unwrap();
-    let fake = fake_chdman(root.path(), "exec sleep 30");
+    let fake = fake_chdman(root.path(), "slow");
     let env = Env::with(Some(&fake));
     env.store
         .update_settings(

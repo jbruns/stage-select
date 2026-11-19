@@ -1149,7 +1149,7 @@ impl Store {
                     "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1 AND finished_at IS NULL",
                     params![plan, why],
                 )?;
-                match finish_running(tx, id, JobState::Failed, Some(&why)) {
+                match finish_running(tx, &self.meter, id, JobState::Failed, Some(&why)) {
                     Err(Error::Io(_)) | Ok(()) => Ok(()),
                     Err(err) => Err(err),
                 }
@@ -1375,7 +1375,7 @@ impl Store {
                 "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
                 params![plan.id, at, to_json(&outcomes)],
             )?;
-            finish_running(tx, job, JobState::Failed, Some(why))
+            finish_running(tx, &self.meter, job, JobState::Failed, Some(why))
         })
     }
 
@@ -1679,6 +1679,7 @@ impl Store {
             match cancelled {
                 true => finish_running(
                     tx,
+                    &self.meter,
                     job,
                     JobState::Interrupted,
                     Some(
@@ -1686,7 +1687,7 @@ impl Store {
                          was",
                     ),
                 ),
-                false => finish_running(tx, job, JobState::Succeeded, None),
+                false => finish_running(tx, &self.meter, job, JobState::Succeeded, None),
             }?;
             if !aside {
                 return Ok(false);

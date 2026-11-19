@@ -1043,6 +1043,7 @@ fn a_release_of_one_file_discs_cancelled_after_disc_1_puts_neither_disc_in_place
     });
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_recorded_as_metered(&env, &ended);
     assert!(env.files().is_empty(), "{:?}", env.files());
     assert!(env.store.built_files(folder.id).unwrap().is_empty());
 }
@@ -2089,4 +2090,21 @@ fn a_chd_whose_track_metadata_says_it_holds_more_than_its_disc_is_refused_before
     bytes[at..at + 11].copy_from_slice(b"FRAMES:900 ");
     std::fs::write(&orbit, &bytes).unwrap();
     orbit_chd_is_refused(&env, &folder, selection, "track 1 has 900 frames");
+}
+
+/// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
+/// failed included.
+fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+    let counted = env.store.meter().so_far(job.id).expect("metered").counted;
+    let recorded = job.throughput.expect("its throughput");
+    assert_eq!(
+        (recorded.bytes_read, recorded.bytes_written),
+        (counted.read, counted.written),
+        "recorded as it ended, against counted by its meter"
+    );
+    assert_eq!(
+        env.store.job(job.id).unwrap(),
+        *job,
+        "nothing is recorded after it ends"
+    );
 }

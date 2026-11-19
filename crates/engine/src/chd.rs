@@ -1133,27 +1133,29 @@ mod tests {
 
     #[test]
     fn chdman_writing_past_its_budget_is_stopped() {
-        chdman_writing_endlessly_is_stopped("x", "x/t1.bin");
+        chdman_writing_endlessly_is_stopped("x/t1.bin");
     }
 
     #[test]
     fn chdman_writing_past_its_budget_in_a_folder_of_its_own_is_stopped() {
-        chdman_writing_endlessly_is_stopped("x/a/b", "x/a/b/t1.bin");
+        chdman_writing_endlessly_is_stopped("x/a/b/t1.bin");
     }
 
-    /// A chdman that makes the folder `folder` and writes to `file` without end is stopped by a budget on `x`.
-    fn chdman_writing_endlessly_is_stopped(folder: &str, file: &str) {
-        use std::os::unix::fs::PermissionsExt;
+    /// A shell script standing in for chdman: `name` in `tests/data/chdman`, run where it is, not written by the test:
+    /// a script written while another thread forks may be held open for writing in the child, and running it then
+    /// fails as a busy text file.
+    fn fake_chdman(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/chdman")
+            .join(name)
+    }
+
+    /// A chdman that makes the folder of `file` and writes to it without end is stopped by a budget on `x`.
+    fn chdman_writing_endlessly_is_stopped(file: &str) {
         let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("endless");
-        std::fs::write(
-            &program,
-            format!("#!/bin/sh\nmkdir -p {folder}\nwhile :; do head -c 65536 /dev/zero >> {file}; done\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(dir.path().join("writes"), file).unwrap();
         let chdman = Chdman {
-            program,
+            program: fake_chdman("endless"),
             threads: Some(1),
             deadline: Duration::from_secs(5),
             tally: Default::default(),
@@ -1176,22 +1178,14 @@ mod tests {
 
     #[test]
     fn what_chdman_reads_and_writes_is_counted_from_its_files_sizes() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("fake");
-        std::fs::write(
-            &program,
-            "#!/bin/sh\nhead -c 300000 /dev/zero > out.chd\nsleep 0.3\nhead -c 200000 /dev/zero >> out.chd\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::create_dir(dir.path().join("in")).unwrap();
         std::fs::write(dir.path().join("in/g.cue"), [0; 100]).unwrap();
         std::fs::write(dir.path().join("in/t1.bin"), [0; 7000]).unwrap();
         let meter = crate::meter::Meter::default();
         let job = meter.start(1, crate::ONE_WORKER_EACH);
         let chdman = Chdman {
-            program,
+            program: fake_chdman("grows"),
             threads: Some(1),
             deadline: Duration::from_secs(20),
             tally: job.tally(None),
@@ -1268,13 +1262,9 @@ mod tests {
 
     #[test]
     fn chdman_running_past_its_deadline_is_stopped() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("slow");
-        std::fs::write(&program, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let chdman = Chdman {
-            program,
+            program: fake_chdman("slow"),
             threads: Some(1),
             deadline: Duration::from_millis(300),
             tally: Default::default(),

@@ -902,7 +902,7 @@ impl Store {
             self.write(|tx| {
                 finish_audit(tx, id, &report)?;
                 if let Some(job) = job {
-                    super::jobs::succeed(tx, job, id)?;
+                    super::jobs::succeed(tx, &self.meter, job, id)?;
                 }
                 read_report(tx, id)
             })
@@ -915,7 +915,7 @@ impl Store {
                 let _ = self.write(|tx| {
                     delete_audits(tx, "id = ?1", [id])?;
                     if let Some(job) = job {
-                        super::jobs::fail(tx, job, &err.to_string())?;
+                        super::jobs::fail(tx, &self.meter, job, &err.to_string())?;
                     }
                     Ok(())
                 });

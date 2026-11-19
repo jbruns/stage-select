@@ -1,0 +1,5 @@
+#!/bin/sh
+# A chdman whose CHD grows while it runs: 300000 bytes, then 200000 more.
+head -c 300000 /dev/zero > out.chd
+sleep 0.3
+head -c 200000 /dev/zero >> out.chd

@@ -1420,6 +1420,29 @@ fn the_api_lists_every_failed_job() {
     assert_eq!(failed, vec![broken]);
 }
 
+/// A Job's throughput is recorded in the write that ends it, so its final state event carries it, and every read
+/// after agrees.
+#[test]
+fn a_jobs_final_state_event_carries_its_throughput_as_every_later_read_does() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let (mut events, _) = client.watch();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+
+    let (_, followed) = client.follow(job.id);
+    let (_, published) = events.follow(job.id);
+
+    assert_eq!(followed.state, JobState::Succeeded);
+    let throughput = followed.throughput.expect("its throughput");
+    assert!(throughput.bytes_read > 0, "{throughput:?}");
+    assert_eq!(published, followed);
+    let read: Job = client.json(&format!("/jobs/{}", job.id));
+    assert_eq!(read, followed);
+}
+
 #[test]
 fn the_service_holds_the_store_lock() {
     let env = Env::new();

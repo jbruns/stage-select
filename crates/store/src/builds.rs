@@ -32,7 +32,7 @@ use title_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
-use title_select_engine::meter::{Interruptible, JobMeter, Metered, Tally, copy_chunked};
+use title_select_engine::meter::{Interruptible, JobMeter, Meter, Metered, Tally, copy_chunked};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -1214,7 +1214,13 @@ const CANCELLED_BUILD: &str = "you cancelled the build; each file it had put in 
 
 /// Ends Build `build` of `folder`, and its Job `job`, which you cancelled between two of its items: each item it did
 /// stays done, and each it never got to says so. The folder stays at its generation; nothing is left to recover.
-pub(super) fn end_cancelled(tx: &Transaction, job: i64, build: i64, folder: i64) -> Result<()> {
+pub(super) fn end_cancelled(
+    tx: &Transaction,
+    meter: &Meter,
+    job: i64,
+    build: i64,
+    folder: i64,
+) -> Result<()> {
     tx.execute(
         "UPDATE build_items SET error = ?2 WHERE build_id = ?1 AND state = 'pending'",
         params![build, CANCELLED_ITEM],
@@ -1224,7 +1230,7 @@ pub(super) fn end_cancelled(tx: &Transaction, job: i64, build: i64, folder: i64)
         params![build, now()],
     )?;
     tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
-    finish_running(tx, job, JobState::Interrupted, Some(CANCELLED_BUILD))
+    finish_running(tx, meter, job, JobState::Interrupted, Some(CANCELLED_BUILD))
 }
 
 /// The state of item `seq` of Build `build`.
@@ -1261,14 +1267,23 @@ fn record_disposal(
     })
 }
 
-fn end_failed(tx: &Transaction, job: i64, build: Option<i64>, error: &str) -> Result<()> {
-    if let Some(build) = build {
-        tx.execute(
-            "UPDATE builds SET state = 'failed', finished_at = ?2 WHERE id = ?1 AND state = 'running'",
-            params![build, now()],
-        )?;
-    }
-    match finish_running(tx, job, JobState::Failed, Some(error)) {
+/// Records the Running Build `build` failed, and the `error` its Job `job` ends with, before the Job ends: a start
+/// that finds the Job still Running, stopped while the Build recovered its folder, ends it Failed with that error.
+fn fail_build(tx: &Transaction, job: i64, build: i64, error: &str) -> Result<()> {
+    tx.execute(
+        "UPDATE builds SET state = 'failed', finished_at = ?2 WHERE id = ?1 AND state = 'running'",
+        params![build, now()],
+    )?;
+    tx.execute(
+        "UPDATE jobs SET error = ?2, version = version + 1 WHERE id = ?1 AND state = 'running'",
+        params![job, error],
+    )?;
+    Ok(())
+}
+
+/// Ends the Build Job `job` Failed with `error`; one no longer Running is left as it is.
+fn end_failed(tx: &Transaction, meter: &Meter, job: i64, error: &str) -> Result<()> {
+    match finish_running(tx, meter, job, JobState::Failed, Some(error)) {
         Err(Error::Io(_)) | Ok(()) => Ok(()),
         Err(err) => Err(err),
     }
@@ -1507,6 +1522,7 @@ impl Store {
             self.write(|tx| {
                 finish_running(
                     tx,
+                    &self.meter,
                     id,
                     JobState::Interrupted,
                     Some("you cancelled the build before it started; nothing was changed"),
@@ -1518,10 +1534,19 @@ impl Store {
         let outcome = self.carry_out(config, id, plan_id, &mut build, progress);
         if let Err(err) = &outcome {
             let message = err.to_string();
-            self.write(|tx| end_failed(tx, id, build, &message))?;
-            if let Some(build) = build {
-                self.recover_build(config, build, Some(&self.meter.job(id)))?;
-            }
+            // The Build is recorded failed, with the Job's error, before its folder is recovered, and the Job ends
+            // once recovery has, so that the write ending it records what recovery read and wrote too.
+            let recovered = match build {
+                Some(build) => {
+                    self.write(|tx| fail_build(tx, id, build, &message))?;
+                    self.fault_point(Fault::BuildFailed);
+                    self.recover_build(config, build, Some(&self.meter.job(id)))
+                        .map(drop)
+                }
+                None => Ok(()),
+            };
+            self.write(|tx| end_failed(tx, &self.meter, id, &message))?;
+            recovered?;
         }
         // Additions a cleanup kept aside drift entries for are published from their kept files by their
         // Additions Jobs.
@@ -2400,7 +2425,7 @@ impl Store {
         if cancelled {
             // What is in place stays, recorded as built; the folder stays at its generation, and a new plan
             // finishes it.
-            return self.write(|tx| end_cancelled(tx, job, id, folder));
+            return self.write(|tx| end_cancelled(tx, &self.meter, job, id, folder));
         }
 
         // The store decides the next generation first, and the marker follows it; recovery moves a marker that did
@@ -2454,7 +2479,7 @@ impl Store {
                 params![id, now()],
             )?;
             tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
-            finish_running(tx, job, JobState::Succeeded, None)
+            finish_running(tx, &self.meter, job, JobState::Succeeded, None)
         })
     }
 
