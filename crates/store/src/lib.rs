@@ -151,6 +151,9 @@ pub struct Store {
     /// Whether a repair carries a Placed Game's file between folders by a copy, as across filesystems, though one
     /// rename would do: set by [`Store::copy_across_filesystems`].
     copy_across: std::sync::atomic::AtomicBool,
+    /// The bytes free a test says every Root has, in place of what its filesystem says: set by
+    /// [`Store::pretend_free_space`]. `u64::MAX` says none.
+    free_space: std::sync::atomic::AtomicU64,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -250,6 +253,29 @@ pub enum Fault {
     /// After a Source Set file of a placing item with this sequence number is deleted, or kept, before the store
     /// records which.
     PlaceDisposed(i64),
+    /// After a returning item with this sequence number commits its intent to rename its placed files home, before
+    /// each rename.
+    ReturnRenaming(i64),
+    /// After a placed file of a returning item with this sequence number is renamed home, before either folder is
+    /// synced or anything is recorded.
+    ReturnMoved(i64),
+    /// After a file a returning item with this sequence number writes home is staged and verified, before it is put in
+    /// place.
+    ReturnStaged(i64),
+    /// After a file a returning item with this sequence number writes home is put in place, before its folder is
+    /// synced.
+    ReturnPublished(i64),
+    /// After a placed file of a returning item with this sequence number is set aside to delete, before the next is.
+    ReturnSetAside(i64),
+    /// After every placed file of a returning item with this sequence number that goes is set aside to delete, before
+    /// the last check of the files put home and of those set aside.
+    ReturnChecking(i64),
+    /// After the release of a returning item with this sequence number is recorded home, before its placed files are
+    /// deleted.
+    ReturnRecorded(i64),
+    /// After a placed file of a returning item with this sequence number is deleted, or put back, before the store
+    /// records which.
+    ReturnDisposed(i64),
     /// After the store commits the folder's next generation, before the marker advances to it.
     AfterFinalize,
     /// After the marker advances, before the store records the Build finished.
@@ -457,6 +483,7 @@ impl Store {
             regions: std::sync::OnceLock::new(),
             meter: title_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
+            free_space: std::sync::atomic::AtomicU64::new(u64::MAX),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.
@@ -477,6 +504,28 @@ impl Store {
     pub fn copy_across_filesystems(&self, on: bool) {
         self.copy_across
             .store(on, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Makes the store read every Root as having `bytes` free, or, with `None`, what its filesystem says: what a
+    /// test can't otherwise arrange.
+    #[doc(hidden)]
+    pub fn pretend_free_space(&self, bytes: Option<u64>) {
+        self.free_space.store(
+            bytes.unwrap_or(u64::MAX),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+
+    /// The bytes free to Title Select in the filesystem holding the folder `path` of Root `root`.
+    fn free_space(&self, config: &config::Config, root: &str, path: &str) -> Result<u64> {
+        let pretended = self.free_space.load(std::sync::atomic::Ordering::SeqCst);
+        if pretended != u64::MAX {
+            return Ok(pretended);
+        }
+        let resolved = sets::resolve(config, root, path)?;
+        let st = rustix::fs::statvfs(&resolved.path)
+            .map_err(|e| Error::Io(format!("{}: {e}", resolved.path.display())))?;
+        Ok(st.f_bavail.saturating_mul(st.f_frsize))
     }
 
     /// Whether `e`, from a rename between folders, says they are on different filesystems; or a test has said to
@@ -1271,8 +1320,7 @@ mod tests {
     fn the_single_copy_migration_keeps_every_build_item_and_built_file_so_a_stopped_build_still_recovers()
      {
         let dir = tempfile::tempdir().unwrap();
-        let before = migrations::MIGRATIONS.len() - 1;
-        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..before]).unwrap());
+        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..37]).unwrap());
         let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
         conn.execute_batch(
             "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
@@ -1406,6 +1454,94 @@ mod tests {
                 text("kept"),
                 text("then"),
                 text("14")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_returns_migration_keeps_every_build_item_so_a_stopped_placing_build_still_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..38]).unwrap());
+        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
+        conn.execute_batch(
+            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
+             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
+                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
+             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
+             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
+             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
+                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');
+             INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system, system_settings,
+                                     pins, summary, coverage_drift, stale_choices, created_at)
+                 VALUES (1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then');
+             INSERT INTO audits (id, source_set_id, dat_revision_id, status, source_set_path, started_at)
+                 VALUES (1, 1, 1, 'finished', 'p', 'then');
+             INSERT INTO library_folders (id, root, path, source_set_id, profile_id, created_at)
+                 VALUES (1, 'play', 'atari', 1, 1, 'then');
+             INSERT INTO plans (id, folder_id, selection_id, generation, content, digest, changes, created_at)
+                 VALUES (1, 1, 1, 0, '{}', 'c', '[]', 'then');
+             INSERT INTO jobs (id, kind, source_set_id, dat_revision_id, library_folder_id, plan_id, state, actor,
+                               readers, hashers, created_at)
+                 VALUES (1, 'build', 1, 1, 1, 1, 'running', 'you', 1, 1, 'then');
+             INSERT INTO builds (id, folder_id, plan_id, job_id, selection_id, audit_id, dat_revision_id, state,
+                                 generation, started_at)
+                 VALUES (1, 1, 1, 1, 1, 1, 1, 'running', 1, 'then');
+             INSERT INTO build_items (build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin,
+                                      chd_sha1, chd_raw_sha1, mtime_ns, unit, place_state, copy_staged, copy_dev,
+                                      copy_ino, copy_sha256, place_chain)
+                 VALUES (1, 0, 'Pong.zip', 'Pong', 'place', 'pending', 'why', 'd', 4, 7, 8, 'o', 'e', 'f', 9,
+                         'Pong', 'copying', 'Pong.zip.staged', 10, 11, 'g', '[1]');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = Store::open(dir.path()).unwrap();
+        let item = store
+            .read(|c| {
+                Ok(c.query_row(
+                    "SELECT build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin, kept_id,
+                            chd_sha1, chd_raw_sha1, mtime_ns, unit, place_state, copy_staged, copy_dev, copy_ino,
+                            copy_sha256, place_chain, return_state
+                     FROM build_items",
+                    [],
+                    |r| {
+                        (0..24)
+                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    },
+                )?)
+            })
+            .unwrap();
+        use rusqlite::types::Value::{Integer, Null, Text};
+        let text = |s: &str| Text(s.into());
+        // Still copying, as a stop left it, so recovery rolls its placement back as before; and no return begun.
+        assert_eq!(
+            item,
+            [
+                Integer(1),
+                Integer(0),
+                text("Pong.zip"),
+                text("Pong"),
+                text("place"),
+                text("pending"),
+                text("why"),
+                text("d"),
+                Integer(4),
+                Integer(7),
+                Integer(8),
+                text("o"),
+                Null,
+                text("e"),
+                text("f"),
+                Integer(9),
+                text("Pong"),
+                text("copying"),
+                text("Pong.zip.staged"),
+                Integer(10),
+                Integer(11),
+                text("g"),
+                text("[1]"),
+                Null
             ]
         );
     }

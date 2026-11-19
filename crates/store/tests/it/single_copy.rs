@@ -19,14 +19,14 @@ use title_select_engine::torrentzip::Writer;
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
-const SET: &str = "Alpha";
-const PROFILE: &str = "Mine";
-const WORKERS: Workers = Workers {
+pub(crate) const SET: &str = "Alpha";
+pub(crate) const PROFILE: &str = "Mine";
+pub(crate) const WORKERS: Workers = Workers {
     readers: 1,
     hashers: 1,
 };
 
-fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
+pub(crate) fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
     vec![
         ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
         ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
@@ -36,16 +36,21 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 /// A store with the Source Set Alpha in the Root `sets`, which lists it among its `writable_paths`, and the Library
 /// Folder `atari` bound to it in the writable Root `play`: the only one bound to it, so the one holding its Placed
 /// Games.
-struct Env {
-    tmp: tempfile::TempDir,
-    store: Store,
-    config: Config,
-    folder: LibraryFolder,
-    sha256: String,
+pub(crate) struct Env {
+    pub(crate) tmp: tempfile::TempDir,
+    pub(crate) store: Store,
+    pub(crate) config: Config,
+    pub(crate) folder: LibraryFolder,
+    pub(crate) sha256: String,
 }
 
 impl Env {
-    fn new() -> Env {
+    pub(crate) fn new() -> Env {
+        Env::with(&games())
+    }
+
+    /// As [`Env::new`], with a DAT of `games`.
+    pub(crate) fn with(games: &[(&'static str, Vec<RomSpec>)]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "roots/play", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -62,7 +67,7 @@ impl Env {
             "alpha.dat",
             "1",
             "No-Intro",
-            &games(),
+            games,
         );
         let sha256 = store.import_dat(&dat, None).unwrap().0.sha256;
         store
@@ -88,15 +93,15 @@ impl Env {
         }
     }
 
-    fn set(&self) -> PathBuf {
+    pub(crate) fn set(&self) -> PathBuf {
         self.tmp.path().join("roots/sets/Alpha")
     }
 
-    fn library(&self) -> PathBuf {
+    pub(crate) fn library(&self) -> PathBuf {
         self.tmp.path().join("roots/play/atari")
     }
 
-    fn audit(&self, evidence: AuditEvidence) -> Report {
+    pub(crate) fn audit(&self, evidence: AuditEvidence) -> Report {
         self.store
             .audit_source_set(&self.config, SET, None, evidence)
             .unwrap()
@@ -104,7 +109,7 @@ impl Env {
     }
 
     /// Turns Single Copy on for play libraries, storing each game as `format`.
-    fn single_copy(&self, format: StorageFormat) {
+    pub(crate) fn single_copy(&self, format: StorageFormat) {
         let mut policy = self.store.storage_policy().unwrap();
         policy.play_libraries.format = format;
         policy.play_libraries.single_copy = true;
@@ -112,7 +117,7 @@ impl Env {
     }
 
     /// Selects `titles`, each the winner of its own group.
-    fn select(&self, titles: &[&str]) -> i64 {
+    pub(crate) fn select(&self, titles: &[&str]) -> i64 {
         self.store
             .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
             .unwrap();
@@ -154,14 +159,14 @@ impl Env {
             .unwrap()
     }
 
-    fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
+    pub(crate) fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
         self.store
             .plan_build(&self.config, folder.id, selection)
             .unwrap()
     }
 
     /// Approves `plan`, then claims and runs its Build Job.
-    fn build(&self, plan: &Plan) -> title_select_api::Job {
+    pub(crate) fn build(&self, plan: &Plan) -> title_select_api::Job {
         let job = self
             .store
             .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
@@ -173,7 +178,11 @@ impl Env {
     }
 
     /// Approves `plan` and runs its Build Job until `stop` says to stop it, as a kill would.
-    fn build_until(&self, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync + 'static) {
+    pub(crate) fn build_until(
+        &self,
+        plan: &Plan,
+        stop: impl Fn(Fault) -> bool + Send + Sync + 'static,
+    ) {
         let job = self
             .store
             .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
@@ -194,7 +203,7 @@ impl Env {
 
     /// Reopens the store, as the service does when it starts, and recovers what a stop left. Returns the folders
     /// recovery left blocked, with why.
-    fn restart(self) -> (Env, Vec<(i64, String)>) {
+    pub(crate) fn restart(self) -> (Env, Vec<(i64, String)>) {
         let Env {
             tmp,
             store,
@@ -221,7 +230,7 @@ impl Env {
     }
 
     /// The Build of `job`'s item for `game`.
-    fn item(&self, job: i64, game: &str) -> title_select_api::build::BuildItem {
+    pub(crate) fn item(&self, job: i64, game: &str) -> title_select_api::build::BuildItem {
         let build = self.store.build_of_job(job).unwrap().unwrap();
         self.store
             .build(build.id)
@@ -234,12 +243,12 @@ impl Env {
 
     /// The file names in the Source Set's folder and in the Library Folder, leaving out what Title Select keeps for
     /// itself.
-    fn files(&self) -> (Vec<String>, Vec<String>) {
+    pub(crate) fn files(&self) -> (Vec<String>, Vec<String>) {
         (names(&self.set()), names(&self.library()))
     }
 }
 
-fn add_folder(store: &Store, config: &Config, path: &str) -> LibraryFolder {
+pub(crate) fn add_folder(store: &Store, config: &Config, path: &str) -> LibraryFolder {
     store
         .add_library_folder(
             config,
@@ -254,7 +263,7 @@ fn add_folder(store: &Store, config: &Config, path: &str) -> LibraryFolder {
         .unwrap()
 }
 
-fn names(dir: &Path) -> Vec<String> {
+pub(crate) fn names(dir: &Path) -> Vec<String> {
     let mut found: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -265,7 +274,7 @@ fn names(dir: &Path) -> Vec<String> {
 }
 
 /// Every file under the folder Title Select keeps for itself in `dir`, relative to it.
-fn private_files(dir: &Path) -> Vec<String> {
+pub(crate) fn private_files(dir: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut walk = vec![dir.join(".title-select")];
     while let Some(at) = walk.pop() {
@@ -287,7 +296,7 @@ fn private_files(dir: &Path) -> Vec<String> {
 
 /// Flips the last byte of `path` in place, then sets its modification time back: the same size and modification
 /// time, other bytes.
-fn overwrite_keeping_stamp(path: &Path) {
+pub(crate) fn overwrite_keeping_stamp(path: &Path) {
     let st = std::fs::metadata(path).unwrap();
     let mut changed = std::fs::read(path).unwrap();
     let last = changed.len() - 1;
@@ -301,14 +310,14 @@ fn overwrite_keeping_stamp(path: &Path) {
         .unwrap();
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     <sha2::Sha256 as sha2::Digest>::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
 
-fn torrentzip(path: &Path, members: &[(&str, &[u8])]) {
+pub(crate) fn torrentzip(path: &Path, members: &[(&str, &[u8])]) {
     let mut writer = Writer::new(std::fs::File::create(path).unwrap()).unwrap();
     for (name, payload) in members {
         writer
@@ -318,7 +327,7 @@ fn torrentzip(path: &Path, members: &[(&str, &[u8])]) {
     writer.finish().unwrap();
 }
 
-fn pong_zip(env: &Env) -> Vec<u8> {
+pub(crate) fn pong_zip(env: &Env) -> Vec<u8> {
     torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
@@ -326,7 +335,7 @@ fn pong_zip(env: &Env) -> Vec<u8> {
     std::fs::read(env.set().join("Pong (USA).zip")).unwrap()
 }
 
-fn item<'a>(plan: &'a Plan, game: &str) -> &'a PlanItem {
+pub(crate) fn item<'a>(plan: &'a Plan, game: &str) -> &'a PlanItem {
     plan.content
         .items
         .iter()
@@ -1203,7 +1212,7 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
 /// Replaces `dir`, the play library folder `library` or a folder above it, with a new folder, as if another were
 /// mounted where it was, leaving it at `<dir>.moved`: the library folder's path then leads to a new folder holding a
 /// copy of its marker.
-fn replace_with_marked_copy(dir: &Path, library: &Path) {
+pub(crate) fn replace_with_marked_copy(dir: &Path, library: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let moved = PathBuf::from(format!("{}.moved", dir.display()));
     let was = moved.join(library.strip_prefix(dir).unwrap());

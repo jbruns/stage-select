@@ -49,6 +49,7 @@ use rustix::fs::Stat;
 
 mod cleanup;
 mod place;
+mod returns;
 
 /// What a Library Folder's current Build cites, in `audit_citations` and `selection_citations`.
 fn cited_by(folder: i64) -> String {
@@ -1799,13 +1800,17 @@ impl Store {
                 Some((set_dir, set_root, set_fd))
             }
         };
-        // A Build that places Games changes their Source Set's folder: it is opened to write to as a repair opens it.
-        let placing = match work.iter().any(|w| w.item.kind == ItemKind::Place) {
+        // A Build that places Games, or returns them, changes their Source Set's folder: it is opened to write to as a
+        // repair opens it.
+        let placing = match work.iter().any(|w| w.item.kind == ItemKind::Place)
+            || !content.returns.is_empty()
+        {
             true => Some(
                 self.open_placing(config, folder_row.source_set_id)?
                     .map_err(|why| {
                         Error::Refused(format!(
-                            "source set {} can't be changed to place its games: {why}; nothing was written",
+                            "source set {} can't be changed to place its games or return them: {why}; nothing was \
+                             written",
                             folder_row.source_set
                         ))
                     })?,
@@ -1840,6 +1845,18 @@ impl Store {
             .filter_map(|w| w.item.converts.as_ref().map(|k| (w, k)))
             .enumerate()
             .map(|(i, (w, k))| ((all.len() + removals.len() + i) as i64, w, k))
+            .collect();
+        // Then the releases placed here that go back to their Source Set's folder.
+        let returning: Vec<(i64, &title_select_api::build::PlanReturn)> = content
+            .returns
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                (
+                    (all.len() + removals.len() + conversions.len() + i) as i64,
+                    r,
+                )
+            })
             .collect();
         let generation = content.generation + 1;
         let delete = content.storage.delete_originals;
@@ -1886,6 +1903,13 @@ impl Store {
                     params![id, seq, k.name, w.item.game],
                 )?;
             }
+            for (seq, r) in &returning {
+                tx.execute(
+                    "INSERT INTO build_items (build_id, seq, target, game, kind, state)
+                     VALUES (?1, ?2, ?3, ?4, 'return', 'pending')",
+                    params![id, seq, r.release, r.games.join(", ")],
+                )?;
+            }
             Ok(id)
         })?;
         *build_id = Some(id);
@@ -1896,7 +1920,7 @@ impl Store {
         let staging_id = staging.identity().map_err(folder_io)?;
         let mut staged_ids = HashMap::new();
         let built_at = SystemTime::now();
-        let total = all.len() + removals.len() + conversions.len();
+        let total = all.len() + removals.len() + conversions.len() + returning.len();
         // The retention area is created the first time a file is kept aside.
         let mut retention: Option<Retention> = None;
         let open_area = |retention: &mut Option<Retention>| -> Result<()> {
@@ -2139,6 +2163,35 @@ impl Store {
             to: &chd_work.to,
             from: &chd_work.from,
         };
+        // The releases placed here that go home go first, each whole or not at all, before anything is written here.
+        if let Some(set) = &placing
+            && !returning.is_empty()
+        {
+            let set_root = self
+                .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
+                .record
+                .root;
+            let to = meter.tally(Some(&set_root));
+            let returner = returns::Returning {
+                build: id,
+                folder,
+                set: folder_row.source_set_id,
+                set_name: &folder_row.source_set,
+                dir: &dir,
+                config,
+                to: &to,
+                from: &library,
+            };
+            for (seq, r) in &returning {
+                if cancelled || self.cancel_requested(job)? {
+                    cancelled = true;
+                    break;
+                }
+                check_marker(&dir, &expected).map_err(Error::Refused)?;
+                self.return_release(&returner, set, *seq, r, built_at)?;
+                tick(&mut done);
+            }
+        }
         for unit in &units {
             if cancelled {
                 break;
@@ -2833,8 +2886,18 @@ impl Store {
             &folder,
             store.clone(),
         )? {
-            // Then each Game it was placing is rolled forward or back, through the folder at its generation now.
-            Ok(()) => self.recover_placing(config, build, unfinished.plan, &folder, store)?,
+            // Then each Game it was placing, or returning, is rolled forward or back, through the folder at its
+            // generation now.
+            Ok(()) => match self.recover_placing(
+                config,
+                build,
+                unfinished.plan,
+                &folder,
+                store.clone(),
+            )? {
+                Ok(()) => self.recover_returning(config, build, unfinished.plan, &folder, store)?,
+                Err(why) => Err(why),
+            },
             Err(why) => Err(why),
         };
         let error = outcome.as_ref().err().cloned();

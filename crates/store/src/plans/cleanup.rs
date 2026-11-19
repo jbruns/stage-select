@@ -733,6 +733,7 @@ impl Store {
                 choices: PlanChoices::default(),
                 items: Vec::new(),
                 removals: Vec::new(),
+                returns: Vec::new(),
                 blockers,
                 cleanup: Some(Cleanup {
                     build,
