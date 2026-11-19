@@ -22,13 +22,20 @@ second copy, and that choice is theirs to make.
 - **A Placed Game stays its Source Set's.** A Game has one Placement: the Source Set's own folder or a Library Folder.
   Audits, Coverage, Game Status and Fixdats read the Source Set across both, so a Placed Game is never Missing. Its
   Audit is the authority on it: a changed or vanished Placed Game is an Audit Finding or a Missing Game, and Drift
-  checks still report it as an early warning. A Repair changes a Placed Game where it is placed. A Repair fill still
+  checks still report it as an early warning. A Repair changes a Placed Game where it is placed, and one that sets
+  aside a Placed Game's Entry makes it a Kept File of the Source Set, not of the Library Folder. A Repair fill still
   writes into the Source Set's folder, and the next Build places it.
 - **One holding Library Folder.** Each Source Set names the Library Folder that holds its Placed Games, by default the
   only one bound to it. Other Library Folders bound to it are built by copying, from wherever each Game is placed.
+  Naming another one returns the Placed Games home, and the next Build places them in the new one: there is no move
+  between Library Folders.
+- **Formats a Source Set can hold are placed freely.** A Game the Library Folder stores as TorrentZip, loose or a loose
+  folder keeps the DAT's exact bytes, so it is placed whatever the Source Set's own format, and converted back to that
+  format when it returns home.
 - **A Build may change its Source Set.** A Build plan's Placement items are marked as changing the Source Set, and
-  approving the plan approves them. While it is queued or running, the Source Set is locked as for a Repair. This
-  amends ADR 0002 and the separation of Repair and Build approval.
+  approving the plan approves them. While it is queued or running, the Source Set is locked as for a Repair. Unlike a
+  Repair, it owes no follow-up Audit: a rename keeps its Evidence, a copy is re-hashed, and the Service is the Source
+  Set's only writer. This amends ADR 0002 and the separation of Repair and Build approval.
 - **Moving.** Where the Source Set and the Library Folder share a mount, a Placement is a rename that never
   replaces. It is checked by identity, its new change time recorded through a held descriptor as ADR 0010 does, and
   not re-hashed: the payload Evidence in hand still stands. Otherwise it is a `copy_file_range` copy, re-hashed, and
@@ -38,13 +45,15 @@ second copy, and that choice is theirs to make.
   is returned to the Source Set's folder by the next plan, never set aside as a Kept File. A Library Folder holding
   Placed Games, or their Source Set, can't be unregistered until they are returned. A return that won't fit in the
   Source Set's Root is refused before the plan runs.
-- **Converted sole copies are a further choice, per system.** Placing a Game in a converted format, such as CHD,
-  reopens ADR 0013 for the Operator who chooses it, with its trade-offs explained. A CHD is placed only after
-  extracting it gave back every track exactly, as ADR 0013 already requires, and the DAT-exact `.cue` is kept in the
-  store as a content-addressed blob, since a CHD does not hold it. Returning it home extracts the tracks, writes the
-  kept `.cue`, and verifies both against the DAT; one that doesn't verify stays placed and is flagged. A Full Audit
-  decompresses a placed CHD and gives Payload Evidence; an Incremental Audit reuses that while the stamp is unchanged;
-  a Quick Inventory takes the CHD's header SHA-1 as Claim Evidence.
+- **Converted sole copies are a further choice, per system.** Place Converted Games is a Storage Policy setting, with
+  the same scopes as Delete Originals After Conversion and off by default. Under it a Game the Library Folder stores in
+  a format no Source Set holds, such as CHD, is placed; without it, that Game is copied as before. It reopens ADR 0013
+  for the Operator who chooses it, with its trade-offs explained. A CHD is placed only after extracting it gave back
+  every track exactly, as ADR 0013 already requires, and the DAT-exact `.cue` is kept in the store as a
+  content-addressed blob, since a CHD does not hold it. Returning it home extracts the tracks, writes the kept `.cue`,
+  and verifies both against the DAT; one that doesn't verify stays placed and is flagged. A Full Audit decompresses a
+  placed CHD and gives Payload Evidence; an Incremental Audit reuses that while the stamp is unchanged; a Quick
+  Inventory takes the CHD's header SHA-1 as Claim Evidence.
 - **Additions Sets** are not placed.
 
 ## Considered Options

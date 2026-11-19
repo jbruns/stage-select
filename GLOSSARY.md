@@ -288,10 +288,15 @@ original that can't be proven so stays a Kept File.
 
 **Single Copy**:
 A Storage Policy setting, global with per-system overrides and off by default, under which a Build places each
-selected Game of a Source Set in one Library Folder instead of copying it, so that the Game is kept once. Keeping a
-Placed Game in a converted format, such as CHD, is a further choice per system, made knowing that the Game's only copy
-is then no longer stored as its DAT lists it.
+selected Game of a Source Set in one Library Folder instead of copying it, so that the Game is kept once. A Game the
+Library Folder stores in a format no Source Set holds, such as CHD, is placed only under Place Converted Games, and
+copied otherwise.
 _Avoid_: Move mode, organize
+
+**Place Converted Games**:
+A Storage Policy setting, global with per-system overrides and off by default, under which Single Copy also places a
+Game the Library Folder stores in a format no Source Set holds, such as CHD, knowing that its only copy is then no
+longer stored as its DAT lists it.
 
 **Placement**:
 Where a Source Set keeps a Game: in the Source Set's own folder, or in a Library Folder. A Game has one Placement, and
