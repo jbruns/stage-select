@@ -989,17 +989,28 @@ mod tests {
     }
 
     /// Notes how many files are being read at once as each starts: from `prior`, called as a reader starts a file,
-    /// to `record`, called as it ends.
+    /// to `record`, called as it ends. The first four files to start wait for one another, and so do the 43rd to the
+    /// 45th, so that as many as the pace allows are surely read at once then.
     struct Overlap {
         reading: AtomicUsize,
         starts: Mutex<Vec<usize>>,
+        first: std::sync::Barrier,
+        later: std::sync::Barrier,
     }
 
     impl PayloadReads for Overlap {
         fn prior(&self, _: &str) -> Option<PayloadRead> {
             let now = self.reading.fetch_add(1, Ordering::SeqCst) + 1;
-            self.starts.lock().unwrap().push(now);
-            std::thread::sleep(std::time::Duration::from_millis(15));
+            let index = {
+                let mut starts = self.starts.lock().unwrap();
+                starts.push(now);
+                starts.len() - 1
+            };
+            match index {
+                0..4 => drop(self.first.wait()),
+                42..45 => drop(self.later.wait()),
+                _ => {}
+            }
             None
         }
 
@@ -1026,58 +1037,83 @@ mod tests {
 
     #[test]
     fn a_change_of_pace_changes_how_many_files_are_read_at_once_from_the_next_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let files = files(dir.path(), 60);
-        let overlap = Overlap {
-            reading: AtomicUsize::new(0),
-            starts: Mutex::default(),
-        };
-        let how = How {
-            evidence: AuditEvidence::Full,
-            reads: Some(&overlap),
-            header: None,
-            might_be_headered: &|_| false,
-            tally: &Default::default(),
-        };
-        let (readers, hashers) = (Pool::new(4), Pool::new(4));
-        // Four at once for the first 12 files, one at a time to the 36th, then three at once.
-        let progress = |p: Progress| match p.files_done {
-            12 => readers.set_limit(1),
-            36 => readers.set_limit(3),
-            _ => {}
-        };
-        let ceilings = Workers {
-            readers: 4,
-            hashers: 4,
-        };
-        let pools = Pools {
-            readers: &readers,
-            hashers: &hashers,
-        };
+        bounded(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let files = files(dir.path(), 60);
+            let overlap = Overlap {
+                reading: AtomicUsize::new(0),
+                starts: Mutex::default(),
+                first: std::sync::Barrier::new(4),
+                later: std::sync::Barrier::new(3),
+            };
+            let how = How {
+                evidence: AuditEvidence::Full,
+                reads: Some(&overlap),
+                header: None,
+                might_be_headered: &|_| false,
+                tally: &Default::default(),
+            };
+            let (readers, hashers) = (Pool::new(4), Pool::new(4));
+            // Four at once for the first 12 files, one at a time to the 36th, then three at once.
+            let progress = |p: Progress| match p.files_done {
+                12 => readers.set_limit(1),
+                36 => readers.set_limit(3),
+                _ => {}
+            };
+            let ceilings = Workers {
+                readers: 4,
+                hashers: 4,
+            };
+            let pools = Pools {
+                readers: &readers,
+                hashers: &hashers,
+            };
 
-        let read = read_files(&files, how, ceilings, Some(pools), Some(&progress)).unwrap();
+            let read = read_files(&files, how, ceilings, Some(pools), Some(&progress)).unwrap();
 
-        assert!(read.iter().all(|r| r.error.is_none()));
-        let starts = overlap.starts.into_inner().unwrap();
-        let most = |range: std::ops::Range<usize>| starts[range].iter().copied().max().unwrap();
-        assert_eq!(most(0..12), 4, "{starts:?}");
-        // The files under way when the pace dropped finish; every file started after them is read alone.
-        assert_eq!(most(18..36), 1, "{starts:?}");
-        assert_eq!(most(42..60), 3, "{starts:?}");
+            assert!(read.iter().all(|r| r.error.is_none()));
+            let starts = overlap.starts.into_inner().unwrap();
+            let most = |range: std::ops::Range<usize>| starts[range].iter().copied().max().unwrap();
+            assert_eq!(most(0..12), 4, "{starts:?}");
+            // The files under way when the pace dropped finish; every file started after them is read alone.
+            assert_eq!(most(18..36), 1, "{starts:?}");
+            assert_eq!(most(42..60), 3, "{starts:?}");
+        });
     }
 
-    /// Counts the files being read at once across every Job that shares it.
+    /// Counts the files being read at once across every Job that shares it. The first `meeting` files to start once
+    /// it is open wait for one another, so that that many are surely read at once.
     #[derive(Default)]
     struct Shared {
         reading: AtomicUsize,
         most: AtomicUsize,
+        open: AtomicBool,
+        meeting: usize,
+        met: AtomicUsize,
+        meet: Option<std::sync::Barrier>,
+    }
+
+    impl Shared {
+        fn meeting(meeting: usize, open: bool) -> Shared {
+            Shared {
+                open: AtomicBool::new(open),
+                meeting,
+                meet: Some(std::sync::Barrier::new(meeting)),
+                ..Shared::default()
+            }
+        }
     }
 
     impl PayloadReads for Shared {
         fn prior(&self, _: &str) -> Option<PayloadRead> {
             let now = self.reading.fetch_add(1, Ordering::SeqCst) + 1;
             self.most.fetch_max(now, Ordering::SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(3));
+            if let Some(meet) = &self.meet
+                && self.open.load(Ordering::SeqCst)
+                && self.met.fetch_add(1, Ordering::SeqCst) < self.meeting
+            {
+                meet.wait();
+            }
             None
         }
 
@@ -1101,7 +1137,7 @@ mod tests {
         bounded(|| {
             let dir = tempfile::tempdir().unwrap();
             let files = files(dir.path(), 24);
-            let shared = Shared::default();
+            let shared = Shared::meeting(2, true);
             let (readers, hashers) = (Pool::new(2), Pool::new(1));
             let pools = Pools {
                 readers: &readers,
@@ -1197,7 +1233,8 @@ mod tests {
             let cpus = std::thread::available_parallelism().unwrap().get();
             let dir = tempfile::tempdir().unwrap();
             let files = files_of(dir.path(), 400, 64 << 10);
-            let shared = Shared::default();
+            // 33 files at once, once the readers rise.
+            let shared = Shared::meeting(33, false);
             let (readers, hashers) = (Pool::new(4), Pool::new(1));
             let pools = Pools {
                 readers: &readers,
@@ -1208,6 +1245,7 @@ mod tests {
                 if p.files_done == 10 {
                     readers.set_limit(64);
                     hashers.set_limit(cpus + 8);
+                    shared.open.store(true, Ordering::SeqCst);
                 }
             };
             let how = How {
@@ -1293,14 +1331,17 @@ mod tests {
                 hashers: 8,
             };
             let readers_started = AtomicUsize::new(0);
-            // The system refuses the hash worker slowly, so other readers start and hand over payloads meanwhile.
+            // The system refuses the hash worker only once every reader the pool allows has started, each to hand over
+            // a payload meanwhile.
             let refuse = |kind: Worker| match kind {
                 Worker::Reader => {
                     readers_started.fetch_add(1, Ordering::SeqCst);
                     false
                 }
                 Worker::Hasher => {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    while readers_started.load(Ordering::SeqCst) < 8 {
+                        std::thread::yield_now();
+                    }
                     true
                 }
             };
@@ -1309,7 +1350,7 @@ mod tests {
 
             let why = failed.err().expect("the Job fails");
             assert!(why.contains("hash worker"), "{why}");
-            assert!(readers_started.load(Ordering::SeqCst) > 1);
+            assert_eq!(readers_started.load(Ordering::SeqCst), 8);
             assert_eq!((readers.taken(), hashers.taken()), (0, 0));
         });
     }

@@ -5,7 +5,7 @@ use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::common::*;
 use crate::sevenz_fixtures::*;
@@ -253,6 +253,15 @@ fn an_archive_holding_another_archive_is_refused() {
     assert!(refusal(&by_content, 128).contains("Inner.bin"));
 }
 
+/// Waits until an archive waits for `gate`'s permit, failing after 30 seconds.
+fn until_waiting(gate: &Gate) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while gate.waiting() == 0 {
+        assert!(Instant::now() < deadline, "nothing waited for the gate");
+        std::thread::yield_now();
+    }
+}
+
 #[test]
 fn a_decode_waits_until_the_gate_has_a_free_permit() {
     let dir = tempfile::tempdir().unwrap();
@@ -276,7 +285,7 @@ fn a_decode_waits_until_the_gate_has_a_free_permit() {
             probed
         })
     };
-    std::thread::sleep(Duration::from_millis(300));
+    until_waiting(&gate);
     assert!(
         !done.load(Ordering::SeqCst),
         "decoded while the only permit was held"
@@ -532,7 +541,7 @@ fn a_header_is_decoded_only_once_the_gate_has_a_free_permit() {
                 }
             })
         };
-        std::thread::sleep(Duration::from_millis(300));
+        until_waiting(&gate);
         assert_eq!(
             gate.headers_decoded(),
             0,

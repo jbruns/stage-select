@@ -1339,7 +1339,7 @@ mod tests {
             });
             let _ = tx.send(ended);
         });
-        rx.recv_timeout(Duration::from_secs(20))
+        rx.recv_timeout(Duration::from_secs(30))
             .expect("the sweep hung")
     }
 

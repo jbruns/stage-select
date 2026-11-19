@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::common::*;
@@ -29,14 +29,40 @@ struct Seen {
     body: Vec<u8>,
 }
 
-/// An HTTP/1.1 server on a local port that answers every request with `status`, after `delay`, and records each.
+/// An HTTP/1.1 server on a local port that answers every request with `status` once its [`Gate`] is open, and records
+/// each as it arrives.
 struct Fake {
     url: String,
     seen: Arc<Mutex<Vec<Seen>>>,
 }
 
+/// Holds a [`Fake`]'s answers until it opens.
+#[derive(Clone)]
+struct Gate(Arc<(Mutex<bool>, Condvar)>);
+
+impl Gate {
+    fn new(open: bool) -> Gate {
+        Gate(Arc::new((Mutex::new(open), Condvar::new())))
+    }
+
+    fn open(&self) {
+        *self.0.0.lock().unwrap() = true;
+        self.0.1.notify_all();
+    }
+
+    fn wait(&self) {
+        let open = self.0.0.lock().unwrap();
+        drop(self.0.1.wait_while(open, |open| !*open).unwrap());
+    }
+}
+
 impl Fake {
-    fn start(status: u16, delay: Duration) -> Fake {
+    /// A server that answers at once.
+    fn start(status: u16) -> Fake {
+        Fake::gated(status, Gate::new(true))
+    }
+
+    fn gated(status: u16, gate: Gate) -> Fake {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
@@ -45,6 +71,7 @@ impl Fake {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
                 let recorded = recorded.clone();
+                let gate = gate.clone();
                 std::thread::spawn(move || {
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
                     let mut line = String::new();
@@ -76,7 +103,7 @@ impl Fake {
                         headers,
                         body,
                     });
-                    std::thread::sleep(delay);
+                    gate.wait();
                     let head = format!(
                         "HTTP/1.1 {status} X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     );
@@ -189,6 +216,7 @@ impl Env {
             fetch_endpoints: Some(Endpoints::at(&provider.url)),
             romm_scan_timing: None,
             calibration_limits: None,
+            notify_backoff: Some([Duration::ZERO; 2]),
         })
         .unwrap()
     }
@@ -352,10 +380,26 @@ fn samples(text: &str) -> BTreeMap<String, f64> {
     out
 }
 
+/// The Service's metrics once its fetch has recorded its result: the fetch runs on after the request that started it.
+fn fetched(service: &Handle) -> BTreeMap<String, f64> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let after = samples(&metrics(service).1);
+        if after
+            .keys()
+            .any(|k| k.starts_with("title_select_fetch_last_result"))
+        {
+            return after;
+        }
+        assert!(Instant::now() < deadline, "no fetch recorded");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Runs a Service through one of each event: two new DAT revisions, a finished audit, a source set gone stale, a
 /// failed fetch, drift in a library folder and a failed check. Returns the Service and its client once all are done.
 fn every_event(env: &Env, hook: &Fake, notify: Value) -> (Handle, Client) {
-    let provider = Fake::start(503, Duration::ZERO);
+    let provider = Fake::start(503);
     let service = env.start(hook, notify, &provider);
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat("20260101"));
@@ -414,7 +458,7 @@ fn every_event(env: &Env, hook: &Fake, notify: Value) -> (Handle, Client) {
 #[test]
 fn each_event_reaches_the_webhook_signed_with_the_documented_payload() {
     let env = Env::new();
-    let hook = Fake::start(204, Duration::ZERO);
+    let hook = Fake::start(204);
     let (_service, _client) = every_event(
         &env,
         &hook,
@@ -539,13 +583,15 @@ fn each_event_reaches_the_webhook_signed_with_the_documented_payload() {
 #[test]
 fn only_the_events_you_choose_are_sent_and_a_link_needs_the_workbench_url() {
     let env = Env::new();
-    let hook = Fake::start(200, Duration::ZERO);
-    let (_service, _client) = every_event(&env, &hook, json!({"events": ["job.failed"]}));
+    let hook = Fake::start(200);
+    let (service, client) = every_event(&env, &hook, json!({"events": ["job.failed"]}));
 
-    let seen = hook.wait_for("the failed job", |seen| !seen.is_empty());
-    std::thread::sleep(Duration::from_millis(500));
-    let seen = [seen, hook.seen()].concat();
-    assert_eq!(events(&hook.seen()), ["job.failed"], "{seen:#?}");
+    // One more failed check marks the end: events are delivered in order, so once it arrives every event before it
+    // that was sent has arrived. The fetch has recorded its result first, so its event comes before the marker too.
+    fetched(&service);
+    assert_eq!(client.check(2).state, JobState::Failed);
+    let seen = hook.wait_for("both failed checks", |seen| seen.len() >= 2);
+    assert_eq!(events(&seen), ["job.failed", "job.failed"], "{seen:#?}");
     let body: Value = serde_json::from_slice(&seen[0].body).unwrap();
     assert_eq!(body["link"], Value::Null);
 }
@@ -553,39 +599,47 @@ fn only_the_events_you_choose_are_sent_and_a_link_needs_the_workbench_url() {
 #[test]
 fn a_failing_webhook_is_tried_three_times_then_dropped_and_jobs_run_on() {
     let env = Env::new();
-    let hook = Fake::start(500, Duration::from_millis(500));
-    let provider = Fake::start(503, Duration::ZERO);
+    // The webhook answers nothing until the jobs have ended, so they cannot have waited for it.
+    let gate = Gate::new(false);
+    let hook = Fake::gated(500, gate.clone());
+    let provider = Fake::start(503);
     let service = env.start(&hook, json!({"events": ["job.finished"]}), &provider);
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat("20260101"));
-    let started = Instant::now();
     assert_eq!(
         client
             .register_and_audit(SET, "No-Intro/Test - System")
             .state,
         JobState::Succeeded
     );
-    let (_, again) = client.send("POST", "/audits", json!({"source_set": SET}));
-    assert_eq!(client.ended(&again).state, JobState::Succeeded);
-    assert!(
-        started.elapsed() < Duration::from_secs(3),
-        "the jobs waited for the webhook: {:?}",
-        started.elapsed()
-    );
+    for _ in 0..2 {
+        let (_, again) = client.send("POST", "/audits", json!({"source_set": SET}));
+        assert_eq!(client.ended(&again).state, JobState::Succeeded);
+    }
+    gate.open();
 
-    let seen = hook.wait_for("six attempts", |seen| seen.len() >= 6);
-    std::thread::sleep(Duration::from_secs(2));
-    assert_eq!(hook.seen().len(), 6, "three attempts each, then dropped");
-    assert_eq!(seen[0].body, seen[1].body);
-    assert_eq!(seen[1].body, seen[2].body);
-    assert_ne!(seen[2].body, seen[3].body);
+    // Events are delivered in order, so a fourth attempt at one would come before the next event's first.
+    let seen = hook.wait_for("nine attempts", |seen| seen.len() >= 9);
+    assert_eq!(seen.len(), 9, "{seen:#?}");
+    for event in seen.chunks(3) {
+        assert_eq!(event[0].body, event[1].body);
+        assert_eq!(event[1].body, event[2].body);
+    }
+    assert_ne!(
+        seen[2].body, seen[3].body,
+        "three attempts each, then dropped"
+    );
+    assert_ne!(
+        seen[5].body, seen[6].body,
+        "three attempts each, then dropped"
+    );
 }
 
 #[test]
 fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() {
     let env = Env::new();
-    let hook = Fake::start(204, Duration::ZERO);
-    let provider = Fake::start(503, Duration::ZERO);
+    let hook = Fake::start(204);
+    let provider = Fake::start(503);
     let service = env.start(&hook, json!({}), &provider);
     let (kind, text) = metrics(&service);
     assert_eq!(kind, "text/plain; version=0.0.4; charset=utf-8");
@@ -606,19 +660,7 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     drop(service);
 
     let (service, client) = every_event(&env, &hook, json!({}));
-    // The fetch runs on after the request that started it.
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let after = loop {
-        let after = samples(&metrics(&service).1);
-        if after
-            .keys()
-            .any(|k| k.starts_with("title_select_fetch_last_result"))
-        {
-            break after;
-        }
-        assert!(Instant::now() < deadline, "no fetch recorded");
-        std::thread::sleep(Duration::from_millis(50));
-    };
+    let after = fetched(&service);
     let text = metrics(&service).1;
     assert_eq!(
         after["title_select_jobs_total{kind=\"audit\",outcome=\"succeeded\"}"],
@@ -687,8 +729,8 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
 #[test]
 fn the_webhook_is_set_and_changed_without_a_restart_and_its_url_and_secret_are_never_shown() {
     let env = Env::new();
-    let hook = Fake::start(204, Duration::ZERO);
-    let provider = Fake::start(503, Duration::ZERO);
+    let hook = Fake::start(204);
+    let provider = Fake::start(503);
     let service = env.spawn(&provider);
     let client = Client::new(&service);
     let url = format!("{}/hook", hook.url);
@@ -726,6 +768,28 @@ fn the_webhook_is_set_and_changed_without_a_restart_and_its_url_and_secret_are_n
     );
     assert_eq!(status, 200);
     client.upload("Test - System (2).dat", &env.dat("2"));
-    std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(hook.seen().len(), 1, "nothing is sent once it is cleared");
+
+    // Set again, it marks the end: events are delivered in order, so revision 2's would come before revision 3's.
+    let (status, _) = client.send(
+        "PATCH",
+        "/settings",
+        json!({"notify": {"url": {"set": url}, "secret": {"set": SECRET}}}),
+    );
+    assert_eq!(status, 200);
+    client.upload("Test - System (3).dat", &env.dat("3"));
+    let seen = hook.wait_for("the third DAT revision", |seen| seen.len() >= 2);
+    let versions: Vec<String> = seen
+        .iter()
+        .map(|s| {
+            let body: Value = serde_json::from_slice(&s.body).unwrap();
+            body["summary"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(
+        versions.len(),
+        2,
+        "nothing is sent once it is cleared: {versions:?}"
+    );
+    assert!(versions[0].contains("revision 1 "), "{versions:?}");
+    assert!(versions[1].contains("revision 3 "), "{versions:?}");
 }

@@ -422,8 +422,8 @@ mod tests {
         }
     }
 
-    /// Answers one request: the Job's event stream sends Running and then stalls, holding the connection open;
-    /// the Job itself has Succeeded.
+    /// Answers one request: the Job's event stream sends Running and then stalls for good, holding the connection
+    /// open; the Job itself has Succeeded.
     fn answer(mut stream: TcpStream) {
         let mut request = Vec::new();
         let mut byte = [0];
@@ -436,7 +436,9 @@ mod tests {
             let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n";
             write!(stream, "{head}event: state\ndata: {running}\n\n").unwrap();
             stream.flush().unwrap();
-            std::thread::sleep(Duration::from_secs(60));
+            loop {
+                std::thread::park();
+            }
         } else if request.starts_with("GET /api/v1/jobs/1 ") {
             let body = serde_json::to_string(&job(JobState::Succeeded)).unwrap();
             write!(
@@ -466,10 +468,16 @@ mod tests {
         };
         let client = Client::new(&server, "token", timing);
 
-        let started = std::time::Instant::now();
-        let done = client.follow(job(JobState::Queued)).unwrap();
+        // Only polling can end the follow: the stream never sends again.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(client.follow(job(JobState::Queued)));
+        });
+        let done = rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("it fell back to polling")
+            .unwrap();
 
         assert_eq!(done.state, JobState::Succeeded);
-        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

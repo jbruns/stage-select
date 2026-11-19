@@ -51,6 +51,7 @@ impl Env {
             fetch_endpoints: None,
             romm_scan_timing: None,
             calibration_limits: None,
+            notify_backoff: None,
         })
         .unwrap();
         Env { fx, service }
@@ -287,12 +288,13 @@ fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
         hold_jobs: false,
         fetch_endpoints: None,
         romm_scan_timing: None,
+        // What a calibration measures is the store's to test: here each step ends at its first byte, never at its time.
         calibration_limits: Some(title_select_server::CalibrationLimits {
-            step_time: std::time::Duration::from_millis(20),
-            step_bytes: 1 << 20,
+            step_bytes: 1,
             min_bytes: 1,
             ..title_select_server::CalibrationLimits::default()
         }),
+        notify_backoff: None,
     })
     .unwrap();
 

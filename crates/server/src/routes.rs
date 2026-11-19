@@ -2481,7 +2481,7 @@ mod tests {
         assert_eq!(done.state, title_select_api::JobState::Succeeded);
         state.jobs.publish(JobEvent::State(Box::new(done.clone())));
 
-        let first = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv());
+        let first = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv());
         let Ok(Some(JobEvent::Resync(snapshot))) = first.await else {
             panic!("a snapshot first");
         };
@@ -2491,7 +2491,7 @@ mod tests {
             ..stale
         });
         state.jobs.publish(next.clone());
-        let after = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv());
+        let after = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv());
         assert_eq!(
             after.await.unwrap(),
             Some(next),
@@ -2513,20 +2513,29 @@ mod tests {
             state.jobs.publish(progress(n));
         }
         let mut seen = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await
-        {
-            seen.push(event);
+        while seen.len() < 10_000 && !matches!(seen.last(), Some(JobEvent::Resync(_))) {
+            seen.push(next(&mut rx).await);
         }
 
-        let resync = seen.iter().position(|e| matches!(e, JobEvent::Resync(_)));
-        assert!(resync.is_some(), "{} events, none a resync", seen.len());
+        assert!(
+            matches!(seen.last(), Some(JobEvent::Resync(_))),
+            "{} events, none a resync",
+            seen.len()
+        );
         assert!(seen.len() < 10_000, "the backlog was skipped");
         state.jobs.publish(progress(10_000));
         assert_eq!(
-            rx.recv().await,
-            Some(progress(10_000)),
+            next(&mut rx).await,
+            progress(10_000),
             "events go on after it"
         );
+    }
+
+    /// The next event, failing after 30 seconds without one.
+    async fn next(rx: &mut mpsc::Receiver<JobEvent>) -> JobEvent {
+        tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv())
+            .await
+            .expect("an event")
+            .expect("the stream goes on")
     }
 }

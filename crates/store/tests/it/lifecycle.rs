@@ -1404,8 +1404,8 @@ fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reu
     );
 }
 
-/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or after a
-/// while should `act` wait for `call`.
+/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or once
+/// `act` waits for `call`'s change to what is registered to finish.
 fn race<A: Send, B: Send>(
     store: &Store,
     fault: Fault,
@@ -1414,17 +1414,18 @@ fn race<A: Send, B: Send>(
 ) -> (A, B) {
     let (reached, wait) = std::sync::mpsc::channel();
     let (resume, resumed) = std::sync::mpsc::channel::<()>();
-    let (reached, resumed) = (
-        std::sync::Mutex::new(reached),
-        std::sync::Mutex::new(resumed),
-    );
+    let resumed = std::sync::Mutex::new(resumed);
+    let waiting = resume.clone();
     store.hook_faults(Some(std::sync::Arc::new(move |f| {
         if f == fault {
-            let _ = reached.lock().unwrap().send(());
-            let _ = resumed
+            let _ = reached.send(());
+            resumed
                 .lock()
                 .unwrap()
-                .recv_timeout(std::time::Duration::from_millis(500));
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("act returned or waited for call");
+        } else if f == Fault::LifecycleWaiting {
+            let _ = waiting.send(());
         }
     })));
     let out = std::thread::scope(|s| {

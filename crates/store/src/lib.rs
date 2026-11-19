@@ -157,6 +157,8 @@ pub struct Store {
     /// The bytes free a test says every Root has, in place of what its filesystem says: set by
     /// [`Store::pretend_free_space`]. `u64::MAX` says none.
     free_space: std::sync::atomic::AtomicU64,
+    /// How many of this store's syncs of the RomM Additions collection wait their turn, for tests.
+    romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -358,6 +360,8 @@ pub enum Fault {
     IngestMarking,
     /// After a Library Folder being registered is created or found empty, before the transaction that records it.
     FolderRegistering,
+    /// Before a change to what is registered waits for another under way to finish.
+    LifecycleWaiting,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
     /// either folder is synced.
     SourceKeptMoved(i64),
@@ -499,6 +503,7 @@ impl Store {
             meter: title_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
             free_space: std::sync::atomic::AtomicU64::new(u64::MAX),
+            romm_syncs_waiting: std::sync::Arc::default(),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
         // A store opened by a test of an earlier migration has no settings.
@@ -569,7 +574,14 @@ impl Store {
 
     /// Serializes changes to what is registered: see [`Store::lifecycle`].
     pub(crate) fn lifecycle_lock(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.lifecycle.lock().unwrap_or_else(|e| e.into_inner())
+        match self.lifecycle.try_lock() {
+            Ok(held) => held,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                self.fault_point(Fault::LifecycleWaiting);
+                self.lifecycle.lock().unwrap_or_else(|e| e.into_inner())
+            }
+        }
     }
 
     /// Runs the hook a test set, which may stop the thread here as a kill would.

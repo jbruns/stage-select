@@ -2907,8 +2907,8 @@ fn a_running_stat_walk_stops_for_a_repair_and_records_nothing() {
     assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
 }
 
-/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or after a
-/// while should `act` wait for `call`.
+/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or once
+/// `act` waits for `call`'s change to what is registered to finish.
 fn race<A: Send, B: Send>(
     store: &Store,
     fault: Fault,
@@ -2917,17 +2917,18 @@ fn race<A: Send, B: Send>(
 ) -> (A, B) {
     let (reached, wait) = std::sync::mpsc::channel();
     let (resume, resumed) = std::sync::mpsc::channel::<()>();
-    let (reached, resumed) = (
-        std::sync::Mutex::new(reached),
-        std::sync::Mutex::new(resumed),
-    );
+    let resumed = std::sync::Mutex::new(resumed);
+    let waiting = resume.clone();
     store.hook_faults(Some(std::sync::Arc::new(move |f| {
         if f == fault {
-            let _ = reached.lock().unwrap().send(());
-            let _ = resumed
+            let _ = reached.send(());
+            resumed
                 .lock()
                 .unwrap()
-                .recv_timeout(std::time::Duration::from_millis(500));
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("act returned or waited for call");
+        } else if f == Fault::LifecycleWaiting {
+            let _ = waiting.send(());
         }
     })));
     let out = std::thread::scope(|s| {
@@ -4331,7 +4332,7 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
         .unwrap();
     let before = env.store.meter().root("sets").read;
 
-    let (ended, took) = std::thread::scope(|scope| {
+    let (ended, cancelled) = std::thread::scope(|scope| {
         let running = scope.spawn(|| env.run_repair_job(&approved));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while env.store.meter().root("sets").read < before + (256 << 10) {
@@ -4339,13 +4340,13 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         env.store.cancel_job(approved.job.unwrap()).unwrap();
-        let cancelled = std::time::Instant::now();
-        let ended = running.join().unwrap();
-        (ended, cancelled.elapsed())
+        let cancelled = env.store.meter().root("sets").read;
+        (running.join().unwrap(), cancelled)
     });
 
-    // Far less than the 8 s the rest of the read would take under the cap, with room for a loaded machine.
-    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    // It reads on only to the end of a chunk or two, nowhere near the rest of the original.
+    let after = env.store.meter().root("sets").read - cancelled;
+    assert!(after <= (1 << 20), "it read {after} bytes once cancelled");
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
     let done = env.store.repair_plan(plan.id).unwrap();
     assert!(done.finished_at.is_some(), "{done:?}");

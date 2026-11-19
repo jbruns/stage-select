@@ -1,3 +1,4 @@
 #!/bin/sh
-# A chdman that never finishes in time.
-exec sleep 30
+# A chdman that adds `running` beside it, and never finishes in time.
+touch "$(dirname "$0")/running"
+exec sleep 60

@@ -338,25 +338,24 @@ mod tests {
         assert_eq!(titles.len(), 3000);
         // Cancelled once the group's choosing has begun: only the choosers' own checks can see it.
         run.limits.cancel = Some(Arc::new(AtomicBool::new(true)));
-        let started = std::time::Instant::now();
         let chosen = select::choose_1g1r(&mut run, &mut Default::default(), false, false, titles);
         assert!(
             matches!(&chosen, Err(py::Crash(m)) if m == super::super::CANCELLED),
             "{:?}",
             chosen.map(|(g, _)| g)
         );
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
+    /// A cancel lands while a group's choosing is prepared: it checks for one as it prepares each short name.
     #[test]
-    fn a_cancel_lands_while_a_group_s_choosing_is_prepared() {
+    fn a_group_s_choosing_checks_for_a_cancel_as_it_prepares_each_short_name() {
         let work = tempfile::tempdir().unwrap();
         let path = work.path().join("Many short names.dat");
         let mut dat = String::from(
             "<?xml version=\"1.0\"?>\n<datafile>\n<header><name>Synthetic - Many short names</name>\
              <description>Synthetic - Many short names</description></header>\n",
         );
-        for i in 0..20_000 {
+        for i in 0..50 {
             let name = format!("Game {i} (USA)");
             dat.push_str(&format!(
                 "<game name=\"{name}\"><category>Games</category><description>{name}</description>\
@@ -371,27 +370,16 @@ mod tests {
         let dat = dat::read_header(&path, &text, &settings).unwrap();
         let mut run = Run::new(settings);
         let processed = process::process_dat(&mut run, &path, dat, &fixtures(), false).unwrap();
-        // Every title at once: 20,000 short names to prepare before any pair is compared.
+        // Every title at once: 50 short names to prepare, and fewer pairs than the choosers check between.
         let titles: Titles = processed
             .titles
             .values()
             .flat_map(|t| t.iter().copied())
             .collect();
-        assert_eq!(titles.len(), 20_000);
-        let cancel = Arc::new(AtomicBool::new(false));
-        run.limits.cancel = Some(cancel.clone());
-        let canceller = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            std::time::Instant::now()
-        });
-        let chosen = select::choose_1g1r(&mut run, &mut Default::default(), false, false, &titles);
-        let cancelled_at = canceller.join().unwrap();
-        assert!(
-            matches!(&chosen, Err(py::Crash(m)) if m == super::super::CANCELLED),
-            "{:?}",
-            chosen.map(|(g, _)| g)
-        );
-        assert!(cancelled_at.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(titles.len(), 50);
+        super::super::CHECKS.with(|checks| checks.set(0));
+        select::choose_1g1r(&mut run, &mut Default::default(), false, false, &titles).unwrap();
+        let checks = super::super::CHECKS.with(|checks| checks.get());
+        assert!(checks >= 50, "{checks} checks");
     }
 }

@@ -48,8 +48,6 @@ Tests assert order and amounts, never elapsed time.
 - A test that only checks speed is deleted.
 - Sleeping past a filesystem's mtime granularity is fine.
 
-#202 tracks the tests that break these rules today.
-
 ## Each layer tests its own part
 
 - The store layer owns behaviour.

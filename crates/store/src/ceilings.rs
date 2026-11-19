@@ -1040,29 +1040,92 @@ mod tests {
         assert_eq!(read(caps("library")), None);
     }
 
-    /// Counts the files being read at once of one Root, by every Job reading it, and the count each file started at.
+    /// Counts the files being read at once of one Root, by every Job reading it, and the count each file started at,
+    /// by phase. Each phase but the first begins with a change, made once as many files as it says have ended: a file
+    /// starting after that waits for the change. The first files of a phase may meet, each waiting for the others to
+    /// start, so that that many are surely read at once.
     #[derive(Default)]
     struct Reading {
         now: AtomicUsize,
         most: AtomicUsize,
-        starts: Mutex<Vec<usize>>,
+        ended: AtomicUsize,
+        /// When each change after the first phase is due: once this many files have ended.
+        due: Vec<usize>,
+        phase: Mutex<Phase>,
+        changed: std::sync::Condvar,
+        /// Each file's phase, and how many were being read as it started.
+        starts: Mutex<Vec<(usize, usize)>>,
+    }
+
+    #[derive(Default)]
+    struct Phase {
+        now: usize,
+        meeting: Option<Arc<std::sync::Barrier>>,
+        to_meet: usize,
+    }
+
+    impl Phase {
+        fn meeting(now: usize, meeting: usize) -> Phase {
+            Phase {
+                now,
+                meeting: Some(Arc::new(std::sync::Barrier::new(meeting))),
+                to_meet: meeting,
+            }
+        }
     }
 
     impl Reading {
+        /// Changes due as `due` says, and a first phase whose first `meeting` files meet.
+        fn new(due: Vec<usize>, meeting: usize) -> Reading {
+            Reading {
+                due,
+                phase: Mutex::new(Phase::meeting(0, meeting)),
+                ..Reading::default()
+            }
+        }
+
+        /// Begins the next phase, whose first `meeting` files meet.
+        fn change(&self, meeting: usize) {
+            let mut phase = self.phase.lock().unwrap();
+            *phase = Phase::meeting(phase.now + 1, meeting);
+            self.changed.notify_all();
+        }
+
         fn start(&self) {
+            let ended = self.ended.load(Ordering::SeqCst);
+            let mut phase = self.phase.lock().unwrap();
+            while self.due.get(phase.now).is_some_and(|&due| ended >= due) {
+                phase = self.changed.wait(phase).unwrap();
+            }
+            let meeting = (phase.to_meet > 0).then(|| {
+                phase.to_meet -= 1;
+                phase.meeting.clone()
+            });
+            let at = phase.now;
+            drop(phase);
             let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
             self.most.fetch_max(now, Ordering::SeqCst);
-            self.starts.lock().unwrap().push(now);
-            std::thread::sleep(std::time::Duration::from_millis(4));
+            self.starts.lock().unwrap().push((at, now));
+            if let Some(Some(meeting)) = meeting {
+                meeting.wait();
+            }
         }
 
         fn end(&self) {
             self.now.fetch_sub(1, Ordering::SeqCst);
+            self.ended.fetch_add(1, Ordering::SeqCst);
         }
 
-        fn most_started(&self, range: std::ops::Range<usize>) -> usize {
+        /// The most read at once as each file of phase `phase` started, after its first `skip`.
+        fn most_started(&self, phase: usize, skip: usize) -> usize {
             let starts = self.starts.lock().unwrap();
-            starts[range].iter().copied().max().unwrap()
+            let of: Vec<usize> = starts
+                .iter()
+                .filter(|(at, _)| *at == phase)
+                .map(|(_, now)| *now)
+                .collect();
+            assert!(of.len() > skip, "phase {phase}: {starts:?}");
+            of[skip..].iter().copied().max().unwrap()
         }
     }
 
@@ -1177,21 +1240,26 @@ mod tests {
             let pools = store.job_pools(&config, "sets").unwrap();
             let tally = store.meter().start(1, workers).tally(Some("sets"));
             let (_files, set, dat) = files(120);
-            let reads = Reading::default();
+            let reads = Reading::new(vec![20, 50, 80], 2);
             // Two at once at first, the default pace's half of your 4; six once you raise it to 12; one once you
-            // lower it to 1, even unthrottled; then three once the pace is gentle and you raise it to 12 again.
+            // lower it to 1, even unthrottled; then three once the pace is gentle and you raise it to 12 again. Each
+            // change is made as that many files are done, and the files after it wait for it.
             let progress = |p: title_select_engine::Progress| {
                 let set = |u: SettingsUpdate| {
                     store.update_settings(&config, &u, "Operator").unwrap();
                 };
                 match p.files_done {
-                    20 => set(readers_of_sets(12)),
+                    20 => {
+                        set(readers_of_sets(12));
+                        reads.change(6);
+                    }
                     50 => {
                         set(readers_of_sets(1));
                         set(SettingsUpdate {
                             pace: Some(Pace::Unthrottled),
                             ..SettingsUpdate::default()
                         });
+                        reads.change(0);
                     }
                     80 => {
                         set(SettingsUpdate {
@@ -1199,17 +1267,19 @@ mod tests {
                             ..SettingsUpdate::default()
                         });
                         set(readers_of_sets(12));
+                        reads.change(3);
                     }
                     _ => {}
                 }
             };
             audit((&set, &dat), workers, &pools, tally, &reads, &progress);
 
-            // The files under way at each change finish as they started; every file started after them follows it.
-            assert_eq!(reads.most_started(0..20), 2);
-            assert_eq!(reads.most_started(35..50), 6);
-            assert_eq!(reads.most_started(65..80), 1);
-            assert_eq!(reads.most_started(95..120), 3);
+            // The files under way at each change finish as they started, up to six of them as the readers fall to one;
+            // every file started after them follows it.
+            assert_eq!(reads.most_started(0, 0), 2);
+            assert_eq!(reads.most_started(1, 0), 6);
+            assert_eq!(reads.most_started(2, 6), 1);
+            assert_eq!(reads.most_started(3, 0), 3);
         });
     }
 
@@ -1225,7 +1295,8 @@ mod tests {
             let shared = pools.pools().readers;
             assert_eq!(shared.limit(), 2);
             let (_files, set, dat) = files(40);
-            let reads = Reading::default();
+            // The first two files to start, of either Job, meet: two are surely read at once.
+            let reads = Reading::new(Vec::new(), 2);
 
             // The Root's readers all taken by other Jobs: a Build's read of the Root waits for one.
             let build = store.meter().start(2, store.job_workers(&config));
@@ -1239,10 +1310,17 @@ mod tests {
                     tx.send(crate::builds::sha256_of(&file, &tally).unwrap())
                         .unwrap();
                 });
-                let waited = rx.recv_timeout(std::time::Duration::from_millis(300));
-                assert!(waited.is_err(), "it read while every reader was taken");
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while shared.waiting() == 0 {
+                    assert!(std::time::Instant::now() < deadline, "it never waited");
+                    std::thread::yield_now();
+                }
+                assert!(
+                    rx.try_recv().is_err(),
+                    "it read while every reader was taken"
+                );
                 drop(held);
-                rx.recv_timeout(std::time::Duration::from_secs(10))
+                rx.recv_timeout(std::time::Duration::from_secs(30))
                     .expect("it reads once a reader is free");
             });
 
