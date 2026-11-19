@@ -27,6 +27,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner installs the toolchain rust-toolchain.toml pins.
       - run: rustup show active-toolchain
+      # rust-cache keys on every installed toolchain, so the runner image's own stable, which changes when GitHub updates
+      # the image, would make PRs miss main's cache. Only the pinned toolchain stays.
+      - run: |
+          active="$(rustup show active-toolchain | cut -d' ' -f1)"
+          rustup toolchain list --quiet | { grep -vxF "$active" || true; } | xargs -r -n1 rustup toolchain uninstall
+          rustup toolchain list
       # Restores main's dependency builds, keyed on the toolchain, Cargo.lock and the manifests; only main saves, so a
       # PR never evicts main's cache.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -56,8 +62,6 @@ jobs:
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
       # The release run below checks every fixture golden, so this one leaves them out.
       - run: cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-      # nextest runs no doctests; there are none yet, this keeps any new one checked.
-      - run: cargo test --doc --locked
       # Every fixture golden: a debug build checks only some of them, a release build all of them in about a minute.
       - run: cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 

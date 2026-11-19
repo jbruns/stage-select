@@ -13,12 +13,14 @@ CI runs the same suite through [cargo-nextest](https://nexte.st), one process pe
 
 ```sh
 cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-cargo test --doc --locked   # nextest runs no doctests; there are none yet, this keeps any new one checked
 cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 ```
 
 The debug run leaves out the `fixtures` binary: its goldens are a subset of the ones the release run checks, and the
 release run checks every golden (ADR 0015). `ONLY_DAT=<file name>` narrows the fixtures test to one DAT.
+
+nextest runs no doctests, and there are none. The first doctest brings `cargo test --doc --locked` back: into CI after
+the debug nextest run, and into the Build and test block in `AGENTS.md`.
 
 The CHD tests need chdman. They skip without it, except where `CI` is set, where a missing chdman is a failure;
 `TITLE_SELECT_CHDMAN` names the binary when it isn't on `PATH`.

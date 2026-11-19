@@ -28,7 +28,6 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
 cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
 cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-cargo test --doc --locked
 cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 ```
 
