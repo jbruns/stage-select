@@ -351,6 +351,9 @@ pub enum Fault {
     RepairDiscarding(u32),
     /// After a repair plan's approval is checked against the Source Set, before the transaction that reserves it.
     RepairApproving,
+    /// After an approved repair is found unable to start, before the transaction that fails its steps, finishes it
+    /// and ends its Job Failed.
+    RepairAbandoning,
     /// After an Ingest Folder's registration is read or recorded, before its marker is written.
     IngestMarking,
     /// After a Library Folder being registered is created or found empty, before the transaction that records it.

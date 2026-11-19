@@ -1662,19 +1662,18 @@ impl Store {
     }
 
     /// Ends approved repair `plan`, none of whose steps started, as its Job `job` fails with `why`: every step fails
-    /// with it, the plan finishes, owing no Audit since nothing was changed, and its Source Set is released.
+    /// with it, the plan finishes, owing no Audit since nothing was changed, and its Source Set is released, all in one
+    /// transaction: a stop before it leaves every step pending, so the Job queued after it abandons the plan again.
     fn abandon_repair(&self, plan: &RepairPlan, job: i64, why: &str) -> Result<()> {
         let at = now();
+        self.fault_point(Fault::RepairAbandoning);
         self.write(|tx| {
             tx.execute(
                 "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3
                  WHERE plan_id = ?1 AND state = 'pending'",
                 params![plan.id, why, at],
             )?;
-            Ok(())
-        })?;
-        let outcomes = self.outcomes(plan)?;
-        self.write(|tx| {
+            let outcomes = Self::outcomes(tx, plan)?;
             tx.execute(
                 "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
                 params![plan.id, at, to_json(&outcomes)],
@@ -1970,7 +1969,7 @@ impl Store {
         job: i64,
         cancelled: bool,
     ) -> Result<()> {
-        let outcomes = self.outcomes(plan)?;
+        let outcomes = self.read(|c| Self::outcomes(c, plan))?;
         // A Source Set set aside whole is unregistered once every file is kept aside, and owes no Audit: there is
         // nothing left to audit. Otherwise it stays registered, and is audited as after any repair.
         let aside = plan.content.set_aside && !cancelled && outcomes.iter().all(|o| o.done);
@@ -2011,9 +2010,9 @@ impl Store {
         Ok(())
     }
 
-    /// What each item of repair `plan` came to, from its steps as recorded.
-    fn outcomes(&self, plan: &RepairPlan) -> Result<Vec<RepairOutcome>> {
-        let steps = self.read(|c| steps_of(c, plan.id))?;
+    /// What each item of repair `plan` came to, from its steps as recorded, read through `c`.
+    fn outcomes(c: &Connection, plan: &RepairPlan) -> Result<Vec<RepairOutcome>> {
+        let steps = steps_of(c, plan.id)?;
         let mut outcomes: Vec<RepairOutcome> = Vec::new();
         for step in &steps {
             let outcome = match outcomes.iter_mut().find(|o| o.item == step.item) {
