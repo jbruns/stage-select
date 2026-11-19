@@ -2159,7 +2159,8 @@ The tests fail, rather than skip, without it.
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test --release -p title-select-selection` and review the diff: every
   changed line is a changed selection.
 - **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test it --
-  selection::a_real_dat --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
+  selection::a_real_dat --ignored --nocapture` selects from it, checks every group has a rule and prints the counts.
+  Never commit the DAT.
 
 ## Licence
 
