@@ -1983,3 +1983,335 @@ fn a_fill_where_a_game_is_placed_keeps_its_original_when_the_folder_moves_before
         );
     }
 }
+
+/// As the service does when it next starts: requeues the Jobs a stop interrupted, recovers the moves out of the
+/// Ingest Folder a stop left, and runs a Repair Job for each repair not finished. Returns what recovering the moves
+/// left unfinished or ended, with why, and each Repair Job as it ended.
+fn restart(env: &Env) -> (Vec<(i64, String)>, Vec<title_select_api::Job>) {
+    let mut jobs: Vec<i64> = env
+        .store
+        .recover_jobs(WORKERS)
+        .unwrap()
+        .into_iter()
+        .filter_map(|r| r.requeued.map(|j| j.id))
+        .collect();
+    let left = env.store.recover_ingest_moves(&env.config).unwrap();
+    jobs.extend(
+        env.store
+            .recover_repairs()
+            .unwrap()
+            .into_iter()
+            .map(|j| j.id),
+    );
+    let ended = jobs
+        .into_iter()
+        .map(|id| {
+            assert_eq!(env.store.claim_job().unwrap().unwrap().id, id);
+            env.store.run_repair_job(&env.config, id, None).unwrap()
+        })
+        .collect();
+    (left, ended)
+}
+
+/// Runs `plan` with `hook` at every fault point, catching a stop the hook makes.
+fn repair_stopped(env: &Env, plan: &RepairPlan, hook: impl Fn(Fault) + Send + Sync + 'static) {
+    env.store.hook_faults(Some(std::sync::Arc::new(hook)));
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let job = approved.job.unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_repair_job(&env.config, job, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+}
+
+/// The files in `dir` and every folder under it, with their contents, as `cp -R` makes them.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir(to).unwrap();
+    std::fs::set_permissions(to, std::fs::metadata(from).unwrap().permissions()).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        match entry.file_type().unwrap().is_dir() {
+            true => copy_tree(&entry.path(), &target),
+            false => {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn an_original_that_cannot_be_returned_yet_leaves_its_fill_unfinished_until_it_is() {
+    let (env, a, b) = joust_half_placed();
+    env.store.copy_across_filesystems(true);
+    let plan = env.plan(&[]);
+    let (copy, name, retained) = (
+        env.library().join(b),
+        env.tmp.path().join("in/side-b.a26"),
+        env.tmp.path().join("in/.title-select/retained"),
+    );
+    let blocked = retained.clone();
+    // Its copy removed once its original is set aside to delete, its name taken, and no kept files can be made: a
+    // file in place of each generation of them not made yet.
+    let done = repair_hooked(&env, &plan, move |fault| {
+        if fault == Fault::IngestIsolated {
+            std::fs::remove_file(&copy).unwrap();
+            std::fs::write(&name, b"squatter").unwrap();
+            for generation in 1..=20 {
+                let at = blocked.join(generation.to_string());
+                if !at.exists() {
+                    std::fs::write(at.with_extension("blocked"), b"").unwrap();
+                    std::fs::write(at, b"").unwrap();
+                }
+            }
+        }
+    });
+
+    assert!(done.finished_at.is_none(), "{done:#?}");
+    let deleting = Env::files_under(&retained.join(".deleting"));
+    assert_eq!(
+        deleting.len(),
+        1,
+        "the original is still set aside: {deleting:?}"
+    );
+    let (left, _) = restart(&env);
+    assert!(
+        left.iter()
+            .any(|(_, why)| why.contains("could not be returned to the ingest folder yet")),
+        "{left:?}"
+    );
+
+    // Once nothing is in the way, the next start returns it.
+    for generation in 1..=20 {
+        let at = retained.join(generation.to_string());
+        if at.with_extension("blocked").exists() {
+            std::fs::remove_file(at.with_extension("blocked")).unwrap();
+            std::fs::remove_file(at).unwrap();
+        }
+    }
+    std::fs::remove_file(env.tmp.path().join("in/side-b.a26")).unwrap();
+    let (_, ended) = restart(&env);
+
+    assert_eq!(
+        std::fs::read(env.tmp.path().join("in/side-b.a26")).unwrap(),
+        b"joust-b"
+    );
+    assert!(Env::files_under(&retained.join(".deleting")).is_empty());
+    assert_eq!(placed(&env), [(a.to_owned(), "Joust (USA)".to_owned())]);
+    assert!(
+        ended.iter().all(|j| j.state == JobState::Succeeded),
+        "{ended:?}"
+    );
+    assert!(
+        env.store
+            .repair_plan(plan.id)
+            .unwrap()
+            .finished_at
+            .is_some()
+    );
+}
+
+#[test]
+fn a_stop_while_an_original_is_returned_into_the_kept_files_finishes_the_return_and_records_it() {
+    let (env, a, b) = joust_half_placed();
+    env.store.copy_across_filesystems(true);
+    let plan = env.plan(&[]);
+    let (copy, name) = (env.library().join(b), env.tmp.path().join("in/side-b.a26"));
+    // Its copy removed once its original is set aside to delete, and its name taken: the original is kept instead,
+    // and the service stops just after it is moved into the kept files.
+    repair_stopped(&env, &plan, move |fault| match fault {
+        Fault::IngestIsolated => {
+            std::fs::remove_file(&copy).unwrap();
+            std::fs::write(&name, b"squatter").unwrap();
+        }
+        Fault::IngestSetAside => panic!("stopped as the original is kept"),
+        _ => {}
+    });
+
+    let (_, ended) = restart(&env);
+
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    assert_eq!(kept.len(), 1, "the original is recorded kept: {kept:?}");
+    let at = env
+        .tmp
+        .path()
+        .join("in/.title-select/retained")
+        .join(kept[0].generation.to_string())
+        .join(&kept[0].kept_name);
+    assert_eq!(std::fs::read(at).unwrap(), b"joust-b");
+    assert_eq!(placed(&env), [(a.to_owned(), "Joust (USA)".to_owned())]);
+    assert!(
+        ended.iter().all(|j| j.state == JobState::Succeeded),
+        "{ended:?}"
+    );
+    let done = env.store.repair_plan(plan.id).unwrap();
+    let fill = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Joust (USA)")
+        .unwrap();
+    assert!(!fill.done, "{fill:?}");
+}
+
+#[test]
+fn a_fill_never_consumes_its_original_once_the_folder_it_goes_in_within_the_library_folder_moves() {
+    // The loose game's own folder moved away within the Library Folder, and an empty one put at its path, once the
+    // file is in it: by a rename, or by a copy whose original is set aside to delete.
+    for across in [false, true] {
+        let (env, a, b) = joust_half_placed();
+        env.store.copy_across_filesystems(across);
+        let plan = env.plan(&[]);
+        let (game, moved) = (
+            env.library().join("Joust (USA)"),
+            env.library().join("Joust (USA) moved"),
+        );
+        let away = moved.clone();
+        let done = repair_hooked(&env, &plan, move |fault| {
+            let now = match across {
+                false => fault == Fault::IngestMoved,
+                true => fault == Fault::IngestIsolated,
+            };
+            if now {
+                std::fs::rename(&game, &away).unwrap();
+                std::fs::create_dir(&game).unwrap();
+            }
+        });
+
+        assert_eq!(
+            std::fs::read(env.tmp.path().join("in/side-b.a26")).unwrap(),
+            b"joust-b",
+            "across={across}: the original stays in the ingest folder"
+        );
+        let leaf = b.rsplit_once('/').unwrap().1;
+        assert!(!moved.join(leaf).exists(), "across={across}");
+        assert!(!env.library().join(b).exists(), "across={across}");
+        assert_eq!(placed(&env), [(a.to_owned(), "Joust (USA)".to_owned())]);
+        let fill = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Joust (USA)")
+            .unwrap();
+        assert!(
+            !fill.done
+                && fill
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("or a folder in it was moved or replaced")),
+            "across={across}: {:#?}",
+            done.outcomes
+        );
+    }
+}
+
+#[test]
+fn a_stop_once_a_fill_went_into_a_library_folder_since_moved_leaves_it_unfinished_until_the_folder_is_back()
+ {
+    for across in [false, true] {
+        let (env, a, b) = joust_half_placed();
+        env.store.copy_across_filesystems(across);
+        let plan = env.plan(&[]);
+        let (library, moved) = (env.library(), env.tmp.path().join("roots/play/moved"));
+        let (here, away) = (library.clone(), moved.clone());
+        // Moved away, an empty folder put at its path, and the service stopped: once the file is in it by a rename,
+        // or once a copy's original is set aside to delete.
+        repair_stopped(&env, &plan, move |fault| {
+            let now = match across {
+                false => fault == Fault::IngestMoved,
+                true => fault == Fault::IngestIsolated,
+            };
+            if now {
+                std::fs::rename(&here, &away).unwrap();
+                std::fs::create_dir(&here).unwrap();
+                panic!("stopped with the folder moved");
+            }
+        });
+        let unfinished = |left: &[(i64, String)], ended: &[title_select_api::Job]| {
+            assert!(
+                left.iter()
+                    .any(|(_, why)| why.contains("put the folder back at play/atari")),
+                "across={across}: {left:?}"
+            );
+            assert!(
+                ended.iter().all(|j| j.state == JobState::Failed
+                    && j.error
+                        .as_deref()
+                        .is_some_and(|e| e.contains("put the folder back at play/atari"))),
+                "across={across}: {ended:?}"
+            );
+            assert!(
+                env.store
+                    .repair_plan(plan.id)
+                    .unwrap()
+                    .finished_at
+                    .is_none()
+            );
+            assert_eq!(placed(&env), [(a.to_owned(), "Joust (USA)".to_owned())]);
+            // The repair it belongs to holds the source set, and the move the folders it goes from and into.
+            for held in [
+                env.store
+                    .unregister_ingest_folder(&env.config, "in")
+                    .unwrap_err(),
+                env.store
+                    .unregister_library_folder(&env.config, env.folder.id)
+                    .unwrap_err(),
+                env.store
+                    .unregister_source_set(&env.config, SET)
+                    .unwrap_err(),
+            ] {
+                assert!(matches!(held, Error::Conflict(_)), "{held:?}");
+            }
+            match env
+                .store
+                .unregister_ingest_folder(&env.config, "in")
+                .unwrap_err()
+            {
+                Error::Conflict(why) => assert!(why.contains("put the folder back"), "{why}"),
+                other => panic!("{other:?}"),
+            }
+        };
+
+        let (left, ended) = restart(&env);
+        unfinished(&left, &ended);
+        // A copy of the folder, its marker and all, is still not the folder the file went into.
+        std::fs::remove_dir(&library).unwrap();
+        copy_tree(&moved, &library);
+        let (left, ended) = restart(&env);
+        unfinished(&left, &ended);
+
+        // The folder itself back: the move, and the repair, finish.
+        std::fs::remove_dir_all(&library).unwrap();
+        std::fs::rename(&moved, &library).unwrap();
+        let (left, ended) = restart(&env);
+
+        assert!(left.is_empty(), "across={across}: {left:?}");
+        assert!(
+            ended.iter().all(|j| j.state == JobState::Succeeded),
+            "across={across}: {ended:?}"
+        );
+        assert!(
+            env.store
+                .repair_plan(plan.id)
+                .unwrap()
+                .finished_at
+                .is_some()
+        );
+        assert_eq!(std::fs::read(env.library().join(b)).unwrap(), b"joust-b");
+        assert!(
+            !env.tmp.path().join("in/side-b.a26").exists(),
+            "across={across}"
+        );
+        assert_eq!(
+            placed(&env),
+            [
+                (a.to_owned(), "Joust (USA)".to_owned()),
+                (b.to_owned(), "Joust (USA)".to_owned())
+            ],
+            "across={across}"
+        );
+    }
+}

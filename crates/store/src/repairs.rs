@@ -1556,8 +1556,14 @@ impl Store {
         let stop = |why: String| -> Ran {
             if unstarted {
                 self.abandon_repair(&plan, job, &why)?;
+                return Ok(Err(why));
             }
-            Ok(Err(why))
+            // A fill whose move a stop left unable to go on says why first: where its file went.
+            let blocked = self.read(|c| blocked_moves(c, id))?;
+            Ok(Err(match blocked.is_empty() {
+                true => why,
+                false => format!("{}; {why}", blocked.join("; ")),
+            }))
         };
         // Nothing is written to, nor a marker made in, the folder of a Source Set once it is Unregistered.
         if let Err(Error::Conflict(why)) = self
@@ -4381,6 +4387,17 @@ struct Filled {
     game: String,
     st: rustix::fs::Stat,
     sha256: String,
+}
+
+/// Why each move out of an Ingest Folder a fill of repair `plan` began is left unfinished, as recorded.
+fn blocked_moves(c: &Connection, plan: i64) -> Result<Vec<String>> {
+    let mut stmt = c.prepare(
+        "SELECT m.blocked FROM repair_steps st JOIN ingest_moves m ON m.id = st.move_id
+         WHERE st.plan_id = ?1 AND m.blocked IS NOT NULL AND m.state NOT IN ('done', 'failed') ORDER BY st.seq",
+    )?;
+    Ok(stmt
+        .query_map([plan], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// The Ingest Folder registration ingest item `item` was found in.

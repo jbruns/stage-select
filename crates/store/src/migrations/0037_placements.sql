@@ -47,3 +47,13 @@ ALTER TABLE repair_steps ADD COLUMN copy_ino INTEGER;
 ALTER TABLE repair_steps ADD COLUMN copy_sha256 TEXT;
 ALTER TABLE repair_steps ADD COLUMN copy_slot TEXT;
 ALTER TABLE repair_steps ADD COLUMN copy_ctime_ns TEXT;
+
+-- An Ingest Folder move into a folder at a path records, before anything is moved there, the device and inode of
+-- that folder and of each folder below it down to the one its file goes in (dest_chain, a JSON array of [dev, ino]):
+-- its original is consumed only while the folders at that path are still those, and a stop that finds them moved or
+-- replaced leaves it unfinished, with why in blocked, until they are back. A move whose published copy failed its
+-- last check returns its original to the Ingest Folder: why is recorded in return_reason before the original leaves the
+-- private .deleting folder, so that a stop finishes the return rather than read an empty slot as a deletion.
+ALTER TABLE ingest_moves ADD COLUMN dest_chain TEXT;
+ALTER TABLE ingest_moves ADD COLUMN blocked TEXT;
+ALTER TABLE ingest_moves ADD COLUMN return_reason TEXT;

@@ -158,6 +158,14 @@ fn library_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
     holds.extend(crate::placements::folder_hold(c, id)?);
     holds.extend(strings(
         c,
+        "SELECT DISTINCT 'a move of ' || m.name || ' from an ingest folder into it is not finished'
+                         || COALESCE(': ' || m.blocked, '')
+         FROM ingest_moves m JOIN library_folders f ON f.root = m.dest_root AND f.path = m.dest_rel
+         WHERE f.id = ?1 AND m.dest_kind = 'path' AND m.state NOT IN ('done', 'failed')",
+        [id],
+    )?);
+    holds.extend(strings(
+        c,
         "SELECT 'its move to ' || to_path || ' is not finished; the service finishes it when it next starts'
          FROM library_folder_moves WHERE folder_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
         [id],
@@ -234,7 +242,7 @@ fn ingest_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
     )?);
     holds.extend(strings(
         c,
-        "SELECT DISTINCT 'a move of ' || name || ' out of it is not finished'
+        "SELECT DISTINCT 'a move of ' || name || ' out of it is not finished' || COALESCE(': ' || blocked, '')
          FROM ingest_moves WHERE folder_id = ?1 AND state NOT IN ('done', 'failed')",
         [id],
     )?);
