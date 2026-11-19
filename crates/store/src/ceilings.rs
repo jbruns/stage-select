@@ -1137,6 +1137,7 @@ mod tests {
             evidence: title_select_api::report::AuditEvidence::Full,
             reads: Some(reads),
             tally,
+            placed: &[],
         };
         title_select_engine::audit_with(dat, set, &options).unwrap();
     }

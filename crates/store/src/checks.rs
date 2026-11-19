@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use title_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
+    PlacedFile,
 };
 use title_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
 use title_select_api::{HeaderRule, Job, JobKind, JobState};
@@ -91,6 +92,8 @@ pub(super) struct Scan {
     /// Entries you acknowledged, found as they were then: neither read nor reported as drift.
     pub acknowledged: Vec<DriftEntry>,
     updates: Vec<Update>,
+    /// The records of Placed Games' files to bring up to date: each path, as it was recorded and as it now is.
+    placed_updates: Vec<(String, FileStat, FileStat)>,
     /// What was read of each entry, by name, with the file as it was when read.
     pub probes: HashMap<String, (Seen, Probe)>,
     /// The acknowledgements the check was made with: only these can it find changed.
@@ -113,6 +116,8 @@ pub(super) struct ScanInput<'a> {
     pub acks: &'a HashMap<String, Ack>,
     /// Where what is read of the folder is counted: its Root's, for the Job that reads it, if any.
     pub tally: &'a Tally,
+    /// The files of the Placed Games the folder holds: never drift, each checked as a built file is.
+    pub placed: &'a [PlacedFile],
 }
 
 /// The names in a folder other than Title Select's own entries, sorted, with each disc layout folder's entries in
@@ -320,6 +325,7 @@ pub(super) fn scan(
         drift: Vec::new(),
         acknowledged: Vec::new(),
         updates: Vec::new(),
+        placed_updates: Vec::new(),
         probes: HashMap::new(),
         acks: input.acks.clone(),
     };
@@ -327,7 +333,7 @@ pub(super) fn scan(
         .iter()
         .map(|name| (name.to_lowercase(), name.as_str()))
         .collect();
-    let total = input.built.len() + entries.len();
+    let total = input.built.len() + input.placed.len() + entries.len();
     let mut done = 0;
     let mut tick = || {
         done += 1;
@@ -358,6 +364,7 @@ pub(super) fn scan(
             hashed: false,
             torrentzip: built.torrentzip || built.loose || built.chd,
             selected: selected.contains_key(&target.to_lowercase()),
+            placed: input.placed.iter().any(|p| p.path == *target),
             detail: None,
         };
         let found = by_lower.get(&target.to_lowercase()).copied();
@@ -465,6 +472,75 @@ pub(super) fn scan(
                         file.outcome = FileOutcome::Conflict;
                         file.detail = Some(
                             "it changed since it was built and no longer holds the ROMs the DAT expects there"
+                                .into(),
+                        );
+                    }
+                }
+            }
+        }
+        out.files.push(file);
+        tick();
+    }
+
+    // A Placed Game's file is its Source Set's only copy: changed or missing, it is reported as a built file is, and
+    // never as drift.
+    for placed in input.placed {
+        let target = &placed.path;
+        if input.built.contains_key(target) {
+            tick();
+            continue;
+        }
+        let mut file = CheckedFile {
+            target: target.clone(),
+            game: placed.game.clone(),
+            outcome: FileOutcome::Unchanged,
+            hashed: false,
+            torrentzip: true,
+            selected: selected.contains_key(&target.to_lowercase()),
+            placed: true,
+            detail: None,
+        };
+        let found = by_lower.get(&target.to_lowercase()).copied();
+        if let Some(name) = found {
+            consumed.insert(name.to_owned());
+        }
+        match found.map(|name| (name, dir.stat(name))) {
+            None => file.outcome = FileOutcome::Missing,
+            Some((name, _)) if name != target => {
+                file.outcome = FileOutcome::Conflict;
+                file.detail = Some(format!("it is now named {name}"));
+            }
+            Some((_, Err(e))) => {
+                file.outcome = FileOutcome::Unreadable;
+                file.detail = Some(e.to_string());
+            }
+            Some((_, Ok(None))) => file.outcome = FileOutcome::Missing,
+            Some((_, Ok(Some(st)))) if FolderDir::kind(&st) != FileType::RegularFile => {
+                file.outcome = FileOutcome::Conflict;
+                file.detail = Some("it is no longer a regular file".into());
+            }
+            Some((_, Ok(Some(st)))) if file_stat(&st) == placed.file => {}
+            Some((_, Ok(Some(st)))) => {
+                // Its SHA-256 is of all of it, whatever the DAT's Header Rule.
+                let (probe, hashed) = probe_of(target, &st, None, &mut out);
+                file.hashed = hashed;
+                match probe {
+                    Err(e) => {
+                        file.outcome = FileOutcome::Unreadable;
+                        file.detail = Some(e);
+                    }
+                    Ok(p) if p.sha256 == placed.sha256 => {
+                        file.outcome = FileOutcome::Refreshed;
+                        out.placed_updates.push((
+                            target.clone(),
+                            placed.file.clone(),
+                            file_stat(&st),
+                        ));
+                    }
+                    Ok(_) => {
+                        file.outcome = FileOutcome::Conflict;
+                        file.detail = Some(
+                            "it changed since it was placed; an audit of its source set says what it holds now"
                                 .into(),
                         );
                     }
@@ -674,6 +750,20 @@ pub(super) fn store_check(
                 ],
             )?;
         }
+        for (path, was, now) in &scan.placed_updates {
+            tx.execute(
+                "UPDATE placed_files SET size = ?5, mtime_ns = ?6
+                 WHERE folder_id = ?1 AND path = ?2 AND size = ?3 AND mtime_ns = ?4",
+                params![
+                    folder,
+                    path,
+                    was.size as i64,
+                    was.mtime_ns as i64,
+                    now.size as i64,
+                    now.mtime_ns as i64
+                ],
+            )?;
+        }
         tx.execute("DELETE FROM folder_probes WHERE folder_id = ?1", [folder])?;
         // An acknowledgement lasts only while its entry is as it was: one the check found changed, or gone, is
         // dropped, and the entry is drift again. Only one the check was made with, and still as it was then, is: one
@@ -778,6 +868,7 @@ struct CheckInputs {
     revision: (String, bool),
     cached: HashMap<String, (Seen, Probe)>,
     acks: HashMap<String, Ack>,
+    placed: Vec<PlacedFile>,
 }
 
 impl Store {
@@ -887,6 +978,7 @@ impl Store {
                 built: read_built(&tx, folder.id)?,
                 cached: read_probes(&tx, folder.id)?,
                 acks: read_acks(&tx, folder.id)?,
+                placed: crate::placements::placed_files_in(&tx, folder.id)?,
                 folder,
                 selection,
                 selected,
@@ -939,6 +1031,7 @@ impl Store {
                         cached: &inputs.cached,
                         acks: &inputs.acks,
                         tally: &Tally::of_this_thread(Some(&inputs.folder.root)),
+                        placed: &inputs.placed,
                     },
                     progress,
                 );

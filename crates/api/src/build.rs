@@ -861,6 +861,18 @@ fn yes() -> bool {
     true
 }
 
+/// A file of a Placed Game: a Game its Source Set keeps in a Library Folder rather than in its own folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedFile {
+    pub game: String,
+    pub library_folder: i64,
+    /// Relative to the Library Folder, with `/` separators.
+    pub path: String,
+    /// As it was when it was placed, or when a repair last moved it.
+    pub file: FileStat,
+    pub sha256: String,
+}
+
 /// Why a Library Folder is Incomplete: why its current build lacks a selected game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1018,6 +1030,9 @@ pub struct CheckedFile {
     pub torrentzip: bool,
     /// Whether the selection the check was made against selects it.
     pub selected: bool,
+    /// Whether it is a file of a Placed Game: the only copy its Source Set keeps.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub placed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }

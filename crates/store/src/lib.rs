@@ -23,6 +23,7 @@ mod kept;
 mod lifecycle;
 mod migrations;
 pub mod observe;
+mod placements;
 mod plans;
 mod profiles;
 mod repairs;

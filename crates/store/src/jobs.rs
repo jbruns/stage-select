@@ -253,6 +253,7 @@ impl Store {
             let set = set_by_name(tx, name)?;
             check_no_active(tx, set.id, &set.record.name, JobKind::Audit)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
+            crate::placements::check_no_holding_build(tx, set.id, &set.record.name)?;
             let (revision_id, chosen) = choose_revision(tx, &set, revision)?;
             check_blob_present(&chosen)?;
             tx.execute(

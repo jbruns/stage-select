@@ -248,6 +248,24 @@ pub fn is_reserved_name(name: &str) -> bool {
     name.eq_ignore_ascii_case(crate::build::STATE)
 }
 
+/// What starts the path, in its Source Set's Audits and Repairs, of a file of a Placed Game (ADR 0023): the reserved
+/// [`STATE`](crate::build::STATE) name, which no file of a Source Set has, then `placed/<library folder id>/`. The rest
+/// is the file's path relative to the Library Folder.
+const PLACED: &str = ".title-select/placed/";
+
+/// The path, in its Source Set's Audits and Repairs, of the file at `rel` in Library Folder `folder`, of a Placed
+/// Game.
+pub fn placed_path(folder: i64, rel: &str) -> String {
+    format!("{PLACED}{folder}/{rel}")
+}
+
+/// The Library Folder and the path relative to it of a Placed Game's file, from its path in its Source Set's Audits;
+/// none for a file in the Source Set's own folder.
+pub fn split_placed(path: &str) -> Option<(i64, &str)> {
+    let (folder, rel) = path.strip_prefix(PLACED)?.split_once('/')?;
+    Some((folder.parse().ok()?, rel))
+}
+
 /// Whether `name` can name a file directly in a folder: not empty, no separator, not `.` or `..`, and not a
 /// [reserved name](is_reserved_name).
 fn is_plain_name(name: &str) -> bool {

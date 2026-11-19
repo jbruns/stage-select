@@ -318,7 +318,7 @@ impl Store {
             }
             !stop.get()
         };
-        let Some(walked) = title_select_engine::stat_walk(
+        let Some(mut walked) = title_select_engine::stat_walk(
             &resolved.path,
             Some(&resolved.canonical_root),
             &keep_going,
@@ -326,6 +326,19 @@ impl Store {
         else {
             return Ok(None);
         };
+        // Its Placed Games' files are its own too, where they are placed.
+        for (folder, placed, files) in self.placed_folders(config, set.id)? {
+            walked.extend(title_select_engine::stat_placed(
+                &title_select_engine::Placed {
+                    id: folder,
+                    folder: &placed.path,
+                    files,
+                    confine: Some(&placed.canonical_root),
+                    pools: None,
+                    tally: Default::default(),
+                },
+            ));
+        }
         Ok(Some((
             set.id,
             baseline.audit,

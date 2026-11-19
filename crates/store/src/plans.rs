@@ -205,6 +205,10 @@ struct Inputs {
     additions: Vec<crate::additions::AdditionRow>,
     /// The system's latest SBI pack, when the storage policy puts each disc's SBI file beside it.
     sbi: Option<crate::sbi_packs::SbiPack>,
+    /// The files of the Placed Games the folder holds, which a plan never writes over or keeps aside.
+    placed: Vec<title_select_api::build::PlacedFile>,
+    /// How many Games of the Source Set are placed, in this folder or another.
+    placed_games: u64,
 }
 
 fn load(
@@ -365,6 +369,12 @@ fn load(
         store: store_id(c)?,
         built: read_built(c, folder.id)?,
         originals: read_originals(c, folder.id)?,
+        placed: crate::placements::placed_files_in(c, folder.id)?,
+        placed_games: c.query_row(
+            "SELECT count(*) FROM placed_games WHERE source_set_id = ?1",
+            [folder.source_set_id],
+            |r| r.get::<_, i64>(0),
+        )? as u64,
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -540,6 +550,7 @@ fn check_folder(
                 acks: &inputs.acks,
                 // Counted when a Job plans, as a Build does again before it writes; not when you do.
                 tally: &title_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
+                placed: &inputs.placed,
             },
             None,
         )),
@@ -2384,6 +2395,18 @@ impl Store {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
         })?;
+        // A Build reads each Game where its Source Set's latest Audit found it, and a Placed Game's file is not in
+        // the Source Set's folder: until Builds read Placed Games, none is built from a Source Set that has any.
+        if inputs.placed_games > 0 && !choices.remove_all {
+            return Err(Error::Refused(format!(
+                "{} of source set {} placed in a play library folder, and a build can't read a placed game yet;                  nothing was planned",
+                match inputs.placed_games {
+                    1 => "1 game".to_owned(),
+                    n => format!("{n} games"),
+                },
+                inputs.folder.source_set
+            )));
+        }
         if inputs.storage.sbi {
             inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
         }
@@ -2547,6 +2570,7 @@ impl Store {
             folder.check_registered()?;
             let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
+            crate::placements::check_no_audit_reading(tx, folder.id)?;
             let revision_id: i64 = tx.query_row(
                 "SELECT dat_revision_id FROM selections WHERE id = ?1",
                 [content.selection],

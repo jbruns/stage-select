@@ -927,7 +927,7 @@ impl Store {
     }
 
     /// Rebinds a Library Folder to another Source Set of the same system, or to another Profile. Refused while a
-    /// Build Job is Queued or Running for it.
+    /// Build Job is Queued or Running for it, and rebinding it to another Source Set while it holds Placed Games.
     pub fn change_library_folder(
         &self,
         config: &Config,
@@ -950,8 +950,20 @@ impl Store {
                         set.record.dat, folder.system
                     )));
                 }
+                if set.id != folder.source_set_id
+                    && let Some(why) = crate::placements::folder_hold(tx, id)?
+                {
+                    return Err(Error::Conflict(format!(
+                        "library folder {id} can't be bound to another source set yet: {why}"
+                    )));
+                }
                 tx.execute(
                     "UPDATE library_folders SET source_set_id = ?2 WHERE id = ?1",
+                    params![id, set.id],
+                )?;
+                // Only a folder bound to a Source Set holds its Placed Games.
+                tx.execute(
+                    "UPDATE source_sets SET holding_folder_id = NULL WHERE holding_folder_id = ?1 AND id <> ?2",
                     params![id, set.id],
                 )?;
             }
