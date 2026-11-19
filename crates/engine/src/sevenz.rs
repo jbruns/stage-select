@@ -100,6 +100,11 @@ impl Gate {
         self.permits.most_at_once()
     }
 
+    /// How many archives wait for a permit now.
+    pub fn waiting(&self) -> usize {
+        self.permits.waiting()
+    }
+
     /// How many encoded headers have been decoded inside the gate.
     pub fn headers_decoded(&self) -> usize {
         self.headers.load(Ordering::SeqCst)

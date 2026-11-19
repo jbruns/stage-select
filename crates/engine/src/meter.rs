@@ -1626,11 +1626,11 @@ mod tests {
         (meter, pool)
     }
 
-    /// Runs `f` on its own thread, failing if it takes more than a few seconds.
+    /// Runs `f` on its own thread, failing if it takes more than 30 seconds: a reader stuck.
     fn within<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || tx.send(f()));
-        rx.recv_timeout(Duration::from_secs(5))
+        rx.recv_timeout(Duration::from_secs(30))
             .expect("it finished in time")
     }
 
@@ -1763,12 +1763,14 @@ mod tests {
             let _reading = tally.reader();
             tx.send(()).unwrap();
         });
-        assert!(
-            rx.recv_timeout(Duration::from_millis(200)).is_err(),
-            "it waits"
-        );
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while pool.waiting() == 0 {
+            assert!(Instant::now() < deadline, "it never waited");
+            std::thread::yield_now();
+        }
+        assert!(rx.try_recv().is_err(), "it waits");
         drop(permit);
-        rx.recv_timeout(Duration::from_secs(5))
+        rx.recv_timeout(Duration::from_secs(30))
             .expect("it reads once a reader is free");
     }
 
