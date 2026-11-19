@@ -27,6 +27,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner installs the toolchain rust-toolchain.toml pins.
       - run: rustup show active-toolchain
+      # rust-cache keys on every installed toolchain, so the runner image's own stable, which changes when GitHub updates
+      # the image, would make PRs miss main's cache. Only the pinned toolchain stays.
+      - run: |
+          active="$(rustup show active-toolchain | cut -d' ' -f1)"
+          rustup toolchain list --quiet | { grep -vxF "$active" || true; } | xargs -r -n1 rustup toolchain uninstall
+          rustup toolchain list
       # Restores main's dependency builds, keyed on the toolchain, Cargo.lock and the manifests; only main saves, so a
       # PR never evicts main's cache.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
