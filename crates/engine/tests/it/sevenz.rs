@@ -1,18 +1,14 @@
 //! 7z archives, read only in Ingest Folders (ADR 0018): probed member by member within a dictionary limit and a
 //! global decode gate, and their members written out as TorrentZip or loose files.
 
-mod common;
-#[path = "common/sevenz.rs"]
-mod sevenz_fixtures;
-
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-use common::*;
-use sevenz_fixtures::*;
+use crate::common::*;
+use crate::sevenz_fixtures::*;
 use sha2::{Digest, Sha256};
 use title_select_api::build::ExpectedRom;
 use title_select_engine::build::{Probe, Probed, ZipLimits, verify, verify_loose};

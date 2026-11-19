@@ -1,11 +1,9 @@
 //! Evidence Levels: Claim from a quick inventory, and Payload Evidence reused under the change test.
 
-mod common;
-
 use std::path::Path;
 use std::sync::Mutex;
 
-use common::*;
+use crate::common::*;
 use title_select_engine::payload::Checksums;
 use title_select_engine::{
     AuditEvidence, EvidenceLevel, FileStamp, Finding, GameStatus, ONE_WORKER_EACH, Options,

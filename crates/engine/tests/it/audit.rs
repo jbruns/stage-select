@@ -1,8 +1,5 @@
-mod common;
-#[path = "common/sevenz.rs"]
-mod sevenz_fixtures;
-
-use common::*;
+use crate::common::*;
+use crate::sevenz_fixtures;
 use sha2::Digest;
 use title_select_engine::{AvailableElsewhere, EvidenceLevel, Finding, GameStatus, audit};
 

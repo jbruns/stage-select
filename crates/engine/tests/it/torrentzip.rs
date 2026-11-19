@@ -20,7 +20,7 @@ fn golden_members() -> Vec<(&'static str, Vec<u8>)> {
 
 #[test]
 fn the_writer_reproduces_an_independent_torrentzip_byte_for_byte() {
-    let golden = include_bytes!("data/golden-game.zip");
+    let golden = include_bytes!("../data/golden-game.zip");
     let mut members = golden_members();
     members.sort_by(|a, b| compare_names(a.0, b.0));
     let mut writer = Writer::new(Cursor::new(Vec::new())).unwrap();

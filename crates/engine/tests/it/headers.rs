@@ -1,8 +1,6 @@
 //! Headers: a DAT that names a Header Rule matches a dump with or without its Header (ADR 0016).
 
-mod common;
-
-use common::*;
+use crate::common::*;
 use std::fs::File;
 use std::io::Read;
 use std::sync::Mutex;

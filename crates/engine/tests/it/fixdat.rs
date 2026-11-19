@@ -1,11 +1,9 @@
 //! Exporting what a Source Set lacks from its Audit: the Fixdat and the have/miss CSV.
 
-mod common;
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use title_select_engine::dat::Dat;
 use title_select_engine::fixdat::{Lacking, Scope};
 use title_select_engine::{Report, audit};

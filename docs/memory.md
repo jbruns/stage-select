@@ -105,7 +105,7 @@ window. The other memory 7z needs is small and fixed: members stream through the
 - zstd's window is checked on every frame, not only the first: the packed stream is followed frame by frame as it
   is read, and a frame whose header declares a window that, with the dictionaries of the block's other coders, is
   over the limit (or alone over 128 MiB) stops the decode before libzstd sees that header. libzstd allocates through C malloc, which the counting allocator can't see, so this
-  bound is shown by the refusal in `crates/engine/tests/sevenz.rs` rather than by a measured peak.
+  bound is shown by the refusal in `crates/engine/tests/it/sevenz.rs` rather than by a measured peak.
 - One global gate in the Store lets at most `[ingest] archive_workers` (2 by default) archives be read at once,
   across every ingest scan and Change Plan. The permit is taken before the header is read and held to the last
   member, so header decoding counts against it too.
