@@ -48,7 +48,8 @@ file, such as a `.wav` or `.cue`, that a DAT lists.
 **Source Set**:
 A preserved collection, kept with its files, variants and provenance, that can be audited against its DAT and is
 recorded with the DAT Revision of its latest Audit; the source from which a Play Library is built. It changes only
-through an approved Repair, and only while its Root may write it and its marker says it is this store's Source Set.
+through an approved Repair, or a Build that places or returns its Games under Single Copy, and only while its Root
+may write it and its marker says it is this store's Source Set.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
 **Coverage**:
@@ -212,7 +213,8 @@ _Avoid_: Profile (when meaning the chosen releases), Filtered DAT
 
 **Change Plan**:
 A proposed set of changes that the Operator approves before a Source Set is repaired or a Selection is built into a
-Play Library. Approval to repair a Source Set is separate from approval to build a Play Library.
+Play Library. Approval to repair a Source Set is separate from approval to build a Play Library, except that approving
+a Build under Single Copy also approves the Placements it changes.
 
 **Repair**:
 Applying an approved Change Plan to a Source Set, proposed from its latest Audit's payload Evidence and from items
@@ -283,6 +285,23 @@ _Avoid_: Recompress, migration
 A Storage Policy setting, global with per-system overrides and off by default, under which a Conversion deletes each
 original once its converted file is verified and the original is proven unchanged since the Conversion read it. An
 original that can't be proven so stays a Kept File.
+
+**Single Copy**:
+A Storage Policy setting, global with per-system overrides and off by default, under which a Build places each
+selected Game of a Source Set in one Library Folder instead of copying it, so that the Game is kept once. Keeping a
+Placed Game in a converted format, such as CHD, is a further choice per system, made knowing that the Game's only copy
+is then no longer stored as its DAT lists it.
+_Avoid_: Move mode, organize
+
+**Placement**:
+Where a Source Set keeps a Game: in the Source Set's own folder, or in a Library Folder. A Game has one Placement, and
+it stays its Source Set's Game wherever it is placed.
+_Avoid_: Location, home
+
+**Placed Game**:
+A Game whose Placement is a Library Folder. Its Source Set's Audits read it there, a Repair changes it there, and a
+Build that no longer selects it returns it to the Source Set's folder rather than setting it aside.
+_Avoid_: Moved Game, linked Game
 
 **Kept File**:
 A file or folder removed from a Library Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
