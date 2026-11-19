@@ -25,7 +25,7 @@ thiserror.workspace = true
 walkdir.workspace = true
 zip.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 rustix.workspace = true
 
 [dev-dependencies]

@@ -114,6 +114,7 @@ fn source_set_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
          FROM library_folders WHERE source_set_id = ?1 AND unregistered_at IS NULL ORDER BY root, path",
         [id],
     )?;
+    holds.extend(crate::placements::set_hold(c, id)?);
     holds.extend(active_jobs(c, RegistrationKind::SourceSet, id)?);
     if let Some(why) = crate::repairs::repair_active(c, id)? {
         holds.push(why);
@@ -154,6 +155,15 @@ fn source_set_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
 
 fn library_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
     let mut holds = library_folder_work(c, id)?;
+    holds.extend(crate::placements::folder_hold(c, id)?);
+    holds.extend(strings(
+        c,
+        "SELECT DISTINCT 'a move of ' || m.name || ' from an ingest folder into it is not finished'
+                         || COALESCE(': ' || m.blocked, '')
+         FROM ingest_moves m JOIN library_folders f ON f.root = m.dest_root AND f.path = m.dest_rel
+         WHERE f.id = ?1 AND m.dest_kind = 'path' AND m.state NOT IN ('done', 'failed')",
+        [id],
+    )?);
     holds.extend(strings(
         c,
         "SELECT 'its move to ' || to_path || ' is not finished; the service finishes it when it next starts'
@@ -232,7 +242,7 @@ fn ingest_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
     )?);
     holds.extend(strings(
         c,
-        "SELECT DISTINCT 'a move of ' || name || ' out of it is not finished'
+        "SELECT DISTINCT 'a move of ' || name || ' out of it is not finished' || COALESCE(': ' || blocked, '')
          FROM ingest_moves WHERE folder_id = ?1 AND state NOT IN ('done', 'failed')",
         [id],
     )?);
@@ -320,6 +330,13 @@ pub(crate) fn unregister_in(tx: &Transaction, kind: RegistrationKind, id: i64) -
         ),
         params![id, at],
     )?;
+    // A Source Set no longer names an Unregistered Library Folder as the one holding its Placed Games.
+    if kind == RegistrationKind::LibraryFolder {
+        tx.execute(
+            "UPDATE source_sets SET holding_folder_id = NULL WHERE holding_folder_id = ?1",
+            [id],
+        )?;
+    }
     Ok(at)
 }
 

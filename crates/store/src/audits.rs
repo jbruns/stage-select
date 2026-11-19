@@ -19,7 +19,7 @@ use title_select_engine::payload::Checksums;
 use title_select_engine::{
     ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
     Game, GameStatus, GameWarning, Header, HeaderRule, NamedHeaderRule, ONE_WORKER_EACH, Options,
-    PayloadRead, PayloadReads, Progress, Report, Reuse, RomRef, SCHEMA, Summary, Workers,
+    PayloadRead, PayloadReads, Placed, Progress, Report, Reuse, RomRef, SCHEMA, Summary, Workers,
 };
 
 /// An Audit the store has recorded, with the report generated from its rows.
@@ -52,6 +52,17 @@ pub(super) struct RunningAudit {
     /// For a Job queued again after a restart interrupted it, the interrupted Job, whose reads a full Audit resumes
     /// from.
     resumes: Option<i64>,
+    /// The files of the Source Set's Placed Games, by the Library Folder that holds them.
+    placed: Vec<PlacedRead>,
+}
+
+/// What an Audit reads of the Placed Games one Library Folder holds: their recorded files, through the folder's Root.
+struct PlacedRead {
+    folder: i64,
+    resolved: Resolved,
+    files: Vec<String>,
+    /// For a Job, its pools for the folder's Root: its readers, and the Host's hash workers.
+    pools: Option<crate::ceilings::JobPools>,
 }
 
 /// The payload reads recorded for a Source Set, as an Audit of it reuses and records them.
@@ -843,8 +854,10 @@ impl Store {
             })
             .transpose()?;
         let source_set_path = resolved.path.display().to_string();
+        let placed = self.placed_reads(config, set.id, how.job)?;
         let (id, revision) = self.write(|tx| {
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
+            crate::placements::check_no_holding_build(tx, set.id, &set.record.name)?;
             let (revision_id, revision) = choose(tx, &set)?;
             check_blob_present(&revision)?;
             tx.execute(
@@ -872,7 +885,27 @@ impl Store {
             pools,
             evidence: how.evidence,
             resumes: how.resumes,
+            placed,
         })
+    }
+
+    /// What an Audit of Source Set `set` reads of its Placed Games, by the Library Folder that holds them, with the
+    /// pools of each folder's Root for the Job `job`, if it runs in one.
+    fn placed_reads(&self, config: &Config, set: i64, job: Option<i64>) -> Result<Vec<PlacedRead>> {
+        self.placed_folders(config, set)?
+            .into_iter()
+            .map(|(folder, resolved, files)| {
+                let pools = job
+                    .map(|_| self.job_pools(config, &resolved.root))
+                    .transpose()?;
+                Ok(PlacedRead {
+                    folder,
+                    resolved,
+                    files,
+                    pools,
+                })
+            })
+            .collect()
     }
 
     /// Finishes a running Audit, then prunes the Source Set's Audits and drops unheld DAT blobs.
@@ -933,6 +966,21 @@ impl Store {
         let revision = &running.revision;
         let blob = self.blob_path(&revision.sha256);
         let reads = StoredReads::new(self, running);
+        let placed: Vec<Placed> = running
+            .placed
+            .iter()
+            .map(|p| Placed {
+                id: p.folder,
+                root: &p.resolved.canonical_root,
+                folder: &p.resolved.rel,
+                files: p.files.clone(),
+                pools: p.pools.as_ref().map(crate::ceilings::JobPools::pools),
+                // Read from the Library Folder's Root, so counted against it.
+                tally: running.job.map_or_else(Default::default, |job| {
+                    self.meter.job(job).tally(Some(&p.resolved.root))
+                }),
+            })
+            .collect();
         let report = title_select_engine::audit_with(
             &blob,
             &running.resolved.path,
@@ -947,6 +995,7 @@ impl Store {
                 tally: running.job.map_or_else(Default::default, |job| {
                     self.meter.job(job).tally(Some(&running.resolved.root))
                 }),
+                placed: &placed,
             },
         )?;
         if let Some(err) = reads

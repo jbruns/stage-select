@@ -3390,6 +3390,9 @@ fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released
     env.audit();
     let first = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
+    // A second folder bound to the Source Set leaves it no holding folder by default, so the Audits below may run
+    // while the Build does.
+    env.folder("atari2600-copy");
     let plan = env.plan(&folder, first);
     let audit = plan.content.audit.unwrap();
 

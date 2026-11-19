@@ -395,6 +395,7 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
             evidence: title_select_engine::AuditEvidence::Full,
             reads: None,
             tally: Default::default(),
+            placed: &[],
         };
         let report = title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
         (report, seen.into_inner().unwrap())
@@ -787,6 +788,7 @@ fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total
         evidence: title_select_engine::AuditEvidence::Full,
         reads: None,
         tally: job.tally(Some("sets")),
+        placed: &[],
     };
 
     title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();

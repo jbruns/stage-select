@@ -25,7 +25,7 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{ExpectedRom, FileStat, STATE, kept_name};
+use title_select_api::build::{ExpectedRom, FileStat, Marker, STATE, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
@@ -40,7 +40,7 @@ use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
-use crate::folders::store_id;
+use crate::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use crate::kept::{Scope, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
 use crate::repairs::{MarkerRule, open_repairable};
@@ -121,6 +121,30 @@ thread_local! {
     pub(crate) static FORCE_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Opens the folder a move to `name` in `top` puts its file in, without following a symbolic link: `top` itself, or,
+/// for a file of a loose folder, each folder below it in turn. Returns it, with the identity of each folder on the
+/// way, `top`'s first.
+fn descend(top: FolderDir, name: &str) -> io::Result<(FolderDir, Vec<Identity>)> {
+    let mut chain = vec![top.identity()?];
+    let mut at = top;
+    if let Some((parents, _)) = name.rsplit_once('/') {
+        for part in parents.split('/') {
+            at = at.sub(part)?;
+            chain.push(at.identity()?);
+        }
+    }
+    Ok((at, chain))
+}
+
+/// Whether the folder a move is made into is still the one at its destination's path: why not, otherwise.
+type InPlace<'a> = dyn Fn() -> Result<std::result::Result<(), String>> + 'a;
+
+/// The last check before the original of a published copy is deleted, and what undoes the copy when it fails.
+struct LastCheck<'a> {
+    check: &'a dyn Fn() -> Result<std::result::Result<(), String>>,
+    discard: &'a dyn Fn() -> Result<()>,
+}
+
 fn force_copy() -> bool {
     #[cfg(test)]
     {
@@ -160,11 +184,17 @@ struct MoveRow {
     found: Option<Identity>,
     aside_name: Option<String>,
     error: Option<String>,
+    /// For a move into a folder at a path: the identities of that folder and each below it down to the file's, as
+    /// first opened, before anything was moved there.
+    dest_chain: Option<Vec<Identity>>,
+    /// Why the original of a published copy that failed its last check is being returned to the Ingest Folder.
+    return_reason: Option<String>,
 }
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns, loose, leave_original FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, \
+     staged_size, staged_mtime_ns, isolated_ctime_ns, loose, leave_original, dest_chain, return_reason FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -255,6 +285,16 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         found: identity_at(r, 24)?,
         aside_name: r.get(26)?,
         error: r.get(27)?,
+        dest_chain: match r.get::<_, Option<String>>(35)? {
+            Some(_) => Some(
+                json::<Vec<(i64, i64)>>(r, 35)?
+                    .into_iter()
+                    .map(|(dev, ino)| Identity::from_sql(dev, ino))
+                    .collect(),
+            ),
+            None => None,
+        },
+        return_reason: r.get(36)?,
     })
 }
 
@@ -430,18 +470,20 @@ impl Store {
     /// Records the intent to make `mv`, then makes it. `Err` says why it was not made, or not finished; one not
     /// finished is rolled forward when the service next starts.
     pub(crate) fn move_out(&self, config: &Config, mv: Move) -> Outcome {
-        match self.record_move(config, mv, &mut |_, _| Ok(()))? {
+        match self.record_move(config, mv, None, &mut |_, _| Ok(()))? {
             Ok(id) => self.drive_move(config, id),
             Err(why) => Ok(Err(why)),
         }
     }
 
     /// Records the intent to make `mv`, and runs `also` with its id in the same transaction, without making it.
-    /// Returns its id, or why it cannot be made.
+    /// Returns its id, or why it cannot be made. `into` is its destination folder, already opened and checked, when
+    /// the caller holds it.
     pub(crate) fn record_move(
         &self,
         config: &Config,
         mv: Move,
+        into: Option<&FolderDir>,
         also: &mut dyn FnMut(&Transaction, i64) -> Result<()>,
     ) -> Result<std::result::Result<i64, String>> {
         let row = self.read(|c| ingest_by_id(c, mv.folder))?;
@@ -453,12 +495,19 @@ impl Store {
             (Some(_), _) => "repack",
             (None, Destination::Kept { .. }) => "rename",
             (None, Destination::Path { root, rel, .. }) => {
-                let dest = match self.open_dest_folder(config, root, rel)? {
-                    Ok(dest) => dest,
-                    Err(why) => return Ok(Err(why)),
+                let opened;
+                let dest = match into {
+                    Some(dest) => dest,
+                    None => match self.open_dest_folder(config, root, rel)? {
+                        Ok(dest) => {
+                            opened = dest;
+                            &opened
+                        }
+                        Err(why) => return Ok(Err(why)),
+                    },
                 };
                 let same = src.identity().map_err(io)?.dev == dest.identity().map_err(io)?.dev;
-                if same && !force_copy() {
+                if same && !force_copy() && !self.across_filesystems(None) {
                     "rename"
                 } else {
                     "copy"
@@ -497,6 +546,17 @@ impl Store {
     /// Advances move `id` from the step it was recorded at to its end, after checking that its folder is open, in a
     /// writable Root, with this store's marker.
     pub(crate) fn drive_move(&self, config: &Config, id: i64) -> Outcome {
+        self.drive_move_into(config, id, None)
+    }
+
+    /// As [`Store::drive_move`], writing a move to a path through `into`, its destination folder already opened and
+    /// checked, when the caller holds it: then nothing is written in whatever is at that folder's path now.
+    pub(crate) fn drive_move_into(
+        &self,
+        config: &Config,
+        id: i64,
+        into: Option<&FolderDir>,
+    ) -> Outcome {
         let m = self.read(|c| move_by_id(c, id))?;
         if m.state == "done" {
             return Ok(Ok(Moved {
@@ -505,6 +565,9 @@ impl Store {
                 dest_sha256: m.dest_sha256,
                 note: None,
             }));
+        }
+        if m.state == "failed" {
+            return Ok(Err(m.error.unwrap_or_default()));
         }
         let row = self.read(|c| ingest_by_id(c, m.folder))?;
         let precondition = |why: String| -> Outcome {
@@ -538,52 +601,136 @@ impl Store {
         if let Err(why) = check_ingest_marker(&src, &expected) {
             return precondition(why);
         }
-        let dest = match &m.dest {
+        // The folder moved into: the kept files, the folder the caller holds, or the one at the destination's path,
+        // with its marker when it has one; for a file of a loose folder, the folder below it the file goes in, opened
+        // without following a symbolic link, with the identity of each folder on the way.
+        let full = m.dest.clone();
+        let found = match &m.dest {
             Destination::Kept { generation, .. } => {
                 match open_retention(self, Scope::Ingest(m.folder), &src, *generation, true)? {
-                    Ok(Some(retention)) => retention.generation,
-                    Ok(None) => return precondition("the kept files folder is missing".into()),
-                    Err(why) => return precondition(why),
+                    Ok(Some(retention)) => Ok((retention.generation, None)),
+                    Ok(None) => Err("the kept files folder is missing".to_owned()),
+                    Err(why) => Err(why),
                 }
             }
-            Destination::Path { root, rel, .. } => {
-                match self.open_dest_folder(config, root, rel)? {
-                    Ok(dest) => dest,
-                    Err(why) => return precondition(why),
+            Destination::Path {
+                root, rel, name, ..
+            } => {
+                let top = match into {
+                    Some(into) => Ok(into.try_clone().map_err(io)?),
+                    None => self.open_dest_folder(config, root, rel)?,
+                };
+                match top.map(|top| descend(top, name)) {
+                    Ok(Ok((dir, chain))) => Ok((dir, Some(chain))),
+                    Ok(Err(e)) => Err(format!("a folder of {name} could not be opened ({e})")),
+                    Err(why) => Err(why),
                 }
             }
         };
-        // A file of a loose folder: moved into that folder, which the repair made, under its own name.
-        let (dest, m) = match &m.dest {
+        // Once begun, a move goes on only in the folders it began in: in others, it is left unfinished until they are
+        // back, and its original kept.
+        let found = match found {
+            Ok((_, Some(chain))) if m.dest_chain.as_ref().is_some_and(|began| *began != chain) => {
+                Err("it is not the folder the move began in".to_owned())
+            }
+            found => found,
+        };
+        let (dest, chain) = match found {
+            Ok(found) => found,
+            Err(why) if m.return_reason.is_some() => {
+                return self.return_original(&m, &src, &|| Ok(()), &why);
+            }
+            Err(why) if m.state != "pending" && m.dest_chain.is_some() => {
+                return self.block(&m, &row.root, &why);
+            }
+            Err(why) => return precondition(why),
+        };
+        // Only a move not yet begun records the folders it goes into. One begun before they were recorded, by an
+        // earlier version, never takes the folders at its path now for them: it goes on only while its original, or
+        // its file, is still where it left it, and is otherwise left unfinished until they are found.
+        if let (Some(chain), None) = (&chain, &m.dest_chain) {
+            if m.state == "pending" {
+                let chain: Vec<(i64, i64)> = chain.iter().map(|id| id.to_sql()).collect();
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE ingest_moves SET dest_chain = ?2 WHERE id = ?1",
+                        params![m.id, to_json(&chain)],
+                    )?;
+                    Ok(())
+                })?;
+            } else if !self.left_as_it_was(&m, &src, &dest)? {
+                return self.block(
+                    &m,
+                    &row.root,
+                    "neither it nor its file is where the move left it, so the folder there may not be the one it \
+                     went into",
+                );
+            }
+        }
+        // The folders moved into, as they were opened: checked again, from the destination's path down, as the last
+        // step before the original is consumed, so that it is consumed only once its file is in the folder at that
+        // path, with its marker when it has one. A change after that check is as any later change to the folder.
+        let in_place = || -> Result<std::result::Result<(), String>> {
+            let (
+                Some(chain),
+                Destination::Path {
+                    root, rel, name, ..
+                },
+            ) = (&chain, &full)
+            else {
+                return Ok(Ok(()));
+            };
+            let now = match self.open_dest_folder(config, root, rel)? {
+                Ok(top) => descend(top, name).map_err(|e| e.to_string()),
+                Err(why) => Err(why),
+            };
+            let at = format!("{root}/{rel}");
+            Ok(match now {
+                Ok((_, now)) if now == *chain => Ok(()),
+                Ok(_) => Err(format!(
+                    "{at} or a folder in it was moved or replaced while the move into it was made"
+                )),
+                Err(why) => Err(format!(
+                    "{at} or a folder in it was moved or replaced while the move into it was made ({why})"
+                )),
+            })
+        };
+        // A file of a loose folder: moved into that folder under its own name.
+        let m = match &m.dest {
             Destination::Path {
                 root,
                 rel,
                 name,
                 generation,
             } if name.contains('/') => {
-                let (parents, leaf) = name.rsplit_once('/').expect("a nested name");
-                let mut at = dest;
-                for part in parents.split('/') {
-                    at = match at.sub(part) {
-                        Ok(sub) => sub,
-                        Err(e) => {
-                            return precondition(format!(
-                                "folder {parents} could not be opened ({e}); {} was left as it is",
-                                m.name
-                            ));
-                        }
-                    };
-                }
+                let (_, leaf) = name.rsplit_once('/').expect("a nested name");
                 let dest = Destination::Path {
                     root: root.clone(),
                     rel: rel.clone(),
                     name: leaf.to_owned(),
                     generation: *generation,
                 };
-                (at, MoveRow { dest, ..m })
+                MoveRow { dest, ..m }
             }
-            _ => (dest, m),
+            _ => m,
         };
+        // A return a stop interrupted is finished first: the copy is undone only while it is still exactly the copy
+        // published.
+        if m.return_reason.is_some() {
+            let discard = || -> Result<()> {
+                if let (Some(staged), Some(sha)) = (m.staged, &m.dest_sha256)
+                    && let Ok(held) = crate::carry::Held::open(&dest, m.dest_name(), staged)?
+                    && held
+                        .still(&dest, m.dest_name(), sha, &Tally::default())?
+                        .is_ok()
+                {
+                    dest.unlink(m.dest_name()).map_err(io)?;
+                    dest.sync().map_err(io)?;
+                }
+                Ok(())
+            };
+            return self.return_original(&m, &src, &discard, "");
+        }
         // Counted for the Job this thread runs, if any: a move recovered at start runs for none.
         let job = meter::this_thread();
         let tally = |root: &str| {
@@ -595,8 +742,14 @@ impl Store {
             Destination::Path { root, .. } => tally(root),
         };
         match m.kind.as_str() {
-            "rename" => self.drive_rename(config, &m, &src, (&dest, &to)),
-            _ => self.drive_copy(config, &m, (&src, &tally(&row.root)), (&dest, &to)),
+            "rename" => self.drive_rename(config, &m, &src, (&dest, &to), &in_place),
+            _ => self.drive_copy(
+                config,
+                &m,
+                (&src, &tally(&row.root)),
+                (&dest, &to),
+                &in_place,
+            ),
         }
     }
 
@@ -613,7 +766,7 @@ impl Store {
     fn fail_move(&self, id: i64, why: String) -> Outcome {
         self.write(|tx| {
             tx.execute(
-                "UPDATE ingest_moves SET state = 'failed', error = ?2, finished_at = ?3 WHERE id = ?1",
+                "UPDATE ingest_moves SET state = 'failed', error = ?2, blocked = NULL, finished_at = ?3 WHERE id = ?1",
                 params![id, why, now()],
             )?;
             Ok(())
@@ -635,7 +788,7 @@ impl Store {
                 None => None,
             };
             tx.execute(
-                "UPDATE ingest_moves SET state = 'done', kept_id = ?2, dest_sha256 = ?3, note = ?4,
+                "UPDATE ingest_moves SET state = 'done', kept_id = ?2, dest_sha256 = ?3, note = ?4, blocked = NULL,
                                          finished_at = ?5
                  WHERE id = ?1",
                 params![m.id, kept_id, dest_sha256, note, now()],
@@ -661,7 +814,8 @@ impl Store {
     fn finish_left(&self, m: &MoveRow, dest_sha256: Option<String>) -> Outcome {
         self.write(|tx| {
             tx.execute(
-                "UPDATE ingest_moves SET state = 'done', dest_sha256 = ?2, finished_at = ?3 WHERE id = ?1",
+                "UPDATE ingest_moves SET state = 'done', dest_sha256 = ?2, blocked = NULL, finished_at = ?3
+                 WHERE id = ?1",
                 params![m.id, dest_sha256, now()],
             )?;
             Ok(())
@@ -704,6 +858,7 @@ impl Store {
         m: &MoveRow,
         src: &FolderDir,
         (dest, to): (&FolderDir, &Tally),
+        in_place: &InPlace,
     ) -> Outcome {
         let dest_name = m.dest_name();
         if m.state == "restoring" {
@@ -769,6 +924,23 @@ impl Store {
         dest.sync().map_err(io)?;
         src.sync().map_err(io)?;
         match read_back((dest, to), dest_name, &m.seen, m.sha256.as_deref(), None).map_err(io)? {
+            // Moved only while the folder it is in is still the one at the destination's path: otherwise put back.
+            Moving::Planned { .. } if let Err(why) = in_place()? => {
+                self.write(|tx| {
+                    let (dev, ino) = m.seen.identity.to_sql();
+                    tx.execute(
+                        "UPDATE ingest_moves SET state = 'restoring', found_dev = ?2, found_ino = ?3, error = ?4
+                         WHERE id = ?1",
+                        params![m.id, dev, ino, why],
+                    )?;
+                    Ok(())
+                })?;
+                let m = MoveRow {
+                    dest: m.dest.clone(),
+                    ..self.read(|c| move_by_id(c, m.id))?
+                };
+                self.restore(&m, src, dest)
+            }
             Moving::Planned { file, sha256 } => {
                 let kept = self.kept_entry(m, m.seen.identity, file, Some(sha256.clone()));
                 self.finish_move(m, kept, Some(sha256), None)
@@ -809,8 +981,9 @@ impl Store {
         }
     }
 
-    /// Puts back what a rename moved in place of the file planned: under its name in the Ingest Folder, or, when
-    /// that was taken meanwhile, aside in the folder's kept files. Ends the move failed, saying where it is.
+    /// Puts back what a rename moved in place of the file planned, or the file planned when the folder it was moved
+    /// into was moved or replaced meanwhile: under its name in the Ingest Folder, or, when that was taken meanwhile,
+    /// aside in the folder's kept files. Ends the move failed, saying where it is.
     fn restore(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Outcome {
         let why = m
             .error
@@ -1012,6 +1185,7 @@ impl Store {
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         (dest, to): (&FolderDir, &Tally),
+        in_place: &InPlace,
     ) -> Outcome {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
@@ -1086,6 +1260,36 @@ impl Store {
             }
             _ => false,
         };
+        // The published copy, held from before the original is touched: checked once more, with the folder it is in,
+        // as the last step before the original is deleted.
+        let held = match (&published, delete) {
+            (Some((staged, _)), true) => crate::carry::Held::open(dest, &dest_name, *staged)?.ok(),
+            _ => None,
+        };
+        let copy_sha = published_sha.clone();
+        let check = || -> Result<std::result::Result<(), String>> {
+            let (Some(held), Some(sha)) = (&held, &copy_sha) else {
+                return Ok(Err("its published copy could not be held".into()));
+            };
+            if let Err(why) = held.still(dest, &dest_name, sha, to)? {
+                return Ok(Err(why));
+            }
+            in_place()
+        };
+        // What undoes the copy once its original is put back: only while it is still exactly the copy published.
+        let discard = || -> Result<()> {
+            if let (Some(held), Some(sha)) = (&held, &copy_sha)
+                && held.still(dest, &dest_name, sha, to)?.is_ok()
+            {
+                dest.unlink(&dest_name).map_err(io)?;
+                dest.sync().map_err(io)?;
+            }
+            Ok(())
+        };
+        let last = LastCheck {
+            check: &check,
+            discard: &discard,
+        };
         // What the original must still hash as to be deleted: what was copied, or, for a repack, what was read.
         let original_sha = match m.kind.as_str() {
             "repack" => m.sha256.clone(),
@@ -1093,15 +1297,15 @@ impl Store {
         };
         let disposed = match (m.state.as_str(), delete, original_sha) {
             ("keeping", ..) => self
-                .delete_original(m, (src, from), None)?
+                .delete_original(m, (src, from), None, None)?
                 .map(|note| (None, note)),
             ("retaining", ..) => self.keep_original(m, src)?,
             (_, true, Some(original_sha)) => self
-                .delete_original(m, (src, from), Some(&original_sha))?
+                .delete_original(m, (src, from), Some(&original_sha), Some(&last))?
                 .map(|note| (None, note)),
             // Already set aside to delete: kept from there instead.
             _ if resumed && !is_seen(src, &m.name, &m.seen).map_err(io)? => self
-                .delete_original(m, (src, from), None)?
+                .delete_original(m, (src, from), None, None)?
                 .map(|note| (None, note)),
             _ => self.keep_original(m, src)?,
         };
@@ -1432,6 +1636,29 @@ impl Store {
         if let Some(set) = set {
             return open_repairable(self, config, set, MarkerRule::Required);
         }
+        // A Library Folder, written into to complete a Placed Game: only while it has this store's marker for it, so
+        // that nothing is written into whatever was put at its path in its place.
+        let folder: Option<i64> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
+                params![root, rel],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        if let Some(folder) = folder {
+            let (row, store) = self.read(|c| Ok((folder_by_id(c, folder)?, store_id(c)?)))?;
+            let dir = match open_writable_folder(config, root, rel) {
+                Ok(dir) => dir,
+                Err(why) => return Ok(Err(why)),
+            };
+            let expected = Marker {
+                store,
+                folder,
+                generation: row.generation,
+            };
+            return Ok(check_marker(&dir, &expected).map(|()| dir));
+        }
         Ok(match config.root(root) {
             Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
             Some(_) => Err(format!(
@@ -1460,12 +1687,14 @@ impl Store {
     /// Deletes the original of a published copy whose SHA-256 is `copied`: moved, without replacing anything, into
     /// the folder's private `.deleting` area, read back there, and deleted only if it is still exactly the file that
     /// was copied. An original that changed is kept aside instead, as is one already set aside to delete whose
-    /// deletion `copied` being `None` refuses. Returns a note of anything done besides deleting.
+    /// deletion `copied` being `None` refuses. Deleted only once `last` passes, as the last step: otherwise it is put
+    /// back, the copy undone, and the move ends failed. Returns a note of anything done besides deleting.
     fn delete_original(
         &self,
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         copied: Option<&str>,
+        last: Option<&LastCheck>,
     ) -> Result<std::result::Result<Option<String>, String>> {
         let deleting = match open_area_deleting(self, Scope::Ingest(m.folder), src, true)? {
             Ok(Some(deleting)) => deleting,
@@ -1532,6 +1761,13 @@ impl Store {
                                 .to_owned(),
                         ),
                         Moving::Planned { .. } if !self.unsettled(m)? => {
+                            if let Some(last) = last
+                                && let Err(why) = (last.check)()?
+                            {
+                                return self
+                                    .return_original(m, src, last.discard, &why)
+                                    .map(|ended| ended.map(|_| None));
+                            }
                             deleting.unlink(&slot).map_err(io)?;
                             deleting.sync().map_err(io)?;
                             return Ok(Ok(None));
@@ -1592,6 +1828,168 @@ impl Store {
                 Aside::Left(left) => Err(format!("{} was not deleted: {why}; {left}", m.name)),
             },
         )
+    }
+
+    /// Returns the original of `m`, set aside to delete, to the Ingest Folder, since its published copy failed its
+    /// last check for `why`: under its name, or, when that was taken meanwhile, in the folder's kept files. Why is
+    /// recorded before the original leaves the private `.deleting` folder, so that a stop finishes the return rather
+    /// than read an empty slot as a deletion. Once it is returned, `discard` undoes the copy and the move ends failed;
+    /// until it is, the move is left unfinished, with why, for a later recovery to return it.
+    fn return_original(
+        &self,
+        m: &MoveRow,
+        src: &FolderDir,
+        discard: &dyn Fn() -> Result<()>,
+        why: &str,
+    ) -> Outcome {
+        let m = &MoveRow {
+            dest: m.dest.clone(),
+            ..self.read(|c| move_by_id(c, m.id))?
+        };
+        let why = match &m.return_reason {
+            Some(was) => was.clone(),
+            None => {
+                let why = format!("{} was not deleted, since {why}", m.name);
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE ingest_moves SET return_reason = ?2 WHERE id = ?1",
+                        params![m.id, why],
+                    )?;
+                    Ok(())
+                })?;
+                why
+            }
+        };
+        let deleting = match open_area_deleting(self, Scope::Ingest(m.folder), src, true)? {
+            Ok(Some(deleting)) => deleting,
+            Ok(None) => {
+                return self.unreturned(m, &why, "the private .deleting folder is missing");
+            }
+            Err(left) => return self.unreturned(m, &why, &left),
+        };
+        let slot = format!("move-{}", m.id);
+        let in_slot = deleting
+            .stat(&slot)
+            .map_err(io)?
+            .is_some_and(|st| Identity::of(&st) == m.seen.identity);
+        let back = if m.aside_name.is_some() {
+            false
+        } else if in_slot {
+            let _pin = deleting.pin(&slot, m.seen.identity);
+            deleting.rename_new(&slot, src, &m.name).is_ok()
+        } else {
+            // Put back before a stop.
+            is_seen(src, &m.name, &m.seen).map_err(io)?
+        };
+        let left = match back {
+            true => {
+                deleting.sync().map_err(io)?;
+                src.sync().map_err(io)?;
+                format!("{why}; it was put back in the folder")
+            }
+            false => {
+                let reason = format!("{why}; kept instead");
+                match self.move_aside(m, src, &deleting, &slot, m.seen.identity, &reason)? {
+                    Aside::Kept(aside) => {
+                        format!("{why}; its name was taken meanwhile, so it was kept as {aside}")
+                    }
+                    Aside::Ended(left) => format!("{why}; {left}"),
+                    Aside::Left(left) => return self.unreturned(m, &why, &left),
+                }
+            }
+        };
+        discard()?;
+        self.fail_move(m.id, left)
+    }
+
+    /// Leaves move `m`, whose original could not be returned to the Ingest Folder yet for `left`, unfinished, with
+    /// why: a later recovery returns it.
+    fn unreturned(&self, m: &MoveRow, why: &str, left: &str) -> Outcome {
+        let blocked = format!(
+            "{why}, and it could not be returned to the ingest folder yet ({left}); it is kept in the folder's \
+             private .deleting folder, and returned when the service next starts"
+        );
+        self.blocked(m.id, &blocked)
+    }
+
+    /// Leaves move `m`, begun, unfinished, since the folder its file went into is no longer the one at its
+    /// destination's path, for `why`: recovery and its repair report it, and finish it once the folder is back.
+    fn block(&self, m: &MoveRow, ingest: &str, why: &str) -> Outcome {
+        let Destination::Path {
+            root, rel, name, ..
+        } = &m.dest
+        else {
+            return self.blocked(m.id, why);
+        };
+        let kept = match m.kind.as_str() {
+            "rename" => String::new(),
+            _ => format!("; until then, {} is kept in ingest folder {ingest}", m.name),
+        };
+        let blocked = format!(
+            "{} from ingest folder {ingest} went into {root}/{rel}/{name}, but that folder, or a folder in it, was \
+             moved or replaced since ({why}). Nothing records the file there: put the folder back at {root}/{rel}, \
+             and the move is finished when the service next starts{kept}",
+            m.name
+        );
+        self.blocked(m.id, &blocked)
+    }
+
+    /// Whether move `m`, begun before the folders it goes into were recorded, still has its original, or its file,
+    /// where it left them: in the Ingest Folder, set aside there to delete, or at its name in `dest`, the folder the
+    /// file goes in; or is keeping its original, which no longer depends on its file. A move restoring what was
+    /// found in place of its original has it where it left it too once that is back under the original's name in the
+    /// Ingest Folder, or in the kept files under the name recorded for it.
+    fn left_as_it_was(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Result<bool> {
+        if matches!(m.state.as_str(), "keeping" | "retaining")
+            || is_seen(src, &m.name, &m.seen).map_err(io)?
+        {
+            return Ok(true);
+        }
+        if m.state == "restoring"
+            && let Some(found) = m.found
+        {
+            let holds = |dir: &FolderDir, name: &str| -> Result<bool> {
+                Ok(dir
+                    .stat(name)
+                    .map_err(io)?
+                    .is_some_and(|st| Identity::of(&st) == found))
+            };
+            if holds(src, &m.name)? {
+                return Ok(true);
+            }
+            if let Some(aside) = &m.aside_name
+                && let Ok(Some(retention)) =
+                    open_retention(self, Scope::Ingest(m.folder), src, m.generation(), false)?
+                && holds(&retention.generation, aside)?
+            {
+                return Ok(true);
+            }
+        }
+        if let Ok(Some(deleting)) = open_area_deleting(self, Scope::Ingest(m.folder), src, false)?
+            && deleting
+                .stat(&format!("move-{}", m.id))
+                .map_err(io)?
+                .is_some_and(|st| Identity::of(&st) == m.seen.identity)
+        {
+            return Ok(true);
+        }
+        let leaf = m.dest_name().rsplit('/').next().unwrap_or_default();
+        Ok(dest.stat(leaf).map_err(io)?.is_some_and(|st| {
+            let id = Identity::of(&st);
+            id == m.seen.identity || Some(id) == m.staged || Some(id) == m.found
+        }))
+    }
+
+    /// Records why move `id` is left unfinished, and returns it.
+    fn blocked(&self, id: i64, why: &str) -> Outcome {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE ingest_moves SET blocked = ?2 WHERE id = ?1",
+                params![id, why],
+            )?;
+            Ok(())
+        })?;
+        Ok(Err(why.to_owned()))
     }
 
     /// Keeps the original of a published repack, or of a published copy that may not delete it, in the folder's
@@ -2089,6 +2487,184 @@ mod tests {
             rel: "Atari".into(),
             name: name.into(),
             generation: 1,
+        }
+    }
+
+    /// A move into a loose folder that schema 36's service began, and stopped just after it renamed its original into
+    /// place, before the folders it went into were recorded: once the store is upgraded, recovery never takes a
+    /// folder put in their place for them.
+    #[test]
+    fn a_move_begun_before_its_folders_were_recorded_never_adopts_a_folder_put_in_their_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        for dir in ["in", "lib/Atari/Pong (USA)"] {
+            std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
+        }
+        let config = Config::parse(&format!(
+            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[roots.lib]\npath = {:?}\nwritable = true\n",
+            tmp.path().join("in").display().to_string(),
+            tmp.path().join("lib").display().to_string(),
+        ))
+        .unwrap();
+        let at = tmp.path().join("store");
+        let old = Store::open_with(&at, &crate::migrations::MIGRATIONS[..36]).unwrap();
+        let folder = old
+            .register_ingest_folder(&config, "in")
+            .unwrap()
+            .id
+            .unwrap();
+        let original = tmp.path().join("in/pong.a26");
+        std::fs::write(&original, b"pong").unwrap();
+        let st = rustix::fs::lstat(&original).unwrap();
+        let mv = Move {
+            folder,
+            plan: None,
+            item: None,
+            name: "pong.a26",
+            seen: Seen::of(&st),
+            sha256: Some(hex(&Sha256::digest(b"pong"))),
+            dest: atari("Pong (USA)/Pong (USA).a26"),
+            repack: None,
+            exact: None,
+            loose: false,
+            leave: false,
+        };
+        let id = old
+            .record_move(&config, mv, None, &mut |_, _| Ok(()))
+            .unwrap()
+            .unwrap();
+        // Stopped just after the rename, as schema 36's service left it.
+        old.set_state(id, "moving").unwrap();
+        let placed = tmp.path().join("lib/Atari/Pong (USA)/Pong (USA).a26");
+        std::fs::rename(&original, &placed).unwrap();
+        drop(old);
+        let store = Store::open(&at).unwrap();
+        // The folder moved aside, and an empty one, as good as any at that path, put in its place.
+        let (atari, aside) = (tmp.path().join("lib/Atari"), tmp.path().join("lib/Aside"));
+        std::fs::rename(&atari, &aside).unwrap();
+        std::fs::create_dir_all(atari.join("Pong (USA)")).unwrap();
+        let state = || store.read(|c| move_by_id(c, id)).unwrap().state;
+
+        for _ in 0..2 {
+            let left = store.recover_ingest_moves(&config).unwrap();
+            assert!(
+                left.iter()
+                    .any(|(at, why)| *at == id && why.contains("put the folder back at lib/Atari")),
+                "{left:?}"
+            );
+            assert_eq!(
+                state(),
+                "moving",
+                "neither failed nor done, and tried again"
+            );
+        }
+
+        std::fs::remove_dir_all(&atari).unwrap();
+        std::fs::rename(&aside, &atari).unwrap();
+        let left = store.recover_ingest_moves(&config).unwrap();
+
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(state(), "done");
+        assert_eq!(std::fs::read(&placed).unwrap(), b"pong");
+    }
+
+    /// A move into a loose folder that schema 36's service began, and stopped while it restored what it found in
+    /// place of its original: once it was back under the original's name in the Ingest Folder, or, that name taken,
+    /// once it was in the kept files under the name recorded for it. Once the store is upgraded, recovery finishes
+    /// the restore, its folder never having changed.
+    #[test]
+    fn a_restore_begun_before_its_folders_were_recorded_is_finished_after_an_upgrade() {
+        for kept in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            for dir in ["in", "lib/Atari/Pong (USA)"] {
+                std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
+            }
+            let config = Config::parse(&format!(
+                "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[roots.lib]\npath = {:?}\n\
+                 writable = true\n",
+                tmp.path().join("in").display().to_string(),
+                tmp.path().join("lib").display().to_string(),
+            ))
+            .unwrap();
+            let at = tmp.path().join("store");
+            let old = Store::open_with(&at, &crate::migrations::MIGRATIONS[..36]).unwrap();
+            let folder = old
+                .register_ingest_folder(&config, "in")
+                .unwrap()
+                .id
+                .unwrap();
+            let name = tmp.path().join("in/pong.a26");
+            std::fs::write(&name, b"pong").unwrap();
+            let mv = Move {
+                folder,
+                plan: None,
+                item: None,
+                name: "pong.a26",
+                seen: Seen::of(&rustix::fs::lstat(&name).unwrap()),
+                sha256: Some(hex(&Sha256::digest(b"pong"))),
+                dest: atari("Pong (USA)/Pong (USA).a26"),
+                repack: None,
+                exact: None,
+                loose: false,
+                leave: false,
+            };
+            let id = old
+                .record_move(&config, mv, None, &mut |_, _| Ok(()))
+                .unwrap()
+                .unwrap();
+            // Another file was renamed in place of the original, and is being put back: under the original's name,
+            // or, with that taken, in the kept files.
+            std::fs::remove_file(&name).unwrap();
+            let other = tmp.path().join("in/other");
+            std::fs::write(&other, b"other").unwrap();
+            let found = Identity::of(&rustix::fs::lstat(&other).unwrap());
+            let aside = match kept {
+                false => {
+                    std::fs::rename(&other, &name).unwrap();
+                    None
+                }
+                true => {
+                    let src = FolderDir::open(&tmp.path().join("in"), "").unwrap();
+                    let retention = open_retention(&old, Scope::Ingest(folder), &src, 1, true)
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    std::fs::rename(&other, retention.generation.path().join("pong.a26.kept"))
+                        .unwrap();
+                    std::fs::write(&name, b"squatter").unwrap();
+                    Some("pong.a26.kept")
+                }
+            };
+            let (dev, ino) = found.to_sql();
+            old.write(|tx| {
+                tx.execute(
+                    "UPDATE ingest_moves SET state = 'restoring', found_dev = ?2, found_ino = ?3, aside_name = ?4,
+                         error = 'what was moved for pong.a26 was not the file planned'
+                     WHERE id = ?1",
+                    params![id, dev, ino, aside],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            drop(old);
+            let store = Store::open(&at).unwrap();
+
+            let left = store.recover_ingest_moves(&config).unwrap();
+
+            let ended = store.read(|c| move_by_id(c, id)).unwrap();
+            assert_eq!(ended.state, "failed", "kept={kept}: {left:?}");
+            let error = ended.error.unwrap_or_default();
+            match kept {
+                false => {
+                    assert!(error.contains("it was put back as pong.a26"), "{error}");
+                    assert_eq!(std::fs::read(&name).unwrap(), b"other");
+                }
+                true => {
+                    assert!(error.contains("so it was kept as pong.a26.kept"), "{error}");
+                    let kept = store.ingest_kept_files("in").unwrap();
+                    assert_eq!(kept.len(), 1, "{kept:?}");
+                    assert_eq!(kept[0].kept_name, "pong.a26.kept");
+                }
+            }
         }
     }
 

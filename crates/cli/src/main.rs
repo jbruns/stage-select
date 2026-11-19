@@ -615,6 +615,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     evidence,
                     reads: None,
                     tally: Default::default(),
+                    placed: &[],
                 },
             )
             .map_err(|e| e.to_string())?;

@@ -17,6 +17,7 @@ mod fetch;
 mod headers;
 mod ingest;
 mod lifecycle;
+mod placements;
 mod repair;
 mod romm;
 mod romm_additions;

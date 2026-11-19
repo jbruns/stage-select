@@ -10,7 +10,7 @@ use title_select_api::repair::{
 };
 use title_select_api::storage::{
     MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, is_reserved_name,
-    placement, release_of,
+    placed_path, placement, release_of, split_placed,
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, Report};
 use title_select_engine::FileStamp;
@@ -43,7 +43,25 @@ pub(super) struct Inputs<'a> {
     pub cues: &'a [CueSheet],
     /// Whether the Source Set's Coverage covers a Game: a Game outside it is never filled (ADR 0021).
     pub covers: &'a dyn Fn(&str) -> bool,
+    /// Where each Placed Game is (ADR 0023), by its name: the Library Folder holding it and the folder its files are
+    /// in there.
+    pub placed: &'a HashMap<String, Located>,
+    /// The Game each Placed Game's file is a file of, by its path in the Audit: never a source for another.
+    pub placed_files: &'a HashMap<String, String>,
 }
+
+/// Where a file, or a Game's files, are: a Library Folder, by its id, and the folder in it holding them (empty for
+/// its top), for a Placed Game; none for the Source Set's own folder.
+pub(super) type Located = Option<(i64, String)>;
+
+/// Where the file at `path`, as an Audit names it, is.
+fn located(path: &str) -> Located {
+    split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
+}
+
+/// Why a repair leaves a Placed Game it would have to convert.
+const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks, replaces or \
+     completes its files but doesn't yet convert them";
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
@@ -758,10 +776,59 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .iter()
         .map(|g| (g.name.as_str(), g))
         .collect();
+    // Where each Game is: where it is placed, or else where every file the Audit found holding a ROM of it is.
+    let mut found_at: HashMap<&str, BTreeSet<Located>> = HashMap::new();
+    for ((game, _), paths) in &held_by {
+        found_at
+            .entry(game.as_str())
+            .or_default()
+            .extend(paths.iter().map(|p| located(p)));
+    }
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = roms_of(i.dat, index);
         let Some((placed, why_zip)) = &placements[index] else {
             continue;
+        };
+        let location: Located = match (i.placed.get(game), found_at.get(game.as_str())) {
+            (Some(at), _) => at.clone(),
+            (None, None) => None,
+            (None, Some(at)) if at.len() == 1 => at.iter().next().cloned().flatten(),
+            (None, Some(_)) => {
+                notes.push(format!(
+                    "{game} is left as it is: its files are both in the source set's folder and placed in a play \
+                     library folder"
+                ));
+                continue;
+            }
+        };
+        // A Placed Game stays stored as it is placed, under the names the DAT gives: a TorrentZip, its one ROM loose,
+        // or its ROMs loose together, in the folder of the Library Folder it is in.
+        let placed_as;
+        let (placed, why_zip) = match &location {
+            None => (placed, why_zip),
+            Some((folder, dir)) => {
+                let at = |name: &str| match dir.is_empty() {
+                    true => placed_path(*folder, name),
+                    false => placed_path(*folder, &format!("{dir}/{name}")),
+                };
+                let held: BTreeSet<&str> = roms
+                    .iter()
+                    .filter_map(|r| held_by.get(&(game.clone(), r.name.clone())))
+                    .flatten()
+                    .copied()
+                    .collect();
+                placed_as = match (held.iter().next(), roms.as_slice()) {
+                    (Some(only), _) if held.len() == 1 && name_is_zip(only) => {
+                        Placement::TorrentZip(at(&format!("{game}.zip")))
+                    }
+                    (_, [rom]) => Placement::Loose(at(&rom.name)),
+                    _ => Placement::Folder {
+                        folder: at("").trim_end_matches('/').to_owned(),
+                        files: roms.iter().map(|r| at(&r.name)).collect(),
+                    },
+                };
+                (&placed_as, &None)
+            }
         };
         match why_zip {
             Some(MULTI_ROM_STAYS_ZIP) => stays_zip += 1,
@@ -779,10 +846,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             Some(folder) => format!("{folder}/"),
             None => targets[0].clone(),
         };
+        // A Placed Game's target is named as one in the Source Set's folder is, in the folder it is placed in.
+        let own = match &location {
+            Some(_) => base_name(&target),
+            None => target.as_str(),
+        };
         if folder.is_none()
-            && let Some(why) = invalid_name(&target).or_else(|| {
-                is_reserved_name(&target)
-                    .then(|| format!("{target} is a name Title Select keeps its own work under"))
+            && let Some(why) = invalid_name(own).or_else(|| {
+                is_reserved_name(own)
+                    .then(|| format!("{own} is a name Title Select keeps its own work under"))
             })
         {
             notes.push(format!("{game} is left as it is: {why}"));
@@ -803,7 +875,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         // conflicting entry you chose to take as the ROM it matches.
         let mut sources: Vec<Option<(u8, &str, &Entry)>> = vec![None; roms.len()];
         for (path, file) in &usable {
-            if file.unreadable || kept_conflicts.contains(path) || left_conflicts.contains(path) {
+            if file.unreadable
+                || kept_conflicts.contains(path)
+                || left_conflicts.contains(path)
+                || located(path) != location
+                || i.placed_files.get(*path).is_some_and(|of| of != game)
+            {
                 continue;
             }
             for entry in &file.entries {
@@ -1437,6 +1514,31 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     }
 
     keep_uncovered(i, &by_path, &reported, &mut proposed, &mut notes);
+
+    // A Placed Game is renamed, repacked, replaced or completed where it is placed, never converted. One with a file
+    // still there is completed there, from an ingest folder too, so that a Game is never split between two folders;
+    // one with none left is no Placed Game here, and is filled in the Source Set's folder.
+    let writes_placed: Vec<usize> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.item.key.starts_with("game:")
+                && p.item
+                    .path
+                    .as_deref()
+                    .is_some_and(|t| split_placed(t).is_some())
+                && !(p.converts.is_empty() && p.proposal.is_some())
+        })
+        .map(|(n, _)| n)
+        .collect();
+    for n in writes_placed {
+        let item = &mut proposed[n].item;
+        item.choices = vec![RepairChoice::Leave];
+        item.default = RepairChoice::Leave;
+        item.chosen = RepairChoice::Leave;
+        item.note = Some(format!("left as it is: {PLACED_WRITES}"));
+        leave_release(&mut proposed, n);
+    }
 
     // The choices you made in place of the defaults; those for files holding nothing are checked below.
     for (key, choice) in i.choices {

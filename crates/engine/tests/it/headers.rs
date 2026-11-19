@@ -260,6 +260,7 @@ fn run(
             evidence,
             reads,
             tally: Default::default(),
+            placed: &[],
         },
     )
     .unwrap()
