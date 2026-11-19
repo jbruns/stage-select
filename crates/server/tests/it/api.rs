@@ -1,10 +1,7 @@
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::io::BufRead;
 use std::path::PathBuf;
 
-use common::*;
+use crate::common::*;
 use serde::de::DeserializeOwned;
 use title_select_api::{
     AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, GameStatus, ImportOutcome,

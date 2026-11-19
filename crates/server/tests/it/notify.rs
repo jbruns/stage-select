@@ -1,16 +1,13 @@
 //! Webhook notifications and `/metrics`, against a fake webhook and a fake DAT Provider on local ports. No test sends a
 //! request anywhere else.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::*;
+use crate::common::*;
 use serde_json::{Value, json};
 use sha2::Digest;
 use title_select_api::{Job, JobState};
