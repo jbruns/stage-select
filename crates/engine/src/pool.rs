@@ -204,53 +204,77 @@ impl Drop for Place<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::channel;
+    use std::sync::{Arc, Barrier};
     use std::time::Instant;
 
     use super::*;
 
-    /// Runs `f` on a thread of its own, failing if it takes longer than `within`.
-    fn bounded<T: Send + 'static>(within: Duration, f: impl FnOnce() -> T + Send + 'static) -> T {
+    /// Runs `f` on a thread of its own, failing if it takes longer than 30 seconds: a permit stuck.
+    fn bounded<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             let _ = tx.send(f());
         });
-        rx.recv_timeout(within)
+        rx.recv_timeout(Duration::from_secs(30))
             .expect("it finished in time, with no permit stuck")
+    }
+
+    /// Waits until `n` workers wait in `pool`'s queue, failing after 30 seconds.
+    fn until_waiting(pool: &Pool, n: usize) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while pool.waiting.load(Ordering::SeqCst) != n {
+            assert!(Instant::now() < deadline, "{n} never waited");
+            std::thread::yield_now();
+        }
     }
 
     #[test]
     fn a_pool_lets_in_as_many_as_its_limit_says_at_each_entry() {
         let pool = Pool::new(3);
+        let all_in = Barrier::new(3);
+        let permits = std::thread::scope(|s| {
+            let workers: Vec<_> = (0..3)
+                .map(|_| {
+                    s.spawn(|| {
+                        let permit = pool.enter();
+                        all_in.wait();
+                        permit
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .map(|w| w.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(pool.most_at_once(), 3);
+
+        // Made smaller, it keeps those already in, and lets in nobody more until fewer than its limit are left.
+        pool.set_limit(1);
+        let mut permits = permits.into_iter();
+        for _ in 0..3 {
+            assert!(pool.enter_unless(|| true).is_none(), "{} in", pool.taken());
+            drop(permits.next());
+        }
+        assert!(pool.enter_unless(|| true).is_some());
+
         let (inside, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
-        let passes = AtomicUsize::new(0);
         std::thread::scope(|s| {
             for _ in 0..6 {
                 s.spawn(|| {
-                    loop {
+                    for _ in 0..20 {
                         let _permit = pool.enter();
-                        let n = passes.fetch_add(1, Ordering::SeqCst);
-                        if n >= 120 {
-                            break;
-                        }
-                        if n == 40 {
-                            pool.set_limit(1);
-                            most.store(0, Ordering::SeqCst);
-                        }
                         let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
-                        if n >= 50 {
-                            most.fetch_max(now, Ordering::SeqCst);
-                        }
-                        std::thread::sleep(Duration::from_millis(2));
+                        most.fetch_max(now, Ordering::SeqCst);
+                        std::thread::yield_now();
                         inside.fetch_sub(1, Ordering::SeqCst);
                     }
                 });
             }
         });
         assert_eq!(most.load(Ordering::SeqCst), 1);
-        assert_eq!(pool.most_at_once(), 3);
     }
 
     #[test]
@@ -263,11 +287,9 @@ mod tests {
                 let _permit = pool.enter();
             })
         };
-        std::thread::sleep(Duration::from_millis(20));
+        until_waiting(&pool, 1);
         pool.set_limit(2);
-        let started = Instant::now();
-        waiter.join().unwrap();
-        assert!(started.elapsed() < Duration::from_secs(2));
+        bounded(move || waiter.join().unwrap());
         drop(held);
     }
 
@@ -282,7 +304,7 @@ mod tests {
         .join();
         assert!(panicked.is_err());
         assert_eq!(pool.taken(), 0);
-        bounded(Duration::from_secs(5), move || {
+        bounded(move || {
             let _permit = pool.enter();
         });
     }
@@ -299,7 +321,7 @@ mod tests {
                     .map(|_| ())
             })
         };
-        std::thread::sleep(Duration::from_millis(20));
+        until_waiting(&pool, 1);
         // Queued behind the cancelled worker.
         let behind = {
             let pool = pool.clone();
@@ -307,38 +329,36 @@ mod tests {
                 let _permit = pool.enter();
             })
         };
-        std::thread::sleep(Duration::from_millis(20));
+        until_waiting(&pool, 2);
         stop.store(true, Ordering::SeqCst);
         assert_eq!(cancelled.join().unwrap(), None);
         drop(held);
-        bounded(Duration::from_secs(5), move || behind.join().unwrap());
+        bounded(move || behind.join().unwrap());
         assert_eq!(pool.taken(), 0);
     }
 
     #[test]
     fn a_worker_asking_again_at_once_cannot_keep_the_permit_from_one_that_waited() {
         let pool = Arc::new(Pool::new(1));
-        let done = Arc::new(AtomicBool::new(false));
-        let greedy = {
-            let (pool, done) = (pool.clone(), done.clone());
+        let held = pool.enter();
+        let (done, finish) = channel::<()>();
+        let waiter = {
+            let pool = pool.clone();
             std::thread::spawn(move || {
-                while !done.load(Ordering::SeqCst) {
-                    let _permit = pool.enter();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
+                let _permit = pool.enter();
+                // Holds the permit, so that it isn't free again for asking once more.
+                let _ = finish.recv();
             })
         };
-        std::thread::sleep(Duration::from_millis(10));
-        let waited = bounded(Duration::from_secs(5), {
-            let pool = pool.clone();
-            move || {
-                let started = Instant::now();
-                let _permit = pool.enter();
-                started.elapsed()
-            }
-        });
-        done.store(true, Ordering::SeqCst);
-        greedy.join().unwrap();
-        assert!(waited < Duration::from_millis(500), "{waited:?}");
+        until_waiting(&pool, 1);
+        // The moment the permit is given back, before the worker that waited has woken to take it.
+        std::mem::forget(held);
+        pool.inside.fetch_sub(1, Ordering::SeqCst);
+        assert!(
+            pool.enter_unless(|| true).is_none(),
+            "asking again at once took the permit"
+        );
+        drop(done);
+        bounded(move || waiter.join().unwrap());
     }
 }
