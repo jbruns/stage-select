@@ -222,6 +222,13 @@ pub(crate) fn move_placed(
             ctime_ns(now) as i64
         ],
     )?;
+    tx.execute(
+        "UPDATE review_flags SET path = ?2 WHERE path = ?1",
+        params![
+            title_select_api::storage::placed_path(folder, from),
+            title_select_api::storage::placed_path(folder, to)
+        ],
+    )?;
     Ok(())
 }
 
@@ -367,6 +374,12 @@ pub(crate) fn forget_placed(tx: &Transaction, folder: i64, path: &str) -> Result
     tx.execute(
         "DELETE FROM placed_files WHERE folder_id = ?1 AND path = ?2",
         params![folder, path],
+    )?;
+    // A file no longer placed needs no review as one.
+    clear_review_at(
+        tx,
+        set,
+        &title_select_api::storage::placed_path(folder, path),
     )?;
     drop_unplaced(tx, set, &game)
 }
@@ -939,7 +952,26 @@ pub(crate) fn raise_review(
     Ok(())
 }
 
-/// Clears the review flag of each of `games` of Source Set `set`, once something verified it.
+/// The placed files of Source Set `set` flagged for review, as Audits name them.
+pub(crate) fn reviewed_paths(tx: &Transaction, set: i64) -> Result<Vec<String>> {
+    let mut stmt =
+        tx.prepare("SELECT path FROM review_flags WHERE source_set_id = ?1 ORDER BY path")?;
+    let paths = stmt
+        .query_map([set], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(paths)
+}
+
+/// Clears the review flag of Source Set `set`'s placed file `path`, as Audits name it.
+pub(crate) fn clear_review_at(tx: &Transaction, set: i64, path: &str) -> Result<()> {
+    tx.execute(
+        "DELETE FROM review_flags WHERE source_set_id = ?1 AND path = ?2",
+        params![set, path],
+    )?;
+    Ok(())
+}
+
+/// Clears the review flag of each of `games` of Source Set `set`, once each was verified home.
 pub(crate) fn clear_reviews<'a>(
     tx: &Transaction,
     set: i64,

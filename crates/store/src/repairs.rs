@@ -2118,6 +2118,46 @@ impl Store {
 
     /// Runs `step`; a Build `droppable` by a cancel stops its reads and writes for one ([`Interruptible`]).
     fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
+        // A disc placed as a CHD is never completed where it is placed: no file of another format is written beside
+        // it, whatever the plan says.
+        let writes = match &step.step {
+            RepairStep::Build { target, .. }
+            | RepairStep::Fill { target, .. }
+            | RepairStep::Publish { target, .. } => Some(target.as_str()),
+            RepairStep::Rename { to, .. } => Some(to.as_str()),
+            _ => None,
+        };
+        if let Some(target) = writes.filter(|t| split_placed(t).is_some()) {
+            let game = r
+                .plan
+                .content
+                .items
+                .iter()
+                .find(|i| i.key == step.item)
+                .and_then(|i| i.game.as_deref());
+            let set = r.plan.content.set_id;
+            let as_chd = match game {
+                Some(game) => self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT EXISTS (SELECT 1 FROM placed_files
+                         WHERE source_set_id = ?1 AND game = ?2 AND chd_roms IS NOT NULL)",
+                        params![set, game],
+                        |r| r.get::<_, bool>(0),
+                    )?)
+                })?,
+                None => false,
+            };
+            if as_chd {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!(
+                        "{} is placed as a CHD, so {target} is never written beside it; it was left as it is",
+                        game.unwrap_or_default()
+                    ),
+                );
+            }
+        }
         match &step.step {
             RepairStep::Build {
                 target,

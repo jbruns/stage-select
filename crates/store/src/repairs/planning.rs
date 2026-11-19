@@ -69,6 +69,12 @@ const PLACED_WRITES: &str = "it is placed in a play library folder, where a repa
 const PLACED_CHD: &str = "it is placed as a CHD in a play library folder, verified by the audit, and a repair \
      doesn't change a healthy CHD";
 
+/// Why a repair leaves a Game placed as a CHD the Audit didn't verify, or one of whose CHDs is gone.
+const PLACED_CHD_UNVERIFIED: &str = "it is placed as a CHD in a play library folder, and a CHD of it didn't verify or \
+     is gone, so it needs review. A repair doesn't rebuild a CHD or complete it with files of another format. Put \
+     a good copy of each CHD in its place and audit again; once none of its CHDs is left in the play library folder, \
+     a repair can rebuild the game in your source set";
+
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
 pub(crate) struct CueSheet {
@@ -1547,9 +1553,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     }
 
     // A healthy CHD, every Entry of it Matched on Payload Evidence and its Game Complete on them, is left as it is:
-    // a repair would only repack it into the files the Source Set stores. One missing, damaged or unverified gets a
-    // repair's choices as any Placed Game's file does: completed where it is placed, or, once none of its Game's files
-    // is left, filled in the Source Set's folder, where it is no longer placed.
+    // a repair would only repack it into the files the Source Set stores. A disc placed as a CHD is never completed
+    // where it is placed, since that would place it as files of two formats: a Game any of whose CHDs is still there
+    // but damaged, unverified or beside one that is gone is left as it is too, and needs review. Only once none of its
+    // CHDs is left does it get a repair's choices, filled in the Source Set's folder, where it is no longer placed.
     let healthy: HashSet<&str> = i
         .placed_chds
         .iter()
@@ -1577,10 +1584,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 })
         })
         .collect();
-    let chd_games: HashSet<&str> = healthy
+    // The CHDs the Audit found where they are placed, any of their Entries reported.
+    let present: HashSet<&str> = i
+        .placed_chds
+        .iter()
+        .map(String::as_str)
+        .filter(|path| i.report.entries.iter().any(|e| e.path == *path))
+        .collect();
+    let chd_games: HashSet<&str> = present
         .iter()
         .filter_map(|path| i.placed_files.get(*path))
         .map(String::as_str)
+        .collect();
+    // Of those, the Games each of whose CHDs is there and healthy; each other one needs review.
+    let healthy_games: HashSet<&str> = chd_games
+        .iter()
+        .copied()
+        .filter(|game| {
+            i.placed_chds
+                .iter()
+                .filter(|path| i.placed_files.get(*path).is_some_and(|g| g == game))
+                .all(|path| healthy.contains(path.as_str()))
+        })
         .collect();
     let touches_chd: Vec<usize> = proposed
         .iter()
@@ -1590,19 +1615,38 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 .game
                 .as_deref()
                 .is_some_and(|g| chd_games.contains(g))
-                || p.item.path.as_deref().is_some_and(|t| healthy.contains(t))
+                || p.item.path.as_deref().is_some_and(|t| present.contains(t))
                 || p.displaces
                     .iter()
-                    .any(|(d, _)| healthy.contains(d.as_str()))
+                    .any(|(d, _)| present.contains(d.as_str()))
         })
         .map(|(n, _)| n)
         .collect();
     for n in touches_chd {
+        let p = &proposed[n];
+        // The Game whose CHD the item touches, by its own name or by the file's.
+        let game = p
+            .item
+            .game
+            .as_deref()
+            .filter(|g| chd_games.contains(g))
+            .or_else(|| {
+                p.item
+                    .path
+                    .as_deref()
+                    .into_iter()
+                    .chain(p.displaces.iter().map(|(d, _)| d.as_str()))
+                    .find_map(|t| i.placed_files.get(t).map(String::as_str))
+            });
+        let why = match game.is_some_and(|g| healthy_games.contains(g)) {
+            true => PLACED_CHD,
+            false => PLACED_CHD_UNVERIFIED,
+        };
         let item = &mut proposed[n].item;
         item.choices = vec![RepairChoice::Leave];
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
-        item.note = Some(format!("left as it is: {PLACED_CHD}"));
+        item.note = Some(format!("left as it is: {why}"));
         leave_release(&mut proposed, n);
     }
 

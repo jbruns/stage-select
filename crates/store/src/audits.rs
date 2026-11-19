@@ -549,16 +549,23 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
         params![id, content],
     )?;
-    // A Game this Audit verified, every ROM present on Payload Evidence, no longer needs the review a Build flagged.
-    crate::placements::clear_reviews(
-        tx,
-        set_id,
-        report
-            .games
-            .iter()
-            .filter(|g| g.status == GameStatus::Complete && g.claimed_roms.is_empty())
-            .map(|g| g.name.as_str()),
-    )?;
+    // A placed file a Build flagged no longer needs review once a Full Audit verified that file itself, every Entry
+    // of it Matched on Payload Evidence: never because another copy of its Game was found.
+    if report.evidence == AuditEvidence::Full {
+        for path in crate::placements::reviewed_paths(tx, set_id)? {
+            let mut entries = report.entries.iter().filter(|e| e.path == path).peekable();
+            let verified = entries.peek().is_some()
+                && entries.all(|e| {
+                    e.finding == Finding::Matched
+                        && e.evidence
+                            .as_ref()
+                            .is_some_and(|ev| ev.level == EvidenceLevel::Payload)
+                });
+            if verified {
+                crate::placements::clear_review_at(tx, set_id, &path)?;
+            }
+        }
+    }
     Ok(())
 }
 
