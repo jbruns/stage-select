@@ -1936,12 +1936,34 @@ impl Store {
 
     /// Whether move `m`, begun before the folders it goes into were recorded, still has its original, or its file,
     /// where it left them: in the Ingest Folder, set aside there to delete, or at its name in `dest`, the folder the
-    /// file goes in; or is keeping its original, which no longer depends on its file.
+    /// file goes in; or is keeping its original, which no longer depends on its file. A move restoring what was
+    /// found in place of its original has it where it left it too once that is back under the original's name in the
+    /// Ingest Folder, or in the kept files under the name recorded for it.
     fn left_as_it_was(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Result<bool> {
         if matches!(m.state.as_str(), "keeping" | "retaining")
             || is_seen(src, &m.name, &m.seen).map_err(io)?
         {
             return Ok(true);
+        }
+        if m.state == "restoring"
+            && let Some(found) = m.found
+        {
+            let holds = |dir: &FolderDir, name: &str| -> Result<bool> {
+                Ok(dir
+                    .stat(name)
+                    .map_err(io)?
+                    .is_some_and(|st| Identity::of(&st) == found))
+            };
+            if holds(src, &m.name)? {
+                return Ok(true);
+            }
+            if let Some(aside) = &m.aside_name
+                && let Ok(Some(retention)) =
+                    open_retention(self, Scope::Ingest(m.folder), src, m.generation(), false)?
+                && holds(&retention.generation, aside)?
+            {
+                return Ok(true);
+            }
         }
         if let Ok(Some(deleting)) = open_area_deleting(self, Scope::Ingest(m.folder), src, false)?
             && deleting
@@ -2543,6 +2565,107 @@ mod tests {
         assert!(left.is_empty(), "{left:?}");
         assert_eq!(state(), "done");
         assert_eq!(std::fs::read(&placed).unwrap(), b"pong");
+    }
+
+    /// A move into a loose folder that schema 36's service began, and stopped while it restored what it found in
+    /// place of its original: once it was back under the original's name in the Ingest Folder, or, that name taken,
+    /// once it was in the kept files under the name recorded for it. Once the store is upgraded, recovery finishes
+    /// the restore, its folder never having changed.
+    #[test]
+    fn a_restore_begun_before_its_folders_were_recorded_is_finished_after_an_upgrade() {
+        for kept in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            for dir in ["in", "lib/Atari/Pong (USA)"] {
+                std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
+            }
+            let config = Config::parse(&format!(
+                "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[roots.lib]\npath = {:?}\n\
+                 writable = true\n",
+                tmp.path().join("in").display().to_string(),
+                tmp.path().join("lib").display().to_string(),
+            ))
+            .unwrap();
+            let at = tmp.path().join("store");
+            let old = Store::open_with(&at, &crate::migrations::MIGRATIONS[..36]).unwrap();
+            let folder = old
+                .register_ingest_folder(&config, "in")
+                .unwrap()
+                .id
+                .unwrap();
+            let name = tmp.path().join("in/pong.a26");
+            std::fs::write(&name, b"pong").unwrap();
+            let mv = Move {
+                folder,
+                plan: None,
+                item: None,
+                name: "pong.a26",
+                seen: Seen::of(&rustix::fs::lstat(&name).unwrap()),
+                sha256: Some(hex(&Sha256::digest(b"pong"))),
+                dest: atari("Pong (USA)/Pong (USA).a26"),
+                repack: None,
+                exact: None,
+                loose: false,
+                leave: false,
+            };
+            let id = old
+                .record_move(&config, mv, None, &mut |_, _| Ok(()))
+                .unwrap()
+                .unwrap();
+            // Another file was renamed in place of the original, and is being put back: under the original's name,
+            // or, with that taken, in the kept files.
+            std::fs::remove_file(&name).unwrap();
+            let other = tmp.path().join("in/other");
+            std::fs::write(&other, b"other").unwrap();
+            let found = Identity::of(&rustix::fs::lstat(&other).unwrap());
+            let aside = match kept {
+                false => {
+                    std::fs::rename(&other, &name).unwrap();
+                    None
+                }
+                true => {
+                    let src = FolderDir::open(&tmp.path().join("in"), "").unwrap();
+                    let retention = open_retention(&old, Scope::Ingest(folder), &src, 1, true)
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    std::fs::rename(&other, retention.generation.path().join("pong.a26.kept"))
+                        .unwrap();
+                    std::fs::write(&name, b"squatter").unwrap();
+                    Some("pong.a26.kept")
+                }
+            };
+            let (dev, ino) = found.to_sql();
+            old.write(|tx| {
+                tx.execute(
+                    "UPDATE ingest_moves SET state = 'restoring', found_dev = ?2, found_ino = ?3, aside_name = ?4,
+                         error = 'what was moved for pong.a26 was not the file planned'
+                     WHERE id = ?1",
+                    params![id, dev, ino, aside],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            drop(old);
+            let store = Store::open(&at).unwrap();
+
+            let left = store.recover_ingest_moves(&config).unwrap();
+
+            let ended = store.read(|c| move_by_id(c, id)).unwrap();
+            assert_eq!(ended.state, "failed", "kept={kept}: {left:?}");
+            let error = ended.error.unwrap_or_default();
+            match kept {
+                false => {
+                    assert!(error.contains("it was put back as pong.a26"), "{error}");
+                    assert_eq!(std::fs::read(&name).unwrap(), b"other");
+                }
+                true => {
+                    assert!(error.contains("so it was kept as pong.a26.kept"), "{error}");
+                    let kept = store.ingest_kept_files("in").unwrap();
+                    assert_eq!(kept.len(), 1, "{kept:?}");
+                    assert_eq!(kept[0].kept_name, "pong.a26.kept");
+                }
+            }
+        }
     }
 
     #[test]
