@@ -199,52 +199,78 @@ pub(crate) fn copy(
     }
 }
 
-/// The copy [`copy`] published, opened without following a symlink and held, with its stat as it was opened.
+/// A published copy, opened without following a symlink and held, with its stat as it was opened: what is checked
+/// once more, last, before the original it stands in for is deleted. A carry's ([`dispose`]) and an Ingest Folder
+/// move's alike.
 pub(crate) struct Held {
     file: File,
     st: Stat,
 }
 
-/// Opens the copy [`copy`] published as `d`, while it is the copy it made, to hold it. Returns why not.
-fn open_published(d: &Dest, intent: &Intent) -> Result<std::result::Result<Held, String>> {
-    let Some(id) = intent.staged_id else {
-        return Ok(Err("no copy of it is recorded".into()));
-    };
-    let file = match d.dir.open_file(d.name) {
-        Ok(file) => file,
-        Err(e) => return Ok(Err(format!("its copy can't be read ({e})"))),
-    };
-    let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-    if Identity::of(&st) != id {
-        return Ok(Err(
-            "what is in place of its copy is not the copy Title Select made".into(),
-        ));
-    }
-    Ok(Ok(Held { file, st }))
-}
-
-/// Whether `held` is still the copy at `d`'s name, unchanged since it was opened, and reads, through its own
-/// descriptor, as the SHA-256 `sha` recorded. Returns why not.
-fn still_holds(d: &Dest, held: &Held, sha: &str) -> Result<std::result::Result<(), String>> {
-    let id = Identity::of(&held.st);
-    match d.dir.stat(d.name).map_err(io_err)? {
-        Some(st) if is_file(&st, id) => {}
-        _ => {
+impl Held {
+    /// Opens `name` in `dir`, while it is the file `id`, to hold it. Returns why not.
+    pub(crate) fn open(
+        dir: &FolderDir,
+        name: &str,
+        id: Identity,
+    ) -> Result<std::result::Result<Held, String>> {
+        let file = match dir.open_file(name) {
+            Ok(file) => file,
+            Err(e) => return Ok(Err(format!("its copy can't be read ({e})"))),
+        };
+        let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+        if Identity::of(&st) != id {
             return Ok(Err(
                 "what is in place of its copy is not the copy Title Select made".into(),
             ));
         }
+        Ok(Ok(Held { file, st }))
     }
-    let now = rustix::fs::fstat(&held.file).map_err(|e| io_err(e.into()))?;
-    if file_stat(&now) != file_stat(&held.st) {
-        return Ok(Err("its copy changed since it was published".into()));
+
+    /// Whether this is still the file at `name` in `dir`, unchanged since it was opened, and reads, through its own
+    /// descriptor, as the SHA-256 `sha` recorded, counted to `tally`. Returns why not.
+    ///
+    /// Checked as the last step before an original is deleted. A change to the copy after this check can't be stopped
+    /// by any lock; it is as any later change to a kept or placed file, which the next audit or check finds.
+    pub(crate) fn still(
+        &self,
+        dir: &FolderDir,
+        name: &str,
+        sha: &str,
+        tally: &Tally,
+    ) -> Result<std::result::Result<(), String>> {
+        match dir.stat(name).map_err(io_err)? {
+            Some(st) if is_file(&st, Identity::of(&self.st)) => {}
+            _ => {
+                return Ok(Err(
+                    "what is in place of its copy is not the copy Title Select made".into(),
+                ));
+            }
+        }
+        let now = rustix::fs::fstat(&self.file).map_err(|e| io_err(e.into()))?;
+        if file_stat(&now) != file_stat(&self.st) {
+            return Ok(Err("its copy changed since it was published".into()));
+        }
+        Ok(
+            match still_sha256(&self.file, ctime_ns(&self.st), tally).map_err(io_err)? {
+                Some(read) if read == sha => Ok(()),
+                _ => Err("its copy changed since it was published".into()),
+            },
+        )
     }
-    Ok(
-        match still_sha256(&held.file, ctime_ns(&held.st), d.tally).map_err(io_err)? {
-            Some(read) if read == sha => Ok(()),
-            _ => Err("its copy changed since it was published".into()),
-        },
-    )
+}
+
+/// Opens the copy [`copy`] published as `d`, while it is the copy it made, to hold it. Returns why not.
+fn open_published(d: &Dest, intent: &Intent) -> Result<std::result::Result<Held, String>> {
+    match intent.staged_id {
+        Some(id) => Held::open(d.dir, d.name, id),
+        None => Ok(Err("no copy of it is recorded".into())),
+    }
+}
+
+/// Whether `held` is still the copy at `d`'s name, as [`Held::still`].
+fn still_holds(d: &Dest, held: &Held, sha: &str) -> Result<std::result::Result<(), String>> {
+    held.still(d.dir, d.name, sha, d.tally)
 }
 
 /// Whether the copy [`copy`] published as `d` is still the copy it made, reading as the SHA-256 recorded: so that a

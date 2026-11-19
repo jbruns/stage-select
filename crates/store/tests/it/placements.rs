@@ -1841,3 +1841,145 @@ fn a_fill_where_a_game_is_placed_copies_across_filesystems() {
             .all(|f| f.outcome == FileOutcome::Unchanged)
     );
 }
+
+/// Alpha with Joust placed loose, holding only its side A, and its side B in the Ingest Folder, audited.
+fn joust_half_placed() -> (Env, &'static str, &'static str) {
+    let env = Env::new();
+    let (a, b) = (
+        "Joust (USA)/Joust (USA) (Side A).a26",
+        "Joust (USA)/Joust (USA) (Side B).a26",
+    );
+    std::fs::create_dir_all(env.library().join("Joust (USA)")).unwrap();
+    std::fs::write(env.library().join(a), b"joust-a").unwrap();
+    env.store
+        .record_placement(&env.config, SET, "Joust (USA)", env.folder.id, &[a])
+        .unwrap();
+    env.ingest("side-b.a26", b"joust-b");
+    env.audit(AuditEvidence::Full);
+    (env, a, b)
+}
+
+/// Approves `plan` and runs its Repair Job with `hook` at every fault point, without the Audit it owes.
+fn repair_hooked(
+    env: &Env,
+    plan: &RepairPlan,
+    hook: impl Fn(Fault) + Send + Sync + 'static,
+) -> RepairPlan {
+    env.store.hook_faults(Some(std::sync::Arc::new(hook)));
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let job = approved.job.unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+    env.store.run_repair_job(&env.config, job, None).unwrap();
+    env.store.hook_faults(None);
+    env.store.repair_plan(plan.id).unwrap()
+}
+
+#[test]
+fn a_fill_across_filesystems_never_deletes_its_original_once_its_copy_changes_before_the_last_check()
+ {
+    // Its published copy written over in place, or removed, once its original is set aside to delete.
+    for remove in [false, true] {
+        let (env, a, b) = joust_half_placed();
+        env.store.copy_across_filesystems(true);
+        let plan = env.plan(&[]);
+        let copy = env.library().join(b);
+        let done = repair_hooked(&env, &plan, move |fault| {
+            if fault == Fault::IngestIsolated {
+                match remove {
+                    true => std::fs::remove_file(&copy).unwrap(),
+                    false => std::fs::write(&copy, b"spoiled").unwrap(),
+                }
+            }
+        });
+
+        assert_eq!(
+            std::fs::read(env.tmp.path().join("in/side-b.a26")).unwrap(),
+            b"joust-b",
+            "remove={remove}: the original is put back"
+        );
+        assert_eq!(
+            placed(&env),
+            [(a.to_owned(), "Joust (USA)".to_owned())],
+            "remove={remove}: nothing more is recorded placed"
+        );
+        let fill = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Joust (USA)")
+            .unwrap();
+        assert!(
+            !fill.done
+                && fill
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("side-b.a26 was not deleted, since")),
+            "remove={remove}: {:#?}",
+            done.outcomes
+        );
+    }
+}
+
+#[test]
+fn a_fill_where_a_game_is_placed_keeps_its_original_when_the_folder_moves_before_it_is_consumed() {
+    // The Library Folder moved away and an empty folder put at its path once the file is in it: by a rename, or by
+    // a copy whose original is set aside to delete.
+    for across in [false, true] {
+        let (env, a, b) = joust_half_placed();
+        env.store.copy_across_filesystems(across);
+        let plan = env.plan(&[]);
+        let (library, moved) = (env.library(), env.tmp.path().join("roots/play/moved"));
+        let away = moved.clone();
+        let swapped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let did = swapped.clone();
+        let done = repair_hooked(&env, &plan, move |fault| {
+            let now = match across {
+                false => fault == Fault::IngestMoved,
+                true => fault == Fault::IngestIsolated,
+            };
+            if now && !did.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                std::fs::rename(&library, &away).unwrap();
+                std::fs::create_dir(&library).unwrap();
+            }
+        });
+
+        assert!(
+            swapped.load(std::sync::atomic::Ordering::SeqCst),
+            "across={across}"
+        );
+        assert_eq!(
+            std::fs::read(env.tmp.path().join("in/side-b.a26")).unwrap(),
+            b"joust-b",
+            "across={across}: the original stays in the ingest folder"
+        );
+        assert!(
+            !moved.join(b).exists(),
+            "across={across}: nothing of it is left in the folder moved away"
+        );
+        assert!(
+            Env::files_under(&env.library()).is_empty(),
+            "across={across}"
+        );
+        assert_eq!(
+            placed(&env),
+            [(a.to_owned(), "Joust (USA)".to_owned())],
+            "across={across}"
+        );
+        let fill = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Joust (USA)")
+            .unwrap();
+        assert!(
+            !fill.done
+                && fill
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("was moved or replaced")),
+            "across={across}: {:#?}",
+            done.outcomes
+        );
+    }
+}

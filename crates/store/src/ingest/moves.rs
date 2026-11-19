@@ -121,6 +121,15 @@ thread_local! {
     pub(crate) static FORCE_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Whether the folder a move is made into is still the one at its destination's path: why not, otherwise.
+type InPlace<'a> = dyn Fn() -> Result<std::result::Result<(), String>> + 'a;
+
+/// The last check before the original of a published copy is deleted, and what undoes the copy when it fails.
+struct LastCheck<'a> {
+    check: &'a dyn Fn() -> Result<std::result::Result<(), String>>,
+    discard: &'a dyn Fn() -> Result<()>,
+}
+
 fn force_copy() -> bool {
     #[cfg(test)]
     {
@@ -574,6 +583,38 @@ impl Store {
                 },
             },
         };
+        // The folder moved into, as it was opened: checked again as the last step before the original is consumed,
+        // so that it is consumed only once its file is in the folder at the destination's path, with its marker when
+        // it has one. A change after that check is as any later change to the folder.
+        let opened = match &m.dest {
+            Destination::Path { root, rel, .. } => {
+                Some((dest.try_clone().map_err(io)?, root.clone(), rel.clone()))
+            }
+            Destination::Kept { .. } => None,
+        };
+        let in_place = || -> Result<std::result::Result<(), String>> {
+            let Some((opened, root, rel)) = &opened else {
+                return Ok(Ok(()));
+            };
+            let at = match self.open_dest_folder(config, root, rel)? {
+                Ok(at) => at,
+                Err(why) => {
+                    return Ok(Err(format!(
+                        "{} was moved or replaced while the move into it was made ({why})",
+                        opened.path().display()
+                    )));
+                }
+            };
+            Ok(
+                match at.identity().map_err(io)? == opened.identity().map_err(io)? {
+                    true => Ok(()),
+                    false => Err(format!(
+                        "{} was moved or replaced while the move into it was made",
+                        opened.path().display()
+                    )),
+                },
+            )
+        };
         // A file of a loose folder: moved into that folder, which the repair made, under its own name.
         let (dest, m) = match &m.dest {
             Destination::Path {
@@ -616,8 +657,14 @@ impl Store {
             Destination::Path { root, .. } => tally(root),
         };
         match m.kind.as_str() {
-            "rename" => self.drive_rename(config, &m, &src, (&dest, &to)),
-            _ => self.drive_copy(config, &m, (&src, &tally(&row.root)), (&dest, &to)),
+            "rename" => self.drive_rename(config, &m, &src, (&dest, &to), &in_place),
+            _ => self.drive_copy(
+                config,
+                &m,
+                (&src, &tally(&row.root)),
+                (&dest, &to),
+                &in_place,
+            ),
         }
     }
 
@@ -725,6 +772,7 @@ impl Store {
         m: &MoveRow,
         src: &FolderDir,
         (dest, to): (&FolderDir, &Tally),
+        in_place: &InPlace,
     ) -> Outcome {
         let dest_name = m.dest_name();
         if m.state == "restoring" {
@@ -790,6 +838,23 @@ impl Store {
         dest.sync().map_err(io)?;
         src.sync().map_err(io)?;
         match read_back((dest, to), dest_name, &m.seen, m.sha256.as_deref(), None).map_err(io)? {
+            // Moved only while the folder it is in is still the one at the destination's path: otherwise put back.
+            Moving::Planned { .. } if let Err(why) = in_place()? => {
+                self.write(|tx| {
+                    let (dev, ino) = m.seen.identity.to_sql();
+                    tx.execute(
+                        "UPDATE ingest_moves SET state = 'restoring', found_dev = ?2, found_ino = ?3, error = ?4
+                         WHERE id = ?1",
+                        params![m.id, dev, ino, why],
+                    )?;
+                    Ok(())
+                })?;
+                let m = MoveRow {
+                    dest: m.dest.clone(),
+                    ..self.read(|c| move_by_id(c, m.id))?
+                };
+                self.restore(&m, src, dest)
+            }
             Moving::Planned { file, sha256 } => {
                 let kept = self.kept_entry(m, m.seen.identity, file, Some(sha256.clone()));
                 self.finish_move(m, kept, Some(sha256), None)
@@ -830,8 +895,9 @@ impl Store {
         }
     }
 
-    /// Puts back what a rename moved in place of the file planned: under its name in the Ingest Folder, or, when
-    /// that was taken meanwhile, aside in the folder's kept files. Ends the move failed, saying where it is.
+    /// Puts back what a rename moved in place of the file planned, or the file planned when the folder it was moved
+    /// into was moved or replaced meanwhile: under its name in the Ingest Folder, or, when that was taken meanwhile,
+    /// aside in the folder's kept files. Ends the move failed, saying where it is.
     fn restore(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Outcome {
         let why = m
             .error
@@ -1033,6 +1099,7 @@ impl Store {
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         (dest, to): (&FolderDir, &Tally),
+        in_place: &InPlace,
     ) -> Outcome {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
@@ -1107,6 +1174,36 @@ impl Store {
             }
             _ => false,
         };
+        // The published copy, held from before the original is touched: checked once more, with the folder it is in,
+        // as the last step before the original is deleted.
+        let held = match (&published, delete) {
+            (Some((staged, _)), true) => crate::carry::Held::open(dest, &dest_name, *staged)?.ok(),
+            _ => None,
+        };
+        let copy_sha = published_sha.clone();
+        let check = || -> Result<std::result::Result<(), String>> {
+            let (Some(held), Some(sha)) = (&held, &copy_sha) else {
+                return Ok(Err("its published copy could not be held".into()));
+            };
+            if let Err(why) = held.still(dest, &dest_name, sha, to)? {
+                return Ok(Err(why));
+            }
+            in_place()
+        };
+        // What undoes the copy once its original is put back: only while it is still exactly the copy published.
+        let discard = || -> Result<()> {
+            if let (Some(held), Some(sha)) = (&held, &copy_sha)
+                && held.still(dest, &dest_name, sha, to)?.is_ok()
+            {
+                dest.unlink(&dest_name).map_err(io)?;
+                dest.sync().map_err(io)?;
+            }
+            Ok(())
+        };
+        let last = LastCheck {
+            check: &check,
+            discard: &discard,
+        };
         // What the original must still hash as to be deleted: what was copied, or, for a repack, what was read.
         let original_sha = match m.kind.as_str() {
             "repack" => m.sha256.clone(),
@@ -1114,15 +1211,15 @@ impl Store {
         };
         let disposed = match (m.state.as_str(), delete, original_sha) {
             ("keeping", ..) => self
-                .delete_original(m, (src, from), None)?
+                .delete_original(m, (src, from), None, None)?
                 .map(|note| (None, note)),
             ("retaining", ..) => self.keep_original(m, src)?,
             (_, true, Some(original_sha)) => self
-                .delete_original(m, (src, from), Some(&original_sha))?
+                .delete_original(m, (src, from), Some(&original_sha), Some(&last))?
                 .map(|note| (None, note)),
             // Already set aside to delete: kept from there instead.
             _ if resumed && !is_seen(src, &m.name, &m.seen).map_err(io)? => self
-                .delete_original(m, (src, from), None)?
+                .delete_original(m, (src, from), None, None)?
                 .map(|note| (None, note)),
             _ => self.keep_original(m, src)?,
         };
@@ -1504,12 +1601,14 @@ impl Store {
     /// Deletes the original of a published copy whose SHA-256 is `copied`: moved, without replacing anything, into
     /// the folder's private `.deleting` area, read back there, and deleted only if it is still exactly the file that
     /// was copied. An original that changed is kept aside instead, as is one already set aside to delete whose
-    /// deletion `copied` being `None` refuses. Returns a note of anything done besides deleting.
+    /// deletion `copied` being `None` refuses. Deleted only once `last` passes, as the last step: otherwise it is put
+    /// back, the copy undone, and the move ends failed. Returns a note of anything done besides deleting.
     fn delete_original(
         &self,
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         copied: Option<&str>,
+        last: Option<&LastCheck>,
     ) -> Result<std::result::Result<Option<String>, String>> {
         let deleting = match open_area_deleting(self, Scope::Ingest(m.folder), src, true)? {
             Ok(Some(deleting)) => deleting,
@@ -1576,6 +1675,11 @@ impl Store {
                                 .to_owned(),
                         ),
                         Moving::Planned { .. } if !self.unsettled(m)? => {
+                            if let Some(last) = last
+                                && let Err(why) = (last.check)()?
+                            {
+                                return self.return_original(m, src, &deleting, &slot, last, &why);
+                            }
                             deleting.unlink(&slot).map_err(io)?;
                             deleting.sync().map_err(io)?;
                             return Ok(Ok(None));
@@ -1636,6 +1740,42 @@ impl Store {
                 Aside::Left(left) => Err(format!("{} was not deleted: {why}; {left}", m.name)),
             },
         )
+    }
+
+    /// Puts the original of `m`, set aside to delete at `slot` in `deleting`, back under its name in the Ingest Folder,
+    /// or, when that was taken meanwhile, in the folder's kept files, since its copy's last check (`last`) failed for
+    /// `why`; then undoes the copy, and ends the move failed.
+    fn return_original(
+        &self,
+        m: &MoveRow,
+        src: &FolderDir,
+        deleting: &FolderDir,
+        slot: &str,
+        last: &LastCheck,
+        why: &str,
+    ) -> Result<std::result::Result<Option<String>, String>> {
+        let why = format!("{} was not deleted, since {why}", m.name);
+        let _pin = deleting.pin(slot, m.seen.identity);
+        let left = match deleting.rename_new(slot, src, &m.name) {
+            Ok(()) => {
+                deleting.sync().map_err(io)?;
+                src.sync().map_err(io)?;
+                (last.discard)()?;
+                format!("{why}; it was put back in the folder")
+            }
+            Err(_) => {
+                let reason = format!("{why}; kept instead");
+                match self.move_aside(m, src, deleting, slot, m.seen.identity, &reason)? {
+                    Aside::Kept(aside) => {
+                        (last.discard)()?;
+                        format!("{why}; its name was taken meanwhile, so it was kept as {aside}")
+                    }
+                    Aside::Ended(left) | Aside::Left(left) => format!("{why}; {left}"),
+                }
+            }
+        };
+        self.fail_move(m.id, left)
+            .map(|failed| failed.map(|_| None))
     }
 
     /// Keeps the original of a published repack, or of a published copy that may not delete it, in the folder's

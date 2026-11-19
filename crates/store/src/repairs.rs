@@ -3720,7 +3720,8 @@ impl Store {
     }
 
     /// The file Fill step `step` wrote as `target`, where the Placed Game its item completes is placed, to record
-    /// placed: its Game, its stat and its SHA-256, `sha256` when the move recorded it. Err says why it can't be.
+    /// placed: its Game, its stat and its SHA-256, read again, which must be `sha256` when the move recorded it. Err
+    /// says why it can't be.
     fn filled_placed(
         &self,
         r: &Repairing,
@@ -3745,17 +3746,21 @@ impl Store {
             }
         };
         let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-        let sha256 = match sha256 {
-            Some(sha256) => sha256,
-            None => match sha256_of(&file, r.tally(target)) {
-                Ok((sha256, _)) => sha256,
-                Err(e) => {
-                    return Ok(Err(format!(
-                        "{target} was written, but can't be read now ({e})"
-                    )));
-                }
-            },
+        // Read again whatever the move recorded: what is recorded placed is what is there.
+        let read = match sha256_of(&file, r.tally(target)) {
+            Ok((read, _)) => read,
+            Err(e) => {
+                return Ok(Err(format!(
+                    "{target} was written, but can't be read now ({e})"
+                )));
+            }
         };
+        if sha256.is_some_and(|written| written != read) {
+            return Ok(Err(format!(
+                "{target} changed since it was written, so it is not recorded placed"
+            )));
+        }
+        let sha256 = read;
         let (folder, rel) = split_placed(target).expect("a placed target");
         Ok(Ok(Filled {
             set: r.plan.content.set_id,
