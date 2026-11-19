@@ -10,11 +10,10 @@
 //!
 //! The golden holds seeds 1 to 48; `dump` writes one seed's DAT, profile and trace.
 
-mod support;
-
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use crate::support;
 use title_select_api::selection::{Category, Compilations, Rule, Selection, SelectionProfile};
 
 /// xorshift64*: a small, seedable generator, so a failing seed can be rerun alone.

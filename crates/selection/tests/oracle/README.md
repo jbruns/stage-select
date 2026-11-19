@@ -9,4 +9,4 @@ engine against them. They are Retool's answers, not the engine's, so nothing reg
 - `user-patterns.jsonl`, `generated-patterns.jsonl`: whether Python's `re` compiles each pattern with `re.I`, and
   which subjects it finds (`native::userre::tests`).
 - `disc-names.jsonl`: `TitleTools.normalize_discs` on disc names built from the frozen internal config's
-  `discRename` table (`tests/discs.rs`).
+  `discRename` table (`tests/it/discs.rs`).

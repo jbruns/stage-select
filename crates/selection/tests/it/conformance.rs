@@ -3,10 +3,9 @@
 //! rewrites. The goldens were made by the bundled Retool, and checked against its own output, until the cutover
 //! (ADR 0015); `tests/fixtures.rs` covers every fixture DAT.
 
-mod support;
-
 use std::collections::BTreeMap;
 
+use crate::support;
 use title_select_api::selection::{Category, Selection, SelectionProfile};
 
 struct Case {

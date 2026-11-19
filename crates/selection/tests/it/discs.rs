@@ -1,11 +1,10 @@
 //! Multi-disc Games: the disc-name normalization is Retool's own, and the check after Selection flags a group
 //! whose discs don't come whole from one release, without changing what the engine picks.
 
-mod support;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use crate::support;
 use title_select_api::discs::{self, DISC_RENAME, normalize};
 use title_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
 
@@ -39,7 +38,7 @@ fn the_disc_rename_table_is_the_pinned_configs() {
 #[test]
 fn disc_names_normalize_exactly_as_retools_title_tools_do() {
     let mut differences = Vec::new();
-    for line in include_str!("oracle/disc-names.jsonl").lines() {
+    for line in include_str!("../oracle/disc-names.jsonl").lines() {
         let (name, retools): (String, String) = serde_json::from_str(line).unwrap();
         if normalize(&name) != retools {
             differences.push(format!(

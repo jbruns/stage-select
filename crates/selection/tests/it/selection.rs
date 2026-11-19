@@ -1,10 +1,9 @@
 //! The Selection engine's contract beyond conformance: a fail-safe tie is flagged, a Selection never fetches, and a
 //! Profile the engine can't read is refused.
 
-mod support;
-
 use std::path::{Path, PathBuf};
 
+use crate::support;
 use title_select_api::selection::{
     Category, Selection, SelectionOptions, SelectionProfile, SystemSettings,
 };
@@ -684,7 +683,7 @@ fn relative_install_data_work_and_dat_paths_work() {
 }
 
 /// The acceptance run on a real DAT, which can't be committed:
-/// `TITLE_SELECT_ATARI_DAT=<path> cargo test -p title-select-selection --test selection -- --ignored --nocapture`.
+/// `TITLE_SELECT_ATARI_DAT=<path> cargo test -p title-select-selection --test it -- selection::a_real_dat --ignored --nocapture`.
 #[test]
 #[ignore = "needs a real DAT in TITLE_SELECT_ATARI_DAT"]
 fn a_real_dat_gets_a_rule_for_every_group() {
