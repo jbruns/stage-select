@@ -2,12 +2,9 @@
 //! Coverage are never filled or listed as wanted, but present ones are still renamed and repacked. From a synthetic
 //! DAT, Source Set and Ingest Folder; regions are read from Game names by the Selection engine.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
 use title_select_api::{AuditEvidence, GameStatus, JobState, Workers};

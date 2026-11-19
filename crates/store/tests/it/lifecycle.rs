@@ -2,13 +2,10 @@
 //! what holds each, Retiring Selection Profiles, setting whole sets aside, moving Library Folders and forgetting
 //! what an Unregistered registration left in the store, from synthetic DATs, Source Sets and files.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{
     AddLibraryFolder, ChangeLibraryFolder, LibraryFolder, Plan, PlanKeptDeletion,

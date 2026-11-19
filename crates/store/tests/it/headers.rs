@@ -1,10 +1,8 @@
 //! Headers in the store: a stored Audit keeps what a DAT's Header Rule found (ADR 0016).
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
 
 use std::path::PathBuf;
 
-use common::*;
+use crate::common::*;
 use std::collections::BTreeMap;
 
 use title_select_api::additions::AdditionState;

@@ -1,9 +1,6 @@
 //! The RomM client, its connection test and the scan a Build requests, against a stub RomM on a local port that
 //! answers as RomM 5.4.1 does (research 0136). No test sends a request to a real RomM.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -298,8 +295,8 @@ mod scans {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::common::*;
     use super::*;
+    use crate::common::*;
     use title_select_api::build::{AddLibraryFolder, LibraryFolder, PlanCleanup};
     use title_select_api::romm::{RommPlatform, RommScanOutcome, RommUpdate};
     use title_select_api::selection::{

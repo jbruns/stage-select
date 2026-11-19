@@ -1,12 +1,9 @@
 //! Stale Source Sets: what a stat walk finds against the latest Audit, and what a newer DAT Revision does to a
 //! Source Set that Follows its DAT, from synthetic DATs and Source Sets.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::PathBuf;
 
-use common::*;
+use crate::common::*;
 use title_select_api::{AuditEvidence, JobKind, JobState, SourceSetStale};
 use title_select_store::config::Config;
 use title_select_store::{Error, Store};

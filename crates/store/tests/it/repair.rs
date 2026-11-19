@@ -1,14 +1,10 @@
 //! Repairing Source Sets: plans proposed from the latest Audit and assessed ingest items, the choices you make before
 //! approving one, and what an approved repair does, from synthetic DATs, Source Sets and files.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-#[path = "../../engine/tests/common/sevenz.rs"]
-mod sevenz_fixtures;
-
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
+use crate::sevenz_fixtures;
 use title_select_api::build::PlanKeptDeletion;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::storage::{StorageFormat, SystemStorage};

@@ -1,13 +1,10 @@
 //! Calibration Jobs: how one queues ahead of every other Job and runs alone, what it reads and records, and when
 //! its results are Stale, from synthetic Roots with tiny step limits.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::*;
+use crate::common::*;
 use title_select_api::calibration::{CalibrationStale, RootOutcome};
 use title_select_api::{AuditEvidence, JobKind, JobState, Workers};
 use title_select_engine::calibrate::Limits;

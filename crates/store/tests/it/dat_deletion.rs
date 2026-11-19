@@ -1,11 +1,8 @@
 //! Deleting a DAT Revision nothing depends on (ADR 0003, amendment of 2026-11-15).
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::PathBuf;
 
-use common::*;
+use crate::common::*;
 use title_select_api::settings::{DEFAULT_SELECTIONS_KEPT, Retention, SettingsUpdate};
 use title_select_api::{DatRevisionRecord, DeletionBlocker, DeletionBlockerKind as K};
 use title_select_engine::AuditEvidence;

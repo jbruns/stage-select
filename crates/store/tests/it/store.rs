@@ -1,10 +1,7 @@
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use title_select_api::paths::PathTemplate;
 use title_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,

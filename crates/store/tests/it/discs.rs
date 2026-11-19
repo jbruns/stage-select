@@ -5,13 +5,10 @@
 //!
 //! The CHD test finds chdman as the store does; where it is missing it is skipped, except in CI, where it fails.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use title_select_api::JobState;
 use title_select_api::build::{
     AddLibraryFolder, CleanupAction, DriftKind, FileOutcome, FolderCheck, ItemKind, LibraryFolder,

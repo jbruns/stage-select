@@ -4,13 +4,10 @@
 //! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where
 //! it is missing they are skipped, except in CI, where they fail.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use common::*;
+use crate::common::*;
 use title_select_api::JobState;
 use title_select_api::build::{
     AddLibraryFolder, FileOutcome, FolderCheck, ItemState, LibraryFolder, Plan,

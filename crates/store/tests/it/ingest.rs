@@ -1,16 +1,12 @@
 //! Ingest Folders: scans, the state of each item, assessment against every Source Set, and the plans that move items
 //! out, from synthetic DATs, Source Sets and files.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-#[path = "../../engine/tests/common/sevenz.rs"]
-mod sevenz_fixtures;
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::*;
+use crate::common::*;
+use crate::sevenz_fixtures;
 use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
 use title_select_api::{AuditEvidence, JobKind};
 use title_select_store::config::Config;

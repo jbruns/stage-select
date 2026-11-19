@@ -3,9 +3,6 @@
 //! lacking `collections.write`. Against a stub RomM on a local port that keeps collections as RomM 5.4.1 does
 //! (research 0136); no test sends a request to a real RomM.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -13,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use common::*;
+use crate::common::*;
 use sha1::Digest;
 use title_select_api::additions::{EditAddition, NewAddition};
 use title_select_api::build::{AddLibraryFolder, LibraryFolder};

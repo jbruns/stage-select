@@ -2,13 +2,10 @@
 //! Library Folder's Drift), the Selection Profile opting a system in to its Additions Set for builds, checks of an
 //! Additions Set for Drift, and recovery from a stop at each step of publishing one; from synthetic DATs and files.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use sha2::Digest;
 use title_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionsFinding, EditAddition, NewAddition,

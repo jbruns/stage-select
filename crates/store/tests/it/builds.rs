@@ -1,13 +1,10 @@
 //! Library Folders, Change Plans and Builds, from synthetic DATs, Source Sets and hand-made Selections.
 
-#[path = "../../engine/tests/common/mod.rs"]
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use common::*;
+use crate::common::*;
 use title_select_api::build::{
     AddLibraryFolder, BlockerKind, BuildState, Cause, CleanupAction, DriftKind, FileOutcome,
     FolderCheck, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, Plan, PlanBuild,
