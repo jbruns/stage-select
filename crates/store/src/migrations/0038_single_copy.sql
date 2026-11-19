@@ -129,13 +129,15 @@ CREATE TABLE placement_originals (
 );
 
 -- A Source Set's kept file is kept by a repair (plan_id) or, an original a placing Build couldn't prove unchanged, by
--- that Build (build_id): exactly one, which the store sets. It isn't a CHECK, since forgetting a Source Set clears
--- either reference before it deletes the row. Rebuilt to make plan_id nullable; every row keeps its id and columns.
+-- that Build (build_id): exactly one. The file is the Source Set's, and outlives its Library Folder: build_id is the
+-- id of the Build that kept it, not a reference, so forgetting the folder, which forgets its Builds, leaves it as it
+-- is. Forgetting the Source Set deletes the row with the repair plan that kept it, never clearing plan_id first
+-- (lifecycle::OWNED). Rebuilt to make plan_id nullable; every row keeps its id and columns.
 CREATE TABLE source_kept_new (
     id INTEGER PRIMARY KEY,
     source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
     plan_id INTEGER REFERENCES repair_plans (id),
-    build_id INTEGER REFERENCES builds (id),
+    build_id INTEGER,
     generation INTEGER NOT NULL,
     name TEXT NOT NULL,
     kept_name TEXT NOT NULL,
@@ -154,7 +156,8 @@ CREATE TABLE source_kept_new (
     -- held across that rename; it is deleted only while it still has it.
     slot_ctime_ns TEXT,
     kept_ctime_ns TEXT,
-    UNIQUE (source_set_id, generation, kept_name)
+    UNIQUE (source_set_id, generation, kept_name),
+    CHECK ((plan_id IS NULL) <> (build_id IS NULL))
 );
 INSERT INTO source_kept_new (id, source_set_id, plan_id, build_id, generation, name, kept_name, reason, sha256, size,
                              mtime_ns, dev, ino, state, deletion_id, kept_at, deleted_at, error, slot_ctime_ns,

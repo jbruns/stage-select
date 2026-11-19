@@ -1800,3 +1800,141 @@ fn another_folder_builds_a_chd_from_a_disc_placed_in_the_folder_holding_it() {
     // The placed disc is as it was.
     assert_eq!(env.store.placed_files(SET).unwrap().len(), 3);
 }
+
+/// Flips the last byte of `path` in place, then sets its modification time back: the same size and stamp, other bytes.
+fn corrupt_keeping_stamp(path: &Path) {
+    let modified = std::fs::metadata(path).unwrap().modified().unwrap();
+    let mut bytes = std::fs::read(path).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    std::fs::write(path, &bytes).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+}
+
+/// A disc zipped in its source set is converted to its loose tracks, each placed, all standing in for the one ZIP:
+/// the ZIP is deleted only once every track is checked last, in place. With one track changed before that check, the
+/// ZIP goes to the source set's kept files, on the same filesystem and across filesystems, with or without a stop.
+#[test]
+fn a_zip_converted_to_several_files_is_deleted_only_once_every_file_holds() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use title_select_store::Fault;
+    // Whether a track is changed, where the build stops if it does (the track is then changed before the restart),
+    // and whether across filesystems.
+    type Case = (&'static str, bool, Option<fn(Fault) -> bool>, bool);
+    let cases: [Case; 6] = [
+        ("unchanged", false, None, false),
+        ("unchanged, across", false, None, true),
+        ("changed at the last check", true, None, false),
+        ("changed at the last check, across", true, None, true),
+        (
+            "stopped at the last check",
+            true,
+            Some(|f| matches!(f, Fault::PlaceChecking(_))),
+            false,
+        ),
+        (
+            "stopped once recorded, across",
+            true,
+            Some(|f| matches!(f, Fault::PlaceRecorded(_))),
+            true,
+        ),
+    ];
+    for (name, change, stop, across) in cases {
+        let mut env = Env::setup(None, &[CD]);
+        placing(&mut env, None);
+        env.store.copy_across_filesystems(across);
+        let (folder, selection) = env.folder(&[CD]);
+        let plan = env.plan(&folder, selection);
+        let orbit: Vec<_> = plan.content.items.iter().filter(|i| i.game == CD).collect();
+        assert_eq!(orbit.len(), 3, "{name}: {orbit:?}");
+        // The ZIP is the original of one of them only.
+        let owners: Vec<_> = orbit
+            .iter()
+            .filter(|i| !i.place.as_ref().unwrap().originals.is_empty())
+            .collect();
+        assert_eq!(owners.len(), 1, "{name}: {orbit:?}");
+        assert_eq!(
+            owners[0].place.as_ref().unwrap().how,
+            title_select_api::build::PlaceHow::Convert
+        );
+        let track = orbit
+            .iter()
+            .find(|i| i.place.as_ref().unwrap().originals.is_empty())
+            .unwrap();
+        let track = env.dir().join(&track.target);
+        let zip = env
+            .tmp
+            .path()
+            .join("roots/sets")
+            .join(SET)
+            .join(format!("{CD}.zip"));
+        let bytes = std::fs::read(&zip).unwrap();
+
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap().unwrap();
+        let (at, done) = (track.clone(), AtomicBool::new(false));
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if !change || done.load(Ordering::SeqCst) {
+                    return;
+                }
+                match stop {
+                    Some(stop) if stop(fault) => {
+                        done.store(true, Ordering::SeqCst);
+                        panic!("killed at {fault:?}");
+                    }
+                    None if matches!(fault, Fault::PlaceChecking(_)) => {
+                        done.store(true, Ordering::SeqCst);
+                        corrupt_keeping_stamp(&at);
+                    }
+                    _ => {}
+                }
+            })));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.store.run_build_job(&env.config, job.id, None)
+        }));
+        env.store.hook_faults(None);
+        let env = match stop {
+            Some(_) => {
+                assert!(ran.is_err(), "{name}: {ran:?}");
+                corrupt_keeping_stamp(&track);
+                env.restart()
+            }
+            None => {
+                let job = ran.unwrap().unwrap();
+                assert_eq!(job.state, JobState::Succeeded, "{name}: {job:?}");
+                env
+            }
+        };
+
+        // Placed either way: the three tracks are recorded where they are.
+        assert_eq!(env.store.placed_files(SET).unwrap().len(), 3, "{name}");
+        assert!(!zip.exists(), "{name}");
+        let kept = env.store.source_kept_files(SET).unwrap();
+        match change {
+            false => assert!(kept.is_empty(), "{name}: {kept:?}"),
+            true => {
+                assert_eq!(kept.len(), 1, "{name}: {kept:?}");
+                assert!(kept[0].build.is_some() && kept[0].plan.is_none(), "{name}");
+                assert_eq!(kept[0].name, format!("{CD}.zip"), "{name}");
+                let at = env
+                    .tmp
+                    .path()
+                    .join("roots/sets")
+                    .join(SET)
+                    .join(".title-select/retained")
+                    .join(kept[0].generation.to_string())
+                    .join(&kept[0].kept_name);
+                assert_eq!(std::fs::read(at).unwrap(), bytes, "{name}");
+            }
+        }
+    }
+}

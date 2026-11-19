@@ -1510,3 +1510,101 @@ fn an_original_rewritten_before_it_is_set_aside_goes_to_the_source_sets_kept_fil
     assert_eq!(env.files(), (vec![], vec!["Pong (USA).zip".into()]));
     assert_kept_by_build(&env, job.id, Some(b"rewritten"));
 }
+
+/// Approves `repair`, then runs it and the audit it queues.
+fn run_repair(env: &Env, repair: &title_select_api::repair::RepairPlan) {
+    let approved = env
+        .store
+        .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
+        .unwrap();
+    let job = approved.job.unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
+    let ended = env.store.run_repair_job(&env.config, job, None).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.store.fulfil_repair_audits().unwrap();
+    let audit = env.store.repair_plan(repair.id).unwrap().audit_job.unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, audit);
+    env.store.run_audit_job(&env.config, audit, None).unwrap();
+}
+
+#[test]
+fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set() {
+    use title_select_api::lifecycle::RegistrationKind;
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.copy_across_filesystems(true);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    // The original is written over once its copy is placed, so the build keeps it.
+    let original = env.set().join("Pong (USA).zip");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::PlaceRecorded(_)) {
+                overwrite_keeping_stamp(&original);
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    let build = env.store.build_of_job(job.id).unwrap().unwrap().id;
+
+    // The placed file is written over too, and a repair keeps it aside: nothing is placed, so the folder can be
+    // unregistered, and the source set has a file each kept.
+    std::fs::remove_file(env.library().join("Pong (USA).zip")).unwrap();
+    torrentzip(
+        &env.library().join("Pong (USA).zip"),
+        &[("junk.bin", b"junk")],
+    );
+    env.audit(AuditEvidence::Full);
+    let repair = env
+        .store
+        .plan_repair(&env.config, SET, &Default::default())
+        .unwrap();
+    run_repair(&env, &repair);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    let kept = env.store.source_kept_files(SET).unwrap();
+    let owners: Vec<(Option<i64>, Option<i64>)> = kept.iter().map(|k| (k.plan, k.build)).collect();
+    assert_eq!(owners.len(), 2, "{kept:?}");
+    assert!(owners.contains(&(None, Some(build))), "{kept:?}");
+    assert!(owners.contains(&(Some(repair.id), None)), "{kept:?}");
+
+    // Forgetting the folder forgets its builds; the file its build kept is the source set's, and stays as it was.
+    env.store
+        .unregister_library_folder(&env.config, env.folder.id)
+        .unwrap();
+    env.store
+        .forget(RegistrationKind::LibraryFolder, env.folder.id)
+        .unwrap();
+    assert_eq!(env.store.source_kept_files(SET).unwrap(), kept);
+
+    // Both are deleted when you approve it.
+    let deletion = env
+        .store
+        .plan_source_kept_deletion(
+            &env.config,
+            SET,
+            &title_select_api::build::PlanKeptDeletion {
+                ids: vec![],
+                all: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(deletion.content.files.len(), 2, "{deletion:?}");
+    env.store
+        .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+    assert!(env.store.source_kept_files(SET).unwrap().is_empty());
+    assert!(
+        private_files(&env.set())
+            .iter()
+            .all(|f| !f.contains("retained/")),
+        "{:?}",
+        private_files(&env.set())
+    );
+
+    // Then the source set is forgotten, its kept files' rows with it.
+    let set = kept[0].source_set;
+    env.store.unregister_source_set(&env.config, SET).unwrap();
+    env.store.forget(RegistrationKind::SourceSet, set).unwrap();
+}

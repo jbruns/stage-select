@@ -885,8 +885,12 @@ const OWNERS: [(&str, RegistrationKind); 4] = [
     ("source_sets", RegistrationKind::SourceSet),
 ];
 
+/// References that may be empty but that a row never loses once it has one: a Source Set's kept file is kept by
+/// exactly one repair or Build, so it goes with the repair plan that kept it rather than lose it.
+const OWNED: [(&str, &str); 1] = [("source_kept", "plan_id")];
+
 /// The schema's foreign keys, by the table they refer to: each referring table and column, and whether the column
-/// must hold a value (NOT NULL, or part of the primary key).
+/// must hold a value (NOT NULL, or part of the primary key, or in [`OWNED`]).
 struct ForeignKeys(BTreeMap<String, Vec<(String, String, bool)>>);
 
 /// What a purge reaches that belongs to another registration, which it must leave alone.
@@ -911,6 +915,7 @@ impl ForeignKeys {
             ))
         })? {
             let (child, column, parent, not_null) = row?;
+            let not_null = not_null || OWNED.contains(&(child.as_str(), column.as_str()));
             graph
                 .entry(parent)
                 .or_default()

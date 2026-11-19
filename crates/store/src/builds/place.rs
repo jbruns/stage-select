@@ -91,6 +91,16 @@ pub(super) struct Placing<'a> {
     pub from: &'a Tally,
 }
 
+/// A file of a release recorded placed, as its item records it: seq, target, game, device, inode and SHA-256.
+type PlacedRow = (
+    i64,
+    String,
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+);
+
 /// A placing item a stop left part way: its seq, target, placement state and item state.
 type Stopped = (i64, String, String, String);
 
@@ -318,6 +328,33 @@ impl Intents for CopyIntents<'_> {
     }
 }
 
+/// A file of a release recorded placed, which the release's Source Set files are deleted only while it is in place
+/// too: one ZIP converted to several loose files stands in for all of them. Where it is, held open from before any of
+/// them is set aside to delete; what it was placed as; or why it can't be found as it was placed.
+struct Output {
+    seq: i64,
+    target: String,
+    sha: Option<String>,
+    found: std::result::Result<(Spot, carry::Held), String>,
+}
+
+impl Output {
+    /// Whether it is still in place, as it was placed: the file held, reading as recorded, below the folders recorded
+    /// walked again from the Library Folder's registered path. Returns why not.
+    fn holds(&self, p: &Placing) -> Result<std::result::Result<(), String>> {
+        let (s, held) = match &self.found {
+            Ok(found) => found,
+            Err(why) => return Ok(Err(why.clone())),
+        };
+        if let Some(sha) = &self.sha
+            && let Err(why) = held.still(&s.dir, &s.leaf, sha, p.to)?
+        {
+            return Ok(Err(format!("{}: {why}", self.target)));
+        }
+        Ok(in_place(p, &s.chain, &self.target))
+    }
+}
+
 /// Where the deletion of a placing item's Source Set file `n` records its [`Intent`]: its slot in the private
 /// `.deleting` folder on its own row; the placed file it stands in for, `published`, and what the original read as,
 /// are recorded already. It is deleted only while the placed file is in place, below `chain`; otherwise, or when it
@@ -331,6 +368,8 @@ struct DisposeIntents<'a> {
     target: &'a str,
     chain: &'a [Identity],
     published: Identity,
+    /// Every other file of the release recorded placed.
+    outputs: &'a [Output],
 }
 
 impl Intents for DisposeIntents<'_> {
@@ -377,7 +416,17 @@ impl Intents for DisposeIntents<'_> {
     }
 
     fn in_place(&self) -> Result<std::result::Result<(), String>> {
-        Ok(in_place(self.p, self.chain, self.target))
+        if let Err(why) = in_place(self.p, self.chain, self.target) {
+            return Ok(Err(why));
+        }
+        // Then every other file of the release, each checked last as this one is: a Source Set file is consumed only
+        // once every file that may stand in for it is in place.
+        for output in self.outputs.iter().filter(|o| o.seq != self.seq) {
+            if let Err(why) = output.holds(self.p)? {
+                return Ok(Err(why));
+            }
+        }
+        Ok(Ok(()))
     }
 
     fn keep_instead(
@@ -785,8 +834,17 @@ impl Store {
     /// Where `w`'s file goes, in the Library Folder opened now, while every folder down to it is the one recorded
     /// before anything of its release moved. Returns why not.
     fn recorded_spot(&self, p: &Placing, w: &Work) -> Result<std::result::Result<Spot, String>> {
-        let target = &w.item.target;
-        let Some(chain) = self.read(|c| chain_of(c, p.build, w.seq))? else {
+        self.recorded_spot_of(p, w.seq, &w.item.target)
+    }
+
+    /// Where item `seq`'s file `target` goes, as [`Store::recorded_spot`].
+    fn recorded_spot_of(
+        &self,
+        p: &Placing,
+        seq: i64,
+        target: &str,
+    ) -> Result<std::result::Result<Spot, String>> {
+        let Some(chain) = self.read(|c| chain_of(c, p.build, seq))? else {
             return Ok(Err(format!("where {target} was put isn't recorded")));
         };
         Ok(match spot(p.dir, target) {
@@ -1370,6 +1428,52 @@ impl Store {
         Ok(())
     }
 
+    /// Every file of the release of `game` this Build recorded placed, each held open now, where it was recorded.
+    fn outputs(&self, p: &Placing, game: &str) -> Result<Vec<Output>> {
+        let release = release_of(game);
+        let rows: Vec<PlacedRow> = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT seq, target, game, dev, ino, sha256 FROM build_items
+                 WHERE build_id = ?1 AND kind = 'place' AND state = 'applied' ORDER BY seq",
+            )?;
+            let rows = stmt
+                .query_map([p.build], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })?;
+        let mut outputs = Vec::new();
+        for (seq, target, game, dev, ino, sha) in rows {
+            if release_of(&game) != release {
+                continue;
+            }
+            let found = match (dev, ino) {
+                (Some(dev), Some(ino)) => match self.recorded_spot_of(p, seq, &target)? {
+                    Ok(s) => carry::Held::open(&s.dir, &s.leaf, Identity::from_sql(dev, ino))?
+                        .map(|held| (s, held))
+                        .map_err(|why| format!("{target}: {why}")),
+                    Err(why) => Err(why),
+                },
+                _ => Err(format!("what {target} was placed as isn't recorded")),
+            };
+            outputs.push(Output {
+                seq,
+                target,
+                sha,
+                found,
+            });
+        }
+        Ok(outputs)
+    }
+
     /// Deletes the Source Set files of each item of `unit`, its release now placed at `spots`. `Err` says why one is
     /// left outstanding.
     fn dispose_unit(
@@ -1379,8 +1483,9 @@ impl Store {
         unit: &[&Work],
         spots: &[Spot],
     ) -> Result<std::result::Result<(), String>> {
+        let outputs = self.outputs(p, &unit[0].item.game)?;
         for (w, s) in unit.iter().zip(spots) {
-            if let Err(why) = self.dispose_originals(p, set, w, s)? {
+            if let Err(why) = self.dispose_originals(p, set, w, s, &outputs)? {
                 return Ok(Err(why));
             }
         }
@@ -1397,6 +1502,7 @@ impl Store {
         set: &SetDirs,
         w: &Work,
         s: &Spot,
+        outputs: &[Output],
     ) -> Result<std::result::Result<(), String>> {
         let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
             Ok(c.query_row(
@@ -1469,6 +1575,7 @@ impl Store {
                 target: &w.item.target,
                 chain: &s.chain,
                 published,
+                outputs,
             };
             let outcome = carry::dispose_as(&original, &s.dest(p), &intents, Some(&sha))?;
             self.fault_point(Fault::PlaceDisposed(w.seq));
