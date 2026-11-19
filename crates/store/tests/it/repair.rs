@@ -4332,7 +4332,7 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
         .unwrap();
     let before = env.store.meter().root("sets").read;
 
-    let (ended, took) = std::thread::scope(|scope| {
+    let (ended, cancelled) = std::thread::scope(|scope| {
         let running = scope.spawn(|| env.run_repair_job(&approved));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while env.store.meter().root("sets").read < before + (256 << 10) {
@@ -4340,13 +4340,13 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         env.store.cancel_job(approved.job.unwrap()).unwrap();
-        let cancelled = std::time::Instant::now();
-        let ended = running.join().unwrap();
-        (ended, cancelled.elapsed())
+        let cancelled = env.store.meter().root("sets").read;
+        (running.join().unwrap(), cancelled)
     });
 
-    // Far less than the 8 s the rest of the read would take under the cap, with room for a loaded machine.
-    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    // It reads on only to the end of a chunk or two, nowhere near the rest of the original.
+    let after = env.store.meter().root("sets").read - cancelled;
+    assert!(after <= (1 << 20), "it read {after} bytes once cancelled");
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
     let done = env.store.repair_plan(plan.id).unwrap();
     assert!(done.finished_at.is_some(), "{done:?}");
