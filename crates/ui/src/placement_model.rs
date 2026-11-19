@@ -271,8 +271,8 @@ pub const READING_FLAGS: &str = "Reading which games need review…";
 /// What a table of game statuses says when it can't read which games need review.
 pub fn flags_unknown(message: &str) -> String {
     format!(
-        "Couldn't read which games need review: {message}. A game marked is as last read, and one not marked may \
-         still need review."
+        "Couldn't read which games need review: {message}. The marks show the last good read, so a game without one \
+         may still need review."
     )
 }
 
@@ -539,8 +539,8 @@ mod tests {
         assert!(failed.get("Orbit").is_some() && failed.problem.is_some());
         assert_eq!(
             flags_unknown("the service is unreachable"),
-            "Couldn't read which games need review: the service is unreachable. A game marked is as last read, and \
-             one not marked may still need review."
+            "Couldn't read which games need review: the service is unreachable. The marks show the last good read, so \
+             a game without one may still need review."
         );
         assert!(FlagsNow::none().certain().is_some());
     }
