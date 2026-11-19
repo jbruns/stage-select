@@ -1267,11 +1267,16 @@ fn record_disposal(
     })
 }
 
-/// Records the Running Build `build` failed.
-fn fail_build(tx: &Transaction, build: i64) -> Result<()> {
+/// Records the Running Build `build` failed, and the `error` its Job `job` ends with, before the Job ends: a start
+/// that finds the Job still Running, stopped while the Build recovered its folder, ends it Failed with that error.
+fn fail_build(tx: &Transaction, job: i64, build: i64, error: &str) -> Result<()> {
     tx.execute(
         "UPDATE builds SET state = 'failed', finished_at = ?2 WHERE id = ?1 AND state = 'running'",
         params![build, now()],
+    )?;
+    tx.execute(
+        "UPDATE jobs SET error = ?2, version = version + 1 WHERE id = ?1 AND state = 'running'",
+        params![job, error],
     )?;
     Ok(())
 }
@@ -1529,11 +1534,12 @@ impl Store {
         let outcome = self.carry_out(config, id, plan_id, &mut build, progress);
         if let Err(err) = &outcome {
             let message = err.to_string();
-            // The Build is recorded failed before its folder is recovered, and the Job ends once recovery has, so
-            // that the write ending it records what recovery read and wrote too.
+            // The Build is recorded failed, with the Job's error, before its folder is recovered, and the Job ends
+            // once recovery has, so that the write ending it records what recovery read and wrote too.
             let recovered = match build {
                 Some(build) => {
-                    self.write(|tx| fail_build(tx, build))?;
+                    self.write(|tx| fail_build(tx, id, build, &message))?;
+                    self.fault_point(Fault::BuildFailed);
                     self.recover_build(config, build, Some(&self.meter.job(id)))
                         .map(drop)
                 }

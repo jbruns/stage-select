@@ -6408,3 +6408,44 @@ fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
         "nothing is recorded after it ends"
     );
 }
+
+/// A Build that fails keeps its error though the service stops while it recovers its folder as it fails: the next start
+/// ends its Job Failed with that error, among the failed Jobs, not Interrupted.
+#[test]
+fn a_build_stopped_while_it_recovers_from_failing_keeps_its_error_across_a_restart() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    let plan = env.plan(&folder, id);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let swap = |p: title_select_engine::Progress| {
+        if p.files_done == 1 {
+            let mut m = marker(&dir);
+            m["generation"] = 5.into();
+            std::fs::write(dir.join(".title-select/marker"), m.to_string()).unwrap();
+        }
+    };
+    env.store.inject_fault(Some(Fault::BuildFailed));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, Some(&swap))
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+
+    let (env, _) = env.restart();
+
+    let ended = env.store.job(job.id).unwrap();
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert!(
+        ended.error.as_ref().unwrap().contains("marker"),
+        "{ended:?}"
+    );
+    assert_eq!(env.store.failed_jobs().unwrap(), [ended]);
+    let build = env.store.build_of_job(job.id).unwrap().unwrap();
+    assert_eq!(build.state, BuildState::Failed);
+}

@@ -384,23 +384,35 @@ impl Store {
     /// Run when the Service starts: every Job still Running was cut off by a stop. Its Audit was already discarded
     /// when the store opened. A first attempt becomes Interrupted and a fresh Job is queued for it with `workers`; a
     /// Job that was itself queued again becomes Failed. A Build Job becomes Interrupted and is not queued again, since
-    /// its plan may no longer hold; [`Store::recover_builds`] then cleans up its folder. A Check Job becomes
-    /// Interrupted too, as do an Ingest Scan, a stat walk and a Calibration, which keeps what it finished. Each Job's
-    /// change is one transaction.
+    /// its plan may no longer hold, or Failed with its error when it had failed and was recovering its folder;
+    /// [`Store::recover_builds`] then cleans up its folder. A Check Job becomes Interrupted too, as do an Ingest Scan,
+    /// a stat walk and a Calibration, which keeps what it finished. Each Job's change is one transaction.
     pub fn recover_jobs(&self, workers: Workers) -> Result<Vec<Interruption>> {
-        let running: Vec<(i64, u32, String)> = self.read(|c| {
+        let running: Vec<(i64, u32, String, Option<String>)> = self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT id, attempt, kind FROM jobs WHERE state = 'running' ORDER BY id",
+                "SELECT id, attempt, kind, error FROM jobs WHERE state = 'running' ORDER BY id",
             )?;
-            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
             Ok(rows.collect::<Result<_, _>>()?)
         })?;
         running
             .into_iter()
-            .map(|(id, attempt, kind)| {
+            .map(|(id, attempt, kind, error)| {
                 self.write(|tx| {
                     if kind == JobKind::Build.as_str() {
-                        finish_running(tx, &self.meter, id, JobState::Interrupted, Some(BUILD_INTERRUPTED))?;
+                        // One that had failed was stopped while it recovered its folder: it ends with its error.
+                        match &error {
+                            Some(error) => {
+                                finish_running(tx, &self.meter, id, JobState::Failed, Some(error))?
+                            }
+                            None => finish_running(
+                                tx,
+                                &self.meter,
+                                id,
+                                JobState::Interrupted,
+                                Some(BUILD_INTERRUPTED),
+                            )?,
+                        }
                         tx.execute(
                             "UPDATE builds SET state = 'interrupted', finished_at = ?2
                              WHERE job_id = ?1 AND state = 'running'",

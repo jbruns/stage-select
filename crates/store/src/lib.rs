@@ -231,6 +231,9 @@ pub enum Fault {
     AfterFinalize,
     /// After the marker advances, before the store records the Build finished.
     AfterMarker,
+    /// After a Build that failed is recorded failed, with its Job's error, before the recovery of its folder it runs as
+    /// it fails.
+    BuildFailed,
     /// Before a scan reads an item of an Ingest Folder to hash it: not reached when the hashes it read before are
     /// reused.
     IngestRead,
