@@ -53,8 +53,10 @@ ALTER TABLE build_items_new RENAME TO build_items;
 -- is still selected there. One that goes is moved into the Library Folder's private .deleting folder as slot, recorded
 -- first, and its change time read through the descriptor held across that move is moved_ctime_ns; it is deleted once
 -- the release is committed, only while it still has that change time and SHA-256. One renamed home records there its
--- change time read the same way right after its rename: it is taken as home only while it still has it. state: 'placed', 'deleted', 'gone'
--- when it was gone before it could be deleted, or 'left' when it could not be proven unchanged and was put back.
+-- change time read the same way right after its rename: it is taken as home only while it still has it. state:
+-- 'placed', 'deleted', 'gone' when it was gone before it could be deleted, 'left' when it could not be proven unchanged
+-- and was put back, or 'putting_back' from just before one renamed home is put back until it is verified against the
+-- DAT and recorded as found, or left recorded as it was: recovery verifies each so marked that it finds placed.
 CREATE TABLE return_placed (
     build_id INTEGER NOT NULL REFERENCES builds (id),
     seq INTEGER NOT NULL,
@@ -70,7 +72,7 @@ CREATE TABLE return_placed (
     sha256 TEXT,
     slot TEXT,
     moved_ctime_ns TEXT,
-    state TEXT NOT NULL DEFAULT 'placed' CHECK (state IN ('placed', 'deleted', 'gone', 'left')),
+    state TEXT NOT NULL DEFAULT 'placed' CHECK (state IN ('placed', 'deleted', 'gone', 'left', 'putting_back')),
     detail TEXT,
     PRIMARY KEY (build_id, seq, n)
 );

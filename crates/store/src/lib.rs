@@ -256,9 +256,12 @@ pub enum Fault {
     /// After a returning item with this sequence number commits its intent to rename its placed files home, before
     /// each rename.
     ReturnRenaming(i64),
-    /// After a placed file of a returning item with this sequence number is renamed home, before either folder is
-    /// synced or anything is recorded.
+    /// After a placed file of a returning item with this sequence number is renamed home and its change time read
+    /// and recorded, before either folder is synced.
     ReturnMoved(i64),
+    /// After a placed file of a returning item with this sequence number, renamed home, is put back where it was
+    /// placed, before it is verified and its new stamp recorded.
+    ReturnPutBack(i64),
     /// After a file a returning item with this sequence number writes home is staged and verified, before it is put in
     /// place.
     ReturnStaged(i64),

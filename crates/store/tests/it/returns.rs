@@ -1114,3 +1114,102 @@ fn a_rename_home_rolled_back_by_its_last_check_leaves_the_release_to_return_next
     std::fs::remove_dir_all(format!("{}.moved", env.set().display())).unwrap();
     pitfall_returns_next(&env, &bytes, "checked");
 }
+
+#[test]
+fn a_placed_file_changed_just_before_its_rename_home_stays_placed() {
+    let env = Env::new();
+    place_pong(&env, StorageFormat::TorrentZip);
+    let selection = env.select(&["Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(returned(&plan, "Pong (USA)").how, ReturnHow::Rename);
+    // Changed where it is placed, the same size and modification time, just before its rename.
+    let placed = env.library().join("Pong (USA).zip");
+    let job = build_meddling(
+        &env,
+        &plan,
+        |f| matches!(f, Fault::ReturnRenaming(_)),
+        move || overwrite_keeping_stamp(&placed),
+    );
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let it = env.item(job.id, "Pong (USA)");
+    assert_eq!(it.state, ItemState::Failed, "{it:?}");
+    pong_left_placed(&env, "changed before");
+}
+
+/// Reopens the store, as [`Env::restart`] does, but stops its recovery when `stop` says to, as a kill would; then
+/// restarts it again, which recovers what that stop left.
+fn restart_stopping(
+    env: Env,
+    stop: impl Fn(Fault) -> bool + Send + Sync + 'static,
+) -> (Env, Vec<(i64, String)>) {
+    let Env {
+        tmp,
+        store,
+        config,
+        folder,
+        sha256,
+    } = env;
+    let path = store.dir().to_path_buf();
+    drop(store);
+    let store = title_select_store::Store::open(&path).unwrap();
+    store.hook_faults(Some(std::sync::Arc::new(move |fault| {
+        if stop(fault) {
+            panic!("killed at {fault:?}");
+        }
+    })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        store.recover_jobs(WORKERS).unwrap();
+        store.recover_builds(&config).unwrap();
+    }));
+    assert!(ran.is_err(), "recovery never reached the stop");
+    store.hook_faults(None);
+    Env {
+        tmp,
+        store,
+        config,
+        folder,
+        sha256,
+    }
+    .restart()
+}
+
+#[test]
+fn a_stop_between_putting_a_renamed_file_back_in_a_build_and_recording_it_is_finished_on_restart() {
+    // Rolled back by the last check, in the build: the source set's folder replaced as the last disc is renamed,
+    // and the build stopped once that disc is put back, before it is verified and recorded.
+    let env = Env::with(&two_discs());
+    let (plan, bytes) = renaming_pitfall(&env);
+    let set = env.set();
+    let (moved, put_back) = (
+        std::sync::atomic::AtomicUsize::new(0),
+        std::sync::atomic::AtomicUsize::new(0),
+    );
+    let meddle = std::sync::Mutex::new(Some(move || replace_with_marked_copy(&set, &set)));
+    env.build_until(&plan, move |fault| {
+        if matches!(fault, Fault::ReturnMoved(_))
+            && moved.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1
+            && let Some(meddle) = meddle.lock().unwrap().take()
+        {
+            meddle();
+        }
+        matches!(fault, Fault::ReturnPutBack(_))
+            && put_back.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1
+    });
+    std::fs::remove_dir_all(format!("{}.moved", env.set().display())).unwrap();
+    let (env, blocked) = env.restart();
+    assert!(blocked.is_empty(), "{blocked:?}");
+    pitfall_returns_next(&env, &bytes, "rolled back by the build");
+}
+
+#[test]
+fn a_stop_between_putting_a_renamed_file_back_in_recovery_and_recording_it_is_finished_on_restart()
+{
+    // Rolled back by recovery: the build stopped after the first disc was renamed home, and its recovery stopped
+    // once that disc is put back.
+    let env = Env::with(&two_discs());
+    let (plan, bytes) = renaming_pitfall(&env);
+    env.build_until(&plan, |f| matches!(f, Fault::ReturnMoved(_)));
+    let (env, blocked) = restart_stopping(env, |f| matches!(f, Fault::ReturnPutBack(_)));
+    assert!(blocked.is_empty(), "{blocked:?}");
+    pitfall_returns_next(&env, &bytes, "rolled back by recovery");
+}

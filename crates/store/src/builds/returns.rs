@@ -433,12 +433,31 @@ impl Store {
         for (i, (&(_, k), h)) in pairs.iter().zip(&homes).enumerate() {
             let pl = &r.placed[k];
             self.fault_point(Fault::ReturnRenaming(seq));
-            let renamed = parent_of(p.dir, &pl.path).and_then(|(parent, name)| {
-                parent
-                    .as_ref()
-                    .unwrap_or(p.dir)
-                    .rename_new(name, &h.dir, &h.leaf)
-            });
+            let (parent, name) = match parent_of(p.dir, &pl.path) {
+                Ok(found) => found,
+                Err(e) => {
+                    let why = format!("{} could not be moved home: {e}", pl.path);
+                    return self.unrename(p, seq, r, &pairs, &homes, &moved, &why);
+                }
+            };
+            // Last, before the rename: through the descriptor held, still the file the plan found, its whole stamp,
+            // change time too, as it was, so that a change made before the rename is never taken home. Then the
+            // rename, and its change time read through that descriptor as the very next thing: a change made between
+            // the two, keeping its size and modification time, is the one window left open, as a rename reads no
+            // file, like a change made after the last check.
+            let before = rustix::fs::fstat(&held[i]).map_err(io_err)?;
+            if Identity::of(&before) != Identity::from(pl.identity)
+                || file_stat(&before) != pl.file
+                || ctime_ns(&before) != pl.ctime_ns
+            {
+                let why = format!("{} changed since the plan was made", pl.path);
+                return self.unrename(p, seq, r, &pairs, &homes, &moved, &why);
+            }
+            let renamed = parent
+                .as_ref()
+                .unwrap_or(p.dir)
+                .rename_new(name, &h.dir, &h.leaf);
+            let after = renamed.as_ref().ok().map(|()| rustix::fs::fstat(&held[i]));
             if let Err(e) = renamed {
                 if moved.is_empty() && self.across_filesystems(Some(&e)) {
                     // No rename reaches the Source Set's folder from here: the release is copied home instead.
@@ -450,9 +469,9 @@ impl Store {
                 return self.unrename(p, seq, r, &pairs, &homes, &moved, &why);
             }
             moved.push(i);
-            // Its change time, read through the descriptor held across the rename right after it, stands for it
-            // from here: the last check, and recovery, take it as home only while it still has it.
-            let ctime = ctime_ns(&rustix::fs::fstat(&held[i]).map_err(io_err)?);
+            // Its change time, read right after the rename, stands for it from here: the last check, and recovery,
+            // take it as home only while it still has it.
+            let ctime = ctime_ns(&after.expect("renamed").map_err(io_err)?);
             self.write(|tx| {
                 tx.execute(
                     "UPDATE return_placed SET moved_ctime_ns = ?4 WHERE build_id = ?1 AND seq = ?2 AND n = ?3",
@@ -565,7 +584,7 @@ impl Store {
             let (n, k) = pairs[i];
             let pl = &r.placed[k];
             let h = &homes[i];
-            if let Err(e) = move_back(p.dir, pl, &h.dir, &h.leaf) {
+            if let Err(e) = self.unrename_one(p, (seq, k), pl, h) {
                 return Ok(Err(format!(
                     "{why}, and {} could not be put back in the play library folder ({e}); it is at {} until it \
                      can be",
@@ -573,7 +592,7 @@ impl Store {
                     h.dir.path().join(&h.leaf).display()
                 )));
             }
-            self.reverify(p, pl, &r.files[n])?;
+            self.reverify(p, (seq, k), pl, &r.files[n])?;
         }
         let why = match moved.is_empty() {
             true => why.to_owned(),
@@ -587,14 +606,39 @@ impl Store {
     /// `f`, the file it was to be home, then read whole through its own descriptor while that holds. Placed by a
     /// rename, it was never read, and its change time alone stood for it. Otherwise it is left recorded as it was,
     /// for a check to flag as changed.
-    fn reverify(&self, p: &Returning, pl: &ReturnPlaced, f: &ReturnFile) -> Result<()> {
+    fn reverify(
+        &self,
+        p: &Returning,
+        (seq, k): (i64, usize),
+        pl: &ReturnPlaced,
+        f: &ReturnFile,
+    ) -> Result<()> {
+        let found = self.verified_back(p, pl, f)?;
+        // Settled either way, its mark comes off with what is recorded of it: a stop before leaves it to recovery.
+        self.write(|tx| {
+            if let Some((st, sha)) = &found {
+                let id = Identity::from(pl.identity);
+                crate::placements::reread(tx, p.folder, &pl.path, (id, &pl.file), st, sha)?;
+            }
+            set_placed(tx, p.build, (seq, k), "placed", None)
+        })
+    }
+
+    /// The placed file `pl`, back where it was placed, as statted and read, when it is the file the plan found, of
+    /// its size and modification time, verified against the DAT as `f`, then read whole through its own descriptor
+    /// while that holds; or None.
+    fn verified_back(
+        &self,
+        p: &Returning,
+        pl: &ReturnPlaced,
+        f: &ReturnFile,
+    ) -> Result<Option<(Stat, String)>> {
         let Ok(file) = p.dir.open_file(&pl.path) else {
-            return Ok(());
+            return Ok(None);
         };
         let st = rustix::fs::fstat(&file).map_err(io_err)?;
-        let id = Identity::from(pl.identity);
-        if !is_regular(&st, id) || file_stat(&st) != pl.file {
-            return Ok(());
+        if !is_regular(&st, Identity::from(pl.identity)) || file_stat(&st) != pl.file {
+            return Ok(None);
         }
         let verified = match (f.loose, f.roms.as_slice()) {
             (true, [rom]) => verify_loose(&file, rom, p.from),
@@ -602,14 +646,27 @@ impl Store {
             (false, roms) => verify(&file, roms, p.from),
         };
         if verified.is_err() {
-            return Ok(());
+            return Ok(None);
         }
-        let Some(sha) = still_sha256(&file, ctime_ns(&st), p.from).map_err(io_err)? else {
-            return Ok(());
-        };
-        self.write(|tx| {
-            crate::placements::reread(tx, p.folder, &pl.path, (id, &pl.file), &st, &sha)
-        })
+        Ok(still_sha256(&file, ctime_ns(&st), p.from)
+            .map_err(io_err)?
+            .map(|sha| (st, sha)))
+    }
+
+    /// Puts the placed file `pl`, placed file `k` of item `seq`, renamed home to `h`, back where it was placed, marked
+    /// first as being put back: until [`Store::reverify`] settles it, recovery verifies it again wherever it finds it
+    /// placed.
+    fn unrename_one(
+        &self,
+        p: &Returning,
+        (seq, k): (i64, usize),
+        pl: &ReturnPlaced,
+        h: &Home,
+    ) -> std::result::Result<(), Error> {
+        self.write(|tx| set_placed(tx, p.build, (seq, k), "putting_back", None))?;
+        move_back(p.dir, pl, &h.dir, &h.leaf).map_err(io_err)?;
+        self.fault_point(Fault::ReturnPutBack(seq));
+        Ok(())
     }
 
     /// Whether `path` is still below `chain`, the folders it was put in, in the Source Set's folder at its registered
@@ -1340,7 +1397,7 @@ impl Store {
             let (n, k) = pairs[i];
             let pl = &r.placed[k];
             let h = homes[i].as_ref().expect("moved home");
-            if let Err(e) = move_back(p.dir, pl, &h.dir, &h.leaf) {
+            if let Err(e) = self.unrename_one(p, (seq, k), pl, h) {
                 return Ok(Err(format!(
                     "the build stopped before every file of {} was moved home, and {} could not be put back ({e}); \
                      it is at {} until it can be",
@@ -1349,7 +1406,18 @@ impl Store {
                     h.dir.path().join(&h.leaf).display()
                 )));
             }
-            self.reverify(p, pl, &r.files[n])?;
+            self.reverify(p, (seq, k), pl, &r.files[n])?;
+        }
+        // Each put back before the stop, but not yet verified and recorded as found, is now.
+        let rows = self.read(|c| placed_rows(c, p.build, seq))?;
+        for row in rows.iter().filter(|row| row.state == "putting_back") {
+            let pl = &r.placed[row.n];
+            if !still_placed(p.dir, pl)? {
+                continue;
+            }
+            if let Some(&(n, _)) = pairs.iter().find(|&&(_, k)| k == row.n) {
+                self.reverify(p, (seq, row.n), pl, &r.files[n])?;
+            }
         }
         self.fail_return(
             p,
