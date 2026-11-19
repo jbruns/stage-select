@@ -10,6 +10,8 @@ use title_select_api::{
     NamedHeaderRule, Reuse,
 };
 
+use crate::parts::status::{Placement, Status};
+
 /// The glossary's name for a Finding.
 pub fn finding_label(finding: Finding) -> &'static str {
     match finding {
@@ -400,6 +402,7 @@ pub enum GameColumn {
     Name,
     Status,
     Absent,
+    Placement,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,6 +444,8 @@ pub struct AuditGames {
     pub rows: Vec<GameRow>,
     name: Vec<String>,
     search: Vec<String>,
+    /// The Games the Audit found placed under Single Copy, with the Library Folder each is placed in.
+    placed: HashMap<String, i64>,
 }
 
 impl AuditGames {
@@ -458,7 +463,32 @@ impl AuditGames {
                 s
             })
             .collect();
-        AuditGames { rows, name, search }
+        AuditGames {
+            rows,
+            name,
+            search,
+            placed: HashMap::new(),
+        }
+    }
+
+    /// The Games, with those the Audit found placed under Single Copy and the Library Folder each is placed in.
+    pub fn with_placements(self, placed: HashMap<String, i64>) -> AuditGames {
+        AuditGames { placed, ..self }
+    }
+
+    /// The Library Folder the Audit found Game `i` placed in, if it was placed.
+    pub fn placed_in(&self, i: usize) -> Option<i64> {
+        self.placed.get(&self.rows[i].game.name).copied()
+    }
+
+    /// Where the Audit found Game `i`: placed in a Library Folder, or in its Source Set's folder; neither for a
+    /// Missing Game it found nowhere.
+    pub fn placement(&self, i: usize) -> Option<Placement> {
+        match self.placed_in(i) {
+            Some(_) => Some(Placement::Placed),
+            None if self.rows[i].game.status == GameStatus::Missing => None,
+            None => Some(Placement::SourceSet),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -479,6 +509,10 @@ impl AuditGames {
                     GameColumn::Name => self.name[a].cmp(&self.name[b]),
                     GameColumn::Status => ga.status.cmp(&gb.status),
                     GameColumn::Absent => ga.missing_roms.len().cmp(&gb.missing_roms.len()),
+                    GameColumn::Placement => cmp_none_last(
+                        self.placement(a).map(|p| p.rank()),
+                        self.placement(b).map(|p| p.rank()),
+                    ),
                 };
                 if sort.descending { ord.reverse() } else { ord }
             });
@@ -988,6 +1022,26 @@ mod tests {
             names(&index, &index.filtered(&order, &filter)),
             ["Pong (USA).zip", "Combat (USA).zip"]
         );
+    }
+
+    #[test]
+    fn games_say_where_the_audit_found_them_and_sort_placed_first() {
+        let games = AuditGames::new(vec![
+            game("Pong (USA)", GameStatus::Complete),
+            game("Combat (USA)", GameStatus::Complete),
+            game("Adventure (USA)", GameStatus::Missing),
+        ])
+        .with_placements(HashMap::from([("Combat (USA)".to_string(), 7)]));
+        assert_eq!(games.placed_in(1), Some(7));
+        assert_eq!(
+            [0, 1, 2].map(|i| games.placement(i)),
+            [Some(Placement::SourceSet), Some(Placement::Placed), None]
+        );
+        let order = games.sorted(Some(Sort {
+            column: GameColumn::Placement,
+            descending: false,
+        }));
+        assert_eq!(order, [1, 0, 2], "placed first, a game found nowhere last");
     }
 
     #[test]

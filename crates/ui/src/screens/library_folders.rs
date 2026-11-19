@@ -4,6 +4,7 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
@@ -13,8 +14,8 @@ use title_select_api::additions::NewAddition;
 use title_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
     ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, KeptDeletion,
-    KeptFile, LibraryFolder, Plan, PlanBuild, PlanChoices, PlanCleanup, PlanKeptDeletion,
-    RETENTION,
+    KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
+    PlanKeptDeletion, RETENTION,
 };
 use title_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -35,12 +36,13 @@ use crate::library_model::{
 };
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
-use crate::parts::legend::{Legend, present};
+use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::pending::{ActionPending, Pending, action_problem};
-use crate::parts::status::{BuildKind, LibraryStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{BuildKind, LibraryStatus, Placement, Status, StatusBadge, StatusIcon};
+use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
@@ -1197,9 +1199,10 @@ fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoVi
         <LifecycleSection>
             <PlanAction
                 label="Remove built files"
-                explain="This plans to move every file the folder's builds placed into its kept files, renamed in \
-                    place. You review the plan before anything moves; then unregister the folder, or delete the kept \
-                    files from its Kept tab."
+                explain="This plans to move every file the folder's builds wrote into its kept files, renamed in \
+                    place, and to return each game placed here under single copy to your source set. You review the \
+                    plan before anything moves; then unregister the folder, or delete the kept files from its Kept \
+                    tab."
                     .to_string()
                 path=format!("{base}/removals")
                 href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
@@ -2083,19 +2086,22 @@ fn Builds(folder: i64) -> impl IntoView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileCol {
     Kind,
+    Copy,
     Target,
     Game,
     Build,
     Size,
 }
 
+/// A built file, and whether it is its game's only copy now, placed under single copy, or that isn't known yet.
 #[derive(Clone, PartialEq)]
-struct FileRow(BuiltFile);
+struct FileRow(BuiltFile, Option<Placement>);
 
 impl ListRow for FileRow {
     type Col = FileCol;
     const COLUMNS: &'static [FileCol] = &[
         FileCol::Kind,
+        FileCol::Copy,
         FileCol::Target,
         FileCol::Game,
         FileCol::Build,
@@ -2107,6 +2113,9 @@ impl ListRow for FileRow {
             FileCol::Kind => Column::new("kind", "Kind", Width::Fixed(4.5))
                 .sortable()
                 .hint("How its build wrote it"),
+            FileCol::Copy => Column::new("copies", "Copies", Width::Fixed(4.5))
+                .sortable()
+                .hint("Marks a file that is its game's only copy"),
             FileCol::Target => Column::new(
                 "file",
                 "File",
@@ -2150,6 +2159,10 @@ impl ListRow for FileRow {
             FileCol::Kind => {
                 view! { <StatusIcon status=BuildKind::from(f.kind) tab_stop=false /> }.into_any()
             }
+            FileCol::Copy => self
+                .1
+                .map(|p| view! { <StatusIcon status=p tab_stop=false /> })
+                .into_any(),
             FileCol::Target => view! { <Clip text=f.target.clone() /> }.into_any(),
             FileCol::Game => view! { <Clip text=f.game.clone() /> }.into_any(),
             FileCol::Build => format!("#{}", f.build).into_any(),
@@ -2163,6 +2176,7 @@ impl ListRow for FileRow {
             FileCol::Kind => BuildKind::from(a.kind)
                 .rank()
                 .cmp(&BuildKind::from(b.kind).rank()),
+            FileCol::Copy => other.1.map(|p| p.rank()).cmp(&self.1.map(|p| p.rank())),
             FileCol::Target => a.target.cmp(&b.target),
             FileCol::Game => a.game.cmp(&b.game),
             FileCol::Build => a.build.cmp(&b.build),
@@ -2172,11 +2186,20 @@ impl ListRow for FileRow {
 }
 
 fn file_detail(row: FileRow) -> AnyView {
-    let f = row.0;
+    let FileRow(f, placement) = row;
+    let only = placement.map(|p| {
+        view! {
+            <p>
+                <StatusBadge status=p />
+            </p>
+            {(p == Placement::Placed).then(|| view! { <p class="note">{ONLY_COPY}</p> })}
+        }
+    });
     view! {
         <p>
             <StatusBadge status=BuildKind::from(f.kind) />
         </p>
+        {only}
         <dl class="facts">
             <dt>"Game"</dt>
             <dd>{f.game.clone()}</dd>
@@ -2191,6 +2214,11 @@ fn file_detail(row: FileRow) -> AnyView {
     .into_any()
 }
 
+/// What a placed file being the game's only copy means for you.
+const ONLY_COPY: &str = "Single copy placed this game here: your source set no longer holds it, so this file is its \
+only copy. Deleting or changing it by hand loses the game; your own backups are the only other copy. To keep a \
+copy in your source set, turn single copy off for its system, and the next build returns it there.";
+
 /// Each file the store built into the folder, with the build that wrote it.
 #[component]
 fn BuiltFiles(folder: i64) -> impl IntoView {
@@ -2199,13 +2227,43 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Vec<BuiltFile>>(&format!("/libraries/{folder}/files")).await }
     });
-    let rows = last_good_rows(move || {
-        files
-            .get()
-            .map(|r| r.map(|f| f.into_iter().map(FileRow).collect::<Vec<_>>()))
+    // Which files are their games' only copies now, from the folder's placed files, never from how a build wrote
+    // them. Each read is stamped with the job-settled count it started at, so one a newer read is replacing shows as
+    // being read again. The built files keep their last good read apart, so their markers always follow this.
+    let placed = LocalResource::new(move || {
+        let at = live.settled.get();
+        async move {
+            let read = api::get::<Vec<PlacedFile>>(&format!("/libraries/{folder}/placed-files"))
+                .await
+                .map(|p| OnlyCopies::of(&p));
+            (at, read)
+        }
     });
-    let kinds =
-        Signal::derive(move || present(rows.get().iter().map(|r| BuildKind::from(r.0.kind))));
+    let copies = Memo::new(move |prev: Option<&Fresh<OnlyCopies>>| {
+        prev.cloned()
+            .unwrap_or_default()
+            .next(placed.get().as_ref(), live.settled.get())
+    });
+    let built = last_good_rows(move || files.get());
+    let rows = Signal::derive(move || {
+        copies.with(|copies| {
+            built.with(|files| {
+                Arc::new(
+                    marked(files, copies)
+                        .into_iter()
+                        .map(|(f, p)| FileRow(f, p))
+                        .collect::<Vec<_>>(),
+                )
+            })
+        })
+    });
+    let looks = Signal::derive(move || {
+        rows.with(|rows| {
+            let mut looks = present_looks(rows.iter().map(|r| BuildKind::from(r.0.kind)));
+            looks.extend(present_looks(rows.iter().filter_map(|r| r.1)));
+            looks
+        })
+    });
     view! {
         <section aria-labelledby="files-title">
             <h2 id="files-title">"Built files"</h2>
@@ -2214,6 +2272,15 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(_)) => ().into_any(),
             }}
+            <Pending
+                pending=Signal::derive(move || copies.with(|c| c.reading))
+                status=READING_ONLY_COPIES
+                problem=Signal::derive(move || {
+                    copies.with(|c| c.problem.as_deref().map(only_copies_unknown))
+                })
+            >
+                ""
+            </Pending>
             <List
                 id="built-files"
                 label="Built files"
@@ -2221,7 +2288,7 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 empty="No files built yet."
                 placeholder="Filter by file or game"
                 detail=Callback::new(file_detail)
-                legend=move || view! { <Legend statuses=kinds list="built-files" /> }
+                legend=move || view! { <LegendStrip looks list="built-files" /> }
             />
         </section>
     }

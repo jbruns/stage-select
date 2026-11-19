@@ -33,6 +33,7 @@ pure logic there too.
 | A row's status in a cell               | `StatusIcon { status, tab_stop? }`                     | `status`    |
 | A status with its words (detail pane)  | `StatusBadge { status }`                               | `status`    |
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
+| A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
 | A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped?, shown? }`      | `overlay`   |

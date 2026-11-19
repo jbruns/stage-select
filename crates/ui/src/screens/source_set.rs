@@ -14,7 +14,8 @@ use title_select_api::ingest::IngestPlan;
 use title_select_api::repair::RepairPlan;
 use title_select_api::{
     AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, OutsideCoverage,
-    SetFollow, SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
+    Placements, SetFollow, SetHoldingFolder, SourceSetRecord, SourceSetSummary, StartAudit,
+    StatWalk,
 };
 
 use crate::api;
@@ -33,9 +34,12 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
-    FindingStatus, LibraryStatus, StaleCause, Status, StatusBadge, StatusIcon,
+    FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge, StatusIcon,
 };
 use crate::parts::url_state::encode;
+use crate::placement_model::{
+    Holding, flag_detail, folder_name, placed_line, present_games, review_line,
+};
 use crate::screens::additions::SetView;
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
@@ -289,6 +293,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                         revisions
                         outside=summary.outside_coverage.clone()
                         unavailable=summary.coverage_unavailable
+                        present=present_games(&summary)
                         editing
                     />
                 }
@@ -318,6 +323,7 @@ fn Overview(
     revisions: Vec<title_select_api::DatRevisionRecord>,
     outside: Option<OutsideCoverage>,
     unavailable: bool,
+    present: Option<u64>,
     editing: RwSignal<bool>,
 ) -> impl IntoView {
     let name = set.name.clone();
@@ -421,6 +427,7 @@ fn Overview(
     view! {
         {stale_lines(&set)}
         {headline}
+        <SingleCopy name=set.name.clone() present />
         <section aria-labelledby="coverage-title">
             <h2 id="coverage-title">"Coverage"</h2>
             <p>
@@ -464,6 +471,162 @@ fn Overview(
             .map(|a| view! { <ExportMissing name=set.name.clone() latest=a coverage_set=set.coverage.is_some() unavailable /> })}
         <StartAuditForm name=set.name.clone() latest revisions />
         <SetLifecycle name=set.name.clone() />
+    }
+}
+
+/// Where the source set keeps its games under single copy: how many each library folder holds as their only copy,
+/// the folder that holds them and, when several are built from it, your choice of it; and the games a build found
+/// need review.
+#[component]
+fn SingleCopy(name: String, present: Option<u64>) -> impl IntoView {
+    let live = use_live();
+    let name = StoredValue::new(name);
+    let refresh = RwSignal::new(0u64);
+    let loaded = LocalResource::new(move || {
+        live.settled.track();
+        refresh.track();
+        let path = format!(
+            "/source-sets/{}/placements",
+            api::segment(&name.get_value())
+        );
+        async move {
+            let placements: Placements = api::get(&path).await?;
+            let folders: Vec<LibraryFolder> = api::get("/libraries").await?;
+            Ok::<_, String>((placements, folders))
+        }
+    });
+    let problem = RwSignal::new(None::<String>);
+    let choosing = RwSignal::new(false);
+    let choose = move |folder: Option<i64>| {
+        choosing.set(true);
+        problem.set(None);
+        let request = SetHoldingFolder { folder };
+        leptos::task::spawn_local(async move {
+            let path = format!(
+                "/source-sets/{}/holding-folder",
+                api::segment(&name.get_value())
+            );
+            if let Err(message) = api::put::<_, Placements>(&path, &request).await {
+                problem.set(Some(format!(
+                    "Couldn't change the folder holding its games: {message}"
+                )));
+            }
+            choosing.set(false);
+            refresh.update(|n| *n += 1);
+        });
+    };
+    move || {
+        let (placements, folders) = match loaded.get()? {
+            Ok(loaded) => loaded,
+            Err(message) => return Some(view! { <Problem message /> }.into_any()),
+        };
+        let holding = Holding::of(&folders, &name.get_value(), placements.holding_folder);
+        if holding == Holding::NoFolder
+            && placements.placed.is_empty()
+            && placements.review_flags.is_empty()
+        {
+            return None;
+        }
+        let placed = if placements.placed.is_empty() {
+            view! { <p>"No games placed: each is kept in your source set's own folder."</p> }
+                .into_any()
+        } else {
+            view! {
+                <ul class="plain">
+                    {placements
+                        .placed
+                        .iter()
+                        .map(|p| {
+                            let line = placed_line(p.games, present, &folder_name(&folders, p.library_folder));
+                            view! {
+                                <li>
+                                    <StatusIcon status=Placement::Placed />
+                                    " "
+                                    <A href=format!("/libraries/{}", p.library_folder)>{line}</A>
+                                </li>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
+            }
+            .into_any()
+        };
+        let note = holding.note();
+        let choice = match holding {
+            Holding::NoFolder => ().into_any(),
+            Holding::Only(id) => view! {
+                <p>
+                    "Library folder holding placed games: "
+                    <A href=format!("/libraries/{id}")>{folder_name(&folders, id)}</A>
+                </p>
+            }
+            .into_any(),
+            Holding::Choose {
+                folders: bound,
+                chosen,
+            } => {
+                let options = bound
+                    .iter()
+                    .map(|id| {
+                        view! {
+                            <option value=id.to_string() selected=chosen == Some(*id)>
+                                {folder_name(&folders, *id)}
+                            </option>
+                        }
+                    })
+                    .collect_view();
+                view! {
+                    <label class="stacked" for="holding-folder">
+                        "Library folder holding placed games"
+                    </label>
+                    <select
+                        id="holding-folder"
+                        disabled=choosing
+                        on:change=move |ev| choose(event_target_value(&ev).parse::<i64>().ok())
+                    >
+                        <option value="" selected=chosen.is_none()>
+                            "None chosen"
+                        </option>
+                        {options}
+                    </select>
+                }
+                .into_any()
+            }
+        };
+        let flags = (!placements.review_flags.is_empty()).then(|| {
+            view! {
+                <h3>{review_line(placements.review_flags.len())}</h3>
+                <ul class="plain">
+                    {placements
+                        .review_flags
+                        .iter()
+                        .map(|f| {
+                            view! {
+                                <li>
+                                    <StatusIcon status=GameFlag::NeedsReview />
+                                    " "
+                                    <strong>{f.game.clone()}</strong>
+                                    {format!(": {}", flag_detail(f))}
+                                </li>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
+            }
+        });
+        Some(
+            view! {
+                <section aria-labelledby="single-copy-title">
+                    <h2 id="single-copy-title">"Single copy"</h2>
+                    {placed}
+                    {choice}
+                    <p class="note">{note}</p>
+                    {move || problem.get().map(|message| view! { <Problem message /> })}
+                    {flags}
+                </section>
+            }
+            .into_any(),
+        )
     }
 }
 
@@ -677,10 +840,16 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
             None => view! { <Loading what="the audit" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(loaded)) if games => {
-                view! { <GamesPanel games=loaded.games rule /> }.into_any()
+                view! { <GamesPanel games=loaded.games rule source_set=audit.source_set.clone() /> }.into_any()
             }
             Some(Ok(loaded)) => {
-                view! { <EntriesPanel entries=loaded.entries initial=initial.clone() /> }.into_any()
+                view! {
+                    <EntriesPanel
+                        entries=loaded.entries
+                        initial=initial.clone()
+                        source_set=audit.source_set.clone()
+                    />
+                }.into_any()
             }
         }}
     }

@@ -405,6 +405,35 @@ pub struct SetCoverage {
     pub coverage: Option<Vec<String>>,
 }
 
+/// Where a Source Set keeps its Games under Single Copy (ADR 0023): the Library Folder that holds its Placed Games,
+/// how many are placed in each folder, and the Games a Build found need review.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Placements {
+    /// The Library Folder holding its Placed Games: the one it names, or else its only bound folder. None when several
+    /// are bound and it names none, or none is bound.
+    pub holding_folder: Option<i64>,
+    /// Each Library Folder its Placed Games are in now, by id, with how many: usually the holding folder alone, but a
+    /// folder no longer holding them keeps them until its next Build returns them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placed: Vec<PlacedIn>,
+    /// Its Games a Build found need review, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_flags: Vec<report::ReviewFlag>,
+}
+
+/// How many of a Source Set's Games are placed in one Library Folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedIn {
+    pub library_folder: i64,
+    pub games: u64,
+}
+
+/// The request to name the Library Folder that holds a Source Set's Placed Games, or to name none with `null`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetHoldingFolder {
+    pub folder: Option<i64>,
+}
+
 /// The request to register a folder in a Root as a Source Set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddSourceSet {

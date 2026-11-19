@@ -213,6 +213,64 @@ impl Status for GameStatus {
     }
 }
 
+/// Where a Game is kept under Single Copy: in its Source Set's folder, or placed in a Library Folder as its only copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Placement {
+    Placed,
+    /// Whether a file is its Game's only copy isn't known: its Library Folder's Placed files are being read, or
+    /// couldn't be.
+    Unknown,
+    SourceSet,
+}
+
+impl Status for Placement {
+    const ALL: &'static [Self] = &[Placement::Placed, Placement::Unknown, Placement::SourceSet];
+
+    fn look(self) -> Look {
+        match self {
+            Placement::Placed => look(
+                Glyph::Library,
+                Tone::Active,
+                "Only copy",
+                "Placed in a library folder under single copy: its file there is the game's only copy, so deleting it by hand loses the game.",
+            ),
+            Placement::Unknown => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Not known",
+                "Whether this file is its game's only copy isn't known yet: treat it as one, and don't delete it by hand.",
+            ),
+            Placement::SourceSet => look(
+                Glyph::Database,
+                Tone::Neutral,
+                "In source set",
+                "Kept in your source set's own folder.",
+            ),
+        }
+    }
+}
+
+/// A current condition of a Game apart from any Audit's verdict: a Build proved its placed file wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GameFlag {
+    NeedsReview,
+}
+
+impl Status for GameFlag {
+    const ALL: &'static [Self] = &[GameFlag::NeedsReview];
+
+    fn look(self) -> Look {
+        match self {
+            GameFlag::NeedsReview => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Needs review",
+                "A build found its placed file doesn't hold the game as the DAT lists it. Its audit status is as the audit found it; a full audit that verifies the file, or returning the game, clears this.",
+            ),
+        }
+    }
+}
+
 /// Why a Source Set is Stale: each cause its own icon, with its tooltip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StaleCause {
@@ -1248,6 +1306,8 @@ mod tests {
         vec![
             ("findings", vocabulary::<FindingStatus>()),
             ("game status", vocabulary::<GameStatus>()),
+            ("placements", vocabulary::<Placement>()),
+            ("game flags", vocabulary::<GameFlag>()),
             ("source set rows", vocabulary::<SourceSetStatus>()),
             ("stale causes", vocabulary::<StaleCause>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),

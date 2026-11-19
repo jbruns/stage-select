@@ -20,18 +20,19 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
-use crate::parts::legend::{Legend, present};
+use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::overlay::Tooltip;
-use crate::parts::status::{GroupStatus, Status, StatusIcon, Tone};
+use crate::parts::status::{GameFlag, GroupStatus, Status, StatusIcon, Tone};
 use crate::parts::url_state::use_list_query;
+use crate::placement_model::FlagsNow;
 use crate::screens::PlanABuild;
-use crate::screens::audit::{ReAudit, focus};
+use crate::screens::audit::{ReAudit, flags_notice, flags_now, focus, placements_now};
 use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
-    exclusion_text, flag_labels, group_status, include_and_check, role_label, rule_text,
-    staged_changes, toggle, unresolved_explanation,
+    exclusion_text, flag_labels, group_status, include_and_check, kept_need_review, role_label,
+    rule_text, staged_changes, toggle, unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -585,6 +586,8 @@ struct GroupItem {
     /// The rule that decided the first winner, or what excluded the group.
     rule: String,
     availability: GroupAvailability,
+    /// Whether a build flagged a release it keeps as needing review.
+    needs_review: bool,
 }
 
 impl GroupItem {
@@ -603,6 +606,7 @@ impl GroupItem {
             releases: group.winners.len() + group.alternatives.len() + group.exclusions.len(),
             rule,
             availability: GroupAvailability::of(group, &availability.games, &availability.claimed),
+            needs_review: false,
         }
     }
 }
@@ -699,7 +703,12 @@ impl ListRow for GroupItem {
             }
             GroupCol::Rule => view! { <Clip text=self.rule.clone() /> }.into_any(),
             GroupCol::Releases => self.releases.to_string().into_any(),
-            GroupCol::Have => view! { <Clip text=self.availability.label() /> }.into_any(),
+            GroupCol::Have => {
+                let flag = self.needs_review.then(
+                    || view! { <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> " " },
+                );
+                view! { {flag} <Clip text=self.availability.label() /> }.into_any()
+            }
         }
     }
 
@@ -905,7 +914,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                 view! {
                     <AvailabilityNote audit=loaded.availability.audit reaudit />
                     <StaleGroups index=loaded.index.clone() staged />
-                    <Groups loaded staged />
+                    <Groups loaded staged source_set=record.get_value().source_set />
                     <StagedChoices record staged saved=Signal::derive(move || saved.get().and_then(Result::ok)) />
                 }
                     .into_any()
@@ -961,8 +970,13 @@ fn AvailabilityNote(audit: Option<i64>, reaudit: ReAudit) -> impl IntoView {
 /// The game groups: a strip of counts that narrows the list and confirms every unresolved pick at once, and the
 /// list, with the open group's releases beside it.
 #[component]
-fn Groups(loaded: Loaded, staged: RwSignal<Option<SelectionProfile>>) -> impl IntoView {
+fn Groups(
+    loaded: Loaded,
+    staged: RwSignal<Option<SelectionProfile>>,
+    source_set: String,
+) -> impl IntoView {
     let index = loaded.index.clone();
+    let flags = flags_now(Some(placements_now(source_set)));
     let items: Vec<GroupItem> = index
         .selection
         .groups
@@ -973,9 +987,30 @@ fn Groups(loaded: Loaded, staged: RwSignal<Option<SelectionProfile>>) -> impl In
     for item in &items {
         counts[item.status.rank()] += 1;
     }
-    let rows = Signal::stored(Arc::new(items));
-    let statuses = present(rows.get_untracked().iter().map(|i| i.status));
-    let legend_statuses = statuses.clone();
+    let statuses = present(items.iter().map(|i| i.status));
+    let rows = Signal::derive({
+        let index = index.clone();
+        move || {
+            flags.with(|flags| {
+                let mut items = items.clone();
+                for (item, group) in items.iter_mut().zip(&index.selection.groups) {
+                    item.needs_review = kept_need_review(group, flags);
+                }
+                Arc::new(items)
+            })
+        }
+    });
+    let legend_looks = Signal::derive(move || {
+        rows.with(|rows| {
+            let mut looks = present_looks(rows.iter().map(|i| i.status));
+            looks.extend(present_looks(
+                rows.iter()
+                    .filter(|i| i.needs_review)
+                    .map(|_| GameFlag::NeedsReview),
+            ));
+            looks
+        })
+    });
     let only = RwSignal::new(None::<GroupStatus>);
     let keep = Signal::derive(move || -> Keep<GroupItem> {
         only.get()
@@ -1019,6 +1054,7 @@ fn Groups(loaded: Loaded, staged: RwSignal<Option<SelectionProfile>>) -> impl In
                         system=system.get_value()
                         availability=a.games
                         claimed=a.claimed
+                        flags=flags.get()
                         staged
                     />
                 }
@@ -1086,6 +1122,7 @@ fn Groups(loaded: Loaded, staged: RwSignal<Option<SelectionProfile>>) -> impl In
                         }
                     })}
             </div>
+            {flags_notice(flags)}
             <List
                 id="groups"
                 label="Game groups"
@@ -1094,7 +1131,7 @@ fn Groups(loaded: Loaded, staged: RwSignal<Option<SelectionProfile>>) -> impl In
                 placeholder="Filter by group, release or rule"
                 keep
                 detail
-                legend=move || view! { <Legend statuses=legend_statuses.clone() list="groups" /> }
+                legend=move || view! { <LegendStrip looks=legend_looks list="groups" /> }
             />
         </section>
     }
@@ -1169,6 +1206,8 @@ fn GroupPanel(
     system: String,
     availability: std::collections::BTreeMap<String, GameStatus>,
     claimed: std::collections::BTreeSet<String>,
+    /// The review flags builds raised, to mark a release whose game needs review.
+    flags: FlagsNow,
     staged: RwSignal<Option<SelectionProfile>>,
 ) -> impl IntoView {
     let group = StoredValue::new(group);
@@ -1271,6 +1310,9 @@ fn GroupPanel(
                         };
                         let avail = availability.get(&title).copied();
                         let claimed_only = claimed.contains(&title);
+                        let flag = flags.get(&title).is_some().then(|| {
+                            view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> }
+                        });
                         let excluded = role == Role::Exclusion;
                         view! {
                             <li class="release">
@@ -1292,6 +1334,7 @@ fn GroupPanel(
                                 {role_view(role)}
                                 " "
                                 {availability_view(avail, claimed_only)}
+                                {flag}
                                 <span class="note small rule">{rule}</span>
                                 {excluded
                                     .then(|| {

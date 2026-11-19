@@ -8,18 +8,27 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
+use title_select_api::build::LibraryFolder;
 use title_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, HeaderRule, Job, StartAudit,
+    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, HeaderRule, Job, Placements,
+    StartAudit,
 };
 use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::app::{Loading, Problem};
+use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
     game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
     parse_ndjson, payload_read_text, warning_counts, warning_text, when,
+};
+use crate::parts::pending::Pending;
+use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
+use crate::placement_model::{
+    FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
+    stamped_flags,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
@@ -35,11 +44,70 @@ pub async fn load(id: i64) -> Result<Loaded, String> {
     let text = api::text(&format!("/audits/{id}/entries.ndjson")).await?;
     let rows = parse_ndjson(&text)?;
     let games = api::games(id).await?;
+    let placed = game_placements(&rows);
     let entries = AuditEntries::new(rows, &games);
     Ok(Loaded {
         entries: Arc::new(entries),
-        games: Arc::new(AuditGames::new(games)),
+        games: Arc::new(AuditGames::new(games).with_placements(placed)),
     })
+}
+
+/// A source set's placements and the library folders, read for its audits' tables, stamped with the job-settled
+/// count the read started at.
+pub type PlacementsNow = LocalResource<Stamped<(Placements, Vec<LibraryFolder>)>>;
+
+/// Where source set `source_set`'s games are now, for its audits' tables: its placements, with the review flags builds
+/// raised, and the library folders, by name. Read again whenever a job settles, since a build, audit or repair may
+/// change them. Without the library folders a placement reads by the folder's number; without the placements the
+/// tables say they can't tell which games need review.
+pub fn placements_now(source_set: String) -> PlacementsNow {
+    let live = use_live();
+    LocalResource::new(move || {
+        let at = live.settled.get();
+        let path = format!("/source-sets/{}/placements", api::segment(&source_set));
+        async move {
+            let read = async {
+                let placements = api::get::<Placements>(&path).await?;
+                let folders = api::get::<Vec<LibraryFolder>>("/libraries")
+                    .await
+                    .unwrap_or_default();
+                Ok((placements, folders))
+            };
+            (at, read.await)
+        }
+    })
+}
+
+/// The review flags among `now`, as a table of game statuses marks them: the last good read, and whether a newer
+/// read is under way or failed.
+pub fn flags_now(now: Option<PlacementsNow>) -> Memo<FlagsNow> {
+    let Some(now) = now else {
+        // A table with no source set to ask, such as the bench's, has no game a build flagged.
+        return Memo::new(|_| FlagsNow::none());
+    };
+    let live = use_live();
+    Memo::new(move |prev: Option<&FlagsNow>| {
+        let read = now.get().map(|(at, read)| {
+            stamped_flags(at, read.map(|(placements, _)| placements.review_flags))
+        });
+        prev.cloned()
+            .unwrap_or_default()
+            .next(read.as_ref(), live.settled.get())
+    })
+}
+
+/// Says when a table can't be sure which games need review: while it reads them, the first time or again after a
+/// job settles, or that it couldn't.
+pub fn flags_notice(flags: Memo<FlagsNow>) -> impl IntoView {
+    view! {
+        <Pending
+            pending=Signal::derive(move || flags.with(|f| f.reading))
+            status=READING_FLAGS
+            problem=Signal::derive(move || flags.with(|f| f.problem.as_deref().map(flags_unknown)))
+        >
+            ""
+        </Pending>
+    }
 }
 
 pub fn focus(id: &str) {
@@ -82,6 +150,7 @@ pub fn AuditScreen() -> impl IntoView {
 fn AuditView(audit: AuditSummary) -> impl IntoView {
     let id = audit.id;
     let pruned = audit.pruned;
+    let set = StoredValue::new(audit.source_set.clone());
     let data =
         LocalResource::new(move || async move { if pruned { None } else { Some(load(id).await) } });
     let counts = Signal::derive(move || {
@@ -218,7 +287,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         aria-labelledby="tab-entries"
                         hidden=move || tab.get() != Tab::Entries
                     >
-                        <EntriesPanel entries=loaded.entries.clone() />
+                        <EntriesPanel entries=loaded.entries.clone() source_set=set.get_value() />
                     </div>
                     <div
                         role="tabpanel"
@@ -226,7 +295,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         aria-labelledby="tab-games"
                         hidden=move || tab.get() != Tab::Games
                     >
-                        <GamesPanel games=loaded.games.clone() rule />
+                        <GamesPanel games=loaded.games.clone() rule source_set=set.get_value() />
                     </div>
                 }
                     .into_any()
@@ -349,11 +418,13 @@ pub fn queued(job: &Job) -> impl IntoView + use<> {
 #[derive(Clone)]
 pub struct EntryItem {
     entries: Arc<AuditEntries>,
+    flags: FlagsNow,
     i: u32,
 }
 
 struct EntryWindow {
     entries: Arc<AuditEntries>,
+    flags: FlagsNow,
     shown: Arc<Vec<u32>>,
 }
 
@@ -367,6 +438,7 @@ impl RowSource<EntryItem> for EntryWindow {
             .iter()
             .map(|&i| EntryItem {
                 entries: self.entries.clone(),
+                flags: self.flags.clone(),
                 i,
             })
             .collect()
@@ -460,12 +532,18 @@ impl Grid for EntryItem {
                 games.dedup();
                 games.join(", ").into_any()
             }
-            EntryCol::GameStatus => self
-                .entries
-                .primary_status(i)
-                .map(game_status_label)
-                .unwrap_or("")
-                .into_any(),
+            EntryCol::GameStatus => {
+                let status = self
+                    .entries
+                    .primary_status(i)
+                    .map(game_status_label)
+                    .unwrap_or("");
+                let flagged = self.flags.any(entry.roms.iter().map(|r| r.game.as_str()));
+                let flag = flagged.then(
+                    || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
+                );
+                view! { {status} {flag} }.into_any()
+            }
             EntryCol::Evidence => evidence_text(entry).into_any(),
             EntryCol::Reason => entry.reason.clone().unwrap_or_default().into_any(),
         }
@@ -480,8 +558,12 @@ pub fn EntriesPanel(
     /// What the entries are narrowed to at first, such as a finding a badge links to.
     #[prop(optional)]
     initial: EntryFilter,
+    /// Its source set, to mark the games a build flagged as needing review; none where there's none to ask.
+    #[prop(optional)]
+    source_set: Option<String>,
 ) -> impl IntoView {
     let total = entries.len();
+    let flags = flags_now(source_set.map(placements_now));
     let sorting = RwSignal::new(VecDeque::<(EntryCol, ColumnSort)>::new());
     let filter = RwSignal::new(initial.clone());
     let first = initial;
@@ -509,6 +591,7 @@ pub fn EntriesPanel(
         move || {
             Arc::new(EntryWindow {
                 entries: entries.clone(),
+                flags: flags.get(),
                 shown: shown.get(),
             }) as Rows<EntryItem>
         }
@@ -623,6 +706,7 @@ pub fn EntriesPanel(
             >
                 {move || format!("{} of {total} entries", shown.with(|s| s.len()))}
             </p>
+            {flags_notice(flags)}
             <DataTable
                 id="entries"
                 label="Entries".to_string()
@@ -731,11 +815,13 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
 #[derive(Clone)]
 pub struct GameItem {
     games: Arc<AuditGames>,
+    flags: FlagsNow,
     i: u32,
 }
 
 struct GameWindow {
     games: Arc<AuditGames>,
+    flags: FlagsNow,
     shown: Arc<Vec<u32>>,
 }
 
@@ -749,6 +835,7 @@ impl RowSource<GameItem> for GameWindow {
             .iter()
             .map(|&i| GameItem {
                 games: self.games.clone(),
+                flags: self.flags.clone(),
                 i,
             })
             .collect()
@@ -759,17 +846,24 @@ impl RowSource<GameItem> for GameWindow {
 pub enum GameCol {
     Name,
     Status,
+    Placement,
     Absent,
 }
 
 impl Grid for GameItem {
     type Col = GameCol;
-    const COLUMNS: &'static [GameCol] = &[GameCol::Name, GameCol::Status, GameCol::Absent];
+    const COLUMNS: &'static [GameCol] = &[
+        GameCol::Name,
+        GameCol::Status,
+        GameCol::Placement,
+        GameCol::Absent,
+    ];
 
     fn header(col: GameCol) -> &'static str {
         match col {
             GameCol::Name => "Game",
             GameCol::Status => "Game status",
+            GameCol::Placement => "Placement",
             GameCol::Absent => "Absent ROMs",
         }
     }
@@ -778,6 +872,7 @@ impl Grid for GameItem {
         match col {
             GameCol::Name => "c-wide",
             GameCol::Status => "c-status",
+            GameCol::Placement => "c-status",
             GameCol::Absent => "c-wide data",
         }
     }
@@ -790,7 +885,17 @@ impl Grid for GameItem {
         let game = &self.games.rows[self.i as usize].game;
         match col {
             GameCol::Name => game.name.clone().into_any(),
-            GameCol::Status => game_status_text(game).into_any(),
+            GameCol::Status => {
+                let flag = self.flags.get(&game.name).is_some().then(
+                    || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
+                );
+                view! { {game_status_text(game)} {flag} }.into_any()
+            }
+            GameCol::Placement => self
+                .games
+                .placement(self.i as usize)
+                .map(|p| view! { <StatusIcon status=p tab_stop=false /> })
+                .into_any(),
             GameCol::Absent => match game.missing_roms.len() {
                 0 => ().into_any(),
                 n => format!("{n}: {}", game.missing_roms.join(", ")).into_any(),
@@ -799,9 +904,25 @@ impl Grid for GameItem {
     }
 }
 
+/// Why a past audit shows a review flag it didn't raise.
+const FLAGGED_NOW: &str = "This flag is the game's now, not part of this audit: every audit of the source set \
+shows it until a full audit verifies the file or the game returns.";
+
 #[component]
-pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl IntoView {
+pub fn GamesPanel(
+    games: Arc<AuditGames>,
+    rule: Option<HeaderRule>,
+    source_set: String,
+) -> impl IntoView {
     let total = games.len();
+    let now = placements_now(source_set);
+    let flags = flags_now(Some(now));
+    let folders = Memo::new(move |_| {
+        now.get()
+            .and_then(|(_, read)| read.ok())
+            .map(|(_, f)| f)
+            .unwrap_or_default()
+    });
     let sorting = RwSignal::new(VecDeque::<(GameCol, ColumnSort)>::new());
     let filter = RwSignal::new(GameFilter::default());
     let selected = RwSignal::new(None::<usize>);
@@ -812,6 +933,7 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
                 column: match s.column {
                     GameCol::Name => GameColumn::Name,
                     GameCol::Status => GameColumn::Status,
+                    GameCol::Placement => GameColumn::Placement,
                     GameCol::Absent => GameColumn::Absent,
                 },
                 descending: s.descending,
@@ -828,6 +950,7 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
         move || {
             Arc::new(GameWindow {
                 games: games.clone(),
+                flags: flags.get(),
                 shown: shown.get(),
             }) as Rows<GameItem>
         }
@@ -835,6 +958,30 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
     let detail = move || {
         let i = *shown.get().get(selected.get()?)? as usize;
         let game = games.rows[i].game.clone();
+        let placement = games.placement(i).map(|p| {
+            let place = match games.placed_in(i) {
+                Some(id) => view! {
+                    "Placed in "
+                    <A href=format!("/libraries/{id}")>{move || folders.with(|f| folder_name(f, id))}</A>
+                    " under single copy: its file there was the game's only copy."
+                }
+                .into_any(),
+                None => "In your source set's own folder.".into_any(),
+            };
+            view! {
+                <h4>"Placement"</h4>
+                <p><StatusBadge status=p /></p>
+                <p>{place}</p>
+            }
+        });
+        let flag = flags.with(|f| f.get(&game.name).cloned()).map(|flag| {
+            view! {
+                <h4>"Flagged now"</h4>
+                <p><StatusBadge status=GameFlag::NeedsReview /></p>
+                <p>{flag_detail(&flag)}</p>
+                <p class="note">{FLAGGED_NOW}</p>
+            }
+        });
         let absent = (!game.missing_roms.is_empty()).then(|| {
             let elsewhere = (!game.available_elsewhere.is_empty()).then(|| {
                 view! {
@@ -869,6 +1016,8 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
         Some(view! {
             <h3>{game.name.clone()}</h3>
             <p>{format!("Game status: {}", game_status_text(&game))}</p>
+            {flag}
+            {placement}
             {warnings}
             {absent}
             {claimed}
@@ -909,6 +1058,7 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
             <p class="shown" aria-live="polite">
                 {move || format!("{} of {total} game statuses", shown.with(|s| s.len()))}
             </p>
+            {flags_notice(flags)}
             <DataTable
                 id="games"
                 label="Game statuses".to_string()

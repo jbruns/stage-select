@@ -11,6 +11,7 @@ use title_select_api::selection::{
 
 use crate::model::{Sort, status_text};
 use crate::parts::status::GroupStatus;
+use crate::placement_model::FlagsNow;
 
 pub fn role_label(role: Role) -> &'static str {
     match role {
@@ -346,6 +347,11 @@ pub struct GroupAvailability {
     /// How many kept releases have the worst status, of how many are kept.
     pub worst: usize,
     pub kept: usize,
+}
+
+/// Whether a build flagged any of the group's kept releases as needing review, as far as `flags` knows.
+pub fn kept_need_review(group: &SelectionGroup, flags: &FlagsNow) -> bool {
+    flags.any(group.winners.iter().map(|w| w.title.as_str()))
 }
 
 impl GroupAvailability {
@@ -1185,6 +1191,36 @@ mod tests {
 
         let unaudited = GroupAvailability::of(&g, &BTreeMap::new(), &none);
         assert_eq!(unaudited.label(), "");
+    }
+
+    #[test]
+    fn a_group_needs_review_when_a_build_flagged_a_release_it_keeps() {
+        let flag = |game: &str| title_select_api::ReviewFlag {
+            game: game.into(),
+            path: format!(".title-select/placed/7/{game}.zip"),
+            reason: "its CRC32 differs from the DAT's".into(),
+            build: 3,
+            raised_at: "t".into(),
+        };
+        let g = group("golf", "Golf (USA)", &["Golf (Japan)"], &[]);
+        let read = |game: &str| {
+            FlagsNow::default().next(
+                Some(&crate::placement_model::stamped_flags(
+                    1,
+                    Ok(vec![flag(game)]),
+                )),
+                1,
+            )
+        };
+        assert!(kept_need_review(&g, &read("Golf (USA)")));
+        assert!(
+            !kept_need_review(&g, &read("Golf (Japan)")),
+            "only a kept release counts"
+        );
+        assert!(
+            !kept_need_review(&g, &FlagsNow::default()),
+            "nothing read yet"
+        );
     }
 
     #[test]

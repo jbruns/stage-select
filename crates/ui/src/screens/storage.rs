@@ -1,6 +1,7 @@
 //! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose, a loose folder or
 //! CHD, set globally and for each system, as a selection profile's settings are; and how a disc system's play
-//! libraries lay out its discs, and whether they put SBI files beside them.
+//! libraries lay out its discs, whether they put SBI files beside them, and whether builds place games under single
+//! copy rather than copying them.
 
 use std::collections::BTreeSet;
 
@@ -26,6 +27,10 @@ const CHD_NOTE: &str = "As CHD, a build makes each disc's CHD with chdman, extra
 const LAYOUT_NOTE: &str = "In the ES-DE layout, a disc stored as one file, a CHD or an ISO, goes directly in the system folder; a disc stored as a .cue with its tracks goes in a folder named exactly for its .cue; and a game on several discs goes in a folder named for its .m3u, which is named for the game without its disc number and lists each disc in order, with every file of every disc beside it. In the flat layout every file goes directly in the system folder, with no .m3u. A disc stored as TorrentZip is one ZIP in the system folder in either layout.";
 
 const SBI_NOTE: &str = "With this on, a build puts each disc's SBI file, from the system's latest SBI pack, beside its .cue or .chd, named for it. Emulators read it to play discs whose copy protection they otherwise can't.";
+
+const SINGLE_COPY_NOTE: &str = "With this on, a build places each selected game in the library folder that holds your source set's placed games instead of copying it there: each game is kept once, in your library folder, and taken out of your source set. Where your source set and that folder share a filesystem, a game is renamed into place; otherwise it is copied, read back and its original deleted. Its file in your library folder is then the game's only copy: deleting it by hand loses the game, and your own backups are the only other copy. Turning this off later makes the next plan return every placed game to your source set.";
+
+const PLACE_CONVERTED_NOTE: &str = "With this and single copy on, a game your play library stores as CHD, a format your source set doesn't hold, is placed too, instead of copied. The CHD is then the game's only copy, so a full audit extracts it to check each track, which takes longer than reading a file. Title Select keeps the disc's .cue sheet, exactly as the DAT lists it, and writes it back when the game returns to your source set.";
 
 const LAYOUTS: [DiscLayout; 2] = [DiscLayout::EsDe, DiscLayout::Flat];
 
@@ -177,7 +182,7 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>) -> impl IntoView {
         <section class="staged" aria-labelledby="save-title">
             <h2 id="save-title">"Save"</h2>
             <p class="note">
-                "Saving changes no file. The next plan for each folder whose format changed proposes converting its games, and nothing is converted until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
+                "Saving changes no file. The next plan for each folder whose format changed proposes converting its games, and the next plan for each folder whose single copy setting changed proposes placing or returning them. Nothing is converted, placed or returned until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
             </p>
             <div class="actions">
                 <button
@@ -268,6 +273,7 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                 </label>
                             </p>
                             <p class="note small">{DELETE_WARNING}</p>
+                            {(scope == StorageScope::PlayLibraries).then(|| view! { <GlobalSingleCopy policy /> })}
                             {(scope == StorageScope::PlayLibraries)
                                 .then(|| {
                                     view! {
@@ -416,6 +422,8 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                 <option value="on">"On: delete each original once its converted file is verified"</option>
                             </select>
                             <p class="note small">{DELETE_WARNING}</p>
+                            {(scope == StorageScope::PlayLibraries)
+                                .then(|| view! { <SystemSingleCopy policy system=s.get_value() /> })}
                             {(scope == StorageScope::PlayLibraries && is_disc_system(&s.get_value()))
                                 .then(|| view! { <DiscSettings policy system=s.get_value() /> })}
                         </fieldset>
@@ -480,5 +488,115 @@ fn DiscSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoVie
             </label>
         </p>
         <p class="note small">{SBI_NOTE}</p>
+    }
+}
+
+/// The play libraries' global single copy settings: whether builds place games, and games stored as CHD too.
+#[component]
+fn GlobalSingleCopy(policy: RwSignal<StoragePolicy>) -> impl IntoView {
+    let single = move || policy.with(|p| p.play_libraries.single_copy);
+    view! {
+        <p>
+            <label class="inline">
+                <input
+                    type="checkbox"
+                    prop:checked=single
+                    on:change=move |ev| {
+                        let on = event_target_checked(&ev);
+                        policy.update(|p| p.play_libraries.single_copy = on);
+                    }
+                />
+                "Single copy"
+            </label>
+        </p>
+        <p class="note small">{SINGLE_COPY_NOTE}</p>
+        <p>
+            <label class="inline">
+                <input
+                    type="checkbox"
+                    prop:checked=move || policy.with(|p| p.play_libraries.place_converted)
+                    on:change=move |ev| {
+                        let on = event_target_checked(&ev);
+                        policy.update(|p| p.play_libraries.place_converted = on);
+                    }
+                />
+                "Place converted games"
+            </label>
+        </p>
+        <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+    }
+}
+
+/// A system's own single copy settings for its play libraries; placing converted games only for a disc system, the
+/// only ones stored as CHD.
+#[component]
+fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoView {
+    let s = StoredValue::new(system);
+    let scope = StorageScope::PlayLibraries;
+    let own = move || {
+        policy.with(|p| {
+            p.play_libraries
+                .systems
+                .get(&s.get_value())
+                .cloned()
+                .unwrap_or_default()
+        })
+    };
+    let global = move || {
+        policy.with(|p| {
+            (
+                p.play_libraries.single_copy,
+                p.play_libraries.place_converted,
+            )
+        })
+    };
+    let choice = |v: Option<bool>| match v {
+        None => "global",
+        Some(true) => "on",
+        Some(false) => "off",
+    };
+    let chosen = |ev: leptos::ev::Event| match event_target_value(&ev).as_str() {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    };
+    view! {
+        <label class="stacked" for="s-play_libraries-single-copy">
+            "Single copy"
+        </label>
+        <select
+            id="s-play_libraries-single-copy"
+            prop:value=move || choice(own().single_copy)
+            on:change=move |ev| {
+                let v = chosen(ev);
+                update_own(policy, scope, &s.get_value(), |o| o.single_copy = v);
+            }
+        >
+            <option value="global">{move || format!("Global setting: {}", on_off(global().0))}</option>
+            <option value="off">"Off: copy each game"</option>
+            <option value="on">"On: place each game as its only copy"</option>
+        </select>
+        <p class="note small">{SINGLE_COPY_NOTE}</p>
+        {is_disc_system(&s.get_value())
+            .then(|| {
+                view! {
+                    <label class="stacked" for="s-play_libraries-place-converted">
+                        "Place converted games"
+                    </label>
+                    <select
+                        id="s-play_libraries-place-converted"
+                        prop:value=move || choice(own().place_converted)
+                        on:change=move |ev| {
+                            let v = chosen(ev);
+                            update_own(policy, scope, &s.get_value(), |o| o.place_converted = v);
+                        }
+                    >
+                        <option value="global">{move || format!("Global setting: {}", on_off(global().1))}</option>
+                        <option value="off">"Off: copy games stored as CHD"</option>
+                        <option value="on">"On: place games stored as CHD too"</option>
+                    </select>
+                    <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+                }
+            })}
     }
 }

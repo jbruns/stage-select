@@ -18,6 +18,7 @@ pub mod jobs;
 pub mod library_model;
 pub mod model;
 pub mod parts;
+pub mod placement_model;
 pub mod registration;
 pub mod repair_model;
 pub mod screens;
