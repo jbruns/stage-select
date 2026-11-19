@@ -3,15 +3,18 @@
 //! these same cases passed when they were written, so they record Retool's Selections (ADR 0015).
 //!
 //! There is one golden per DAT under `tests/goldens/fixtures/`, holding all sixteen profiles side by side; see
-//! `render` for the format. A release build checks every DAT, in about a minute; a debug build, which is several
-//! times slower, checks only the feature DATs and a few system DATs (`in_debug_run`). `TITLE_SELECT_REGENERATE_GOLDENS=1`
-//! with `--release` rewrites them all, and `ONLY_DAT=<file name>` narrows a run to one DAT.
+//! `render` for the format. A release build checks every DAT, in about a minute of four cores, as each DAT and
+//! profile pair runs on its own; a debug build, which is several times slower, checks only the feature DATs and a few
+//! system DATs (`in_debug_run`). `TITLE_SELECT_REGENERATE_GOLDENS=1` with `--release` rewrites them all, and
+//! `ONLY_DAT=<file name>` narrows a run to one DAT.
 
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use title_select_api::selection::{Category, Rule, Selection, SelectionProfile};
 
@@ -85,20 +88,6 @@ const UNCHECKED: &[(&str, &str)] = &[(
 
 /// What one profile made of one DAT.
 type Ran = Result<(Selection, Vec<String>), String>;
-
-fn run(dat: &Path, profiles: &[(String, SelectionProfile)]) -> Vec<Ran> {
-    let engine = support::fixture_engine();
-    let options = support::options();
-    profiles
-        .iter()
-        .map(|(_, profile)| {
-            engine
-                .run(dat, profile, &options)
-                .map(|o| (o.selection, o.warnings))
-                .map_err(|e| e.to_string())
-        })
-        .collect()
-}
 
 /// Profile numbers, 1-based, as compact ranges: `1-3,5`.
 fn ranges(profiles: &BTreeSet<usize>) -> String {
@@ -315,19 +304,50 @@ fn the_built_in_engine_keeps_its_selections_on_retools_fixtures() {
         })
         .collect();
     assert!(!dats.is_empty(), "no fixture DATs");
-    let next = std::sync::atomic::AtomicUsize::new(0);
+    // One work unit per DAT and profile, the largest DATs and their 1G1R profiles first, so that the big DATs'
+    // profiles spread over every thread instead of leaving one thread to run a big DAT's sixteen at the end.
+    let sizes: Vec<u64> = dats
+        .iter()
+        .map(|d| std::fs::metadata(d).unwrap().len())
+        .collect();
+    let mut units: Vec<(usize, usize)> = (0..dats.len())
+        .flat_map(|d| (0..profiles.len()).map(move |p| (d, p)))
+        .collect();
+    units.sort_by_key(|&(d, p)| {
+        let disable_1g1r = profiles[p].1.options.disable_1g1r;
+        (std::cmp::Reverse(sizes[d]), disable_1g1r, d, p)
+    });
+    // Per DAT, what each profile made of it so far: the thread that fills the last one checks the golden.
+    let slots: Vec<Mutex<Vec<Option<Ran>>>> = dats
+        .iter()
+        .map(|_| Mutex::new(vec![None; profiles.len()]))
+        .collect();
+    let engine = support::fixture_engine();
+    let options = support::options();
+    let next = AtomicUsize::new(0);
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let failures: Vec<String> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..threads.min(dats.len()))
+        let handles: Vec<_> = (0..threads.min(units.len()))
             .map(|_| {
                 scope.spawn(|| {
                     let mut failures = Vec::new();
                     loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(dat) = dats.get(i) else {
+                        let Some(&(d, p)) = units.get(next.fetch_add(1, Ordering::Relaxed)) else {
                             return failures;
                         };
-                        let ran = run(dat, &profiles);
+                        let dat = &dats[d];
+                        let one = engine
+                            .run(dat, &profiles[p].1, &options)
+                            .map(|o| (o.selection, o.warnings))
+                            .map_err(|e| e.to_string());
+                        let ran: Vec<Ran> = {
+                            let mut slot = slots[d].lock().unwrap();
+                            slot[p] = Some(one);
+                            if slot.iter().any(Option::is_none) {
+                                continue;
+                            }
+                            slot.iter_mut().map(|r| r.take().unwrap()).collect()
+                        };
                         let golden = render(dat, &profiles, &ran);
                         let name = format!(
                             "fixtures/{}.txt",
