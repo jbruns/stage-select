@@ -86,6 +86,11 @@ impl Pool {
         self.inside.load(Ordering::SeqCst)
     }
 
+    /// How many workers wait for a permit now.
+    pub fn waiting(&self) -> usize {
+        self.waiting.load(Ordering::SeqCst)
+    }
+
     /// The most permits ever taken at once.
     pub fn most_at_once(&self) -> usize {
         self.most.load(Ordering::SeqCst)
@@ -224,7 +229,7 @@ mod tests {
     /// Waits until `n` workers wait in `pool`'s queue, failing after 30 seconds.
     fn until_waiting(pool: &Pool, n: usize) {
         let deadline = Instant::now() + Duration::from_secs(30);
-        while pool.waiting.load(Ordering::SeqCst) != n {
+        while pool.waiting() != n {
             assert!(Instant::now() < deadline, "{n} never waited");
             std::thread::yield_now();
         }
