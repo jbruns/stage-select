@@ -40,9 +40,9 @@ FROM toolchain AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# The server and the workbench build in stages of their own, so BuildKit runs them at the same time. Each is the half
-# of `cargo leptos build --release --precompress` its flag selects: the workbench's bundle comes first in a full build
-# only so that a server could embed it, and this one doesn't.
+# The server and the workbench build in stages of their own, so BuildKit runs them at the same time. Each runs the half
+# of cargo-leptos's build its flag selects, so neither repeats a command cargo-leptos would run. A full build makes the
+# workbench's bundle first only so that a server could embed it, and this server doesn't.
 #
 # Each stage's dependencies compile in a layer keyed on the recipe alone. The cook matches its build's package,
 # target, target directory, profile and features, and the output name leptos compiles in, so the build reuses what it
@@ -57,6 +57,7 @@ COPY . .
 RUN cargo leptos build --release --cargo-locked --server-only \
     && cp target/release/title-select /title-select \
     && rm -r target
+# The store volume's mount point, owned by the nonroot user in the final stage.
 RUN mkdir /store
 
 FROM toolchain AS front
