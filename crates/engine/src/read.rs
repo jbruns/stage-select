@@ -496,6 +496,9 @@ fn read_counting_threads(
 /// Reuses the file's earlier read if it passes the change test; else claims a ZIP archive's members in a quick
 /// Audit; else reads its payloads, recording the read when every one of them was read.
 fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
+    if let Some(chd) = &file.chd {
+        return read_chd(file, chd, how, jobs);
+    }
     if let Some(reads) = how.reads {
         let now = file.stamp();
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
@@ -513,9 +516,6 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
                 origin: Origin::Reused(prior.read_at),
             };
         }
-    }
-    if let Some(chd) = &file.chd {
-        return read_chd(file, chd, how, jobs);
     }
     if how.evidence == AuditEvidence::Quick && file.is_zip {
         let stamp = file.stamp();
@@ -562,6 +562,8 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
 /// Reads the placed CHD `file`, as `chd` says: in a quick inventory, claims each track by its header's SHA-1; else
 /// extracts it and reads each track, and records the read, as any file's. A CD's cue sheet is read from the store.
 fn read_chd(file: &ToRead, chd: &ChdRead, how: How, jobs: Hand) -> FileRead {
+    // A quick inventory only ever claims a placed CHD's tracks, by its header: never Payload Evidence, not even an
+    // earlier read's, so that it never makes its Game Verified.
     if how.evidence == AuditEvidence::Quick {
         let (claimed, stamp) = claim_chd(file, chd, jobs, how.header);
         if let (Some(reads), Some(stamp), None) = (how.reads, stamp, &claimed.error) {
@@ -569,13 +571,38 @@ fn read_chd(file: &ToRead, chd: &ChdRead, how: How, jobs: Hand) -> FileRead {
         }
         return claimed;
     }
+    // Its tracks' earlier read is reused while the CHD's stamp holds; its cue sheet, which the CHD doesn't hold, is
+    // checked against what the store keeps on every audit, never reused.
+    if let Some(reads) = how.reads {
+        let now = file.stamp();
+        if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
+            && prior.stamp == now
+            && prior.header_rule == how.header
+        {
+            reads.reused(&file.rel, &now);
+            let mut members: Vec<_> = prior
+                .members
+                .into_iter()
+                .filter(|(m, _)| !is_cue(m.as_deref()))
+                .map(|(m, sums)| (m, Ok(Known::Payload(sums))))
+                .collect();
+            members.extend(cue_member(&chd.placed, jobs, how.header));
+            return FileRead {
+                members,
+                error: None,
+                origin: Origin::Reused(prior.read_at),
+            };
+        }
+    }
     let read_at = jiff::Timestamp::now();
     let (read, stamp) = extract_chd(file, chd, jobs, read_at, how);
     how.tally.file_read();
     if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+        // What is recorded to reuse is its tracks' read alone.
         let members: Option<Vec<_>> = read
             .members
             .iter()
+            .filter(|(m, _)| !is_cue(m.as_deref()))
             .map(|(m, sums)| match sums {
                 Ok(Known::Payload(sums)) => Some((m.clone(), sums.clone())),
                 _ => None,
@@ -605,12 +632,22 @@ type Disc<'r> = (
 );
 
 fn disc<'r>(chd: &'r crate::PlacedChd) -> Result<Disc<'r>, String> {
-    let cue = match &chd.cue {
-        Some(Ok(cue)) => Some(cue.as_slice()),
-        Some(Err(why)) => return Err(format!("its cue sheet can't be read: {why}")),
-        None => None,
-    };
-    crate::chd::disc_of(&chd.game, &chd.roms, cue)
+    if let Some(Ok(cue)) = &chd.cue {
+        return crate::chd::disc_of(&chd.game, &chd.roms, Some(cue));
+    }
+    // Without its cue sheet, which its own member then says can't be read, its tracks are taken in the DAT's order:
+    // each is still matched by its payload, or claimed by its size and CRC32.
+    let sized: Vec<(&str, u64)> = chd.roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
+    let kind = title_select_api::storage::chd_of(&chd.game, &sized).map_err(str::to_owned)?;
+    Ok((
+        kind,
+        chd.roms.iter().filter(|r| !is_cue(Some(&r.name))).collect(),
+    ))
+}
+
+/// Whether `member` of a placed CHD's read is its cue sheet, which the store keeps rather than the CHD.
+fn is_cue(member: Option<&str>) -> bool {
+    member.is_some_and(|m| m.to_ascii_lowercase().ends_with(".cue"))
 }
 
 /// The cue sheet member of a placed CHD's read, read from where the store keeps it, if it has one.
@@ -619,10 +656,7 @@ fn cue_member(
     jobs: Hand,
     header: Option<HeaderRule>,
 ) -> Option<(Option<String>, Result<Known, String>)> {
-    let rom = chd
-        .roms
-        .iter()
-        .find(|r| r.name.to_ascii_lowercase().ends_with(".cue"))?;
+    let rom = chd.roms.iter().find(|r| is_cue(Some(&r.name)))?;
     let known = match &chd.cue {
         Some(Ok(cue)) => checksum(cue.as_slice(), jobs, header).map(Known::Payload),
         Some(Err(why)) => Err(format!(
@@ -757,7 +791,7 @@ fn extract_chd(
         let given = chdman
             .extract(&dir, kind, &bins, &|| false)
             .map_err(|stop| match stop {
-                crate::chd::Stop::Failed(why) => why,
+                crate::chd::Stop::Failed(why) | crate::chd::Stop::Corrupt(why) => why,
                 crate::chd::Stop::Cancelled => "chdman was stopped".to_owned(),
             })?;
         Ok(bins.iter().map(|r| r.name.clone()).zip(given).collect())

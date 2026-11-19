@@ -42,11 +42,11 @@ pub(super) fn sync_dir(_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Reads a cue sheet blob, of at most a cue sheet's bytes.
-fn read_bounded(path: &Path) -> Result<Vec<u8>> {
-    let file = File::open(path).map_err(|e| io_error(path, e))?;
-    title_select_engine::chd::read_cue(&file)
-        .map_err(|e| Error::Io(format!("{}: {e}", path.display())))
+/// Why a kept cue sheet can't be given back: it was read, and holds other bytes than it was kept as; or it couldn't be
+/// read, which says nothing of what it holds.
+pub(crate) enum Unkept {
+    Changed(String),
+    Unread(String),
 }
 
 pub(super) fn remove_blob(path: &Path) -> Result<()> {
@@ -70,10 +70,26 @@ impl Store {
 
     /// The cue sheet kept as the blob `sha256`, read whole and checked to be what its name says.
     pub(crate) fn kept_cue(&self, sha256: &str) -> Result<Vec<u8>> {
+        self.kept_cue_as(sha256).map_err(|unkept| match unkept {
+            Unkept::Changed(why) | Unkept::Unread(why) => Error::Io(why),
+        })
+    }
+
+    /// As [`Store::kept_cue`], saying whether a cue sheet it can't give back was read and holds other bytes, or
+    /// couldn't be read at all.
+    pub(crate) fn kept_cue_as(&self, sha256: &str) -> std::result::Result<Vec<u8>, Unkept> {
         let path = self.cue_path(sha256);
-        let bytes = read_bounded(&path)?;
-        if crate::builds::hex(&Sha256::digest(&bytes)) != sha256 {
-            return Err(Error::Io(format!(
+        let file = File::open(&path).map_err(|e| Unkept::Unread(io_error(&path, e).to_string()))?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(&file, title_select_engine::chd::CUE_MAX + 1),
+            &mut bytes,
+        )
+        .map_err(|e| Unkept::Unread(io_error(&path, e).to_string()))?;
+        if bytes.len() as u64 > title_select_engine::chd::CUE_MAX
+            || crate::builds::hex(&Sha256::digest(&bytes)) != sha256
+        {
+            return Err(Unkept::Changed(format!(
                 "the cue sheet kept in the store as {sha256} no longer holds what it was kept as"
             )));
         }

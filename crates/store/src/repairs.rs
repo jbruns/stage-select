@@ -2154,7 +2154,7 @@ impl Store {
                 seen,
                 roms,
                 loose,
-            } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
+            } => self.run_rename(config, r, step, from, to, &seen_of(seen), roms, *loose),
             RepairStep::Publish { build, target } => {
                 self.run_publish(config, r, step, *build, target)
             }
@@ -3275,6 +3275,7 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     fn run_rename(
         &self,
+        config: &Config,
         r: &Repairing,
         step: &StepRow,
         from: &str,
@@ -3420,6 +3421,11 @@ impl Store {
                     )?;
                     Ok(())
                 })?;
+            }
+            // Written in the Source Set's folder: its Game's placed files that are gone are no longer placed.
+            (_, None) => {
+                let vanished = self.vanished(config, r, step)?;
+                self.done_unplacing(step, None, &vanished, None)?;
             }
             _ => self.step_done(step, None)?,
         }

@@ -16,3 +16,17 @@ ALTER TABLE placed_files ADD COLUMN cue_sha256 TEXT;
 -- commits its unit, once the blob is written and synced, so that it is held from then until its Game is placed, and
 -- from then by its placed file. Null for every other item.
 ALTER TABLE build_items ADD COLUMN cue_sha256 TEXT;
+
+-- A Game that needs review because a Build proved its placed CHD doesn't hold its disc as the DAT lists it: extracting
+-- it gave back other bytes, or chdman said it is damaged. A current condition of the Game, kept apart from every Audit,
+-- whose verdicts record only what each read: raised by the Build build_id, about its placed file path as Audits name
+-- it, with why, and cleared once an Audit verifies the Game by payload or a return verifies it home.
+CREATE TABLE review_flags (
+    source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
+    game TEXT NOT NULL,
+    path TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    build_id INTEGER NOT NULL REFERENCES builds (id),
+    raised_at TEXT NOT NULL,
+    PRIMARY KEY (source_set_id, game)
+);

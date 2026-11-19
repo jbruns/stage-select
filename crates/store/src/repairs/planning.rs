@@ -65,9 +65,9 @@ fn located(path: &str) -> Located {
 const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks, replaces or \
      completes its files but doesn't yet convert them";
 
-/// Why a repair leaves a Game placed as a CHD, and every file of it.
-const PLACED_CHD: &str = "it is placed as a CHD in a play library folder, and a repair doesn't change a CHD; once \
-     it is back in the source set, a repair can";
+/// Why a repair leaves a Game placed as a healthy CHD, and every file of it.
+const PLACED_CHD: &str = "it is placed as a CHD in a play library folder, verified by the audit, and a repair \
+     doesn't change a healthy CHD";
 
 /// A `.cue` sheet in a cue pack in the store, with the checksums it was read as.
 #[derive(Debug, Clone)]
@@ -1546,12 +1546,40 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         leave_release(&mut proposed, n);
     }
 
-    // A Game placed as a CHD is read only by extracting it, which a repair doesn't do: it, and each file at its CHD's
-    // path, is left as it is, whatever the Audit found there.
-    let chd_games: HashSet<&str> = i
+    // A healthy CHD, every Entry of it Matched on Payload Evidence and its Game Complete on them, is left as it is:
+    // a repair would only repack it into the files the Source Set stores. One missing, damaged or unverified gets a
+    // repair's choices as any Placed Game's file does: completed where it is placed, or, once none of its Game's files
+    // is left, filled in the Source Set's folder, where it is no longer placed.
+    let healthy: HashSet<&str> = i
         .placed_chds
         .iter()
-        .filter_map(|path| i.placed_files.get(path))
+        .map(String::as_str)
+        .filter(|path| {
+            let mut entries = i
+                .report
+                .entries
+                .iter()
+                .filter(|e| e.path == *path)
+                .peekable();
+            entries.peek().is_some()
+                && entries.all(|e| {
+                    e.finding == Finding::Matched
+                        && e.evidence
+                            .as_ref()
+                            .is_some_and(|ev| ev.level == title_select_api::EvidenceLevel::Payload)
+                })
+                && i.placed_files.get(*path).is_some_and(|game| {
+                    i.report.games.iter().any(|g| {
+                        g.name == *game
+                            && g.status == title_select_api::GameStatus::Complete
+                            && g.claimed_roms.is_empty()
+                    })
+                })
+        })
+        .collect();
+    let chd_games: HashSet<&str> = healthy
+        .iter()
+        .filter_map(|path| i.placed_files.get(*path))
         .map(String::as_str)
         .collect();
     let touches_chd: Vec<usize> = proposed
@@ -1562,11 +1590,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 .game
                 .as_deref()
                 .is_some_and(|g| chd_games.contains(g))
-                || p.item
-                    .path
-                    .as_deref()
-                    .is_some_and(|t| i.placed_chds.contains(t))
-                || p.displaces.iter().any(|(d, _)| i.placed_chds.contains(d))
+                || p.item.path.as_deref().is_some_and(|t| healthy.contains(t))
+                || p.displaces
+                    .iter()
+                    .any(|(d, _)| healthy.contains(d.as_str()))
         })
         .map(|(n, _)| n)
         .collect();

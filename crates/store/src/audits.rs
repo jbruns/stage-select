@@ -549,6 +549,16 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
         params![id, content],
     )?;
+    // A Game this Audit verified, every ROM present on Payload Evidence, no longer needs the review a Build flagged.
+    crate::placements::clear_reviews(
+        tx,
+        set_id,
+        report
+            .games
+            .iter()
+            .filter(|g| g.status == GameStatus::Complete && g.claimed_roms.is_empty())
+            .map(|g| g.name.as_str()),
+    )?;
     Ok(())
 }
 

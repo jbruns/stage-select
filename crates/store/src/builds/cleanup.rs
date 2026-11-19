@@ -477,6 +477,8 @@ impl Run<'_> {
             build: self.build,
             cancelled: &cancelled,
             placed: HashMap::new(),
+            placed_chds: HashMap::new(),
+            set,
         };
         let game = e.game.as_deref().unwrap_or_default();
         let set_fd = match e.sources.is_empty() {

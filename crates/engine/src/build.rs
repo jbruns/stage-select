@@ -682,16 +682,19 @@ pub fn write_loose(
 /// Checks that `file`, read from its start, is exactly `rom` as a loose file: its size and every checksum the DAT
 /// lists. The bytes read again are counted to `tally`, of the Root `file` is in.
 pub fn verify_loose(file: &File, rom: &ExpectedRom, tally: &Tally) -> Result<(), String> {
-    let mut seeking = file;
-    seeking
-        .seek(SeekFrom::Start(0))
-        .map_err(|e| e.to_string())?;
-    let mut reader = Counting::new(file, tally);
-    let sums = hash_as(rom, &mut reader).map_err(|e| e.to_string())?;
+    let sums = hash_loose(file, rom, tally).map_err(|e| e.to_string())?;
     if !matches(&sums, rom) {
         return Err(format!("{}: it does not hash to the DAT's ROM", rom.name));
     }
     Ok(())
+}
+
+/// The checksums of `file`, read whole from its start, as `rom` is hashed; what is read is counted to `tally`.
+pub(crate) fn hash_loose(file: &File, rom: &ExpectedRom, tally: &Tally) -> io::Result<Checksums> {
+    let mut seeking = file;
+    seeking.seek(SeekFrom::Start(0))?;
+    let mut reader = Counting::new(file, tally);
+    hash_as(rom, &mut reader)
 }
 
 /// The name and payload checksums of the one member of `file`, read from its start, when it is valid TorrentZip,

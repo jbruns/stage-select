@@ -396,3 +396,16 @@ pub struct Report {
 fn full() -> AuditEvidence {
     AuditEvidence::Full
 }
+
+/// A Game that needs review because a Build proved its placed CHD doesn't hold its disc as the DAT lists it: a
+/// current condition of the Game, apart from any Audit's verdict, until an Audit or a return verifies it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFlag {
+    pub game: String,
+    /// Its placed file, as an Audit names it.
+    pub path: String,
+    pub reason: String,
+    /// The Build that raised it.
+    pub build: i64,
+    pub raised_at: String,
+}

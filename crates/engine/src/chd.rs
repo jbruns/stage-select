@@ -13,7 +13,6 @@ use std::time::Duration;
 use title_select_api::build::ExpectedRom;
 use title_select_api::storage::ChdKind;
 
-use crate::build::verify_loose;
 use crate::meter::{JobMeter, Tally};
 
 /// The environment variable naming the chdman to run, where the configuration names none.
@@ -23,7 +22,7 @@ pub const CHDMAN_ENV: &str = "TITLE_SELECT_CHDMAN";
 pub const V5_HEADER: usize = 124;
 
 /// The bytes of a cue sheet read to find its tracks; a Redump sheet is a few kilobytes.
-const CUE_MAX: u64 = 1 << 20;
+pub const CUE_MAX: u64 = 1 << 20;
 
 /// The bytes of chdman's output kept for an error.
 const LOG_TAIL: u64 = 2048;
@@ -566,6 +565,38 @@ pub enum Stop {
     Cancelled,
     /// It failed, or what it gave back does not match the DAT: why.
     Failed(String),
+    /// What chdman gave back, or chdman itself, proves the CHD doesn't hold the disc the DAT lists: a track or image
+    /// of another size, other bytes or another count, or a CHD chdman reports as damaged. Never a timeout, a crash or
+    /// a failure to read or write: those say nothing of what the CHD holds.
+    Corrupt(String),
+}
+
+impl Stop {
+    /// Why it stopped, however it did.
+    pub fn why(&self) -> String {
+        match self {
+            Stop::Cancelled => "you cancelled it, and chdman was stopped".into(),
+            Stop::Failed(why) | Stop::Corrupt(why) => why.clone(),
+        }
+    }
+}
+
+/// What chdman says of a CHD whose data or metadata is damaged, as its errors read: its own word that the CHD doesn't
+/// hold what it should, rather than that it couldn't read or write a file.
+const CORRUPT: [&str; 7] = [
+    "decompression error",
+    "invalid data",
+    "invalid file",
+    "invalid metadata",
+    "hunk out of range",
+    "codec error",
+    "metadata not found",
+];
+
+/// Whether chdman's log `tail` says the CHD it read is damaged.
+fn says_corrupt(tail: &str) -> bool {
+    let tail = tail.to_ascii_lowercase();
+    CORRUPT.iter().any(|c| tail.contains(c))
 }
 
 impl From<String> for Stop {
@@ -696,10 +727,13 @@ impl Chdman {
         if status.success() {
             return Ok(());
         }
-        Err(Stop::Failed(format!(
-            "chdman {verb} failed ({status}): {}",
-            tail(&log_path)
-        )))
+        let said = tail(&log_path);
+        let why = format!("chdman {verb} failed ({status}): {said}");
+        // Only an exit chdman chose, saying the CHD is damaged: a crash proves nothing of it.
+        match status.code().is_some() && says_corrupt(&said) {
+            true => Err(Stop::Corrupt(why)),
+            false => Err(Stop::Failed(why)),
+        }
     }
 
     /// Builds `dir/out.chd` from the disc whose ROMs are written loose in `dir/in`, `main` being its `.cue` or
@@ -801,13 +835,19 @@ impl Chdman {
             let file = File::open(path).map_err(|e| format!("{}: {e}", rom.name))?;
             let len = file.metadata().map_err(|e| e.to_string())?.len();
             if len != rom.size {
-                return Err(Stop::Failed(format!(
+                return Err(Stop::Corrupt(format!(
                     "{}: chdman gave back {len} bytes, not the DAT's {}",
                     rom.name, rom.size
                 )));
             }
-            verify_loose(&file, rom, &self.tally)
-                .map_err(|why| format!("chdman gave back other bytes: {why}"))?;
+            let sums = crate::build::hash_loose(&file, rom, &self.tally)
+                .map_err(|e| Stop::Failed(format!("{}: {e}", rom.name)))?;
+            if !crate::build::matches(&sums, rom) {
+                return Err(Stop::Corrupt(format!(
+                    "chdman gave back other bytes: {}: it does not hash to the DAT's ROM",
+                    rom.name
+                )));
+            }
         }
         let chd = File::open(dir.join("out.chd")).map_err(|e| e.to_string())?;
         header(&chd).map_err(Stop::Failed)
@@ -856,7 +896,7 @@ impl Chdman {
             .filter(|e| e.as_ref().map_or(true, |e| e.file_name() != "x.cue"))
             .count();
         if found != given.len() {
-            return Err(Stop::Failed(format!(
+            return Err(Stop::Corrupt(format!(
                 "chdman gave back {found} tracks, not the {} the DAT lists",
                 given.len()
             )));
