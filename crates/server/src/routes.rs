@@ -19,8 +19,8 @@ use title_select_api::additions::{
 };
 use title_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeLibraryFolder,
-    FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanCleanup,
-    PlanKeptDeletion,
+    FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild,
+    PlanCleanup, PlanKeptDeletion,
 };
 use title_select_api::calibration::Calibration;
 use title_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
@@ -170,6 +170,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/libraries/{id}/builds", get(folder_builds))
         .route("/libraries/{id}/files", get(built_files))
+        .route("/libraries/{id}/placed-files", get(placed_files))
         .route("/libraries/{id}/plans", post(plan_build))
         .route("/libraries/{id}/cleanups", post(plan_cleanup))
         .route("/libraries/{id}/checks", post(start_check))
@@ -807,6 +808,17 @@ async fn built_files(
     let Path(id) = id?;
     Ok(Json(
         blocking(&state, move |store| store.built_files(id)).await?,
+    ))
+}
+
+/// The files of the Placed Games the folder holds now under Single Copy: each its Game's only copy.
+async fn placed_files(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Vec<PlacedFile>>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.folder_placed_files(id)).await?,
     ))
 }
 

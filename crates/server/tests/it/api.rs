@@ -3403,7 +3403,7 @@ mod selections {
     /// how many games each folder holds once a build places them.
     #[test]
     fn the_api_names_the_folder_holding_placed_games_and_counts_the_games_placed_in_it() {
-        use title_select_api::build::{LibraryFolder, Plan};
+        use title_select_api::build::{BuiltFile, LibraryFolder, PlacedFile, Plan};
         use title_select_api::storage::StoragePolicy;
         use title_select_api::{PlacedIn, Placements};
         let env = Env::new();
@@ -3493,6 +3493,29 @@ mod selections {
             "one count per game, however many files it has"
         );
         assert!(placed.review_flags.is_empty());
+        let only_copies: Vec<PlacedFile> =
+            client.json(&format!("/libraries/{}/placed-files", a.id));
+        let built: Vec<BuiltFile> = client.json(&format!("/libraries/{}/files", a.id));
+        assert_eq!(only_copies.len() as u64, plan.summary.place);
+        assert!(
+            only_copies
+                .iter()
+                .all(|p| p.library_folder == a.id && built.iter().any(|f| f.target == p.path)),
+            "each placed file is a built file of the folder, by its path: {only_copies:?}"
+        );
+        assert!(
+            client
+                .json::<Vec<PlacedFile>>(&format!("/libraries/{}/placed-files", b.id))
+                .is_empty()
+        );
+        assert_eq!(
+            status_of(
+                client
+                    .get(&format!("/libraries/{}/placed-files", a.id + b.id + 1))
+                    .call()
+            ),
+            404
+        );
 
         let (status, moved) = put(json!({"folder": b.id}));
         assert_eq!(status, 200, "{moved}");

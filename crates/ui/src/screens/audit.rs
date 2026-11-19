@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -11,12 +11,13 @@ use leptos_struct_table::ColumnSort;
 use title_select_api::build::LibraryFolder;
 use title_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, HeaderRule, Job, Placements,
-    ReviewFlag, StartAudit,
+    StartAudit,
 };
 use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::app::{Loading, Problem};
+use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
@@ -24,7 +25,7 @@ use crate::model::{
     parse_ndjson, payload_read_text, warning_counts, warning_text, when,
 };
 use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
-use crate::placement_model::{flag_detail, flags_by_game, folder_name, game_placements};
+use crate::placement_model::{FlagsNow, flag_detail, folder_name, game_placements};
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
 /// An audit's entries and game statuses, as its panels show them.
@@ -45,6 +46,49 @@ pub async fn load(id: i64) -> Result<Loaded, String> {
         entries: Arc::new(entries),
         games: Arc::new(AuditGames::new(games).with_placements(placed)),
     })
+}
+
+/// A source set's placements and the library folders, read for its audits' tables.
+pub type PlacementsNow = LocalResource<Result<(Placements, Vec<LibraryFolder>), String>>;
+
+/// Where source set `source_set`'s games are now, for its audits' tables: its placements, with the review flags builds
+/// raised, and the library folders, by name. Read again whenever a job settles, since a build, audit or repair may
+/// change them. Without the library folders a placement reads by the folder's number; without the placements the
+/// tables say they can't tell which games need review.
+pub fn placements_now(source_set: String) -> PlacementsNow {
+    let live = use_live();
+    LocalResource::new(move || {
+        live.settled.track();
+        let path = format!("/source-sets/{}/placements", api::segment(&source_set));
+        async move {
+            let placements = api::get::<Placements>(&path).await?;
+            let folders = api::get::<Vec<LibraryFolder>>("/libraries")
+                .await
+                .unwrap_or_default();
+            Ok((placements, folders))
+        }
+    })
+}
+
+/// The review flags among `now`, as a table of game statuses marks them.
+pub fn flags_now(now: Option<PlacementsNow>) -> Memo<FlagsNow> {
+    Memo::new(move |_| match now {
+        Some(now) => FlagsNow::of(now.get().map(|r| r.map(|(p, _)| p.review_flags))),
+        // A table with no source set to ask, such as the bench's, has no game a build flagged.
+        None => FlagsNow::Known(Arc::default()),
+    })
+}
+
+/// Says when a table can't mark the games that need review: while it reads them, or that it couldn't.
+pub fn flags_notice(flags: Memo<FlagsNow>) -> impl IntoView {
+    move || match flags.get() {
+        FlagsNow::Unknown(_) => flags
+            .with(|f| f.notice())
+            .map(|message| view! { <Problem message /> }.into_any()),
+        f => f
+            .notice()
+            .map(|n| view! { <p class="note" role="status">{n}</p> }.into_any()),
+    }
 }
 
 pub fn focus(id: &str) {
@@ -224,7 +268,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         aria-labelledby="tab-entries"
                         hidden=move || tab.get() != Tab::Entries
                     >
-                        <EntriesPanel entries=loaded.entries.clone() />
+                        <EntriesPanel entries=loaded.entries.clone() source_set=set.get_value() />
                     </div>
                     <div
                         role="tabpanel"
@@ -355,11 +399,13 @@ pub fn queued(job: &Job) -> impl IntoView + use<> {
 #[derive(Clone)]
 pub struct EntryItem {
     entries: Arc<AuditEntries>,
+    flags: FlagsNow,
     i: u32,
 }
 
 struct EntryWindow {
     entries: Arc<AuditEntries>,
+    flags: FlagsNow,
     shown: Arc<Vec<u32>>,
 }
 
@@ -373,6 +419,7 @@ impl RowSource<EntryItem> for EntryWindow {
             .iter()
             .map(|&i| EntryItem {
                 entries: self.entries.clone(),
+                flags: self.flags.clone(),
                 i,
             })
             .collect()
@@ -466,12 +513,18 @@ impl Grid for EntryItem {
                 games.dedup();
                 games.join(", ").into_any()
             }
-            EntryCol::GameStatus => self
-                .entries
-                .primary_status(i)
-                .map(game_status_label)
-                .unwrap_or("")
-                .into_any(),
+            EntryCol::GameStatus => {
+                let status = self
+                    .entries
+                    .primary_status(i)
+                    .map(game_status_label)
+                    .unwrap_or("");
+                let flagged = self.flags.any(entry.roms.iter().map(|r| r.game.as_str()));
+                let flag = flagged.then(
+                    || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
+                );
+                view! { {status} {flag} }.into_any()
+            }
             EntryCol::Evidence => evidence_text(entry).into_any(),
             EntryCol::Reason => entry.reason.clone().unwrap_or_default().into_any(),
         }
@@ -486,8 +539,12 @@ pub fn EntriesPanel(
     /// What the entries are narrowed to at first, such as a finding a badge links to.
     #[prop(optional)]
     initial: EntryFilter,
+    /// Its source set, to mark the games a build flagged as needing review; none where there's none to ask.
+    #[prop(optional)]
+    source_set: Option<String>,
 ) -> impl IntoView {
     let total = entries.len();
+    let flags = flags_now(source_set.map(placements_now));
     let sorting = RwSignal::new(VecDeque::<(EntryCol, ColumnSort)>::new());
     let filter = RwSignal::new(initial.clone());
     let first = initial;
@@ -515,6 +572,7 @@ pub fn EntriesPanel(
         move || {
             Arc::new(EntryWindow {
                 entries: entries.clone(),
+                flags: flags.get(),
                 shown: shown.get(),
             }) as Rows<EntryItem>
         }
@@ -629,6 +687,7 @@ pub fn EntriesPanel(
             >
                 {move || format!("{} of {total} entries", shown.with(|s| s.len()))}
             </p>
+            {flags_notice(flags)}
             <DataTable
                 id="entries"
                 label="Entries".to_string()
@@ -737,13 +796,13 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
 #[derive(Clone)]
 pub struct GameItem {
     games: Arc<AuditGames>,
-    flags: Arc<BTreeMap<String, ReviewFlag>>,
+    flags: FlagsNow,
     i: u32,
 }
 
 struct GameWindow {
     games: Arc<AuditGames>,
-    flags: Arc<BTreeMap<String, ReviewFlag>>,
+    flags: FlagsNow,
     shown: Arc<Vec<u32>>,
 }
 
@@ -808,7 +867,7 @@ impl Grid for GameItem {
         match col {
             GameCol::Name => game.name.clone().into_any(),
             GameCol::Status => {
-                let flag = self.flags.contains_key(&game.name).then(
+                let flag = self.flags.get(&game.name).is_some().then(
                     || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
                 );
                 view! { {game_status_text(game)} {flag} }.into_any()
@@ -826,6 +885,10 @@ impl Grid for GameItem {
     }
 }
 
+/// Why a past audit shows a review flag it didn't raise.
+const FLAGGED_NOW: &str = "This flag is the game's now, not part of this audit: every audit of the source set \
+shows it until a full audit verifies the file or the game returns.";
+
 #[component]
 pub fn GamesPanel(
     games: Arc<AuditGames>,
@@ -833,20 +896,14 @@ pub fn GamesPanel(
     source_set: String,
 ) -> impl IntoView {
     let total = games.len();
-    // Where its games are now: the review flags a build raised, and the library folders, by name. Either is left out
-    // when it can't be read, as the audit's own statuses stand without it.
-    let now = LocalResource::new(move || {
-        let path = format!("/source-sets/{}/placements", api::segment(&source_set));
-        async move {
-            let placements = api::get::<Placements>(&path).await.unwrap_or_default();
-            let folders = api::get::<Vec<LibraryFolder>>("/libraries")
-                .await
-                .unwrap_or_default();
-            (Arc::new(flags_by_game(&placements.review_flags)), folders)
-        }
+    let now = placements_now(source_set);
+    let flags = flags_now(Some(now));
+    let folders = Memo::new(move |_| {
+        now.get()
+            .and_then(Result::ok)
+            .map(|(_, f)| f)
+            .unwrap_or_default()
     });
-    let flags = Memo::new(move |_| now.get().map(|(f, _)| f).unwrap_or_default());
-    let folders = Memo::new(move |_| now.get().map(|(_, f)| f).unwrap_or_default());
     let sorting = RwSignal::new(VecDeque::<(GameCol, ColumnSort)>::new());
     let filter = RwSignal::new(GameFilter::default());
     let selected = RwSignal::new(None::<usize>);
@@ -900,9 +957,10 @@ pub fn GamesPanel(
         });
         let flag = flags.with(|f| f.get(&game.name).cloned()).map(|flag| {
             view! {
-                <h4>"Needs review"</h4>
+                <h4>"Flagged now"</h4>
                 <p><StatusBadge status=GameFlag::NeedsReview /></p>
                 <p>{flag_detail(&flag)}</p>
+                <p class="note">{FLAGGED_NOW}</p>
             }
         });
         let absent = (!game.missing_roms.is_empty()).then(|| {
@@ -981,6 +1039,7 @@ pub fn GamesPanel(
             <p class="shown" aria-live="polite">
                 {move || format!("{} of {total} game statuses", shown.with(|s| s.len()))}
             </p>
+            {flags_notice(flags)}
             <DataTable
                 id="games"
                 label="Game statuses".to_string()

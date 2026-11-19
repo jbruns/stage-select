@@ -13,8 +13,8 @@ use title_select_api::additions::NewAddition;
 use title_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
     ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, KeptDeletion,
-    KeptFile, LibraryFolder, Plan, PlanBuild, PlanChoices, PlanCleanup, PlanKeptDeletion,
-    RETENTION,
+    KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
+    PlanKeptDeletion, RETENTION,
 };
 use title_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -35,13 +35,13 @@ use crate::library_model::{
 };
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
-use crate::parts::legend::{Legend, present};
+use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::pending::{ActionPending, Pending, action_problem};
-use crate::parts::status::{BuildKind, LibraryStatus, Status, StatusBadge, StatusIcon};
-use crate::placement_model::built_placement;
+use crate::parts::status::{BuildKind, LibraryStatus, Placement, Status, StatusBadge, StatusIcon};
+use crate::placement_model::{OnlyCopies, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
@@ -2092,8 +2092,9 @@ enum FileCol {
     Size,
 }
 
+/// A built file, and whether it is its game's only copy now: placed under single copy.
 #[derive(Clone, PartialEq)]
-struct FileRow(BuiltFile);
+struct FileRow(BuiltFile, Option<Placement>);
 
 impl ListRow for FileRow {
     type Col = FileCol;
@@ -2157,7 +2158,8 @@ impl ListRow for FileRow {
             FileCol::Kind => {
                 view! { <StatusIcon status=BuildKind::from(f.kind) tab_stop=false /> }.into_any()
             }
-            FileCol::Copy => built_placement(f)
+            FileCol::Copy => self
+                .1
                 .map(|p| view! { <StatusIcon status=p tab_stop=false /> })
                 .into_any(),
             FileCol::Target => view! { <Clip text=f.target.clone() /> }.into_any(),
@@ -2173,9 +2175,7 @@ impl ListRow for FileRow {
             FileCol::Kind => BuildKind::from(a.kind)
                 .rank()
                 .cmp(&BuildKind::from(b.kind).rank()),
-            FileCol::Copy => built_placement(a)
-                .is_some()
-                .cmp(&built_placement(b).is_some()),
+            FileCol::Copy => self.1.is_some().cmp(&other.1.is_some()),
             FileCol::Target => a.target.cmp(&b.target),
             FileCol::Game => a.game.cmp(&b.game),
             FileCol::Build => a.build.cmp(&b.build),
@@ -2185,8 +2185,8 @@ impl ListRow for FileRow {
 }
 
 fn file_detail(row: FileRow) -> AnyView {
-    let f = row.0;
-    let only = built_placement(&f).map(|p| {
+    let FileRow(f, placement) = row;
+    let only = placement.map(|p| {
         view! {
             <p>
                 <StatusBadge status=p />
@@ -2226,15 +2226,36 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Vec<BuiltFile>>(&format!("/libraries/{folder}/files")).await }
     });
-    let rows = last_good_rows(move || {
-        files
-            .get()
-            .map(|r| r.map(|f| f.into_iter().map(FileRow).collect::<Vec<_>>()))
+    // Which files are their games' only copies now, from the folder's placed files, never from how a build wrote
+    // them. Until it is read, or when it can't be, no file is marked, and the list says so.
+    let placed = LocalResource::new(move || {
+        live.settled.track();
+        async move {
+            api::get::<Vec<PlacedFile>>(&format!("/libraries/{folder}/placed-files"))
+                .await
+                .map(|p| OnlyCopies::of(&p))
+        }
     });
-    let kinds =
-        Signal::derive(move || present(rows.get().iter().map(|r| BuildKind::from(r.0.kind))));
-    let copies =
-        Signal::derive(move || present(rows.get().iter().filter_map(|r| built_placement(&r.0))));
+    let rows = last_good_rows(move || {
+        let only = placed.get().and_then(Result::ok).unwrap_or_default();
+        files.get().map(|r| {
+            r.map(|f| {
+                f.into_iter()
+                    .map(|f| {
+                        let placement = only.placement(&f);
+                        FileRow(f, placement)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+    });
+    let looks = Signal::derive(move || {
+        rows.with(|rows| {
+            let mut looks = present_looks(rows.iter().map(|r| BuildKind::from(r.0.kind)));
+            looks.extend(present_looks(rows.iter().filter_map(|r| r.1)));
+            looks
+        })
+    });
     view! {
         <section aria-labelledby="files-title">
             <h2 id="files-title">"Built files"</h2>
@@ -2243,6 +2264,13 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(_)) => ().into_any(),
             }}
+            {move || match placed.get() {
+                Some(Err(message)) => {
+                    let message = only_copies_unknown(&message);
+                    view! { <Problem message /> }.into_any()
+                }
+                _ => ().into_any(),
+            }}
             <List
                 id="built-files"
                 label="Built files"
@@ -2250,10 +2278,7 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 empty="No files built yet."
                 placeholder="Filter by file or game"
                 detail=Callback::new(file_detail)
-                legend=move || view! {
-                    <Legend statuses=kinds list="built-files" />
-                    <Legend statuses=copies list="built-files-copies" />
-                }
+                legend=move || view! { <LegendStrip looks list="built-files" /> }
             />
         </section>
     }

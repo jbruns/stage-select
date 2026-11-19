@@ -1,6 +1,8 @@
 //! The library folder and build screens' pure logic: labels, the plan's items by what they do, and which library
 //! folders a selection can be built into.
 
+use std::collections::BTreeMap;
+
 use title_select_api::SelectionRecord;
 use title_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
@@ -445,26 +447,55 @@ pub fn return_facts(game: &ReturnGame) -> Vec<(&'static str, String)> {
     facts
 }
 
+/// The games a plan places, each counted once however many files it has, and of them those placed by a rename.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Placing {
+    pub games: u64,
+    pub renamed: u64,
+}
+
+impl Placing {
+    /// Counts the plan's placement items by game: the summary counts them by file, so a disc's cue and tracks would
+    /// read as three games. A game counts as renamed only when every one of its files is: one file copied, converted
+    /// or already built here makes it a copied game, since then placing it writes here and reads its source set.
+    pub fn of(content: &PlanContent) -> Placing {
+        let mut renamed: BTreeMap<&str, bool> = BTreeMap::new();
+        for item in &content.items {
+            if let Some(place) = &item.place {
+                let all = renamed.entry(item.game.as_str()).or_insert(true);
+                *all &= place.how == PlaceHow::Rename;
+            }
+        }
+        Placing {
+            games: renamed.len() as u64,
+            renamed: renamed.values().filter(|r| **r).count() as u64,
+        }
+    }
+}
+
 /// What the plan's placements and returns do to space, as estimates where they are: one line each, none without
-/// either.
-pub fn space_lines(summary: &PlanSummary) -> Vec<String> {
+/// either. `placing` counts the games it places, which the summary counts by file.
+pub fn space_lines(summary: &PlanSummary, placing: Placing) -> Vec<String> {
     let s = summary;
     let mut lines = Vec::new();
-    if s.place > 0 {
-        let copy = if s.place == 1 {
+    if placing.games > 0 {
+        let copy = if placing.games == 1 {
             "its only copy"
         } else {
             "their only copy"
         };
-        let how = match s.place - s.place_renamed {
+        let how = match placing.games - placing.renamed {
             0 => "all by a rename".to_string(),
-            n if n == s.place => "copied, converted or already built here".to_string(),
+            n if n == placing.games => "copied, converted or already built here".to_string(),
             n => format!(
                 "{} by a rename, {n} copied, converted or already built here",
-                s.place_renamed
+                placing.renamed
             ),
         };
-        lines.push(format!("Places {} here as {copy}: {how}.", games(s.place)));
+        lines.push(format!(
+            "Places {} here as {copy}: {how}.",
+            games(placing.games)
+        ));
         lines.push(match s.place_written {
             0 => format!(
                 "Frees about {} in your source set and writes nothing new here. That's an estimate: block \
@@ -496,11 +527,12 @@ pub fn space_lines(summary: &PlanSummary) -> Vec<String> {
     lines
 }
 
-/// The approve button of a build plan: what approving it does.
-pub fn approve_label(summary: &PlanSummary) -> String {
+/// The approve button of a build plan: what approving it does, counting files where it builds them and games where
+/// it places or returns them.
+pub fn approve_label(summary: &PlanSummary, placing: Placing) -> String {
     let s = summary;
     let writes = s.copy + s.repack;
-    if s.place + s.returned + s.keep == 0 {
+    if placing.games + s.returned + s.keep == 0 {
         return format!("Approve and build {writes} files");
     }
     let files = if writes == 1 {
@@ -510,7 +542,7 @@ pub fn approve_label(summary: &PlanSummary) -> String {
     };
     let parts = [
         (writes > 0).then(|| format!("build {files}")),
-        (s.place > 0).then(|| format!("place {}", games(s.place))),
+        (placing.games > 0).then(|| format!("place {}", games(placing.games))),
         (s.returned > 0).then(|| format!("return {}", games(s.returned))),
         (s.keep > 0).then(|| format!("set {} aside", s.keep)),
     ];
@@ -612,7 +644,6 @@ fn url_component(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use title_select_api::ProfileVersionRef;
     use title_select_api::build::{Cleanup, KeepAside};
     use title_select_api::selection::{SelectionPins, SelectionSummary};
@@ -1014,11 +1045,18 @@ mod tests {
 
     #[test]
     fn the_plans_space_figures_say_which_are_estimates_and_how_many_rename() {
-        assert!(space_lines(&summary(serde_json::json!({}))).is_empty());
-        let placing = space_lines(&summary(serde_json::json!({
-            "place": 3, "place_renamed": 2,
-            "place_freed": 5 * 1024 * 1024 * 1024u64, "place_written": 300 * 1024 * 1024,
-        })));
+        let none = Placing::default();
+        assert!(space_lines(&summary(serde_json::json!({})), none).is_empty());
+        let placing = space_lines(
+            &summary(serde_json::json!({
+                "place": 5, "place_renamed": 3,
+                "place_freed": 5 * 1024 * 1024 * 1024u64, "place_written": 300 * 1024 * 1024,
+            })),
+            Placing {
+                games: 3,
+                renamed: 2,
+            },
+        );
         assert_eq!(
             placing,
             [
@@ -1027,9 +1065,15 @@ mod tests {
                  cloning, compression and archive headers change them.",
             ]
         );
-        let renamed = space_lines(&summary(serde_json::json!({
-            "place": 1, "place_renamed": 1, "place_freed": 1024, "place_written": 0,
-        })));
+        let renamed = space_lines(
+            &summary(serde_json::json!({
+                "place": 1, "place_renamed": 1, "place_freed": 1024, "place_written": 0,
+            })),
+            Placing {
+                games: 1,
+                renamed: 1,
+            },
+        );
         assert_eq!(
             renamed,
             [
@@ -1038,9 +1082,12 @@ mod tests {
                  cloning may already share those bytes.",
             ]
         );
-        let returning = space_lines(&summary(serde_json::json!({
-            "returned": 2, "return_needs": 64 * 1024,
-        })));
+        let returning = space_lines(
+            &summary(serde_json::json!({
+                "returned": 2, "return_needs": 64 * 1024,
+            })),
+            none,
+        );
         assert_eq!(
             returning,
             [
@@ -1048,9 +1095,10 @@ mod tests {
               bound: a rename needs none."
             ]
         );
-        let renamed_home = space_lines(&summary(
-            serde_json::json!({ "returned": 1, "return_needs": 0 }),
-        ));
+        let renamed_home = space_lines(
+            &summary(serde_json::json!({ "returned": 1, "return_needs": 0 })),
+            none,
+        );
         assert_eq!(
             renamed_home,
             ["Returns 1 game to your source set by a rename, needing no space there."]
@@ -1060,14 +1108,59 @@ mod tests {
     #[test]
     fn approving_says_what_it_builds_places_returns_and_sets_aside() {
         assert_eq!(
-            approve_label(&summary(serde_json::json!({ "copy": 1, "repack": 2 }))),
+            approve_label(
+                &summary(serde_json::json!({ "copy": 1, "repack": 2 })),
+                Placing::default()
+            ),
             "Approve and build 3 files"
         );
         assert_eq!(
-            approve_label(&summary(serde_json::json!({
-                "repack": 1, "place": 2, "returned": 1, "keep": 1,
-            }))),
+            approve_label(
+                &summary(serde_json::json!({
+                    "repack": 1, "place": 4, "returned": 1, "keep": 1,
+                })),
+                Placing {
+                    games: 2,
+                    renamed: 0,
+                }
+            ),
             "Approve: build 1 file, place 2 games, return 1 game, set 1 aside"
+        );
+    }
+
+    #[test]
+    fn placing_a_disc_counts_it_once_and_as_copied_when_any_of_its_files_copies() {
+        let placed = |game: &str, target: &str, how: &str| PlanItem {
+            target: target.into(),
+            place: Some(place(how, 1, 0)),
+            ..item(game, ItemKind::Place)
+        };
+        let plan = content(
+            vec![
+                placed("Orbit", "Orbit/Orbit.cue", "rename"),
+                placed("Orbit", "Orbit/Orbit (Track 1).bin", "rename"),
+                placed("Orbit", "Orbit/Orbit (Track 2).bin", "copy"),
+                placed("Pong", "Pong.zip", "rename"),
+                item("Combat", ItemKind::Copy),
+            ],
+            Vec::new(),
+        );
+        let placing = Placing::of(&plan);
+        assert_eq!(plan.summary().place, 4, "the summary counts files");
+        assert_eq!(
+            placing,
+            Placing {
+                games: 2,
+                renamed: 1
+            }
+        );
+        assert_eq!(
+            space_lines(&plan.summary(), placing)[0],
+            "Places 2 games here as their only copy: 1 by a rename, 1 copied, converted or already built here."
+        );
+        assert_eq!(
+            approve_label(&plan.summary(), placing),
+            "Approve: build 1 file, place 2 games"
         );
     }
 

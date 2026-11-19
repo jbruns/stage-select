@@ -1,9 +1,10 @@
 //! Single copy's pure logic: how many of a source set's games are placed and where, which library folder holds them,
 //! where an audit found each game, and the games a build flagged as needing review.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
-use title_select_api::build::{BuiltFile, ItemKind, LibraryFolder};
+use title_select_api::build::{BuiltFile, LibraryFolder, PlacedFile};
 use title_select_api::storage::split_placed;
 use title_select_api::{EntryRow, GameStatus, ReviewFlag, SourceSetSummary};
 
@@ -27,12 +28,18 @@ pub fn present_games(summary: &SourceSetSummary) -> Option<u64> {
     Some(present(&latest.games) + outside)
 }
 
-/// "3 of 10 games placed in play: atari", or without an audit to count against, "3 games placed in play: atari".
+/// "3 of the 10 games in your source set are placed in play: atari". M is the games its latest audit found present,
+/// not those single copy could place, so the line counts what is placed against what the source set holds rather
+/// than reading as progress. Without an audit to count against, "3 games in your source set are placed in …".
 pub fn placed_line(placed: u64, games: Option<u64>, folder: &str) -> String {
-    match games {
-        Some(games) => format!("{placed} of {} games placed in {folder}", games.max(placed)),
-        None if placed == 1 => format!("1 game placed in {folder}"),
-        None => format!("{placed} games placed in {folder}"),
+    let verb = if placed == 1 { "is" } else { "are" };
+    match games.map(|g| g.max(placed)) {
+        Some(1) => format!("The 1 game in your source set is placed in {folder}"),
+        Some(games) => {
+            format!("{placed} of the {games} games in your source set {verb} placed in {folder}")
+        }
+        None if placed == 1 => format!("1 game in your source set is placed in {folder}"),
+        None => format!("{placed} games in your source set are placed in {folder}"),
     }
 }
 
@@ -111,9 +118,71 @@ pub fn game_placements(entries: &[EntryRow]) -> HashMap<String, i64> {
     placed
 }
 
-/// Where a built file is kept: a file placed under single copy is the game's only copy.
-pub fn built_placement(file: &BuiltFile) -> Option<Placement> {
-    (file.kind == ItemKind::Place).then_some(Placement::Placed)
+/// The files a library folder holds now as placed games' only copies, by path, as its placed-file records say.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OnlyCopies(HashSet<String>);
+
+impl OnlyCopies {
+    pub fn of(placed: &[PlacedFile]) -> OnlyCopies {
+        OnlyCopies(placed.iter().map(|p| p.path.clone()).collect())
+    }
+
+    /// Whether a built file is its game's only copy: whether the folder holds it placed now. Never read from the kind
+    /// its build gave it: a file built here before its game was placed keeps its copy or repack kind, and a file
+    /// left here as a built copy once its game returns is no longer the only copy, whatever its kind.
+    pub fn placement(&self, file: &BuiltFile) -> Option<Placement> {
+        self.0.contains(&file.target).then_some(Placement::Placed)
+    }
+}
+
+/// What a list of built files says when it can't read which are their games' only copies.
+pub fn only_copies_unknown(message: &str) -> String {
+    format!("Couldn't read which files are their games' only copies, so none is marked: {message}")
+}
+
+/// What the workbench knows now of the games a build flagged as needing review: being read, read, or unknown because
+/// reading them failed, which a table showing game statuses says rather than marking none as if none were flagged.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum FlagsNow {
+    #[default]
+    Reading,
+    Known(Arc<BTreeMap<String, ReviewFlag>>),
+    Unknown(String),
+}
+
+impl FlagsNow {
+    /// From a read of the source set's review flags, None while it runs.
+    pub fn of(read: Option<Result<Vec<ReviewFlag>, String>>) -> FlagsNow {
+        match read {
+            None => FlagsNow::Reading,
+            Some(Ok(flags)) => FlagsNow::Known(Arc::new(flags_by_game(&flags))),
+            Some(Err(message)) => FlagsNow::Unknown(message),
+        }
+    }
+
+    /// The game's flag, when it is known to have one.
+    pub fn get(&self, game: &str) -> Option<&ReviewFlag> {
+        match self {
+            FlagsNow::Known(flags) => flags.get(game),
+            _ => None,
+        }
+    }
+
+    /// Whether any of `games` is known to be flagged.
+    pub fn any<'a>(&self, mut games: impl Iterator<Item = &'a str>) -> bool {
+        games.any(|g| self.get(g).is_some())
+    }
+
+    /// What a table of game statuses says while it can't mark flagged games; None once it can.
+    pub fn notice(&self) -> Option<String> {
+        match self {
+            FlagsNow::Reading => Some("Reading which games need review…".to_string()),
+            FlagsNow::Known(_) => None,
+            FlagsNow::Unknown(message) => Some(format!(
+                "Couldn't read which games need review, so none is marked: {message}"
+            )),
+        }
+    }
 }
 
 /// "1 game needs review", "3 games need review".
@@ -190,15 +259,23 @@ mod tests {
     fn the_placed_count_reads_against_the_games_present() {
         assert_eq!(
             placed_line(3, Some(10), "play: atari"),
-            "3 of 10 games placed in play: atari"
+            "3 of the 10 games in your source set are placed in play: atari"
+        );
+        assert_eq!(
+            placed_line(1, Some(10), "play: atari"),
+            "1 of the 10 games in your source set is placed in play: atari"
+        );
+        assert_eq!(
+            placed_line(1, Some(1), "play: atari"),
+            "The 1 game in your source set is placed in play: atari"
         );
         assert_eq!(
             placed_line(1, None, "play: atari"),
-            "1 game placed in play: atari"
+            "1 game in your source set is placed in play: atari"
         );
         assert_eq!(
             placed_line(4, Some(2), "play: atari"),
-            "4 of 4 games placed in play: atari",
+            "4 of the 4 games in your source set are placed in play: atari",
             "an audit older than the placements never counts fewer games than are placed"
         );
     }
@@ -277,18 +354,77 @@ mod tests {
         );
     }
 
+    fn built(target: &str, kind: &str) -> BuiltFile {
+        serde_json::from_value(json!({
+            "target": target, "game": "Pong (USA)", "kind": kind, "build": 1, "selection": 1,
+            "audit": 1, "dat_revision": "r", "sources": [], "roms": [], "file": {"size": 1, "mtime_ns": 0},
+        }))
+        .unwrap()
+    }
+
+    fn placed(path: &str) -> PlacedFile {
+        serde_json::from_value(json!({
+            "game": "Pong (USA)", "library_folder": 7, "path": path, "file": {"size": 1, "mtime_ns": 0},
+            "dev": 1, "ino": 2, "ctime_ns": 0,
+        }))
+        .unwrap()
+    }
+
     #[test]
-    fn a_placed_file_is_marked_the_only_copy_and_a_built_copy_is_not() {
-        let built = |kind: &str| -> BuiltFile {
-            serde_json::from_value(json!({
-                "target": "Pong (USA).zip", "game": "Pong (USA)", "kind": kind, "build": 1, "selection": 1,
-                "audit": 1, "dat_revision": "r", "sources": [], "roms": [], "file": {"size": 1, "mtime_ns": 0},
-            }))
-            .unwrap()
+    fn a_file_is_the_only_copy_while_it_is_placed_whatever_its_build_kind() {
+        let pong = "Pong (USA).zip";
+        // Already built here as a repack, then placed: the build kind stays, the file is now the only copy.
+        let placed_now = OnlyCopies::of(&[placed(pong)]);
+        assert_eq!(
+            placed_now.placement(&built(pong, "repack")),
+            Some(Placement::Placed)
+        );
+        assert_eq!(
+            placed_now.placement(&built(pong, "copy")),
+            Some(Placement::Placed)
+        );
+        assert_eq!(
+            placed_now.placement(&built("Combat (USA).zip", "copy")),
+            None
+        );
+        // Returned to the source set, with a built copy kept here: no longer the only copy, even of kind place.
+        let returned = OnlyCopies::of(&[]);
+        assert_eq!(returned.placement(&built(pong, "place")), None);
+        assert_eq!(returned.placement(&built(pong, "repack")), None);
+    }
+
+    #[test]
+    fn a_table_says_when_it_cant_tell_which_games_need_review() {
+        let flag = ReviewFlag {
+            game: "Orbit".into(),
+            path: ".title-select/placed/7/Orbit.chd".into(),
+            reason: "track 2's SHA-1 differs from the DAT's".into(),
+            build: 12,
+            raised_at: "2026-11-01T10:00:00Z".into(),
         };
-        assert_eq!(built_placement(&built("place")), Some(Placement::Placed));
-        assert_eq!(built_placement(&built("copy")), None);
-        assert_eq!(built_placement(&built("repack")), None);
+        let known = FlagsNow::of(Some(Ok(vec![flag.clone()])));
+        assert_eq!(known.get("Orbit"), Some(&flag));
+        assert!(known.any(["Pong", "Orbit"].into_iter()));
+        assert!(!known.any(["Pong"].into_iter()));
+        assert_eq!(known.notice(), None);
+        assert_eq!(FlagsNow::of(Some(Ok(Vec::new()))).notice(), None);
+
+        let failed = FlagsNow::of(Some(Err("the service is unreachable".into())));
+        assert!(!failed.any(["Orbit"].into_iter()));
+        assert_eq!(
+            failed.notice().as_deref(),
+            Some(
+                "Couldn't read which games need review, so none is marked: the service is unreachable"
+            )
+        );
+        assert!(
+            FlagsNow::of(None).notice().is_some(),
+            "reading isn't the same as none"
+        );
+        assert_eq!(
+            only_copies_unknown("timed out"),
+            "Couldn't read which files are their games' only copies, so none is marked: timed out"
+        );
     }
 
     #[test]

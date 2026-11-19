@@ -1232,9 +1232,10 @@ Single copy is a storage policy setting for play libraries, set globally and for
 With it on, a build of the library folder that holds your source set's placed games places each selected game there
 instead of copying it: the game leaves your source set and lives in your library folder. A placed game is still your
 source set's: its audits, coverage, game status, fixdats and repairs follow it to where it is. The source set's
-overview says how many of its games are placed, as "N of M games placed in *folder*", linking to the folder; the
-audit's game statuses show each game's placement; and the library folder's built files mark each placed file
-**Only copy**.
+overview says how many of its games are placed, as "N of the M games in your source set are placed in *folder*",
+linking to the folder, where M is the games its latest audit found present; the audit's game statuses show each
+game's placement; and the library folder's built files mark each file placed there now **Only copy**, whichever
+way its build wrote it.
 
 What it trades: your source set no longer holds a copy of what you play. A placed file is the game's only copy, so
 deleting or changing it by hand loses the game. Title Select keeps no other copy of it: your own backups are the only
@@ -1284,8 +1285,10 @@ reuses that read while the CHD is unchanged; and a quick inventory only takes cl
 verifies the game. Title Select keeps the disc's `.cue` sheet in the store, exactly as the DAT lists it, checks it on
 every audit, and writes it back when the game returns to your source set: back up the store along with your library
 folders. If a build finds a placed CHD doesn't hold its disc as the DAT lists it, it leaves the CHD in place, deletes
-nothing, and flags the game **Needs review** with the reason, on its source set's overview and in its audit's game
-statuses. A full audit that verifies the file, or returning the game, clears the flag.
+nothing, and flags the game **Needs review** with the reason: on its source set's overview, beside its game status in
+every audit's game statuses and entries, and beside its availability in the source set's selections. A past audit
+shows the flag as the game's now, not as part of that audit. A full audit that verifies the file, or returning the
+game, clears the flag.
 
 ### Ingest folders
 
@@ -1585,6 +1588,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
 | `GET /api/v1/libraries/{id}/builds`                | its builds, newest first                                     |
 | `GET /api/v1/libraries/{id}/files`                 | the files built into it, with their provenance               |
+| `GET /api/v1/libraries/{id}/placed-files`          | the files of the games placed in it now under single copy, each its game's only copy: `{"game", "library_folder", "path", "file", "dev", "ino", "ctime_ns", "sha256"?, "chd"?}`, `path` relative to the folder; `404` for no such folder |
 | `POST /api/v1/libraries/{id}/plans`                | plan building a selection into it: `{"selection", "resolved_only"?, "adopt"?: [target], "keep_aside"?: [target]}`; `201` |
 | `POST /api/v1/libraries/{id}/cleanups`             | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge" \| "add_addition"}, "restore"?: [kept id], "repack"?: [target], "additions"?: {name: {"system", "name", "parent"?}}}`; `201`, approved as a plan |
 | `POST /api/v1/libraries/{id}/checks`               | check it; `202` with the check job                           |
@@ -1962,7 +1966,9 @@ Its screens:
   such as "may not play: most NES emulators need the iNES header", and its absent ROMs, each one inside another
   game's ZIP or folder marked "available in <other game>". Each game's placement shows beside its status: in your
   source set, or placed in a library folder as its only copy, which its detail links to. A game a build flagged as
-  needing review is marked beside its status, and its detail says why. A pruned audit shows only its summary.
+  needing review is marked beside its status, in its game statuses and its entries, and its detail says why, as the
+  game's flag now rather than this audit's. If the flags can't be read, the tables say so instead of marking none. A
+  pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
   and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes
@@ -1983,7 +1989,7 @@ Its screens:
   listed on its profile, not on its source set, until a library folder uses it.
 - **Selection** lists its game groups on the left, each chosen, unresolved, your choice, a choice to review, or
   excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against
-  the same DAT revision. A strip of counts across the top shows how many groups have each status; select a count to
+  the same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top shows how many groups have each status; select a count to
   list only those groups, and "Apply to all" confirms every unresolved pick at once. Opening a group shows, on the
   right, its candidate releases with the rule that decided each, where you check the releases you want, confirm an
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
@@ -2013,7 +2019,7 @@ Its screens:
   profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
   plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
   **Overview**, its facts, with the coverage it has from its source set and a link to edit it there, what it lacks
-  and the files built into it, each placed file marked **Only copy**; **Selection**, the selection it was built
+  and the files built into it, each file placed there now marked **Only copy**; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
   blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs,
   its choices, the built files no longer selected, approval and the build live, with a way to cancel it;

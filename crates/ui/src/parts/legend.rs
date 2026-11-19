@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use leptos_use::storage::use_local_storage;
 
 use super::icon::{Glyph, Icon, LabelledIcon};
-use super::status::Status;
+use super::status::{Look, Status};
 
 /// The statuses among `shown`, once each, in their vocabulary's order.
 pub fn present<S: Status>(shown: impl IntoIterator<Item = S>) -> Vec<S> {
@@ -21,6 +21,12 @@ pub fn present<S: Status>(shown: impl IntoIterator<Item = S>) -> Vec<S> {
         .collect()
 }
 
+/// The looks of the statuses among `shown`, as `present` finds them: for one strip keying a list whose rows show
+/// statuses of more than one vocabulary, each vocabulary's looks one after the other.
+pub fn present_looks<S: Status>(shown: impl IntoIterator<Item = S>) -> Vec<Look> {
+    present(shown).into_iter().map(Status::look).collect()
+}
+
 /// The local storage key remembering whether the legend of `list` is collapsed.
 pub fn collapsed_key(list: &str) -> String {
     format!("title-select.legend.{list}.collapsed")
@@ -33,12 +39,20 @@ pub fn Legend<S: Status>(
     #[prop(into)] statuses: Signal<Vec<S>>,
     list: &'static str,
 ) -> impl IntoView {
+    let looks = Signal::derive(move || statuses.with(|s| s.iter().map(|s| s.look()).collect()));
+    view! { <LegendStrip looks list /> }
+}
+
+/// One legend strip for a list whose rows show statuses of more than one vocabulary, such as a file's build kind and
+/// whether it is its game's only copy: `looks` from `present_looks` for each, joined. Otherwise as `Legend`.
+#[component]
+pub fn LegendStrip(#[prop(into)] looks: Signal<Vec<Look>>, list: &'static str) -> impl IntoView {
     let (collapsed, set_collapsed, _) =
         use_local_storage::<bool, FromToStringCodec>(collapsed_key(list));
     let id = format!("legend-{list}");
     let controls = id.clone();
     view! {
-        <Show when=move || statuses.with(|s| !s.is_empty())>
+        <Show when=move || looks.with(|s| !s.is_empty())>
             <div class="legend">
                 <button
                     type="button"
@@ -53,9 +67,8 @@ pub fn Legend<S: Status>(
                     }}
                 </button>
                 <ul class="legend-items" id=id.clone() hidden=move || collapsed.get()>
-                    <For each=move || statuses.get() key=|s| s.rank() let(s)>
+                    <For each=move || looks.get() key=|look| look.label let(look)>
                         {
-                            let look = s.look();
                             view! {
                                 <li class=format!("status {}", look.tone.class())>
                                     <Icon glyph=look.glyph label=look.hint />

@@ -459,6 +459,14 @@ impl Store {
         self.read(|c| placed_files_of(c, set_by_name(c, name)?.id))
     }
 
+    /// The files of the Placed Games that Library Folder `folder` holds now, by path: each its Game's only copy.
+    pub fn folder_placed_files(&self, folder: i64) -> Result<Vec<PlacedFile>> {
+        self.read(|c| {
+            folder_by_id(c, folder)?;
+            placed_files_in(c, folder)
+        })
+    }
+
     /// The Games of Source Set `name` that a Build found need review, by name.
     pub fn review_flags(&self, name: &str) -> Result<Vec<title_select_api::report::ReviewFlag>> {
         self.read(|c| {

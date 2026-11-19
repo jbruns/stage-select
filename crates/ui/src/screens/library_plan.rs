@@ -17,9 +17,9 @@ use title_select_api::build::{
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::build_model::{
-    ConflictChoice, approve_label, blocker_label, cause_label, cleanup_action_label, group_href,
-    item_change, keep_reason_label, place_facts, plan_kinds, restore_kind_label, return_facts,
-    return_games, space_lines, with_conflict_choices,
+    ConflictChoice, Placing, approve_label, blocker_label, cause_label, cleanup_action_label,
+    group_href, item_change, keep_reason_label, place_facts, plan_kinds, restore_kind_label,
+    return_facts, return_games, space_lines, with_conflict_choices,
 };
 use crate::events::use_live;
 use crate::model::when;
@@ -462,9 +462,9 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let approve_label = if is_cleanup {
         "Approve the cleanup".to_string()
     } else {
-        approve_label(&plan.summary)
+        approve_label(&plan.summary, Placing::of(&plan.content))
     };
-    let space = space_lines(&plan.summary);
+    let space = space_lines(&plan.summary, Placing::of(&plan.content));
     let changes_set =
         !plan.content.returns.is_empty() || plan.content.items.iter().any(|i| i.changes_source_set);
     let heading = if is_cleanup {

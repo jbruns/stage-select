@@ -843,7 +843,13 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
                 view! { <GamesPanel games=loaded.games rule source_set=audit.source_set.clone() /> }.into_any()
             }
             Some(Ok(loaded)) => {
-                view! { <EntriesPanel entries=loaded.entries initial=initial.clone() /> }.into_any()
+                view! {
+                    <EntriesPanel
+                        entries=loaded.entries
+                        initial=initial.clone()
+                        source_set=audit.source_set.clone()
+                    />
+                }.into_any()
             }
         }}
     }
