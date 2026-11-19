@@ -135,54 +135,145 @@ impl OnlyCopies {
     }
 }
 
+/// One read of the service, stamped with the job-settled count it was started at: a screen reads again each time a
+/// job settles, and a read stamped with an older count is out of date.
+pub type Stamped<T> = (u64, Result<T, String>);
+
+/// A read a screen repeats whenever a job settles, as the screen shows it: the last good value, whether a newer read
+/// is under way, and why the latest read failed. While `reading` or `problem` holds, the screen says so with the shared
+/// pending and problem parts and never shows the last good value as certain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fresh<T> {
+    pub last: Option<T>,
+    pub reading: bool,
+    pub problem: Option<String>,
+}
+
+impl<T> Default for Fresh<T> {
+    fn default() -> Self {
+        Fresh {
+            last: None,
+            reading: true,
+            problem: None,
+        }
+    }
+}
+
+impl<T: Clone> Fresh<T> {
+    /// After `read`, the resource's value now, with `latest` the job-settled count its newest read was started at. The
+    /// value is None before the first read lands, and while a newer read runs it is still the previous read's, with
+    /// its older stamp. A failed read keeps the last good value.
+    pub fn next(&self, read: Option<&Stamped<T>>, latest: u64) -> Fresh<T> {
+        let Some((at, result)) = read else {
+            return Fresh {
+                last: self.last.clone(),
+                reading: true,
+                problem: None,
+            };
+        };
+        let reading = *at != latest;
+        match result {
+            Ok(value) => Fresh {
+                last: Some(value.clone()),
+                reading,
+                problem: None,
+            },
+            Err(message) => Fresh {
+                last: self.last.clone(),
+                reading,
+                problem: Some(message.clone()),
+            },
+        }
+    }
+
+    /// The value, when the latest read is done and good.
+    pub fn certain(&self) -> Option<&T> {
+        if self.reading || self.problem.is_some() {
+            return None;
+        }
+        self.last.as_ref()
+    }
+}
+
+impl Fresh<OnlyCopies> {
+    /// Whether a built file is its game's only copy, as far as is known now: from the folder's placed files once the
+    /// latest read of them is done and good. Until then, or when it fails, a file the last good read found placed
+    /// stays marked the only copy, and any other is not known: never "not the only copy" on stale or missing data.
+    pub fn only_copy(&self, file: &BuiltFile) -> Option<Placement> {
+        match (self.certain(), &self.last) {
+            (Some(copies), _) => copies.placement(file),
+            (None, Some(last)) if last.placement(file).is_some() => Some(Placement::Placed),
+            (None, _) => Some(Placement::Unknown),
+        }
+    }
+}
+
+/// A library folder's built files, each with whether it is its game's only copy now. `files` is the last good read of
+/// the built files, kept apart from `copies` so a failed read of the files never freezes their markers: they always
+/// follow the latest placed files.
+pub fn marked(
+    files: &[BuiltFile],
+    copies: &Fresh<OnlyCopies>,
+) -> Vec<(BuiltFile, Option<Placement>)> {
+    files
+        .iter()
+        .map(|f| (f.clone(), copies.only_copy(f)))
+        .collect()
+}
+
+/// What a list of built files says while it reads which are their games' only copies.
+pub const READING_ONLY_COPIES: &str = "Reading which files are their games' only copies…";
+
 /// What a list of built files says when it can't read which are their games' only copies.
 pub fn only_copies_unknown(message: &str) -> String {
-    format!("Couldn't read which files are their games' only copies, so none is marked: {message}")
+    format!(
+        "Couldn't read which files are their games' only copies: {message}. A file marked not known may be one, so \
+         don't delete it by hand."
+    )
 }
 
-/// What the workbench knows now of the games a build flagged as needing review: being read, read, or unknown because
-/// reading them failed, which a table showing game statuses says rather than marking none as if none were flagged.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum FlagsNow {
-    #[default]
-    Reading,
-    Known(Arc<BTreeMap<String, ReviewFlag>>),
-    Unknown(String),
-}
+/// The games a build flagged as needing review, by name, as a table of game statuses knows them now.
+pub type FlagsNow = Fresh<Arc<BTreeMap<String, ReviewFlag>>>;
 
 impl FlagsNow {
-    /// From a read of the source set's review flags, None while it runs.
-    pub fn of(read: Option<Result<Vec<ReviewFlag>, String>>) -> FlagsNow {
-        match read {
-            None => FlagsNow::Reading,
-            Some(Ok(flags)) => FlagsNow::Known(Arc::new(flags_by_game(&flags))),
-            Some(Err(message)) => FlagsNow::Unknown(message),
+    /// For a table with no source set to ask, such as the bench's: no game is flagged, certainly.
+    pub fn none() -> FlagsNow {
+        Fresh {
+            last: Some(Arc::default()),
+            reading: false,
+            problem: None,
         }
     }
 
-    /// The game's flag, when it is known to have one.
+    /// The game's flag in the last good read. It stays marked while a newer read runs or after one fails, since a
+    /// flag is a warning: the table says the flags are being read, or couldn't be.
     pub fn get(&self, game: &str) -> Option<&ReviewFlag> {
-        match self {
-            FlagsNow::Known(flags) => flags.get(game),
-            _ => None,
-        }
+        self.last.as_ref()?.get(game)
     }
 
-    /// Whether any of `games` is known to be flagged.
+    /// Whether any of `games` is flagged in the last good read.
     pub fn any<'a>(&self, mut games: impl Iterator<Item = &'a str>) -> bool {
         games.any(|g| self.get(g).is_some())
     }
+}
 
-    /// What a table of game statuses says while it can't mark flagged games; None once it can.
-    pub fn notice(&self) -> Option<String> {
-        match self {
-            FlagsNow::Reading => Some("Reading which games need review…".to_string()),
-            FlagsNow::Known(_) => None,
-            FlagsNow::Unknown(message) => Some(format!(
-                "Couldn't read which games need review, so none is marked: {message}"
-            )),
-        }
-    }
+/// A read of a source set's review flags, by game.
+pub fn stamped_flags(
+    at: u64,
+    read: Result<Vec<ReviewFlag>, String>,
+) -> Stamped<Arc<BTreeMap<String, ReviewFlag>>> {
+    (at, read.map(|f| Arc::new(flags_by_game(&f))))
+}
+
+/// What a table of game statuses says while it reads which games need review.
+pub const READING_FLAGS: &str = "Reading which games need review…";
+
+/// What a table of game statuses says when it can't read which games need review.
+pub fn flags_unknown(message: &str) -> String {
+    format!(
+        "Couldn't read which games need review: {message}. A game marked is as last read, and one not marked may \
+         still need review."
+    )
 }
 
 /// "1 game needs review", "3 games need review".
@@ -393,38 +484,135 @@ mod tests {
         assert_eq!(returned.placement(&built(pong, "repack")), None);
     }
 
-    #[test]
-    fn a_table_says_when_it_cant_tell_which_games_need_review() {
-        let flag = ReviewFlag {
-            game: "Orbit".into(),
-            path: ".title-select/placed/7/Orbit.chd".into(),
+    fn review_flag(game: &str) -> ReviewFlag {
+        ReviewFlag {
+            game: game.into(),
+            path: format!(".title-select/placed/7/{game}.chd"),
             reason: "track 2's SHA-1 differs from the DAT's".into(),
             build: 12,
             raised_at: "2026-11-01T10:00:00Z".into(),
-        };
-        let known = FlagsNow::of(Some(Ok(vec![flag.clone()])));
-        assert_eq!(known.get("Orbit"), Some(&flag));
-        assert!(known.any(["Pong", "Orbit"].into_iter()));
-        assert!(!known.any(["Pong"].into_iter()));
-        assert_eq!(known.notice(), None);
-        assert_eq!(FlagsNow::of(Some(Ok(Vec::new()))).notice(), None);
+        }
+    }
 
-        let failed = FlagsNow::of(Some(Err("the service is unreachable".into())));
-        assert!(!failed.any(["Orbit"].into_iter()));
-        assert_eq!(
-            failed.notice().as_deref(),
-            Some(
-                "Couldn't read which games need review, so none is marked: the service is unreachable"
-            )
-        );
+    #[test]
+    fn a_read_is_certain_only_once_the_latest_is_done_and_good() {
+        let first = Fresh::<u32>::default();
         assert!(
-            FlagsNow::of(None).notice().is_some(),
-            "reading isn't the same as none"
+            first.reading && first.certain().is_none(),
+            "nothing read yet"
+        );
+        let read = first.next(Some(&(1, Ok(7))), 1);
+        assert_eq!(read.certain(), Some(&7));
+        // A job settled: the resource still holds the read stamped 1 while the read stamped 2 runs.
+        let rereading = read.next(Some(&(1, Ok(7))), 2);
+        assert!(rereading.reading);
+        assert_eq!((rereading.certain(), rereading.last), (None, Some(7)));
+        let failed = rereading.next(Some(&(2, Err("timed out".into()))), 2);
+        assert_eq!(failed.problem.as_deref(), Some("timed out"));
+        assert_eq!(
+            (failed.certain(), failed.last),
+            (None, Some(7)),
+            "a failure keeps the last good value"
+        );
+        let again = failed.next(Some(&(3, Ok(8))), 3);
+        assert_eq!(
+            (again.certain(), again.problem.as_deref()),
+            (Some(&8), None)
+        );
+    }
+
+    #[test]
+    fn a_table_marks_the_last_flags_read_and_says_when_they_arent_current() {
+        let none = FlagsNow::default();
+        assert!(none.reading && !none.any(["Orbit"].into_iter()));
+        let known = none.next(Some(&stamped_flags(1, Ok(vec![review_flag("Orbit")]))), 1);
+        assert_eq!(known.get("Orbit"), Some(&review_flag("Orbit")));
+        assert!(known.any(["Pong", "Orbit"].into_iter()) && !known.any(["Pong"].into_iter()));
+        assert!(!known.reading && known.problem.is_none());
+        // After a job, the old flags stay marked but the table shows they're being read again.
+        let rereading = known.next(Some(&stamped_flags(1, Ok(vec![review_flag("Orbit")]))), 2);
+        assert!(rereading.reading && rereading.get("Orbit").is_some());
+        let failed = rereading.next(
+            Some(&stamped_flags(2, Err("the service is unreachable".into()))),
+            2,
+        );
+        assert!(failed.get("Orbit").is_some() && failed.problem.is_some());
+        assert_eq!(
+            flags_unknown("the service is unreachable"),
+            "Couldn't read which games need review: the service is unreachable. A game marked is as last read, and \
+             one not marked may still need review."
+        );
+        assert!(FlagsNow::none().certain().is_some());
+    }
+
+    #[test]
+    fn a_file_is_not_known_to_be_an_only_copy_until_its_folders_placed_files_are_read() {
+        let pong = built("Pong (USA).zip", "repack");
+        let combat = built("Combat (USA).zip", "copy");
+        let files = [pong.clone(), combat.clone()];
+        let markers = |copies: &Fresh<OnlyCopies>| -> Vec<Option<Placement>> {
+            marked(&files, copies).into_iter().map(|(_, p)| p).collect()
+        };
+        // Loading: neither is known, never "not the only copy".
+        let loading = Fresh::<OnlyCopies>::default();
+        assert_eq!(
+            markers(&loading),
+            [Some(Placement::Unknown), Some(Placement::Unknown)]
+        );
+        // Loaded: the placed one is the only copy, the other certainly isn't.
+        let loaded = loading.next(
+            Some(&(1, Ok(OnlyCopies::of(&[placed("Pong (USA).zip")])))),
+            1,
+        );
+        assert_eq!(markers(&loaded), [Some(Placement::Placed), None]);
+        // Failed with nothing read before: neither is known.
+        let failed = loading.next(Some(&(1, Err("timed out".into()))), 1);
+        assert_eq!(
+            markers(&failed),
+            [Some(Placement::Unknown), Some(Placement::Unknown)]
+        );
+        // Failed or reading after a good read: the last placed one stays marked, the other isn't known.
+        let failed_later = loaded.next(Some(&(2, Err("timed out".into()))), 2);
+        assert_eq!(
+            markers(&failed_later),
+            [Some(Placement::Placed), Some(Placement::Unknown)]
+        );
+        let rereading = loaded.next(
+            Some(&(1, Ok(OnlyCopies::of(&[placed("Pong (USA).zip")])))),
+            2,
+        );
+        assert_eq!(
+            markers(&rereading),
+            [Some(Placement::Placed), Some(Placement::Unknown)]
         );
         assert_eq!(
             only_copies_unknown("timed out"),
-            "Couldn't read which files are their games' only copies, so none is marked: timed out"
+            "Couldn't read which files are their games' only copies: timed out. A file marked not known may be one, \
+             so don't delete it by hand."
         );
+    }
+
+    #[test]
+    fn markers_follow_the_latest_placed_files_while_the_built_files_cant_be_read() {
+        // The last good read of the built files, kept while later reads of them fail.
+        let files = [
+            built("Pong (USA).zip", "place"),
+            built("Combat (USA).zip", "repack"),
+        ];
+        let markers = |copies: &Fresh<OnlyCopies>| -> Vec<Option<Placement>> {
+            marked(&files, copies).into_iter().map(|(_, p)| p).collect()
+        };
+        let before = Fresh::default().next(
+            Some(&(1, Ok(OnlyCopies::of(&[placed("Pong (USA).zip")])))),
+            1,
+        );
+        assert_eq!(markers(&before), [Some(Placement::Placed), None]);
+        // Pong returned with its built copy kept here, and Combat, already built here, placed.
+        let after = before.next(
+            Some(&(2, Ok(OnlyCopies::of(&[placed("Combat (USA).zip")])))),
+            2,
+        );
+        assert_eq!(markers(&after), [None, Some(Placement::Placed)]);
     }
 
     #[test]

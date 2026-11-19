@@ -4,6 +4,7 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
@@ -41,7 +42,7 @@ use crate::parts::list::{
 };
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::status::{BuildKind, LibraryStatus, Placement, Status, StatusBadge, StatusIcon};
-use crate::placement_model::{OnlyCopies, only_copies_unknown};
+use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
@@ -2092,7 +2093,7 @@ enum FileCol {
     Size,
 }
 
-/// A built file, and whether it is its game's only copy now: placed under single copy.
+/// A built file, and whether it is its game's only copy now, placed under single copy, or that isn't known yet.
 #[derive(Clone, PartialEq)]
 struct FileRow(BuiltFile, Option<Placement>);
 
@@ -2175,7 +2176,7 @@ impl ListRow for FileRow {
             FileCol::Kind => BuildKind::from(a.kind)
                 .rank()
                 .cmp(&BuildKind::from(b.kind).rank()),
-            FileCol::Copy => self.1.is_some().cmp(&other.1.is_some()),
+            FileCol::Copy => other.1.map(|p| p.rank()).cmp(&self.1.map(|p| p.rank())),
             FileCol::Target => a.target.cmp(&b.target),
             FileCol::Game => a.game.cmp(&b.game),
             FileCol::Build => a.build.cmp(&b.build),
@@ -2191,7 +2192,7 @@ fn file_detail(row: FileRow) -> AnyView {
             <p>
                 <StatusBadge status=p />
             </p>
-            <p class="note">{ONLY_COPY}</p>
+            {(p == Placement::Placed).then(|| view! { <p class="note">{ONLY_COPY}</p> })}
         }
     });
     view! {
@@ -2227,25 +2228,32 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
         async move { api::get::<Vec<BuiltFile>>(&format!("/libraries/{folder}/files")).await }
     });
     // Which files are their games' only copies now, from the folder's placed files, never from how a build wrote
-    // them. Until it is read, or when it can't be, no file is marked, and the list says so.
+    // them. Each read is stamped with the job-settled count it started at, so one a newer read is replacing shows as
+    // being read again. The built files keep their last good read apart, so their markers always follow this.
     let placed = LocalResource::new(move || {
-        live.settled.track();
+        let at = live.settled.get();
         async move {
-            api::get::<Vec<PlacedFile>>(&format!("/libraries/{folder}/placed-files"))
+            let read = api::get::<Vec<PlacedFile>>(&format!("/libraries/{folder}/placed-files"))
                 .await
-                .map(|p| OnlyCopies::of(&p))
+                .map(|p| OnlyCopies::of(&p));
+            (at, read)
         }
     });
-    let rows = last_good_rows(move || {
-        let only = placed.get().and_then(Result::ok).unwrap_or_default();
-        files.get().map(|r| {
-            r.map(|f| {
-                f.into_iter()
-                    .map(|f| {
-                        let placement = only.placement(&f);
-                        FileRow(f, placement)
-                    })
-                    .collect::<Vec<_>>()
+    let copies = Memo::new(move |prev: Option<&Fresh<OnlyCopies>>| {
+        prev.cloned()
+            .unwrap_or_default()
+            .next(placed.get().as_ref(), live.settled.get())
+    });
+    let built = last_good_rows(move || files.get());
+    let rows = Signal::derive(move || {
+        copies.with(|copies| {
+            built.with(|files| {
+                Arc::new(
+                    marked(files, copies)
+                        .into_iter()
+                        .map(|(f, p)| FileRow(f, p))
+                        .collect::<Vec<_>>(),
+                )
             })
         })
     });
@@ -2264,13 +2272,15 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(_)) => ().into_any(),
             }}
-            {move || match placed.get() {
-                Some(Err(message)) => {
-                    let message = only_copies_unknown(&message);
-                    view! { <Problem message /> }.into_any()
-                }
-                _ => ().into_any(),
-            }}
+            <Pending
+                pending=Signal::derive(move || copies.with(|c| c.reading))
+                status=READING_ONLY_COPIES
+                problem=Signal::derive(move || {
+                    copies.with(|c| c.problem.as_deref().map(only_copies_unknown))
+                })
+            >
+                ""
+            </Pending>
             <List
                 id="built-files"
                 label="Built files"

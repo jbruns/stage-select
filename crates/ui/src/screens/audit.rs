@@ -24,8 +24,12 @@ use crate::model::{
     game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
     parse_ndjson, payload_read_text, warning_counts, warning_text, when,
 };
+use crate::parts::pending::Pending;
 use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
-use crate::placement_model::{FlagsNow, flag_detail, folder_name, game_placements};
+use crate::placement_model::{
+    FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
+    stamped_flags,
+};
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
 /// An audit's entries and game statuses, as its panels show them.
@@ -48,8 +52,9 @@ pub async fn load(id: i64) -> Result<Loaded, String> {
     })
 }
 
-/// A source set's placements and the library folders, read for its audits' tables.
-pub type PlacementsNow = LocalResource<Result<(Placements, Vec<LibraryFolder>), String>>;
+/// A source set's placements and the library folders, read for its audits' tables, stamped with the job-settled
+/// count the read started at.
+pub type PlacementsNow = LocalResource<Stamped<(Placements, Vec<LibraryFolder>)>>;
 
 /// Where source set `source_set`'s games are now, for its audits' tables: its placements, with the review flags builds
 /// raised, and the library folders, by name. Read again whenever a job settles, since a build, audit or repair may
@@ -58,36 +63,50 @@ pub type PlacementsNow = LocalResource<Result<(Placements, Vec<LibraryFolder>), 
 pub fn placements_now(source_set: String) -> PlacementsNow {
     let live = use_live();
     LocalResource::new(move || {
-        live.settled.track();
+        let at = live.settled.get();
         let path = format!("/source-sets/{}/placements", api::segment(&source_set));
         async move {
-            let placements = api::get::<Placements>(&path).await?;
-            let folders = api::get::<Vec<LibraryFolder>>("/libraries")
-                .await
-                .unwrap_or_default();
-            Ok((placements, folders))
+            let read = async {
+                let placements = api::get::<Placements>(&path).await?;
+                let folders = api::get::<Vec<LibraryFolder>>("/libraries")
+                    .await
+                    .unwrap_or_default();
+                Ok((placements, folders))
+            };
+            (at, read.await)
         }
     })
 }
 
-/// The review flags among `now`, as a table of game statuses marks them.
+/// The review flags among `now`, as a table of game statuses marks them: the last good read, and whether a newer
+/// read is under way or failed.
 pub fn flags_now(now: Option<PlacementsNow>) -> Memo<FlagsNow> {
-    Memo::new(move |_| match now {
-        Some(now) => FlagsNow::of(now.get().map(|r| r.map(|(p, _)| p.review_flags))),
+    let Some(now) = now else {
         // A table with no source set to ask, such as the bench's, has no game a build flagged.
-        None => FlagsNow::Known(Arc::default()),
+        return Memo::new(|_| FlagsNow::none());
+    };
+    let live = use_live();
+    Memo::new(move |prev: Option<&FlagsNow>| {
+        let read = now.get().map(|(at, read)| {
+            stamped_flags(at, read.map(|(placements, _)| placements.review_flags))
+        });
+        prev.cloned()
+            .unwrap_or_default()
+            .next(read.as_ref(), live.settled.get())
     })
 }
 
-/// Says when a table can't mark the games that need review: while it reads them, or that it couldn't.
+/// Says when a table can't be sure which games need review: while it reads them, the first time or again after a
+/// job settles, or that it couldn't.
 pub fn flags_notice(flags: Memo<FlagsNow>) -> impl IntoView {
-    move || match flags.get() {
-        FlagsNow::Unknown(_) => flags
-            .with(|f| f.notice())
-            .map(|message| view! { <Problem message /> }.into_any()),
-        f => f
-            .notice()
-            .map(|n| view! { <p class="note" role="status">{n}</p> }.into_any()),
+    view! {
+        <Pending
+            pending=Signal::derive(move || flags.with(|f| f.reading))
+            status=READING_FLAGS
+            problem=Signal::derive(move || flags.with(|f| f.problem.as_deref().map(flags_unknown)))
+        >
+            ""
+        </Pending>
     }
 }
 
@@ -900,7 +919,7 @@ pub fn GamesPanel(
     let flags = flags_now(Some(now));
     let folders = Memo::new(move |_| {
         now.get()
-            .and_then(Result::ok)
+            .and_then(|(_, read)| read.ok())
             .map(|(_, f)| f)
             .unwrap_or_default()
     });

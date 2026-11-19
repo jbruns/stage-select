@@ -1203,14 +1203,24 @@ mod tests {
             raised_at: "t".into(),
         };
         let g = group("golf", "Golf (USA)", &["Golf (Japan)"], &[]);
-        let kept = FlagsNow::of(Some(Ok(vec![flag("Golf (USA)")])));
-        assert!(kept_need_review(&g, &kept));
-        let alternative = FlagsNow::of(Some(Ok(vec![flag("Golf (Japan)")])));
+        let read = |game: &str| {
+            FlagsNow::default().next(
+                Some(&crate::placement_model::stamped_flags(
+                    1,
+                    Ok(vec![flag(game)]),
+                )),
+                1,
+            )
+        };
+        assert!(kept_need_review(&g, &read("Golf (USA)")));
         assert!(
-            !kept_need_review(&g, &alternative),
+            !kept_need_review(&g, &read("Golf (Japan)")),
             "only a kept release counts"
         );
-        assert!(!kept_need_review(&g, &FlagsNow::Unknown("down".into())));
+        assert!(
+            !kept_need_review(&g, &FlagsNow::default()),
+            "nothing read yet"
+        );
     }
 
     #[test]

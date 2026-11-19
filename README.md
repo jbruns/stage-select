@@ -1967,7 +1967,7 @@ Its screens:
   game's ZIP or folder marked "available in <other game>". Each game's placement shows beside its status: in your
   source set, or placed in a library folder as its only copy, which its detail links to. A game a build flagged as
   needing review is marked beside its status, in its game statuses and its entries, and its detail says why, as the
-  game's flag now rather than this audit's. If the flags can't be read, the tables say so instead of marking none. A
+  game's flag now rather than this audit's. While the flags are read, first or again after a job, the tables say so; if they can't be read, the tables say that, and keep marking the games last read as flagged. A
   pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
@@ -2019,7 +2019,7 @@ Its screens:
   profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
   plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
   **Overview**, its facts, with the coverage it has from its source set and a link to edit it there, what it lacks
-  and the files built into it, each file placed there now marked **Only copy**; **Selection**, the selection it was built
+  and the files built into it, each file placed there now marked **Only copy**, or **Not known** while that's being read or can't be; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
   blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs,
   its choices, the built files no longer selected, approval and the build live, with a way to cancel it;

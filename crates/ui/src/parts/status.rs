@@ -217,11 +217,14 @@ impl Status for GameStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Placement {
     Placed,
+    /// Whether a file is its Game's only copy isn't known: its Library Folder's Placed files are being read, or
+    /// couldn't be.
+    Unknown,
     SourceSet,
 }
 
 impl Status for Placement {
-    const ALL: &'static [Self] = &[Placement::Placed, Placement::SourceSet];
+    const ALL: &'static [Self] = &[Placement::Placed, Placement::Unknown, Placement::SourceSet];
 
     fn look(self) -> Look {
         match self {
@@ -230,6 +233,12 @@ impl Status for Placement {
                 Tone::Active,
                 "Only copy",
                 "Placed in a library folder under single copy: its file there is the game's only copy, so deleting it by hand loses the game.",
+            ),
+            Placement::Unknown => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Not known",
+                "Whether this file is its game's only copy isn't known yet: treat it as one, and don't delete it by hand.",
             ),
             Placement::SourceSet => look(
                 Glyph::Database,
