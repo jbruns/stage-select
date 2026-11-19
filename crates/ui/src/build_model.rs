@@ -25,6 +25,7 @@ pub fn item_kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Acknowledge => "Acknowledge",
         ItemKind::Restore => "Restore",
         ItemKind::Place => "Place",
+        ItemKind::Return => "Return",
     }
 }
 
@@ -56,6 +57,9 @@ pub fn item_kind_note(kind: ItemKind) -> &'static str {
         ItemKind::Restore => "Kept files put back into the folder.",
         ItemKind::Place => {
             "Single copy: moved or copied here from the source set, as its only copy, and taken out of the source set."
+        }
+        ItemKind::Return => {
+            "Single copy: games placed here, moved or copied back into the source set, and verified there."
         }
     }
 }
@@ -329,6 +333,7 @@ pub fn blocker_label(kind: BlockerKind) -> &'static str {
         BlockerKind::Removal => "Removal",
         BlockerKind::Recovery => "Recovery",
         BlockerKind::Cleanup => "Cleanup",
+        BlockerKind::Space => "Not enough space",
     }
 }
 

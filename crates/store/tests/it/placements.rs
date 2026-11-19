@@ -557,11 +557,17 @@ fn only_a_folder_bound_to_the_source_set_holds_its_placed_games() {
         .unwrap();
     env.place("Combat (USA)", &[("Combat (USA).a26", b"combat")]);
 
-    assert!(matches!(
-        env.store.set_holding_folder(SET, Some(second.id)),
-        Err(Error::Conflict(_))
-    ));
-    assert_eq!(env.store.holding_folder(SET).unwrap(), Some(env.folder.id));
+    // Naming another folder moves nothing: the games placed in the first stay there until its next build returns
+    // them home.
+    env.store.set_holding_folder(SET, Some(second.id)).unwrap();
+    assert_eq!(env.store.holding_folder(SET).unwrap(), Some(second.id));
+    assert!(
+        env.store
+            .placed_files(SET)
+            .unwrap()
+            .iter()
+            .all(|p| p.library_folder == env.folder.id)
+    );
 }
 
 /// Records `title` alone as a Selection Job's result, made with the latest Profile version.
@@ -672,7 +678,7 @@ fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything
 }
 
 #[test]
-fn a_cleanup_of_the_holding_folder_is_refused_and_never_keeps_a_placed_game_aside() {
+fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_never_keeps_it_aside() {
     let env = Env::new();
     torrentzip(
         &env.set().join("Pong (USA).zip"),
@@ -706,15 +712,31 @@ fn a_cleanup_of_the_holding_folder_is_refused_and_never_keeps_a_placed_game_asid
         )
         .unwrap();
 
-    let refused = env.store.plan_library_removal(&env.config, env.folder.id);
+    let plan = env
+        .store
+        .plan_library_removal(&env.config, env.folder.id)
+        .unwrap();
 
     assert!(
-        matches!(&refused, Err(Error::Refused(why)) if why.contains("only copy")),
-        "{refused:?}"
+        plan.content.removals.is_empty(),
+        "{:?}",
+        plan.content.removals
     );
-    assert!(env.library().join("Pong (USA).zip").is_file());
-    assert!(!env.library().join(".title-select/retained").exists());
-    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+    assert_eq!(plan.content.returns.len(), 1, "{:?}", plan.content);
+    assert_eq!(plan.content.returns[0].games, ["Pong (USA)"]);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    let removed = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    assert_eq!(removed.state, JobState::Succeeded, "{removed:?}");
+    assert!(env.set().join("Pong (USA).zip").is_file());
+    assert!(!env.library().join("Pong (USA).zip").exists());
+    assert!(!env.library().join(".title-select/retained/1").exists());
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    // Every game home, the folder is unregistered as the removal says.
+    assert!(env.store.library_folders(&env.config).unwrap().is_empty());
     assert_eq!(
         Env::statuses(&env.audit(AuditEvidence::Full))["Pong (USA)"],
         GameStatus::Complete

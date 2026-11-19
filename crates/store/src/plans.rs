@@ -39,6 +39,7 @@ use super::{Error, Result, Store, now};
 
 mod cleanup;
 mod place;
+mod returns;
 use crate::config::Config;
 
 /// A file a Build wrote into a Library Folder, as the store recorded it.
@@ -199,6 +200,8 @@ struct Inputs {
     acks: HashMap<String, Ack>,
     /// What the storage policy says for the folder's system.
     storage: Storage,
+    /// What it says for its Source Set: the format a Placed Game goes back to its folder in.
+    set_storage: Storage,
     /// The originals conversions recorded before they put their converted files in place: by name, the name each
     /// was converted to, and the original's identity.
     originals: HashSet<(String, String, Identity)>,
@@ -339,6 +342,7 @@ fn load(
         }
     }
     let storage = crate::storage::policy(c, StorageScope::PlayLibraries, &folder.system)?;
+    let set_storage = crate::storage::policy(c, StorageScope::SourceSets, &folder.system)?;
     let profile: String = c.query_row(
         "SELECT json FROM profile_versions WHERE id = ?1",
         [profile_version],
@@ -363,6 +367,7 @@ fn load(
     }
     Ok(Inputs {
         storage,
+        set_storage,
         additions,
         sbi: None,
         unrecovered,
@@ -663,6 +668,7 @@ fn removals(
     folder: &Folder,
     items: &[PlanItem],
     untouched: &BTreeSet<String>,
+    returned: &HashSet<String>,
 ) -> Vec<PlanRemoval> {
     let Some(scan) = &folder.scan else {
         return Vec::new();
@@ -680,7 +686,10 @@ fn removals(
     };
     let mut out = Vec::new();
     for (target, built) in &inputs.built {
-        // A placed file is its Source Set's only copy, never kept aside: it stays until it can go home (#215).
+        // A placed file is its Source Set's only copy, never kept aside: it goes home with its release, or stays.
+        if returned.contains(target) && !targets.contains(target.as_str()) {
+            continue;
+        }
         if let Some(placed) = inputs.placed.iter().find(|p| p.path == *target)
             && !targets.contains(target.as_str())
         {
@@ -689,7 +698,8 @@ fn removals(
                 game: built.game.clone(),
                 kind: RemovalKind::Leave,
                 reason: format!(
-                    "{target} is the only copy of {}, placed here from source set {}; it stays as it is",
+                    "{target} is the only copy of {}, placed here from source set {}; it stays as it is until it can \
+                     go back there",
                     placed.game, inputs.folder.source_set
                 ),
                 keep: None,
@@ -1177,11 +1187,20 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             &mut placing,
         );
     }
+    let (returns, returned) = match (&folder, dat, usable_audit) {
+        (Some(_), _, _) if inputs.choices.remove_all => {
+            returns::returns(config, inputs, folder.as_ref(), &items, &mut placing)
+        }
+        (Some(_), Some(_), Some(_)) => {
+            returns::returns(config, inputs, folder.as_ref(), &items, &mut placing)
+        }
+        _ => Default::default(),
+    };
     let removals = match (&folder, dat, usable_audit) {
         (Some(folder), _, _) if inputs.choices.remove_all => {
-            removals(inputs, folder, &items, &untouched)
+            removals(inputs, folder, &items, &untouched, &returned)
         }
-        (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched),
+        (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched, &returned),
         _ => Vec::new(),
     };
     let (previous, changes) = match &inputs.previous {
@@ -1226,6 +1245,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             choices: inputs.choices.clone(),
             items,
             removals,
+            returns,
             blockers,
             cleanup: None,
             storage: inputs.storage,
@@ -2565,21 +2585,6 @@ impl Store {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
         })?;
-        // A Placed Game's file is its only copy: never a kept file of the folder. Until a Placed Game can go back to its
-        // Source Set's folder (#215), no folder holding one is cleaned up.
-        let games = |n: u64| match n {
-            1 => "1 game".to_owned(),
-            n => format!("{n} games"),
-        };
-        if choices.remove_all && !inputs.placed.is_empty() {
-            let held: BTreeSet<&str> = inputs.placed.iter().map(|p| p.game.as_str()).collect();
-            return Err(Error::Refused(format!(
-                "this play library folder holds {} of source set {}, placed there as their only copy, and removing \
-                 the folder would remove them; nothing was planned",
-                games(held.len() as u64),
-                inputs.folder.source_set
-            )));
-        }
         inputs.copy_across = self.across_filesystems(None);
         if inputs.storage.sbi {
             inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
@@ -2591,6 +2596,65 @@ impl Store {
             None
         };
         let mut planned = compute(config, &inputs, dat.as_ref());
+        // A Placed Game's file is its only copy: never a kept file of the folder. Removing every built file returns
+        // each Placed Game to its Source Set's folder first, and is refused while one can't go.
+        let games = |n: u64| match n {
+            1 => "1 game".to_owned(),
+            n => format!("{n} games"),
+        };
+        if choices.remove_all {
+            let going: BTreeSet<&str> = planned
+                .content
+                .returns
+                .iter()
+                .flat_map(|r| r.games.iter().map(String::as_str))
+                .collect();
+            let held: BTreeSet<&str> = inputs
+                .placed
+                .iter()
+                .map(|p| p.game.as_str())
+                .filter(|g| !going.contains(g))
+                .collect();
+            if !held.is_empty() {
+                return Err(Error::Refused(format!(
+                    "this play library folder holds {} of source set {}, placed there as their only copy, that \
+                     can't go back to the source set's folder now, and removing the folder would remove them; \
+                     nothing was planned. {}",
+                    games(held.len() as u64),
+                    inputs.folder.source_set,
+                    planned
+                        .content
+                        .notes
+                        .iter()
+                        .filter(|n| n.contains(" stays placed here: "))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(". ")
+                )));
+            }
+        }
+        // Returns are refused before they run when their Source Set's Root hasn't the space they need.
+        let needs: u64 = planned.content.returns.iter().map(|r| r.needs).sum();
+        if needs > 0 {
+            let free = self.free_space(config, &inputs.set_root, &inputs.set_path);
+            let short = match free {
+                Ok(free) if free >= needs => None,
+                Ok(free) => Some(format!("it has {} free", returns::bytes(free))),
+                Err(e) => Some(format!("its free space can't be read ({e})")),
+            };
+            if let Some(short) = short {
+                planned.content.blockers.push(blocker(
+                    BlockerKind::Space,
+                    format!(
+                        "returning the placed games to source set {} needs up to {} in root {}, and {short}. Free \
+                         some space there, or return fewer games, then plan again",
+                        inputs.folder.source_set,
+                        returns::bytes(needs),
+                        inputs.set_root
+                    ),
+                ));
+            }
+        }
         if dat.is_none() && !choices.remove_all {
             planned.content.blockers.push(blocker(
                 BlockerKind::RevisionMismatch,
@@ -2745,6 +2809,15 @@ impl Store {
             let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             crate::placements::check_no_audit_reading(tx, folder.id)?;
+            // One Build at a time changes a Source Set's folder: another folder's may be placing or returning its Games.
+            let changes_set = !content.returns.is_empty()
+                || content.items.iter().any(|i| i.kind == ItemKind::Place);
+            if changes_set && let Some(why) = crate::placements::placing_build(tx, set.id)? {
+                return Err(Error::Conflict(format!(
+                    "this plan changes source set {}'s folder, and {why}",
+                    set.record.name
+                )));
+            }
             let revision_id: i64 = tx.query_row(
                 "SELECT dat_revision_id FROM selections WHERE id = ?1",
                 [content.selection],

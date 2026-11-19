@@ -578,6 +578,7 @@ pub enum BuildKind {
     Copy,
     Repack,
     Place,
+    Return,
     Adopt,
     Unchanged,
     NoSource,
@@ -595,6 +596,7 @@ impl From<ItemKind> for BuildKind {
         match kind {
             ItemKind::Copy => BuildKind::Copy,
             ItemKind::Place => BuildKind::Place,
+            ItemKind::Return => BuildKind::Return,
             ItemKind::Repack => BuildKind::Repack,
             ItemKind::Adopt => BuildKind::Adopt,
             ItemKind::Unchanged => BuildKind::Unchanged,
@@ -615,6 +617,7 @@ impl Status for BuildKind {
         BuildKind::Copy,
         BuildKind::Repack,
         BuildKind::Place,
+        BuildKind::Return,
         BuildKind::Adopt,
         BuildKind::Unchanged,
         BuildKind::NoSource,
@@ -646,6 +649,12 @@ impl Status for BuildKind {
                 Tone::Active,
                 "Place",
                 "Moves or copies the game here as its only copy, taking it out of the source set.",
+            ),
+            BuildKind::Return => look(
+                Glyph::ArrowLeftRight,
+                Tone::Active,
+                "Return",
+                "Moves or copies a game placed here back to the source set, verified there before it leaves here.",
             ),
             BuildKind::Adopt => look(
                 Glyph::FolderCheck,

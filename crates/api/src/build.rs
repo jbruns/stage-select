@@ -229,10 +229,13 @@ pub enum ItemKind {
     /// Under Single Copy, place the Game in the folder holding its Source Set's Placed Games: its file is moved there,
     /// or written there and its Source Set's files deleted, so that this is its only copy. It changes the Source Set.
     Place,
+    /// Never a plan item: a Build's item that returns a release placed under Single Copy to its Source Set's folder,
+    /// one of the plan's returns. It changes the Source Set.
+    Return,
 }
 
 impl ItemKind {
-    pub const ALL: [ItemKind; 13] = [
+    pub const ALL: [ItemKind; 14] = [
         ItemKind::Copy,
         ItemKind::Repack,
         ItemKind::Adopt,
@@ -246,6 +249,7 @@ impl ItemKind {
         ItemKind::Acknowledge,
         ItemKind::Restore,
         ItemKind::Place,
+        ItemKind::Return,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -263,6 +267,7 @@ impl ItemKind {
             ItemKind::Acknowledge => "acknowledge",
             ItemKind::Restore => "restore",
             ItemKind::Place => "place",
+            ItemKind::Return => "return",
         }
     }
 
@@ -536,6 +541,70 @@ pub struct PlacedOriginal {
     pub ctime_ns: i128,
 }
 
+/// How a release placed in a Library Folder goes back to its Source Set's folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReturnHow {
+    /// Each placed file is the file the Source Set stores, on the same filesystem: renamed home, never read.
+    Rename,
+    /// Each placed file is the file the Source Set stores: copied home and verified against the DAT, then deleted
+    /// from the folder unless the folder keeps it as a built copy.
+    Copy,
+    /// The Source Set stores the release in another format: written home from the placed files, verified against the
+    /// DAT, then the placed files deleted unless the folder keeps them as built copies.
+    Convert,
+}
+
+/// A release placed in the folder that a plan returns to its Source Set's folder, whole: every placed file of each
+/// of its Games, all one way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanReturn {
+    pub release: String,
+    /// Its Games, each placed in the folder now.
+    pub games: Vec<String>,
+    pub how: ReturnHow,
+    /// Why it goes back.
+    pub reason: String,
+    /// Each placed file, as the plan found it.
+    pub placed: Vec<ReturnPlaced>,
+    /// Each file written, or renamed, into the Source Set's folder.
+    pub files: Vec<ReturnFile>,
+    /// The bytes the return writes in the Source Set's Root: none for a rename, and otherwise at most this, as each
+    /// file written is counted at the most it can take.
+    pub needs: u64,
+}
+
+/// A placed file a return takes home, as the plan found it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReturnPlaced {
+    /// Relative to the Library Folder.
+    pub path: String,
+    pub game: String,
+    pub file: FileStat,
+    pub identity: FileIdentity,
+    pub ctime_ns: i128,
+    /// Whether the folder keeps it, as a built copy of its still selected Game, once its Game is home.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keeps: bool,
+}
+
+/// A file a return puts in the Source Set's folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReturnFile {
+    /// Relative to the Source Set's folder.
+    pub path: String,
+    pub game: String,
+    /// Whether it is its one ROM, loose, rather than a TorrentZip.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loose: bool,
+    pub roms: Vec<ExpectedRom>,
+    /// The placed file it is, whole, by its path in the Library Folder; none when it is written from the ROMs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// One per ROM: its placed file, by its path in the Library Folder, and the member that holds it.
+    pub sources: Vec<PlanSource>,
+}
+
 /// What a generated file is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -587,6 +656,8 @@ pub enum BlockerKind {
     Recovery,
     /// A cleanup action you chose cannot be carried out as the folder is now.
     Cleanup,
+    /// The returns of placed games need more space in their source set's root than it has free.
+    Space,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -619,6 +690,9 @@ pub struct PlanContent {
     /// The built files whose games are no longer selected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removals: Vec<PlanRemoval>,
+    /// The releases placed in the folder under Single Copy that go back to their Source Set's folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub returns: Vec<PlanReturn>,
     pub blockers: Vec<Blocker>,
     /// For a cleanup of the folder's drift, rather than a build: what it does. A cleanup has no items or removals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -699,6 +773,12 @@ pub struct PlanSummary {
     pub place_freed: u64,
     #[serde(default)]
     pub place_written: u64,
+    /// Placed Games returned to their Source Set's folder, and the bytes the returns write in its Root (see
+    /// [`PlanReturn`]).
+    #[serde(default)]
+    pub returned: u64,
+    #[serde(default)]
+    pub return_needs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -752,6 +832,7 @@ impl PlanContent {
                 ItemKind::Acknowledge => &mut s.acknowledge,
                 ItemKind::Restore => &mut s.restore,
                 ItemKind::Place => &mut s.place,
+                ItemKind::Return => &mut s.returned,
             } += 1;
             if let Some(place) = &item.place {
                 s.place_renamed += u64::from(place.how == PlaceHow::Rename);
@@ -762,6 +843,8 @@ impl PlanContent {
                 s.keep += 1;
             }
         }
+        s.returned = self.returns.iter().map(|r| r.games.len() as u64).sum();
+        s.return_needs = self.returns.iter().map(|r| r.needs).sum();
         s.remove = self.removals.len() as u64;
         s.keep += self
             .removals

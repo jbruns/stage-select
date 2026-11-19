@@ -19,6 +19,7 @@ mod ingest;
 mod lifecycle;
 mod placements;
 mod repair;
+mod returns;
 mod romm;
 mod romm_additions;
 mod single_copy;
