@@ -514,8 +514,9 @@ fn plan_by_id(c: &Connection, id: i64) -> Result<RepairPlan> {
         .ok_or_else(|| Error::NotFound(format!("no repair plan {id}")))
 }
 
-/// The generation the Source Set's last approved repair kept files under, and whether its marker was written.
-fn source_folder(c: &Connection, set: i64) -> Result<(u64, bool)> {
+/// The generation the Source Set's last approved repair kept files under, advanced too by each Build that places its
+/// Games so that a repair planned before it is refused, and whether its marker was written.
+pub(crate) fn source_folder(c: &Connection, set: i64) -> Result<(u64, bool)> {
     Ok(c.query_row(
         "SELECT generation, marker_at IS NOT NULL FROM source_folders WHERE source_set_id = ?1",
         [set],
@@ -1684,7 +1685,7 @@ impl Store {
     /// file recorded and holds no more than the marker, or, when its identity was not yet committed, the empty file
     /// this service's user just made.
     /// Anything else at either name, a marker that appeared meanwhile included, stops the repair with nothing changed.
-    fn bootstrap_marker(
+    pub(crate) fn bootstrap_marker(
         &self,
         set: i64,
         dir: &FolderDir,

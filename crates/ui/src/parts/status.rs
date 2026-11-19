@@ -577,6 +577,7 @@ impl Status for RepairState {
 pub enum BuildKind {
     Copy,
     Repack,
+    Place,
     Adopt,
     Unchanged,
     NoSource,
@@ -593,6 +594,7 @@ impl From<ItemKind> for BuildKind {
     fn from(kind: ItemKind) -> Self {
         match kind {
             ItemKind::Copy => BuildKind::Copy,
+            ItemKind::Place => BuildKind::Place,
             ItemKind::Repack => BuildKind::Repack,
             ItemKind::Adopt => BuildKind::Adopt,
             ItemKind::Unchanged => BuildKind::Unchanged,
@@ -612,6 +614,7 @@ impl Status for BuildKind {
     const ALL: &'static [Self] = &[
         BuildKind::Copy,
         BuildKind::Repack,
+        BuildKind::Place,
         BuildKind::Adopt,
         BuildKind::Unchanged,
         BuildKind::NoSource,
@@ -637,6 +640,12 @@ impl Status for BuildKind {
                 Tone::Active,
                 "Repack",
                 "Writes a TorrentZip from the verified ROMs.",
+            ),
+            BuildKind::Place => look(
+                Glyph::ArrowRight,
+                Tone::Active,
+                "Place",
+                "Moves or copies the game here as its only copy, taking it out of the source set.",
             ),
             BuildKind::Adopt => look(
                 Glyph::FolderCheck,

@@ -1495,3 +1495,35 @@ fn a_chd_is_never_a_source_sets_format_nor_a_play_librarys_for_a_system_without_
         .insert(SYSTEM.into(), own(StorageFormat::Chd));
     store.set_storage_policy(&policy, "Operator").unwrap();
 }
+
+/// Under single copy, a game the play library stores as CHD is copied, its source set's files left as they are: a CHD
+/// isn't the DAT's bytes, so it can't be the game's only copy.
+#[test]
+fn under_single_copy_a_game_stored_as_chd_is_copied_not_placed() {
+    let env = Env::new(None);
+    // The source set's folder writable, so nothing but the format keeps the game from being placed.
+    let config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+        env.tmp.path().join("roots/sets").display().to_string(),
+        env.tmp.path().join("roots/play").display().to_string(),
+    ))
+    .unwrap();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.single_copy = true;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let (folder, selection) = env.folder(&[CD]);
+
+    let plan = env.store.plan_build(&config, folder.id, selection).unwrap();
+    let item = &plan.content.items[0];
+    assert!(item.chd, "{item:?}");
+    assert_ne!(item.kind, title_select_api::build::ItemKind::Place);
+    assert!(item.place.is_none() && !item.changes_source_set, "{item:?}");
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("1 game is copied rather than placed") && n.contains("CHD")),
+        "{:?}",
+        plan.content.notes
+    );
+}

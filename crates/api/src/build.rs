@@ -226,10 +226,13 @@ pub enum ItemKind {
     Acknowledge,
     /// Never a plan item: a cleanup's item that puts a kept file back in the folder.
     Restore,
+    /// Under Single Copy, place the Game in the folder holding its Source Set's Placed Games: its file is moved there,
+    /// or written there and its Source Set's files deleted, so that this is its only copy. It changes the Source Set.
+    Place,
 }
 
 impl ItemKind {
-    pub const ALL: [ItemKind; 12] = [
+    pub const ALL: [ItemKind; 13] = [
         ItemKind::Copy,
         ItemKind::Repack,
         ItemKind::Adopt,
@@ -242,6 +245,7 @@ impl ItemKind {
         ItemKind::KeepAside,
         ItemKind::Acknowledge,
         ItemKind::Restore,
+        ItemKind::Place,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -258,6 +262,7 @@ impl ItemKind {
             ItemKind::KeepAside => "keep_aside",
             ItemKind::Acknowledge => "acknowledge",
             ItemKind::Restore => "restore",
+            ItemKind::Place => "place",
         }
     }
 
@@ -265,9 +270,9 @@ impl ItemKind {
         ItemKind::ALL.into_iter().find(|k| k.as_str() == s)
     }
 
-    /// Whether a Build writes a file for the item.
+    /// Whether a Build writes a file for the item, or, placing it, puts one in place.
     pub fn writes(self) -> bool {
-        matches!(self, ItemKind::Copy | ItemKind::Repack)
+        matches!(self, ItemKind::Copy | ItemKind::Repack | ItemKind::Place)
     }
 }
 
@@ -480,6 +485,55 @@ pub struct PlanItem {
     /// empty, and it is written loose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated: Option<GeneratedFile>,
+    /// For a Game placed under Single Copy: how, and the Source Set's files it consumes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<PlanPlace>,
+    /// Whether carrying the item out changes the Source Set: a placement deletes or moves its files. Approving the plan
+    /// approves that.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub changes_source_set: bool,
+}
+
+/// How a Game is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaceHow {
+    /// Its Source Set file is the file the folder stores, on the same filesystem: renamed into place, never read.
+    Rename,
+    /// Its Source Set file is the file the folder stores, on another filesystem: copied into place, read back, and
+    /// the original deleted once the copy is proven to hold it.
+    Copy,
+    /// The folder stores it in another format: written from its Source Set files, checked, and the originals deleted
+    /// once it is in place.
+    Convert,
+    /// It is built in the folder already: its Source Set files are deleted once the built file is checked again.
+    Built,
+}
+
+/// A Game a plan places, and the Source Set's files it consumes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanPlace {
+    pub how: PlaceHow,
+    /// Each file in the Source Set's folder that the Game is placed from, as the plan found it: moved, or deleted
+    /// once the Game is in place. One that can't be proven unchanged is kept in the Source Set.
+    pub originals: Vec<PlacedOriginal>,
+    /// The bytes deleted from the Source Set: an estimate, since block cloning may already share them with another
+    /// file.
+    pub freed: u64,
+    /// The bytes written into the folder: none for a rename or a built file; for a conversion to TorrentZip, at most
+    /// this.
+    pub written: u64,
+}
+
+/// A Source Set file a placement consumes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedOriginal {
+    /// Relative to the Source Set's folder.
+    pub path: String,
+    pub file: FileStat,
+    pub identity: FileIdentity,
+    /// Its status change time in nanoseconds since the Unix epoch: the file is consumed only while it is unchanged.
+    pub ctime_ns: i128,
 }
 
 /// What a generated file is.
@@ -635,6 +689,16 @@ pub struct PlanSummary {
     /// A cleanup's kept files put back.
     #[serde(default)]
     pub restore: u64,
+    /// Games placed under Single Copy, and of them how many by a rename.
+    #[serde(default)]
+    pub place: u64,
+    #[serde(default)]
+    pub place_renamed: u64,
+    /// The bytes placing frees in the Source Set, an estimate, and writes in the folder.
+    #[serde(default)]
+    pub place_freed: u64,
+    #[serde(default)]
+    pub place_written: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -687,7 +751,13 @@ impl PlanContent {
                 ItemKind::KeepAside => &mut s.keep,
                 ItemKind::Acknowledge => &mut s.acknowledge,
                 ItemKind::Restore => &mut s.restore,
+                ItemKind::Place => &mut s.place,
             } += 1;
+            if let Some(place) = &item.place {
+                s.place_renamed += u64::from(place.how == PlaceHow::Rename);
+                s.place_freed += place.freed;
+                s.place_written += place.written;
+            }
             if item.keep.is_some() {
                 s.keep += 1;
             }
@@ -875,7 +945,10 @@ pub struct PlacedFile {
     pub dev: u64,
     pub ino: u64,
     pub ctime_ns: i128,
-    pub sha256: String,
+    /// Its SHA-256, when it was read: a file placed by a rename was not, and its Audit's payload Evidence stands for
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Why a Library Folder is Incomplete: why its current build lacks a selected game.

@@ -38,6 +38,7 @@ use super::sets::{resolve, set_by_id};
 use super::{Error, Result, Store, now};
 
 mod cleanup;
+mod place;
 use crate::config::Config;
 
 /// A file a Build wrote into a Library Folder, as the store recorded it.
@@ -207,8 +208,12 @@ struct Inputs {
     sbi: Option<crate::sbi_packs::SbiPack>,
     /// The files of the Placed Games the folder holds, which a plan never writes over or keeps aside.
     placed: Vec<title_select_api::build::PlacedFile>,
-    /// How many Games of the Source Set are placed, in this folder or another.
-    placed_games: u64,
+    /// The Library Folder holding the Source Set's Placed Games, if one does.
+    holding: Option<i64>,
+    /// The Library Folders the Source Set's Placed Games are in, by id: their Root and path.
+    placed_rows: HashMap<i64, (String, String)>,
+    /// Whether a test has said to treat the Source Set and the folder as on different filesystems.
+    copy_across: bool,
 }
 
 fn load(
@@ -370,11 +375,17 @@ fn load(
         built: read_built(c, folder.id)?,
         originals: read_originals(c, folder.id)?,
         placed: crate::placements::placed_files_in(c, folder.id)?,
-        placed_games: c.query_row(
-            "SELECT count(*) FROM placed_games WHERE source_set_id = ?1",
-            [folder.source_set_id],
-            |r| r.get::<_, i64>(0),
-        )? as u64,
+        holding: crate::placements::holding_folder(c, folder.source_set_id)?,
+        placed_rows: c
+            .prepare(
+                "SELECT DISTINCT f.id, f.root, f.path FROM placed_games p JOIN library_folders f ON f.id = p.folder_id
+                 WHERE p.source_set_id = ?1",
+            )?
+            .query_map([folder.source_set_id], |r| {
+                Ok((r.get(0)?, (r.get(1)?, r.get(2)?)))
+            })?
+            .collect::<rusqlite::Result<_>>()?,
+        copy_across: false,
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -669,6 +680,23 @@ fn removals(
     };
     let mut out = Vec::new();
     for (target, built) in &inputs.built {
+        // A placed file is its Source Set's only copy, never kept aside: it stays until it can go home (#215).
+        if let Some(placed) = inputs.placed.iter().find(|p| p.path == *target)
+            && !targets.contains(target.as_str())
+        {
+            out.push(PlanRemoval {
+                target: target.clone(),
+                game: built.game.clone(),
+                kind: RemovalKind::Leave,
+                reason: format!(
+                    "{target} is the only copy of {}, placed here from source set {}; it stays as it is",
+                    placed.game, inputs.folder.source_set
+                ),
+                keep: None,
+                converts_to: None,
+            });
+            continue;
+        }
         if targets.contains(target.as_str())
             || untouched.contains(target)
             || converted.contains(target.as_str())
@@ -847,6 +875,9 @@ struct Candidate<'a> {
 /// its payload is intact.
 struct Sources<'a> {
     set_dir: Option<(PathBuf, PathBuf)>,
+    /// Each Library Folder holding Placed Games of the Source Set, opened without following a symlink below its Root,
+    /// or none where it can't be.
+    placed_dirs: HashMap<i64, Option<FolderDir>>,
     by_rom: HashMap<(String, String), Vec<&'a Entry>>,
     /// The ROMs only Claim Evidence holds.
     claimed: HashSet<(String, String)>,
@@ -884,8 +915,14 @@ impl<'a> Sources<'a> {
                 }
             }
         }
+        let placed_dirs = inputs
+            .placed_rows
+            .iter()
+            .map(|(id, (root, path))| (*id, open_folder(config, root, path).ok()))
+            .collect();
         Sources {
             set_dir,
+            placed_dirs,
             by_rom,
             claimed,
             by_path,
@@ -894,8 +931,31 @@ impl<'a> Sources<'a> {
         }
     }
 
-    /// The source file at `path`, confined to the Source Set's Root, its identity and its status change time.
+    /// The Placed Game's file at `path`, as its Source Set's Audits name it, opened in the Library Folder holding it
+    /// without following a symlink; none for a file in the Source Set's own folder, or one that can't be opened.
+    fn open_placed(&self, path: &str) -> Option<std::fs::File> {
+        let (folder, rel) = title_select_api::storage::split_placed(path)?;
+        self.placed_dirs.get(&folder)?.as_ref()?.open_file(rel).ok()
+    }
+
+    /// The source file at `path`, confined to the Source Set's Root, or for a Placed Game's file to the Library Folder
+    /// holding it, its identity and its status change time.
     fn file(&mut self, path: &'a str) -> Option<(FileStat, FileIdentity, i128)> {
+        if title_select_api::storage::split_placed(path).is_some() {
+            let found = self.open_placed(path).and_then(|file| {
+                let st = rustix::fs::fstat(&file).ok()?;
+                let id = Identity::of(&st);
+                Some((
+                    file_stat(&st),
+                    FileIdentity {
+                        dev: id.dev,
+                        ino: id.ino,
+                    },
+                    crate::folder_dir::ctime_ns(&st),
+                ))
+            });
+            return self.stats.entry(path).or_insert(found).clone();
+        }
         let set_dir = &self.set_dir;
         self.stats
             .entry(path)
@@ -948,12 +1008,16 @@ impl<'a> Sources<'a> {
                 .filter_map(|e| e.member.as_deref())
                 .collect::<BTreeSet<_>>()
                 == names;
-        let copyable = exact
-            && self.file(path).is_some()
-            && self
+        let torrentzip = match self.open_placed(path) {
+            Some(file) => {
+                title_select_engine::torrentzip::central(&mut std::io::BufReader::new(file)).is_ok()
+            }
+            None => self
                 .set_dir
                 .as_ref()
-                .is_some_and(|(dir, _)| is_torrentzip(&dir.join(path)));
+                .is_some_and(|(dir, _)| is_torrentzip(&dir.join(path))),
+        };
+        let copyable = exact && self.file(path).is_some() && torrentzip;
         self.copyable.insert((path, game.to_owned()), copyable);
         copyable
     }
@@ -1102,8 +1166,16 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let folder = check_folder(config, inputs, dat, &mut blockers);
 
     let mut items = Vec::new();
+    let mut placing = Vec::new();
     if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
-        items = plan_items(config, inputs, dat, folder.as_ref(), &unresolved);
+        items = plan_items(
+            config,
+            inputs,
+            dat,
+            folder.as_ref(),
+            &unresolved,
+            &mut placing,
+        );
     }
     let removals = match (&folder, dat, usable_audit) {
         (Some(folder), _, _) if inputs.choices.remove_all => {
@@ -1142,7 +1214,8 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         None => (None, None),
     };
     let retained = retained(inputs, &items, check.as_ref());
-    let notes = storage_notes(inputs.storage, dat, &items);
+    let mut notes = storage_notes(inputs.storage, dat, &items);
+    notes.extend(placing);
     Planned {
         content: PlanContent {
             folder: inputs.folder.id,
@@ -1205,6 +1278,7 @@ fn plan_items(
     dat: &Dat,
     folder: Option<&Folder>,
     unresolved: &BTreeSet<&str>,
+    notes: &mut Vec<String>,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
     let scan = folder.and_then(|f| f.scan.as_ref());
@@ -1356,6 +1430,8 @@ fn plan_items(
             converts: None,
             addition: None,
             generated: None,
+            place: None,
+            changes_source_set: false,
         };
         if addition.is_none() && unresolved.contains(group) {
             item.kind = ItemKind::Unresolved;
@@ -1363,6 +1439,19 @@ fn plan_items(
                 "the group {group} is unresolved, and you build the resolved groups only; whatever is at {target} \
                  is left untouched"
             ));
+            items.push(item);
+            continue;
+        }
+        // A Game placed in this folder is its Source Set's only copy: it stays as it is placed. Nothing is written
+        // over it or kept aside, and a file another game needs at its name is blocked.
+        if addition.is_none()
+            && let Some(placed) =
+                placed_here(inputs, game, &target, inputs.built.get(&target), &item)
+        {
+            match placed {
+                Ok(()) => item.kind = ItemKind::Unchanged,
+                Err(why) => item.reason = Some(why),
+            }
             items.push(item);
             continue;
         }
@@ -1570,8 +1659,12 @@ fn plan_items(
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
-                        // Only a loose file or a CHD is written from the source the plan found, by descriptor.
-                        ctime_ns: (item.loose || item.chd).then_some(c.ctime_ns),
+                        // Only a loose file or a CHD, or a file read from where its Game is placed, is written from
+                        // the source the plan found, by descriptor.
+                        ctime_ns: (item.loose
+                            || item.chd
+                            || title_select_api::storage::split_placed(&c.entry.path).is_some())
+                        .then_some(c.ctime_ns),
                     })
                     .collect();
                 item.converts = converts(inputs, files, scan, &item);
@@ -1650,15 +1743,53 @@ fn plan_items(
         items.insert(at, item);
     }
     whole_releases(&mut items);
+    place::place(config, inputs, folder, &mut sources, &mut items, notes);
     items.extend(additions);
     items
+}
+
+/// What becomes of `item`, a file of `game` at `target`, when a Placed Game's file is there or `game` is placed in this
+/// folder: `Ok` when it is the game's one placed file, at its target and as the plan stores it, so in place already;
+/// else why it is blocked. None when neither is so.
+fn placed_here(
+    inputs: &Inputs,
+    game: &str,
+    target: &str,
+    built: Option<&Built>,
+    item: &PlanItem,
+) -> Option<std::result::Result<(), String>> {
+    let of_game: Vec<&str> = inputs
+        .placed
+        .iter()
+        .filter(|p| p.game == game)
+        .map(|p| p.path.as_str())
+        .collect();
+    if of_game.is_empty() {
+        let other = inputs
+            .placed
+            .iter()
+            .find(|p| name_key(&p.path) == name_key(target))?;
+        return Some(Err(format!(
+            "{} is the only copy of {}, placed here from source set {}, so it stays and this file can't go there",
+            other.path, other.game, inputs.folder.source_set
+        )));
+    }
+    let replacing =
+        built.is_some_and(|b| b.game != item.game || b.roms != item.roms || !b.stored_as(item));
+    if of_game == [target] && !replacing {
+        return Some(Ok(()));
+    }
+    Some(Err(format!(
+        "{game} is placed in this folder as {}, its source set's only copy, so it stays as it is placed",
+        of_game.join(" and ")
+    )))
 }
 
 /// Whether an item of `kind` is in place once its unit commits.
 fn builds(kind: ItemKind) -> bool {
     matches!(
         kind,
-        ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
+        ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt | ItemKind::Place
     )
 }
 
@@ -1872,6 +2003,8 @@ fn generate(
         converts: None,
         addition: None,
         generated: Some(file),
+        place: None,
+        changes_source_set: false,
     };
     let what = match item.generated.as_ref().map(|g| g.kind) {
         Some(GeneratedKind::Sbi) => "its disc",
@@ -2395,11 +2528,8 @@ impl Store {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
         })?;
-        // A Build reads each Game where its Source Set's latest Audit found it, and a Placed Game's file is not in
-        // the Source Set's folder: until Builds read Placed Games, none is built from a Source Set that has any. A
-        // cleanup removes every built file, and a Placed Game's file is its only copy: never a kept file of the
-        // folder. Until a Placed Game can go back to its Source Set's folder (#215), no folder holding one is
-        // cleaned up.
+        // A Placed Game's file is its only copy: never a kept file of the folder. Until a Placed Game can go back to its
+        // Source Set's folder (#215), no folder holding one is cleaned up.
         let games = |n: u64| match n {
             1 => "1 game".to_owned(),
             n => format!("{n} games"),
@@ -2413,19 +2543,7 @@ impl Store {
                 inputs.folder.source_set
             )));
         }
-        if inputs.placed_games > 0 && !choices.remove_all {
-            return Err(Error::Refused(format!(
-                "{} of source set {} {} placed in a play library folder, and a build can't read a placed game yet; \
-                 nothing was planned",
-                games(inputs.placed_games),
-                inputs.folder.source_set,
-                if inputs.placed_games == 1 {
-                    "is"
-                } else {
-                    "are"
-                }
-            )));
-        }
+        inputs.copy_across = self.across_filesystems(None);
         if inputs.storage.sbi {
             inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
         }

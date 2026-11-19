@@ -48,6 +48,7 @@ use crate::config::Config;
 use rustix::fs::Stat;
 
 mod cleanup;
+mod place;
 
 /// What a Library Folder's current Build cites, in `audit_citations` and `selection_citations`.
 fn cited_by(folder: i64) -> String {
@@ -100,6 +101,9 @@ struct ChdWork<'a> {
     tmp: PathBuf,
     build: i64,
     cancelled: &'a dyn Fn() -> bool,
+    /// The Library Folders holding the Source Set's Placed Games that the Build reads, each opened without following
+    /// a symlink, or why it can't be.
+    placed: HashMap<i64, std::result::Result<FolderDir, String>>,
 }
 
 /// The scratch directory, in the store's, where item `seq` of Build `build` makes its CHD.
@@ -614,6 +618,124 @@ fn open_source(
     Ok(file)
 }
 
+/// Opens `source`, a file of a Placed Game, in the Library Folder holding it, one of `placed`, while it is the regular
+/// file the plan found there.
+fn open_placed_source(
+    placed: &HashMap<i64, std::result::Result<FolderDir, String>>,
+    source: &PlanSource,
+) -> std::result::Result<File, String> {
+    let (folder, rel) = title_select_api::storage::split_placed(&source.path)
+        .ok_or_else(|| format!("{} is not a placed file", source.path))?;
+    let dir = match placed.get(&folder) {
+        Some(Ok(dir)) => dir,
+        Some(Err(why)) => return Err(format!("{}: {why}", source.path)),
+        None => {
+            return Err(format!(
+                "{}: its library folder can't be found",
+                source.path
+            ));
+        }
+    };
+    let file = dir
+        .open_file(rel)
+        .map_err(|e| format!("{}: {e}", source.path))?;
+    let st = rustix::fs::fstat(&file).map_err(|e| format!("{}: {e}", source.path))?;
+    if source.identity.map(Identity::from) != Some(Identity::of(&st))
+        || source.ctime_ns != Some(crate::folder_dir::ctime_ns(&st))
+        || file_stat(&st) != source.file
+    {
+        return Err(format!(
+            "{} is not the file the plan found there; plan again",
+            source.path
+        ));
+    }
+    Ok(file)
+}
+
+/// Writes `item` to `file`, new in the staging directory, from its sources, each opened by `open` only while it is
+/// the file the plan found and checked again once read: copied whole for a copy, else written from its ROMs. Then
+/// verifies it.
+fn stage_by_fd(
+    item: &PlanItem,
+    file: &mut File,
+    open: &dyn Fn(&PlanSource) -> std::result::Result<File, String>,
+    (from, to): (&Tally, &Tally),
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let mut paths: Vec<&str> = Vec::new();
+    let mut opened: Vec<(File, Stat)> = Vec::new();
+    for source in &item.sources {
+        if paths.contains(&source.path.as_str()) {
+            continue;
+        }
+        let held = open(source).map_err(Failure::Item)?;
+        let st = rustix::fs::fstat(&held).map_err(|e| Failure::Item(e.to_string()))?;
+        paths.push(&source.path);
+        opened.push((held, st));
+    }
+    let item_err = |e: io::Error| Failure::Item(format!("{}: {e}", item.target));
+    match (item.kind, opened.as_slice()) {
+        (ItemKind::Copy, [(held, _)]) => {
+            copy_chunked(held, from, file, to).map_err(item_err)?;
+            from.file_read();
+            to.file_written();
+        }
+        (ItemKind::Copy, _) => return Err(Failure::Item("a copy is of one file".into())),
+        _ => {
+            let roms: Vec<build::FromSource> = item
+                .roms
+                .iter()
+                .map(|rom| {
+                    let source = item
+                        .sources
+                        .iter()
+                        .find(|s| s.rom == rom.name)
+                        .ok_or_else(|| Failure::Item(format!("no source for {}", rom.name)))?;
+                    let at = paths
+                        .iter()
+                        .position(|p| *p == source.path)
+                        .expect("opened above");
+                    Ok((rom, at, source.member.as_deref()))
+                })
+                .collect::<std::result::Result<_, Failure>>()?;
+            let reading: Vec<(&File, &Tally)> = opened.iter().map(|(f, _)| (f, from)).collect();
+            match item.loose {
+                true => write_loose(file, &roms, &reading, to),
+                false => repack_sources(file, &roms, &reading, to),
+            }
+            .map_err(Failure::Item)?;
+        }
+    }
+    let staged =
+        |e: io::Error| Failure::Folder(format!("the staged file for {}: {e}", item.target));
+    file.sync_all().map_err(staged)?;
+    for ((held, before), path) in opened.iter().zip(&paths) {
+        let after = rustix::fs::fstat(held).map_err(|e| Failure::Item(e.to_string()))?;
+        if file_stat(&after) != file_stat(before)
+            || crate::folder_dir::ctime_ns(&after) != crate::folder_dir::ctime_ns(before)
+        {
+            return Err(Failure::Item(format!("{path} changed while it was read")));
+        }
+    }
+    match (item.loose, item.roms.as_slice()) {
+        (true, [rom]) => verify_loose(file, rom, to),
+        (true, _) => Err("a loose file holds one ROM".into()),
+        (false, _) => verify(file, &item.roms, to),
+    }
+    .map_err(Failure::Item)?;
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(staged)?;
+    let (sha256, size) = sha256_of(file, to).map_err(staged)?;
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: None,
+        chd_raw_sha1: None,
+    })
+}
+
 /// Writes `item`, the Build's item `seq`, to `file`, new in the staging directory at `staged`, and verifies it.
 fn stage(
     (item, seq): (&PlanItem, i64),
@@ -698,6 +820,19 @@ fn stage(
             chd_sha1: None,
             chd_raw_sha1: None,
         });
+    }
+    // A Placed Game is read from the Library Folder holding it, by descriptor.
+    if item
+        .sources
+        .iter()
+        .any(|s| title_select_api::storage::split_placed(&s.path).is_some())
+    {
+        let open = |source: &PlanSource| match title_select_api::storage::split_placed(&source.path)
+        {
+            Some(_) => open_placed_source(&chd.placed, source),
+            None => open_source(set_fd, source),
+        };
+        return stage_by_fd(item, file, &open, (&chd.from, &chd.to), built_at);
     }
     let sources: Vec<PathBuf> = item
         .sources
@@ -1655,6 +1790,30 @@ impl Store {
                 Some((set_dir, set_root, set_fd))
             }
         };
+        // A Build that places Games changes their Source Set's folder: it is opened to write to as a repair opens it.
+        let placing = match work.iter().any(|w| w.item.kind == ItemKind::Place) {
+            true => Some(
+                self.open_placing(config, folder_row.source_set_id)?
+                    .map_err(|why| {
+                        Error::Refused(format!(
+                            "source set {} can't be changed to place its games: {why}; nothing was written",
+                            folder_row.source_set
+                        ))
+                    })?,
+            ),
+            false => None,
+        };
+        if placing.is_some() {
+            // The Source Set's folder changes: a repair planned before this Build is refused, as one planned before
+            // another repair is.
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE source_folders SET generation = generation + 1 WHERE source_set_id = ?1",
+                    [folder_row.source_set_id],
+                )?;
+                Ok(())
+            })?;
+        }
         // Then the built files no longer selected: each kept aside, or forgotten when it is gone already.
         let removals: Vec<(i64, &PlanRemoval)> = content
             .removals
@@ -1888,6 +2047,23 @@ impl Store {
             tmp: self.dir().join(crate::TMP),
             build: id,
             cancelled: &cancel_asked,
+            placed: {
+                let mut folders: Vec<i64> = work
+                    .iter()
+                    .flat_map(|w| &w.item.sources)
+                    .filter_map(|s| {
+                        title_select_api::storage::split_placed(&s.path).map(|(f, _)| f)
+                    })
+                    .collect();
+                folders.sort_unstable();
+                folders.dedup();
+                let mut placed = HashMap::new();
+                for f in folders {
+                    let row = self.read(|c| folder_by_id(c, f))?;
+                    placed.insert(f, super::folders::open_folder(config, &row.root, &row.path));
+                }
+                placed
+            },
         };
         if chd_work.chdman.is_ok() {
             std::fs::create_dir_all(&chd_work.tmp).map_err(|e| Error::Io(e.to_string()))?;
@@ -1933,6 +2109,17 @@ impl Store {
             staged_path: PathBuf,
         }
         let disc_system = title_select_api::storage::is_disc_system(&folder_row.system);
+        let placer = place::Placing {
+            build: id,
+            folder,
+            set: folder_row.source_set_id,
+            set_name: &folder_row.source_set,
+            audit,
+            dir: &dir,
+            expected: &expected,
+            to: &chd_work.to,
+            from: &chd_work.from,
+        };
         for unit in &units {
             if cancelled {
                 break;
@@ -1940,6 +2127,14 @@ impl Store {
             if self.cancel_requested(job)? {
                 cancelled = true;
                 break;
+            }
+            // A Game placed is alone in its release, and its unit is its placement.
+            if let ([w], Some(set)) = (unit.as_slice(), &placing)
+                && w.item.kind == ItemKind::Place
+            {
+                self.place(&placer, set, w, (&staging, &mut staged_ids, built_at))?;
+                tick(&mut done);
+                continue;
             }
             // A release of several files, or any disc release, which may clear its other layout or keep an original
             // aside before it goes in place, commits durably: recovery then finishes it rather than drops it.
@@ -2610,7 +2805,17 @@ impl Store {
         let library = job
             .map(|job| job.tally(Some(&folder.root)))
             .unwrap_or_default();
-        let outcome = self.clean_folder(config, (build, &library), &unfinished, &folder, store)?;
+        let outcome = match self.clean_folder(
+            config,
+            (build, &library),
+            &unfinished,
+            &folder,
+            store.clone(),
+        )? {
+            // Then each Game it was placing is rolled forward or back, through the folder at its generation now.
+            Ok(()) => self.recover_placing(config, build, unfinished.plan, &folder, store)?,
+            Err(why) => Err(why),
+        };
         let error = outcome.as_ref().err().cloned();
         self.write(|tx| {
             tx.execute(

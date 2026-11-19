@@ -81,7 +81,10 @@ impl Owner {
     /// Why no deletion of the kept files of `set` can be approved now, or `None`.
     fn busy(self, c: &Connection, set: i64) -> Result<Option<String>> {
         if self == Owner::Source {
-            return repair_active(c, set);
+            return Ok(match repair_active(c, set)? {
+                Some(why) => Some(why),
+                None => crate::placements::placing_build(c, set)?,
+            });
         }
         let deletion: Option<i64> = c
             .query_row(

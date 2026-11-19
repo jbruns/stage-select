@@ -232,6 +232,24 @@ pub enum Fault {
     AfterUnlink(i64),
     /// After a cleanup is planned from what its folder holds, before the plan and the folder's check are stored.
     Scanned,
+    /// After a placing item with this sequence number commits its intent to rename its Source Set file into the
+    /// Library Folder, before the rename.
+    PlaceRenaming(i64),
+    /// After the Source Set file of a placing item with this sequence number is renamed into the Library Folder,
+    /// before either folder is synced or anything is recorded.
+    PlaceMoved(i64),
+    /// After the Source Set file of a placing item with this sequence number is copied into the Library Folder and
+    /// read back, before its Game is recorded placed.
+    PlaceCopied(i64),
+    /// After the Game of a placing item with this sequence number is recorded placed, before its Source Set files are
+    /// deleted.
+    PlaceRecorded(i64),
+    /// After a Source Set file of a placing item with this sequence number is set aside to delete and read back,
+    /// before the placed file is checked a last time and it is deleted.
+    PlaceChecking(i64),
+    /// After a Source Set file of a placing item with this sequence number is deleted, or kept, before the store
+    /// records which.
+    PlaceDisposed(i64),
     /// After the store commits the folder's next generation, before the marker advances to it.
     AfterFinalize,
     /// After the marker advances, before the store records the Build finished.
@@ -1247,6 +1265,108 @@ mod tests {
             .unwrap();
         assert_eq!(ids, [1, 2]);
         assert!(!columns.contains(&"shadow".to_owned()), "{columns:?}");
+    }
+
+    #[test]
+    fn the_single_copy_migration_keeps_every_build_item_and_built_file_so_a_stopped_build_still_recovers()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let before = migrations::MIGRATIONS.len() - 1;
+        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..before]).unwrap());
+        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
+        conn.execute_batch(
+            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
+             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
+                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
+             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
+             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
+             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
+                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');
+             INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system, system_settings,
+                                     pins, summary, coverage_drift, stale_choices, created_at)
+                 VALUES (1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then');
+             INSERT INTO audits (id, source_set_id, dat_revision_id, status, source_set_path, started_at)
+                 VALUES (1, 1, 1, 'finished', 'p', 'then');
+             INSERT INTO library_folders (id, root, path, source_set_id, profile_id, created_at)
+                 VALUES (1, 'play', 'atari', 1, 1, 'then');
+             INSERT INTO plans (id, folder_id, selection_id, generation, content, digest, changes, created_at)
+                 VALUES (1, 1, 1, 0, '{}', 'c', '[]', 'then');
+             INSERT INTO jobs (id, kind, source_set_id, dat_revision_id, library_folder_id, plan_id, state, actor,
+                               readers, hashers, created_at)
+                 VALUES (1, 'build', 1, 1, 1, 1, 'running', 'you', 1, 1, 'then');
+             INSERT INTO builds (id, folder_id, plan_id, job_id, selection_id, audit_id, dat_revision_id, state,
+                                 generation, started_at)
+                 VALUES (1, 1, 1, 1, 1, 1, 1, 'running', 1, 'then');
+             INSERT INTO build_items (build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin,
+                                      chd_sha1, chd_raw_sha1, mtime_ns, unit)
+                 VALUES (1, 0, 'Pong.zip', 'Pong', 'repack', 'publishing', NULL, 'd', 4, 7, 8, 'o', 'e', 'f', 9,
+                         'Pong');
+             INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id,
+                                      dat_revision_id, roms, sources, size, mtime_ns, sha256, torrentzip, loose, chd,
+                                      chd_sha1, chd_raw_sha1)
+                 VALUES (1, 'Combat.zip', 'Combat', 'copy', 1, 1, 1, 1, '[]', '[]', 6, 5, 'g', 1, 0, 0, NULL, NULL);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = Store::open(dir.path()).unwrap();
+        let (item, built) = store
+            .read(|c| {
+                let item = c.query_row(
+                    "SELECT target, kind, state, sha256, size, dev, ino, origin, chd_sha1, chd_raw_sha1, mtime_ns,
+                            unit, place_state, copy_staged
+                     FROM build_items",
+                    [],
+                    |r| {
+                        (0..14)
+                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    },
+                )?;
+                let built = c.query_row(
+                    "SELECT target, kind, sha256, size, mtime_ns FROM built_files",
+                    [],
+                    |r| {
+                        (0..5)
+                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    },
+                )?;
+                Ok((item, built))
+            })
+            .unwrap();
+        use rusqlite::types::Value::{Integer, Null, Text};
+        let text = |s: &str| Text(s.into());
+        // Still publishing, as a stop left it, so recovery settles it as before; and no placement begun.
+        assert_eq!(
+            item,
+            [
+                text("Pong.zip"),
+                text("repack"),
+                text("publishing"),
+                text("d"),
+                Integer(4),
+                Integer(7),
+                Integer(8),
+                text("o"),
+                text("e"),
+                text("f"),
+                Integer(9),
+                text("Pong"),
+                Null,
+                Null
+            ]
+        );
+        assert_eq!(
+            built,
+            [
+                text("Combat.zip"),
+                text("copy"),
+                text("g"),
+                Integer(6),
+                Integer(5)
+            ]
+        );
     }
 
     #[test]

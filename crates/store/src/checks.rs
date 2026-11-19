@@ -530,7 +530,8 @@ pub(super) fn scan(
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e);
                 }
-                Ok(p) if p.sha256 == placed.sha256 => {
+                // One placed by a rename was never read: its stamp alone stood for it, so changed, it is a conflict.
+                Ok(p) if placed.sha256.as_deref() == Some(p.sha256.as_str()) => {
                     if file.outcome == FileOutcome::Unchanged {
                         file.outcome = FileOutcome::Refreshed;
                     }
@@ -598,7 +599,7 @@ pub(super) fn scan(
                         file.outcome = FileOutcome::Unreadable;
                         file.detail = Some(e);
                     }
-                    Ok(p) if p.sha256 == placed.sha256 => {
+                    Ok(p) if placed.sha256.as_deref() == Some(p.sha256.as_str()) => {
                         file.outcome = FileOutcome::Refreshed;
                         out.placed_updates
                             .push((target.clone(), placed.clone(), st));

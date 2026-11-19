@@ -24,6 +24,7 @@ pub fn item_kind_label(kind: ItemKind) -> &'static str {
         ItemKind::KeepAside => "Keep aside",
         ItemKind::Acknowledge => "Acknowledge",
         ItemKind::Restore => "Restore",
+        ItemKind::Place => "Place",
     }
 }
 
@@ -53,6 +54,9 @@ pub fn item_kind_note(kind: ItemKind) -> &'static str {
         ItemKind::KeepAside => "Moved, whole, into the retention area as kept files.",
         ItemKind::Acknowledge => "Left as they are, and no longer reported until they change.",
         ItemKind::Restore => "Kept files put back into the folder.",
+        ItemKind::Place => {
+            "Single copy: moved or copied here from the source set, as its only copy, and taken out of the source set."
+        }
     }
 }
 
@@ -444,6 +448,8 @@ mod tests {
             converts: None,
             addition: None,
             generated: None,
+            place: None,
+            changes_source_set: false,
         }
     }
 
