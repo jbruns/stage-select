@@ -134,6 +134,10 @@ pub struct SystemStorage {
     /// beside its `.cue` or `.chd`. Only a system opts in; there is no default to follow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sbi: Option<bool>,
+    /// Whether a build of the play library folder holding a source set's placed games places each selected game
+    /// there, as its only copy, rather than copying it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_copy: Option<bool>,
 }
 
 impl SystemStorage {
@@ -143,6 +147,7 @@ impl SystemStorage {
             && self.delete_originals.is_none()
             && self.layout.is_none()
             && self.sbi.is_none()
+            && self.single_copy.is_none()
     }
 }
 
@@ -158,6 +163,9 @@ pub struct ScopePolicy {
     /// The layout of disc systems' Play Libraries; Source Sets have none.
     #[serde(default)]
     pub layout: DiscLayout,
+    /// Whether builds place games rather than copy them (Single Copy); play libraries only, off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub single_copy: bool,
     #[serde(default)]
     pub systems: BTreeMap<String, SystemStorage>,
 }
@@ -187,6 +195,8 @@ impl ScopePolicy {
                 .unwrap_or(self.delete_originals),
             layout: discs.then(|| own.and_then(|s| s.layout).unwrap_or(self.layout)),
             sbi: discs && own.and_then(|s| s.sbi).unwrap_or(false),
+            single_copy: scope == StorageScope::PlayLibraries
+                && own.and_then(|s| s.single_copy).unwrap_or(self.single_copy),
         }
     }
 }
@@ -226,6 +236,10 @@ pub struct Storage {
     /// Whether a disc system's Play Library puts each disc's SBI file beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sbi: bool,
+    /// Whether a Play Library holding its Source Set's Placed Games places each selected Game rather than copying it
+    /// (Single Copy, ADR 0023); never for a Source Set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub single_copy: bool,
 }
 
 /// Whether `storage` is the default, TorrentZip with originals kept, which a plan leaves out of its JSON.

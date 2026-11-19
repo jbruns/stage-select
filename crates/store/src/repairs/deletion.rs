@@ -34,25 +34,28 @@ enum Owner {
 }
 
 impl Owner {
-    /// `sql` with `{kept}`, `{owner}`, `{plan}` and `{deletions}` naming this owner's tables and columns.
+    /// `sql` with `{kept}`, `{owner}`, `{plan}`, `{build}` and `{deletions}` naming this owner's tables and columns.
     fn sql(self, sql: &str) -> String {
-        let (kept, owner, plan, deletions) = match self {
+        let (kept, owner, plan, build, deletions) = match self {
             Owner::Source => (
                 "source_kept",
                 "source_set_id",
                 "plan_id",
+                "build_id",
                 "source_kept_deletions",
             ),
             Owner::Additions => (
                 "additions_kept",
                 "additions_set_id",
                 "addition_id",
+                "NULL",
                 "additions_kept_deletions",
             ),
         };
         sql.replace("{kept}", kept)
             .replace("{owner}", owner)
             .replace("{plan}", plan)
+            .replace("{build}", build)
             .replace("{deletions}", deletions)
     }
 
@@ -81,7 +84,10 @@ impl Owner {
     /// Why no deletion of the kept files of `set` can be approved now, or `None`.
     fn busy(self, c: &Connection, set: i64) -> Result<Option<String>> {
         if self == Owner::Source {
-            return repair_active(c, set);
+            return Ok(match repair_active(c, set)? {
+                Some(why) => Some(why),
+                None => crate::placements::placing_build(c, set)?,
+            });
         }
         let deletion: Option<i64> = c
             .query_row(
@@ -101,7 +107,7 @@ impl Owner {
 }
 
 const KEPT_QUERY: &str = "SELECT id, {owner}, {plan}, generation, name, kept_name, reason, sha256, size, \
-     mtime_ns, dev, ino, kept_at FROM {kept}";
+     mtime_ns, dev, ino, kept_at, {build} FROM {kept}";
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<SourceKeptFile> {
     let mtime: String = r.get(9)?;
@@ -109,6 +115,7 @@ fn kept_from_row(r: &Row) -> rusqlite::Result<SourceKeptFile> {
         id: r.get(0)?,
         source_set: r.get(1)?,
         plan: r.get(2)?,
+        build: r.get(13)?,
         generation: r.get::<_, i64>(3)? as u64,
         name: r.get(4)?,
         kept_name: r.get(5)?,

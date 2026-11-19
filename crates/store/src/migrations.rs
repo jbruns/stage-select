@@ -46,6 +46,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0035_job_throughput.sql"),
     include_str!("migrations/0036_calibration.sql"),
     include_str!("migrations/0037_placements.sql"),
+    include_str!("migrations/0038_single_copy.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

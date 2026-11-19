@@ -135,6 +135,8 @@ fn built_item(
         converts: None,
         addition: None,
         generated: None,
+        place: None,
+        changes_source_set: false,
     }
 }
 
@@ -474,6 +476,7 @@ impl Run<'_> {
             tmp: self.store.dir().join(crate::TMP),
             build: self.build,
             cancelled: &cancelled,
+            placed: HashMap::new(),
         };
         let game = e.game.as_deref().unwrap_or_default();
         let set_fd = match e.sources.is_empty() {

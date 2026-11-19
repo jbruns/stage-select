@@ -1,6 +1,6 @@
 //! Placements (ADR 0023): a Source Set's Games placed in the Library Folder that holds them, and the Audits, checks,
-//! Repairs and unregistering that follow them there. No Build places a Game yet, so each test records its Placements
-//! directly, from synthetic DATs, Source Sets and files.
+//! Repairs and unregistering that follow them there. Each test records its Placements directly, from synthetic DATs,
+//! Source Sets and files; `single_copy` places them by Builds.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

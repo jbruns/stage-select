@@ -1,6 +1,7 @@
 //! Carrying a file into a folder that no rename reaches, on another filesystem (ADR 0023): a Placed Game's file a
 //! repair keeps aside into its Source Set's kept files, or a file a repair wrote put in place in the Library Folder
-//! holding its Game. Builds that place Games carry them the same way.
+//! holding its Game. Builds that place Games carry them the same way, and delete the Source Set's files a Game was
+//! converted from, or that a file built from them stands in for, as [`dispose_as`].
 //!
 //! The copy is made under a staged name recorded first, read back and checked against the SHA-256 the original was
 //! read as while it held still, and published by a rename that never replaces anything. Only then is the original
@@ -73,6 +74,21 @@ pub(crate) trait Intents {
     /// Called once the original is set aside to delete and read back, just before its published copy is checked a
     /// last time: a point a test can change the copy at.
     fn verifying(&self) {}
+    /// Whether the folder the copy was published in is still the one at its registered path, checked last, once the
+    /// copy holds: why not, otherwise, and the original is then not deleted.
+    fn in_place(&self) -> Result<std::result::Result<(), String>> {
+        Ok(Ok(()))
+    }
+    /// Takes the original, set aside in `slot` of its `.deleting` folder and not proven unchanged, somewhere other
+    /// than back where it was, saying where; `None` puts it back. `Err` leaves it in its slot, recorded, for recovery.
+    fn keep_instead(
+        &self,
+        _o: &Original,
+        _slot: &str,
+        _why: &str,
+    ) -> Result<Option<std::result::Result<String, String>>> {
+        Ok(None)
+    }
 }
 
 fn io_err(e: io::Error) -> Error {
@@ -268,7 +284,7 @@ fn open_published(d: &Dest, intent: &Intent) -> Result<std::result::Result<Held,
     }
 }
 
-/// Whether `held` is still the copy at `d`'s name, as [`Held::still`].
+/// Whether `held` is still the copy at `d`'s name, as [`Held::still`], reading as `sha`.
 fn still_holds(d: &Dest, held: &Held, sha: &str) -> Result<std::result::Result<(), String>> {
     held.still(d.dir, d.name, sha, d.tally)
 }
@@ -279,12 +295,22 @@ pub(crate) fn published_holds(
     d: &Dest,
     intents: &dyn Intents,
 ) -> Result<std::result::Result<(), String>> {
+    published_holds_as(d, intents, None)
+}
+
+/// As [`published_holds`], for a published file that reads as `published`, when it is not a copy of the original
+/// but converted from it.
+fn published_holds_as(
+    d: &Dest,
+    intents: &dyn Intents,
+    published: Option<&str>,
+) -> Result<std::result::Result<(), String>> {
     let intent = intents.load()?;
     let Some(sha) = &intent.sha256 else {
         return Ok(Err("no copy of it is recorded".into()));
     };
     Ok(match open_published(d, &intent)? {
-        Ok(held) => still_holds(d, &held, sha)?,
+        Ok(held) => still_holds(d, &held, published.unwrap_or(sha))?,
         Err(why) => Err(why),
     })
 }
@@ -296,6 +322,18 @@ pub(crate) fn dispose(
     o: &Original,
     d: &Dest,
     intents: &dyn Intents,
+) -> Result<std::result::Result<(), String>> {
+    dispose_as(o, d, intents, None)
+}
+
+/// As [`dispose`], for an original that `d`, published as the file [`Intent::staged_id`] names, stands in for though it
+/// is not a copy of it: a file converted from it, or built from the same ROMs, which reads as `published`. `o` must
+/// still read as [`Intent::sha256`], and `d` as `published`, for `o` to be deleted.
+pub(crate) fn dispose_as(
+    o: &Original,
+    d: &Dest,
+    intents: &dyn Intents,
+    published: Option<&str>,
 ) -> Result<std::result::Result<(), String>> {
     let mut intent = intents.load()?;
     let Some(sha) = intent.sha256.clone() else {
@@ -317,7 +355,7 @@ pub(crate) fn dispose(
             match o.dir.stat(o.name).map_err(io_err)? {
                 // Gone already, by another hand: nothing is left to delete, while its copy holds.
                 None => {
-                    return Ok(published_holds(d, intents)?
+                    return Ok(published_holds_as(d, intents, published)?
                         .map_err(|why| format!("{} is gone, and {why}", o.label)));
                 }
                 Some(_) if let Err(why) = &held => {
@@ -376,7 +414,7 @@ pub(crate) fn dispose(
             .is_some_and(|st| is_file(&st, o.id));
         unslot(&mut intent)?;
         return match still {
-            true => dispose(o, d, intents),
+            true => dispose_as(o, d, intents, published),
             false => Ok(Ok(())),
         };
     };
@@ -398,7 +436,10 @@ pub(crate) fn dispose(
     let holds = match (&held, unchanged) {
         (Ok(held), true) => {
             intents.verifying();
-            still_holds(d, held, &sha)?
+            match still_holds(d, held, published.unwrap_or(&sha))? {
+                Ok(()) => intents.in_place()?,
+                Err(why) => Err(why),
+            }
         }
         (Ok(_), false) => Ok(()),
         (Err(why), _) => Err(why.clone()),
@@ -409,7 +450,7 @@ pub(crate) fn dispose(
         unslot(&mut intent)?;
         return Ok(Ok(()));
     }
-    // Never deleted unproven: put back where it was.
+    // Never deleted unproven: kept, or put back where it was.
     let why = match holds {
         Err(why) => format!("{} was not deleted, since {why}", o.label),
         Ok(()) => format!(
@@ -417,6 +458,17 @@ pub(crate) fn dispose(
             o.label
         ),
     };
+    if let Some(kept) = intents.keep_instead(o, &slot, &why)? {
+        return match kept {
+            Ok(kept) => {
+                unslot(&mut intent)?;
+                Ok(Err(format!("{why}, so it was {kept}")))
+            }
+            Err(e) => Ok(Err(format!(
+                "{why}, and could not be kept ({e}); it was left at .title-select/retained/.deleting/{slot}"
+            ))),
+        };
+    }
     match o.deleting.rename_new(&slot, o.dir, o.name) {
         Ok(()) => {
             o.deleting.sync().map_err(io_err)?;

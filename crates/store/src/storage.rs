@@ -13,7 +13,7 @@ const SCOPES: [StorageScope; 2] = [StorageScope::SourceSets, StorageScope::PlayL
 
 fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
     let mut stmt = c.prepare(
-        "SELECT system, format, delete_originals, layout, sbi FROM storage_policy WHERE scope = ?1
+        "SELECT system, format, delete_originals, layout, sbi, single_copy FROM storage_policy WHERE scope = ?1
          ORDER BY system",
     )?;
     let rows = stmt
@@ -24,17 +24,19 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
                 r.get::<_, Option<bool>>(2)?,
                 r.get::<_, Option<String>>(3)?,
                 r.get::<_, Option<bool>>(4)?,
+                r.get::<_, Option<bool>>(5)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut policy = ScopePolicy::default();
-    for (system, format, delete_originals, layout, sbi) in rows {
+    for (system, format, delete_originals, layout, sbi, single_copy) in rows {
         let format = format.as_deref().and_then(StorageFormat::parse);
         let layout = layout.as_deref().and_then(DiscLayout::parse);
         if system.is_empty() {
             policy.format = format.unwrap_or_default();
             policy.delete_originals = delete_originals.unwrap_or(false);
             policy.layout = layout.unwrap_or_default();
+            policy.single_copy = single_copy.unwrap_or(false);
         } else {
             policy.systems.insert(
                 system,
@@ -43,6 +45,7 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
                     delete_originals,
                     layout,
                     sbi,
+                    single_copy,
                 },
             );
         }
@@ -70,6 +73,11 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
         |r| r.get(0),
     )?;
     let discs = if laid { "layout, sbi" } else { "NULL, NULL" };
+    let single: bool = c.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'single_copy'",
+        [],
+        |r| r.get(0),
+    )?;
     let rows = c
         .prepare(&format!(
             "SELECT scope, system, format, delete_originals, {discs} FROM storage_policy
@@ -130,6 +138,17 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
                         params![scope, canonical, kept_layout.or(layout), kept_sbi.or(sbi)],
                     )?;
                 }
+                if single {
+                    // Single Copy deletes originals too: as with them, off over following the default over on.
+                    c.execute(
+                        "UPDATE storage_policy SET single_copy = (
+                             SELECT CASE min(CASE single_copy WHEN 0 THEN 0 WHEN 1 THEN 2 ELSE 1 END)
+                                    WHEN 0 THEN 0 WHEN 2 THEN 1 END
+                             FROM storage_policy WHERE scope = ?1 AND system IN (?2, ?3))
+                         WHERE scope = ?1 AND system = ?2",
+                        params![scope, canonical, system],
+                    )?;
+                }
                 c.execute(
                     "DELETE FROM storage_policy WHERE scope = ?1 AND system = ?2",
                     params![scope, system],
@@ -144,6 +163,13 @@ fn check(policy: &StoragePolicy) -> Result<()> {
     let play = &policy.play_libraries;
     // A source set holds each game as the DAT lists it, so only a disc system's play libraries lay out its discs.
     let sources = &policy.source_sets;
+    if sources.single_copy || sources.systems.values().any(|s| s.single_copy.is_some()) {
+        return Err(Error::Refused(
+            "single copy is a choice for play libraries: a source set's games are placed in the play library \
+             folder that holds them"
+                .into(),
+        ));
+    }
     if sources.layout != DiscLayout::default()
         || sources
             .systems
@@ -251,14 +277,15 @@ impl Store {
             for scope in SCOPES {
                 let own = policy.scope(scope);
                 tx.execute(
-                    "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, updated_by,
-                                                 updated_at)
-                     VALUES (?1, '', ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, single_copy,
+                                                 updated_by, updated_at)
+                     VALUES (?1, '', ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         scope.as_str(),
                         own.format.as_str(),
                         own.delete_originals,
                         (scope == StorageScope::PlayLibraries).then(|| own.layout.as_str()),
+                        (scope == StorageScope::PlayLibraries).then_some(own.single_copy),
                         actor,
                         at
                     ],
@@ -274,8 +301,8 @@ impl Store {
                     let system = &canonical;
                     tx.execute(
                         "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, sbi,
-                                                     updated_by, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                                     single_copy, updated_by, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                         params![
                             scope.as_str(),
                             system,
@@ -283,6 +310,7 @@ impl Store {
                             s.delete_originals,
                             s.layout.map(DiscLayout::as_str),
                             s.sbi,
+                            s.single_copy,
                             actor,
                             at
                         ],

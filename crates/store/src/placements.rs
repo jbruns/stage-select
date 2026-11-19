@@ -1,8 +1,8 @@
 //! Placements (ADR 0023): where a Source Set keeps each of its Games, in its own folder or in the Library Folder that
 //! holds its Placed Games. A Placed Game stays its Source Set's: its Audits read its recorded files where they are
 //! placed, a Repair renames, repacks or replaces them there or keeps them aside into the Source Set's kept files, and
-//! while any Game is placed neither the Library Folder nor the Source Set can be unregistered. Builds don't place
-//! Games yet; [`Store::record_placement`] records one.
+//! while any Game is placed neither the Library Folder nor the Source Set can be unregistered. A Build under Single
+//! Copy places them (see `builds::place`); [`Store::record_placement`] records one for tests.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::Stat;
@@ -205,6 +205,20 @@ pub(crate) fn place_file(
     st: &Stat,
     sha256: &str,
 ) -> Result<()> {
+    place_file_as(tx, set, folder, path, game, st, Some(sha256))
+}
+
+/// As [`place_file`], for a file that may not have been read: one a Build placed by a rename, whose Audit's payload
+/// Evidence stands for it.
+pub(crate) fn place_file_as(
+    tx: &Transaction,
+    set: i64,
+    folder: i64,
+    path: &str,
+    game: &str,
+    st: &Stat,
+    sha256: Option<&str>,
+) -> Result<()> {
     tx.execute(
         "INSERT OR IGNORE INTO placed_games (source_set_id, game, folder_id, placed_at) VALUES (?1, ?2, ?3, ?4)",
         params![set, game, folder, now()],
@@ -299,8 +313,8 @@ impl Store {
     }
 
     /// Names Library Folder `folder`, which must be registered and bound to Source Set `name`, as the one holding its
-    /// Placed Games; `None` names none. Refused while Games of the Source Set are placed in another folder. Changes no
-    /// file.
+    /// Placed Games; `None` names none. Refused while Games of the Source Set are placed in another folder, and while a
+    /// Build placing its Games is queued or running. Changes no file.
     pub fn set_holding_folder(&self, name: &str, folder: Option<i64>) -> Result<()> {
         self.write(|tx| {
             let set = set_by_name(tx, name)?;
@@ -314,6 +328,12 @@ impl Store {
                         row.root, row.path, row.source_set
                     )));
                 }
+            }
+            // A Build placing its Games goes on into the folder it was approved for: the choice waits for it.
+            if let Some(why) = placing_build(tx, set.id)? {
+                return Err(Error::Conflict(format!(
+                    "the folder holding source set {name}'s games can't change now: {why}"
+                )));
             }
             let elsewhere: Option<(i64, String, String)> = tx
                 .query_row(
@@ -448,10 +468,9 @@ fn read_folders(c: &Connection, set: i64) -> Result<Vec<i64>> {
     Ok(folders)
 }
 
-/// Refuses to start an Audit of Source Set `set_name` (`set`) while a Build or cleanup of a Library Folder holding
-/// its Placed Games is queued or running: it would change files the Audit reads. Called in the transaction that
-/// queues or starts the Audit.
-pub(crate) fn check_no_holding_build(c: &Connection, set: i64, set_name: &str) -> Result<()> {
+/// The Build or cleanup Job of a Library Folder holding Source Set `set`'s Placed Games, or to hold them, that is
+/// queued or running: it may place them, which changes the Source Set's folder, or change the files placed there.
+fn holding_build(c: &Connection, set: i64) -> Result<Option<i64>> {
     for folder in read_folders(c, set)? {
         let job: Option<i64> = c
             .query_row(
@@ -461,14 +480,72 @@ pub(crate) fn check_no_holding_build(c: &Connection, set: i64, set_name: &str) -
                 |r| r.get(0),
             )
             .optional()?;
-        if let Some(job) = job {
-            return Err(Error::Conflict(format!(
-                "build job {job} of the play library folder holding source set {set_name}'s placed games is queued \
-                 or running; audit the source set once it ends"
-            )));
+        if job.is_some() {
+            return Ok(job);
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+/// Refuses to start an Audit of Source Set `set_name` (`set`) while a Build placing its Games, or a Build or cleanup of
+/// a Library Folder holding its Placed Games, is queued or running: it would change files the Audit reads. Called in the transaction that
+/// queues or starts the Audit.
+pub(crate) fn check_no_holding_build(c: &Connection, set: i64, set_name: &str) -> Result<()> {
+    // A Build placing its Games changes the Source Set's folder, whichever folder holds its Games now.
+    if let Some(why) = placing_build(c, set)? {
+        return Err(Error::Conflict(format!(
+            "source set {set_name} can't be audited now: {why}"
+        )));
+    }
+    match holding_build(c, set)? {
+        Some(job) => Err(Error::Conflict(format!(
+            "build job {job} of the play library folder holding source set {set_name}'s placed games is queued \
+             or running; audit the source set once it ends"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Why nothing else may change Source Set `set`'s folder now, when a Build whose plan places its Games is queued,
+/// running, or stopped and not yet recovered: the Source Set is locked as for a repair.
+pub(crate) fn placing_build(c: &Connection, set: i64) -> Result<Option<String>> {
+    let job: Option<i64> = c
+        .query_row(
+            "SELECT j.id FROM jobs j
+             JOIN library_folders f ON f.id = j.library_folder_id
+             JOIN plans p ON p.id = j.plan_id
+             WHERE f.source_set_id = ?1 AND j.kind = 'build' AND j.state IN ('queued', 'running')
+               AND EXISTS (SELECT 1 FROM json_each(p.content, '$.items')
+                           WHERE json_extract(value, '$.kind') = 'place')",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(job) = job {
+        return Ok(Some(format!(
+            "build job {job} places the source set's games and is queued or running; try again once it ends"
+        )));
+    }
+    // One that stopped part way, until recovery finishes it: its Games may be part moved.
+    let build: Option<(i64, Option<String>)> = c
+        .query_row(
+            "SELECT b.id, b.recovery_error FROM builds b
+             JOIN library_folders f ON f.id = b.folder_id
+             JOIN plans p ON p.id = b.plan_id
+             WHERE f.source_set_id = ?1 AND b.cleaned_at IS NULL
+               AND EXISTS (SELECT 1 FROM json_each(p.content, '$.items')
+                           WHERE json_extract(value, '$.kind') = 'place')",
+            [set],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(build.map(|(build, why)| match why {
+        Some(why) => format!("build {build}, which places the source set's games, is unfinished: {why}"),
+        None => format!(
+            "build {build}, which places the source set's games, is unfinished; the service finishes it when it \
+             next starts"
+        ),
+    }))
 }
 
 /// Refuses to queue a Build or cleanup of Library Folder `folder` while it holds, or is to hold, the Placed Games of
@@ -501,4 +578,133 @@ pub(crate) fn check_no_audit_reading(c: &Connection, folder: i64) -> Result<()> 
         ))),
         None => Ok(()),
     }
+}
+
+/// Records, in Source Set `set`'s Audit `audit`, that its file `from`, found as `was`, is now its Placed Game's file
+/// `to`, as Audits name it ([`title_select_api::storage::placed_path`]), statted as `now`: moved by a Build that
+/// didn't change it, renamed or copied and read back. Its Entries follow it with their Evidence, and so does the
+/// payload read an Incremental Audit reuses, but only while it was of the file as `was` found it.
+pub(crate) fn moved_entries(
+    tx: &Transaction,
+    (set, audit): (i64, i64),
+    from: &str,
+    to: &str,
+    was: &title_select_api::build::PlacedOriginal,
+    now: &Stat,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE audit_entries SET path = ?3 WHERE audit_id = ?1 AND path = ?2",
+        params![audit, from, to],
+    )?;
+    let (file, identity) = (file_stat(now), Identity::of(now));
+    tx.execute(
+        "UPDATE OR REPLACE payload_reads SET path = ?8, dev = ?9, ino = ?10, size = ?11, mtime_ns = ?12, ctime_ns = ?13
+         WHERE source_set_id = ?1 AND path = ?2 AND dev = ?3 AND ino = ?4 AND size = ?5 AND mtime_ns = ?6
+           AND ctime_ns = ?7",
+        params![
+            set,
+            from,
+            was.identity.dev as i64,
+            was.identity.ino as i64,
+            was.file.size as i64,
+            was.file.mtime_ns as i64,
+            was.ctime_ns as i64,
+            to,
+            identity.dev as i64,
+            identity.ino as i64,
+            file.size as i64,
+            file.mtime_ns as i64,
+            ctime_ns(now) as i64
+        ],
+    )?;
+    tx.execute(
+        "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+        params![set, from],
+    )?;
+    Ok(())
+}
+
+/// A placed file whose Entries [`rewritten_entries`] writes: its path as an Audit names it, and the ROMs of `game` it
+/// holds, as members of an archive or, `loose`, as the file itself.
+pub(crate) struct Rewritten<'a> {
+    pub path: &'a str,
+    pub game: &'a str,
+    pub roms: &'a [title_select_api::build::ExpectedRom],
+    pub loose: bool,
+}
+
+/// Records, in Source Set `set`'s Audit `audit`, that its Game `game`'s files `from` were converted into, or are
+/// stood in for by, its Placed Game's file `to`, holding `roms` loose or as a TorrentZip and checked to hold exactly
+/// them: each ROM's Entry is now of `to`, with the Evidence its payload was matched by, and the payload reads of
+/// `from` are forgotten, so that an Incremental Audit reads `to`.
+pub(crate) fn rewritten_entries(
+    tx: &Transaction,
+    (set, audit): (i64, i64),
+    from: &[&str],
+    to: &[Rewritten],
+) -> Result<()> {
+    use title_select_api::report::{Finding, RomRef};
+    let mut was = Vec::new();
+    for path in from {
+        let mut stmt = tx.prepare(&format!(
+            "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
+            crate::audits::ENTRY_COLUMNS
+        ))?;
+        let mut rows = stmt.query(params![audit, path])?;
+        while let Some(row) = rows.next()? {
+            was.push(crate::audits::entry_from_row(row)?);
+        }
+        tx.execute(
+            "DELETE FROM audit_entries WHERE audit_id = ?1 AND path = ?2",
+            params![audit, path],
+        )?;
+        tx.execute(
+            "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+            params![set, path],
+        )?;
+    }
+    let mut next: i64 = tx.query_row(
+        "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
+        [audit],
+        |r| r.get(0),
+    )?;
+    for t in to {
+        let game = t.game;
+        for rom in t.roms {
+            let evidence = was
+                .iter()
+                .find(|e| e.roms.iter().any(|r| r.game == game && r.name == rom.name))
+                .and_then(|e| e.evidence.clone())
+                .ok_or_else(|| {
+                    Error::Io(format!(
+                        "{game}: the audit has no evidence for {} to carry over",
+                        rom.name
+                    ))
+                })?;
+            let roms = serde_json::to_string(&[RomRef {
+                game: game.to_owned(),
+                name: rom.name.clone(),
+            }])
+            .map_err(|e| Error::Io(e.to_string()))?;
+            tx.execute(
+                "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
+                                            evidence_level, algorithms, reason, read_at, reused, header_bytes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, ?7, ?8, NULL, ?9, 0, ?10)",
+                params![
+                    audit,
+                    next,
+                    t.path,
+                    (!t.loose).then_some(rom.name.as_str()),
+                    Finding::Matched.as_str(),
+                    roms,
+                    evidence.level.as_str(),
+                    evidence.algorithms.join(","),
+                    evidence.read_at.map(|at| at.to_string()),
+                    evidence.header.map(|h| h.bytes as i64)
+                ],
+            )?;
+            next += 1;
+        }
+    }
+    Ok(())
 }
