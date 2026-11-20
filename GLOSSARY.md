@@ -13,6 +13,10 @@ _Avoid_: datfile, database
 The structure used to express a DAT, such as Logiqx XML, MAME ListXML or a MAME software list. A DAT Format does not
 establish its DAT Provider.
 
+**Arcade DAT**:
+A DAT of arcade machines, such as MAME's ListXML, whose Selections choose one Game per family from what the DAT says
+of each machine, rather than from release names.
+
 **DAT Provider**:
 The group that publishes a DAT, such as No-Intro, Redump or MAME; an author or a DAT Format alone does not establish
 it. Title Select fetches only from a DAT Provider that permits automated fetching, and only when the Operator turns
@@ -29,8 +33,8 @@ missing ROMs of its Incomplete Games, optionally only those a Selection chose. T
 _Avoid_: Missing list, wanted list
 
 **Game**:
-An entry in a DAT Revision: one release, made of one or more ROMs. The product says Game; Title is an accepted
-synonym in conversation.
+An entry in a DAT Revision: one release, or in a MAME DAT one machine or software item, made of the ROMs it lists.
+The product says Game; Title is an accepted synonym in conversation, and machine for an entry of a MAME ListXML DAT.
 _Avoid_: set
 
 **Multi-disc Game**:
@@ -41,7 +45,17 @@ _Avoid_: Disc Set, multi-disc set
 
 **ROM**:
 One expected file of a Game, with its name, size and checksums as the DAT Revision gives them. Also used for any
-file, such as a `.wav` or `.cue`, that a DAT lists.
+file, such as a `.wav` or `.cue`, that a DAT lists. A ROM the DAT marks as having no good dump never matches a file,
+and one it marks optional need not be present.
+
+**Disk**:
+A ROM that a MAME DAT lists by SHA-1 alone, kept as a CHD whose header records that SHA-1.
+_Avoid_: CHD (when meaning the DAT's entry)
+
+**Dependency**:
+A Game that another Game needs in order to run, such as the BIOS or a device a MAME machine names. It has its own Game
+Status, and a Selection can include it without ever choosing it as a release.
+_Avoid_: BIOS set (when meaning any Dependency), required set
 
 ## Collections
 
@@ -57,7 +71,8 @@ The regions of its DAT's Games that a Source Set intends to preserve; without on
 covered when any of its regions is, and a World Game is covered by every Coverage; a Game whose region is unknown is
 covered only when its Coverage names the Unknown region, and is shown as such. Coverage is what a Source Set keeps, not what a player wants: that is a Selection
 Profile's. A Game outside Coverage is never reported Missing, nor filled or listed in a Fixdat, but one that is present
-still counts and is kept. A Selection from a Source Set chooses only among the Games it covers.
+still counts and is kept. A Selection from a Source Set chooses only among the Games it covers. A Source Set of an
+Arcade DAT has no Coverage.
 _Avoid_: Scope, subset, Filtered DAT, region filter (when meaning Coverage)
 
 **Follow**:
@@ -189,14 +204,15 @@ An Entry whose Finding is Misnamed, Conflicting, Mismatched, Unmatched or Unread
 remains unresolved.
 
 **Game Status**:
-An Audit's verdict on one Game: _Complete_ (every ROM present), _Incomplete_ (some), or _Missing_ (none). A
+An Audit's verdict on one Game: _Complete_ (every ROM present), _Incomplete_ (some), _Missing_ (none), or _Nothing
+to Check_ (it lists no ROM that must be present and can match). Its Dependencies' Game Status never changes it. A
 Misnamed or Conflicting Entry counts towards the Game its payload matches, unless it is Available Elsewhere. A ROM
 present only on Claim Evidence still counts, but the status names it as resting on claims, and a Build never sources it.
 
 **Available Elsewhere**:
 A Game's ROM whose bytes are present only inside another Game's ZIP or folder. It doesn't count towards the Game's
-Game Status, but a Repair may fill the Game from it. A clone's parent's ZIP or folder is the clone's own, not another
-Game's: merged and split sets keep a clone's files there.
+Game Status, but a Repair may fill the Game from it. Its ancestors' ZIPs or folders, its parent's and its BIOS's, are
+the Game's own, not another Game's: merged and split sets keep shared files there.
 
 ## Selection and change
 
@@ -262,7 +278,8 @@ _Avoid_: Corruption (when meaning any difference)
 **Storage Policy**:
 How each folder stores a Game: as TorrentZip, one `<game>.zip` per Game; loose, as its one ROM under the DAT's
 name; or as a loose folder, `<game>/` holding its ROMs under the DAT's names. A Play Library may also store a disc
-Game as CHD, one `<game>.chd` per disc, where its system's own setting says so; a Source Set never does. It has two scopes, Source Sets and Play Libraries, each with a global default and
+Game as CHD, one `<game>.chd` per disc, where its system's own setting says so; a Source Set never does, though a MAME Source Set
+holds its Disks as the CHDs its DAT lists. It has two scopes, Source Sets and Play Libraries, each with a global default and
 per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere, except loose folder for disc
 systems' Source Sets. Only a Game with one ROM can be stored loose; a Game with more stays TorrentZip or a loose
 folder, and the plan says why. The Games of one release share one format. Every write of a Game into a folder, by a
@@ -274,6 +291,13 @@ A Storage Policy setting of a disc system's Play Libraries, global with per-syst
 go. The ES-DE layout, the default, puts a disc of one file in the system folder, and gathers a disc Game of several
 files, or a Multi-disc Game with its generated `.m3u`, into one folder that front ends treat as a single entry. The
 flat layout puts every file in the system folder, with no `.m3u`.
+
+**Set Layout**:
+A Storage Policy setting of MAME systems: where a family's shared ROMs live. _Non-merged_, the default, gives each
+Game one ZIP holding everything it needs, its Dependencies' ROMs included; _split_ keeps what a clone shares with its
+parent in the parent's ZIP; _merged_ keeps a whole family in its parent's ZIP. A family's Disks are always merged, in
+a folder named for its parent, except in a Play Library, where each Game's Disks sit in its own folder.
+_Avoid_: merged (when meaning a CHD that needs its parent: that is a delta CHD)
 
 **Conversion**:
 Rewriting a Game stored in one format into the one the Storage Policy now gives its folder, with exactly the same
