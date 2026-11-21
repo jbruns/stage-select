@@ -2705,8 +2705,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
     }
 
-    // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of ROMs the own
-    // file of a Game kept there holds, where the layout keeps them once repaired. A Placed Game's files are in a Library
+    // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of ROMs that a
+    // Game's own file there holds, where the layout keeps them once repaired. A Placed Game's files are in a Library
     // Folder, apart from the Source Set's folder: they never make a file of it a spare copy, and are never one
     // themselves, as a placed file holding a ROM leaves its Library Folder only when its Game returns home or is
     // repaired there.
@@ -2818,59 +2818,66 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     proposed.extend(aside);
 
     // A file kept aside by default is left when it holds the last copy in the Source Set of a ROM, so a repair as it is
-    // by default never loses one. What you chose to keep aside is kept aside even then, which the item says: it can be
-    // restored from the kept files.
-    let last_copies = |proposed: &[Proposed], n: usize| -> Vec<String> {
-        let p = &proposed[n];
-        if p.checked
-            || !matches!(
-                p.item.chosen,
-                RepairChoice::KeepAside | RepairChoice::AddAddition
-            )
-        {
-            return Vec::new();
-        }
+    // by default never loses one. What the Operator chose to keep aside is kept aside even then, which the item says: it
+    // can be restored from the kept files.
+    loop {
         let preserved = Preserved::of(
-            proposed,
+            &proposed,
             &dat_roms,
             &held_by,
             i.placed_files,
             &layout_index,
             &owners,
         );
-        let lost: BTreeSet<String> = p
-            .displaces
+        let last: Vec<(usize, Vec<String>)> = proposed
             .iter()
-            .filter_map(|(path, _)| usable.get(path.as_str()))
-            .flat_map(|file| preserved.lost(file))
-            .map(|(game, name)| format!("{name} of {game}"))
+            .enumerate()
+            .filter(|(_, p)| {
+                !p.checked
+                    && matches!(
+                        p.item.chosen,
+                        RepairChoice::KeepAside | RepairChoice::AddAddition
+                    )
+            })
+            .filter_map(|(n, p)| {
+                let lost: BTreeSet<String> = p
+                    .displaces
+                    .iter()
+                    .filter_map(|(path, _)| usable.get(path.as_str()))
+                    .flat_map(|file| preserved.lost(file))
+                    .map(|(game, name)| format!("{name} of {game}"))
+                    .collect();
+                (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
+            })
             .collect();
-        lost.into_iter().collect()
-    };
-    while let Some((n, lost)) = (0..proposed.len())
-        .filter(|&n| !i.choices.contains_key(&proposed[n].item.key))
-        .map(|n| (n, last_copies(&proposed, n)))
-        .find(|(_, lost)| !lost.is_empty())
-    {
-        let item = &mut proposed[n].item;
-        item.default = RepairChoice::Leave;
-        item.chosen = RepairChoice::Leave;
-        item.note = Some(format!(
-            "left as it is: it holds the last copy in the source set of {}",
-            lost.join(", ")
-        ));
-    }
-    let last: Vec<(usize, Vec<String>)> = (0..proposed.len())
-        .map(|n| (n, last_copies(&proposed, n)))
-        .filter(|(_, lost)| !lost.is_empty())
-        .collect();
-    for (n, lost) in last {
-        let item = &mut proposed[n].item;
-        item.default = RepairChoice::Leave;
-        item.note = Some(format!(
-            "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
-            lost.join(", ")
-        ));
+        // One file at a time, as leaving it may leave a copy that another one need not keep.
+        match last
+            .iter()
+            .find(|(n, _)| !i.choices.contains_key(&proposed[*n].item.key))
+        {
+            Some((n, lost)) => {
+                let item = &mut proposed[*n].item;
+                item.default = RepairChoice::Leave;
+                item.chosen = RepairChoice::Leave;
+                item.note = Some(format!(
+                    "left as it is: it holds the last copy in the source set of {}; if you choose to keep it aside, \
+                     you can restore it from the kept files",
+                    lost.join(", ")
+                ));
+            }
+            None => {
+                for (n, lost) in last {
+                    let item = &mut proposed[n].item;
+                    item.default = RepairChoice::Leave;
+                    item.note = Some(format!(
+                        "this keeps aside the last copy in the source set of {}; you can restore it from the kept \
+                         files",
+                        lost.join(", ")
+                    ));
+                }
+                break;
+            }
+        }
     }
 
     if stays_zip > 0 {

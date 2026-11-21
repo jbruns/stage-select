@@ -817,15 +817,15 @@ fn listxml_optional() -> String {
 
 #[test]
 fn a_placed_clone_without_an_optional_rom_its_parent_holds_stays_placed_in_any_layout() {
-    for layout in [SetLayout::NonMerged, SetLayout::Split, SetLayout::Merged] {
-        a_placed_clone_without_an_optional_rom_stays_placed_under(layout);
+    for layout in SetLayout::ALL {
+        a_placed_clone_without_an_optional_rom_its_parent_holds_stays_placed_under(layout);
     }
 }
 
 /// The parent is stored as `layout` keeps it, and its clone, which shares every ROM it needs with the parent, is placed
 /// without the optional ROM only the parent's ZIP holds: no item keeps the placed ZIP aside, and applying the plan as it
 /// is by default leaves it placed as it is.
-fn a_placed_clone_without_an_optional_rom_stays_placed_under(layout: SetLayout) {
+fn a_placed_clone_without_an_optional_rom_its_parent_holds_stays_placed_under(layout: SetLayout) {
     let env = Env::with(listxml_optional());
     env.zip("acmebios.zip", &["bios.u1"]);
     env.zip("acmesnd.zip", &["snd.u2"]);
@@ -884,14 +884,14 @@ fn a_placed_clone_without_an_optional_rom_stays_placed_under(layout: SetLayout) 
 
 #[test]
 fn a_placed_clones_copy_never_makes_the_source_sets_only_copy_a_spare_one_in_any_layout() {
-    for layout in [SetLayout::NonMerged, SetLayout::Split, SetLayout::Merged] {
-        the_only_copy_of_shared_graphics_stays_under(layout);
+    for layout in SetLayout::ALL {
+        a_placed_clones_copy_never_makes_the_source_sets_only_copy_a_spare_one_under(layout);
     }
 }
 
-/// The clone is placed, and its parent's ZIP, missing its program ROM, is the source set's only copy of the graphics
+/// The clone is placed, and its parent's ZIP, missing its program ROM, is the Source Set's only copy of the graphics
 /// the clone shares: no item keeps that ZIP aside by default.
-fn the_only_copy_of_shared_graphics_stays_under(layout: SetLayout) {
+fn a_placed_clones_copy_never_makes_the_source_sets_only_copy_a_spare_one_under(layout: SetLayout) {
     let env = Env::new();
     env.zip("acmebios.zip", &["bios.u1"]);
     env.zip("acmesnd.zip", &["snd.u2"]);
