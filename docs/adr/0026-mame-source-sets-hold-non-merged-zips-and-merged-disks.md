@@ -66,3 +66,8 @@ Library that is ready to play.
 - A non-merged Source Set repeats every shared ROM; its Full Audit reads each copy.
 - A Full Audit of Disks decompresses each, at about 170 MiB/s on one core; Incremental Audits reuse it.
 - Older emulators, such as MAME 2003-Plus or MAME 2010, need sets Title Select doesn't build.
+
+## Amendment (2026-11-20): ListXML Disks only
+
+Software lists are out of M6 (ADR 0027's amendment), so Disks come only from ListXML machines. The software-list Disk
+layout above, `<list>/<software>/<disk>.chd`, is recorded for a later milestone and not built now.
