@@ -2400,7 +2400,7 @@ pub(crate) struct FillCandidate {
 
 /// Every item that may fill a Game of Source Set `set` as DAT Revision `dat_revision` lists it, in the order the
 /// items were first seen: those it is proposed to fill, and those matching a Game the Source Set already holds, which
-/// a repair uses only for a Game it takes out of its play library first.
+/// a Repair uses only for a Game it releases from the Play Library first.
 pub(crate) fn fill_candidates(
     c: &Connection,
     set: &str,

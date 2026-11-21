@@ -811,6 +811,15 @@ impl Repairing<'_> {
             .and_then(|i| i.game.as_deref())
     }
 
+    /// Whether anything is at `at`, as the plan names it, in a folder this repair opened; None when its folder isn't
+    /// open.
+    fn holds(&self, at: &str) -> io::Result<Option<bool>> {
+        match self.locate(at) {
+            Ok((dir, rel)) => Ok(Some(dir.stat(rel)?.is_some())),
+            Err(_) => Ok(None),
+        }
+    }
+
     /// Where what is read of `path` is counted: its folder's Root's.
     fn tally(&self, path: &str) -> &Tally {
         split_placed(path)
@@ -2369,8 +2378,8 @@ impl Store {
     /// Whether anything is at `at`, a Placed Game's path as the plan names it. A Library Folder that can't be read now
     /// may still hold it.
     fn still_there(&self, config: &Config, r: &Repairing, at: &str) -> Result<bool> {
-        if let Ok((dir, rel)) = r.locate(at) {
-            return Ok(dir.stat(rel).map_err(io_err)?.is_some());
+        if let Some(there) = r.holds(at).map_err(io_err)? {
+            return Ok(there);
         }
         let Some((folder, rel)) = split_placed(at) else {
             return Ok(true);
@@ -3075,17 +3084,13 @@ impl Store {
         reason: &str,
         seen: &Seen,
     ) -> Ran {
-        let siblings = self.siblings(r, step, path)?;
+        let others = self.other_placed_chds(r, step, path)?;
         let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
-            // Each is looked for again as the Keep is recorded: one put back since stays placed, and the release is
-            // then parted, for the next repair to release the rest of.
-            for (folder, sibling) in &siblings {
-                let gone = match r.locate(&placed_path(*folder, sibling)) {
-                    Ok((dir, rel)) => dir.stat(rel).map_err(io_err)?.is_none(),
-                    Err(_) => false,
-                };
-                if gone {
-                    crate::placements::forget_placed(tx, *folder, sibling)?;
+            // Each is looked for again as the Keep is recorded, and forgotten only while it is still gone: one put back
+            // since stays placed, and the release is then parted, for the next repair to release the rest of.
+            for (folder, other) in &others {
+                if r.holds(&placed_path(*folder, other)).map_err(io_err)? == Some(false) {
+                    crate::placements::forget_placed(tx, *folder, other)?;
                 }
             }
             tx.execute(
@@ -3107,21 +3112,35 @@ impl Store {
         }
     }
 
-    /// The placed CHDs, by Library Folder and path, of the release of the Game step `step`'s item is, other than
-    /// `path`, when `path` is a Placed Game's file: those a Keep of `path` forgets once it finds them gone.
-    fn siblings(&self, r: &Repairing, step: &StepRow, path: &str) -> Result<Vec<(i64, String)>> {
+    /// The other placed CHDs, by Library Folder and path, of the release that step `step`'s Game belongs to, when its
+    /// Keep of `path` releases part of it: those it forgets if it finds them gone. A CHD's Keep forgets them; a Keep
+    /// of a file laid out beside the CHDs does only when the plan keeps none of them, every one being gone, so that a
+    /// release stays recorded by its CHDs until one of them is kept.
+    fn other_placed_chds(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+    ) -> Result<Vec<(i64, String)>> {
         let (Some(game), Some((folder, rel))) = (r.game_of(step), split_placed(path)) else {
             return Ok(Vec::new());
         };
         let release = release_of(game);
-        Ok(self
+        let (this, others): (Vec<_>, Vec<_>) = self
             .read(|c| crate::placements::placed_chds_of(c, r.plan.content.set_id))?
             .into_iter()
-            .filter(|c| {
-                release_of(&c.game) == release && (c.folder, c.path.as_str()) != (folder, rel)
-            })
+            .filter(|c| release_of(&c.game) == release)
             .map(|c| (c.folder, c.path))
-            .collect())
+            .partition(|(f, p)| (*f, p.as_str()) == (folder, rel));
+        let kept = |(f, p): &(i64, String)| {
+            r.plan.content.steps.iter().any(
+                |s| matches!(&s.step, RepairStep::Keep { path, .. } if *path == placed_path(*f, p)),
+            )
+        };
+        Ok(match this.is_empty() && others.iter().any(kept) {
+            true => Vec::new(),
+            false => others,
+        })
     }
 
     /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then
@@ -3428,7 +3447,13 @@ impl Store {
         };
         if let Err(why) = crate::carry::dispose(&original, &dest, &intents)? {
             // A disc has one recorded copy: one left placed drops its kept copy, while that is provably the same.
-            let why = match self.drop_duplicate(&original, &dest, &intents, kept_id)? {
+            let unrecord = || {
+                self.write(|tx| {
+                    tx.execute("DELETE FROM source_kept WHERE id = ?1", [kept_id])?;
+                    Ok(())
+                })
+            };
+            let why = match crate::carry::drop_copy(&original, &dest, &intents, &unrecord)? {
                 true => format!(
                     "{path} was copied into the kept files, but {why}; it stays placed, and its copy, the same bytes, \
                      was deleted"
@@ -3446,53 +3471,6 @@ impl Store {
             Ok(kept_id)
         })?;
         Ok(Ok(Some(done)))
-    }
-
-    /// Deletes `d`, the copy of `o` recorded kept as `kept_id`, once `o` could not be deleted, and only while it is
-    /// provably a duplicate: `o` still where it was, exactly what was copied, reading through a fresh descriptor as the
-    /// SHA-256 recorded, and `d` still the copy made, reading as that too. Its record goes first, then the copy, put
-    /// back under the name it was staged under and removed as a copy a stop left unpublished is, so that a stop part
-    /// way makes the Keep again from the start. Whether it was deleted.
-    fn drop_duplicate(
-        &self,
-        o: &crate::carry::Original,
-        d: &crate::carry::Dest,
-        intents: &StepCarry,
-        kept_id: i64,
-    ) -> Result<bool> {
-        use crate::carry::Intents;
-        let intent = intents.load()?;
-        let (Some(sha), Some(staged), Some(id)) =
-            (&intent.sha256, &intent.staged, intent.staged_id)
-        else {
-            return Ok(false);
-        };
-        let Ok(file) = o.dir.open_file(o.name) else {
-            return Ok(false);
-        };
-        let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-        if Identity::of(&st) != o.id
-            || file_stat(&st) != o.file
-            || still_sha256(&file, ctime_ns(&st), o.tally)
-                .map_err(io_err)?
-                .as_ref()
-                != Some(sha)
-            || crate::carry::published_holds(d, intents)?.is_err()
-        {
-            return Ok(false);
-        }
-        self.write(|tx| {
-            tx.execute("DELETE FROM source_kept WHERE id = ?1", [kept_id])?;
-            Ok(())
-        })?;
-        d.dir.rename_new(d.name, d.root, staged).map_err(io_err)?;
-        d.dir.sync().map_err(io_err)?;
-        if is_file(d.root, staged, id).map_err(io_err)? {
-            d.root.unlink(staged).map_err(io_err)?;
-            d.root.sync_holding(staged).map_err(io_err)?;
-        }
-        intents.save(&crate::carry::Intent::default())?;
-        Ok(true)
     }
 
     /// Settles `st`, found kept as `kept` where the rename of `path` should have put the file planned: another file

@@ -288,9 +288,10 @@ pub struct RepairPlanContent {
     /// free. Empty when it releases none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub needs: BTreeMap<String, u64>,
-    /// The placed releases the plan releases (ADR 0023), by release: every path of each the plan found recorded placed
-    /// or laid out beside its CHDs, a gone CHD's included. Nothing is written for a Game of one while any of those
-    /// paths holds a file, whatever is recorded of it by then. Empty when it releases none.
+    /// The placed releases the plan releases (ADR 0023), by release, each with the paths the plan found for it: every
+    /// CHD recorded placed, gone ones included, and every file laid out beside them. Nothing is written for a Game of
+    /// the release while any of those paths holds a file, whatever is recorded of it by then. Empty when it releases
+    /// none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub releases: BTreeMap<String, Vec<String>>,
 }

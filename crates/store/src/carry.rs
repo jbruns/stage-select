@@ -218,6 +218,49 @@ pub(crate) fn copy(
     }
 }
 
+/// Deletes `d`, the copy [`copy`] published of `o`, once `o` could not be deleted, and only while it is provably a
+/// duplicate: `o` still where it was, exactly what was copied, reading through a fresh descriptor as the SHA-256
+/// recorded, and `d` still the copy made, reading as that too ([`published_holds`]). Whoever recorded the copy forgets
+/// it first, through `unrecord`; the copy is then put back under the name it was staged under and removed, as one a
+/// stop left unpublished is, so that a stop part way makes the copy again from the start. Whether it was deleted.
+pub(crate) fn drop_copy(
+    o: &Original,
+    d: &Dest,
+    intents: &dyn Intents,
+    unrecord: &dyn Fn() -> Result<()>,
+) -> Result<bool> {
+    let intent = intents.load()?;
+    let (Some(sha), Some(staged), Some(id)) = (&intent.sha256, &intent.staged, intent.staged_id)
+    else {
+        return Ok(false);
+    };
+    let Ok(file) = o.dir.open_file(o.name) else {
+        return Ok(false);
+    };
+    let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+    if !is_file(&st, o.id)
+        || file_stat(&st) != o.file
+        || still_sha256(&file, ctime_ns(&st), o.tally)
+            .map_err(io_err)?
+            .as_ref()
+            != Some(sha)
+        || published_holds(d, intents)?.is_err()
+    {
+        return Ok(false);
+    }
+    unrecord()?;
+    d.dir.rename_new(d.name, d.root, staged).map_err(io_err)?;
+    d.dir.sync().map_err(io_err)?;
+    if let Some(st) = d.root.stat(staged).map_err(io_err)?
+        && is_file(&st, id)
+    {
+        d.root.unlink(staged).map_err(io_err)?;
+        d.root.sync_holding(staged).map_err(io_err)?;
+    }
+    intents.save(&Intent::default())?;
+    Ok(true)
+}
+
 /// A published copy, opened without following a symlink and held, with its stat as it was opened: what is checked
 /// once more, last, before the original it stands in for is deleted. A carry's ([`dispose`]) and an Ingest Folder
 /// move's alike.

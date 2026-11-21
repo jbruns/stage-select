@@ -61,6 +61,19 @@ impl Env {
             .unwrap_or_else(|| panic!("{game}: {:?}", report.games))
     }
 
+    /// The paths of the source set's placed files in the play library folder, in order.
+    fn placed_paths(&self) -> Vec<String> {
+        let mut placed: Vec<String> = self
+            .store
+            .placed_files(SET)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        placed.sort();
+        placed
+    }
+
     /// The source set's kept files, by where each was.
     fn set_kept(&self) -> Vec<String> {
         let mut kept: Vec<String> = self
@@ -782,13 +795,7 @@ fn a_release_left_part_way_is_released_whole_by_the_next_repair() {
         "{:#?}",
         done.outcomes
     );
-    let placed: Vec<String> = env
-        .store
-        .placed_files(SET)
-        .unwrap()
-        .into_iter()
-        .map(|p| p.path)
-        .collect();
+    let placed = env.placed_paths();
     assert_eq!(placed, [SAGA_CHDS[0]], "disc 1 stays placed");
     assert_eq!(std::fs::read(&disc1).unwrap(), bytes);
     assert_eq!(
@@ -820,13 +827,7 @@ fn a_release_left_part_way_is_released_whole_by_the_next_repair() {
 /// the source set and no longer placed, never both and never neither; the .m3u in the folder or kept, once; nothing
 /// of it in the source set.
 fn each_disc_once(env: &Env, folder: &LibraryFolder, label: &str) {
-    let placed: Vec<String> = env
-        .store
-        .placed_files(SET)
-        .unwrap()
-        .into_iter()
-        .map(|p| p.path)
-        .collect();
+    let placed = env.placed_paths();
     let kept = env.set_kept();
     for (chd, recorded) in [
         (SAGA_CHDS[0], true),
@@ -1046,13 +1047,10 @@ fn a_released_disc_in_the_system_folder_takes_its_sbi_file_with_it() {
     );
 }
 
-/// A two-disc release laid out flat, each disc's CHD and SBI file in the system folder, is released whole with its
-/// SBI files: both CHDs and both SBI files set aside, nothing of it left in the folder.
-#[test]
-fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
-    let Some(chdman) = chdman() else { return };
-    let mut env = Env::new(Some(&chdman));
-    placing_chds(&mut env, &chdman);
+/// Places both discs of Saga as CHDs laid out flat, each with its SBI file beside it in the system folder, and audits
+/// fully. Returns the folder.
+fn flat_saga(env: &mut Env, chdman: &Path) -> LibraryFolder {
+    placing_chds(env, chdman);
     let mut policy = env.store.storage_policy().unwrap();
     policy
         .play_libraries
@@ -1062,7 +1060,7 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
         .layout = Some(title_select_api::storage::DiscLayout::Flat);
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     sbi_on(
-        &env,
+        env,
         &[
             ("Saga (USA) (Disc 1).sbi", b"SBI\0saga 1"),
             ("Saga (USA) (Disc 2).sbi", b"SBI\0saga 2"),
@@ -1070,7 +1068,7 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
     );
     let (folder, selection) = env.folder(&SAGA);
     let job = env.build(&env.plan(&folder, selection));
-    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(env, &job));
     assert_eq!(
         tree(&env.dir()),
         [
@@ -1081,6 +1079,16 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
         ]
     );
     env.audit(title_select_engine::AuditEvidence::Full);
+    folder
+}
+
+/// A two-disc release laid out flat, each disc's CHD and SBI file in the system folder, is released whole with its
+/// SBI files: both CHDs and both SBI files set aside, nothing of it left in the folder.
+#[test]
+fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let folder = flat_saga(&mut env, &chdman);
     let made = tempfile::tempdir().unwrap();
     let other = saga_with_another_track(&chdman, made.path(), 2);
     std::fs::copy(other, env.dir().join("Saga (USA) (Disc 2).chd")).unwrap();
@@ -1095,6 +1103,50 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
             placed_path(folder.id, "Saga (USA) (Disc 1).chd"),
             placed_path(folder.id, "Saga (USA) (Disc 1).sbi"),
             placed_path(folder.id, "Saga (USA) (Disc 2).chd"),
+            placed_path(folder.id, "Saga (USA) (Disc 2).sbi"),
+        ]
+    );
+}
+
+/// A release laid out flat whose disc 2 CHD is gone, and whose disc 2 SBI file changed after the plan was made so that
+/// it can't be set aside, keeps disc 1's SBI file aside and leaves disc 1's CHD placed: no CHD is set aside without
+/// every file beside it, and the gone disc stays recorded until one is, so the release is still found by its CHDs.
+/// Audited again, the next repair releases the rest.
+#[test]
+fn a_release_one_of_whose_sbi_files_cant_be_set_aside_stays_recorded_by_its_chds() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let folder = flat_saga(&mut env, &chdman);
+    std::fs::remove_file(env.dir().join("Saga (USA) (Disc 2).chd")).unwrap();
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let plan = env.repair_plan(&[]);
+    let sbi = env.dir().join("Saga (USA) (Disc 2).sbi");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+            if at == Fault::RepairApproving {
+                std::fs::write(&sbi, b"another SBI file").unwrap();
+            }
+        })));
+    env.repair(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(
+        env.placed_paths(),
+        ["Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd"],
+        "both discs stay recorded"
+    );
+    assert_eq!(
+        env.set_kept(),
+        [placed_path(folder.id, "Saga (USA) (Disc 1).sbi")]
+    );
+
+    env.audit(title_select_engine::AuditEvidence::Full);
+    env.repair(&env.repair_plan(&[]));
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(
+        env.set_kept(),
+        [
+            placed_path(folder.id, "Saga (USA) (Disc 1).chd"),
+            placed_path(folder.id, "Saga (USA) (Disc 1).sbi"),
             placed_path(folder.id, "Saga (USA) (Disc 2).sbi"),
         ]
     );
@@ -1155,14 +1207,7 @@ fn a_release_whose_m3u_cant_be_set_aside_stays_placed_whole() {
         "{:#?}",
         done.outcomes
     );
-    let mut placed: Vec<String> = env
-        .store
-        .placed_files(SET)
-        .unwrap()
-        .into_iter()
-        .map(|p| p.path)
-        .collect();
-    placed.sort();
+    let placed = env.placed_paths();
     assert_eq!(placed, SAGA_CHDS, "both discs stay placed");
     assert!(env.set_kept().is_empty(), "{:?}", env.set_kept());
     each_disc_once(&env, &folder, "the .m3u changed");
@@ -1268,10 +1313,9 @@ fn a_release_stopped_before_its_delete_stamp_is_recorded_deletes_only_on_a_fresh
     assert_eq!(env.set_kept(), saga_released(&folder));
 }
 
-/// A gone disc's CHD put back as its release is released is looked for again before its placement is forgotten. Put
-/// back as the .m3u, the first file of the release, is set aside, it stays placed and recorded; put back later, once
-/// it was found gone and forgotten, it is still in the play library folder where the plan found it. Either way the
-/// fill of it planned from an ingest folder isn't written while it is there.
+/// A gone disc's CHD put back as its release is released, while the .m3u or the other disc's CHD is being set aside,
+/// is looked for again before its placement is forgotten: it stays placed and recorded, the release is left parted,
+/// and the fill of it planned from an ingest folder isn't written while it is there.
 #[test]
 fn a_gone_disc_put_back_as_its_release_is_released_is_never_filled_over() {
     let Some(chdman) = chdman() else { return };
@@ -1299,17 +1343,11 @@ fn a_gone_disc_put_back_as_its_release_is_released_is_never_filled_over() {
             "{put_back}: the CHD put back is in the play library folder, yet its disc was filled: {:?}",
             env.in_set("Saga")
         );
-        if put_back == SAGA_CHDS[0] {
-            continue;
-        }
-        let placed: Vec<String> = env
-            .store
-            .placed_files(SET)
-            .unwrap()
-            .into_iter()
-            .map(|p| p.path)
-            .collect();
-        assert_eq!(placed, [SAGA_CHDS[1]], "the CHD put back stays placed");
-        each_disc_once(&env, &folder, "disc 2 put back");
+        assert_eq!(
+            env.placed_paths(),
+            [SAGA_CHDS[1]],
+            "{put_back}: the CHD put back stays placed"
+        );
+        each_disc_once(&env, &folder, put_back);
     }
 }
