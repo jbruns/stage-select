@@ -517,12 +517,17 @@ fn support_artifacts() -> [FetchArtifact; 4] {
     ]
 }
 
-/// Whether every Support File has been fetched for the ListXML DAT Revision `revision`.
+/// Whether every Support File has been fetched since the ListXML DAT Revision `revision` was imported: for it, or
+/// for a revision imported at or after it, which a fetch is sent for only once it is imported.
+// A revision deleted and imported again takes a new import_seq, so a fetch recorded for it may count for revisions
+// imported in between; deleting a ListXML revision is rare, and the files fetched then are no older than those.
 fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     for kind in SupportFileKind::ALL {
         let fetched: bool = c.query_row(
-            "SELECT EXISTS (SELECT 1 FROM fetches WHERE provider = ?1 AND system = ?2 AND artifact = ?3
-                             AND for_revision_id = ?4 AND outcome IN ('added', 'unchanged'))",
+            "SELECT EXISTS (SELECT 1 FROM fetches f JOIN dat_revisions fr ON fr.id = f.for_revision_id
+                            WHERE f.provider = ?1 AND f.system = ?2 AND f.artifact = ?3
+                              AND f.outcome IN ('added', 'unchanged')
+                              AND fr.import_seq >= (SELECT import_seq FROM dat_revisions WHERE id = ?4))",
             params![
                 FetchProvider::Mame.as_str(),
                 SUPPORT_SYSTEM,
@@ -539,16 +544,30 @@ fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
 }
 
 /// The ListXML DAT Revision the Support Files are owed for, by id and SHA-256: the last imported of the targets they
-/// haven't all been fetched for. A fetch is recorded for one revision, so with two owed the other waits for the next
-/// day's.
+/// haven't all been fetched for, so that a fetch for it serves every other target too.
 fn support_owed(c: &Connection) -> Result<Option<(i64, String)>> {
+    owed_among(c, &support_targets(c)?)
+}
+
+/// As [`support_owed`], among `targets`, in import order.
+fn owed_among(c: &Connection, targets: &[(i64, String)]) -> Result<Option<(i64, String)>> {
     let mut owed = None;
-    for target in support_targets(c)? {
+    for target in targets {
         if !support_fetched_for(c, target.0)? {
-            owed = Some(target);
+            owed = Some(target.clone());
         }
     }
     Ok(owed)
+}
+
+/// When every request of the Support Files may be sent, if not now: the commit check is sent only when every file
+/// may follow it.
+fn support_next_at(c: &Connection) -> Result<Option<jiff::Timestamp>> {
+    let mut latest = None;
+    for artifact in support_artifacts() {
+        latest = latest.max(next_at(c, FetchProvider::Mame, SUPPORT_SYSTEM, artifact)?);
+    }
+    Ok(latest)
 }
 
 /// The one member of the ZIP `bytes` whose name ends with `ext`, read whole up to `limit` bytes.
@@ -764,9 +783,7 @@ impl Store {
         }
         let mut support_due = false;
         if provider == FetchProvider::Mame && self.read(support_owed)?.is_some() {
-            match self
-                .read(|c| next_at(c, provider, SUPPORT_SYSTEM, FetchArtifact::SupportCommit))?
-            {
+            match self.read(support_next_at)? {
                 None => support_due = true,
                 Some(at) => next = Some(next.map_or(at, |n| n.min(at))),
             }
@@ -850,14 +867,8 @@ impl Store {
         let Some((revision, _)) = self.read(support_owed)? else {
             return Ok(());
         };
-        // A commit check is sent only when every file may follow it.
-        for artifact in support_artifacts() {
-            if self
-                .read(|c| next_at(c, provider, SUPPORT_SYSTEM, artifact))?
-                .is_some()
-            {
-                return Ok(());
-            }
+        if self.read(support_next_at)?.is_some() {
+            return Ok(());
         }
         let url = format!(
             "{}/repos/{SUPPORT_MIRROR}/commits/{SUPPORT_BRANCH}",
@@ -1292,17 +1303,15 @@ impl Store {
 
 /// Where fetching MAME's Support Files stands, while a registered Source Set is bound to a ListXML DAT.
 fn support_status(c: &Connection) -> Result<Option<FetchSupport>> {
-    let next_at_of = |c, artifact| next_at(c, FetchProvider::Mame, SUPPORT_SYSTEM, artifact);
-    let owed = support_owed(c)?;
-    let Some((_, listxml)) = owed.clone().or(support_targets(c)?.pop()) else {
+    let mut targets = support_targets(c)?;
+    let owed = owed_among(c, &targets)?;
+    let Some((_, listxml)) = owed.clone().or_else(|| targets.pop()) else {
         return Ok(None);
     };
-    let mut next_at = None;
-    if owed.is_some() {
-        for artifact in support_artifacts() {
-            next_at = next_at.max(next_at_of(c, artifact)?);
-        }
-    }
+    let next_at = match owed {
+        Some(_) => support_next_at(c)?,
+        None => None,
+    };
     Ok(Some(FetchSupport {
         source_sets: listxml_source_sets(c)?,
         listxml,

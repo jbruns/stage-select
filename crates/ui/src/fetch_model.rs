@@ -106,10 +106,10 @@ pub enum NextFetch {
     At(String),
 }
 
-/// When MAME's support files are next fetched: none while they're fetched for every newest ListXML DAT revision,
-/// else when the store says every request of theirs may be sent.
-pub fn support_next(support: &FetchSupport) -> Option<NextFetch> {
-    if support.fetched_for_listxml {
+/// When MAME's support files are next fetched: none while MAME is off or they're fetched for every newest ListXML
+/// DAT revision, else when the store says every request of theirs may be sent.
+pub fn support_next(provider: &FetchProviderStatus, support: &FetchSupport) -> Option<NextFetch> {
+    if !provider.enabled || support.fetched_for_listxml {
         return None;
     }
     Some(
@@ -281,15 +281,22 @@ mod tests {
             }],
             next_at: Some("2026-01-02T00:00:03Z".into()),
         };
+        let on = provider(true, false, vec![]);
         assert_eq!(
-            support_next(&support),
+            support_next(&on, &support),
             Some(NextFetch::At("2026-01-02T00:00:03Z".into())),
             "when every request is due, not the first"
         );
         support.next_at = None;
-        assert_eq!(support_next(&support), Some(NextFetch::Now));
+        assert_eq!(support_next(&on, &support), Some(NextFetch::Now));
+        let off = provider(false, false, vec![]);
+        assert_eq!(
+            support_next(&off, &support),
+            None,
+            "nothing is sent while MAME is off"
+        );
         support.fetched_for_listxml = true;
-        assert_eq!(support_next(&support), None, "nothing is owed");
+        assert_eq!(support_next(&on, &support), None, "nothing is owed");
     }
 
     #[test]

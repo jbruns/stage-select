@@ -1016,7 +1016,8 @@ fn read_item(
             .map_err(|e| e.to_string())?;
         if bytes.len() as u64 > SUPPORT_FILE_LIMIT {
             refused_support = Some(format!(
-                "it is larger than a MAME support file, at most {SUPPORT_FILE_LIMIT} bytes"
+                "it is larger than a MAME support file, at most {} MiB",
+                SUPPORT_FILE_LIMIT >> 20
             ));
         } else {
             match crate::support_files::read_header(&bytes, name) {
@@ -1817,17 +1818,14 @@ impl Store {
                         None,
                     )
                 }
-                IngestAction::DatImport if item.assessment.support_file.is_some() => {
-                    let found = item.assessment.support_file.as_ref().unwrap();
-                    (
-                        format!(
-                            "imported as the MAME support file {} (MAME {}), then kept",
-                            found.kind.file_name(),
-                            found.mame_version
-                        ),
-                        None,
-                    )
-                }
+                IngestAction::DatImport if let Some(found) = &item.assessment.support_file => (
+                    format!(
+                        "imported as the MAME support file {} (MAME {}), then kept",
+                        found.kind.file_name(),
+                        found.mame_version
+                    ),
+                    None,
+                ),
                 IngestAction::DatImport => {
                     let Some(dat) = &item.assessment.dat else {
                         return Err(Error::Refused(match &item.reason {

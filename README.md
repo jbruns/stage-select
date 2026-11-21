@@ -974,9 +974,10 @@ screen. A fetch that fails is tried again the next day, until all three have bee
 
 Each file is kept unmodified, by its SHA-256, with the commit it was fetched at and the MAME version its header names
 (`;; catver.ini 0.289 / 21-Aug-26 / MAME 0.289 ;;` is for MAME 0.289). A file whose header doesn't name the file asked
-for, or names no MAME version, fails the fetch. You can bring them in yourself instead: drop them into an ingest folder
-as you would a DAT (see "Ingest folders"), or import them on the DATs screen, with `support-file import` or with
-`POST /api/v1/support-files`. The header says which file it is, whatever its name.
+for, or names no MAME version, fails the fetch. You can also bring them in yourself: drop them into an ingest folder as
+`.ini` files, as you would a DAT (see "Ingest folders"), or import them on the DATs screen, with `support-file import`
+or with `POST /api/v1/support-files`. The header says which file it is, whatever its name. Files you bring in don't
+stop the fetch: with fetching from MAME on, a newer ListXML still brings the mirror's files.
 
 ### Selection profiles
 
@@ -1371,10 +1372,11 @@ Each item is one of:
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate addition, with the system its extension suggests when exactly one registered system uses it;
   a DAT you may import; or a MAME support file you may import, an `.ini` file whose header names `catver.ini`,
-  `languages.ini` or `bestgames.ini` and a MAME version, whatever the file is called. A game outside its source set's coverage is shown as outside your coverage, and the item
-  isn't proposed to fill it (see "Coverage");
+  `languages.ini` or `bestgames.ini` and a MAME version, whatever the file is called. A game outside its source set's
+  coverage is shown as outside your coverage, and the item isn't proposed to fill it (see "Coverage");
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
-  imported, or a support file already imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
+  imported, or a support file already imported. A game held only by a quick audit's claim is not already held: the
+  item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
   never read further; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
@@ -1390,8 +1392,7 @@ Discarding an item moves it into the folder's kept files, `.title-select/retaine
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
 audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
-file keeps it as `support-file import` would, then keeps the file aside the same way; a newer ListXML's support files
-are still fetched, if fetching from MAME is on. Within one filesystem a move is a rename that never replaces anything. What
+file keeps it as `support-file import` would, then keeps the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
 arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
 meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
 The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is
@@ -1571,7 +1572,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/support-files`                        | every MAME support file: `{"sha256", "kind", "file", "mame_version", "commit", "origin", "source_url", "imported_at"}`, `kind` one of `catver`, `languages` or `bestgames` |
 | `POST /api/v1/support-files`                       | import a MAME support file: multipart `source_url`?, `file`; 201 when it's new, 400 when its header names no support file or MAME version |
-| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, and `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`) |
+| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`), and `next_at`, when they are next fetched if they are owed but must wait |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, and `coverage`: the regions it covers, absent when it covers every game |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |

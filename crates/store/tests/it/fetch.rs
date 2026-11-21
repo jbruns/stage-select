@@ -1431,9 +1431,39 @@ fn a_first_listxml_of_a_second_dat_brings_the_support_files_though_another_has_m
 
     // A second ListXML DAT, whose one revision ranks first within it and so below MAME/MAME's second.
     env.backdate(25);
+    let second = add_second_listxml(&env, "mame0291");
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(!support.fetched_for_listxml, "{support:?}");
+    assert_eq!(support.listxml, second);
+
+    env.serve_support(COMMIT_B, "0.291");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(support.fetched_for_listxml);
+    assert_eq!(support.next_at, None, "nothing is owed, so nothing is next");
+}
+
+/// Imports `build`'s ListXML as the only revision of a second ListXML DAT, `MAME/MAME Second`, bound to the Source
+/// Set `Second`. Returns its SHA-256.
+fn add_second_listxml(env: &Env, build: &str) -> String {
     let (second, _) = env
         .store
-        .import_dat_bytes(&listxml("mame0291"), "mame0291.xml", None)
+        .import_dat_bytes(&listxml(build), &format!("{build}.xml"), None)
         .unwrap();
     let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
     db.execute(
@@ -1450,19 +1480,17 @@ fn a_first_listxml_of_a_second_dat_brings_the_support_files_though_another_has_m
     env.store
         .add_source_set(&env.config, "sets", "Second", "MAME/MAME Second")
         .unwrap();
-    let status = env.store.fetch_status(&env.fetcher).unwrap();
-    let mame = status
-        .providers
-        .iter()
-        .find(|p| p.provider == FetchProvider::Mame)
-        .unwrap();
-    let support = mame.support.as_ref().unwrap();
-    assert!(!support.fetched_for_listxml, "{support:?}");
-    assert_eq!(support.listxml, second.sha256);
+    second.sha256
+}
 
-    env.serve_support(COMMIT_B, "0.291");
+#[test]
+fn one_fetch_serves_every_listxml_dat_owed_the_support_files() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    add_second_listxml(&env, "mame0290");
+    env.serve_support(COMMIT_A, "0.290");
     let report = env
-        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
         .unwrap();
     assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
     let status = env.store.fetch_status(&env.fetcher).unwrap();
@@ -1471,9 +1499,12 @@ fn a_first_listxml_of_a_second_dat_brings_the_support_files_though_another_has_m
         .iter()
         .find(|p| p.provider == FetchProvider::Mame)
         .unwrap();
-    let support = mame.support.as_ref().unwrap();
-    assert!(support.fetched_for_listxml);
-    assert_eq!(support.next_at, None, "nothing is owed, so nothing is next");
+    assert!(mame.support.as_ref().unwrap().fetched_for_listxml);
+    env.backdate(25);
+    let next_day = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(next_day.attempts.is_empty(), "{next_day:?}");
 }
 
 #[test]

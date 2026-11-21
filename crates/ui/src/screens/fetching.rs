@@ -59,7 +59,7 @@ pub fn Fetching() -> impl IntoView {
                     "For the systems your source sets follow, the service can fetch newer DAT revisions from Redump and from MAME's releases, and Redump's cue and SBI packs. Each provider is off until you turn it on under Settings, then Operations. Each system is fetched at most once a day, even when you fetch by hand. A fetch that fails keeps the last good DAT revision. A newer DAT revision makes the following source sets stale; fetching never starts an audit."
                 </p>
                 <p>
-                    "With MAME on, the service also fetches catver.ini, languages.ini and bestgames.ini from progetto-SNAPS, for selecting arcade machines: when a source set first has a MAME ListXML DAT revision, and whenever a newer one arrives. A fetch that fails keeps the last good files. You can import them yourself instead."
+                    "With MAME on, the service also fetches catver.ini, languages.ini and bestgames.ini from progetto-SNAPS, for selecting arcade machines: when a source set first has a MAME ListXML DAT revision, and whenever a newer one arrives. A fetch that fails keeps the last good files. You can also import them yourself, or drop them into an ingest folder."
                 </p>
                 <p>
                     "No-Intro DATs are never fetched: download them yourself and drop them into an ingest folder, or import them here."
@@ -237,18 +237,18 @@ fn SystemProblems(systems: Vec<FetchSystem>) -> impl IntoView {
 fn SupportPanel(provider: FetchProviderStatus, support: FetchSupport) -> impl IntoView {
     let state = support_state(&provider, &support);
     let last = last_fetched(&support.artifacts).map_or_else(|| "Never".to_string(), |t| when(&t));
-    let (owed, next) = match support_next(&support) {
-        None => (
-            "Fetched for your newest MAME ListXML DAT revision.",
-            "They're fetched again when a newer one arrives.".to_string(),
-        ),
-        Some(next) => (
-            "Not yet fetched for your newest MAME ListXML DAT revision.",
-            match next {
-                NextFetch::Now => "Next: now.".to_string(),
-                NextFetch::At(t) => format!("Next: {}.", when(&t)),
-            },
-        ),
+    let owed = if support.fetched_for_listxml {
+        "Fetched for your newest MAME ListXML DAT revisions."
+    } else {
+        "Not yet fetched for your newest MAME ListXML DAT revisions."
+    };
+    let next = match support_next(&provider, &support) {
+        Some(NextFetch::Now) => " Next: now.".to_string(),
+        Some(NextFetch::At(t)) => format!(" Next: {}.", when(&t)),
+        None if support.fetched_for_listxml => {
+            " They're fetched again when a newer one arrives.".to_string()
+        }
+        None => String::new(),
     };
     let problems: Vec<String> = failures(&support.artifacts)
         .into_iter()
@@ -263,7 +263,7 @@ fn SupportPanel(provider: FetchProviderStatus, support: FetchSupport) -> impl In
                     support.source_sets.join(", "),
                 )}
             </p>
-            <p>{format!("Last fetched: {last}. {next}")}</p>
+            <p>{format!("Last fetched: {last}.{next}")}</p>
             {(!problems.is_empty())
                 .then(|| {
                     view! {
