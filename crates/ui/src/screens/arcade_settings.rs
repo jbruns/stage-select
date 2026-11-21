@@ -189,9 +189,10 @@ pub fn ArcadeSettingsForm(profile: RwSignal<SelectionProfile>, system: String) -
             <OrderedList
                 id="a-languages"
                 label="Languages, in order of preference"
-                note="Read from languages.ini when you've added it, else from each machine's description. A machine that names none ranks with the first."
+                note="Read from languages.ini when you've added it, else from each machine's description. A machine that names none ranks with the first. You can type any language languages.ini names, such as Russian."
                 empty="No preference: language doesn't decide."
                 options=LANGUAGES.iter().map(|l| l.to_string()).collect()
+                open=true
                 items=get(|a| a.language_order.clone())
                 on_change=Callback::new(move |v: Vec<String>| change(Box::new(move |a| a.language_order = v)))
             />

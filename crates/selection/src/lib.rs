@@ -281,7 +281,8 @@ impl Engine {
     }
 
     /// Checks that the engine can read `profile`: every name is known and every override and post filter is
-    /// well formed, and so is every `arcade` block.
+    /// well formed, and so is every `arcade` block. Only `MAME`, the system of every Arcade DAT, may have an `arcade`
+    /// block of its own: another system's would never apply.
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
         let mut problems = match patterns::check(profile) {
@@ -289,12 +290,20 @@ impl Engine {
             Err(Error::Patterns(found)) => found,
             Err(e) => return Err(e),
         };
-        let blocks = profile.arcade.iter().map(|a| ("global", a)).chain(
-            profile
-                .systems
-                .iter()
-                .filter_map(|(system, s)| Some((system.as_str(), s.arcade.as_ref()?))),
-        );
+        let mut blocks: Vec<_> = profile.arcade.iter().map(|a| ("global", a)).collect();
+        for (system, settings) in &profile.systems {
+            let Some(arcade) = &settings.arcade else {
+                continue;
+            };
+            match system.as_str() == title_select_api::dat::MAME {
+                true => blocks.push((system.as_str(), arcade)),
+                false => problems.push(format!(
+                    "Your {system} settings: arcade settings apply only to {}, whose DATs are arcade DATs. Remove \
+                     them from {system}.",
+                    title_select_api::dat::MAME
+                )),
+            }
+        }
         for (scope, settings) in blocks {
             if let Err(Error::Patterns(found)) = arcade::check(settings, scope) {
                 problems.extend(found);

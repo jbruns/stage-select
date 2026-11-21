@@ -203,7 +203,8 @@ pub const REGIONS: &[&str] = &[
     "Australia",
 ];
 
-/// The language names the arcade selector reads from MAME descriptions, in its default order.
+/// The language names the arcade selector reads from MAME descriptions, in its default order. languages.ini can name
+/// others.
 pub const LANGUAGES: &[&str] = &[
     "English",
     "Japanese",
@@ -267,7 +268,8 @@ pub struct ArcadeSettings {
     /// Regions in order of preference, from [`REGIONS`]; a region left out ranks after those listed. When empty,
     /// region doesn't decide.
     pub region_order: Vec<String>,
-    /// Languages in order of preference, from [`LANGUAGES`]. When empty, language doesn't decide.
+    /// Languages in order of preference: [`LANGUAGES`], which descriptions name, or any language languages.ini names,
+    /// matched ignoring ASCII case. When empty, language doesn't decide.
     pub language_order: Vec<String>,
     /// Machines kept whatever the filters say, but for BIOSes, devices and machines that can't run, in the override
     /// syntax: plain text matches part of a shortname or description, `|` all of one, `/` a regular expression.
@@ -313,8 +315,8 @@ impl Default for ArcadeSettings {
 
 impl ArcadeSettings {
     /// What the selector can't read in these settings, one message each, as you read it after "your arcade
-    /// settings": a step or name listed twice, or a region, language or control type it doesn't know. The include
-    /// and exclude lists' patterns are the selector's to check.
+    /// settings": a step or name listed twice, a language with no name, or a region or control type it doesn't know:
+    /// languages.ini can name any language. The include and exclude lists' patterns are the selector's to check.
     pub fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
         let mut seen = BTreeSet::new();
@@ -323,19 +325,24 @@ impl ArcadeSettings {
                 problems.push(format!("election order: {} is listed twice", step.label()));
             }
         }
-        for (list, names, known) in [
-            ("region", &self.region_order, REGIONS),
-            ("language", &self.language_order, LANGUAGES),
-        ] {
-            let mut seen = BTreeSet::new();
-            for name in names {
-                if !known.contains(&name.as_str()) {
-                    problems.push(format!(
-                        "{list} order: {name} is not a {list} the arcade selection reads"
-                    ));
-                } else if !seen.insert(name) {
-                    problems.push(format!("{list} order: {name} is listed twice"));
-                }
+        // Regions come from descriptions alone, so the selector reads only those it knows; languages.ini can name
+        // any language, so a language needs only a name.
+        let mut seen = BTreeSet::new();
+        for name in &self.region_order {
+            if !REGIONS.contains(&name.as_str()) {
+                problems.push(format!(
+                    "region order: {name} is not a region the arcade selection reads"
+                ));
+            } else if !seen.insert(name) {
+                problems.push(format!("region order: {name} is listed twice"));
+            }
+        }
+        let mut seen = BTreeSet::new();
+        for name in &self.language_order {
+            if name.trim().is_empty() {
+                problems.push("language order: a language has no name".to_owned());
+            } else if !seen.insert(name.trim().to_ascii_lowercase()) {
+                problems.push(format!("language order: {name} is listed twice"));
             }
         }
         for (list, controls) in [
@@ -364,11 +371,11 @@ mod tests {
     }
 
     #[test]
-    fn problems_name_each_step_or_name_the_selector_cant_read() {
+    fn problems_name_each_step_or_name_the_selector_cant_read_and_any_language_is_read() {
         let settings = ArcadeSettings {
             election: vec![ElectionStep::Region, ElectionStep::Region],
             region_order: vec!["World".into(), "Atlantis".into(), "World".into()],
-            language_order: vec!["Klingon".into()],
+            language_order: vec!["Russian".into(), " ".into(), "russian".into()],
             forbid_controls: ["telepathy".to_owned()].into(),
             ..ArcadeSettings::default()
         };
@@ -378,7 +385,8 @@ mod tests {
                 "election order: Preferred region is listed twice",
                 "region order: Atlantis is not a region the arcade selection reads",
                 "region order: World is listed twice",
-                "language order: Klingon is not a language the arcade selection reads",
+                "language order: a language has no name",
+                "language order: russian is listed twice",
                 "forbidden controls: telepathy is not a control type ListXML names",
             ]
         );

@@ -715,14 +715,20 @@ const CURATED_STEP: Step = Step {
     },
 };
 
-/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`.
+/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`. Names
+/// match ignoring ASCII case, as languages.ini may spell a language other than you do.
 fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
     if names.is_empty() {
         return unnamed;
     }
     names
         .iter()
-        .map(|n| order.iter().position(|o| o == n).unwrap_or(order.len()) as i64)
+        .map(|n| {
+            order
+                .iter()
+                .position(|o| o.trim().eq_ignore_ascii_case(n))
+                .unwrap_or(order.len()) as i64
+        })
         .min()
         .unwrap_or(order.len() as i64)
 }

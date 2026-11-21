@@ -23,8 +23,8 @@ use crate::parts::pending::Pending;
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, lines, move_item, reset_global, reset_system, system_tabs,
-    use_global_settings,
+    SelectionIndex, Setting, Source, add_item, lines, move_item, reset_global, reset_system,
+    system_tabs, use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
 
@@ -520,28 +520,13 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
     });
     // The systems of Arcade DATs, whose tabs hold the arcade settings in place of the Retool ones.
     let arcade_systems = Memo::new(move |_| {
-        let mut arcade: BTreeSet<String> = registered.with(|r| {
-            r.iter()
-                .filter(|s| s.arcade)
-                .filter_map(|s| s.system.clone())
-                .collect()
+        let previewed = preview.with(|p| match p {
+            Some(Ok(p)) if p.selection.pins.arcade.is_some() => Some(p.selection.system.clone()),
+            _ => None,
         });
-        preview.with(|p| {
-            if let Some(Ok(p)) = p
-                && p.selection.pins.arcade.is_some()
-            {
-                arcade.insert(p.selection.system.clone());
-            }
-        });
-        profile.with(|p| {
-            arcade.extend(
-                p.systems
-                    .iter()
-                    .filter(|(_, s)| s.arcade.is_some())
-                    .map(|(name, _)| name.clone()),
-            )
-        });
-        arcade
+        registered.with(|r| {
+            profile.with(|p| crate::arcade_model::arcade_systems(r, previewed.as_deref(), p))
+        })
     });
     let tab = RwSignal::new(None::<String>);
     // A system's tab previews against its source set.
@@ -1206,6 +1191,14 @@ fn SystemSettingsForm(
     let global_default = move |f: fn(&SelectionProfile) -> &Vec<String>, order: Vec<String>| {
         Signal::derive(move || profile.with(|p| f(p).is_empty().then(|| order.clone())))
     };
+    // Arcade settings on a system that isn't an arcade DAT's never apply, and the check refuses them.
+    let stray_arcade = move || {
+        profile.with(|p| {
+            p.systems
+                .get(&s.get_value())
+                .is_some_and(|o| o.arcade.is_some())
+        })
+    };
     let v = StoredValue::new(vocabulary);
     view! {
         <div class="settings" role="tabpanel" aria-label=format!("System settings for {system}")>
@@ -1218,6 +1211,29 @@ fn SystemSettingsForm(
                     }
                 }}
             </p>
+            {move || {
+                stray_arcade()
+                    .then(|| {
+                        view! {
+                            <p class="problem" role="alert">
+                                {format!(
+                                    "This profile has arcade settings for {}, but its DATs aren't arcade DATs, so they never apply. Remove them to save.",
+                                    s.get_value(),
+                                )}
+                            </p>
+                            <div class="actions">
+                                <button
+                                    type="button"
+                                    on:click=move |_| {
+                                        profile.update(|p| crate::arcade_model::use_global_arcade(p, &s.get_value()))
+                                    }
+                                >
+                                    "Remove arcade settings"
+                                </button>
+                            </div>
+                        }
+                    })
+            }}
             <div class="actions">
                 <button
                     type="button"
@@ -1611,6 +1627,9 @@ pub(crate) fn OrderedList(
     /// Shown when the list is empty.
     empty: &'static str,
     options: Vec<String>,
+    /// Whether you may type a name `options` doesn't hold; they are then suggestions.
+    #[prop(optional)]
+    open: bool,
     items: Signal<Vec<String>>,
     on_change: Callback<Vec<String>>,
     /// The order an empty list stands for, shown in full and offered as a starting point.
@@ -1738,25 +1757,47 @@ pub(crate) fn OrderedList(
             <div class="add">
                 <label class="inline">
                     <span class="visually-hidden">{format!("Add to {}", label.to_lowercase())}</span>
-                    <select prop:value=adding on:change=move |ev| adding.set(event_target_value(&ev))>
-                        <option value="">"Add…"</option>
-                        {move || {
-                            remaining()
-                                .into_iter()
-                                .map(|o| view! { <option value=o.clone()>{o.clone()}</option> })
-                                .collect_view()
-                        }}
-                    </select>
+                    {match open {
+                        true => view! {
+                            <input
+                                type="text"
+                                list=format!("{id}-names")
+                                placeholder="Add, or type a name…"
+                                spellcheck="false"
+                                prop:value=adding
+                                on:input=move |ev| adding.set(event_target_value(&ev))
+                            />
+                            <datalist id=format!("{id}-names")>
+                                {move || {
+                                    remaining()
+                                        .into_iter()
+                                        .map(|o| view! { <option value=o></option> })
+                                        .collect_view()
+                                }}
+                            </datalist>
+                        }
+                        .into_any(),
+                        false => view! {
+                            <select prop:value=adding on:change=move |ev| adding.set(event_target_value(&ev))>
+                                <option value="">"Add…"</option>
+                                {move || {
+                                    remaining()
+                                        .into_iter()
+                                        .map(|o| view! { <option value=o.clone()>{o.clone()}</option> })
+                                        .collect_view()
+                                }}
+                            </select>
+                        }
+                        .into_any(),
+                    }}
                 </label>
                 <button
                     type="button"
                     class="small"
-                    disabled=move || adding.with(String::is_empty)
+                    disabled=move || adding.with(|a| a.trim().is_empty())
                     on:click=move |_| {
-                        let chosen = adding.get_untracked();
                         let mut list = items.get_untracked();
-                        if !chosen.is_empty() && !list.contains(&chosen) {
-                            list.push(chosen);
+                        if add_item(&mut list, &adding.get_untracked()) {
                             on_change.run(list);
                         }
                         adding.set(String::new());

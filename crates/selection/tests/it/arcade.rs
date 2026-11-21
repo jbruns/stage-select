@@ -828,6 +828,52 @@ fn languages_ini_gives_the_language_election_the_languages_of_each_machine_it_li
 }
 
 #[test]
+fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
+    let work = tempfile::tempdir().unwrap();
+    let languages = work.path().join("languages.ini");
+    std::fs::write(
+        &languages,
+        ";; languages.ini 0.289 / 01-Jan-26 / MAME 0.289 ;;\n\n[English]\nsailore\n\n[Russian]\nsailor\n",
+    )
+    .unwrap();
+    let profile = arcade_profile(&ArcadeSettings {
+        language_order: vec!["russian".into(), "English".into()],
+        ..ArcadeSettings::default()
+    });
+    let engine = engine();
+    engine.check(&profile).unwrap();
+    let options = title_select_selection::RunOptions {
+        support_files: vec![languages],
+        ..support::options()
+    };
+    let selection = engine
+        .run(&data("arcade.xml"), &profile, &options)
+        .unwrap()
+        .selection;
+    let sailor = group(&selection, "sailor");
+    assert_eq!(sailor.winners[0].title, "sailor");
+    assert_eq!(sailor.winners[0].rule.stage, "election:language");
+}
+
+#[test]
+fn an_arcade_block_for_a_system_that_isnt_arcade_is_refused() {
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        "Nintendo - Game Boy".into(),
+        SystemSettings {
+            arcade: Some(ArcadeSettings::default()),
+            ..SystemSettings::default()
+        },
+    );
+    let problem = engine().check(&profile).unwrap_err().to_string();
+    assert_eq!(
+        problem,
+        "Your Nintendo - Game Boy settings: arcade settings apply only to MAME, whose DATs are arcade DATs. Remove \
+         them from Nintendo - Game Boy."
+    );
+}
+
+#[test]
 fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_told() {
     let engine = engine();
     let settings = ArcadeSettings {

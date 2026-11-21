@@ -699,6 +699,17 @@ pub fn move_item(list: &mut Vec<String>, from: usize, to: usize) {
     list.insert(to, item);
 }
 
+/// Adds `typed`, trimmed, to the end of an ordered list, unless it is blank or the list has it already in any ASCII
+/// case; whether it was added.
+pub fn add_item(list: &mut Vec<String>, typed: &str) -> bool {
+    let typed = typed.trim();
+    if typed.is_empty() || list.iter().any(|i| i.eq_ignore_ascii_case(typed)) {
+        return false;
+    }
+    list.push(typed.to_owned());
+    true
+}
+
 /// Why an unresolved group needs your decision: its discs, when the selection's picks or your choice leave a
 /// multi-disc game mixed or missing a disc, otherwise a tie-break.
 pub fn unresolved_explanation(group: &SelectionGroup) -> String {
@@ -1266,6 +1277,11 @@ mod tests {
         assert_eq!(list, ["Japan", "USA", "Europe"]);
         move_item(&mut list, 0, 5);
         assert_eq!(list, ["Japan", "USA", "Europe"]);
+        // An item you type is trimmed, and one already listed in any case, or blank, isn't added.
+        assert!(add_item(&mut list, " Russian "));
+        assert!(!add_item(&mut list, "usa"));
+        assert!(!add_item(&mut list, "  "));
+        assert_eq!(list, ["Japan", "USA", "Europe", "Russian"]);
         assert_eq!(
             lines(" |Pong (USA) \n\n/Demo/\n"),
             ["|Pong (USA)", "/Demo/"]

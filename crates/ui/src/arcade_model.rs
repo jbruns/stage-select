@@ -3,11 +3,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::GameStatus;
 use title_select_api::arcade::{ArcadeSettings, Category, DriverStatus, ElectionStep, Variant};
+use title_select_api::dat::MAME;
 use title_select_api::selection::{
     ArcadePins, CategorySource, DEPENDENCY_STAGE, Dependency, Selection, SelectionProfile,
 };
+use title_select_api::{GameStatus, SourceSetSystem};
 
 /// An arcade Rule's stage in plain words, or `None` for a stage the arcade selector doesn't name.
 pub fn stage_label(stage: &str) -> Option<&'static str> {
@@ -57,15 +58,25 @@ pub fn filter_label(filter: &str) -> &str {
 }
 
 /// What an arcade Selection's pins say you should know, one sentence each: where categories came from when catver
-/// didn't decide them, and the filters that dropped nothing because there was nothing to read.
+/// didn't decide them all, and the filters that dropped nothing because there was nothing to read.
 pub fn notices(pins: &ArcadePins) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(CategorySource::ListxmlHeuristic) = pins.category {
-        out.push(
+    match (pins.category, pins.category_fallbacks) {
+        (Some(CategorySource::ListxmlHeuristic), _) => out.push(
             "No catver.ini was read, so categories come from what the ListXML says about each machine: its driver's \
              folder, software lists and controls. It can miss quiz, mature and most tabletop machines."
                 .to_owned(),
-        );
+        ),
+        (Some(CategorySource::Catver), 1) => out.push(
+            "catver.ini doesn't list 1 machine, so its category comes from what the ListXML says about it: its \
+             driver's folder, software lists and controls."
+                .to_owned(),
+        ),
+        (Some(CategorySource::Catver), n) if n > 1 => out.push(format!(
+            "catver.ini doesn't list {n} machines, so their categories come from what the ListXML says about each: \
+             its driver's folder, software lists and controls."
+        )),
+        _ => {}
     }
     // The rating filter reads a file you add, not the DAT.
     let (rating, signals): (Vec<&String>, Vec<&String>) =
@@ -81,6 +92,26 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
         out.push("No bestgames.ini was read, so the rating filter dropped nothing.".to_owned());
     }
     out
+}
+
+/// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,
+/// `previewed` when its preview is an arcade Selection, and MAME, the system of every Arcade DAT, when the Profile
+/// has settings for it. An `arcade` block on any other system never makes it arcade: the check refuses it.
+pub fn arcade_systems(
+    registered: &[SourceSetSystem],
+    previewed: Option<&str>,
+    profile: &SelectionProfile,
+) -> BTreeSet<String> {
+    let mut arcade: BTreeSet<String> = registered
+        .iter()
+        .filter(|s| s.arcade)
+        .filter_map(|s| s.system.clone())
+        .collect();
+    arcade.extend(previewed.map(str::to_owned));
+    if profile.systems.contains_key(MAME) {
+        arcade.insert(MAME.to_owned());
+    }
+    arcade
 }
 
 /// How many Dependencies some Games need, by what the latest Audit says of each.
@@ -417,7 +448,30 @@ mod tests {
                 "No bestgames.ini was read, so the rating filter dropped nothing.",
             ]
         );
-        // Where catver decided, or with the category filter off, nothing says where categories came from.
+        // Where catver lacks some machines, the notice counts those the heuristic decided.
+        let partial = ArcadePins {
+            category: Some(CategorySource::Catver),
+            category_fallbacks: 2,
+            unavailable: Vec::new(),
+            ..pins.clone()
+        };
+        assert_eq!(
+            notices(&partial),
+            [
+                "catver.ini doesn't list 2 machines, so their categories come from what the ListXML says about each: \
+                 its driver's folder, software lists and controls."
+            ]
+        );
+        let one = ArcadePins {
+            category_fallbacks: 1,
+            ..partial
+        };
+        assert!(
+            notices(&one)[0]
+                .starts_with("catver.ini doesn't list 1 machine, so its category comes from")
+        );
+        // Where catver decided every machine, or with the category filter off, nothing says where categories came
+        // from.
         for category in [Some(CategorySource::Catver), None] {
             let quiet = ArcadePins {
                 category,
@@ -458,5 +512,47 @@ mod tests {
         assert!(profile.systems["MAME"].additions);
         profile.arcade = None;
         assert_eq!(ArcadeSource::of(&profile, "Other"), ArcadeSource::Defaults);
+    }
+
+    #[test]
+    fn a_system_is_arcade_by_its_dat_never_by_an_arcade_block() {
+        let registered = vec![
+            SourceSetSystem {
+                source_set: "mame".into(),
+                system: Some("MAME".into()),
+                arcade: true,
+            },
+            SourceSetSystem {
+                source_set: "gb".into(),
+                system: Some("Nintendo - Game Boy".into()),
+                arcade: false,
+            },
+        ];
+        let mut profile = SelectionProfile::default();
+        for system in ["Nintendo - Game Boy", "Sega - Mega Drive"] {
+            profile.systems.insert(
+                system.into(),
+                SystemSettings {
+                    arcade: Some(ArcadeSettings::default()),
+                    ..SystemSettings::default()
+                },
+            );
+        }
+        assert_eq!(
+            arcade_systems(&registered, None, &profile),
+            BTreeSet::from(["MAME".to_owned()])
+        );
+        // With no MAME source set registered, a MAME preview, or MAME's own tab, still shows its arcade settings.
+        assert_eq!(
+            arcade_systems(&[], Some("MAME"), &SelectionProfile::default()),
+            BTreeSet::from(["MAME".to_owned()])
+        );
+        profile
+            .systems
+            .insert("MAME".into(), SystemSettings::default());
+        assert_eq!(
+            arcade_systems(&[], None, &profile),
+            BTreeSet::from(["MAME".to_owned()])
+        );
     }
 }
