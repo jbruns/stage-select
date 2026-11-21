@@ -7,6 +7,7 @@ use title_select_api::arcade::{
     ArcadeSettings, Category, DriverStatus, ElectionStep, Variant, is_arcade_system,
     takes_arcade_settings,
 };
+use title_select_api::dat::MAME;
 use title_select_api::selection::{
     ArcadePins, CategorySource, DEPENDENCY_STAGE, Dependency, Selection, SelectionProfile,
 };
@@ -96,8 +97,8 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
 
 /// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,
 /// `previewed` when its preview is an arcade Selection, and MAME, the system of every Arcade DAT, when the Profile has
-/// system settings for it and no DAT registered for it says otherwise (`takes_arcade_settings`): a Logiqx DAT named
-/// MAME keeps its Retool settings. An `arcade` block on any other system never makes it arcade: the check refuses it.
+/// system settings for it and no DAT is registered for it yet (`takes_arcade_settings`): a MAME whose registered DATs
+/// are all Logiqx DATs keeps its Retool settings. An `arcade` block on any other system never makes it arcade: the check refuses it.
 pub fn arcade_systems(
     registered: &[SourceSetSystem],
     previewed: Option<&str>,
@@ -287,7 +288,7 @@ pub fn stray_arcade_problem(system: &str) -> String {
             "Your {system} DATs aren't arcade DATs, so your arcade settings for {system} never apply. Remove them to save."
         ),
         false => format!(
-            "Only MAME uses arcade settings, so your arcade settings for {system} never apply. Remove them to save."
+            "Only {MAME} uses arcade settings, so your arcade settings for {system} never apply. Remove them to save."
         ),
     }
 }
@@ -590,6 +591,9 @@ mod tests {
                 ..SystemSettings::default()
             },
         );
+        assert!(arcade_systems(&registered, None, &profile).is_empty());
+        // Nor does an arcade block left on it: the tab says so and offers to remove it.
+        profile.systems.get_mut("MAME").unwrap().arcade = Some(ArcadeSettings::default());
         assert!(arcade_systems(&registered, None, &profile).is_empty());
         assert_eq!(
             stray_arcade_problem("MAME"),

@@ -224,8 +224,9 @@ pub fn is_arcade_system(system: &str) -> bool {
 }
 
 /// Whether `system`'s own `arcade` block can apply, by the kind of each registered DAT for it in `registered`: it is
-/// MAME (`is_arcade_system`), and some DAT registered for it is an Arcade DAT, or none is registered for it yet. A
-/// Logiqx DAT may name itself MAME too, and the Retool port selects it under the Retool settings.
+/// MAME (`is_arcade_system`), and some DAT registered for it is an Arcade DAT, or none is registered for it yet (a
+/// Source Set whose system isn't known counts as none). A Logiqx DAT may name itself MAME too, and the Retool port
+/// selects it under the Retool settings.
 pub fn takes_arcade_settings(system: &str, registered: &[crate::SourceSetSystem]) -> bool {
     let mut dats = registered
         .iter()
