@@ -108,7 +108,7 @@ enum Command {
         command: CuePackCommand,
     },
     /// Manage MAME support files: catver.ini, languages.ini and bestgames.ini from progetto-SNAPS, which
-    /// selecting arcade machines reads. With fetching from MAME on, the service fetches them for you.
+    /// selecting arcade machines will read. With fetching from MAME on, the service fetches them for you.
     SupportFile {
         #[command(subcommand)]
         command: SupportFileCommand,

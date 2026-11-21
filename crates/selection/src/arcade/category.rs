@@ -1,6 +1,6 @@
 //! A machine's category from ListXML alone (research 0105 §4): its driver's source directory, whether it names a
 //! software list, and its control types. It agrees with catver about 91% of the time on MAME 0.289, misses quiz,
-//! mature and most tabletop machines, and stands in until the support files arrive (#248, #251).
+//! mature and most tabletop machines, and stands in until the support files are read (#251).
 
 use title_select_engine::dat::Machine;
 

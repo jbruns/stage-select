@@ -89,7 +89,7 @@ pub fn About() -> impl IntoView {
             <p>
                 "When you turn on fetching from MAME, Title Select fetches catver.ini, languages.ini and bestgames.ini from "
                 <a href=PROGETTO_SNAPS>"progetto-SNAPS"</a>
-                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select reads them to select arcade machines. They are fetched from the maintainer's own "
+                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select will read them to select arcade machines. They are fetched from the maintainer's own "
                 <a href=SUPPORT_MIRROR>"GitHub mirror"</a>
                 ", never shipped with Title Select, and the copyright in them stays with progetto-SNAPS. Our thanks to progetto-SNAPS and its maintainer."
             </p>

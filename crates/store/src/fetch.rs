@@ -487,7 +487,7 @@ struct ListxmlTarget {
 
 /// The newest revision of each ListXML DAT that a registered Source Set is bound to, Following or not, in import
 /// order. MAME's Support Files are fetched for each.
-// The DAT Format is the narrowest sign today that a DAT is a ListXML; the machine model (#245) is to replace it.
+// The DAT Format is what marks a DAT as a ListXML, the same sign the Selection routes on to the arcade selector.
 // header_order is numbered within one DAT, so each DAT's newest is found on its own.
 fn support_targets(c: &Connection) -> Result<Vec<ListxmlTarget>> {
     let mut stmt = c.prepare(

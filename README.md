@@ -962,10 +962,11 @@ Fetching never starts an audit. A newer DAT revision it brings makes the source 
 imported one does, and you choose when to audit against it. Fetched cue packs join the cue packs you import, and SBI packs
 are kept beside them; each is tied to the fetch that brought it.
 
-**MAME support files.** Selecting arcade machines reads `catver.ini`, `languages.ini` and `bestgames.ini` from
-[progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating. Title
-Select doesn't ship them, as they carry no licence. With fetching from MAME on, the service fetches them from
-progetto-SNAPS's own GitHub mirror: it asks the GitHub API which commit the mirror is at,
+**MAME support files.** Selecting arcade machines will read `catver.ini`, `languages.ini` and `bestgames.ini` from
+[progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating. Until
+it does, it guesses each machine's category from the ListXML, and the selection says so. Title Select doesn't ship
+them, as they carry no licence. With fetching from MAME on, the service fetches them from progetto-SNAPS's own GitHub
+mirror: it asks the GitHub API which commit the mirror is at,
 then fetches each file from that commit. It does so when a source set you register, following or not, is first bound
 to a MAME ListXML DAT revision, and again whenever a newer ListXML revision arrives, imported or fetched; a ListXML the
 same fetch brings is followed by its support files. They are fetched at most once a day, under the same rules as DATs:

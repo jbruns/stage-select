@@ -3,7 +3,7 @@
 //! chain of steps, each one Rule, and lists each winner's Dependencies once (ADR 0025).
 //!
 //! Every signal is optional: a filter keeps a machine whose entry doesn't say, and a filter whose signal no machine of
-//! the DAT carries is unavailable, which the Selection records. Until the support files arrive (#248), category comes
+//! the DAT carries is unavailable, which the Selection records. Until the support files are read (#251), category comes
 //! from a ListXML-only heuristic, and the Selection says so.
 
 mod category;

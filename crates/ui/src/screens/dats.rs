@@ -541,7 +541,7 @@ fn SupportFileUpload() -> impl IntoView {
     view! {
         <section aria-label="Import a MAME support file">
             <p>
-                "Selecting arcade machines reads catver.ini, languages.ini and bestgames.ini from progetto-SNAPS. With fetching from MAME on, the service fetches them for you; import one here to use your own copy. Its header says which file it is and the MAME version it is for."
+                "Selecting arcade machines will read catver.ini, languages.ini and bestgames.ini from progetto-SNAPS. With fetching from MAME on, the service fetches them for you; import one here to use your own copy. Its header says which file it is and the MAME version it is for."
             </p>
             <form class="form" node_ref=form on:submit=submit>
                 <label>
