@@ -154,15 +154,31 @@ impl ChdAudit {
     /// chdman as [`chd::locate`] finds it without a configuration, with the default limits, its scratch directories in
     /// the system's temporary directory: what an Audit without a store runs.
     pub fn located() -> ChdAudit {
+        ChdAudit::verifying(
+            chd::locate(None),
+            Default::default(),
+            Default::default(),
+            std::env::temp_dir(),
+        )
+    }
+
+    /// Verifying Disks with `program`, as [`chd::locate`] found it, counting what it reads in `tally`, each run within
+    /// `limits`, its scratch directories in `tmp`.
+    pub fn verifying(
+        program: Result<std::path::PathBuf, String>,
+        tally: meter::Tally,
+        limits: chd::Limits,
+        tmp: std::path::PathBuf,
+    ) -> ChdAudit {
         ChdAudit {
-            chdman: chd::locate(None).map(|program| chd::Chdman {
+            chdman: program.map(|program| chd::Chdman {
                 program,
                 threads: None,
                 deadline: Default::default(),
-                tally: Default::default(),
+                tally,
             }),
-            limits: Default::default(),
-            tmp: std::env::temp_dir(),
+            limits,
+            tmp,
         }
     }
 }
@@ -696,7 +712,7 @@ impl Scan<'_> {
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
         match known {
             Known::Delta(parent) => {
-                return self.unreadable(path, member, self.needs_parent(parent));
+                return self.unreadable(path, member, needs_parent(self.dat, parent));
             }
             Known::NoDisk(why) => {
                 self.entries.push(Entry {
@@ -799,10 +815,6 @@ impl Scan<'_> {
             named_rom: named.map(|r| rom_ref(self.dat, r)),
             reason,
         });
-    }
-
-    fn needs_parent(&self, parent: &str) -> String {
-        needs_parent(self.dat, parent)
     }
 
     /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one

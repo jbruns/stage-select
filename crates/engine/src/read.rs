@@ -662,32 +662,28 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
         .metadata()
         .ok()
         .and_then(|m| FileStamp::from_metadata(&m));
-    let unreadable = |read: &mut FileRead, why: String| {
+    // Recorded as a file it couldn't read, so that a repair can tell whether it changed since.
+    let record_unreadable = || {
         if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
             reads.record_unreadable(&file.rel, &stamp);
         }
-        read.error = Some(why);
     };
     let header = match crate::chd::read_header(&opened) {
         Ok(header) => header,
         Err(crate::chd::HeaderRefusal::Unread(why)) => {
-            unreadable(&mut read, why);
+            record_unreadable();
+            read.error = Some(why);
             return read;
         }
-        // Recorded as a file it couldn't read, so that a repair can tell whether it changed since.
         Err(refusal) => {
-            if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
-                reads.record_unreadable(&file.rel, &stamp);
-            }
+            record_unreadable();
             read.members
                 .push((None, Ok(Known::NoDisk(refusal.as_disk()))));
             return read;
         }
     };
     if let Some(parent) = header.parent_sha1 {
-        if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
-            reads.record_unreadable(&file.rel, &stamp);
-        }
+        record_unreadable();
         read.members.push((None, Ok(Known::Delta(parent))));
         return read;
     }
@@ -737,8 +733,14 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
             }
             read.members.push((None, Ok(Known::Disk(header.sha1))));
         }
-        Ok(()) => unreadable(&mut read, "it changed while chdman verified it".into()),
-        Err(why) => unreadable(&mut read, why),
+        Ok(()) => {
+            record_unreadable();
+            read.error = Some("it changed while chdman verified it".into());
+        }
+        Err(why) => {
+            record_unreadable();
+            read.error = Some(why);
+        }
     }
     read
 }

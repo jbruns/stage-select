@@ -335,6 +335,41 @@ fn an_ingest_folder_of_a_familys_chds_is_assessed_verified_and_filed_into_the_pa
 }
 
 #[test]
+fn a_disk_a_game_shares_with_its_bios_is_filed_into_the_bioss_folder_under_its_name() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("drv/drvdisk.chd"), 1, &[]);
+    let env = Env::new(
+        chdman,
+        &[
+            ("sysbios", r#"isbios="yes""#, disk("biosdisk", &sha1)),
+            (
+                "drv",
+                r#"romof="sysbios""#,
+                disk("drvdisk", &sha1).replace("<disk ", r#"<disk merge="biosdisk" "#),
+            ),
+        ],
+    );
+    copy_dir(&scratch.path().join("drv"), &env.ingest_dir().join("drv"));
+    env.audit(AuditEvidence::Full);
+    env.scan();
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .any(|i| i.key == "disk:sysbios/biosdisk.chd"),
+        "{:#?}",
+        plan.content.items
+    );
+    let after = env.approve(&plan);
+    assert_eq!(files(&env.set()), ["sysbios/biosdisk.chd"]);
+    assert_eq!(status(&after, "drv"), GameStatus::Complete);
+}
+
+#[test]
 fn a_chd_in_an_ingest_folder_that_doesnt_verify_or_is_a_delta_stays_put_with_why() {
     let Some(chdman) = chdman() else { return };
     let scratch = tempfile::tempdir().unwrap();

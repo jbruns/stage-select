@@ -900,7 +900,8 @@ impl Matcher {
         match dat {
             Some(dat) => title_select_engine::needs_parent(dat, parent),
             None => format!(
-                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}"
+                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}; replace it with a \
+                 self-contained CHD"
             ),
         }
     }
@@ -1620,19 +1621,11 @@ impl Store {
             }
         }
         // chdman verifies each CHD of a folder of Disks before any plan moves it, reading it from the folder's Root.
-        let disks = ChdAudit {
-            chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
-                title_select_engine::chd::Chdman {
-                    program,
-                    threads: None,
-                    deadline: Default::default(),
-                    tally: title_select_engine::meter::this_thread()
-                        .map_or_else(Default::default, |job| job.tally(Some(&row.root))),
-                }
-            }),
-            limits: self.settings()?.chd_limits(),
-            tmp: self.dir().join(crate::TMP),
-        };
+        let disks = self.disk_audit(
+            config,
+            title_select_engine::meter::this_thread()
+                .map_or_else(Default::default, |job| job.tally(Some(&row.root))),
+        )?;
         for (name, st, refused) in found {
             let seen = Seen::of(&st);
             let existing = items.remove(&name);

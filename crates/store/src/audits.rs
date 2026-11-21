@@ -905,18 +905,7 @@ impl Store {
         let tally = how.job.map_or_else(Default::default, |job| {
             self.meter.job(job).tally(Some(&set.record.root))
         });
-        let disks = title_select_engine::ChdAudit {
-            chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
-                title_select_engine::chd::Chdman {
-                    program,
-                    threads: None,
-                    deadline: Default::default(),
-                    tally,
-                }
-            }),
-            limits: self.settings()?.chd_limits(),
-            tmp: self.dir().join(crate::TMP),
-        };
+        let disks = self.disk_audit(config, tally)?;
         let (id, revision) = self.write(|tx| {
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             crate::placements::check_no_holding_build(tx, set.id, &set.record.name)?;
@@ -950,6 +939,21 @@ impl Store {
             placed,
             disks,
         })
+    }
+
+    /// How a Disk's CHD is verified (ADR 0026): with chdman as the configuration finds it, counting what it reads in
+    /// `tally`, within the CHD time limits, in the store's `tmp/`.
+    pub(crate) fn disk_audit(
+        &self,
+        config: &Config,
+        tally: title_select_engine::meter::Tally,
+    ) -> Result<title_select_engine::ChdAudit> {
+        Ok(title_select_engine::ChdAudit::verifying(
+            title_select_engine::chd::locate(config.chd.chdman.as_deref()),
+            tally,
+            self.settings()?.chd_limits(),
+            self.dir().join(crate::TMP),
+        ))
     }
 
     /// What an Audit of Source Set `set` reads of its Placed Games, by the Library Folder that holds them, with the

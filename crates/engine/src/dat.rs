@@ -945,6 +945,13 @@ impl Dat {
         self.by_disk_sha1.get(sha1).map_or(&[], Vec::as_slice)
     }
 
+    /// Whether Game `game` lists a Disk named `name`.
+    pub fn lists_disk(&self, game: &str, name: &str) -> bool {
+        self.roms_named(name)
+            .iter()
+            .any(|r| self.roms[*r].disk && self.games[self.roms[*r].game] == game)
+    }
+
     /// Whether the DAT lists any Disk, so that a `.chd` file in a Source Set is read as one.
     pub fn has_disks(&self) -> bool {
         self.roms.iter().any(|r| r.disk)

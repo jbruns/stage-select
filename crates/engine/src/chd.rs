@@ -105,13 +105,14 @@ impl HeaderRefusal {
     pub fn as_disk(self) -> String {
         match self {
             HeaderRefusal::Version(version) => format!(
-                "it is a version {version} CHD, and only a version 5 CHD can match a disk. Update it outside Title \
+                "it is a version {version} CHD, and only a version 5 CHD can match a disk; update it outside Title \
                  Select, with chdman copy, then audit again"
             ),
             refusal => refusal.why(),
         }
     }
 
+    /// Why the CHD's header isn't read.
     pub fn why(self) -> String {
         match self {
             HeaderRefusal::Unread(why) => why,
@@ -157,8 +158,13 @@ pub fn read_header(file: &File) -> Result<Header, HeaderRefusal> {
     let be32 = |at: usize| u32::from_be_bytes(raw[at..at + 4].try_into().expect("4 bytes"));
     let be64 = |at: usize| u64::from_be_bytes(raw[at..at + 8].try_into().expect("8 bytes"));
     let (length, version) = (be32(8), be32(12));
-    if version != 5 || length as usize != V5_HEADER || n < V5_HEADER {
+    if version != 5 {
         return Err(HeaderRefusal::Version(version));
+    }
+    if length as usize != V5_HEADER || n < V5_HEADER {
+        return Err(HeaderRefusal::Unread(
+            "its CHD header can't be read: it is cut short, or its length isn't a version 5 header's".into(),
+        ));
     }
     let parent = &raw[104..124];
     Ok(Header {

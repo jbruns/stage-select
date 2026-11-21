@@ -1518,11 +1518,16 @@ Each item is one of:
   item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further, but a folder named for a MAME game that holds only CHDs, each of which is its own item, read as
-  a disk of that game's family and verified with `chdman verify`; a delta CHD, which needs its parent CHD; a CHD
-  whose SHA-1 is that of no disk of the folder's family; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
-  or an `.ini` file that matches no game and isn't a MAME support file, which is never a candidate addition;
+  never read further, unless it is a folder of disks (below); a delta CHD, which needs its parent CHD; a CHD whose
+  SHA-1 is that of no disk of its folder's family; a DAT with no name to know it by, which can't be imported and is
+  never a candidate addition; or an `.ini` file that matches no game and isn't a MAME support file, which is never a
+  candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
+
+A folder named for a MAME game that holds nothing but CHDs is a folder of disks: each CHD in it is an item of its own,
+read as a disk of that game, of its parent or BIOS, or of a game it is the parent or BIOS of, and verified with `chdman verify` when it is
+assessed. A CHD chdman can't verify is unreadable, with what chdman said. A folder named for a MAME game that holds
+anything else is unsupported, and says which file in it isn't a CHD.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
 plan, whatever state it shows; an unsupported or dismissed item can still be discarded unread once settled, and
@@ -1577,7 +1582,8 @@ approving approves the plan as it was made, so it waits while you have changes y
   kept in the ingest folder's kept files once every file it fills is written. What no file holds yet stays missing,
   and the plan says which ROMs;
 - a MAME game's missing disk is filed from an ingest folder's CHD that `chdman verify` proved, into its family's
-  folder, `<parent>/<disk>.chd`, as a merged CHD set keeps it, replacing a CHD there that can match no disk and
+  folder, `<parent>/<disk>.chd`, as a merged CHD set keeps it: the folder of the furthest of its parent and BIOS that
+  lists it too, under that one's name for it, replacing a CHD there that can match no disk and
   keeping that one aside. A disk the audit matched stays where it is: a repair never keeps it aside, and never packs a
   CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose

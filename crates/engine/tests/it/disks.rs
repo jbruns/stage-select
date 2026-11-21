@@ -368,7 +368,7 @@ fn a_chd_older_than_version_5_is_unmatched_and_says_to_update_it() {
         assert_eq!(old.finding, Finding::Unmatched, "{evidence:?}");
         let why = old.reason.as_deref().unwrap();
         assert!(why.contains("version 4 CHD"), "{why}");
-        assert!(why.contains("Update it outside Title Select"), "{why}");
+        assert!(why.contains("update it outside Title Select"), "{why}");
         assert_eq!(game(&report, "blaster").status, GameStatus::Incomplete);
     }
 }
