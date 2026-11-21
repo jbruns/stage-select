@@ -292,6 +292,8 @@ struct Brought {
     commit: Option<String>,
     support: Option<String>,
     for_revision: Option<i64>,
+    /// The `import_seq` `for_revision` had when the fetch chose it.
+    for_import_seq: Option<i64>,
 }
 
 impl Brought {
@@ -519,8 +521,8 @@ fn support_artifacts() -> [FetchArtifact; 4] {
 
 /// Whether every Support File has been fetched since the ListXML DAT Revision `revision` was imported: for it, or
 /// for a revision imported at or after it, which a fetch is sent for only once it is imported.
-// Each fetch keeps the import_seq its revision had when it was sent: a revision deleted and imported again takes a
-// new one, which its earlier fetches must not take with them.
+// Each fetch keeps the import_seq its revision had when the fetch chose it: a revision deleted and imported again
+// takes a new one, which its earlier or in-flight fetches must not take with them.
 fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     for kind in SupportFileKind::ALL {
         let fetched: bool = c.query_row(
@@ -864,7 +866,20 @@ impl Store {
         report: &mut FetchReport,
     ) -> Result<()> {
         let provider = FetchProvider::Mame;
-        let Some((revision, _)) = self.read(support_owed)? else {
+        // The revision's import_seq is read as it is chosen, in the same read: deleted and imported again while the
+        // requests are in flight, it takes a new one, which these requests mustn't record.
+        let owed = self.read(|c| {
+            let Some((revision, _)) = support_owed(c)? else {
+                return Ok(None);
+            };
+            let seq: i64 = c.query_row(
+                "SELECT import_seq FROM dat_revisions WHERE id = ?1",
+                [revision],
+                |r| r.get(0),
+            )?;
+            Ok(Some((revision, seq)))
+        })?;
+        let Some(target) = owed else {
             return Ok(());
         };
         if self.read(support_next_at)?.is_some() {
@@ -882,7 +897,7 @@ impl Store {
             trigger,
             actor,
             &url,
-            |s, _, f| s.check_support_commit(f, &url, revision),
+            |s, _, f| s.check_support_commit(f, &url, target),
         )?;
         let Some(attempt) = attempt else {
             return Ok(());
@@ -908,7 +923,7 @@ impl Store {
                 trigger,
                 actor,
                 &url,
-                |s, _, f| s.keep_fetched_support(kind, f, &commit, revision),
+                |s, _, f| s.keep_fetched_support(kind, f, &commit, target),
             )?;
             // Another fetch reserved this request first.
             let Some(attempt) = attempt else { continue };
@@ -924,7 +939,7 @@ impl Store {
         &self,
         fetched: Fetched,
         url: &str,
-        revision: i64,
+        (revision, seq): (i64, i64),
     ) -> std::result::Result<Brought, String> {
         let commit = String::from_utf8_lossy(&fetched.bytes).trim().to_owned();
         if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -947,6 +962,7 @@ impl Store {
         Ok(Brought {
             commit: Some(commit),
             for_revision: Some(revision),
+            for_import_seq: Some(seq),
             ..Brought::new(if same {
                 FetchOutcome::Unchanged
             } else {
@@ -961,7 +977,7 @@ impl Store {
         kind: SupportFileKind,
         fetched: Fetched,
         commit: &str,
-        revision: i64,
+        (revision, seq): (i64, i64),
     ) -> std::result::Result<Brought, String> {
         let file = kind.file_name();
         let (named, _) = crate::support_files::read_header(&fetched.bytes, &fetched.url)?;
@@ -985,6 +1001,7 @@ impl Store {
             commit: Some(commit.to_owned()),
             support: Some(record.sha256),
             for_revision: Some(revision),
+            for_import_seq: Some(seq),
             ..Brought::new(if outcome == ImportOutcome::Added {
                 FetchOutcome::Added
             } else {
@@ -1049,8 +1066,7 @@ impl Store {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = ?3, error = ?4, dat_revision_id = ?5,
                  pack_sha256 = ?6, release = ?7, asset_url = ?8, commit_sha = ?9, support_sha256 = ?10,
-                 for_revision_id = ?11,
-                 for_import_seq = (SELECT import_seq FROM dat_revisions WHERE id = ?11) WHERE id = ?1",
+                 for_revision_id = ?11, for_import_seq = ?12 WHERE id = ?1",
                 params![
                     id,
                     now(),
@@ -1062,7 +1078,8 @@ impl Store {
                     brought.asset_url,
                     brought.commit,
                     brought.support,
-                    brought.for_revision
+                    brought.for_revision,
+                    brought.for_import_seq
                 ],
             )?;
             if let Some(error) = &error {

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use title_select_api::fetch::{
@@ -26,6 +26,8 @@ enum Reply {
     Body(Vec<u8>),
     Status(u16),
     Redirect(String),
+    /// The body, once the request is seen (the first barrier) and then let go (the second).
+    Paused(Vec<u8>, Arc<Barrier>, Arc<Barrier>),
 }
 
 /// A request the fake provider saw.
@@ -79,6 +81,11 @@ impl FakeProvider {
                     Some(Reply::Body(body)) => (200, String::new(), body),
                     Some(Reply::Status(status)) => (status, String::new(), Vec::new()),
                     Some(Reply::Redirect(to)) => (302, format!("Location: {to}\r\n"), Vec::new()),
+                    Some(Reply::Paused(body, seen, go)) => {
+                        seen.wait();
+                        go.wait();
+                        (200, String::new(), body)
+                    }
                     None => (404, String::new(), Vec::new()),
                 };
                 let head = format!(
@@ -1538,6 +1545,50 @@ fn an_older_listxml_imported_again_does_not_count_its_old_fetch_for_a_newer_one(
         .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
         .unwrap();
     assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
+fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    let seen = Arc::new(Barrier::new(2));
+    let go = Arc::new(Barrier::new(2));
+    env.fake.reply(
+        &format!("{MIRROR}/{COMMIT_A}/catver.ini/catver.ini"),
+        Reply::Paused(support_ini("catver.ini", "0.289"), seen.clone(), go.clone()),
+    );
+    std::thread::scope(|scope| {
+        let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
+        // While catver.ini is in flight: 0.290 arrives, then 0.289 is imported again after it.
+        seen.wait();
+        env.store
+            .unregister_source_set(&env.config, "Arcade")
+            .unwrap();
+        env.store.delete_dat_revision(&old).unwrap();
+        env.add_arcade("mame0290");
+        env.store
+            .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
+            .unwrap();
+        go.wait();
+        let first = fetching.join().unwrap().unwrap();
+        assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
+    });
+
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let newer = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&newer), support_outcomes(FetchOutcome::Added));
 }
 
 #[test]
