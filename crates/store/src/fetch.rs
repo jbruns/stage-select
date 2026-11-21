@@ -886,7 +886,6 @@ impl Store {
         let Some(owed) = self.read(support_owed)? else {
             return Ok(());
         };
-        let target = (owed.id, owed.import_seq);
         if self.read(support_next_at)?.is_some() {
             return Ok(());
         }
@@ -902,10 +901,10 @@ impl Store {
             trigger,
             actor,
             &url,
-            Some(target),
+            Some(&owed),
             |s, _, f| s.check_support_commit(f, &url),
         )?;
-        // Not due, or the ListXML it was for was deleted outright after it was chosen.
+        // Not due, or the ListXML it was for was deleted outright after it was chosen and before any fetch named it.
         let Some(attempt) = attempt else {
             return Ok(());
         };
@@ -930,7 +929,7 @@ impl Store {
                 trigger,
                 actor,
                 &url,
-                Some(target),
+                Some(&owed),
                 |s, _, f| s.keep_fetched_support(kind, f, &commit),
             )?;
             // Another fetch reserved this request first.
@@ -1016,10 +1015,12 @@ impl Store {
     /// it and runs `then` on its body, and records how it ended. Returns `None`, sending nothing, if it was not due:
     /// the check and the record are one transaction, so no two fetches can both send it.
     ///
-    /// `for_listxml`, a Support File request's ListXML DAT Revision by id and the import_seq it was chosen at, is
-    /// recorded with the reservation, so that while the request is in flight the revision's row is named by history:
-    /// deleting it keeps the row, whose id and import_seq no later import can take. `None`, sending nothing, if that
-    /// id no longer has that import_seq: the row was deleted outright, and its id perhaps taken, after it was chosen.
+    /// `for_listxml`, a Support File request's ListXML DAT Revision with the import_seq it was chosen at, is recorded
+    /// with the reservation, so that while the request is in flight the revision's row is named by history: deleting
+    /// it keeps the row, whose id no later import can take. `None`, sending nothing, if that id may no longer be that
+    /// revision: it no longer has that import_seq, and no fetch has named it at that import_seq, so the row may have
+    /// been deleted outright, and its id taken, after it was chosen. A row a fetch has named at that import_seq is
+    /// still that revision, though imported again since or deleted: the rest of a fetch sends its files for it.
     #[allow(clippy::too_many_arguments)]
     fn attempt(
         &self,
@@ -1030,24 +1031,25 @@ impl Store {
         trigger: FetchTrigger,
         actor: &str,
         url: &str,
-        for_listxml: Option<(i64, i64)>,
+        for_listxml: Option<&ListxmlTarget>,
         then: impl FnOnce(&Store, i64, Fetched) -> std::result::Result<Brought, String>,
     ) -> Result<Option<FetchAttempt>> {
         let id = self.write(|tx| {
             if next_at(tx, provider, system, artifact)?.is_some() {
                 return Ok(None);
             }
-            if let Some((revision, import_seq)) = for_listxml {
+            if let Some(target) = for_listxml {
                 let same: bool = tx.query_row(
-                    "SELECT EXISTS (SELECT 1 FROM dat_revisions WHERE id = ?1 AND import_seq = ?2)",
-                    [revision, import_seq],
+                    "SELECT EXISTS (SELECT 1 FROM dat_revisions WHERE id = ?1 AND import_seq = ?2)
+                         OR EXISTS (SELECT 1 FROM fetches WHERE for_revision_id = ?1 AND for_import_seq = ?2)",
+                    [target.id, target.import_seq],
                     |r| r.get(0),
                 )?;
                 if !same {
                     return Ok(None);
                 }
             }
-            let (for_revision, for_import_seq) = for_listxml.unzip();
+            let (for_revision, for_import_seq) = for_listxml.map(|t| (t.id, t.import_seq)).unzip();
             tx.execute(
                 "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, for_revision_id,
                                       for_import_seq)

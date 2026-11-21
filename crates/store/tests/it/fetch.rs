@@ -1579,12 +1579,9 @@ fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
             .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
             .unwrap();
         go.wait();
-        // 0.289, imported again, is no longer the revision the fetch chose, so it sends nothing more for it.
+        // The fetch still sends every file, for 0.289 as it was chosen, not as imported again.
         let first = fetching.join().unwrap().unwrap();
-        assert_eq!(
-            outcomes(&first),
-            support_outcomes(FetchOutcome::Added)[..2].to_vec()
-        );
+        assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
     });
 
     env.backdate(25);
@@ -1596,7 +1593,8 @@ fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
 }
 
 #[test]
-fn a_listxml_deleted_while_its_commit_check_is_in_flight_keeps_its_place_from_a_replacement() {
+fn a_listxml_deleted_while_its_commit_check_is_in_flight_is_fetched_for_and_its_replacement_after()
+{
     let env = Env::new(MAME);
     env.add_arcade("mame0289");
     env.serve_support(COMMIT_A, "0.289");
@@ -1624,6 +1622,7 @@ fn a_listxml_deleted_while_its_commit_check_is_in_flight_keeps_its_place_from_a_
         env.store.delete_dat_revision(&old).unwrap();
         env.add_arcade("mame0290");
         go.wait();
+        // The fetch names 0.289's row, so deleting it kept the row and 0.290 couldn't take its id: every file is sent.
         let first = fetching.join().unwrap().unwrap();
         assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
     });
