@@ -51,6 +51,7 @@ use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
 use crate::jobs::{finish_running, job_by_id};
 use crate::kept::{Scope, name_key, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::plans::returns::{bytes, rounded, zip_bound};
 use crate::plans::{json, to_json};
 use crate::sets::{set_by_id, set_by_name};
 use crate::{Error, Fault, Result, Store, now};
@@ -462,6 +463,15 @@ fn undeleted(dir: &FolderDir, staged_name: &str) -> String {
         "{}/{staged_name}, a file Title Select staged and won't use, could not be deleted; it was left where it is",
         dir.path().display()
     )
+}
+
+/// How a Root with `free` bytes free falls short of `needs`, if it does, or why its free space can't be read.
+fn short_of(free: Result<u64>, needs: u64) -> Option<String> {
+    match free {
+        Ok(free) if free >= needs => None,
+        Ok(free) => Some(format!("it has {} free", bytes(free))),
+        Err(e) => Some(format!("its free space can't be read ({e})")),
+    }
 }
 
 fn io_err(e: io::Error) -> Error {
@@ -891,6 +901,22 @@ impl Store {
                 }
             }
         }
+        // The files laid out beside each placed release's CHDs, as seen now, which go with it when it is released.
+        let mut beside: BTreeMap<String, Vec<(String, Seen)>> = BTreeMap::new();
+        for (folder, path, release) in self.read(|c| crate::placements::laid_beside(c, set.id))? {
+            let row = self.read(|c| folder_by_id(c, folder))?;
+            let Ok(opened) = open_folder(config, &row.root, &row.path) else {
+                continue;
+            };
+            if let Some(st) = opened.stat(&path).map_err(io_err)?
+                && FolderDir::kind(&st) == FileType::RegularFile
+            {
+                beside
+                    .entry(release)
+                    .or_default()
+                    .push((placed_path(folder, &path), Seen::of(&st)));
+            }
+        }
         let torrentzip = |path: &str| -> bool {
             let (dir, path) = match split_placed(path) {
                 None => (&dir, path),
@@ -930,6 +956,7 @@ impl Store {
             placed: &placed,
             placed_files: &placed_files,
             placed_chds: &placed_chds,
+            beside: &beside,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -986,6 +1013,15 @@ impl Store {
             }
         }
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
+        let needs = self.release_needs(config, &planned, &dir, generation + 1)?;
+        if let Some(needs) = needs {
+            planned.notes.push(format!(
+                "setting aside the placed CHDs this plan takes out of your play library needs up to {} free in root \
+                 {}, and the plan can't be approved without it",
+                bytes(needs),
+                record.root
+            ));
+        }
         let content = RepairPlanContent {
             source_set: record.name.clone(),
             set_id: set.id,
@@ -1003,6 +1039,9 @@ impl Store {
             storage,
             set_aside: false,
             coverage: record.coverage.clone(),
+            needs: needs
+                .map(|needs| BTreeMap::from([(record.root.clone(), needs)]))
+                .unwrap_or_default(),
         };
         let digest = digest(&content);
         let packs: BTreeSet<&str> = content
@@ -1146,6 +1185,7 @@ impl Store {
             storage,
             set_aside: true,
             coverage: None,
+            needs: BTreeMap::new(),
         };
         let digest = digest(&content);
         self.write(|tx| {
@@ -1172,6 +1212,79 @@ impl Store {
             Ok(stmt
                 .query_map([set.id], plan_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// The most free space `planned` needs in the Source Set's Root, whose folder is `dir`, to release placed CHDs
+    /// into the kept files of `generation` (ADR 0023): each file it sets aside that no rename is proven to take there,
+    /// copied across, and each disc of a released release it fills, every file counted at the most it can take. None
+    /// when it needs none.
+    fn release_needs(
+        &self,
+        config: &Config,
+        planned: &planning::Planned,
+        dir: &FolderDir,
+        generation: u64,
+    ) -> Result<Option<u64>> {
+        // Where the kept files go, or the nearest folder of the way there that is there now.
+        let mut kept = dir.try_clone().map_err(io_err)?;
+        for part in crate::kept::generation_dir(generation).split('/') {
+            match kept.sub(part) {
+                Ok(sub) => kept = sub,
+                Err(_) => break,
+            }
+        }
+        // Whether a rename is proven to take `path` there: only when the folder holding it is on the same mount.
+        let renamed = |path: &str| -> Result<bool> {
+            let Some((id, rel)) = split_placed(path) else {
+                return Ok(true);
+            };
+            if self.across_filesystems(None) {
+                return Ok(false);
+            }
+            let row = self.read(|c| folder_by_id(c, id))?;
+            let Ok(lib) = open_folder(config, &row.root, &row.path) else {
+                return Ok(false);
+            };
+            Ok(parent_of(&lib, rel).is_ok_and(|(parent, _)| {
+                crate::folder_dir::one_mount(parent.as_ref().unwrap_or(&lib), &kept)
+            }))
+        };
+        let written = |roms: &[RepairRom], loose: bool| {
+            let roms: Vec<ExpectedRom> = roms.iter().map(|r| r.rom.clone()).collect();
+            rounded(match loose {
+                true => roms.iter().map(|r| r.size).sum(),
+                false => zip_bound(&roms),
+            })
+        };
+        let mut needs = 0;
+        for s in planned
+            .steps
+            .iter()
+            .filter(|s| planned.released.contains(&s.item))
+        {
+            needs += match &s.step {
+                RepairStep::Keep { path, seen, .. } if !renamed(path)? => rounded(seen.file.size),
+                RepairStep::Build { roms, loose, .. } | RepairStep::Fill { roms, loose, .. } => {
+                    written(roms, *loose)
+                }
+                _ => 0,
+            };
+        }
+        Ok((needs > 0).then_some(needs))
+    }
+
+    /// Why `content` can't release the placed CHDs it sets aside, if it can't: the Root it writes in hasn't the space
+    /// it needs, or its free space can't be read.
+    fn release_unfit(&self, config: &Config, content: &RepairPlanContent) -> Option<String> {
+        content.needs.iter().find_map(|(root, needs)| {
+            let short = short_of(self.free_space(config, &content.root, &content.path), *needs)?;
+            Some(format!(
+                "setting aside the placed CHDs this plan takes out of your play library needs up to {} free in root \
+                 {root}, and {short}; nothing was changed. Free some space there, or leave them placed, then plan the \
+                 repair again",
+                bytes(*needs)
+            ))
         })
     }
 
@@ -1264,6 +1377,9 @@ impl Store {
             }
         }
         if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
+            return Err(Error::Refused(why));
+        }
+        if let Some(why) = self.release_unfit(config, content) {
             return Err(Error::Refused(why));
         }
         self.fault_point(crate::Fault::RepairApproving);
@@ -1586,6 +1702,10 @@ impl Store {
                 "{} is no longer the folder the plan was made for; nothing in it was changed",
                 dir.path().display()
             ));
+        }
+        // Space freed since the approval may be taken again before the repair starts.
+        if unstarted && let Some(why) = self.release_unfit(config, content) {
+            return stop(why);
         }
         let mut placed = BTreeMap::new();
         for folder in placed_folders(content) {
@@ -2117,45 +2237,11 @@ impl Store {
 
     /// Runs `step`; a Build `droppable` by a cancel stops its reads and writes for one ([`Interruptible`]).
     fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
-        // A disc placed as a CHD is never completed where it is placed: no file of another format is written beside
-        // it, whatever the plan says.
-        let writes = match &step.step {
-            RepairStep::Build { target, .. }
-            | RepairStep::Fill { target, .. }
-            | RepairStep::Publish { target, .. } => Some(target.as_str()),
-            RepairStep::Rename { to, .. } => Some(to.as_str()),
-            _ => None,
-        };
-        if let Some(target) = writes.filter(|t| split_placed(t).is_some()) {
-            let game = r
-                .plan
-                .content
-                .items
-                .iter()
-                .find(|i| i.key == step.item)
-                .and_then(|i| i.game.as_deref());
-            let set = r.plan.content.set_id;
-            let as_chd = match game {
-                Some(game) => self.read(|c| {
-                    Ok(c.query_row(
-                        "SELECT EXISTS (SELECT 1 FROM placed_files
-                         WHERE source_set_id = ?1 AND game = ?2 AND chd_roms IS NOT NULL)",
-                        params![set, game],
-                        |r| r.get::<_, bool>(0),
-                    )?)
-                })?,
-                None => false,
-            };
-            if as_chd {
-                return self.step_failed(
-                    step,
-                    "failed",
-                    format!(
-                        "{} is placed as a CHD, so {target} is never written beside it; it was left as it is",
-                        game.unwrap_or_default()
-                    ),
-                );
-            }
+        // A disc placed as a CHD is never completed where it is placed, nor written in the Source Set's folder while
+        // a CHD of its release is still placed: no release is ever stored in two formats or two places, whatever the
+        // plan says. Only once a repair has set every CHD of it aside is it filled.
+        if let Some(why) = self.placed_chd_in_the_way(config, r, step)? {
+            return self.step_failed(step, "failed", why);
         }
         match &step.step {
             RepairStep::Build {
@@ -2206,6 +2292,66 @@ impl Store {
                 also,
             } => self.run_delete(r, step, path, *build, *keep, *publish, also),
         }
+    }
+
+    /// Why `step` can't write what it writes while a CHD of its Game's release is placed: a file of the Game where
+    /// one of its CHDs is placed, or any file of the Game while a CHD of its release is still there. None otherwise, and
+    /// for a step that writes nothing, such as one keeping a CHD aside.
+    fn placed_chd_in_the_way(
+        &self,
+        config: &Config,
+        r: &Repairing,
+        step: &StepRow,
+    ) -> Result<Option<String>> {
+        let target = match &step.step {
+            RepairStep::Build { target, .. }
+            | RepairStep::Fill { target, .. }
+            | RepairStep::Publish { target, .. } => target,
+            RepairStep::Rename { to, .. } => to,
+            RepairStep::Keep { .. } | RepairStep::Delete { .. } => return Ok(None),
+        };
+        let Some(game) = r
+            .plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == step.item)
+            .and_then(|i| i.game.as_deref())
+        else {
+            return Ok(None);
+        };
+        let release = release_of(game);
+        let chds: Vec<_> = self
+            .read(|c| crate::placements::placed_chds_of(c, r.plan.content.set_id))?
+            .into_iter()
+            .filter(|c| release_of(&c.game) == release)
+            .collect();
+        if split_placed(target).is_some() && chds.iter().any(|c| c.game == game) {
+            return Ok(Some(format!(
+                "{game} is placed as a CHD, so {target} is never written beside it; it was left as it is"
+            )));
+        }
+        for chd in &chds {
+            let at = placed_path(chd.folder, &chd.path);
+            let there = match r.locate(&at) {
+                Ok((dir, rel)) => dir.stat(rel).map_err(io_err)?.is_some(),
+                Err(_) => {
+                    let row = self.read(|c| folder_by_id(c, chd.folder))?;
+                    match open_folder(config, &row.root, &row.path) {
+                        Ok(dir) => dir.stat(&chd.path).map_err(io_err)?.is_some(),
+                        // A folder that can't be read now may still hold it.
+                        Err(_) => true,
+                    }
+                }
+            };
+            if there {
+                return Ok(Some(format!(
+                    "{} is placed as a CHD, so {target} is never written while it is; it was left as it is",
+                    chd.game
+                )));
+            }
+        }
+        Ok(None)
     }
 
     /// Writes a Build step's file under a staged name recorded first, from its sources while each is still the file
@@ -2889,7 +3035,9 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first.
+    /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first. A
+    /// placed CHD kept aside releases its disc, and each other disc of its release whose CHD is gone is then no longer
+    /// placed either.
     fn run_keep(
         &self,
         r: &Repairing,
@@ -2899,7 +3047,11 @@ impl Store {
         reason: &str,
         seen: &Seen,
     ) -> Ran {
+        let gone = self.gone_beside(r, path)?;
         let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
+            for (folder, path) in &gone {
+                crate::placements::forget_placed(tx, *folder, path)?;
+            }
             tx.execute(
                 "UPDATE repair_steps SET state = 'done', kept_id = ?2, finished_at = ?3 WHERE id = ?1",
                 params![step.id, kept_id, now()],
@@ -2917,6 +3069,34 @@ impl Store {
             Ok(None) => Ok(Ok(())),
             Err(why) => Ok(Err(why)),
         }
+    }
+
+    /// The files of the other discs of the release whose placed CHD `path` is, by Library Folder and path, that are
+    /// gone from where they were placed: forgotten once `path` is kept aside. None when `path` is no placed CHD; a
+    /// Library Folder that can't be read now leaves its files placed.
+    fn gone_beside(&self, r: &Repairing, path: &str) -> Result<Vec<(i64, String)>> {
+        let Some((folder, rel)) = split_placed(path) else {
+            return Ok(Vec::new());
+        };
+        let chds = self.read(|c| crate::placements::placed_chds_of(c, r.plan.content.set_id))?;
+        let Some(this) = chds.iter().find(|c| c.folder == folder && c.path == rel) else {
+            return Ok(Vec::new());
+        };
+        let release = release_of(&this.game);
+        let mut gone = Vec::new();
+        for chd in chds
+            .iter()
+            .filter(|c| c.game != this.game && release_of(&c.game) == release)
+        {
+            let at = placed_path(chd.folder, &chd.path);
+            let Ok((dir, rel)) = r.locate(&at) else {
+                continue;
+            };
+            if dir.stat(rel).map_err(io_err)?.is_none() {
+                gone.push((chd.folder, chd.path.clone()));
+            }
+        }
+        Ok(gone)
     }
 
     /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then
@@ -3124,6 +3304,24 @@ impl Store {
             }
             Err(why) => return Ok(Err(why)),
         };
+        // A copy not yet begun is made only while it fits: one a plan counted on a rename, which then fails across
+        // mounts, was never counted.
+        if !carrying(self, step.id)? {
+            let needs = rounded(seen.file.size);
+            if let Some(short) = short_of(self.free_in(&r.dir), needs) {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!(
+                        "{path} is on another filesystem than your source set's kept files, and copying it there \
+                         needs {} free in root {}, and {short}; it was left as it is",
+                        bytes(needs),
+                        content.root
+                    ),
+                )?;
+                return Ok(Ok(None));
+            }
+        }
         let original = crate::carry::Original {
             dir: parent,
             name,

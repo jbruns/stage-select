@@ -348,6 +348,41 @@ pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>>
         .collect()
 }
 
+/// The files a Build laid out beside Source Set `set`'s placed CHDs, such as a release's `.m3u` or a disc's SBI file,
+/// that are no placed file: each by its Library Folder and path there, with the release of the CHDs it is laid out
+/// for. They are found by what each is recorded built for, the release or one of its discs, wherever the layout put
+/// them, the system folder itself included.
+pub(crate) fn laid_beside(c: &Connection, set: i64) -> Result<Vec<(i64, String, String)>> {
+    use title_select_api::storage::release_of;
+    let placed = placed_files_of(c, set)?;
+    let mut releases: std::collections::BTreeSet<(i64, String)> = Default::default();
+    for chd in placed_chds_of(c, set)? {
+        releases.insert((chd.folder, release_of(&chd.game)));
+    }
+    let mut found = Vec::new();
+    let mut stmt = c.prepare(
+        "SELECT target, game FROM built_files WHERE folder_id = ?1 AND chd = 0 ORDER BY target",
+    )?;
+    for (folder, release) in releases {
+        let built = stmt
+            .query_map([folder], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (target, owner) in built {
+            // An `.m3u` is built for its release, an SBI file for its disc.
+            if release_of(&owner) == release
+                && !placed
+                    .iter()
+                    .any(|p| p.library_folder == folder && p.path == target)
+            {
+                found.push((folder, target, release.clone()));
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// The Game the Placed Game's file `path` in Library Folder `folder` is a file of; none when it is no such file.
 pub(crate) fn placed_game_of(c: &Connection, folder: i64, path: &str) -> Result<Option<String>> {
     Ok(c.query_row(
