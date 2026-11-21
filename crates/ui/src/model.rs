@@ -57,7 +57,7 @@ pub fn game_status_text(game: &Game) -> String {
 }
 
 /// Whether `game` need not have its ROM `rom` (ADR 0025): it has no good dump known, or is optional, so its absence
-/// never lowers its Game Status.
+/// never lowers the Game's Game Status.
 pub fn unneeded(game: &Game, rom: &str) -> bool {
     let named = |roms: &[String]| roms.iter().any(|r| r == rom);
     named(&game.not_dumped) || named(&game.optional_roms)

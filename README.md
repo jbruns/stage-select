@@ -179,8 +179,8 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
   MAME looks for it: a clone's ROM that its parent lists under another name counts from the parent's ZIP. Such an
   entry's `roms` still names only the ROMs its finding gives. A nodump ROM matches no file there either. An entry under
-  the name of a nodump ROM of the game whose ZIP or folder holds it, or of a game in its family, ranked as for
-  `named_rom`, never counts by its checksums for another ROM.
+  the name of a nodump ROM of the game whose ZIP or folder holds it, or of a game in that game's family, ranked as
+  for `named_rom`, never counts by its checksums for another ROM.
 - `dependencies` lists the BIOSes and devices a game reaches through `romof` and `device_ref`, transitively, in DAT
   order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is
   satisfied. A dependency's status never changes the game's: a machine whose own files are all present is `complete`

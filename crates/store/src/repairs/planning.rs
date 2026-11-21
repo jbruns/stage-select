@@ -871,8 +871,8 @@ fn wanted_roms(i: &Inputs, held_by: &HashMap<RomKey, BTreeSet<&str>>) -> Vec<Vec
 }
 
 /// The nodump ROM, by its name and Game, whose name `entry` has, when no file can match that ROM (ADR 0025): the
-/// ROM of that name [`Holders::nodump_named`] gives, whatever the Entry's payload is; or else the one a Mismatched Entry
-/// is named for, when the Audit found it has no good dump known.
+/// ROM [`Holders::nodump_named`] gives, whatever the Entry's payload is, even when it matches another ROM of that
+/// name; or else the one a Mismatched Entry is named for, when the Audit found it has no good dump known.
 fn not_dumped<'a>(dat: &'a Dat, holders: &Holders, entry: &'a Entry) -> Option<(&'a str, &'a str)> {
     let name = entry_name(&entry.path, entry.member.as_deref());
     let container = holders.container(&entry.path, entry.member.as_deref());

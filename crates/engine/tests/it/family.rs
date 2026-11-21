@@ -475,42 +475,39 @@ fn a_clone_whose_only_absent_roms_are_optional_or_nodump_is_complete_from_its_pa
 fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_another_descendants()
  {
     // `blaster.zip` holds `x.u9`, whose bytes match nothing. `blasterb` is on `blaster` by `romof` alone, so
-    // `blaster` is its ancestor but not its parent. `rival`, outside the family, lists `x.u9` first of all, and
-    // `blasterb` before the others, so DAT order alone would name neither of the nearer ones.
-    let x = |payload: &[u8]| rom_xml(&rom("x.u9", payload));
+    // `blaster` is its ancestor but not its parent; `blasterj` and `blasterk` are its clones. `rival`, outside the
+    // family, lists `x.u9` first of all, and `blasterb` before the others, so DAT order alone would name neither of
+    // the nearer ones. Each case gives what `blasterb`, `blasterj`, `blasterk` and `blaster` list as `x.u9`.
+    let x = |payload: &[u8]| Some(rom_xml(&rom("x.u9", payload)));
+    let none = || nodump("x.u9", 3);
+    let no_good = Some("no good dump known");
     let cases = [
-        (vec![x(b"b"), x(b"j"), x(b"own")], "blaster", None),
-        (vec![x(b"b"), x(b"j")], "blasterj", None),
-        // A clone's dumped ROM before another descendant's nodump one: nodump comes first only among equals.
-        (vec![nodump("x.u9", 3), x(b"j")], "blasterj", None),
-        (
-            vec![nodump("x.u9", 3)],
-            "blasterb",
-            Some("no good dump known"),
-        ),
+        ([x(b"b"), x(b"j"), x(b"k"), x(b"own")], "blaster", None),
+        ([x(b"b"), x(b"j"), x(b"k"), None], "blasterj", None),
+        // Nodump comes first only among equals: of two clones, but never before the Game's own or a clone's.
+        ([None, x(b"j"), Some(none()), None], "blasterk", no_good),
+        ([None, Some(none()), None, x(b"own")], "blaster", None),
+        ([Some(none()), x(b"j"), None, None], "blasterj", None),
+        ([Some(none()), None, None, None], "blasterb", no_good),
     ];
     for (i, (listed, named_game, reason)) in cases.into_iter().enumerate() {
         let f = Fixture::new();
-        let mut listed = listed.into_iter();
-        let mut machines = vec![("rival", "", vec![x(b"rival")])];
-        machines.push((
-            "blasterb",
-            r#"romof="blaster""#,
-            listed.next().into_iter().collect(),
-        ));
-        machines.push((
-            "blasterj",
-            r#"cloneof="blaster" romof="blaster""#,
-            listed.next().into_iter().collect(),
-        ));
-        machines.push((
-            "blaster",
-            "",
-            [rom_xml(&rom("prog.u3", b"program"))]
-                .into_iter()
-                .chain(listed)
-                .collect(),
-        ));
+        let [b, j, k, own] = listed;
+        let clone = r#"cloneof="blaster" romof="blaster""#;
+        let machines = [
+            ("rival", "", vec![x(b"rival").unwrap()]),
+            ("blasterb", r#"romof="blaster""#, b.into_iter().collect()),
+            ("blasterj", clone, j.into_iter().collect()),
+            ("blasterk", clone, k.into_iter().collect()),
+            (
+                "blaster",
+                "",
+                [rom_xml(&rom("prog.u3", b"program"))]
+                    .into_iter()
+                    .chain(own)
+                    .collect(),
+            ),
+        ];
         let dat = write_machines(&f, &machines);
         write_zip(
             &f.set_path("blaster.zip"),

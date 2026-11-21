@@ -648,8 +648,9 @@ impl Scan<'_> {
             })
             .map(|_| NOT_DUMPED.to_owned());
         let matching = matching_roms(self.dat, known);
-        // A file under the name of a nodump ROM of the Game whose file holds it is that ROM's, which no file can match
-        // (ADR 0025): it never counts by its checksums for another ROM, as a repair leaves it where it is by default.
+        // A file under the name of a nodump ROM of the Game whose file holds it, or of a Game in that Game's family, is
+        // that ROM's, which no file can match (ADR 0025): it never counts by its checksums for another ROM, of that Game
+        // or of any other in the family, as a repair leaves it where it is by default. It still counts by its name.
         let nodump_name = self.holders.nodump_named(container, name).is_some();
         // A Matched Entry's payload is the ROMs it is named for.
         let named_for = |r: &usize| finding == Finding::Matched && payload.contains(r);
@@ -932,8 +933,8 @@ impl<'d> Holders<'d> {
         }
     }
 
-    /// The nodump ROM an Entry named `name` is under, when [`Holders::nearest`] gives one of the ROMs with that name
-    /// for the Game `container`, whose ZIP or folder holds it: that ROM's file, which no file can match (ADR 0025).
+    /// The nodump ROM whose name an Entry named `name` is under, when [`Holders::nearest`] gives one of the ROMs with
+    /// that name for the Game `container`, whose ZIP or folder holds it. No file can match that ROM (ADR 0025).
     pub fn nodump_named(&self, container: Option<usize>, name: &str) -> Option<usize> {
         self.nearest(container, self.dat.roms_named(name).iter().copied())
             .filter(|r| self.dat.roms[*r].status == DumpStatus::NoDump)
