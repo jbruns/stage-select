@@ -479,16 +479,16 @@ fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_
     // family, lists `x.u9` first of all, and `blasterb` before the others, so DAT order alone would name neither of
     // the nearer ones. Each case gives what `blasterb`, `blasterj`, `blasterk` and `blaster` list as `x.u9`.
     let x = |payload: &[u8]| Some(rom_xml(&rom("x.u9", payload)));
-    let none = || nodump("x.u9", 3);
+    let nodump_x = || Some(nodump("x.u9", 3));
     let no_good = Some("no good dump known");
     let cases = [
         ([x(b"b"), x(b"j"), x(b"k"), x(b"own")], "blaster", None),
         ([x(b"b"), x(b"j"), x(b"k"), None], "blasterj", None),
-        // Nodump comes first only among equals: of two clones, but never before the Game's own or a clone's.
-        ([None, x(b"j"), Some(none()), None], "blasterk", no_good),
-        ([None, Some(none()), None, x(b"own")], "blaster", None),
-        ([Some(none()), x(b"j"), None, None], "blasterj", None),
-        ([Some(none()), None, None, None], "blasterb", no_good),
+        // Nodump comes first only among equals, such as two clones: never before a nearer Game's ROM.
+        ([None, x(b"j"), nodump_x(), None], "blasterk", no_good),
+        ([None, nodump_x(), None, x(b"own")], "blaster", None),
+        ([nodump_x(), x(b"j"), None, None], "blasterj", None),
+        ([nodump_x(), None, None, None], "blasterb", no_good),
     ];
     for (i, (listed, named_game, reason)) in cases.into_iter().enumerate() {
         let f = Fixture::new();

@@ -648,9 +648,10 @@ impl Scan<'_> {
             })
             .map(|_| NOT_DUMPED.to_owned());
         let matching = matching_roms(self.dat, known);
-        // A file under the name of a nodump ROM of the Game whose file holds it, or of a Game in that Game's family, is
-        // that ROM's, which no file can match (ADR 0025): it never counts by its checksums for another ROM, of that Game
-        // or of any other in the family, as a repair leaves it where it is by default. It still counts by its name.
+        // A file whose name gives a nodump ROM ([`Holders::nodump_named`]) is that ROM's, which no file can match
+        // (ADR 0025): it never counts by its checksums for another ROM, of the Game whose file holds it or of any
+        // other in the family, as a repair leaves it where it is by default. It still counts for a ROM it is named
+        // for and matches.
         let nodump_name = self.holders.nodump_named(container, name).is_some();
         // A Matched Entry's payload is the ROMs it is named for.
         let named_for = |r: &usize| finding == Finding::Matched && payload.contains(r);
