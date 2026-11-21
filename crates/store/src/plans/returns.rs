@@ -115,9 +115,10 @@ pub(super) fn returns(
         let Some(why) = why else {
             continue;
         };
-        if held.contains_key(release) {
+        if let Some(hold) = held.get(release) {
             stays.push(format!(
-                "{release} stays placed here: {why}, but it goes back only once it is no longer left as it is"
+                "{release} stays placed here: {why}, but nothing of {release} moves while {hold}; it goes back to \
+                 source set {set}'s folder once that changes"
             ));
             continue;
         }

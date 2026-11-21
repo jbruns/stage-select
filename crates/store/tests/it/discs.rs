@@ -1001,7 +1001,8 @@ fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
         plan.content
             .notes
             .iter()
-            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("goes back only once")),
+            .any(|n| n.contains("Duo (USA) stays placed here")
+                && n.contains("goes back to source set")),
         "{:?}",
         plan.content.notes
     );
@@ -1031,7 +1032,8 @@ fn a_held_release_stays_placed_when_single_copy_is_turned_off() {
         plan.content
             .notes
             .iter()
-            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("goes back only once")),
+            .any(|n| n.contains("Duo (USA) stays placed here")
+                && n.contains("goes back to source set")),
         "{:?}",
         plan.content.notes
     );
