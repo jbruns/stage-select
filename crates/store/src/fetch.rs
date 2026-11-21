@@ -904,7 +904,7 @@ impl Store {
             Some(&owed),
             |s, _, f| s.check_support_commit(f, &url),
         )?;
-        // Not due, or the ListXML it was for was deleted outright after it was chosen and before any fetch named it.
+        // Not due, or the ListXML it was for can't be shown to still be the revision chosen (see `attempt`).
         let Some(attempt) = attempt else {
             return Ok(());
         };
@@ -1017,10 +1017,14 @@ impl Store {
     ///
     /// `for_listxml`, a Support File request's ListXML DAT Revision with the import_seq it was chosen at, is recorded
     /// with the reservation, so that while the request is in flight the revision's row is named by history: deleting
-    /// it keeps the row, whose id no later import can take. `None`, sending nothing, if that id may no longer be that
-    /// revision: it no longer has that import_seq, and no fetch has named it at that import_seq, so the row may have
-    /// been deleted outright, and its id taken, after it was chosen. A row a fetch has named at that import_seq is
-    /// still that revision, though imported again since or deleted: the rest of a fetch sends its files for it.
+    /// it keeps the row, whose id no later import can take. `None`, sending nothing, if that id can't be shown to still
+    /// be that revision: it no longer has that import_seq, and no fetch has named it at that import_seq. It may have
+    /// been imported again since it was chosen, or deleted outright and its id taken; either way it is owed again. A
+    /// row a fetch has named at that import_seq is still that revision, though imported again since or deleted: the
+    /// rest of a fetch sends its files for it.
+    // One tiny window remains, accepted: a revision deleted outright before its first reservation, then replaced by
+    // an import that takes back both its id (SQLite reuses the highest rowid) and its import_seq (max + 1), passes as
+    // the revision chosen. The replacement is then owed nothing until a newer ListXML arrives.
     #[allow(clippy::too_many_arguments)]
     fn attempt(
         &self,
