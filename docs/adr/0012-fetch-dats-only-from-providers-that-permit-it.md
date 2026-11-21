@@ -34,3 +34,17 @@ differ:
 - No-Intro Following stays partly manual. Revisit only if No-Intro publishes sanctioned automated access.
 - Fetched DATs become DAT Revisions like imported ones; fetching never starts an Audit (Follow is unchanged).
 - Redump cue packs become a Repair source for `.cue` ROMs; SBI files never enter a Source Set (ADR 0013).
+
+## Amendment (2026-11-20): MAME support files
+
+The arcade selector (ADR 0027) reads progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`. They carry
+no licence, so they are never shipped in the image; Title Select fetches them from their maintainer's GitHub mirror
+instead, and credits the maintainer.
+
+- Under the same `[fetch] mame` switch as MAME's DATs, off by default: no request without the Operator's consent.
+- From the mirror's commit resolved through the GitHub API, when a MAME Source Set first gets a ListXML DAT Revision
+  and whenever a newer one arrives; at most once a day, with ADR 0012's courtesy rules.
+- Each file is kept like a DAT Revision, by its SHA-256, with the MAME version its header names. A Selection records
+  the revisions it used; a version behind the ListXML is shown as drift, never a failure.
+- The Operator may drop the files in instead, as with No-Intro DATs.
+- A failed fetch leaves the last good files in place and is shown.
