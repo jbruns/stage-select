@@ -596,7 +596,7 @@ async fn support_files(
     Ok(Json(blocking(&state, Store::support_files).await?))
 }
 
-/// Imports a MAME support file you upload, `catver.ini`, `languages.ini` or `bestgames.ini`, as its header names it.
+/// Imports a MAME Support File the Operator uploads, `catver.ini`, `languages.ini` or `bestgames.ini`, as its header names it.
 async fn upload_support_file(
     State(state): State<AppState>,
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,

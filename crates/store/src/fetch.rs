@@ -6,7 +6,7 @@
 //! whatever started the fetch and however the last request ended; requests to one provider are at least
 //! [`MIN_GAP`] apart; and a fetch stops at its first error, keeping the last good revision.
 //!
-//! A MAME fetch also brings progetto-SNAPS's support files (ADR 0012's amendment), from its GitHub mirror at the commit
+//! A MAME fetch also brings progetto-SNAPS's Support Files (ADR 0012's amendment), from its GitHub mirror at the commit
 //! the GitHub API names, once for each newest ListXML DAT Revision a registered Source Set is bound to: after the
 //! DATs, under the same courtesy rules.
 
@@ -44,14 +44,14 @@ const MAX_DAT: u64 = 1 << 30;
 /// The largest answer to a release or commit check.
 const MAX_RELEASE: u64 = 4 << 20;
 
-/// progetto-SNAPS's GitHub mirror of its support files, and the branch whose commit they are fetched at.
+/// progetto-SNAPS's GitHub mirror of its Support Files, and the branch whose commit they are fetched at.
 const SUPPORT_MIRROR: &str = "AntoPISA/MAME_SupportFiles";
 const SUPPORT_BRANCH: &str = "main";
 
 /// Redump's own hosts.
 const REDUMP_HOSTS: &[&str] = &["redump.org", "www.redump.org"];
 /// GitHub's hosts that MAME's releases are found and fetched from: its API, its web, the raw files software lists
-/// and the support files are read from, and the hosts GitHub's documentation names for downloading release assets.
+/// and the Support Files are read from, and the hosts GitHub's documentation names for downloading release assets.
 const GITHUB_HOSTS: &[&str] = &[
     "api.github.com",
     "github.com",
@@ -476,9 +476,11 @@ fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
     Ok(out)
 }
 
-/// The ListXML DAT Revision MAME's support files are fetched for: the newest revision of a ListXML DAT that a
+/// The ListXML DAT Revision MAME's Support Files are fetched for: the newest revision of a ListXML DAT that a
 /// registered Source Set is bound to, Following or not, by id and SHA-256.
 // The DAT Format is the narrowest sign today that a DAT is a ListXML; the machine model (#245) is to replace it.
+// header_order is numbered within one DAT, so with two ListXML DATs bound the pick between them is arbitrary; there is
+// one MAME ListXML DAT in practice.
 fn support_target(c: &Connection) -> Result<Option<(i64, String)>> {
     Ok(c.query_row(
         "SELECT r.id, r.sha256 FROM source_sets s JOIN dat_revisions r ON r.dat_id = s.dat_id
@@ -503,7 +505,7 @@ fn listxml_source_sets(c: &Connection) -> Result<Vec<String>> {
         .collect::<rusqlite::Result<_>>()?)
 }
 
-/// The requests that fetch MAME's support files, in order: the commit check, then each file.
+/// The requests that fetch MAME's Support Files, in order: the commit check, then each file.
 fn support_artifacts() -> [FetchArtifact; 4] {
     [
         FetchArtifact::SupportCommit,
@@ -513,7 +515,7 @@ fn support_artifacts() -> [FetchArtifact; 4] {
     ]
 }
 
-/// Whether every support file has been fetched for the ListXML DAT Revision `revision`.
+/// Whether every Support File has been fetched for the ListXML DAT Revision `revision`.
 fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     for kind in SupportFileKind::ALL {
         let fetched: bool = c.query_row(
@@ -534,7 +536,7 @@ fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     Ok(true)
 }
 
-/// The ListXML DAT Revision the support files are owed for, if they haven't all been fetched for the newest.
+/// The ListXML DAT Revision the Support Files are owed for, if they haven't all been fetched for the newest.
 fn support_owed(c: &Connection) -> Result<Option<i64>> {
     match support_target(c)? {
         Some((revision, _)) if !support_fetched_for(c, revision)? => Ok(Some(revision)),
@@ -665,7 +667,7 @@ impl Store {
                     .iter()
                     .filter_map(|f| mame_system(&f.dat).map(|s| (s, f)))
                     .collect();
-                // A Source Set bound to a ListXML has support files to fetch, whether or not anything Follows.
+                // A Source Set bound to a ListXML has Support Files to fetch, whether or not anything Follows.
                 let listxml = self.read(support_target)?.is_some();
                 if systems.is_empty() && !listxml {
                     return refuse_or_nothing(no_followed(name, &followed))
@@ -828,8 +830,8 @@ impl Store {
         Ok(report)
     }
 
-    /// Fetches MAME's support files, if they are owed for the newest ListXML DAT Revision and due: the mirror's
-    /// commit, then each file at it. Stops at the first request that fails, keeping the last good files.
+    /// Fetches MAME's Support Files, if they are owed for the newest ListXML DAT Revision and every request is due:
+    /// the mirror's commit, then each file at it. Stops at the first request that fails, keeping the last good files.
     fn fetch_support(
         &self,
         fetcher: &Fetcher,
@@ -841,6 +843,15 @@ impl Store {
         let Some(revision) = self.read(support_owed)? else {
             return Ok(());
         };
+        // A commit check is sent only when every file may follow it.
+        for artifact in support_artifacts() {
+            if self
+                .read(|c| next_at(c, provider, SUPPORT_SYSTEM, artifact))?
+                .is_some()
+            {
+                return Ok(());
+            }
+        }
         let url = format!(
             "{}/repos/{SUPPORT_MIRROR}/commits/{SUPPORT_BRANCH}",
             fetcher.endpoints.github_api
@@ -890,7 +901,7 @@ impl Store {
         Ok(())
     }
 
-    /// Reads the commit the support files' mirror is at, which the GitHub API answers with alone.
+    /// Reads the commit the Support Files' mirror is at, which the GitHub API answers with alone.
     fn check_support_commit(
         &self,
         fetched: Fetched,
@@ -899,7 +910,9 @@ impl Store {
     ) -> std::result::Result<Brought, String> {
         let commit = String::from_utf8_lossy(&fetched.bytes).trim().to_owned();
         if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(format!("{url}: not a commit"));
+            return Err(format!(
+                "{url} answered with something other than a commit, so no support file was fetched"
+            ));
         }
         let previous = self
             .read(|c| {
@@ -924,7 +937,7 @@ impl Store {
         })
     }
 
-    /// Keeps a fetched support file, once its header is found to be the file `kind`'s.
+    /// Keeps a fetched Support File, once its header is found to be the file `kind`'s.
     fn keep_fetched_support(
         &self,
         kind: SupportFileKind,
@@ -936,12 +949,12 @@ impl Store {
         let (named, _) = crate::support_files::read_header(&fetched.bytes, &fetched.url)?;
         if named != kind {
             return Err(format!(
-                "{}: is {}, not {file}",
+                "{} holds {}, not {file}, so it wasn't kept",
                 fetched.url,
                 named.file_name()
             ));
         }
-        let (record, outcome, _) = self
+        let (record, outcome) = self
             .keep_support_file(
                 &fetched.bytes,
                 file,
@@ -1270,7 +1283,7 @@ impl Store {
     }
 }
 
-/// Where fetching MAME's support files stands, while a registered Source Set is bound to a ListXML DAT.
+/// Where fetching MAME's Support Files stands, while a registered Source Set is bound to a ListXML DAT.
 fn support_status(c: &Connection) -> Result<Option<FetchSupport>> {
     let Some((revision, listxml)) = support_target(c)? else {
         return Ok(None);

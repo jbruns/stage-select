@@ -1629,3 +1629,28 @@ fn a_commit_check_that_answers_no_commit_fails() {
     );
     assert_eq!(env.support_requests().len(), 1);
 }
+
+#[test]
+fn the_commit_is_not_checked_while_any_support_file_waits_out_its_day() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    // A request for catver.ini recorded since, as another Service could.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at, outcome)
+         VALUES ('mame', ?1, 'catver', 'manual', 'Operator', 'x', ?2, ?2, 'failed')",
+        rusqlite::params![SUPPORT_SYSTEM, jiff::Timestamp::now().to_string()],
+    )
+    .unwrap();
+    let seen = env.support_requests().len();
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(report.attempts.is_empty(), "{report:?}");
+    assert_eq!(env.support_requests().len(), seen);
+}

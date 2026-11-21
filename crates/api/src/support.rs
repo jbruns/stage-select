@@ -1,12 +1,12 @@
-//! MAME support files: progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`, which the arcade selector
+//! MAME Support Files: progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`, which the arcade selector
 //! reads (ADR 0027). They carry no licence, so they are never shipped: Title Select fetches them under `[fetch] mame`,
-//! or you drop them in (ADR 0012's amendment).
+//! or the Operator drops them in (ADR 0012's amendment).
 
 use serde::{Deserialize, Serialize};
 
 use crate::fetch::FetchArtifact;
 
-/// Which support file one is.
+/// Which Support File one is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportFileKind {
@@ -56,11 +56,11 @@ impl SupportFileKind {
     }
 }
 
-/// How a support file came into the store.
+/// How a Support File came into the store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportFileOrigin {
-    /// You dropped it in.
+    /// The Operator dropped it in.
     Import,
     /// Title Select fetched it.
     Fetch,
@@ -75,7 +75,7 @@ impl SupportFileOrigin {
     }
 }
 
-/// A support file as the store keeps it, unmodified, like a DAT Revision.
+/// A Support File as the store keeps it, unmodified, like a DAT Revision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SupportFileRecord {
     /// SHA-256 of the unmodified file; its identity.
@@ -92,7 +92,7 @@ pub struct SupportFileRecord {
     pub imported_at: String,
 }
 
-/// The response to a support file upload.
+/// The response to a Support File upload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SupportFileImport {
     pub file: SupportFileRecord,

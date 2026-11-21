@@ -46,9 +46,9 @@ pub enum FetchArtifact {
     Cues,
     /// Redump's SBI pack of a system: a ZIP of its subchannel files.
     Sbi,
-    /// The commit of progetto-SNAPS's GitHub mirror that MAME's support files are fetched at, from the GitHub API.
+    /// The commit of progetto-SNAPS's GitHub mirror that MAME's Support Files are fetched at, from the GitHub API.
     SupportCommit,
-    /// A MAME support file, `catver.ini`, `languages.ini` or `bestgames.ini`, from that commit.
+    /// A MAME Support File, `catver.ini`, `languages.ini` or `bestgames.ini`, from that commit.
     Catver,
     Languages,
     Bestgames,
@@ -84,7 +84,7 @@ impl FetchArtifact {
     }
 }
 
-/// The system MAME's support files are recorded under: its requests are of the commit and of each file.
+/// The system MAME's Support Files are recorded under: its requests are of the commit and of each file.
 pub const SUPPORT_SYSTEM: &str = "support_files";
 
 /// What started a fetch: the Service's daily schedule, or the Operator.
@@ -142,7 +142,7 @@ pub struct FetchAttempt {
     pub id: i64,
     pub provider: FetchProvider,
     /// The provider's system: Redump's system code, such as `psx`, or for MAME `mame` (ListXML) or a software list's
-    /// name. A release check is of the system `mame`, and the support files' requests of [`SUPPORT_SYSTEM`].
+    /// name. A release check is of the system `mame`, and the Support Files' requests of [`SUPPORT_SYSTEM`].
     pub system: String,
     pub artifact: FetchArtifact,
     pub trigger: FetchTrigger,
@@ -159,9 +159,9 @@ pub struct FetchAttempt {
     pub pack: Option<String>,
     /// For MAME, the release it found or fetched from, such as `mame0262`.
     pub release: Option<String>,
-    /// For MAME's support files, the mirror commit it found or fetched from.
+    /// For MAME's Support Files, the mirror commit it found or fetched from.
     pub commit: Option<String>,
-    /// The SHA-256 of the support file it brought, kept in the store; its version is the MAME version its header
+    /// The SHA-256 of the Support File it brought, kept in the store; its version is the MAME version its header
     /// names.
     pub support_file: Option<String>,
 }
@@ -201,11 +201,11 @@ pub struct FetchProviderStatus {
     /// MAME's release check; absent for Redump.
     pub release: Option<FetchArtifactStatus>,
     pub systems: Vec<FetchSystem>,
-    /// MAME's support files; absent for Redump, and while no registered Source Set is bound to a ListXML DAT.
+    /// MAME's Support Files; absent for Redump, and while no registered Source Set is bound to a ListXML DAT.
     pub support: Option<FetchSupport>,
 }
 
-/// Where fetching MAME's support files stands. They are fetched when a Source Set bound to a ListXML DAT first has a
+/// Where fetching MAME's Support Files stands. They are fetched when a Source Set bound to a ListXML DAT first has a
 /// DAT Revision, and whenever a newer one arrives, at most once a day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FetchSupport {
@@ -213,7 +213,7 @@ pub struct FetchSupport {
     pub source_sets: Vec<String>,
     /// The ListXML DAT Revision they are next fetched for, by its SHA-256: the newest of those Source Sets' DATs'.
     pub listxml: String,
-    /// Whether the support files have been fetched for it.
+    /// Whether the Support Files have been fetched for it.
     pub fetched_for_listxml: bool,
     /// The commit check, then each file.
     pub artifacts: Vec<FetchArtifactStatus>,

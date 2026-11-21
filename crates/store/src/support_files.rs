@@ -1,4 +1,4 @@
-//! MAME support files (ADR 0012's amendment): progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`,
+//! MAME Support Files (ADR 0012's amendment): progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`,
 //! kept unmodified under `support_files/<sha256>` in the store, like DAT Revisions, with the MAME version each header
 //! names. A fetch brings them, or the Operator drops them in. None is deleted: a Selection records the ones it read.
 
@@ -11,9 +11,9 @@ use super::{Error, Result, Store, io_error, now};
 use title_select_api::ImportOutcome;
 use title_select_api::support::{SupportFileKind, SupportFileOrigin, SupportFileRecord};
 
-/// The directory, in the store directory, that holds support files.
+/// The directory, in the store directory, that holds Support Files.
 pub const SUPPORT_FILES: &str = "support_files";
-/// The largest support file kept, well past catver's few MiB.
+/// The largest Support File kept, well past catver's few MiB.
 pub const SUPPORT_FILE_LIMIT: u64 = 64 << 20;
 /// How far into a file its header is looked for: progetto-SNAPS's comes after a short `[FOLDER_SETTINGS]` section.
 const HEADER_WITHIN: usize = 4096;
@@ -44,7 +44,7 @@ fn by_sha(c: &Connection, sha256: &str) -> Result<Option<SupportFileRecord>> {
     Ok(c.query_row(&sql, [sha256], record_from_row).optional()?)
 }
 
-/// What a support file's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
+/// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
 /// version it is for. `file` names it in an error.
 pub(crate) fn read_header(
     bytes: &[u8],
@@ -83,7 +83,7 @@ pub(crate) fn read_header(
 }
 
 impl Store {
-    /// Imports the unmodified bytes of a support file you drop in, whose original filename is `file`: its header
+    /// Imports the unmodified bytes of a Support File the Operator drops in, whose original filename is `file`: its header
     /// says which file it is and the MAME version it is for. Importing bytes already kept returns the file as it was
     /// recorded, restoring it if it is missing. Never reads the network.
     pub fn import_support_file(
@@ -93,11 +93,10 @@ impl Store {
         source_url: Option<&str>,
     ) -> Result<(SupportFileRecord, ImportOutcome)> {
         self.keep_support_file(bytes, file, source_url, SupportFileOrigin::Import, None)
-            .map(|(record, outcome, _)| (record, outcome))
     }
 
-    /// Keeps a support file, as [`Store::import_support_file`], recording how it came and, if fetched, the commit it
-    /// was fetched at. Returns it, whether it was new, and what its header says it is.
+    /// Keeps a Support File, as [`Store::import_support_file`], recording how it came and, if fetched, the commit it
+    /// was fetched at.
     pub(crate) fn keep_support_file(
         &self,
         bytes: &[u8],
@@ -105,17 +104,14 @@ impl Store {
         source_url: Option<&str>,
         origin: SupportFileOrigin,
         commit: Option<&str>,
-    ) -> Result<(SupportFileRecord, ImportOutcome, SupportFileKind)> {
+    ) -> Result<(SupportFileRecord, ImportOutcome)> {
         if bytes.len() as u64 > SUPPORT_FILE_LIMIT {
             return Err(Error::Refused(format!(
                 "{file}: a support file is at most {SUPPORT_FILE_LIMIT} bytes"
             )));
         }
         let (kind, version) = read_header(bytes, file).map_err(Error::Refused)?;
-        let sha: String = Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let sha = super::builds::hex(&Sha256::digest(bytes));
         let dir = self.dir.join(SUPPORT_FILES);
         let path = dir.join(&sha);
         self.with_writer(|conn| {
@@ -147,11 +143,11 @@ impl Store {
                 }
             };
             let record = by_sha(conn, &sha)?.ok_or_else(|| Error::Io(format!("{sha}: not kept")))?;
-            Ok((record, outcome, kind))
+            Ok((record, outcome))
         })
     }
 
-    /// Every support file the store keeps, in the order they came.
+    /// Every Support File the store keeps, in the order they came.
     pub fn support_files(&self) -> Result<Vec<SupportFileRecord>> {
         self.read(|c| {
             let sql = format!("SELECT {COLUMNS} FROM support_files ORDER BY id");

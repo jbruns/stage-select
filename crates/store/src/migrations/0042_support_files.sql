@@ -1,4 +1,4 @@
--- MAME support files (ADR 0012's amendment): progetto-SNAPS's catver.ini, languages.ini and bestgames.ini, each kept
+-- MAME Support Files (ADR 0012's amendment): progetto-SNAPS's catver.ini, languages.ini and bestgames.ini, each kept
 -- unmodified under `support_files/<sha256>` like a DAT Revision, fetched or dropped in. None is ever deleted: a
 -- Selection records the ones it read.
 -- kind: catver, languages or bestgames, as its header names it.
@@ -16,9 +16,9 @@ CREATE TABLE support_files (
     imported_at TEXT NOT NULL
 );
 
--- A request of the support files' system: the commit it found or fetched at, the support file it brought, and the
--- ListXML DAT Revision it was sent for. The support files are fetched for a ListXML revision once each file's latest
--- success was sent for it.
+-- A request of the Support Files' system: the commit it found or fetched at, the Support File it brought, and the
+-- ListXML DAT Revision it was sent for. The Support Files are fetched for a ListXML revision once each file has a
+-- success sent for it.
 ALTER TABLE fetches ADD COLUMN commit_sha TEXT;
 ALTER TABLE fetches ADD COLUMN support_sha256 TEXT;
 ALTER TABLE fetches ADD COLUMN for_revision_id INTEGER REFERENCES dat_revisions (id);
