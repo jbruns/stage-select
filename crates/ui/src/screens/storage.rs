@@ -1,16 +1,16 @@
 //! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose, a loose folder or
 //! CHD, set globally and for each system, as a selection profile's settings are; and how a disc system's play
 //! libraries lay out its discs, whether they put SBI files beside them, and whether builds place games under single
-//! copy rather than copying them.
+//! copy rather than copying them; and where a MAME system's source sets keep a family's shared ROMs, its set layout.
 
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
-use title_select_api::Dat;
 use title_select_api::storage::{
-    DiscLayout, ScopePolicy, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
-    is_disc_system,
+    DiscLayout, ScopePolicy, SetLayout, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
+    is_disc_system, is_mame_system,
 };
+use title_select_api::{Dat, DatFormat};
 
 use crate::api;
 use crate::app::{Loading, Problem};
@@ -43,6 +43,16 @@ fn PlaceConvertedNote() -> impl IntoView {
             <summary>"If a placed CHD is damaged"</summary>
             <p>{DAMAGED_PLACED_NOTE}</p>
         </details>
+    }
+}
+
+const SET_LAYOUT_NOTE: &str = "The set layout says where a MAME source set keeps the ROMs a family shares. Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay in a folder named for the family's parent whatever the layout. It applies to arcade DATs, MAME's ListXML, not to software lists.";
+
+fn set_layout_label(layout: SetLayout) -> &'static str {
+    match layout {
+        SetLayout::NonMerged => "Non-merged: each ZIP holds everything its game needs",
+        SetLayout::Split => "Split: a clone's ZIP holds only what it doesn't share",
+        SetLayout::Merged => "Merged: a family in its parent's ZIP",
     }
 }
 
@@ -139,15 +149,21 @@ pub fn StoragePolicyScreen() -> impl IntoView {
             None => view! { <Loading what="the storage policy" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok((policy, dats))) => {
+                let arcade: BTreeSet<String> = dats
+                    .iter()
+                    .filter(|d| d.format == DatFormat::Listxml && is_mame_system(&d.dat))
+                    .map(|d| d.dat.clone())
+                    .collect();
                 let systems = dats.into_iter().map(|d| d.dat).collect::<Vec<_>>();
-                view! { <Editor initial=policy systems /> }.into_any()
+                view! { <Editor initial=policy systems arcade /> }.into_any()
             }
         }}
     }
 }
 
 #[component]
-fn Editor(initial: StoragePolicy, systems: Vec<String>) -> impl IntoView {
+fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>) -> impl IntoView {
+    let arcade = StoredValue::new(arcade);
     let saved = RwSignal::new(initial.clone());
     let policy = RwSignal::new(initial);
     let dirty = Memo::new(move |_| policy.with(|p| saved.with(|s| p != s)));
@@ -191,12 +207,15 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>) -> impl IntoView {
         </div>
         {move || match tab.get() {
             None => view! { <GlobalSettings policy /> }.into_any(),
-            Some(system) => view! { <SystemSettings policy system /> }.into_any(),
+            Some(system) => {
+                let arcade = arcade.with_value(|a| a.contains(&system));
+                view! { <SystemSettings policy system arcade /> }.into_any()
+            }
         }}
         <section class="staged" aria-labelledby="save-title">
             <h2 id="save-title">"Save"</h2>
             <p class="note">
-                "Saving changes no file. The next plan for each folder whose format changed proposes converting its games, and the next plan for each folder whose single copy setting changed proposes placing or returning them. Nothing is converted, placed or returned until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
+                "Saving changes no file. The next plan for each folder whose format changed proposes converting its games, and the next plan for each folder whose single copy setting changed proposes placing or returning them, and the next repair of each MAME source set whose set layout changed proposes repacking its families. Nothing is converted, repacked, placed or returned until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
             </p>
             <div class="actions">
                 <button
@@ -287,6 +306,29 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                 </label>
                             </p>
                             <p class="note small">{DELETE_WARNING}</p>
+                            {(scope == StorageScope::SourceSets)
+                                .then(|| {
+                                    view! {
+                                        <label class="stacked" for="g-source_sets-set-layout">
+                                            "Set layout, for MAME systems"
+                                        </label>
+                                        <select
+                                            id="g-source_sets-set-layout"
+                                            prop:value=move || policy.with(|p| p.source_sets.set_layout.as_str())
+                                            on:change=move |ev| {
+                                                if let Some(l) = SetLayout::parse(&event_target_value(&ev)) {
+                                                    policy.update(|p| p.source_sets.set_layout = l);
+                                                }
+                                            }
+                                        >
+                                            {SetLayout::ALL
+                                                .iter()
+                                                .map(|&l| view! { <option value=l.as_str()>{set_layout_label(l)}</option> })
+                                                .collect_view()}
+                                        </select>
+                                        <p class="note small">{SET_LAYOUT_NOTE}</p>
+                                    }
+                                })}
                             {(scope == StorageScope::PlayLibraries).then(|| view! { <GlobalSingleCopy policy /> })}
                             {(scope == StorageScope::PlayLibraries)
                                 .then(|| {
@@ -320,7 +362,7 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
 }
 
 #[component]
-fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoView {
+fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String, arcade: bool) -> impl IntoView {
     let s = StoredValue::new(system.clone());
     let has_own = move || {
         policy.with(|p| {
@@ -436,6 +478,12 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                 <option value="on">"On: delete each original once its converted file is verified"</option>
                             </select>
                             <p class="note small">{DELETE_WARNING}</p>
+                            // One saved for a system whose DAT isn't an arcade DAT shows too, so you can clear it.
+                            {move || {
+                                let set = own().set_layout.is_some();
+                                (scope == StorageScope::SourceSets && (arcade || set))
+                                    .then(|| view! { <SystemSetLayout policy system=s.get_value() /> })
+                            }}
                             {(scope == StorageScope::PlayLibraries)
                                 .then(|| view! { <SystemSingleCopy policy system=s.get_value() /> })}
                             {(scope == StorageScope::PlayLibraries && is_disc_system(&s.get_value()))
@@ -502,6 +550,48 @@ fn DiscSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoVie
             </label>
         </p>
         <p class="note small">{SBI_NOTE}</p>
+    }
+}
+
+/// A MAME system's own set layout for its source sets: shown only for a system whose DAT is an arcade DAT.
+#[component]
+fn SystemSetLayout(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoView {
+    let s = StoredValue::new(system);
+    let scope = StorageScope::SourceSets;
+    let own = move || {
+        policy.with(|p| {
+            p.source_sets
+                .systems
+                .get(&s.get_value())
+                .and_then(|o| o.set_layout)
+        })
+    };
+    view! {
+        <label class="stacked" for="s-source_sets-set-layout">
+            "Set layout"
+        </label>
+        <select
+            id="s-source_sets-set-layout"
+            prop:value=move || own().map_or("global", SetLayout::as_str)
+            on:change=move |ev| {
+                let l = SetLayout::parse(&event_target_value(&ev));
+                update_own(policy, scope, &s.get_value(), |o| o.set_layout = l);
+            }
+        >
+            <option value="global">
+                {move || {
+                    format!(
+                        "Global setting: {}",
+                        set_layout_label(policy.with(|p| p.source_sets.set_layout)),
+                    )
+                }}
+            </option>
+            {SetLayout::ALL
+                .iter()
+                .map(|&l| view! { <option value=l.as_str()>{set_layout_label(l)}</option> })
+                .collect_view()}
+        </select>
+        <p class="note small">{SET_LAYOUT_NOTE}</p>
     }
 }
 
@@ -618,6 +708,25 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The set layout note names each layout as you choose it, and says when a repair sets a ZIP aside.
+    #[test]
+    fn the_set_layout_note_names_each_layout_and_when_a_zip_is_set_aside() {
+        for said in [
+            "Non-merged, the default",
+            "Split keeps",
+            "Merged keeps",
+            "An audit accepts any of them",
+            "sets a ZIP aside only once every copy written from it is verified",
+            "not to software lists",
+        ] {
+            assert!(SET_LAYOUT_NOTE.contains(said), "{said}");
+        }
+        for layout in SetLayout::ALL {
+            let label = set_layout_label(layout).to_lowercase();
+            assert!(label.starts_with(layout.label()), "{label}");
+        }
+    }
 
     /// Placing converted games makes a CHD the only copy: the note says what a repair does with a damaged one.
     #[test]

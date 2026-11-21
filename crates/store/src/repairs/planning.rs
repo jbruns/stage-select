@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use title_select_api::DatFormat;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
 use title_select_api::repair::{
@@ -13,7 +14,7 @@ use title_select_api::storage::{
     placed_path, placement_writing, release_of, split_placed,
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, NOT_DUMPED, Report};
-use title_select_engine::dat::{Dat, Rom};
+use title_select_engine::dat::{Dat, DumpStatus, Laid, Rom, SetLayout};
 use title_select_engine::payload::Checksums;
 use title_select_engine::{FileStamp, Holders, entry_name};
 
@@ -138,6 +139,110 @@ pub(super) struct Planned {
 /// A ROM, by its Game and name.
 type RomKey = (String, String);
 
+/// Where the Set Layout keeps each ROM (ADR 0026): the ROMs each Game's ZIP or folder holds, and which ROMs are one ROM
+/// shared through `merge=`. Only a ListXML DAT has a Set Layout; for any other, each Game holds the ROMs it lists and
+/// every ROM is only itself.
+struct LayoutIndex<'a> {
+    dat: &'a Dat,
+    layout: Option<SetLayout>,
+    laid: Laid,
+    /// Each ROM's index, by its Game and name.
+    index: HashMap<(&'a str, &'a str), usize>,
+}
+
+impl<'a> LayoutIndex<'a> {
+    fn of(dat: &'a Dat, storage: Storage) -> Self {
+        let layout = storage
+            .set_layout
+            .filter(|_| dat.format == DatFormat::Listxml);
+        LayoutIndex {
+            dat,
+            layout,
+            laid: dat.laid_out(layout),
+            index: dat
+                .roms
+                .iter()
+                .enumerate()
+                .map(|(r, rom)| ((dat.games[rom.game].as_str(), rom.name.as_str()), r))
+                .collect(),
+        }
+    }
+
+    /// Whether a Set Layout says what each container holds; without one, each holds its own Game's ROMs.
+    fn has_layout(&self) -> bool {
+        self.layout.is_some()
+    }
+
+    /// Under a Set Layout, the nodump ROM named `name` that the ZIP or folder of Game `holder` may hold in whichever
+    /// layout it was stored in: one of a Game of its family, as a merged ZIP holds its clones', or of one of its
+    /// Dependencies, as a non-merged ZIP holds a device's. [`Holders::nodump_named`] gives no device's, and none of a
+    /// clone's when `holder` lists a dumped ROM of that name, as it gives the ROM of the nearest Game.
+    fn nodump_listed(&self, holder: Option<usize>, name: &str) -> Option<usize> {
+        let holder = holder.filter(|_| self.has_layout())?;
+        let dependencies = self.dat.dependencies(holder);
+        (self.dat.roms_named(name).iter().copied()).find(|&r| {
+            let rom = &self.dat.roms[r];
+            rom.status == DumpStatus::NoDump
+                && !rom.disk
+                && (self.family(rom.game) == self.family(holder)
+                    || dependencies.contains(&rom.game))
+        })
+    }
+
+    /// The ROM `rom` of Game `game` is one with ([`Laid::roots`]).
+    fn root(&self, game: &str, rom: &str) -> Option<usize> {
+        self.index.get(&(game, rom)).map(|&r| self.laid.roots[r])
+    }
+
+    /// The ROMs the containers of `games` hold once repaired, by `owners` ([`wanted_roms`]), each as its root.
+    fn roots_of<'g>(
+        &self,
+        games: impl Iterator<Item = &'g str>,
+        owners: &[Vec<usize>],
+    ) -> BTreeSet<usize> {
+        games
+            .filter_map(|game| self.dat.game_index(game))
+            .flat_map(|g| &owners[g])
+            .map(|&r| self.laid.roots[r])
+            .collect()
+    }
+
+    /// Whether ROM `a` and ROM `b`, each by its Game and name, are one ROM.
+    fn same(&self, a: (&str, &str), b: (&str, &str)) -> bool {
+        a == b
+            || (self.has_layout()
+                && self
+                    .root(a.0, a.1)
+                    .is_some_and(|r| self.root(b.0, b.1) == Some(r)))
+    }
+
+    /// The ROMs the container of Game `game` lists under the layout, whether or not a repair writes them.
+    fn listed(&self, game: usize) -> Vec<&'a str> {
+        self.laid.roms[game]
+            .iter()
+            .flatten()
+            .map(|&r| self.dat.roms[r].name.as_str())
+            .collect()
+    }
+
+    /// The parent of Game `game`'s family, or itself for a parent ([`Dat::family_parent`]); none for a Game the DAT
+    /// doesn't list.
+    fn family_of(&self, game: &str) -> Option<usize> {
+        Some(self.family(self.dat.game_index(game)?))
+    }
+
+    /// The parent of the family of Game `g`, by its index, or itself for a parent.
+    fn family(&self, g: usize) -> usize {
+        self.dat.family_parent(g).unwrap_or(g)
+    }
+
+    /// The Game and name of ROM `r`.
+    fn key(&self, r: usize) -> (&'a str, &'a str) {
+        let rom = &self.dat.roms[r];
+        (self.dat.games[rom.game].as_str(), rom.name.as_str())
+    }
+}
+
 /// A file the Audit read the payload of, unchanged since.
 struct Usable<'a> {
     entries: Vec<&'a Entry>,
@@ -170,8 +275,9 @@ struct Preserved<'a> {
     dat: &'a HashMap<RomKey, &'a Rom>,
     /// Every file the Audit found holding each ROM.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
-    /// The Games an applied item makes whole.
-    produced: BTreeSet<&'a str>,
+    /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]).
+    produced: BTreeSet<usize>,
+    layout_index: &'a LayoutIndex<'a>,
     /// The files an applied item keeps aside.
     displaced: BTreeSet<&'a str>,
 }
@@ -182,16 +288,21 @@ impl<'a> Preserved<'a> {
         proposed: &'a [Proposed],
         dat: &'a HashMap<RomKey, &'a Rom>,
         held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+        layout_index: &'a LayoutIndex<'a>,
+        owners: &[Vec<usize>],
     ) -> Self {
         let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
         Preserved {
             dat,
             held_by,
-            produced: proposed
-                .iter()
-                .filter(applied)
-                .filter_map(|p| p.produces.as_deref())
-                .collect(),
+            produced: layout_index.roots_of(
+                proposed
+                    .iter()
+                    .filter(applied)
+                    .filter_map(|p| p.produces.as_deref()),
+                owners,
+            ),
+            layout_index,
             displaced: proposed
                 .iter()
                 .filter(applied)
@@ -214,9 +325,13 @@ impl<'a> Preserved<'a> {
                     w == rom
                         || (self.dat.get(w).zip(self.dat.get(rom))).is_some_and(|(w, r)| pins(w, r))
                 };
-                let written = roms
-                    .iter()
-                    .any(|w| self.produced.contains(w.0.as_str()) && pinned(w));
+                let written = roms.iter().any(|w| {
+                    pinned(w)
+                        && self
+                            .layout_index
+                            .root(&w.0, &w.1)
+                            .is_some_and(|r| self.produced.contains(&r))
+                });
                 if !held && !written {
                     lost.insert(rom.clone());
                 }
@@ -475,13 +590,13 @@ fn is_cue(name: &str) -> bool {
 /// ROMs than a loose file holds, every disc stays TorrentZip.
 fn placements_of(
     i: &Inputs,
+    layout_index: &LayoutIndex,
     wanted: &[Vec<ExpectedRom>],
 ) -> Vec<Option<(Placement, Option<&'static str>)>> {
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
             let roms = &wanted[index];
-            let listed = roms_of(i.dat, index);
-            let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
+            let listed = layout_index.listed(index);
             let written: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
             (!roms.is_empty())
                 .then(|| placement_writing(i.storage, &i.dat.games[index], &listed, &written))
@@ -592,13 +707,14 @@ fn name_is_zip(path: &str) -> bool {
 /// disc already stored as the policy says, `good`, is taken as stored so.
 fn release_split_by_unrepaired(
     i: &Inputs,
+    layout_index: &LayoutIndex,
     wanted: &[Vec<ExpectedRom>],
     by_path: &BTreeMap<&str, Vec<&Entry>>,
     good: &BTreeSet<String>,
     proposed: &[Proposed],
     released: &BTreeMap<String, Vec<(String, Released)>>,
 ) -> Option<(usize, String)> {
-    let placements = placements_of(i, wanted);
+    let placements = placements_of(i, layout_index, wanted);
     let repaired: HashMap<&str, usize> = proposed
         .iter()
         .enumerate()
@@ -641,26 +757,108 @@ fn release_split_by_unrepaired(
 
 /// Leaves every other disc of the release of game item `left`, which is left, saying why.
 fn leave_release(proposed: &mut [Proposed], left: usize) {
-    let Some(game) = proposed[left].item.game.clone() else {
-        return;
+    leave_alike(
+        proposed,
+        left,
+        |a, b| release_of(a) == release_of(b),
+        |game| {
+            format!(
+                "left as it is: {game}, another disc of the same game, is left as it is, and every disc of a game is \
+             repaired alike"
+            )
+        },
+    );
+}
+
+/// Leaves what must be left with game item `left`, which is left: every other disc of its release, and under a Set
+/// Layout every other Game of its family, which is repacked towards its layout whole (ADR 0026), never left half in
+/// one layout and half in another.
+fn leave_together(proposed: &mut [Proposed], layout_index: &LayoutIndex, left: usize) {
+    leave_release(proposed, left);
+    leave_family(proposed, layout_index, left);
+}
+
+/// Under a Set Layout, leaves every other Game of the family of game item `left`, which is left; the items it left.
+fn leave_family(proposed: &mut [Proposed], layout_index: &LayoutIndex, left: usize) -> Vec<usize> {
+    if !layout_index.has_layout() {
+        return Vec::new();
+    }
+    let family = |game: &str| layout_index.family_of(game);
+    leave_alike(
+        proposed,
+        left,
+        |a, b| family(a).is_some() && family(a) == family(b),
+        |game| {
+            format!(
+                "left as it is: {game}, of the same family, is left as it is, and a family is repacked into your set \
+                 layout whole"
+            )
+        },
+    )
+}
+
+/// Under a Set Layout, the refusal when a Game you chose to repair (`chose`, by its item's key) is of the family of a
+/// left item among `left`, which would leave the family half in one layout; none otherwise.
+fn split_family(
+    proposed: &[Proposed],
+    layout_index: &LayoutIndex,
+    chose: impl Fn(&str) -> bool,
+    mut left: impl Iterator<Item = usize>,
+) -> Option<String> {
+    if !layout_index.has_layout() {
+        return None;
+    }
+    let family = |p: &Proposed| {
+        p.item
+            .game
+            .as_deref()
+            .and_then(|g| layout_index.family_of(g))
     };
-    let release = release_of(&game);
+    left.find_map(|n| {
+        let kept = &proposed[n];
+        if kept.item.chosen != RepairChoice::Leave {
+            return None;
+        }
+        let of = family(kept)?;
+        let repaired = proposed.iter().find(|p| {
+            p.item.key.starts_with("game:")
+                && p.item.chosen != RepairChoice::Leave
+                && chose(&p.item.key)
+                && family(p) == Some(of)
+        })?;
+        Some(format!(
+            "{} would be left as it is while {} is repaired, and a family is repacked into your set layout whole; \
+             choose the same for both",
+            kept.item.game.as_deref()?,
+            repaired.item.game.as_deref()?,
+        ))
+    })
+}
+
+/// Leaves every other game item whose Game is `alike` the Game of game item `left`, which is left, with the note
+/// `why` gives for it; the items it left.
+fn leave_alike(
+    proposed: &mut [Proposed],
+    left: usize,
+    alike: impl Fn(&str, &str) -> bool,
+    why: impl Fn(&str) -> String,
+) -> Vec<usize> {
+    let Some(game) = proposed[left].item.game.clone() else {
+        return Vec::new();
+    };
+    let mut changed = Vec::new();
     for (n, p) in proposed.iter_mut().enumerate() {
         if n != left
             && p.item.key.starts_with("game:")
             && p.item.chosen != RepairChoice::Leave
-            && p.item
-                .game
-                .as_deref()
-                .is_some_and(|g| release_of(g) == release)
+            && p.item.game.as_deref().is_some_and(|g| alike(g, &game))
         {
             p.item.chosen = RepairChoice::Leave;
-            p.item.note = Some(format!(
-                "left as it is: {game}, another disc of the same game, is left as it is, and every disc of a game \
-                 is repaired alike"
-            ));
+            p.item.note = Some(why(&game));
+            changed.push(n);
         }
     }
+    changed
 }
 
 /// Whether the placed CHD at `path` is healthy: every Entry of it Matched on Payload Evidence, and its Game Complete
@@ -965,37 +1163,53 @@ fn disk_fills<'p>(
     }
 }
 
-/// The ROMs of each Game of the DAT, by its index, that a repair writes, in DAT order: each it needs, and each other one
-/// (ADR 0025) that a file of the Source Set, an Ingest Folder item or a cue pack holds. One it doesn't need that none
-/// holds never keeps the Game from being repaired. A Disk is never one: it stays a CHD of its own in its family's
-/// folder (ADR 0026), filled there by [`disk_fills`].
-fn wanted_roms(i: &Inputs, held_by: &HashMap<RomKey, BTreeSet<&str>>) -> Vec<Vec<ExpectedRom>> {
+/// The ROMs each Game's ZIP or folder holds once repaired, by the Game's index, as the Set Layout lays them out (ADR
+/// 0026), and each one's index in the DAT: each it needs, and each other one (ADR 0025) that a file of the Source Set,
+/// an Ingest Folder item or a cue pack holds. One it doesn't need that none holds never keeps the Game from being
+/// repaired. A Game the layout gives no container of its own, a merged clone, has none. A Disk is never one: it stays a
+/// CHD of its own in its family's folder (ADR 0026), filled there by [`disk_fills`].
+fn wanted_roms(
+    i: &Inputs,
+    layout_index: &LayoutIndex,
+    held_by: &HashMap<RomKey, BTreeSet<&str>>,
+) -> (Vec<Vec<ExpectedRom>>, Vec<Vec<usize>>) {
     let mut wanted = vec![Vec::new(); i.dat.games.len()];
-    for rom in i.dat.roms.iter().filter(|r| !r.disk) {
-        let expected = i.dat.expected(rom);
-        let game = &i.dat.games[rom.game];
-        let held = || {
-            held_by.contains_key(&(game.clone(), rom.name.clone()))
-                || i.candidates.iter().any(|c| {
-                    c.matched.game == *game && c.matched.roms.iter().any(|m| m.rom == rom.name)
-                })
-                || i.cues.iter().any(|c| c.is(&expected))
-        };
-        if rom.needed() || held() {
-            wanted[rom.game].push(expected);
+    let mut owners = vec![Vec::new(); i.dat.games.len()];
+    for (index, laid) in layout_index.laid.roms.iter().enumerate() {
+        for &r in laid.iter().flatten().filter(|&&r| !i.dat.roms[r].disk) {
+            let rom = &i.dat.roms[r];
+            let expected = i.dat.expected(rom);
+            let game = &i.dat.games[rom.game];
+            let held = || {
+                held_by.contains_key(&(game.clone(), rom.name.clone()))
+                    || i.candidates.iter().any(|c| {
+                        c.matched.game == *game && c.matched.roms.iter().any(|m| m.rom == rom.name)
+                    })
+                    || i.cues.iter().any(|c| c.is(&expected))
+            };
+            if rom.needed() || held() {
+                wanted[index].push(expected);
+                owners[index].push(r);
+            }
         }
     }
-    wanted
+    (wanted, owners)
 }
 
 /// The nodump ROM, by its name and Game, whose name `entry` has, when no file can match that ROM (ADR 0025): the
-/// ROM [`Holders::nodump_named`] gives, whatever the Entry's payload is, even when it matches another ROM of that
-/// name; or else the one a Mismatched Entry is named for, when the Audit found it has no good dump known.
-fn not_dumped<'a>(dat: &'a Dat, holders: &Holders, entry: &'a Entry) -> Option<(&'a str, &'a str)> {
+/// ROM [`Holders::nodump_named`] gives, or one the ZIP or folder holding it may hold in whichever Set Layout it was
+/// stored in ([`LayoutIndex::nodump_listed`]), whatever the Entry's payload is, even when it matches another ROM of
+/// that name; or else the one a Mismatched Entry is named for, when the Audit found it has no good dump known.
+fn not_dumped<'a>(
+    dat: &'a Dat,
+    holders: &Holders,
+    layout_index: &LayoutIndex,
+    entry: &'a Entry,
+) -> Option<(&'a str, &'a str)> {
     let name = entry_name(&entry.path, entry.member.as_deref());
     let container = holders.container(&entry.path, entry.member.as_deref());
-    let own = holders
-        .nodump_named(container, name)
+    let own = (holders.nodump_named(container, name))
+        .or_else(|| layout_index.nodump_listed(container, name))
         .map(|r| &dat.roms[r])
         .map(|r| (r.name.as_str(), dat.games[r.game].as_str()));
     own.or_else(|| {
@@ -1024,6 +1238,7 @@ enum IfChosen {
 fn left_for_nodump<'a>(
     dat: &Dat,
     holders: &Holders,
+    layout_index: &LayoutIndex,
     files: impl IntoIterator<Item = &'a Usable<'a>>,
     if_chosen: IfChosen,
 ) -> Option<String> {
@@ -1034,7 +1249,7 @@ fn left_for_nodump<'a>(
     let (entry, (rom, of)) = files
         .into_iter()
         .flat_map(|file| file.entries.iter().copied())
-        .find_map(|e| Some((e, not_dumped(dat, holders, e)?)))?;
+        .find_map(|e| Some((e, not_dumped(dat, holders, layout_index, e)?)))?;
     Some(format!(
         "left as it is by default: {} has the name of {rom} of {of}, which has no good dump known, and {result}. An \
          emulator may still load it, so choose whether to {choose}.",
@@ -1274,8 +1489,24 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         &mut notes,
     );
     let mut good: BTreeSet<String> = BTreeSet::new();
-    let wanted = wanted_roms(i, &held_by);
-    let placements = placements_of(i, &wanted);
+    let layout_index = LayoutIndex::of(i.dat, i.storage);
+    for &(game, r) in &layout_index.laid.left_out {
+        let (owner, name) = layout_index.key(r);
+        notes.push(format!(
+            "{} keeps {name} of {owner} out: another ROM it holds has that name",
+            i.dat.games[game]
+        ));
+    }
+    let (wanted, owners) = wanted_roms(i, &layout_index, &held_by);
+    let placements = placements_of(i, &layout_index, &wanted);
+    // The Game each file a repair puts a Game in is, by its path: under a Set Layout, a file another Game is put in is
+    // never kept aside as a copy this Game was written from, as that Game's own item rewrites it or leaves it.
+    let target_of: HashMap<String, usize> = placements
+        .iter()
+        .enumerate()
+        .filter_map(|(g, p)| Some((g, p.as_ref()?)))
+        .flat_map(|(g, (placed, _))| placed.files().into_iter().map(move |f| (f, g)))
+        .collect();
     let reported: HashMap<&str, &title_select_api::report::Game> = i
         .report
         .games
@@ -1292,6 +1523,18 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     }
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = &wanted[index];
+        // The Game and name of each of `roms`: one of another Game where the layout puts it here.
+        let keys: Vec<(&str, &str)> = owners[index].iter().map(|&r| layout_index.key(r)).collect();
+        let holds = |e: &Entry, n: usize| {
+            e.roms
+                .iter()
+                .any(|r| layout_index.same((&r.game, &r.name), keys[n]))
+        };
+        // Whether the file at `path` is another Game's to be put in, which under a Set Layout this Game's item reads but
+        // never keeps aside: there a sibling's ZIP is where a shared ROM is read from.
+        let others_target = |path: &str| {
+            layout_index.has_layout() && target_of.get(path).is_some_and(|g| *g != index)
+        };
         let Some((placed, why_zip)) = &placements[index] else {
             continue;
         };
@@ -1405,10 +1648,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     _ => continue,
                 };
                 for (n, rom) in roms.iter().enumerate() {
-                    if entry
-                        .roms
-                        .iter()
-                        .any(|r| r.game == *game && r.name == rom.name)
+                    if holds(entry, n)
                         && !withheld(&rom.name)
                         && sources[n].is_none_or(|(best, ..)| rank < best)
                     {
@@ -1472,9 +1712,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     if loose {
                         return matches!(
                             (roms.as_slice(), file.entries.as_slice()),
-                            ([only], [e]) if e.member.is_none()
+                            ([_], [e]) if e.member.is_none()
                                 && e.finding == Finding::Matched
-                                && e.roms.iter().any(|r| r.game == *game && r.name == only.name)
+                                && holds(e, 0)
                         );
                     }
                     let members: BTreeSet<Option<&str>> =
@@ -1483,28 +1723,30 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         && members.len() == roms.len()
                         && file.entries.iter().all(|e| {
                             e.finding == Finding::Matched
-                                && e.member.as_deref().is_some_and(|m| names.contains(m))
-                                && e.roms.iter().any(|r| {
-                                    r.game == *game && Some(r.name.as_str()) == e.member.as_deref()
+                                && e.member.as_deref().is_some_and(|m| {
+                                    names.contains(m)
+                                        && roms
+                                            .iter()
+                                            .position(|r| r.name == m)
+                                            .is_some_and(|n| holds(e, n))
                                 })
                         })
                         && (i.torrentzip)(path)
                 })
             };
-            // A loose file that is exactly ROM `rom` of the Game, Matched under its name.
-            let exact_loose = |path: &str, rom: &ExpectedRom| {
+            // A loose file that is exactly ROM `n` of the Game, Matched under its name.
+            let exact_loose = |path: &str, n: usize| {
                 usable.get(path).is_some_and(|file| {
                     matches!(file.entries.as_slice(), [e] if e.member.is_none()
                         && e.finding == Finding::Matched
-                        && e.roms.iter().any(|r| r.game == *game && r.name == rom.name))
+                        && holds(e, n))
                 })
             };
             let exact = |path: &str| exact_as(path, loose);
             let in_place = match folder {
-                Some(_) => roms
-                    .iter()
+                Some(_) => (0..roms.len())
                     .zip(&targets)
-                    .all(|(rom, t)| exact_loose(t, rom)),
+                    .all(|(n, t)| exact_loose(t, n)),
                 None => exact(&target),
             };
             if in_place {
@@ -1521,7 +1763,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             let mut blocked = None;
             for (n, t) in targets.iter().enumerate() {
                 if !i.files.contains_key(t)
-                    || (folder.is_some() && (exact_loose(t, &roms[n]) || unsourced(n)))
+                    || (folder.is_some() && (exact_loose(t, n) || unsourced(n)))
                 {
                     continue;
                 }
@@ -1604,7 +1846,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 let mut missing: Vec<&str> = Vec::new();
                 for (n, rom) in roms.iter().enumerate() {
                     let to = &targets[n];
-                    if exact_loose(to, rom) {
+                    if exact_loose(to, n) {
                         continue;
                     }
                     if unsourced(n) {
@@ -1684,7 +1926,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     }
                     _ => Vec::new(),
                 };
-                for path in &read {
+                for path in read.iter().filter(|path| !others_target(path)) {
                     if !displaces.iter().any(|(p, _)| p == path) {
                         let why = match converts.is_empty() {
                             true => format!("its ROMs were written to {target}"),
@@ -1797,8 +2039,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             // The files of the Game as a loose folder, when that is what the Source Set holds it as, each exactly
             // its ROM: converted into this format.
             let as_folder: Vec<String> = {
-                let listed = roms_of(i.dat, index);
-                let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
+                let listed = layout_index.listed(index);
                 let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
                 let folder_storage = Storage {
                     format: StorageFormat::LooseFolder,
@@ -1809,10 +2050,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         if f.len() > 1
                             && cued.is_empty()
                             && f.iter().map(String::as_str).collect::<BTreeSet<_>>() == files
-                            && roms
-                                .iter()
+                            && (0..roms.len())
                                 .zip(&f)
-                                .all(|(rom, path)| exact_loose(path, rom)) =>
+                                .all(|(n, path)| exact_loose(path, n)) =>
                     {
                         f
                     }
@@ -1821,7 +2061,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             };
             let mut converts = Vec::new();
             let (proposal, kind, summary, mut displaces) = match single {
-                Some(from) if from != target && exact(from) => (
+                Some(from) if from != target && !others_target(from) && exact(from) => (
                     Proposal::Rename {
                         from: from.to_owned(),
                         roms: roms.clone(),
@@ -1831,7 +2071,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     Vec::new(),
                 ),
                 // Exactly the Game, but stored as the other format: rewritten in this one.
-                Some(from) if from != target && exact_as(from, !loose) => {
+                Some(from) if from != target && !others_target(from) && exact_as(from, !loose) => {
                     converts = vec![from.to_owned()];
                     (
                         Proposal::Build { roms: all_roms() },
@@ -1886,8 +2126,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                             ),
                         )
                     };
+                    let summary = match layout_index.layout {
+                        Some(layout) if kind == RepairKind::Repack => {
+                            format!("{summary}, as a {} set", layout.label())
+                        }
+                        _ => summary,
+                    };
                     let displaces = files
                         .iter()
+                        .filter(|path| !others_target(path))
                         .map(|path| {
                             (
                                 path.to_string(),
@@ -1944,7 +2191,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     })
             })
             .map(|(path, _)| *path)
-            .filter(|path| !kept_conflicts.contains(path) && !released_paths.contains(path))
+            .filter(|path| {
+                !kept_conflicts.contains(path)
+                    && !released_paths.contains(path)
+                    && !others_target(path)
+            })
             .collect();
         if let Some(path) = attributable.iter().find(|p| left_conflicts.contains(**p)) {
             notes.push(left_in_way(path));
@@ -1982,9 +2233,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .map(|(n, c)| {
                 let lacks = roms
                     .iter()
-                    .filter(|rom| c.matched.rom(&rom.name).is_none())
-                    .map(|rom| {
-                        let held = held_by.contains_key(&(game.clone(), rom.name.clone()));
+                    .zip(&keys)
+                    .filter(|(rom, _)| c.matched.rom(&rom.name).is_none())
+                    .map(|(rom, (owner, name))| {
+                        let held = held_by.contains_key(&(owner.to_string(), name.to_string()));
                         (rom.name.as_str(), held)
                     })
                     .collect();
@@ -2097,7 +2349,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
         item.note = Some(format!("left as it is: {PLACED_WRITES}"));
-        leave_release(&mut proposed, n);
+        leave_together(&mut proposed, &layout_index, n);
     }
 
     // A healthy CHD, every Entry of it Matched on Payload Evidence and its Game Complete on them, is left as it is:
@@ -2203,7 +2455,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
         item.note = Some(note);
-        leave_release(&mut proposed, n);
+        leave_together(&mut proposed, &layout_index, n);
     }
 
     // Each disc of a release released: its CHD set aside, damaged or healthy, and a gone one's placement dropped.
@@ -2251,12 +2503,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // matches, which may be another Game's ROM; the files held nothing a Game needs, kept aside below, are told alike.
     // A release's item sets only its CHDs aside, whose Disks a name never matches, and is left to its own rules.
     let holders = Holders::new(i.dat);
-    for p in proposed
+    let mut nodump_left = Vec::new();
+    for (n, p) in proposed
         .iter_mut()
-        .filter(|p| p.item.default != RepairChoice::Leave && p.release.is_none())
+        .enumerate()
+        .filter(|(_, p)| p.item.default != RepairChoice::Leave && p.release.is_none())
     {
         let takes = p.takes().filter_map(|path| usable.get(path));
-        let Some(note) = left_for_nodump(i.dat, &holders, takes, IfChosen::Repair) else {
+        let Some(note) = left_for_nodump(i.dat, &holders, &layout_index, takes, IfChosen::Repair)
+        else {
             continue;
         };
         let item = &mut p.item;
@@ -2266,6 +2521,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
         item.note = Some(note);
+        nodump_left.push(n);
     }
 
     // The choices you made in place of the defaults; those for files holding nothing are checked below.
@@ -2304,8 +2560,23 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         })
         .map(|(n, _)| n)
         .collect();
+    // Under a Set Layout a family is repacked whole: choosing to repair one Game of it while another is left is refused.
+    let chose = |key: &str| i.choices.contains_key(key);
+    let left_by = left.iter().chain(&nodump_left).copied();
+    if let Some(why) = split_family(&proposed, &layout_index, chose, left_by) {
+        return Err(Error::Refused(why));
+    }
     for n in left {
-        leave_release(&mut proposed, n);
+        leave_together(&mut proposed, &layout_index, n);
+    }
+    // The rest of the family of each Game left for a nodump ROM's name, unless you chose to repair it, is left by
+    // default too.
+    for n in nodump_left {
+        if proposed[n].item.chosen == RepairChoice::Leave {
+            for s in leave_family(&mut proposed, &layout_index, n) {
+                proposed[s].item.default = RepairChoice::Leave;
+            }
+        }
     }
     // Choosing to set one disc of a placed release aside sets every disc of it aside, as it is never split.
     let chosen_aside: BTreeSet<String> = proposed
@@ -2330,7 +2601,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .map(|r| ((i.dat.games[r.game].clone(), r.name.clone()), r))
         .collect();
     loop {
-        let preserved = Preserved::of(&proposed, &dat_roms, &held_by);
+        let preserved = Preserved::of(&proposed, &dat_roms, &held_by, &layout_index, &owners);
         let lost = proposed.iter().position(|p| {
             p.checked
                 && p.item.chosen != RepairChoice::Leave
@@ -2342,9 +2613,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         });
         let Some(lost) = lost else {
             // A disc no item repairs stays stored as it is, so no other disc of its game is stored otherwise.
-            let Some((repaired, stays)) =
-                release_split_by_unrepaired(i, &wanted, &by_path, &good, &proposed, &released)
-            else {
+            let Some((repaired, stays)) = release_split_by_unrepaired(
+                i,
+                &layout_index,
+                &wanted,
+                &by_path,
+                &good,
+                &proposed,
+                &released,
+            ) else {
                 break;
             };
             let game = proposed[repaired].item.game.clone().unwrap_or_default();
@@ -2370,16 +2647,25 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes".into(),
         );
         if proposed[lost].item.key.starts_with("game:") {
-            leave_release(&mut proposed, lost);
+            leave_together(&mut proposed, &layout_index, lost);
         }
     }
 
-    // A file holding nothing a Game needs: Unmatched Entries, or copies of ROMs a Game's own file holds.
-    let covered = |game: &str| {
-        good.contains(game)
-            || proposed.iter().any(|p| {
-                p.item.chosen != RepairChoice::Leave && p.produces.as_deref() == Some(game)
-            })
+    // A file holding nothing a Game needs: Unmatched Entries, or copies of ROMs a Game's own file holds, where the
+    // layout keeps them once repaired.
+    let whole = layout_index.roots_of(
+        good.iter().map(String::as_str).chain(
+            proposed
+                .iter()
+                .filter(|p| p.item.chosen != RepairChoice::Leave)
+                .filter_map(|p| p.produces.as_deref()),
+        ),
+        &owners,
+    );
+    let covered = |game: &str, rom: &str| {
+        layout_index
+            .root(game, rom)
+            .is_some_and(|r| whole.contains(&r))
     };
     let mut aside = Vec::new();
     for (path, file) in &usable {
@@ -2388,14 +2674,16 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
         let spare = file.entries.iter().all(|e| match e.finding {
             Finding::Unmatched => true,
-            Finding::Matched | Finding::Misnamed => e.roms.iter().all(|r| covered(&r.game)),
+            Finding::Matched | Finding::Misnamed => {
+                e.roms.iter().all(|r| covered(&r.game, &r.name))
+            }
             _ => false,
         });
         if !spare {
             continue;
         }
         let key = format!("file:{path}");
-        let nodump = left_for_nodump(i.dat, &holders, [file], IfChosen::KeepAside);
+        let nodump = left_for_nodump(i.dat, &holders, &layout_index, [file], IfChosen::KeepAside);
         let default = match nodump {
             Some(_) => RepairChoice::Leave,
             None => RepairChoice::KeepAside,
@@ -2470,7 +2758,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     // What you chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then says:
     // it can be restored from the kept files.
-    let preserved = Preserved::of(&proposed, &dat_roms, &held_by);
+    let preserved = Preserved::of(&proposed, &dat_roms, &held_by, &layout_index, &owners);
     let last: Vec<(usize, Vec<String>)> = proposed
         .iter()
         .enumerate()
@@ -2806,6 +3094,40 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
                     },
                 });
             }
+        }
+    }
+    // A file is kept aside only once every file built from it is written and verified, whichever item builds it: a
+    // ZIP that the layout no longer keeps a ROM in may be where a sibling's copy is written from (ADR 0026).
+    let reads: Vec<(u32, BTreeSet<&str>)> = steps
+        .iter()
+        .enumerate()
+        .filter_map(|(n, s)| match &s.step {
+            RepairStep::Build { sources, .. } => {
+                Some((n as u32, sources.keys().map(String::as_str).collect()))
+            }
+            _ => None,
+        })
+        .collect();
+    let extra_needs: Vec<(usize, Vec<u32>)> = steps
+        .iter()
+        .enumerate()
+        .filter_map(|(k, s)| match &s.step {
+            RepairStep::Keep { path, needs, .. } => {
+                let more: Vec<u32> = reads
+                    .iter()
+                    .filter(|(b, from)| {
+                        (*b as usize) < k && from.contains(path.as_str()) && !needs.contains(b)
+                    })
+                    .map(|(b, _)| *b)
+                    .collect();
+                (!more.is_empty()).then_some((k, more))
+            }
+            _ => None,
+        })
+        .collect();
+    for (k, more) in extra_needs {
+        if let RepairStep::Keep { needs, .. } = &mut steps[k].step {
+            needs.extend(more);
         }
     }
     steps

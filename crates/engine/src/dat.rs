@@ -9,6 +9,7 @@ use quick_xml::events::{BytesStart, Event};
 use sha2::Digest;
 use title_select_api::HeaderRule;
 use title_select_api::dat::{DatFormat, HeaderClaims, recognise_provider};
+pub use title_select_api::storage::SetLayout;
 
 use crate::Error;
 
@@ -45,6 +46,30 @@ impl Rom {
             false => &self.name,
         }
     }
+}
+
+/// What each Game's ZIP or folder holds under a Set Layout ([`Dat::laid_out`]).
+pub struct Laid {
+    /// The ROMs each Game's container holds, by the Game's index; none for a Game with no container of its own.
+    pub roms: Vec<Option<Vec<usize>>>,
+    /// Each ROM a container leaves out, by the container's Game and the ROM's index, as another ROM there has its name.
+    pub left_out: Vec<(usize, usize)>,
+    /// The ROM each ROM is one with, by its index: under a layout, the ROM its `merge=` leads to at the top of the
+    /// Games it is `romof` ([`Dat::shared_with`]), so two ROMs with one root are the same bytes; without, itself.
+    pub roots: Vec<usize>,
+}
+
+/// Whether ROMs `a` and `b` are alike: the same size, and every checksum both give equal.
+pub fn alike(a: &Rom, b: &Rom) -> bool {
+    let agree = |a: &Option<String>, b: &Option<String>| match (a, b) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        _ => true,
+    };
+    a.size == b.size
+        && agree(&a.crc, &b.crc)
+        && agree(&a.md5, &b.md5)
+        && agree(&a.sha1, &b.sha1)
+        && agree(&a.sha256, &b.sha256)
 }
 
 /// Whether a ROM's dump is known good, as a DAT's `status` says; good when it says nothing.
@@ -934,6 +959,137 @@ impl Dat {
             i += 1;
         }
         reached
+    }
+
+    /// The ROMs each Game's ZIP or folder holds under `layout` (ADR 0026), by the Game's index, each by its index in
+    /// DAT order, its own first; none for a Game the layout gives no container of its own, a merged clone. A DAT other
+    /// than ListXML has no Set Layout, so `layout` is none for it and each Game holds the ROMs it lists. Under a
+    /// layout no container holds a Disk, which stays in a folder named for its family's parent whatever the layout,
+    /// and no container holds two ROMs under one name: the first wins, and each other is in the second list, with the
+    /// Game whose container leaves it out.
+    ///
+    /// Non-merged: every ROM the Game lists and every ROM of each of its Dependencies. Split: the ROMs the Game lists
+    /// that it shares with no ancestor (no `merge=` that names a ROM of the Game it is `romof`). Merged: a parent holds
+    /// what split gives it and each of its clones.
+    pub fn laid_out(&self, layout: Option<SetLayout>) -> Laid {
+        let mut roms_of: Vec<Vec<usize>> = vec![Vec::new(); self.games.len()];
+        for (r, rom) in self.roms.iter().enumerate() {
+            roms_of[rom.game].push(r);
+        }
+        let Some(layout) = layout else {
+            return Laid {
+                roms: roms_of.into_iter().map(Some).collect(),
+                left_out: Vec::new(),
+                roots: (0..self.roms.len()).collect(),
+            };
+        };
+        let roots: Vec<usize> = (0..self.roms.len()).map(|r| self.shared_root(r)).collect();
+        let own = |g: usize| roms_of[g].iter().copied().filter(|&r| !self.roms[r].disk);
+        let unshared = |g: usize| own(g).filter(|&r| self.shared_with(r).is_none());
+        let mut left_out = Vec::new();
+        let mut gather = |g: usize, from: &mut dyn Iterator<Item = usize>| {
+            let mut held: Vec<usize> = Vec::new();
+            let mut named: HashMap<&str, usize> = HashMap::new();
+            let mut rooted: HashSet<usize> = HashSet::new();
+            for r in from {
+                let rom = &self.roms[r];
+                match named.get(rom.name.as_str()) {
+                    // A nodump ROM gives no checksum, so is alike any ROM of its size; one a file can match stands
+                    // in for it, and is left out only when they differ in size.
+                    Some(&h)
+                        if self.roms[h].status == DumpStatus::NoDump
+                            && rom.status != DumpStatus::NoDump =>
+                    {
+                        if !alike(&self.roms[h], rom) {
+                            left_out.push((g, h));
+                        }
+                        if let Some(at) = held.iter().position(|&x| x == h) {
+                            held[at] = r;
+                        }
+                        named.insert(&rom.name, r);
+                        rooted.insert(roots[r]);
+                    }
+                    Some(&h) if alike(&self.roms[h], rom) => {}
+                    Some(_) => left_out.push((g, r)),
+                    None if rooted.contains(&roots[r]) => {}
+                    None => {
+                        named.insert(&rom.name, r);
+                        rooted.insert(roots[r]);
+                        held.push(r);
+                    }
+                }
+            }
+            held
+        };
+        let parents: Vec<Option<usize>> = (0..self.games.len())
+            .map(|g| self.family_parent(g))
+            .collect();
+        let mut clones: Vec<Vec<usize>> = vec![Vec::new(); self.games.len()];
+        for (c, parent) in parents.iter().enumerate() {
+            if let Some(p) = parent {
+                clones[*p].push(c);
+            }
+        }
+        let mut roms = Vec::with_capacity(self.games.len());
+        for g in 0..self.games.len() {
+            roms.push(match layout {
+                SetLayout::NonMerged => {
+                    let deps = self.dependencies(g);
+                    let mut all = own(g).chain(deps.into_iter().flat_map(|d| own(d)));
+                    Some(gather(g, &mut all))
+                }
+                SetLayout::Split => Some(gather(g, &mut unshared(g))),
+                SetLayout::Merged => match parents[g] {
+                    Some(_) => None,
+                    None => {
+                        let mut all =
+                            unshared(g).chain(clones[g].iter().flat_map(|&c| unshared(c)));
+                        Some(gather(g, &mut all))
+                    }
+                },
+            });
+        }
+        Laid {
+            roms,
+            left_out,
+            roots,
+        }
+    }
+
+    /// The ROM of the Game ROM `r`'s Game is `romof` that `r` shares (`merge=`): the one of that name, alike.
+    pub fn shared_with(&self, r: usize) -> Option<usize> {
+        let rom = &self.roms[r];
+        let merge = rom.merge.as_deref()?;
+        let romof = self.game_index(self.machines[rom.game].romof.as_deref()?)?;
+        self.roms_named(merge)
+            .iter()
+            .copied()
+            .find(|&s| self.roms[s].game == romof && alike(&self.roms[s], rom))
+    }
+
+    /// Where following ROM `r`'s `merge=` up the Games it is `romof` ends: the ROM it is shared from at the top.
+    fn shared_root(&self, r: usize) -> usize {
+        let mut at = r;
+        let mut seen = HashSet::from([r]);
+        while let Some(up) = self.shared_with(at)
+            && seen.insert(up)
+        {
+            at = up;
+        }
+        at
+    }
+
+    /// The parent of Game `g`'s family, as `cloneof` names it, up to a Game that is no clone; none for a parent, or
+    /// a clone whose parent the DAT doesn't list.
+    pub fn family_parent(&self, g: usize) -> Option<usize> {
+        let mut at = g;
+        let mut seen = HashSet::from([g]);
+        while let Some(up) = self.cloneof[at].as_deref().and_then(|p| self.game_index(p))
+            && seen.insert(up)
+        {
+            at = up;
+        }
+        (at != g).then_some(at)
     }
 
     pub fn roms_named(&self, name: &str) -> &[usize] {

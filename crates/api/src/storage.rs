@@ -114,6 +114,57 @@ impl DiscLayout {
     }
 }
 
+/// Where a MAME Source Set keeps a family's shared ROMs (ADR 0026): its Set Layout. An Audit accepts any of them; a
+/// Repair repacks towards the one the Storage Policy gives. A family's Disks are always merged, whatever it says.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SetLayout {
+    /// Each Game's ZIP holds everything it needs: its own ROMs and every ROM of its Dependencies.
+    #[default]
+    NonMerged,
+    /// A clone's ZIP holds only what it doesn't share with its parent, and a Game's ZIP none of its BIOS's ROMs.
+    Split,
+    /// A family's parent's ZIP holds the whole family, its clones' ROMs included; a clone has no ZIP of its own.
+    Merged,
+}
+
+impl SetLayout {
+    pub const ALL: [SetLayout; 3] = [SetLayout::NonMerged, SetLayout::Split, SetLayout::Merged];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SetLayout::NonMerged => "non-merged",
+            SetLayout::Split => "split",
+            SetLayout::Merged => "merged",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SetLayout::NonMerged => "non_merged",
+            SetLayout::Split => "split",
+            SetLayout::Merged => "merged",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<SetLayout> {
+        SetLayout::ALL.into_iter().find(|l| l.as_str() == s)
+    }
+
+    /// Whether it is the default, non-merged.
+    pub fn is_default(&self) -> bool {
+        *self == SetLayout::default()
+    }
+}
+
+/// Whether `system`, a DAT as `<provider>/<name>`, is a MAME system, whose Source Sets have a Set Layout. Only those
+/// of a ListXML DAT, an Arcade DAT, are repaired towards it: software lists are out of M6 (ADR 0027).
+pub fn is_mame_system(system: &str) -> bool {
+    system
+        .split_once('/')
+        .is_some_and(|(provider, _)| provider.eq_ignore_ascii_case(crate::dat::MAME))
+}
+
 /// The folder, in a disc system's Play Library folder, that holds the `.m3u` and every file of the Multi-disc Game
 /// of release `release` in the ES-DE layout: `<release>.m3u`, named for the `.m3u` it holds (ADR 0019).
 pub fn multidisc_dir(release: &str) -> String {
@@ -141,6 +192,9 @@ pub struct SystemStorage {
     /// Whether, under single copy, a game stored in a format no source set holds, CHD, is placed rather than copied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_converted: Option<bool>,
+    /// Where a MAME system's source sets keep a family's shared ROMs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_layout: Option<SetLayout>,
 }
 
 impl SystemStorage {
@@ -152,6 +206,7 @@ impl SystemStorage {
             && self.sbi.is_none()
             && self.single_copy.is_none()
             && self.place_converted.is_none()
+            && self.set_layout.is_none()
     }
 }
 
@@ -174,6 +229,9 @@ pub struct ScopePolicy {
     /// play libraries only, off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub place_converted: bool,
+    /// Where MAME systems' source sets keep a family's shared ROMs; play libraries have none.
+    #[serde(default, skip_serializing_if = "SetLayout::is_default")]
+    pub set_layout: SetLayout,
     #[serde(default)]
     pub systems: BTreeMap<String, SystemStorage>,
 }
@@ -210,6 +268,8 @@ impl ScopePolicy {
                 && own
                     .and_then(|s| s.place_converted)
                     .unwrap_or(self.place_converted),
+            set_layout: (scope == StorageScope::SourceSets && is_mame_system(system))
+                .then(|| own.and_then(|s| s.set_layout).unwrap_or(self.set_layout)),
         }
     }
 }
@@ -257,6 +317,9 @@ pub struct Storage {
     /// rather than copied (Place Converted Games, ADR 0023); never without Single Copy.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub place_converted: bool,
+    /// Where a MAME system's Source Set keeps a family's shared ROMs (ADR 0026); `None` for any other folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_layout: Option<SetLayout>,
 }
 
 /// Whether `storage` is the default, TorrentZip with originals kept, which a plan leaves out of its JSON.
@@ -1198,5 +1261,44 @@ mod tests {
             (storage.layout, storage.sbi),
             (Some(DiscLayout::Flat), true)
         );
+    }
+
+    #[test]
+    fn only_a_mame_systems_source_sets_have_a_set_layout_non_merged_by_default() {
+        let mut policy = StoragePolicy::default();
+        let mame = "MAME/MAME";
+        assert_eq!(
+            policy.of(StorageScope::SourceSets, mame).set_layout,
+            Some(SetLayout::NonMerged)
+        );
+        assert_eq!(
+            policy.of(StorageScope::PlayLibraries, mame).set_layout,
+            None
+        );
+        assert_eq!(
+            policy
+                .of(StorageScope::SourceSets, "No-Intro/Atari")
+                .set_layout,
+            None
+        );
+        policy.source_sets.set_layout = SetLayout::Split;
+        policy.source_sets.systems.insert(
+            mame.into(),
+            SystemStorage {
+                set_layout: Some(SetLayout::Merged),
+                ..SystemStorage::default()
+            },
+        );
+        assert_eq!(
+            policy.of(StorageScope::SourceSets, mame).set_layout,
+            Some(SetLayout::Merged)
+        );
+        assert_eq!(
+            policy.of(StorageScope::SourceSets, "MAME/nes").set_layout,
+            Some(SetLayout::Split)
+        );
+        for layout in SetLayout::ALL {
+            assert_eq!(SetLayout::parse(layout.as_str()), Some(layout));
+        }
     }
 }

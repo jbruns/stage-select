@@ -24,6 +24,7 @@ mod repair;
 mod returns;
 mod romm;
 mod romm_additions;
+mod set_layout;
 mod single_copy;
 mod stale;
 mod store;

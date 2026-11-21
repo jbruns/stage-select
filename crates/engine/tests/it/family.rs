@@ -2,7 +2,9 @@
 //! own, and a BIOS or device it needs has a Game Status of its own, which never changes the Game's.
 
 use crate::common::*;
-use title_select_engine::{AvailableElsewhere, Dependency, Game, GameStatus, Report, audit};
+use title_select_engine::{
+    AvailableElsewhere, Dependency, Finding, Game, GameStatus, Report, audit,
+};
 
 /// A BIOS; a device with a ROM, naming a ROM-less device; a parent on the BIOS; its clone, which lists the parent's
 /// graphics under a name of its own, as a ROM with `merge=` does; and an unrelated machine sharing the BIOS's ROM.
@@ -156,6 +158,122 @@ fn a_machine_whose_device_is_missing_is_complete_and_names_the_missing_dependenc
         [false, false, true],
         "a ROM-less device is satisfied"
     );
+}
+
+/// A ZIP's members, by name.
+type Members<'a> = Vec<(&'a str, &'a [u8])>;
+
+/// The family's ZIPs as `layout` lays them out (ADR 0026), with rival's own ZIP beside them.
+fn write_family_set(f: &Fixture, layout: &str) {
+    let zips: Vec<(&str, Members)> = match layout {
+        "non-merged" => vec![
+            ("acmebios.zip", vec![("bios.u1", b"bios")]),
+            ("acmesnd.zip", vec![("snd.u2", b"sound")]),
+            (
+                "blaster.zip",
+                vec![
+                    ("bios.u1", b"bios"),
+                    ("prog.u3", b"program"),
+                    ("gfx.u4", b"graphics"),
+                    ("snd.u2", b"sound"),
+                ],
+            ),
+            (
+                "blasterj.zip",
+                vec![
+                    ("bios.u1", b"bios"),
+                    ("progj.u3", b"program j"),
+                    ("gfxj.u4", b"graphics"),
+                    ("snd.u2", b"sound"),
+                ],
+            ),
+        ],
+        "split" => vec![
+            ("acmebios.zip", vec![("bios.u1", b"bios")]),
+            ("acmesnd.zip", vec![("snd.u2", b"sound")]),
+            (
+                "blaster.zip",
+                vec![("prog.u3", b"program"), ("gfx.u4", b"graphics")],
+            ),
+            ("blasterj.zip", vec![("progj.u3", b"program j")]),
+        ],
+        "merged" => vec![
+            ("acmebios.zip", vec![("bios.u1", b"bios")]),
+            ("acmesnd.zip", vec![("snd.u2", b"sound")]),
+            (
+                "blaster.zip",
+                vec![
+                    ("prog.u3", b"program"),
+                    ("gfx.u4", b"graphics"),
+                    ("progj.u3", b"program j"),
+                ],
+            ),
+        ],
+        _ => unreachable!("a set layout"),
+    };
+    for (zip, members) in zips {
+        write_zip(&f.set_path(zip), &members);
+    }
+    write_zip(
+        &f.set_path("rival.zip"),
+        &[("rival.u1", b"bios"), ("rival.u2", b"rival")],
+    );
+}
+
+#[test]
+fn one_family_stored_non_merged_split_or_merged_audits_to_the_same_game_statuses() {
+    let statuses = |layout| {
+        let f = Fixture::new();
+        let dat = family(&f);
+        write_family_set(&f, layout);
+        let report = audit(&dat, f.set.path()).unwrap();
+        // Every Entry is Matched, whatever the layout: none needs review.
+        for e in &report.entries {
+            assert_eq!(e.finding, Finding::Matched, "{layout}: {e:?}");
+        }
+        report
+            .games
+            .into_iter()
+            .map(|g| (g.name, g.status, g.dependencies))
+            .collect::<Vec<_>>()
+    };
+
+    let non_merged = statuses("non-merged");
+
+    assert!(
+        non_merged
+            .iter()
+            .all(|(_, s, _)| matches!(s, GameStatus::Complete | GameStatus::NothingToCheck)),
+        "{non_merged:?}"
+    );
+    assert_eq!(statuses("split"), non_merged);
+    assert_eq!(statuses("merged"), non_merged);
+}
+
+#[test]
+fn a_non_merged_zips_dependency_roms_are_matched_and_complete_the_dependency_nowhere_else() {
+    let f = Fixture::new();
+    let dat = family(&f);
+    write_family_set(&f, "non-merged");
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let device = report
+        .entries
+        .iter()
+        .find(|e| e.path == "blaster.zip" && e.member.as_deref() == Some("snd.u2"))
+        .unwrap();
+    assert_eq!(device.finding, Finding::Matched);
+    assert_eq!(
+        device
+            .roms
+            .iter()
+            .map(|r| r.game.as_str())
+            .collect::<Vec<_>>(),
+        ["acmesnd"]
+    );
+    // The device's own ZIP is what makes it Complete: the copy in blaster.zip is the machine's, as non-merged keeps it.
+    assert!(game(&report, "acmesnd").available_elsewhere.is_empty());
 }
 
 #[test]
