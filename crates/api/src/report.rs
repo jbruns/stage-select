@@ -1,4 +1,4 @@
-//! The `schema: 6` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 7` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 6;
+pub const SCHEMA: u32 = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -377,6 +377,10 @@ pub struct Game {
     /// Its missing ROMs that are Available Elsewhere (ADR 0017), in DAT order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub available_elsewhere: Vec<AvailableElsewhere>,
+    /// The BIOSes and devices it reaches through `romof` and `device_ref`, transitively, each with its own Game
+    /// Status, in DAT order (ADR 0025). None of them changes this Game's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<Dependency>,
 }
 
 /// The Games of `games` an Audit found any of their own files of, among `entries`: each with a ROM that an Entry holds
@@ -407,6 +411,14 @@ pub struct AvailableElsewhere {
     pub rom: String,
     /// The Games whose ZIP or folder holds it, in DAT order.
     pub games: Vec<String>,
+}
+
+/// A Dependency of a Game, with the Game Status the same Audit found for it. It is satisfied when that is Complete or
+/// Nothing to Check ([`GameStatus::satisfies_dependency`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dependency {
+    pub game: String,
+    pub status: GameStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -444,7 +456,46 @@ pub struct ReviewFlag {
 
 #[cfg(test)]
 mod tests {
-    use super::GameStatus;
+    use super::{Dependency, Game, GameStatus};
+
+    #[test]
+    fn a_games_dependencies_are_named_with_their_status_and_left_out_when_it_has_none() {
+        let game = |dependencies| Game {
+            name: "blaster".into(),
+            status: GameStatus::Complete,
+            missing_roms: vec![],
+            claimed_roms: vec![],
+            warnings: vec![],
+            available_elsewhere: vec![],
+            dependencies,
+        };
+        let with = game(vec![
+            Dependency {
+                game: "acmesnd".into(),
+                status: GameStatus::Missing,
+            },
+            Dependency {
+                game: "z80".into(),
+                status: GameStatus::NothingToCheck,
+            },
+        ]);
+
+        assert_eq!(
+            serde_json::to_value(&with).unwrap(),
+            serde_json::json!({
+                "name": "blaster",
+                "status": "complete",
+                "dependencies": [
+                    { "game": "acmesnd", "status": "missing" },
+                    { "game": "z80", "status": "nothing_to_check" },
+                ],
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(game(vec![])).unwrap(),
+            serde_json::json!({ "name": "blaster", "status": "complete" })
+        );
+    }
 
     #[test]
     fn a_dependency_is_satisfied_when_complete_or_with_nothing_to_check() {

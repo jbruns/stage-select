@@ -1,12 +1,12 @@
 //! MAME Source Sets and the arcade selector (ADR 0027): a software list is audited but never selected or built, a
-//! ListXML Source Set takes no Coverage, and a Selection keeps its Dependencies.
+//! ListXML Source Set takes no Coverage, and a Selection and an Audit keep their Dependencies.
 
 use title_select_api::build::{AddLibraryFolder, LibraryFolder};
 use title_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, Dependency, Role, Rule, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
-use title_select_engine::AuditEvidence;
+use title_select_engine::{AuditEvidence, GameStatus};
 use title_select_store::config::Config;
 use title_select_store::{Error, Store, Workers};
 
@@ -116,6 +116,32 @@ fn a_software_list_is_audited_but_never_selected_or_built() {
         .enqueue_selection("mame", None, PROFILE, None, "Operator", WORKERS);
     assert_eq!(refused(selection), SOFTWARE_LIST_REFUSAL);
     assert_eq!(refused(env.folder()), SOFTWARE_LIST_REFUSAL);
+}
+
+#[test]
+fn a_stored_audit_keeps_each_games_dependencies_with_their_game_statuses() {
+    let env = Env::new();
+    env.add(LISTXML.as_bytes());
+
+    let audit = env
+        .store
+        .audit_source_set(&env.config, "mame", None, AuditEvidence::Full)
+        .unwrap();
+
+    let (games, _) = env.store.games(audit.id, None, 10, None).unwrap();
+    let pong = games.iter().find(|g| g.game.name == "pong").unwrap();
+    assert_eq!(pong.game.status, GameStatus::Missing);
+    assert_eq!(
+        pong.game.dependencies,
+        [title_select_engine::Dependency {
+            game: "acmebios".into(),
+            status: GameStatus::NothingToCheck,
+        }]
+    );
+    assert_eq!(
+        env.store.report(audit.id).unwrap().games,
+        audit.report.games
+    );
 }
 
 #[test]

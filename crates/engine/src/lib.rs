@@ -14,7 +14,7 @@ pub mod sevenz;
 pub mod torrentzip;
 pub mod zipdir;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 pub use read::Pools;
@@ -517,24 +517,13 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         before += walked.files.len();
         segments.push((walked.items, reads.into_iter()));
     }
-    let game_index: HashMap<&str, usize> = dat
-        .games
-        .iter()
-        .enumerate()
-        .map(|(i, g)| (g.as_str(), i))
-        .collect();
-    let parents = dat
-        .cloneof
-        .iter()
-        .map(|p| p.as_deref().and_then(|p| game_index.get(p).copied()))
-        .collect();
     let mut scan = Scan {
-        game_index,
-        parents,
+        ancestors: (0..dat.games.len()).map(|g| dat.ancestors(g)).collect(),
         covered: vec![None; dat.roms.len()],
         elsewhere: vec![BTreeSet::new(); dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
         entries: Vec::new(),
+        unnamed: Vec::new(),
         dat: &dat,
     };
     for (items, mut reads) in segments {
@@ -560,6 +549,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
             }
         }
     }
+    scan.settle();
     let games = scan.games();
     let mut findings: BTreeMap<_, _> = Finding::ALL.iter().map(|f| (*f, 0)).collect();
     for e in &scan.entries {
@@ -599,10 +589,8 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
 /// What an Audit has found so far.
 struct Scan<'d> {
     dat: &'d Dat,
-    /// Each Game's index, by its name.
-    game_index: HashMap<&'d str, usize>,
-    /// The parent each Game is a clone of, by the Game's index.
-    parents: Vec<Option<usize>>,
+    /// The Games whose ZIPs and folders count as each Game's own, by the Game's index ([`Dat::ancestors`]).
+    ancestors: Vec<Vec<usize>>,
     /// The strongest Evidence Level any Entry holding each ROM for its own Game has.
     covered: Vec<Option<EvidenceLevel>>,
     /// For each ROM, the other Games whose ZIP or folder holds an Entry whose payload is that ROM's (ADR 0017).
@@ -610,6 +598,24 @@ struct Scan<'d> {
     /// Each Game a Matched Entry without the Header its emulators need counts towards.
     header_missing: Vec<bool>,
     entries: Vec<Entry>,
+    /// The Entries in a Game's own ZIP or folder that may count for one of its ROMs by checksums alone, in walk
+    /// order.
+    unnamed: Vec<Unnamed>,
+}
+
+/// What an Entry tells of each ROM it counts for.
+#[derive(Clone, Copy)]
+struct Held {
+    finding: Finding,
+    level: EvidenceLevel,
+    has_header: bool,
+}
+
+/// An Entry in a Game's own ZIP or folder that none of the Game's ROMs is named for, and those of the Game's ROMs whose
+/// checksums the Entry's payload has, in DAT order.
+struct Unnamed {
+    roms: Vec<usize>,
+    held: Held,
 }
 
 impl Scan<'_> {
@@ -630,21 +636,30 @@ impl Scan<'_> {
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
         let container = self.container(&path, member.as_deref());
-        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). A
-        // clone's parent's is the clone's own: merged and split sets keep a clone's files there.
+        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). Its
+        // ancestors' are the Game's own (ADR 0025): merged and split sets keep a family's shared files there.
         let elsewhere = |r: usize| {
             let game = self.dat.roms[r].game;
-            container.filter(|g| *g != game && Some(*g) != self.parents[game])
+            container.filter(|g| !self.ancestors[game].contains(g))
         };
-        let own: Vec<usize> = payload
-            .iter()
-            .copied()
-            .filter(|r| elsewhere(*r).is_none())
-            .collect();
+        let matching = matching_roms(self.dat, known);
+        // In a family's ZIP or folder, a ROM counts by its name or, failing that, by its checksums under another
+        // name, as MAME searches (ADR 0025), such as a clone's ROM that its parent lists under another name. In the
+        // Game's own, an Entry counts only for the ROMs it is named for or, failing that, for one ROM with its
+        // checksums that nothing else counts for, settled once every Entry is in ([`Scan::settle`]). A loose
+        // file in no Game's counts towards the ROMs its Finding gives.
+        let (container_roms, mut counted): (Vec<usize>, Vec<usize>) = match container {
+            Some(c) => matching
+                .iter()
+                .copied()
+                .filter(|r| elsewhere(*r).is_none())
+                .partition(|r| self.dat.roms[*r].game == c),
+            None => (Vec::new(), payload.clone()),
+        };
         // Every ROM whose checksums the Entry's payload has, not only those it counts towards, so a track named for
         // its own Game still shows where another Game's copy is. Repair cannot yet source from those: it fills a
         // Game only from Entries that count towards it.
-        let others: Vec<(usize, usize)> = matching_roms(self.dat, known)
+        let others: Vec<(usize, usize)> = matching
             .into_iter()
             .filter_map(|r| elsewhere(r).map(|g| (r, g)))
             .collect();
@@ -655,18 +670,27 @@ impl Scan<'_> {
             Known::Payload(sums) => (EvidenceLevel::Payload, sums.header),
             Known::Claim { .. } => (EvidenceLevel::Claim, None),
         };
-        if finding == Finding::Matched
-            && header.is_none()
-            && self.dat.header().is_some_and(HeaderRule::needed_to_play)
-        {
-            for r in &own {
-                self.header_missing[self.dat.roms[*r].game] = true;
+        let held = Held {
+            finding,
+            level,
+            has_header: header.is_some(),
+        };
+        // A Matched Entry's payload is the ROMs it is named for.
+        let (by_name, by_checksums): (Vec<usize>, Vec<usize>) = container_roms
+            .into_iter()
+            .partition(|r| finding == Finding::Matched && payload.contains(r));
+        if by_name.is_empty() {
+            if !by_checksums.is_empty() {
+                self.unnamed.push(Unnamed {
+                    roms: by_checksums,
+                    held,
+                });
             }
+        } else {
+            counted.extend(by_name);
         }
-        for r in &own {
-            if self.covered[*r] != Some(EvidenceLevel::Payload) {
-                self.covered[*r] = Some(level);
-            }
+        for r in counted {
+            self.count(r, held);
         }
         self.entries.push(Entry {
             path,
@@ -680,6 +704,32 @@ impl Scan<'_> {
             named_rom: named.map(|r| rom_ref(self.dat, r)),
             reason: None,
         });
+    }
+
+    /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one
+    /// that the DAT's emulators need.
+    fn count(&mut self, r: usize, held: Held) {
+        if held.finding == Finding::Matched
+            && !held.has_header
+            && self.dat.header().is_some_and(HeaderRule::needed_to_play)
+        {
+            self.header_missing[self.dat.roms[r].game] = true;
+        }
+        if self.covered[r] != Some(EvidenceLevel::Payload) {
+            self.covered[r] = Some(held.level);
+        }
+    }
+
+    /// Counts each Entry in a Game's own ZIP or folder that none of its ROMs is named for towards the first of those
+    /// ROMs with its checksums that nothing has counted for yet, once every other Entry is in, so that one file never
+    /// stands in for several identical ROMs, such as a disc's identical tracks. A ROM another Entry counts for only by
+    /// Claim Evidence stays at Claim.
+    fn settle(&mut self) {
+        for u in std::mem::take(&mut self.unnamed) {
+            if let Some(r) = u.roms.into_iter().find(|r| self.covered[*r].is_none()) {
+                self.count(r, u.held);
+            }
+        }
     }
 
     /// The Game whose ZIP or folder holds the Entry at `path` (relative to the Source Set's root, or a Placed Game's
@@ -697,7 +747,7 @@ impl Scan<'_> {
         });
         zip.into_iter()
             .chain(parts)
-            .find_map(|name| self.game_index.get(name).copied())
+            .find_map(|name| self.dat.game_index(name))
     }
 
     fn games(&self) -> Vec<Game> {
@@ -705,7 +755,8 @@ impl Scan<'_> {
         for (r, rom) in self.dat.roms.iter().enumerate() {
             roms_of[rom.game].push(r);
         }
-        self.dat
+        let mut games: Vec<Game> = self
+            .dat
             .games
             .iter()
             .zip(roms_of)
@@ -751,9 +802,25 @@ impl Scan<'_> {
                         .into_iter()
                         .collect(),
                     available_elsewhere,
+                    // Filled below, once every Game's status is known.
+                    dependencies: Vec::new(),
                 }
             })
-            .collect()
+            .collect();
+        // A Dependency's Game Status is its own, and changes none of the Games that need it.
+        let statuses: Vec<GameStatus> = games.iter().map(|g| g.status).collect();
+        for (g, game) in games.iter_mut().enumerate() {
+            game.dependencies = self
+                .dat
+                .dependencies(g)
+                .into_iter()
+                .map(|d| Dependency {
+                    game: self.dat.games[d].clone(),
+                    status: statuses[d],
+                })
+                .collect();
+        }
+        games
     }
 }
 

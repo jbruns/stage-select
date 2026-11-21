@@ -959,27 +959,22 @@ fn elect_family(
 
 /// Lists each Dependency of `selection`'s winners once, in its own group (ADR 0025): every BIOS or device a winner
 /// reaches through `romof` and `device_ref`, transitively. A Dependency moves out of its group's exclusions, where the
-/// structural filter put it.
-///
-/// This is the selector's own listing. Counting a Game's family and its Dependencies' Game Status is #246's, which may
-/// take this walk over.
+/// structural filter put it. The walk is the Audit's ([`Dat::dependencies`]).
 pub(crate) fn list_dependencies(
     selection: &mut Selection,
     dat: &Dat,
     trace: &mut Vec<serde_json::Value>,
 ) {
-    let index: HashMap<&str, usize> = dat
-        .games
-        .iter()
-        .enumerate()
-        .map(|(i, name)| (name.as_str(), i))
-        .collect();
-    let mut needed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // By name, as the Selection lists them.
+    let mut needed: BTreeMap<(&str, usize), BTreeSet<String>> = BTreeMap::new();
     for group in &selection.groups {
         for winner in &group.winners {
-            for dependency in dependencies_of(&winner.title, dat, &index) {
+            let Some(game) = dat.game_index(&winner.title) else {
+                continue;
+            };
+            for dependency in dat.dependencies(game) {
                 needed
-                    .entry(dependency)
+                    .entry((&dat.games[dependency], dependency))
                     .or_default()
                     .insert(winner.title.clone());
             }
@@ -992,8 +987,7 @@ pub(crate) fn list_dependencies(
         .map(|(i, g)| (g.group.as_str(), i))
         .collect();
     let mut placed = Vec::new();
-    for (dependency, winners) in needed {
-        let i = index[dependency.as_str()];
+    for ((dependency, i), winners) in needed {
         let family = dat.cloneof[i].as_deref().unwrap_or(&dat.games[i]);
         let Some(&g) = families.get(family) else {
             continue;
@@ -1004,7 +998,7 @@ pub(crate) fn list_dependencies(
             "machine": dependency,
             "needed_by": needed_by,
         }));
-        placed.push((g, dependency, needed_by));
+        placed.push((g, dependency.to_owned(), needed_by));
     }
     for (g, title, needed_by) in placed {
         let group = &mut selection.groups[g];
@@ -1019,29 +1013,4 @@ pub(crate) fn list_dependencies(
             needed_by,
         });
     }
-}
-
-/// The BIOSes and devices `game` reaches through `romof` and `device_ref`, transitively.
-fn dependencies_of(game: &str, dat: &Dat, index: &HashMap<&str, usize>) -> BTreeSet<String> {
-    let mut found = BTreeSet::new();
-    let mut seen = BTreeSet::from([game.to_owned()]);
-    let mut queue = vec![game.to_owned()];
-    while let Some(name) = queue.pop() {
-        let Some(&i) = index.get(name.as_str()) else {
-            continue;
-        };
-        let m = &dat.machines[i];
-        if name != game && (m.is_bios == Some(true) || m.is_device == Some(true)) {
-            found.insert(name.clone());
-        }
-        let next = m
-            .romof
-            .iter()
-            .chain(m.device_refs.iter().flatten())
-            .filter(|n| seen.insert(n.to_string()))
-            .cloned()
-            .collect::<Vec<_>>();
-        queue.extend(next);
-    }
-    found
 }

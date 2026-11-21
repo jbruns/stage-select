@@ -2,7 +2,7 @@
 //! or a MAME software list (`<softwarelist>`, named by its list name, unversioned). A Logiqx or ListXML Game also
 //! gives the machine model the arcade selector and family counting read (ADRs 0025 to 0027), and its Disks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
@@ -262,6 +262,8 @@ pub struct Dat {
     /// What each Game's entry says of its machine, by the Game's index.
     pub machines: Vec<Machine>,
     pub roms: Vec<Rom>,
+    /// Each Game's index, by its name; the last Game of a name the DAT repeats.
+    game_by_name: HashMap<String, usize>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
     /// ROMs the DAT lists without a CRC, which the size-and-CRC index cannot find.
@@ -368,6 +370,7 @@ impl Dat {
             cloneof: Vec::new(),
             machines: Vec::new(),
             roms: Vec::new(),
+            game_by_name: HashMap::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
             by_size_without_crc: HashMap::new(),
@@ -717,6 +720,7 @@ impl Dat {
         let name = a
             .get("name")
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
+        self.game_by_name.insert(name.clone(), self.games.len());
         self.games.push(name.clone());
         self.descriptions.push(String::new());
         self.cloneof.push(a.get("cloneof").cloned());
@@ -864,6 +868,65 @@ impl Dat {
             sha256: rom.sha256.clone(),
             header: self.header(),
         }
+    }
+
+    /// The index of the Game named `name`.
+    pub fn game_index(&self, name: &str) -> Option<usize> {
+        self.game_by_name.get(name).copied()
+    }
+
+    /// The Games whose ZIPs and folders count as Game `game`'s own (ADR 0025): itself, its `cloneof` parent, and each
+    /// Game up its `romof` chain to its BIOS, in the order the walk reaches them.
+    pub fn ancestors(&self, game: usize) -> Vec<usize> {
+        self.reach(game, |g| {
+            self.cloneof[g]
+                .iter()
+                .chain(&self.machines[g].romof)
+                .map(String::as_str)
+                .collect()
+        })
+    }
+
+    /// Game `game`'s Dependencies (ADR 0025): every BIOS or device it reaches through `romof` and `device_ref`,
+    /// transitively, in DAT order. A Game whose entry doesn't say it is a BIOS or a device is no Dependency, though the
+    /// walk goes on through it.
+    pub fn dependencies(&self, game: usize) -> Vec<usize> {
+        let mut found: Vec<usize> = self
+            .reach(game, |g| {
+                let m = &self.machines[g];
+                m.romof
+                    .iter()
+                    .chain(m.device_refs.iter().flatten())
+                    .map(String::as_str)
+                    .collect()
+            })
+            .into_iter()
+            .filter(|&g| {
+                let m = &self.machines[g];
+                g != game && (m.is_bios == Some(true) || m.is_device == Some(true))
+            })
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
+    /// `game` and every Game reached from it through the Games `next` names, each once, in the order reached. A name
+    /// the DAT has no Game of is passed over.
+    fn reach<'a>(&'a self, game: usize, next: impl Fn(usize) -> Vec<&'a str>) -> Vec<usize> {
+        let mut reached = vec![game];
+        let mut seen = HashSet::from([game]);
+        let mut i = 0;
+        while let Some(&g) = reached.get(i) {
+            for name in next(g) {
+                if let Some(n) = self.game_index(name)
+                    && seen.insert(n)
+                {
+                    reached.push(n);
+                }
+            }
+            i += 1;
+        }
+        reached
     }
 
     pub fn roms_named(&self, name: &str) -> &[usize] {
