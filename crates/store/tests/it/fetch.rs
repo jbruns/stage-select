@@ -1508,6 +1508,39 @@ fn one_fetch_serves_every_listxml_dat_owed_the_support_files() {
 }
 
 #[test]
+fn an_older_listxml_imported_again_does_not_count_its_old_fetch_for_a_newer_one() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    env.store
+        .unregister_source_set(&env.config, "Arcade")
+        .unwrap();
+    env.store.delete_dat_revision(&old).unwrap();
+
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    // 0.289 again, now imported after 0.290: the fetch made for it before must not count for 0.290.
+    env.store
+        .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
+        .unwrap();
+    env.serve_support(COMMIT_B, "0.290");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
 fn an_unchanged_mirror_brings_the_same_files_unchanged() {
     let env = Env::new(MAME);
     env.add_arcade("mame0289");

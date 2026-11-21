@@ -17,8 +17,10 @@ CREATE TABLE support_files (
 );
 
 -- A request of the Support Files' system: the commit it found or fetched at, the Support File it brought, and the
--- ListXML DAT Revision it was sent for. The Support Files are fetched for a ListXML revision once each file has a
--- success sent for it.
+-- ListXML DAT Revision it was sent for, with that revision's import_seq when it was sent. The Support Files are
+-- fetched for a ListXML revision once each file has a success sent for it or for a revision imported after it; the
+-- import_seq is kept with the fetch because a revision deleted and imported again takes a new one.
 ALTER TABLE fetches ADD COLUMN commit_sha TEXT;
 ALTER TABLE fetches ADD COLUMN support_sha256 TEXT;
 ALTER TABLE fetches ADD COLUMN for_revision_id INTEGER REFERENCES dat_revisions (id);
+ALTER TABLE fetches ADD COLUMN for_import_seq INTEGER;

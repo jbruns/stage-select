@@ -519,15 +519,15 @@ fn support_artifacts() -> [FetchArtifact; 4] {
 
 /// Whether every Support File has been fetched since the ListXML DAT Revision `revision` was imported: for it, or
 /// for a revision imported at or after it, which a fetch is sent for only once it is imported.
-// A revision deleted and imported again takes a new import_seq, so a fetch recorded for it may count for revisions
-// imported in between; deleting a ListXML revision is rare, and the files fetched then are no older than those.
+// Each fetch keeps the import_seq its revision had when it was sent: a revision deleted and imported again takes a
+// new one, which its earlier fetches must not take with them.
 fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     for kind in SupportFileKind::ALL {
         let fetched: bool = c.query_row(
-            "SELECT EXISTS (SELECT 1 FROM fetches f JOIN dat_revisions fr ON fr.id = f.for_revision_id
+            "SELECT EXISTS (SELECT 1 FROM fetches f
                             WHERE f.provider = ?1 AND f.system = ?2 AND f.artifact = ?3
                               AND f.outcome IN ('added', 'unchanged')
-                              AND fr.import_seq >= (SELECT import_seq FROM dat_revisions WHERE id = ?4))",
+                              AND f.for_import_seq >= (SELECT import_seq FROM dat_revisions WHERE id = ?4))",
             params![
                 FetchProvider::Mame.as_str(),
                 SUPPORT_SYSTEM,
@@ -1049,7 +1049,8 @@ impl Store {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = ?3, error = ?4, dat_revision_id = ?5,
                  pack_sha256 = ?6, release = ?7, asset_url = ?8, commit_sha = ?9, support_sha256 = ?10,
-                 for_revision_id = ?11 WHERE id = ?1",
+                 for_revision_id = ?11,
+                 for_import_seq = (SELECT import_seq FROM dat_revisions WHERE id = ?11) WHERE id = ?1",
                 params![
                     id,
                     now(),
