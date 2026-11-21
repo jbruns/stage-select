@@ -70,7 +70,7 @@ fn dependency(game: &str, status: GameStatus) -> Dependency {
 }
 
 #[test]
-fn a_clone_in_a_split_set_is_complete_from_its_parents_and_its_bioss_zips() {
+fn a_clone_in_a_split_set_is_complete_from_its_parents_zip_and_its_bios_zip() {
     let f = Fixture::new();
     let dat = family(&f);
     write_zip(&f.set_path("acmebios.zip"), &[("bios.u1", b"bios")]);
@@ -99,7 +99,7 @@ fn a_clone_in_a_split_set_is_complete_from_its_parents_and_its_bioss_zips() {
 }
 
 #[test]
-fn a_clone_in_a_merged_set_is_complete_from_its_parents_zip_and_its_bioss() {
+fn a_clone_in_a_merged_set_is_complete_from_its_parents_zip_and_the_bios_zip() {
     let f = Fixture::new();
     let dat = family(&f);
     write_zip(&f.set_path("acmebios.zip"), &[("bios.u1", b"bios")]);

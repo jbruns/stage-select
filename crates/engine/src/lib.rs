@@ -746,6 +746,7 @@ impl Scan<'_> {
                         .into_iter()
                         .collect(),
                     available_elsewhere,
+                    // Filled below, once every Game's status is known.
                     dependencies: Vec::new(),
                 }
             })

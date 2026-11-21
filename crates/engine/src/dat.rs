@@ -882,6 +882,7 @@ impl Dat {
             self.cloneof[g]
                 .iter()
                 .chain(&self.machines[g].romof)
+                .map(String::as_str)
                 .collect()
         })
     }
@@ -896,6 +897,7 @@ impl Dat {
                 m.romof
                     .iter()
                     .chain(m.device_refs.iter().flatten())
+                    .map(String::as_str)
                     .collect()
             })
             .into_iter()
@@ -910,7 +912,7 @@ impl Dat {
 
     /// `game` and every Game reached from it through the Games `next` names, each once, in the order reached. A name
     /// the DAT has no Game of is passed over.
-    fn reach<'a>(&'a self, game: usize, next: impl Fn(usize) -> Vec<&'a String>) -> Vec<usize> {
+    fn reach<'a>(&'a self, game: usize, next: impl Fn(usize) -> Vec<&'a str>) -> Vec<usize> {
         let mut reached = vec![game];
         let mut seen = HashSet::from([game]);
         let mut i = 0;
