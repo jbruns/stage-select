@@ -71,6 +71,6 @@ inherits = "release"
 lto = true
 codegen-units = 16
 
-# Line tables give panics their file and line in little disk; CARGO_PROFILE_DEV_DEBUG=true builds full debug info.
+# Line tables (test inherits them) give panics their file and line; CARGO_PROFILE_DEV_DEBUG=true builds full debug info.
 [profile.dev]
 debug = "line-tables-only"

@@ -84,12 +84,12 @@ else
     say "sccache: not on PATH, so builds are not shared between build folders"
 fi
 
-# Prints the command, quoting each argument that holds a space, then runs it unless this is a dry run.
+# Prints the command, quoting each argument a shell would read otherwise, then runs it unless this is a dry run.
 run() {
     line=+
     for arg; do
         case $arg in
-        *" "*) line="$line '$arg'" ;;
+        *[!A-Za-z0-9_./=:,@+-]*) line="$line '$arg'" ;;
         *) line="$line $arg" ;;
         esac
     done
