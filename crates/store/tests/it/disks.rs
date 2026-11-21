@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::common::*;
 use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
+use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
@@ -499,6 +500,91 @@ fn a_repair_leaves_a_complete_games_disk_where_it_is_and_never_writes_it_into_it
         ]
     );
     assert_eq!(status(&after, "blaster"), GameStatus::Complete);
+}
+
+#[test]
+fn a_family_repacked_into_any_set_layout_leaves_its_disk_in_its_parents_folder() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("blaster.chd"), 1, &[]);
+    let rom = |name: &str, payload: &[u8]| {
+        format!(
+            r#"    <rom name="{name}" size="{}" crc="{:08x}"/>"#,
+            payload.len(),
+            crc32fast::hash(payload)
+        )
+    };
+    let shared = format!(
+        r#"    <disk name="blaster" merge="blaster" sha1="{sha1}" region="ide:0:hdd" index="0" writable="no"/>"#
+    );
+    for layout in SetLayout::ALL {
+        let env = Env::new(
+            chdman.clone(),
+            &[
+                (
+                    "blaster",
+                    "",
+                    format!("{}\n{}", rom("prog.u1", b"program"), disk("blaster", &sha1)),
+                ),
+                (
+                    "blasterj",
+                    r#"cloneof="blaster" romof="blaster""#,
+                    format!("{}\n{shared}", rom("progj.u1", b"program j")),
+                ),
+            ],
+        );
+        // Its ROMs are loose, so a repair writes each Game's ZIP as the Set Layout gives it.
+        write_file(&env.set().join("prog.u1"), b"program");
+        write_file(&env.set().join("progj.u1"), b"program j");
+        std::fs::create_dir_all(env.set().join("blaster")).unwrap();
+        std::fs::copy(
+            scratch.path().join("blaster.chd"),
+            env.set().join("blaster/blaster.chd"),
+        )
+        .unwrap();
+        let mut policy = StoragePolicy::default();
+        policy.source_sets.systems.insert(
+            "MAME/MAME".into(),
+            SystemStorage {
+                set_layout: Some(layout),
+                ..SystemStorage::default()
+            },
+        );
+        env.store.set_storage_policy(&policy, "Operator").unwrap();
+        env.audit(AuditEvidence::Full);
+
+        let plan = env.plan();
+
+        assert!(
+            (plan.content.items.iter()).all(|i| i.path.as_deref() != Some("blaster/blaster.chd")),
+            "{layout:?}: {:#?}",
+            plan.content.items
+        );
+        let after = env.approve(&plan);
+        let zips = match layout {
+            SetLayout::Merged => vec!["blaster.zip"],
+            _ => vec!["blaster.zip", "blasterj.zip"],
+        };
+        let files = files(&env.set());
+        assert!(
+            files.contains(&"blaster/blaster.chd".to_owned()),
+            "{layout:?}: {files:?}"
+        );
+        for zip in zips {
+            assert!(files.contains(&zip.to_owned()), "{layout:?}: {files:?}");
+        }
+        assert!(
+            !files.iter().any(|f| f.ends_with(".chd.kept")),
+            "{layout:?}: {files:?}"
+        );
+        for game in ["blaster", "blasterj"] {
+            assert_eq!(
+                status(&after, game),
+                GameStatus::Complete,
+                "{layout:?}: {game}"
+            );
+        }
+    }
 }
 
 #[test]
