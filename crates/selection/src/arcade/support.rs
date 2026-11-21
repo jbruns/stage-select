@@ -118,6 +118,14 @@ impl SupportFiles {
         Ok(())
     }
 
+    /// bestgames' tiers and the MAME version it names, if it was read.
+    pub fn bestgames(&self) -> Option<(&HashMap<String, Tier>, &str)> {
+        Some((
+            self.bestgames.as_ref()?,
+            self.version(SupportFileKind::Bestgames)?,
+        ))
+    }
+
     /// The MAME version the Support File of `kind` names, if one was read.
     pub fn version(&self, kind: SupportFileKind) -> Option<&str> {
         self.pins

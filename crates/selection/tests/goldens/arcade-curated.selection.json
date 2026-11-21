@@ -12,7 +12,8 @@
     "alternatives": 5,
     "exclusions": 15,
     "unresolved": 0,
-    "dependencies": 3
+    "dependencies": 3,
+    "curated_unmatched": 2
   },
   "coverage_drift": {
     "clone_list": false,

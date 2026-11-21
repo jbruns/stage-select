@@ -114,6 +114,27 @@ impl Store {
         })
     }
 
+    /// The Support Files a Selection reads: of each kind, the one for the newest MAME version, and of those the last
+    /// to come, as paths to the files the store keeps.
+    pub fn selection_support_files(&self) -> Result<Vec<std::path::PathBuf>> {
+        let version = |v: &str| -> (u32, u32) {
+            let (major, minor) = v.split_once('.').unwrap_or_default();
+            (major.parse().unwrap_or(0), minor.parse().unwrap_or(0))
+        };
+        let mut newest: std::collections::BTreeMap<SupportFileKind, SupportFileRecord> =
+            std::collections::BTreeMap::new();
+        for file in self.support_files()? {
+            match newest.get(&file.kind) {
+                Some(kept) if version(&kept.mame_version) > version(&file.mame_version) => {}
+                _ => {
+                    newest.insert(file.kind, file);
+                }
+            }
+        }
+        let dir = self.dir.join(SUPPORT_FILES);
+        Ok(newest.into_values().map(|f| dir.join(f.sha256)).collect())
+    }
+
     /// Every Support File the store keeps, in the order they came.
     pub fn support_files(&self) -> Result<Vec<SupportFileRecord>> {
         self.read(|c| {

@@ -653,7 +653,7 @@ fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
 }
 
 #[test]
-fn languages_ini_decides_the_language_election_where_descriptions_name_none() {
+fn languages_ini_gives_the_language_election_the_languages_of_each_machine_it_lists() {
     let engine = engine();
     let without = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
     assert_eq!(group(&without, "sailor").winners[0].title, "sailor");
@@ -788,6 +788,7 @@ fn the_curated_list_keeps_only_its_families_and_prefers_the_machine_it_names() {
         .unwrap();
     assert_eq!(curated.commit, pinned.commit);
     assert_eq!(curated.unmatched, ["nosuch", "shooterx"]);
+    assert_eq!(selection.summary.curated_unmatched, 2);
     // The winners' Dependencies are still listed.
     assert_eq!(
         group(selection, "acmebios").dependencies[0].needed_by,

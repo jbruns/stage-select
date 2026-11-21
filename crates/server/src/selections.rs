@@ -54,26 +54,15 @@ pub fn select(
     let mut options = RunOptions::new();
     options.cancel = cancel;
     options.coverage = coverage;
-    options.support_files = support_files(store)?;
+    options.support_files = store.selection_support_files().map_err(|e| Error::Io {
+        context: "the support files".into(),
+        source: std::io::Error::other(e.to_string()),
+    })?;
     let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");
     }
     Ok((outcome.selection, outcome.warnings))
-}
-
-/// The newest Support File the store keeps of each kind, for the arcade selector; the Retool port reads none.
-fn support_files(store: &Store) -> Result<Vec<std::path::PathBuf>, Error> {
-    let kept = store.support_files().map_err(|e| Error::Io {
-        context: "the support files".into(),
-        source: std::io::Error::other(e.to_string()),
-    })?;
-    let mut newest = HashMap::new();
-    for file in kept {
-        newest.insert(file.kind, file.sha256);
-    }
-    let dir = store.dir().join(title_select_store::SUPPORT_FILES);
-    Ok(newest.into_values().map(|sha| dir.join(sha)).collect())
 }
 
 /// The preview each actor has in flight. A newer preview from the same actor cancels the older one.
@@ -180,33 +169,6 @@ pub fn systems(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_selection_reads_the_newest_support_file_of_each_kind() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        let ini = |file: &str, version: &str| {
-            format!(";; {file} {version} / 01-Jan-26 / MAME {version} ;;\r\n[Category]\r\n")
-                .into_bytes()
-        };
-        let import = |file: &str, version: &str| {
-            store
-                .import_support_file(&ini(file, version), file, None)
-                .unwrap()
-                .0
-                .sha256
-        };
-        import("catver.ini", "0.288");
-        let catver = import("catver.ini", "0.289");
-        let languages = import("languages.ini", "0.289");
-
-        let mut read = support_files(&store).unwrap();
-        read.sort();
-        let kept = dir.path().join(title_select_store::SUPPORT_FILES);
-        let mut expected = vec![kept.join(catver), kept.join(languages)];
-        expected.sort();
-        assert_eq!(read, expected);
-    }
 
     #[test]
     fn a_newer_preview_cancels_the_older_one_of_the_same_actor_only() {

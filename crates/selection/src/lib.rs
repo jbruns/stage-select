@@ -205,8 +205,8 @@ impl Engine {
         self
     }
 
-    /// The curated list's shortnames, if it is the commit this binary was built with.
-    fn curated_list(&self) -> Result<(Pinned, Vec<String>), Error> {
+    /// The curated list's pin and shortnames, if it is the commit this binary was built with.
+    fn read_curated_list(&self) -> Result<CuratedList, Error> {
         let pinned = curated_list()?;
         let read = |name: &str| {
             let path = self.curated_list.join(name);
@@ -227,7 +227,7 @@ impl Engine {
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .map(str::to_owned)
             .collect();
-        Ok((pinned, names))
+        Ok(CuratedList { pin: pinned, names })
     }
 
     /// Reads clone lists, metadata, MIAs and RetroAchievements from `dir` instead of the pinned ones. Tests use
@@ -358,7 +358,7 @@ impl Engine {
         arcade::check(settings)?;
         let support = arcade::SupportFiles::read(&options.support_files)?;
         let curated = match settings.curated {
-            true => Some(self.curated_list()?),
+            true => Some(self.read_curated_list()?),
             false => None,
         };
         if options.cancelled() {
@@ -401,6 +401,12 @@ impl Engine {
         choices::apply(&mut selection, profile.choices.get(&parsed.name));
         arcade::list_dependencies(&mut selection, &parsed, &mut trace);
         choices::recount(&mut selection);
+        selection.summary.curated_unmatched = selection
+            .pins
+            .arcade
+            .as_ref()
+            .and_then(|a| a.curated.as_ref())
+            .map_or(0, |c| c.unmatched.len());
         let mut lines = String::new();
         for record in trace {
             lines.push_str(&serde_json::to_string(&record).expect("a JSON value serializes"));
@@ -478,6 +484,12 @@ pub struct Names {
 pub struct Pinned {
     pub repository: String,
     pub commit: String,
+}
+
+/// The curated list as a run reads it: its pin and the shortnames its `ROMSET` names.
+pub(crate) struct CuratedList {
+    pub pin: Pinned,
+    pub names: Vec<String>,
 }
 
 /// The curated-list repository and commit this binary was built with.

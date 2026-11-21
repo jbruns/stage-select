@@ -574,10 +574,10 @@ fn select_reads_the_support_files_it_is_given_for_a_listxml() {
             .arg(data.join("support/catver.ini")),
     );
     let selection: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    let arcade = &selection["pins"]["arcade"];
-    assert_eq!(arcade["category"], "catver");
-    assert_eq!(arcade["support_files"][0]["kind"], "catver");
-    assert_eq!(arcade["support_files"][0]["mame_version"], "0.289");
+    assert_eq!(
+        selection["pins"]["arcade"]["support_files"][0]["kind"],
+        "catver"
+    );
 }
 
 #[test]

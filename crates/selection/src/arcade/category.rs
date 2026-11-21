@@ -14,7 +14,9 @@ pub enum Category {
     Gambling,
     /// Mahjong, hanafuda and other tabletop machines.
     Tabletop,
+    /// Board games and chess computers.
     BoardGame,
+    /// Quiz and trivia machines.
     Quiz,
     /// What catver marks `* Mature *`, whatever its category.
     Mature,

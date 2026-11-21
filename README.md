@@ -172,12 +172,12 @@ clone-list commit, and the workbench's About page says where selection comes fro
 
 A MAME ListXML gets an arcade selection instead: filters drop what isn't an arcade game, and one machine is chosen in
 each family, a parent and its clones. It reads the MAME support files you give with `--support-file`, one of each kind;
-the service reads the newest of each it keeps. With `catver.ini`, a machine's category comes from it, and for a
-machine it doesn't list, or without it, from the ListXML alone. `languages.ini` gives each machine's languages where
-its description names none. `bestgames.ini` gives a family a rating, its parent's, for an optional minimum rating; a
-family it doesn't rate is kept unless you drop unrated families. The selection records each file's SHA-256 and MAME
-version, and marks a file for an older MAME than the ListXML as drift: machines added since aren't in it, so they're
-read as they would be without it. An arcade selection can also keep to the pinned curated list of arcade games,
+the service reads, of each kind it keeps, the one for the newest MAME version. With `catver.ini`, a machine's category
+comes from it, and for a machine it doesn't list, or without it, from the ListXML alone. `languages.ini` gives the
+languages of each machine it lists; for any other machine, its description does. `bestgames.ini` gives a family a
+rating, its parent's, for an optional minimum rating; a family it doesn't rate is kept unless you drop unrated
+families. The selection records each file's SHA-256 and MAME version, and says when a file is for an older MAME than
+the ListXML: machines added since aren't in it, so they're read as they would be without it. An arcade selection can also keep to the pinned curated list of arcade games,
 `curated-mame-arcade-romset`: it keeps only the families the list names and prefers the machine it names, and lists
 the names that match no machine of the ListXML. The list is at `TITLE_SELECT_CURATED_LIST`, else `/opt/curated-list`,
 where the image has it; a list fetched at another commit than this binary's pin is refused.
@@ -976,7 +976,8 @@ are kept beside them; each is tied to the fetch that brought it.
 
 **MAME support files.** Selecting arcade machines reads `catver.ini`, `languages.ini` and `bestgames.ini` from
 [progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating (see
-"Selection"). Without `catver.ini`, it reads each machine's category from the ListXML, and the selection says so. Title Select doesn't ship
+"Selection"). Without `catver.ini`, it reads each machine's category from the ListXML, and the selection says
+so. Title Select doesn't ship
 them, as they carry no licence. With fetching from MAME on, the service fetches them from progetto-SNAPS's own GitHub
 mirror: it asks the GitHub API which commit the mirror is at,
 then fetches each file from that commit. It does so when a source set you register, following or not, is first bound

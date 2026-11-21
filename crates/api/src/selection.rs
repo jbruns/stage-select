@@ -345,6 +345,9 @@ pub struct SelectionSummary {
     /// Dependencies of the winners (ADR 0025), each counted once.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dependencies: usize,
+    /// Shortnames the curated list names that the DAT Revision lacks; `pins.arcade.curated.unmatched` lists them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub curated_unmatched: usize,
 }
 
 impl SelectionSummary {

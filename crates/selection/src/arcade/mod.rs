@@ -30,7 +30,7 @@ pub use describe::Variant;
 pub use support::{SupportFiles, Tier};
 
 use crate::native::UserRegex;
-use crate::{Error, Pinned};
+use crate::{CuratedList, Error};
 
 /// What the curated list is called where a Rule cites it.
 const CURATED_NAME: &str = "curated-mame-arcade-romset";
@@ -216,8 +216,8 @@ struct Candidate<'a> {
     /// From languages.ini where it lists the machine, else from the description.
     languages: Vec<String>,
     has_disks: bool,
-    /// The curated list's URL, when it names this machine.
-    curated: Option<&'a str>,
+    /// Whether the curated list names this machine.
+    curated: bool,
 }
 
 impl Candidate<'_> {
@@ -266,7 +266,7 @@ pub(crate) fn elect(
     dat: &Dat,
     settings: &ArcadeSettings,
     support: &SupportFiles,
-    curated: Option<(Pinned, Vec<String>)>,
+    curated: Option<CuratedList>,
     stop: Stop,
 ) -> Result<Elected, Error> {
     let (include, exclude) = lists(settings)?;
@@ -282,10 +282,10 @@ pub(crate) fn elect(
         .collect();
     let curated_url = curated
         .as_ref()
-        .map(|(pin, _)| format!("{}/blob/{}/ROMSET", pin.repository, pin.commit));
+        .map(|list| format!("{}/blob/{}/ROMSET", list.pin.repository, list.pin.commit));
     let mut named = HashSet::new();
     let mut unmatched = Vec::new();
-    for name in curated.iter().flat_map(|(_, names)| names) {
+    for name in curated.iter().flat_map(|list| &list.names) {
         match index.get(name.as_str()) {
             Some(&i) => {
                 named.insert(i);
@@ -313,7 +313,7 @@ pub(crate) fn elect(
                 described,
                 languages,
                 has_disks: has_disks[i],
-                curated: curated_url.as_deref().filter(|_| named.contains(&i)),
+                curated: named.contains(&i),
             }
         })
         .collect();
@@ -323,7 +323,7 @@ pub(crate) fn elect(
         curated: curated_url.as_ref().map(|_| {
             candidates
                 .iter()
-                .filter(|c| c.curated.is_some())
+                .filter(|c| c.curated)
                 .map(Candidate::family)
                 .collect()
         }),
@@ -341,7 +341,16 @@ pub(crate) fn elect(
                      heuristic"
                 ),
             }));
-            for candidate in candidates.iter().filter(|c| !catver.contains_key(c.name)) {
+            // A BIOS, a device or a machine that can't run is dropped before category, so it falls back to nothing.
+            let structural = |c: &&Candidate| {
+                c.machine.is_bios == Some(true)
+                    || c.machine.is_device == Some(true)
+                    || c.machine.runnable == Some(false)
+            };
+            for candidate in candidates
+                .iter()
+                .filter(|c| !catver.contains_key(c.name) && !structural(c))
+            {
                 category_fallbacks += 1;
                 trace.push(json!({
                     "type": "category",
@@ -449,15 +458,13 @@ pub(crate) fn elect(
         }
         if !left.is_empty()
             && settings.rates()
-            && let (Some(bestgames), Some(version)) = (
-                &support.bestgames,
-                support.version(SupportFileKind::Bestgames),
-            )
+            && let Some((bestgames, version)) = support.bestgames()
         {
             let message = match bestgames.get(family) {
                 Some(tier) => rated(tier, version),
                 None => format!(
-                    "unrated by progetto-SNAPS, MAME {version}, and kept, as you keep unrated families"
+                    "{}, and kept, as you keep unrated families",
+                    unrated(version)
                 ),
             };
             trace.push(json!({
@@ -466,7 +473,13 @@ pub(crate) fn elect(
                 "message": message,
             }));
         }
-        elect_family(&mut group, left, settings, &mut trace);
+        elect_family(
+            &mut group,
+            left,
+            settings,
+            curated_url.as_deref(),
+            &mut trace,
+        );
         groups.push(group);
     }
     Ok(Elected {
@@ -480,9 +493,9 @@ pub(crate) fn elect(
             unavailable,
             category_fallbacks,
             support_files: support_pins,
-            curated: curated.map(|(pin, _)| CuratedPin {
-                repository: pin.repository,
-                commit: pin.commit,
+            curated: curated.map(|list| CuratedPin {
+                repository: list.pin.repository,
+                commit: list.pin.commit,
                 unmatched,
             }),
         },
@@ -496,6 +509,11 @@ fn rated(tier: &Tier, version: &str) -> String {
         "rated {} by progetto-SNAPS, MAME {version}",
         tier.describe()
     )
+}
+
+/// "unrated by progetto-SNAPS, MAME 0.280".
+fn unrated(version: &str) -> String {
+    format!("unrated by progetto-SNAPS, MAME {version}")
 }
 
 /// The first filter that drops `c`, as its stage, its short reason and its rule's message; `None` keeps it.
@@ -597,10 +615,7 @@ fn filter(
         }
     }
     if settings.rates()
-        && let (Some(bestgames), Some(version)) = (
-            &context.support.bestgames,
-            context.support.version(SupportFileKind::Bestgames),
-        )
+        && let Some((bestgames, version)) = context.support.bestgames()
     {
         match bestgames.get(c.family()) {
             Some(tier)
@@ -623,7 +638,8 @@ fn filter(
                     "rating",
                     "unrated",
                     format!(
-                        "its family is unrated by progetto-SNAPS, MAME {version}, and you drop unrated families"
+                        "its family is {}, and you drop unrated families",
+                        unrated(version)
                     ),
                 );
             }
@@ -748,9 +764,10 @@ struct Step {
     stage: &'static str,
     key: fn(&Candidate, &ArcadeSettings) -> Vec<i64>,
     describe: fn(&Candidate, &ArcadeSettings) -> String,
-    /// The source the step's Rules cite, from the candidate it keeps.
-    cites: fn(&Candidate) -> Option<String>,
 }
+
+/// The election step the curated list decides, whose Rules cite the list.
+const CURATED_STAGE: &str = "election:curated";
 
 /// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`.
 fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
@@ -766,13 +783,12 @@ fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
 
 const STEPS: &[Step] = &[
     Step {
-        stage: "election:curated",
-        key: |c, _| vec![c.curated.is_none() as i64],
+        stage: CURATED_STAGE,
+        key: |c, _| vec![!c.curated as i64],
         describe: |c, _| match c.curated {
-            Some(_) => format!("named by {CURATED_NAME}"),
-            None => format!("not the machine {CURATED_NAME} names"),
+            true => format!("named by {CURATED_NAME}"),
+            false => format!("not the machine {CURATED_NAME} names"),
         },
-        cites: |c| c.curated.map(str::to_owned),
     },
     Step {
         stage: "election:status",
@@ -788,7 +804,6 @@ const STEPS: &[Step] = &[
             Some(status) => format!("driver status {}", status_name(status)),
             None => "no driver status".into(),
         },
-        cites: |_| None,
     },
     Step {
         stage: "election:region",
@@ -801,7 +816,6 @@ const STEPS: &[Step] = &[
             true => "names no region".into(),
             false => format!("region {}", c.described.regions.join(", ")),
         },
-        cites: |_| None,
     },
     Step {
         stage: "election:language",
@@ -811,7 +825,6 @@ const STEPS: &[Step] = &[
             true => "names no language".into(),
             false => format!("language {}", c.languages.join(", ")),
         },
-        cites: |_| None,
     },
     Step {
         stage: "election:parent",
@@ -820,7 +833,6 @@ const STEPS: &[Step] = &[
             Some(_) => "a clone".into(),
             None => "the parent".into(),
         },
-        cites: |_| None,
     },
     Step {
         stage: "election:revision",
@@ -832,7 +844,6 @@ const STEPS: &[Step] = &[
                 .collect()
         },
         describe: |c, _| revision_text(c.described.revision),
-        cites: |_| None,
     },
     Step {
         stage: "election:variant",
@@ -853,7 +864,6 @@ const STEPS: &[Step] = &[
             Some(v) => format!("a {}", v.as_str()),
             None => "an original release".into(),
         },
-        cites: |_| None,
     },
 ];
 
@@ -877,11 +887,12 @@ fn revision_text(revision: [u32; 5]) -> String {
 }
 
 /// Elects one of `left`, the family's machines that every filter kept, as its winner, recording each step that
-/// removed a candidate.
+/// removed a candidate. A Rule the curated list decides cites `curated_url`.
 fn elect_family(
     group: &mut SelectionGroup,
     mut left: Vec<&Candidate>,
     settings: &ArcadeSettings,
+    curated_url: Option<&str>,
     trace: &mut Vec<serde_json::Value>,
 ) {
     if left.is_empty() {
@@ -891,12 +902,12 @@ fn elect_family(
     let mut decided = None;
     if let [only] = left[..] {
         decided = Some(match only.curated {
-            Some(url) => Rule {
-                stage: "election:curated".into(),
-                reference: Some(url.to_owned()),
+            true => Rule {
+                stage: CURATED_STAGE.into(),
+                reference: curated_url.map(str::to_owned),
                 message: format!("named by {CURATED_NAME}"),
             },
-            None => Rule {
+            false => Rule {
                 stage: "election".into(),
                 reference: None,
                 message: "the only machine its filters left in its family".into(),
@@ -917,7 +928,9 @@ fn elect_family(
             .partition(|c| (step.key)(c, settings) == best);
         if !lost.is_empty() {
             let winning = (step.describe)(kept[0], settings);
-            let reference = (step.cites)(kept[0]);
+            let reference = curated_url
+                .filter(|_| step.stage == CURATED_STAGE)
+                .map(str::to_owned);
             trace.push(json!({
                 "type": "election",
                 "group": group.group,
