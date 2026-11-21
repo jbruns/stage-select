@@ -842,7 +842,7 @@ fn elect_family(
             true => Rule {
                 stage: CURATED_STAGE.into(),
                 reference: curated_url.map(str::to_owned),
-                message: format!("named by {CURATED_NAME}"),
+                message: (CURATED_STEP.describe)(only, settings),
             },
             false => Rule {
                 stage: "election".into(),
