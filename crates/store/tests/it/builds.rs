@@ -6653,3 +6653,55 @@ fn a_rom_its_game_does_not_need_that_a_quick_inventory_only_claims_holds_its_gam
     let reason = bonus.reason.as_deref().unwrap();
     assert!(reason.contains("claim evidence"), "{reason}");
 }
+
+/// A clone's ROM that counts by its checksums from its parent's ZIP, where the parent lists it under another name,
+/// makes the clone Complete, but no Entry names it for the clone: a Build has no source for it yet.
+#[test]
+fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_yet() {
+    let env = Env::new();
+    let mut newer = games();
+    newer.push(("Duel (USA)", vec![rom("Duel (USA).a26", b"duel")]));
+    newer.push(("Duel (Europe)", vec![rom("Duel (Europe).a26", b"duel")]));
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let xml = std::fs::read_to_string(&dat).unwrap().replace(
+        r#"<game name="Duel (Europe)""#,
+        r#"<game name="Duel (Europe)" cloneof="Duel (USA)""#,
+    );
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    write_stored_zip(
+        &env.set_dir().join("Duel (USA).zip"),
+        &[("Duel (USA).a26", b"duel")],
+    );
+    let audit = env
+        .store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Full,
+        )
+        .unwrap();
+    let (games, _) = env.store.games(audit.id, None, 100, None).unwrap();
+    let clone = games
+        .iter()
+        .find(|g| g.game.name == "Duel (Europe)")
+        .unwrap();
+    assert_eq!(clone.game.status, title_select_engine::GameStatus::Complete);
+    let id = env.record(&selection(&revision.sha256, vec![group("Duel (Europe)")]));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    let [duel] = plan.content.items.as_slice() else {
+        panic!("{:?}", plan.content.items);
+    };
+    assert_eq!(duel.kind, ItemKind::NoSource, "{duel:?}");
+    let reason = duel.reason.as_deref().unwrap();
+    assert!(reason.contains("Duel (Europe).a26"), "{reason}");
+}
