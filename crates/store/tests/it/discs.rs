@@ -549,6 +549,118 @@ fn a_loose_build_puts_a_release_of_isos_in_its_m3u_folder_listing_each_disc_in_o
     );
 }
 
+/// Audits `env`'s Source Set against a revision of its DAT that marks each of `roms` optional, with no file holding
+/// any of them, and makes it the revision `env` selects from.
+fn audit_without_optional(env: &mut Env, roms: &[&str]) {
+    let mut xml = std::fs::read_to_string(env.tmp.path().join("in/test.dat"))
+        .unwrap()
+        .replace("<version>1</version>", "<version>2</version>");
+    for name in roms {
+        xml = xml.replace(
+            &format!(r#"<rom name="{name}""#),
+            &format!(r#"<rom optional="yes" name="{name}""#),
+        );
+        let game = &name[..name.rfind([' ', '.']).unwrap()];
+        let game = game.strip_suffix(" (Track 1)").unwrap_or(game);
+        let path = env
+            .tmp
+            .path()
+            .join("roots/sets")
+            .join(SET)
+            .join(game)
+            .join(name);
+        std::fs::remove_file(&path).unwrap();
+    }
+    let dat = env.tmp.path().join("in/test-2.dat");
+    std::fs::write(&dat, xml).unwrap();
+    env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&env.sha256),
+            title_select_engine::AuditEvidence::Full,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_release_whose_disc_lists_only_an_absent_optional_rom_lists_its_other_discs_in_its_m3u() {
+    let mut env = Env::with(StorageFormat::LooseFolder, duo);
+    audit_without_optional(&mut env, &["Duo (USA) (Disc 2).iso"]);
+    let folder = env.folder();
+    env.built(&folder, env.selection(&DUO));
+
+    assert_eq!(
+        env.files(),
+        [
+            "Duo (USA).m3u/Duo (USA) (Disc 1).iso",
+            "Duo (USA).m3u/Duo (USA).m3u",
+        ]
+    );
+    assert_eq!(
+        read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
+        "Duo (USA) (Disc 1).iso\n"
+    );
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete, None);
+}
+
+#[test]
+fn a_disc_built_before_that_now_has_nothing_to_build_stays_in_its_releases_m3u() {
+    let mut env = Env::with(StorageFormat::LooseFolder, duo);
+    let folder = env.folder();
+    env.built(&folder, env.selection(&DUO));
+    audit_without_optional(&mut env, &["Duo (USA) (Disc 2).iso"]);
+    let plan = env.built(&folder, env.selection(&DUO));
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:?}",
+        plan.content.items
+    );
+    assert_eq!(
+        read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
+        "Duo (USA) (Disc 1).iso\nDuo (USA) (Disc 2).iso\n"
+    );
+}
+
+#[test]
+fn a_disc_with_nothing_to_build_has_no_sbi_file_and_holds_none_of_its_release_back() {
+    let mut env = Env::new(StorageFormat::LooseFolder);
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        sbi: Some(true),
+        ..Default::default()
+    });
+    // Saga's Disc 1, which the pack has an SBI file for, lists only optional ROMs, and no file holds them.
+    audit_without_optional(
+        &mut env,
+        &[
+            "Saga (USA) (Disc 1).cue",
+            "Saga (USA) (Disc 1) (Track 1).bin",
+        ],
+    );
+    let folder = env.folder();
+    env.built(&folder, env.selection(&SAGA));
+
+    assert_eq!(
+        env.files(),
+        [
+            "Saga (USA).m3u/Saga (USA) (Disc 2) (Track 1).bin",
+            "Saga (USA).m3u/Saga (USA) (Disc 2).cue",
+            M3U,
+        ]
+    );
+    assert_eq!(read(&env, M3U), "Saga (USA) (Disc 2).cue\n");
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete, None);
+}
+
 #[test]
 fn the_flat_layout_puts_every_file_in_the_system_folder_and_writes_no_m3u() {
     let env = Env::new(StorageFormat::LooseFolder);

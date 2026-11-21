@@ -1447,6 +1447,8 @@ fn plan_items(
         .collect::<Vec<_>>();
     let mut sources = Sources::new(config, inputs);
     let mut items = Vec::new();
+    // The files of selected Games with nothing to build there: no item writes them.
+    let mut unbuilt: HashSet<String> = HashSet::new();
     // The additions come after every selected game, one item each: they are set apart below, whatever became of
     // them, so that an addition only ever blocks itself.
     let officials = wanted.iter().filter(|w| w.2.is_none()).count();
@@ -1492,6 +1494,7 @@ fn plan_items(
                  audit read none of them in a file"
             ));
             nothing_to_build.push(game.to_owned());
+            unbuilt.insert(target);
             continue;
         }
         // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
@@ -1777,9 +1780,39 @@ fn plan_items(
             .map(|i| (i.kind, i.group.clone()))
             .collect()
     };
+    // A disc whose entry file has nothing to build, and isn't a file built before that the check found as it was, is
+    // left out of its release's `.m3u` and has no SBI file: the `.m3u` lists only discs in the folder, and none is
+    // written for a release with none.
+    let built_entry = |title: &str| {
+        laid.get(title)
+            .and_then(|l| l.entry.as_ref())
+            .is_none_or(|entry| {
+                !unbuilt.contains(entry)
+                    || inputs.built.contains_key(entry)
+                        && scan.is_some_and(|s| {
+                            s.files.iter().any(|f| {
+                                f.target == *entry
+                                    && matches!(
+                                        f.outcome,
+                                        FileOutcome::Unchanged
+                                            | FileOutcome::Refreshed
+                                            | FileOutcome::Repacked
+                                    )
+                            })
+                        })
+            })
+    };
     let mut generated = Vec::new();
     for (release, discs) in &playlists {
-        let file = m3u(&laid, discs);
+        let discs: Vec<(u32, &str)> = discs
+            .iter()
+            .copied()
+            .filter(|(_, title)| built_entry(title))
+            .collect();
+        if discs.is_empty() {
+            continue;
+        }
+        let file = m3u(&laid, &discs);
         let games: Vec<&str> = discs.iter().map(|(_, t)| *t).collect();
         let group = winners
             .iter()
@@ -1805,7 +1838,7 @@ fn plan_items(
             ),
         ));
     }
-    for (group, game, target, file) in sbis {
+    for (group, game, target, file) in sbis.into_iter().filter(|s| built_entry(s.1)) {
         let parts = parts_of(&items, &[game]);
         generated.push((
             vec![game],
