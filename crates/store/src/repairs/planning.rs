@@ -240,7 +240,8 @@ impl<'a> LayoutIndex<'a> {
         Some(self.family(g))
     }
 
-    /// Whether Game `g` is laid out apart from its family, non-merged ([`Laid::apart`]): it is placed, or its parent is.
+    /// Whether Game `g` is laid out apart from its family, non-merged ([`Laid::apart`]): under a Set Layout, it is placed,
+    /// or its parent is; without one, never.
     fn apart(&self, g: usize) -> bool {
         self.laid.apart[g]
     }

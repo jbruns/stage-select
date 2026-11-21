@@ -57,7 +57,8 @@ pub struct Laid {
     /// The ROM each ROM is one with, by its index: under a layout, the ROM its `merge=` leads to at the top of the
     /// Games it is `romof` ([`Dat::shared_with`]), so two ROMs with one root are the same bytes; without, itself.
     pub roots: Vec<usize>,
-    /// Whether each Game, by its index, is laid out apart from its family, non-merged ([`Dat::laid_out_apart`]).
+    /// Whether each Game, by its index, is laid out apart from its family, non-merged ([`Dat::laid_out_apart`]); without
+    /// a layout, none is.
     pub apart: Vec<bool>,
 }
 
