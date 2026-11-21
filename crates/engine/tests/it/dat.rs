@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use title_select_api::DatFormat;
-use title_select_engine::dat::Dat;
+use title_select_engine::dat::{Dat, DumpStatus};
 
 /// The synthetic ListXML of `tests/data/listxml-family.xml`: a BIOS, a device chain, a parent and its clone, and a
 /// mechanical non-clone, with nodump, baddump and optional ROMs and Disks.
@@ -388,7 +388,7 @@ fn rom_flags<'a>(
 
 #[test]
 fn a_rom_says_what_it_merges_from_whether_it_was_dumped_well_and_whether_it_is_optional() {
-    use title_select_engine::dat::DumpStatus::{BadDump, Good, NoDump};
+    use DumpStatus::{BadDump, Good, NoDump};
     let dat = family();
     assert_eq!(
         rom_flags(&dat, "blaster"),
@@ -408,7 +408,7 @@ fn a_rom_says_what_it_merges_from_whether_it_was_dumped_well_and_whether_it_is_o
 
 #[test]
 fn a_listxml_disk_is_a_rom_named_for_its_chd_and_listed_by_sha1_alone() {
-    use title_select_engine::dat::DumpStatus::{Good, NoDump};
+    use DumpStatus::{Good, NoDump};
     let dat = family();
     let disks: Vec<(&str, &str, Option<&str>, Option<&str>)> = dat
         .roms
@@ -471,8 +471,8 @@ fn a_rom_less_device_is_a_game_with_no_roms() {
 }
 
 #[test]
-fn a_logiqx_dat_without_machine_fields_is_read_as_before() {
-    use title_select_engine::dat::{DumpStatus, Machine};
+fn a_logiqx_dat_without_machine_fields_gives_default_machines_and_good_roms() {
+    use title_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <datafile>
   <header><name>Atari - Atari 2600</name></header>
@@ -503,8 +503,7 @@ fn a_logiqx_dat_without_machine_fields_is_read_as_before() {
 }
 
 #[test]
-fn a_logiqx_dat_fills_the_machine_fields_it_carries() {
-    use title_select_engine::dat::DumpStatus;
+fn a_logiqx_dat_fills_the_machine_fields_it_carries_but_lists_no_disks() {
     let xml = br#"<?xml version="1.0"?>
 <datafile>
   <header><name>FinalBurn Neo - Arcade Games</name></header>
@@ -530,22 +529,11 @@ fn a_logiqx_dat_fills_the_machine_fields_it_carries() {
     assert_eq!(dat.machines[1].driver, None);
     assert_eq!(dat.roms[1].merge.as_deref(), Some("sp-s2.sp1"));
     assert_eq!(dat.roms[2].status, DumpStatus::NoDump);
-    assert_eq!(
-        (
-            dat.roms[3].name.as_str(),
-            dat.roms[3].disk,
-            dat.roms[3].sha1.as_deref()
-        ),
-        (
-            "mslug.chd",
-            true,
-            Some("abcdef0123456789abcdef0123456789abcdef01")
-        )
-    );
+    assert_eq!(dat.roms.len(), 3, "disks come only from ListXML");
 }
 
 #[test]
-fn a_software_list_is_read_as_before_m6_with_no_machine_fields_and_no_disks() {
+fn a_software_list_gives_default_machines_and_no_disks() {
     use title_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <softwarelist name="cdi" description="Philips CD-i discs">

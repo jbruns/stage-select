@@ -31,6 +31,16 @@ pub struct Rom {
     pub disk: bool,
 }
 
+impl Rom {
+    /// Its name as the DAT lists it: a Disk's less `.chd`.
+    pub fn listed_name(&self) -> &str {
+        match self.disk {
+            true => self.name.strip_suffix(".chd").unwrap_or(&self.name),
+            false => &self.name,
+        }
+    }
+}
+
 /// Whether a ROM's dump is known good, as a DAT's `status` says; good when it says nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DumpStatus {
@@ -54,7 +64,9 @@ impl DumpStatus {
 
 /// What a Game's entry says of the machine it is (ADR 0027). Every field is optional: a ListXML machine fills them
 /// all, a Logiqx game only what it carries, and a software item none. A flag the DAT leaves out takes its DTD's
-/// default, so whether a DAT carries a signal at all is its format's to say.
+/// default, which both DTDs give the same meaning as leaving it out, and an element it leaves out is none or empty.
+/// Whether a DAT carries a signal at all is the DAT's to say, not one machine's: MAME writes `<display>` for every
+/// machine with a screen, and a Logiqx DAT may write none for any.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Machine {
     /// The Game whose ROMs it shares (`romof`): its parent, or its BIOS for a parent.
@@ -210,6 +222,20 @@ fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
     Ok(out)
 }
 
+/// A number attribute; none if it is absent or no number.
+fn number<T: std::str::FromStr>(a: &HashMap<String, String>, key: &str) -> Option<T> {
+    a.get(key).and_then(|v| v.parse().ok())
+}
+
+/// A `yes`/`no` attribute; none if it is absent or neither.
+fn yes(a: &HashMap<String, String>, key: &str) -> Option<bool> {
+    match a.get(key).map(String::as_str) {
+        Some("yes") => Some(true),
+        Some("no") => Some(false),
+        _ => None,
+    }
+}
+
 impl Dat {
     pub fn read(path: &Path) -> Result<Dat, Error> {
         let bytes =
@@ -296,17 +322,16 @@ impl Dat {
                     let in_machine = root != Some(DatFormat::SoftwareList)
                         && matches!(parent, Some("game" | "machine"));
                     let machine = dat.machines.last_mut().filter(|_| in_machine);
+                    match (stack.last().map(String::as_str), machine) {
+                        (Some("year"), Some(machine)) => {
+                            machine.year.get_or_insert_default().push_str(&text)
+                        }
+                        (Some("manufacturer"), Some(machine)) => {
+                            machine.manufacturer.get_or_insert_default().push_str(&text)
+                        }
+                        _ => {}
+                    }
                     match stack.last().map(String::as_str) {
-                        Some("year") if in_machine => {
-                            if let Some(machine) = machine {
-                                machine.year.get_or_insert_default().push_str(&text);
-                            }
-                        }
-                        Some("manufacturer") if in_machine => {
-                            if let Some(machine) = machine {
-                                machine.manufacturer.get_or_insert_default().push_str(&text);
-                            }
-                        }
                         Some("description") if in_game => {
                             if let Some(description) = dat.descriptions.last_mut() {
                                 description.push_str(&text);
@@ -424,13 +449,7 @@ impl Dat {
             (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
                 self.start_game(e)?;
                 let a = attrs(e)?;
-                let flag = |key: &str, default: bool| {
-                    a.get(key).map_or(default, |v| match v.as_str() {
-                        "yes" => true,
-                        "no" => false,
-                        _ => default,
-                    })
-                };
+                let flag = |key: &str, default: bool| yes(&a, key).unwrap_or(default);
                 self.machines.push(Machine {
                     romof: a.get("romof").cloned(),
                     is_bios: flag("isbios", false),
@@ -473,7 +492,8 @@ impl Dat {
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
-            (Some(DatFormat::Logiqx | DatFormat::Listxml), "disk") => self.add_disk(e)?,
+            // Disks come only from ListXML machines (ADR 0026's amendment).
+            (Some(DatFormat::Listxml), "disk") => self.add_disk(e)?,
             (
                 Some(DatFormat::Logiqx | DatFormat::Listxml),
                 "device_ref" | "sample" | "driver" | "display" | "input" | "control"
@@ -483,12 +503,6 @@ impl Dat {
                     return Ok(tag);
                 };
                 let mut a = attrs(e)?;
-                fn number<T: std::str::FromStr>(
-                    a: &HashMap<String, String>,
-                    key: &str,
-                ) -> Option<T> {
-                    a.get(key).and_then(|v| v.parse().ok())
-                }
                 match tag.as_str() {
                     "device_ref" => machine.device_refs.extend(a.remove("name")),
                     "sample" => machine.samples.extend(a.remove("name")),
@@ -516,7 +530,7 @@ impl Dat {
                         .controls
                         .extend(a.remove("type")),
                     "softwarelist" => machine.has_software_list = true,
-                    _ => {
+                    "feature" => {
                         if let Some(kind) = a.remove("type") {
                             machine.features.push(Feature {
                                 kind,
@@ -525,6 +539,7 @@ impl Dat {
                             });
                         }
                     }
+                    _ => unreachable!("matched above"),
                 }
             }
             (Some(DatFormat::Logiqx), "clrmamepro") if self.games.is_empty() => {
@@ -551,11 +566,6 @@ impl Dat {
 
     fn add_rom(&mut self, e: &BytesStart) -> Result<(), Error> {
         let a = attrs(e)?;
-        let game = self
-            .games
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| Error::Dat("a rom is outside any game".into()))?;
         let name = a
             .get("name")
             .ok_or_else(|| Error::Dat("a rom has no name".into()))?
@@ -565,22 +575,17 @@ impl Dat {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| Error::Dat(format!("rom {name} has no valid size")))?;
         let lower = |k: &str| a.get(k).map(|v| v.to_ascii_lowercase());
+        let rom = self.listed(&a, "rom", name, a.get("merge").cloned())?;
         let rom = Rom {
-            game,
-            name,
             size,
             crc: lower("crc"),
             md5: lower("md5"),
             sha1: lower("sha1"),
             sha256: lower("sha256"),
-            merge: a.get("merge").cloned(),
-            status: DumpStatus::parse(a.get("status").map(String::as_str)),
-            optional: a.get("optional").is_some_and(|v| v == "yes"),
-            disk: false,
+            ..rom
         };
         let idx = self.roms.len();
         self.extent = Some((rom.size, rom.size));
-        self.by_name.entry(rom.name.clone()).or_default().push(idx);
         match &rom.crc {
             Some(crc) => self
                 .by_size_crc
@@ -593,42 +598,64 @@ impl Dat {
                 .or_default()
                 .push(idx),
         }
-        self.roms.push(rom);
+        self.push_rom(rom);
         Ok(())
     }
 
-    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size.
+    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size. Only its name
+    /// finds it here; matching it by its SHA-1 is #228's.
     fn add_disk(&mut self, e: &BytesStart) -> Result<(), Error> {
         let a = attrs(e)?;
-        let game = self
-            .games
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| Error::Dat("a disk is outside any game".into()))?;
         let chd = |name: &String| format!("{name}.chd");
         let name = chd(a
             .get("name")
             .ok_or_else(|| Error::Dat("a disk has no name".into()))?);
-        let rom = Rom {
+        let rom = self.listed(&a, "disk", name, a.get("merge").map(chd))?;
+        self.extent = None;
+        self.push_rom(Rom {
+            sha1: a.get("sha1").map(|v| v.to_ascii_lowercase()),
+            disk: true,
+            ..rom
+        });
+        Ok(())
+    }
+
+    /// A ROM of the last Game named `name`, with what its `element`'s attributes `a` say of it beside its size and
+    /// checksums, which it leaves out.
+    fn listed(
+        &self,
+        a: &HashMap<String, String>,
+        element: &str,
+        name: String,
+        merge: Option<String>,
+    ) -> Result<Rom, Error> {
+        let game = self
+            .games
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| Error::Dat(format!("a {element} is outside any game")))?;
+        Ok(Rom {
             game,
             name,
             size: 0,
             crc: None,
             md5: None,
-            sha1: a.get("sha1").map(|v| v.to_ascii_lowercase()),
+            sha1: None,
             sha256: None,
-            merge: a.get("merge").map(chd),
+            merge,
             status: DumpStatus::parse(a.get("status").map(String::as_str)),
-            optional: a.get("optional").is_some_and(|v| v == "yes"),
-            disk: true,
-        };
-        self.extent = None;
+            optional: yes(a, "optional").unwrap_or(false),
+            disk: false,
+        })
+    }
+
+    /// Adds `rom` as the next ROM, found by its name.
+    fn push_rom(&mut self, rom: Rom) {
         self.by_name
             .entry(rom.name.clone())
             .or_default()
             .push(self.roms.len());
         self.roms.push(rom);
-        Ok(())
     }
 
     /// Makes the last ROM read `size` bytes.

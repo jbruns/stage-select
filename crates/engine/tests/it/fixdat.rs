@@ -365,19 +365,14 @@ fn the_fixdat_lists_a_missing_disk_as_a_disk_by_its_sha1_with_no_size() {
         scope: None,
     };
     let xml = lacking.fixdat();
-    assert!(
-        xml.contains(r#"<disk name="blaster" sha1="d15c000000000000000000000000000000000002"/>"#),
-        "{xml}"
-    );
-    assert!(!xml.contains("blaster.chd"), "{xml}");
-
-    let fixdat = parse(&xml);
-    let disks = |dat: &Dat| -> Vec<(String, String, Option<String>)> {
-        dat.roms
-            .iter()
-            .filter(|r| r.disk)
-            .map(|r| (dat.games[r.game].clone(), r.name.clone(), r.sha1.clone()))
-            .collect()
-    };
-    assert_eq!(disks(&fixdat), disks(&dat));
+    for disk in [
+        r#"<game name="arcbios">"#,
+        r#"<disk name="arcbios-hdd" sha1="d15c000000000000000000000000000000000001"/>"#,
+        r#"<disk name="blaster" sha1="d15c000000000000000000000000000000000002"/>"#,
+        r#"<disk name="blasterj-alt"/>"#,
+    ] {
+        assert!(xml.contains(disk), "{disk} in {xml}");
+    }
+    assert!(!xml.contains(".chd"), "{xml}");
+    assert_eq!(xml.matches("<disk ").count(), 5, "{xml}");
 }
