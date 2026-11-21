@@ -673,6 +673,7 @@ fn pong(sha256: &str) -> Selection {
         summary: SelectionSummary::default(),
         coverage_drift: CoverageDrift::default(),
         groups: vec![SelectionGroup {
+            dependencies: Vec::new(),
             group: "pong (usa)".into(),
             unresolved: false,
             winners: vec![Winner {

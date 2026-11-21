@@ -452,6 +452,29 @@ impl Dat {
         Ok(dat)
     }
 
+    /// The format of the DAT whose bytes begin with `prefix`, by its root element, or `None` when `prefix` is no XML
+    /// this reader knows, such as a ClrMamePro DAT, or holds no root element.
+    pub fn format_of(prefix: &[u8]) -> Option<DatFormat> {
+        let mut reader = quick_xml::Reader::from_reader(prefix);
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf).ok()? {
+                Event::Start(e) | Event::Empty(e) => {
+                    return match e.local_name().as_ref() {
+                        "datafile" => Some(DatFormat::Logiqx),
+                        "mame" => Some(DatFormat::Listxml),
+                        "softwarelist" => Some(DatFormat::SoftwareList),
+                        _ => None,
+                    };
+                }
+                Event::Text(t) if !AsRef::<str>::as_ref(&t).trim().is_empty() => return None,
+                Event::Eof => return None,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+
     /// The DAT Provider its format and header signal, or `None` when unknown.
     pub fn provider(&self) -> Option<&'static str> {
         recognise_provider(

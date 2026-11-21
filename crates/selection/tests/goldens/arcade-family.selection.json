@@ -1,0 +1,123 @@
+{
+  "pins": {
+    "clone_list_commit": "",
+    "trace_schema": 0
+  },
+  "dat_sha256": "223fe3b9a494f177fca3d9cb11bd20c370cf31ac65ccba2e1edc4a612080df56",
+  "system": "MAME",
+  "system_settings": false,
+  "summary": {
+    "groups": 5,
+    "winners": 1,
+    "alternatives": 0,
+    "exclusions": 2,
+    "unresolved": 0,
+    "dependencies": 3
+  },
+  "coverage_drift": {
+    "clone_list": false,
+    "metadata": false,
+    "unmatched_clone_list_terms": [],
+    "titles_without_metadata": []
+  },
+  "groups": [
+    {
+      "group": "acmesnd",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "acmesnd",
+          "needed_by": [
+            "blasterj"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by blasterj"
+          }
+        }
+      ]
+    },
+    {
+      "group": "arcbios",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "arcbios",
+          "needed_by": [
+            "blasterj"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by blasterj"
+          }
+        }
+      ]
+    },
+    {
+      "group": "blaster",
+      "unresolved": false,
+      "winners": [
+        {
+          "title": "blasterj",
+          "rule": {
+            "stage": "election",
+            "message": "the only machine its filters left in its family"
+          },
+          "unresolved": false
+        }
+      ],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "blaster",
+          "rule": {
+            "stage": "hardware",
+            "message": "it names a software list, as computers and consoles do"
+          },
+          "reason": "software lists"
+        }
+      ]
+    },
+    {
+      "group": "crane",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "crane",
+          "rule": {
+            "stage": "hardware",
+            "message": "a mechanical machine"
+          },
+          "reason": "mechanical"
+        }
+      ]
+    },
+    {
+      "group": "z80",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "z80",
+          "needed_by": [
+            "blasterj"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by blasterj"
+          }
+        }
+      ]
+    }
+  ]
+}

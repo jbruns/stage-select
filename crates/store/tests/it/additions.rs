@@ -411,6 +411,7 @@ fn assert_published(env: &Env, a: &Addition, name: &str, member: &str, payload: 
 
 fn group(title: &str) -> SelectionGroup {
     SelectionGroup {
+        dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
         winners: vec![Winner {

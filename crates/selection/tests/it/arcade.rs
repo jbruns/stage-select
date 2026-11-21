@@ -1,0 +1,400 @@
+//! The arcade selector (ADR 0027): an Arcade DAT is selected by its filters and family election, and its winners'
+//! Dependencies are listed once (ADR 0025). The goldens are on synthetic ListXML.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use title_select_api::selection::{
+    CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
+    SelectionProfile,
+};
+use title_select_selection::arcade::{ArcadeSettings, Orientation, Range, Variant};
+use title_select_selection::{Engine, Outcome};
+
+use crate::support;
+
+fn data(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(name)
+}
+
+/// The engine's ListXML family fixture: a BIOS, a device chain, a parent and clone, and a mechanical machine.
+fn family_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../engine/tests/data/listxml-family.xml")
+}
+
+fn engine() -> Engine {
+    support::fixture_engine()
+}
+
+fn run(dat: &Path, settings: &ArcadeSettings) -> Outcome {
+    run_with(dat, &SelectionProfile::default(), settings)
+}
+
+fn run_with(dat: &Path, profile: &SelectionProfile, settings: &ArcadeSettings) -> Outcome {
+    engine()
+        .run_arcade(dat, profile, settings, &support::options())
+        .unwrap()
+}
+
+/// Checks the Selection, less its pins, and the trace against the goldens `<name>.selection.json` and
+/// `<name>.trace.jsonl`.
+fn golden(name: &str, outcome: &Outcome) {
+    let mut selection = outcome.selection.clone();
+    selection.pins = Default::default();
+    let mut json = serde_json::to_string_pretty(&selection).unwrap();
+    json.push('\n');
+    support::golden(&format!("{name}.selection.json"), &json);
+    support::golden(&format!("{name}.trace.jsonl"), &outcome.trace);
+}
+
+fn group<'a>(selection: &'a Selection, name: &str) -> &'a SelectionGroup {
+    selection
+        .groups
+        .iter()
+        .find(|g| g.group == name)
+        .unwrap_or_else(|| panic!("no group {name}"))
+}
+
+fn winners(selection: &Selection) -> BTreeSet<String> {
+    selection
+        .groups
+        .iter()
+        .flat_map(|g| g.winners.iter().map(|w| w.title.clone()))
+        .collect()
+}
+
+/// Each excluded machine with its rule's stage.
+fn exclusions(selection: &Selection) -> BTreeMap<String, String> {
+    selection
+        .groups
+        .iter()
+        .flat_map(|g| g.exclusions.iter())
+        .map(|e| (e.title.clone(), e.rule.stage.clone()))
+        .collect()
+}
+
+fn set(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
+}
+
+#[test]
+fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
+    let outcome = run(&data("arcade.xml"), &ArcadeSettings::default());
+    golden("arcade-defaults", &outcome);
+    let selection = &outcome.selection;
+
+    assert_eq!(selection.system, "MAME");
+    assert_eq!(
+        winners(selection),
+        set(&[
+            "fighteru", "mystery", "proto", "racera", "shooterw", "worldh"
+        ])
+    );
+    assert_eq!(
+        exclusions(selection),
+        BTreeMap::from(
+            [
+                ("calcul8", "category"),
+                ("crane", "hardware"),
+                ("homepc", "hardware"),
+                ("jukebox", "hardware"),
+                ("mjhouse", "category"),
+                ("oldbios", "structural"),
+                ("pokerace", "category"),
+                ("racer", "quality"),
+                ("reels", "category"),
+                ("typist", "category"),
+            ]
+            .map(|(t, s)| (t.to_owned(), s.to_owned()))
+        )
+    );
+
+    // The region decides the shooter family over its Japanese parent, and its bootleg loses as a bootleg.
+    let shooter = group(selection, "shooter");
+    assert_eq!(shooter.winners[0].title, "shooterw");
+    let alternatives: BTreeMap<&str, &str> = shooter
+        .alternatives
+        .iter()
+        .map(|a| (a.title.as_str(), a.rule.stage.as_str()))
+        .collect();
+    assert_eq!(
+        alternatives,
+        BTreeMap::from([
+            ("shooter", "election:region"),
+            ("shootere", "election:region"),
+            ("shooteru", "election:region"),
+            ("shooterb", "election:variant"),
+        ])
+    );
+    assert_eq!(
+        group(selection, "fighter").alternatives[0].rule.stage,
+        "election:status"
+    );
+
+    // A BIOS and a device chain that two winners share are listed once each; a BIOS no winner needs is excluded.
+    let dependencies: BTreeMap<String, Vec<String>> = selection
+        .groups
+        .iter()
+        .flat_map(|g| g.dependencies.iter())
+        .map(|d| (d.title.clone(), d.needed_by.clone()))
+        .collect();
+    let both = vec!["fighteru".to_owned(), "shooterw".to_owned()];
+    assert_eq!(
+        dependencies,
+        BTreeMap::from([
+            ("acmebios".to_owned(), both.clone()),
+            ("acmesnd".to_owned(), both.clone()),
+            ("z80".to_owned(), both),
+        ])
+    );
+    assert_eq!(selection.summary.dependencies, 3);
+    assert!(group(selection, "acmebios").exclusions.is_empty());
+
+    let arcade = selection.pins.arcade.as_ref().unwrap();
+    assert_eq!(arcade.build, "0.289 (mame0289)");
+    assert_eq!(arcade.category, CategorySource::ListxmlHeuristic);
+    assert!(arcade.unavailable.is_empty());
+}
+
+#[test]
+fn a_good_clone_beats_a_preliminary_parent_in_the_election() {
+    let settings = ArcadeSettings {
+        minimum_driver_status: None,
+        ..ArcadeSettings::default()
+    };
+    let outcome = run(&data("arcade.xml"), &settings);
+    golden("arcade-status-election", &outcome);
+    let racer = group(&outcome.selection, "racer");
+    assert_eq!(racer.winners[0].title, "racera");
+    assert_eq!(racer.alternatives[0].title, "racer");
+    assert_eq!(racer.alternatives[0].rule.stage, "election:status");
+}
+
+#[test]
+fn the_family_fixture_elects_a_clone_with_its_bios_and_devices() {
+    let outcome = run(&family_fixture(), &ArcadeSettings::default());
+    golden("arcade-family", &outcome);
+    let selection = &outcome.selection;
+    assert_eq!(winners(selection), set(&["blasterj"]));
+    assert_eq!(exclusions(selection)["blaster"], "hardware");
+    assert_eq!(exclusions(selection)["crane"], "hardware");
+    let dependencies: BTreeSet<String> = selection
+        .groups
+        .iter()
+        .flat_map(|g| g.dependencies.iter().map(|d| d.title.clone()))
+        .collect();
+    assert_eq!(dependencies, set(&["acmesnd", "arcbios", "z80"]));
+}
+
+#[test]
+fn offered_filters_drop_what_they_name_and_keep_machines_that_dont_say() {
+    let dat = data("arcade.xml");
+    let dropped = |settings: ArcadeSettings| exclusions(&run(&dat, &settings).selection);
+
+    let variants = dropped(ArcadeSettings {
+        drop_variants: [Variant::Bootleg, Variant::Prototype].into(),
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(variants["shooterb"], "variant");
+    assert_eq!(variants["proto"], "variant");
+
+    // mystery gives no year, so the year filter keeps it.
+    let years = dropped(ArcadeSettings {
+        years: Range {
+            min: Some(1993),
+            max: None,
+        },
+        ..ArcadeSettings::default()
+    });
+    for machine in ["fighter", "fighteru", "shooterw", "shooteru"] {
+        assert_eq!(years[machine], "year", "{machine}");
+    }
+    assert!(!years.contains_key("mystery"));
+    assert!(!years.contains_key("shooterb"));
+    assert!(!years.contains_key("racera"));
+
+    let players = dropped(ArcadeSettings {
+        players: Range {
+            min: Some(3),
+            max: None,
+        },
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(players["shooterw"], "players");
+    assert!(!players.contains_key("worldh"));
+
+    let controls = dropped(ArcadeSettings {
+        forbid_controls: set(&["lightgun"]),
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(controls["worldh"], "controls");
+    let required = dropped(ArcadeSettings {
+        require_controls: set(&["paddle"]),
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(required["shooterw"], "controls");
+    assert!(!required.contains_key("racera"));
+
+    // mystery's screen gives no rotation, so the orientation filter keeps it.
+    let vertical = dropped(ArcadeSettings {
+        orientation: Some(Orientation::Vertical),
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(vertical["fighteru"], "orientation");
+    assert!(!vertical.contains_key("shooterw"));
+    assert!(!vertical.contains_key("mystery"));
+
+    let media = dropped(ArcadeSettings {
+        drop_disks: true,
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(media["racera"], "media");
+    let samples = dropped(ArcadeSettings {
+        drop_samples: true,
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(samples["racera"], "media");
+
+    // Unknown driver status keeps mystery under the quality filter.
+    let quality = dropped(ArcadeSettings {
+        minimum_driver_status: Some(title_select_engine::dat::DriverStatus::Good),
+        ..ArcadeSettings::default()
+    });
+    assert_eq!(quality["proto"], "quality");
+    assert!(!quality.contains_key("mystery"));
+}
+
+#[test]
+fn a_filter_whose_signal_the_dat_lacks_is_unavailable_and_drops_nothing() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("bare.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="bare"><description>Bare</description><display type="raster" rotate="0"/></machine>
+  <machine name="barej" cloneof="bare"><description>Bare (Japan)</description><display type="raster" rotate="0"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let settings = ArcadeSettings {
+        years: Range {
+            min: Some(1990),
+            max: Some(1999),
+        },
+        ..ArcadeSettings::default()
+    };
+    let outcome = run(&dat, &settings);
+    let arcade = outcome.selection.pins.arcade.clone().unwrap();
+    assert!(arcade.unavailable.contains(&"quality".to_owned()));
+    assert!(arcade.unavailable.contains(&"year".to_owned()));
+    // A machine that names no region ranks after every region you order.
+    assert_eq!(winners(&outcome.selection), set(&["barej"]));
+    assert!(exclusions(&outcome.selection).is_empty());
+}
+
+#[test]
+fn include_and_exclude_lists_take_the_override_matchers() {
+    let settings = ArcadeSettings {
+        exclude: vec![
+            "/^shooter[wu]$".into(),
+            "|Shooter (Europe)".into(),
+            "bootleg".into(),
+        ],
+        include: vec!["|crane".into()],
+        ..ArcadeSettings::default()
+    };
+    let selection = run(&data("arcade.xml"), &settings).selection;
+    let dropped = exclusions(&selection);
+    for machine in ["shooterw", "shooteru", "shootere", "shooterb"] {
+        assert_eq!(dropped[machine], "list", "{machine}");
+    }
+    assert_eq!(group(&selection, "shooter").winners[0].title, "shooter");
+    assert!(winners(&selection).contains("crane"));
+}
+
+#[test]
+fn an_invalid_list_pattern_is_refused() {
+    let settings = ArcadeSettings {
+        exclude: vec!["/(".into()],
+        ..ArcadeSettings::default()
+    };
+    let error = engine()
+        .run_arcade(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            &settings,
+            &support::options(),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("/("), "{error}");
+}
+
+#[test]
+fn your_choices_decide_a_family_and_one_gone_from_the_dat_revision_needs_review() {
+    let mut profile = SelectionProfile::default();
+    let choices = profile.choices.entry("MAME".into()).or_default();
+    choices.insert("shooter".into(), set(&["shooteru"]));
+    choices.insert("fighter".into(), set(&["fighterj"]));
+    let selection = run_with(&data("arcade.xml"), &profile, &ArcadeSettings::default()).selection;
+
+    let shooter = group(&selection, "shooter");
+    assert_eq!(shooter.winners[0].title, "shooteru");
+    assert_eq!(shooter.winners[0].rule.stage, "choice");
+    let acmebios = &group(&selection, "acmebios").dependencies[0];
+    assert_eq!(acmebios.needed_by, ["fighteru", "shooteru"]);
+
+    let fighter = group(&selection, "fighter");
+    let choice = fighter.choice.as_ref().unwrap();
+    assert_eq!(choice.status, ChoiceStatus::Stale);
+    assert_eq!(choice.problems, ["fighterj"]);
+    assert!(fighter.needs_review());
+    assert_eq!(selection.summary.stale, 1);
+}
+
+#[test]
+fn selection_refuses_a_software_list_and_names_listxml_systems_mame() {
+    let work = tempfile::tempdir().unwrap();
+    let list = work.path().join("list.xml");
+    std::fs::write(
+        &list,
+        r#"<?xml version="1.0"?>
+<softwarelist name="acme_cart" description="Acme cartridges">
+  <software name="game"><description>Game</description></software>
+</softwarelist>
+"#,
+    )
+    .unwrap();
+    let engine = engine();
+    let error = engine
+        .run(&list, &SelectionProfile::default(), &support::options())
+        .unwrap_err();
+    assert_eq!(error.to_string(), SOFTWARE_LIST_REFUSAL);
+
+    let listxml = data("arcade.xml");
+    assert_eq!(
+        engine.systems(&[&listxml, &list]).unwrap(),
+        [Some("MAME".to_owned()), None]
+    );
+    // Run dispatches a ListXML to the arcade selector.
+    let selection = engine
+        .run(&listxml, &SelectionProfile::default(), &support::options())
+        .unwrap()
+        .selection;
+    assert!(selection.pins.arcade.is_some());
+}
+
+#[test]
+fn coverage_is_refused_for_an_arcade_dat() {
+    let options = title_select_selection::RunOptions {
+        coverage: Some(vec!["USA".into()]),
+        ..support::options()
+    };
+    let error = engine()
+        .run(&data("arcade.xml"), &SelectionProfile::default(), &options)
+        .unwrap_err();
+    assert!(error.to_string().contains("coverage"), "{error}");
+}

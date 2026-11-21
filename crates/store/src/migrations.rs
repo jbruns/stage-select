@@ -49,6 +49,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0038_single_copy.sql"),
     include_str!("migrations/0039_single_copy_returns.sql"),
     include_str!("migrations/0040_place_converted.sql"),
+    include_str!("migrations/0041_selection_dependencies.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

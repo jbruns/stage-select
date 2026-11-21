@@ -1278,6 +1278,11 @@ fn GroupPanel(
                 .iter()
                 .map(|e| (e.title.clone(), Role::Exclusion, exclusion_text(e))),
         )
+        .chain(
+            g.dependencies
+                .iter()
+                .map(|d| (d.title.clone(), Role::Dependency, rule_text(&d.rule))),
+        )
         .collect();
 
     view! {
@@ -1313,7 +1318,8 @@ fn GroupPanel(
                         let flag = flags.get(&title).is_some().then(|| {
                             view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> }
                         });
-                        let excluded = role == Role::Exclusion;
+                        // A dependency is never elected, so it can't be checked either.
+                        let excluded = matches!(role, Role::Exclusion | Role::Dependency);
                         view! {
                             <li class="release">
                                 <label class="inline">

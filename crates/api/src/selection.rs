@@ -258,7 +258,38 @@ pub struct SelectionPins {
     /// covered every Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
+    /// What the arcade selector chose with (ADR 0027): only on a Selection of an Arcade DAT.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arcade: Option<ArcadePins>,
 }
+
+/// What an arcade Selection was made with, beside its ListXML DAT Revision's SHA-256.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArcadePins {
+    /// The MAME build the ListXML names, such as `0.289 (mame0289)`.
+    pub build: String,
+    /// What decided each machine's category.
+    pub category: CategorySource,
+    /// The filters whose signal the DAT doesn't carry, so they dropped nothing, by stage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<String>,
+}
+
+/// What decided an arcade machine's category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CategorySource {
+    /// The ListXML-only heuristic (research 0105 §4): source file directory, software lists and control types.
+    ListxmlHeuristic,
+}
+
+/// Why a MAME Source Set takes no Coverage (ADR 0027), as the Operator reads it.
+pub const ARCADE_COVERAGE_REFUSAL: &str = "MAME source sets have no coverage: the arcade selection's filters decide \
+    which machines your play library keeps.";
+
+/// Why Selection and Build refuse a MAME software list (ADR 0027's amendment), as the Operator reads it.
+pub const SOFTWARE_LIST_REFUSAL: &str =
+    "Software lists can't be selected or built yet. For consoles, use a No-Intro or Redump DAT.";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionSummary {
@@ -275,6 +306,9 @@ pub struct SelectionSummary {
     pub stale: usize,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub conflicting: usize,
+    /// Dependencies of the winners (ADR 0025), each counted once.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dependencies: usize,
 }
 
 impl SelectionSummary {
@@ -311,6 +345,10 @@ pub struct SelectionGroup {
     pub winners: Vec<Winner>,
     pub alternatives: Vec<Alternative>,
     pub exclusions: Vec<Exclusion>,
+    /// Members of the group that a winner of the Selection needs to run, such as a BIOS or a device (ADR 0025):
+    /// never elected, and never excluded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<Dependency>,
     /// The Operator's choice for the group, if the Profile has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub choice: Option<GroupChoice>,
@@ -402,16 +440,24 @@ pub enum Role {
     Winner,
     Alternative,
     Exclusion,
+    /// Needed by a winner, such as a BIOS or a device (ADR 0025).
+    Dependency,
 }
 
 impl Role {
-    pub const ALL: [Role; 3] = [Role::Winner, Role::Alternative, Role::Exclusion];
+    pub const ALL: [Role; 4] = [
+        Role::Winner,
+        Role::Alternative,
+        Role::Exclusion,
+        Role::Dependency,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Role::Winner => "winner",
             Role::Alternative => "alternative",
             Role::Exclusion => "exclusion",
+            Role::Dependency => "dependency",
         }
     }
 
@@ -432,13 +478,16 @@ pub struct ReleaseRow {
     /// For an exclusion, Retool's reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// For a dependency, the winners that need it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needed_by: Vec<String>,
     pub rule: Rule,
     pub unresolved: bool,
     pub from_choice: bool,
 }
 
 impl Selection {
-    /// Every release, group by group, winners then alternatives then exclusions.
+    /// Every release, group by group, winners then alternatives then exclusions then dependencies.
     pub fn rows(&self) -> Vec<ReleaseRow> {
         let mut rows = Vec::new();
         for group in &self.groups {
@@ -449,6 +498,7 @@ impl Selection {
                     title: w.title.clone(),
                     clone_of: None,
                     reason: None,
+                    needed_by: Vec::new(),
                     rule: w.rule.clone(),
                     unresolved: w.unresolved,
                     from_choice: w.rule.is_choice(),
@@ -461,6 +511,7 @@ impl Selection {
                     title: a.title.clone(),
                     clone_of: Some(a.clone_of.clone()),
                     reason: None,
+                    needed_by: Vec::new(),
                     rule: a.rule.clone(),
                     unresolved: false,
                     from_choice: a.rule.is_choice(),
@@ -473,7 +524,21 @@ impl Selection {
                     title: e.title.clone(),
                     clone_of: None,
                     reason: Some(e.reason.clone()),
+                    needed_by: Vec::new(),
                     rule: e.rule.clone(),
+                    unresolved: false,
+                    from_choice: false,
+                });
+            }
+            for d in &group.dependencies {
+                rows.push(ReleaseRow {
+                    group: group.group.clone(),
+                    role: Role::Dependency,
+                    title: d.title.clone(),
+                    clone_of: None,
+                    reason: None,
+                    needed_by: d.needed_by.clone(),
+                    rule: d.rule.clone(),
                     unresolved: false,
                     from_choice: false,
                 });
@@ -553,6 +618,19 @@ pub struct Exclusion {
     /// Retool's reason, such as `Demos, kiosks, and samples`.
     pub reason: String,
 }
+
+/// A member of a group that winners need, such as a BIOS or a device (ADR 0025).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dependency {
+    pub title: String,
+    /// The winners that need it, sorted.
+    pub needed_by: Vec<String>,
+    /// Names the winners that need it.
+    pub rule: Rule,
+}
+
+/// The stage of the rule recorded for a dependency.
+pub const DEPENDENCY_STAGE: &str = "dependency";
 
 /// The stage of the rule recorded for a release the Operator's choice decided.
 pub const CHOICE_STAGE: &str = "choice";

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use title_select_api::selection::{
-    Alternative, CoverageDrift, Exclusion, GroupChoice, ReleaseRow, Role, Rule, Selection,
-    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
+    Alternative, CoverageDrift, Dependency, Exclusion, GroupChoice, ReleaseRow, Role, Rule,
+    Selection, SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
 use title_select_api::{
     Availability, DatRevisionRecord, GameStatus, Job, JobKind, JobState, ProfileVersionRef,
@@ -44,6 +44,7 @@ pub(super) fn enqueue(
     workers: Workers,
 ) -> Result<Job> {
     let set = set_by_name(tx, name)?;
+    super::dats::check_selectable(tx, set.dat_id)?;
     check_no_active(tx, set.id, &set.record.name, JobKind::Selection)?;
     let (revision_id, chosen) = choose_revision(tx, &set, revision)?;
     check_blob_present(&chosen)?;
@@ -165,12 +166,16 @@ fn release_from_row(row: &Row) -> rusqlite::Result<ReleaseRow> {
         },
         unresolved: row.get(8)?,
         from_choice: row.get(9)?,
+        needed_by: match row.get::<_, Option<String>>(11)? {
+            Some(_) => json(row, 11)?,
+            None => Vec::new(),
+        },
     })
 }
 
 const RELEASE_COLUMNS: &str =
     "rel.group_name, rel.role, rel.title, rel.clone_of, rel.reason, rel.stage, rel.ref, rel.message,
-     rel.unresolved, rel.from_choice, rel.seq";
+     rel.unresolved, rel.from_choice, rel.seq, rel.needed_by";
 
 /// The Source Set's latest finished, full Audit against the Selection's DAT Revision.
 fn availability_audit(c: &Connection, selection: i64) -> Result<Option<i64>> {
@@ -230,8 +235,8 @@ fn write_selection(
     }
     let mut releases = tx.prepare(
         "INSERT INTO selection_releases (selection_id, seq, group_name, role, title, clone_of, reason, stage,
-                                         ref, message, unresolved, from_choice)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                         ref, message, unresolved, from_choice, needed_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?;
     for (seq, r) in selection.rows().iter().enumerate() {
         releases.execute(params![
@@ -247,6 +252,7 @@ fn write_selection(
             r.rule.message,
             r.unresolved,
             r.from_choice,
+            (r.role == Role::Dependency).then(|| to_json(&r.needed_by)),
         ])?;
     }
     Ok(id)
@@ -301,6 +307,7 @@ pub(super) fn read_selection(c: &Connection, id: i64) -> Result<Selection> {
                 None => None,
             };
             Ok(SelectionGroup {
+                dependencies: Vec::new(),
                 group: r.get(0)?,
                 unresolved: r.get(1)?,
                 drift: r.get(2)?,
@@ -339,6 +346,11 @@ pub(super) fn read_selection(c: &Connection, id: i64) -> Result<Selection> {
                 title: row.title,
                 rule: row.rule,
                 reason: row.reason.unwrap_or_default(),
+            }),
+            Role::Dependency => group.dependencies.push(Dependency {
+                title: row.title,
+                needed_by: row.needed_by,
+                rule: row.rule,
             }),
         }
     }
@@ -561,12 +573,12 @@ impl Store {
             ])?;
             let mut items = Vec::new();
             while let Some(row) = rows.next()? {
-                let status: Option<String> = row.get(11)?;
+                let status: Option<String> = row.get(12)?;
                 items.push(SelectionReleaseRow {
                     seq: row.get::<_, i64>(10)? as u64,
                     release: release_from_row(row)?,
                     availability: status.as_deref().and_then(GameStatus::parse),
-                    claimed: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
+                    claimed: row.get::<_, Option<bool>>(13)?.unwrap_or(false),
                 });
             }
             let more = items.len() > limit;

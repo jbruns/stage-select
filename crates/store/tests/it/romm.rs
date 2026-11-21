@@ -558,6 +558,7 @@ mod scans {
 
     fn group(title: &str) -> SelectionGroup {
         SelectionGroup {
+            dependencies: Vec::new(),
             group: title.to_lowercase(),
             unresolved: false,
             winners: vec![Winner {

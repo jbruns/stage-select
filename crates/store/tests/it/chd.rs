@@ -387,6 +387,7 @@ fn config_with(root: &Path, chdman: Option<&Path>) -> Config {
 
 fn group(title: &str) -> SelectionGroup {
     SelectionGroup {
+        dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
         winners: vec![Winner {

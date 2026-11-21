@@ -739,3 +739,25 @@ fn a_software_list_gives_machines_that_know_nothing_and_no_disks() {
     assert_eq!(carried(&dat), []);
     assert!(dat.roms.is_empty());
 }
+
+#[test]
+fn a_dats_format_is_known_by_its_root_element_from_its_first_bytes() {
+    let format = |text: &str| Dat::format_of(text.as_bytes());
+    assert_eq!(
+        format(
+            "<?xml version=\"1.0\"?>\n<!DOCTYPE mame [\n<!ELEMENT mame (machine+)>\n]>\n<mame build=\"0.289\">"
+        ),
+        Some(DatFormat::Listxml)
+    );
+    assert_eq!(
+        format("<?xml version=\"1.0\"?><!-- a comment --><datafile><header>"),
+        Some(DatFormat::Logiqx)
+    );
+    assert_eq!(
+        format("<softwarelist name=\"nes\">"),
+        Some(DatFormat::SoftwareList)
+    );
+    assert_eq!(format("clrmamepro (\n\tname \"Test\"\n)"), None);
+    assert_eq!(format("<?xml version=\"1.0\"?><catalogue>"), None);
+    assert_eq!(format(""), None);
+}

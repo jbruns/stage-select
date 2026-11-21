@@ -4,7 +4,11 @@
 //! The engine (`native`) is a port of Retool to Rust. It reads the pinned clone lists, metadata, MIA and
 //! RetroAchievements files that `tools/clone-lists/fetch` unpacks (`.clone-lists/`, or `/opt/clone-lists` in the
 //! image), and never reaches the network.
+//!
+//! An Arcade DAT, a MAME ListXML, goes to the arcade selector (`arcade`, ADR 0027) instead, and a MAME software list
+//! is refused: `Engine::run` chooses by the DAT's kind.
 
+pub mod arcade;
 pub mod choices;
 mod config;
 mod native;
@@ -19,8 +23,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
+use title_select_api::dat::DatFormat;
 use title_select_api::selection::{
-    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile,
+    ARCADE_COVERAGE_REFUSAL, SELECTION_TRACE_SCHEMA, SOFTWARE_LIST_REFUSAL, Selection,
+    SelectionPins, SelectionProfile,
 };
 
 pub use trace::stable_trace;
@@ -59,6 +65,12 @@ pub enum Error {
     /// Something the engine doesn't support, such as a regular expression it can't read as Python would.
     #[error("the selection engine doesn't support {0}")]
     Unsupported(String),
+    /// A DAT the engine can't read.
+    #[error("the DAT: {0}")]
+    Dat(String),
+    /// A Selection the engine won't make, such as of a software list, and why, as you read it.
+    #[error("{0}")]
+    Refused(String),
 }
 
 fn io(context: impl Into<String>) -> impl FnOnce(std::io::Error) -> Error {
@@ -220,22 +232,36 @@ impl Engine {
     }
 
     /// The system each of `dats` is for, as its header names it and as a Profile files its system settings and
-    /// choices under, or `None` for a DAT the engine can't read.
+    /// choices under, or `None` for a DAT the engine can't read or select. Every ListXML is `MAME`.
     pub fn systems(&self, dats: &[&Path]) -> Result<Vec<Option<String>>, Error> {
         let internal = self.internal_config()?;
         Ok(dats
             .iter()
-            .map(|dat| native::system_name(dat, &internal))
+            .map(|dat| match format_of(dat) {
+                Ok(Some(DatFormat::Listxml)) => Some(title_select_api::dat::MAME.to_owned()),
+                Ok(Some(DatFormat::SoftwareList)) => None,
+                _ => native::system_name(dat, &internal),
+            })
             .collect())
     }
 
-    /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace.
+    /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace. A
+    /// ListXML goes to the arcade selector with its default settings; a software list is refused.
     pub fn run(
         &self,
         dat: &Path,
         profile: &SelectionProfile,
         options: &RunOptions,
     ) -> Result<Outcome, Error> {
+        match format_of(dat)? {
+            Some(DatFormat::Listxml) => {
+                return self.run_arcade(dat, profile, &arcade::ArcadeSettings::default(), options);
+            }
+            Some(DatFormat::SoftwareList) => {
+                return Err(Error::Refused(SOFTWARE_LIST_REFUSAL.to_owned()));
+            }
+            Some(DatFormat::Logiqx) | None => {}
+        }
         self.vocabulary()?.check(profile)?;
         patterns::check(profile)?;
         let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
@@ -262,6 +288,71 @@ impl Engine {
             profile,
             options.coverage.as_deref(),
         )
+    }
+
+    /// Selects from the ListXML `dat` with the arcade selector under `settings`, applies the Profile's choices for
+    /// `MAME`, and lists the winners' Dependencies. An arcade Selection takes no Coverage.
+    pub fn run_arcade(
+        &self,
+        dat: &Path,
+        profile: &SelectionProfile,
+        settings: &arcade::ArcadeSettings,
+        options: &RunOptions,
+    ) -> Result<Outcome, Error> {
+        if options.coverage.is_some() {
+            return Err(Error::Refused(ARCADE_COVERAGE_REFUSAL.to_owned()));
+        }
+        arcade::check(settings)?;
+        if options.cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let deadline = Instant::now() + options.timeout;
+        let stop = || {
+            if options.cancelled() {
+                Err(Error::Cancelled)
+            } else if Instant::now() >= deadline {
+                Err(Error::Timeout(options.timeout))
+            } else {
+                Ok(())
+            }
+        };
+        let parsed =
+            title_select_engine::dat::Dat::read(dat).map_err(|e| Error::Dat(e.to_string()))?;
+        if parsed.format != DatFormat::Listxml {
+            return Err(Error::Dat(format!(
+                "{} is not a MAME ListXML",
+                dat.display()
+            )));
+        }
+        let elected = arcade::elect(&parsed, settings, &stop)?;
+        let mut trace = elected.trace;
+        let system = parsed.name.clone();
+        let mut selection = Selection {
+            pins: SelectionPins {
+                arcade: Some(elected.pins),
+                ..self.pins.clone()
+            },
+            dat_sha256: parsed.sha256.clone(),
+            system_settings: profile.systems.contains_key(&system),
+            summary: Default::default(),
+            coverage_drift: Default::default(),
+            groups: elected.groups,
+            stale_choices: Default::default(),
+            system,
+        };
+        choices::apply(&mut selection, profile.choices.get(&parsed.name));
+        arcade::list_dependencies(&mut selection, &parsed, &mut trace);
+        choices::recount(&mut selection);
+        let mut lines = String::new();
+        for record in trace {
+            lines.push_str(&serde_json::to_string(&record).expect("a JSON value serializes"));
+            lines.push('\n');
+        }
+        Ok(Outcome {
+            selection,
+            trace: lines,
+            warnings: Vec::new(),
+        })
     }
 
     fn outcome(
@@ -344,6 +435,7 @@ pub fn clone_lists() -> Result<Pinned, Error> {
 /// The pins every Selection this binary makes records.
 fn expected_pins() -> Result<SelectionPins, Error> {
     Ok(SelectionPins {
+        arcade: None,
         retool_commit: None,
         patch_set_sha256: None,
         title_select_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
@@ -351,6 +443,17 @@ fn expected_pins() -> Result<SelectionPins, Error> {
         trace_schema: SELECTION_TRACE_SCHEMA,
         coverage: None,
     })
+}
+
+/// The format of the DAT at `path`, by the root element in its first MiB, or `None` for one this reader doesn't know,
+/// such as a ClrMamePro DAT, which the Retool port reads.
+fn format_of(path: &Path) -> Result<Option<DatFormat>, Error> {
+    let file = File::open(path).map_err(io(path.display().to_string()))?;
+    let mut prefix = Vec::new();
+    file.take(1 << 20)
+        .read_to_end(&mut prefix)
+        .map_err(io(path.display().to_string()))?;
+    Ok(title_select_engine::dat::Dat::format_of(&prefix))
 }
 
 fn sha256_file(path: &Path) -> Result<String, Error> {

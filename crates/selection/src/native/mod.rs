@@ -28,6 +28,19 @@ pub(crate) fn user_regex(pattern: &str) -> Result<(), String> {
     pyre::Re::user(pattern).map(|_| ())
 }
 
+/// One of the Operator's `/pattern` lines, compiled as Python's `re` reads it without case.
+pub(crate) struct UserRegex(pyre::Re);
+
+impl UserRegex {
+    pub fn new(pattern: &str) -> Result<UserRegex, String> {
+        pyre::Re::user(pattern).map(UserRegex)
+    }
+
+    pub fn search(&self, text: &str) -> bool {
+        self.0.search(text)
+    }
+}
+
 /// The system `dat` is for, as its header names it, or `None` for a DAT the engine can't read.
 pub(crate) fn system_name(dat: &std::path::Path, internal_config: &[u8]) -> Option<String> {
     let text = process::read_text(dat).ok()?;
