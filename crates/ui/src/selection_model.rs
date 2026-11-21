@@ -9,6 +9,7 @@ use title_select_api::selection::{
     SelectionProfile, SystemSettings,
 };
 
+use crate::arcade_model::update_arcade;
 use crate::model::{Sort, status_text};
 use crate::parts::status::GroupStatus;
 use crate::placement_model::FlagsNow;
@@ -22,15 +23,16 @@ pub fn role_label(role: Role) -> &'static str {
     }
 }
 
-/// A rule as the workbench shows it: the stage and the engine's message, "Your choice", or, for a release its source
-/// set's coverage leaves out, that alone.
+/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message, "Your
+/// choice", or, for a release its source set's coverage leaves out, that alone.
 pub fn rule_text(rule: &Rule) -> String {
     if rule.is_choice() {
         "Your choice".to_string()
     } else if rule.is_coverage() {
         capitalised(&rule.message)
     } else {
-        format!("{}: {}", rule.stage, rule.message)
+        let stage = crate::arcade_model::stage_label(&rule.stage).unwrap_or(&rule.stage);
+        format!("{stage}: {}", rule.message)
     }
 }
 
@@ -443,22 +445,36 @@ pub fn include_override(title: &str) -> String {
     format!("|{title}")
 }
 
-/// Adds an include override for an excluded release to the system's settings, and checks the release.
+/// Whether including an excluded release can win over what excluded it. The arcade selection never keeps a BIOS,
+/// a device or a machine that can't run, whatever its include list says.
+pub fn includable(exclusion: &Exclusion, arcade: bool) -> bool {
+    !(arcade && exclusion.rule.stage == "structural")
+}
+
+/// Adds an include override for an excluded release to the system's settings, and checks the release. For an
+/// `arcade` Selection it goes in the system's arcade include list, starting from the arcade settings that apply.
 pub fn include_and_check(
     profile: &mut SelectionProfile,
     system: &str,
     group: &SelectionGroup,
     title: &str,
+    arcade: bool,
 ) {
     let rule = include_override(title);
-    let include = &mut profile
-        .systems
-        .entry(system.to_owned())
-        .or_default()
-        .overrides
-        .include;
-    if !include.contains(&rule) {
-        include.push(rule);
+    let add = |include: &mut Vec<String>| {
+        if !include.contains(&rule) {
+            include.push(rule.clone());
+        }
+    };
+    if arcade {
+        update_arcade(profile, system, |a| add(&mut a.include));
+    } else {
+        add(&mut profile
+            .systems
+            .entry(system.to_owned())
+            .or_default()
+            .overrides
+            .include);
     }
     let mut set = checked(profile, system, group);
     set.insert(title.to_owned());
@@ -467,6 +483,15 @@ pub fn include_and_check(
         .entry(system.to_owned())
         .or_default()
         .insert(group.group.clone(), set);
+}
+
+/// Whether the group list shows a group: one that holds only Dependencies, such as a BIOS or a device, is summed up
+/// in the Dependency lines instead.
+pub fn listed(group: &SelectionGroup) -> bool {
+    !(group.winners.is_empty()
+        && group.alternatives.is_empty()
+        && group.exclusions.is_empty()
+        && !group.dependencies.is_empty())
 }
 
 /// How a group stands in the Selection: a choice of yours to review comes first, then a pick the engine left to
@@ -706,9 +731,10 @@ pub fn lines(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use title_select_api::arcade::ArcadeSettings;
     use title_select_api::selection::{
-        Alternative, Category, CoverageDrift, Exclusion, GroupChoice, Rule, SelectionOptions,
-        SelectionPins, SelectionSummary, Winner,
+        Alternative, Category, CoverageDrift, Dependency, Exclusion, GroupChoice, Rule,
+        SelectionOptions, SelectionPins, SelectionSummary, Winner,
     };
 
     fn rule() -> Rule {
@@ -1046,14 +1072,109 @@ mod tests {
         let index = index();
         let pong = index.group("pong").unwrap();
         let mut staged = SelectionProfile::default();
-        include_and_check(&mut staged, "Atari", pong, "Pong (USA) (Demo)");
-        include_and_check(&mut staged, "Atari", pong, "Pong (USA) (Demo)");
+        include_and_check(&mut staged, "Atari", pong, "Pong (USA) (Demo)", false);
+        include_and_check(&mut staged, "Atari", pong, "Pong (USA) (Demo)", false);
         assert_eq!(
             staged.systems["Atari"].overrides.include,
             ["|Pong (USA) (Demo)"]
         );
+        assert!(staged.systems["Atari"].arcade.is_none());
         assert!(staged.choices["Atari"]["pong"].contains("Pong (USA) (Demo)"));
         assert!(staged.choices["Atari"]["pong"].contains("Pong (USA)"));
+    }
+
+    fn arcade_rule(stage: &str, message: &str) -> Rule {
+        Rule {
+            stage: stage.into(),
+            reference: None,
+            message: message.into(),
+        }
+    }
+
+    fn racer() -> SelectionGroup {
+        SelectionGroup {
+            group: "racer".into(),
+            unresolved: false,
+            winners: vec![Winner {
+                title: "racera".into(),
+                rule: arcade_rule(
+                    "election",
+                    "the only machine its filters left in its family",
+                ),
+                unresolved: false,
+            }],
+            alternatives: Vec::new(),
+            exclusions: vec![Exclusion {
+                title: "racer".into(),
+                rule: arcade_rule("quality", "driver status preliminary, below imperfect"),
+                reason: "driver status".into(),
+            }],
+            dependencies: Vec::new(),
+            choice: None,
+            drift: false,
+        }
+    }
+
+    #[test]
+    fn including_an_excluded_arcade_machine_adds_it_to_the_arcade_include_list() {
+        let mut staged = SelectionProfile {
+            arcade: Some(ArcadeSettings {
+                drop_samples: true,
+                ..ArcadeSettings::default()
+            }),
+            ..SelectionProfile::default()
+        };
+        include_and_check(&mut staged, "MAME", &racer(), "racer", true);
+        include_and_check(&mut staged, "MAME", &racer(), "racer", true);
+        let own = staged.systems["MAME"].arcade.as_ref().unwrap();
+        assert_eq!(own.include, ["|racer"]);
+        assert!(own.drop_samples, "it starts from the settings that applied");
+        assert!(staged.systems["MAME"].overrides.include.is_empty());
+        assert_eq!(
+            staged.choices["MAME"]["racer"],
+            BTreeSet::from(["racer".to_string(), "racera".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_group_holding_only_dependencies_is_left_out_of_the_group_list() {
+        let mut z80 = racer();
+        z80.group = "z80".into();
+        z80.winners.clear();
+        z80.exclusions.clear();
+        z80.dependencies = vec![Dependency {
+            title: "z80".into(),
+            needed_by: vec!["racera".into()],
+            rule: arcade_rule("dependency", "needed by racera"),
+        }];
+        assert!(!listed(&z80));
+        assert!(listed(&racer()));
+        let mut excluded = racer();
+        excluded.winners.clear();
+        assert!(
+            listed(&excluded),
+            "a family whose every machine is excluded"
+        );
+        let mut both = racer();
+        both.dependencies = z80.dependencies.clone();
+        assert!(
+            listed(&both),
+            "a family one of whose machines another needs"
+        );
+    }
+
+    #[test]
+    fn only_an_exclusion_your_include_list_can_win_over_offers_include_and_check() {
+        let group = racer();
+        let quality = &group.exclusions[0];
+        assert!(includable(quality, true));
+        assert!(includable(quality, false));
+        let bios = Exclusion {
+            title: "acmebios".into(),
+            rule: arcade_rule("structural", "a BIOS, which isn't played on its own"),
+            reason: "BIOS".into(),
+        };
+        assert!(!includable(&bios, true));
     }
 
     #[test]

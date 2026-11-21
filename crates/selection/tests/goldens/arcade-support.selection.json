@@ -1,8 +1,5 @@
 {
-  "pins": {
-    "clone_list_commit": "",
-    "trace_schema": 0
-  },
+  "pins": {},
   "dat_sha256": "50f66c88f5332fb81e2d2e756a7cee309cdbae657670e8280d1b114d7c76f735",
   "system": "MAME",
   "system_settings": false,

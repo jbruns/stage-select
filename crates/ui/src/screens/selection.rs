@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,7 +9,8 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
 use title_select_api::selection::{
-    ChoiceStatus, ReleaseChange, Role, SelectionGroup, SelectionProfile,
+    ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, ReleaseChange, Role, SelectionGroup,
+    SelectionProfile,
 };
 use title_select_api::{
     Availability, GameStatus, Job, ProfileRecord, ProfileVersion, SaveProfile, SavedProfile,
@@ -18,6 +19,7 @@ use title_select_api::{
 
 use crate::api;
 use crate::app::{Loading, Problem};
+use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
 use crate::parts::legend::{LegendStrip, present, present_looks};
@@ -31,8 +33,8 @@ use crate::screens::audit::{ReAudit, flags_notice, flags_now, focus, placements_
 use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
-    exclusion_text, flag_labels, group_status, include_and_check, kept_need_review, role_label,
-    rule_text, staged_changes, toggle, unresolved_explanation,
+    exclusion_text, flag_labels, group_status, includable, include_and_check, kept_need_review,
+    listed, role_label, rule_text, staged_changes, toggle, unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -814,7 +816,10 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             </dd>
             <dt>"Coverage"</dt>
             <dd>
-                {crate::coverage_model::made_under(r.pins.coverage.as_deref())}
+                {match r.pins.arcade {
+                    Some(_) => ARCADE_COVERAGE_REFUSAL.to_owned(),
+                    None => crate::coverage_model::made_under(r.pins.coverage()),
+                }}
             </dd>
             <dt>"System"</dt>
             <dd>
@@ -846,6 +851,16 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                 }}
             </dd>
         </dl>
+        {r.pins.arcade.as_ref().map(|pins| {
+            view! {
+                <div class="notice" role="status">
+                    {arcade_model::notices(pins)
+                        .into_iter()
+                        .map(|notice| view! { <p>{notice}</p> })
+                        .collect_view()}
+                </div>
+            }
+        })}
         {(r.latest_profile_version > r.profile.version)
             .then(|| {
                 view! {
@@ -977,11 +992,12 @@ fn Groups(
 ) -> impl IntoView {
     let index = loaded.index.clone();
     let flags = flags_now(Some(placements_now(source_set)));
-    let items: Vec<GroupItem> = index
-        .selection
-        .groups
+    let shown: Vec<usize> = (0..index.selection.groups.len())
+        .filter(|&i| listed(&index.selection.groups[i]))
+        .collect();
+    let items: Vec<GroupItem> = shown
         .iter()
-        .map(|g| GroupItem::new(g, &loaded.availability))
+        .map(|&i| GroupItem::new(&index.selection.groups[i], &loaded.availability))
         .collect();
     let mut counts = vec![0usize; GroupStatus::ALL.len()];
     for item in &items {
@@ -993,8 +1009,8 @@ fn Groups(
         move || {
             flags.with(|flags| {
                 let mut items = items.clone();
-                for (item, group) in items.iter_mut().zip(&index.selection.groups) {
-                    item.needs_review = kept_need_review(group, flags);
+                for (item, &i) in items.iter_mut().zip(&shown) {
+                    item.needs_review = kept_need_review(&index.selection.groups[i], flags);
                 }
                 Arc::new(items)
             })
@@ -1044,23 +1060,41 @@ fn Groups(
         })
     };
     let availability = StoredValue::new(loaded.availability.clone());
-    let detail = Callback::new(move |item: GroupItem| -> AnyView {
-        match index.group(&item.name) {
-            Some(g) => {
-                let a = availability.get_value();
-                view! {
-                    <GroupPanel
-                        group=g.clone()
-                        system=system.get_value()
-                        availability=a.games
-                        claimed=a.claimed
-                        flags=flags.get()
-                        staged
-                    />
+    let all_dependencies: Vec<Dependency> = arcade_model::dependencies(&index.selection)
+        .into_iter()
+        .cloned()
+        .collect();
+    let arcade = index.selection.pins.arcade.is_some();
+    let detail = Callback::new({
+        let index = index.clone();
+        move |item: GroupItem| -> AnyView {
+            match index.group(&item.name) {
+                Some(g) => {
+                    let a = availability.get_value();
+                    let needs = g
+                        .winners
+                        .iter()
+                        .map(|w| {
+                            let of = arcade_model::dependencies_of(&index.selection, &w.title);
+                            (w.title.clone(), of.into_iter().cloned().collect())
+                        })
+                        .collect();
+                    view! {
+                        <GroupPanel
+                            group=g.clone()
+                            system=system.get_value()
+                            availability=a.games
+                            claimed=a.claimed
+                            flags=flags.get()
+                            staged
+                            needs
+                            arcade
+                        />
+                    }
+                    .into_any()
                 }
-                .into_any()
+                None => ().into_any(),
             }
-            None => ().into_any(),
         }
     });
 
@@ -1068,8 +1102,15 @@ fn Groups(
         <section aria-labelledby="groups-title">
             <h2 id="groups-title">"Game groups"</h2>
             <p class="lede">
+                {arcade.then_some("Each group is a family: a parent machine and its clones. ")}
                 "Open a group to see its releases, the rule that decided each, and to choose the releases you want. Your choices are staged until you save them."
             </p>
+            <DependencyLine
+                lead="Your selected games need"
+                dependencies=all_dependencies
+                games=loaded.availability.games.clone()
+                claimed=loaded.availability.claimed.clone()
+            />
             <div class="count-strip" role="group" aria-label="Show groups by status">
                 <ul class="counts">
                     {statuses
@@ -1209,7 +1250,24 @@ fn GroupPanel(
     /// The review flags builds raised, to mark a release whose game needs review.
     flags: FlagsNow,
     staged: RwSignal<Option<SelectionProfile>>,
+    /// Each winner, with the Dependencies it needs.
+    needs: Vec<(String, Vec<Dependency>)>,
+    /// An arcade Selection, whose include list is in the system's arcade settings.
+    arcade: bool,
 ) -> impl IntoView {
+    let needs_view = needs
+        .into_iter()
+        .map(|(title, dependencies)| {
+            view! {
+                <DependencyLine
+                    lead=format!("{title} needs")
+                    dependencies
+                    games=availability.clone()
+                    claimed=claimed.clone()
+                />
+            }
+        })
+        .collect_view();
     let group = StoredValue::new(group);
     let system = StoredValue::new(system);
     let g = group.get_value();
@@ -1264,24 +1322,31 @@ fn GroupPanel(
     };
     let status = g.choice.as_ref().map(|c| c.status);
     let unresolved = g.engine_unresolved();
-    let releases: Vec<(String, Role, String)> = g
+    // Each release, with whether you can include it.
+    let releases: Vec<(String, Role, String, bool)> = g
         .winners
         .iter()
-        .map(|w| (w.title.clone(), Role::Winner, rule_text(&w.rule)))
-        .chain(
-            g.alternatives
-                .iter()
-                .map(|a| (a.title.clone(), Role::Alternative, rule_text(&a.rule))),
-        )
-        .chain(
-            g.exclusions
-                .iter()
-                .map(|e| (e.title.clone(), Role::Exclusion, exclusion_text(e))),
-        )
+        .map(|w| (w.title.clone(), Role::Winner, rule_text(&w.rule), false))
+        .chain(g.alternatives.iter().map(|a| {
+            (
+                a.title.clone(),
+                Role::Alternative,
+                rule_text(&a.rule),
+                false,
+            )
+        }))
+        .chain(g.exclusions.iter().map(|e| {
+            (
+                e.title.clone(),
+                Role::Exclusion,
+                exclusion_text(e),
+                includable(e, arcade),
+            )
+        }))
         .chain(
             g.dependencies
                 .iter()
-                .map(|d| (d.title.clone(), Role::Dependency, rule_text(&d.rule))),
+                .map(|d| (d.title.clone(), Role::Dependency, rule_text(&d.rule), false)),
         )
         .collect();
 
@@ -1303,12 +1368,13 @@ fn GroupPanel(
                     </p>
                 }
             })}
+        {needs_view}
         <fieldset class="releases" disabled=move || !ready()>
             <legend>"Candidate releases: check the ones to keep"</legend>
             <ul class="plain">
                 {releases
                     .into_iter()
-                    .map(|(title, role, rule)| {
+                    .map(|(title, role, rule, can_include)| {
                         let t = StoredValue::new(title.clone());
                         let is_checked = move || {
                             checked_now().is_some_and(|c| c.contains(&t.get_value()))
@@ -1342,7 +1408,7 @@ fn GroupPanel(
                                 {availability_view(avail, claimed_only)}
                                 {flag}
                                 <span class="note small rule">{rule}</span>
-                                {excluded
+                                {can_include
                                     .then(|| {
                                         view! {
                                             " "
@@ -1352,7 +1418,7 @@ fn GroupPanel(
                                                 on:click=move |_| {
                                                     update(
                                                         Box::new(move |p, system, g| {
-                                                            include_and_check(p, system, g, &t.get_value())
+                                                            include_and_check(p, system, g, &t.get_value(), arcade)
                                                         }),
                                                     )
                                                 }
@@ -1395,9 +1461,50 @@ fn GroupPanel(
             </button>
         </div>
         <p class="note small">
-            "Including an excluded release adds an include override for it to this system's settings. Leaving every box unchecked leaves the group out."
+            {if arcade {
+                "Including an excluded machine adds it to the always include list in this system's arcade settings, which are then set for this system and replace your global ones. Leaving every box unchecked leaves the group out."
+            } else {
+                "Including an excluded release adds an include override for it to this system's settings. Leaving every box unchecked leaves the group out."
+            }}
         </p>
     }
+}
+
+/// Dependencies summed up in one line, "Your selected games need 3 dependencies, all complete.", which opens to list
+/// each with what you have of it. Nothing when there are none.
+#[component]
+fn DependencyLine(
+    #[prop(into)] lead: String,
+    dependencies: Vec<Dependency>,
+    games: BTreeMap<String, GameStatus>,
+    claimed: BTreeSet<String>,
+) -> impl IntoView {
+    let summary = Needs::of(&dependencies, &games, &claimed).summary()?;
+    Some(view! {
+        <details class="dependencies">
+            <summary>{format!("{lead} {summary}.")}</summary>
+            <ul class="plain">
+                {dependencies
+                    .into_iter()
+                    .map(|d| {
+                        let status = games.get(&d.title).copied();
+                        let claimed_only = claimed.contains(&d.title);
+                        view! {
+                            <li class="release">
+                                {d.title.clone()}
+                                " "
+                                {match status {
+                                    Some(_) => availability_view(status, claimed_only),
+                                    None => view! { <span class="note small">"Not audited"</span> }.into_any(),
+                                }}
+                                <span class="note small rule">{format!("Needed by {}", d.needed_by.join(", "))}</span>
+                            </li>
+                        }
+                    })
+                    .collect_view()}
+            </ul>
+        </details>
+    })
 }
 
 fn list_or_none(titles: &[String]) -> String {
