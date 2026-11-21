@@ -268,15 +268,16 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 ## Store
 
 The store is one directory: a SQLite database (`title-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
-the cue packs you import or fetch under `cue_packs/<sha256>`, the SBI packs you fetch under `sbi_packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
+the cue packs you import or fetch under `cue_packs/<sha256>`, the SBI packs you fetch under `sbi_packs/<sha256>`, the
+MAME support files you import or fetch under `support_files/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
 first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
 `<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
 
 - The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON`, a busy timeout and
   `temp_store=MEMORY`, so SQLite never writes temporary files outside the store.
 - A DAT file is written to a temp file, fsynced and renamed into place before its row is inserted. Files under
-  `dats/` that no DAT revision holds, under `cue_packs/` that no cue pack holds, and under `sbi_packs/` that no SBI
-  pack holds, are deleted each time the store
+  `dats/` that no DAT revision holds, under `cue_packs/` that no cue pack holds, under `sbi_packs/` that no SBI
+  pack holds, and under `support_files/` that no support file holds, are deleted each time the store
   opens.
 - Migrations are embedded and forward-only. Before one runs on a store that already has a schema, the database is
   copied with `VACUUM INTO` to `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused.
@@ -292,6 +293,7 @@ first use. Only one Title Select process may have a store open at a time: it hol
   a newer cue pack for its DAT is imported.
 - An SBI pack's file is kept the same way: while it is the one the latest successful fetch of its system brought,
   or while a repair plan refers to it.
+- A MAME support file is never deleted: a selection records the ones it read.
 - A DAT's revisions are ordered by their headers, not by when they were imported: first by when each was made, the
   date its version writes (as No-Intro and Redump versions do) or else its header's date, then by its version's
   numbers. An undated revision counts as older than a dated one, and a version without digits as older than one with.
@@ -362,7 +364,7 @@ save it, without a restart, and is kept in the store, so a backup of the store k
 | Retention | full audits and full selections each source set keeps, from 1 to 10,000 | 20 each |
 | Path templates | the paths registration proposes for a source set and a library folder; see "Path templates" | `{provider}/{dat}`, `{platform}` |
 | Checking source sets | how often each audited source set is checked for changed files, at most every 525,600 minutes (a year); 0 checks only when you ask | every 360 minutes |
-| Fetching DAT revisions | whether newer DAT revisions are fetched from Redump and from MAME; see "Fetching DATs" | off |
+| Fetching DAT revisions | whether newer DAT revisions are fetched from Redump and from MAME, and with MAME its support files; see "Fetching DATs" | off |
 | CHD time limits | the longest chdman may run on a disc: a limit, plus more for each GiB of its tracks, each at most 604,800 seconds (a week); see "Storage policy" | 600 seconds, plus 240 a GiB |
 | Ingest folders | for each ingest folder, how long an item stays unchanged before it is assessed, up to 86,400 seconds (a day), and how often it is scanned on its own, every 1 to 10,080 minutes (a week) | 60 seconds; only when you ask, and once arriving items could settle |
 | Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
@@ -559,6 +561,18 @@ within the same limits. Importing the same bytes again changes nothing; a cue pa
 imported for another DAT is refused. A repair of a source set bound to that DAT can then fill a missing cue sheet, or
 replace one that doesn't match, from it (see "Repairs"). Title Select never downloads a cue pack itself. `cue-pack
 list` prints each cue pack with its DAT, file, cue sheets, import time and SHA-256.
+
+```sh
+title-select support-file import <file> [--source-url <url>]
+title-select support-file list
+```
+
+`support-file import` keeps a MAME support file, `catver.ini`, `languages.ini` or `bestgames.ini` from progetto-SNAPS,
+unmodified, by its SHA-256. Its `;; … MAME 0.NNN ;;` header says which file it is and the MAME version it is for,
+whatever the file is called; a file whose header names neither is refused. Importing the same bytes again changes
+nothing. With fetching from MAME on, the service fetches them for you (see "Fetching DATs"). `support-file list`
+prints each support file, imported or fetched, with its MAME version, file, where it came from, import time and
+SHA-256.
 
 ```sh
 title-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
@@ -947,6 +961,24 @@ a fetch runs, the DATs screen updates as each request finishes.
 Fetching never starts an audit. A newer DAT revision it brings makes the source sets that follow its DAT stale, as an
 imported one does, and you choose when to audit against it. Fetched cue packs join the cue packs you import, and SBI packs
 are kept beside them; each is tied to the fetch that brought it.
+
+**MAME support files.** Selecting arcade machines will read `catver.ini`, `languages.ini` and `bestgames.ini` from
+[progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating. Until
+it does, it guesses each machine's category from the ListXML, and the selection says so. Title Select doesn't ship
+them, as they carry no licence. With fetching from MAME on, the service fetches them from progetto-SNAPS's own GitHub
+mirror: it asks the GitHub API which commit the mirror is at,
+then fetches each file from that commit. It does so when a source set you register, following or not, is first bound
+to a MAME ListXML DAT revision, and again whenever a newer ListXML revision arrives, imported or fetched; a ListXML the
+same fetch brings is followed by its support files. They are fetched at most once a day, under the same rules as DATs:
+a second between requests, and a stop at the first error, which keeps the last good files and shows on the DATs
+screen. A fetch that fails is tried again the next day, until all three have been fetched for the newest ListXML.
+
+Each file is kept unmodified, by its SHA-256, with the commit it was fetched at and the MAME version its header names
+(`;; catver.ini 0.289 / 21-Aug-26 / MAME 0.289 ;;` is for MAME 0.289). A file whose header doesn't name the file asked
+for, or names no MAME version, fails the fetch. You can also bring them in yourself: drop them into an ingest folder as
+`.ini` files, as you would a DAT (see "Ingest folders"), or import them on the DATs screen, with `support-file import`
+or with `POST /api/v1/support-files`. The header says which file it is, whatever its name. Files you bring in don't
+stop the fetch: with fetching from MAME on, a newer ListXML still brings the mirror's files.
 
 ### Selection profiles
 
@@ -1340,13 +1372,16 @@ Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate addition, with the system its extension suggests when exactly one registered system uses it;
-  or a DAT you may import. A game outside its source set's coverage is shown as outside your coverage, and the item
-  isn't proposed to fill it (see "Coverage");
+  a DAT you may import; or a MAME support file you may import, an `.ini` file whose header names `catver.ini`,
+  `languages.ini` or `bestgames.ini` and a MAME version, whatever the file is called. A game outside its source set's
+  coverage is shown as outside your coverage, and the item isn't proposed to fill it (see "Coverage");
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
-  imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
+  imported, or a support file already imported. A game held only by a quick audit's claim is not already held: the
+  item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further; or a DAT with no name to know it by, which can't be imported and is never a candidate addition;
+  never read further; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
+  or an `.ini` file that matches no game and isn't a MAME support file, which is never a candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
@@ -1357,7 +1392,8 @@ anything changed.
 Discarding an item moves it into the folder's kept files, `.title-select/retained/<generation>/<name>.kept`. Importing
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
-audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Within one filesystem a move is a rename that never replaces anything. What
+audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
+file keeps it as `support-file import` would, then keeps the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
 arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
 meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
 The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is
@@ -1535,7 +1571,9 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `DELETE /api/v1/dat-revisions/{sha256}`            | delete a DAT revision nothing depends on: `{"sha256", "dat", "blob_deleted", "dat_removed"}`; `409` while anything does, changing nothing, with `blockers`, each `{"kind", "count", "names"}` (`kind` one of `source_set`, `additions_set`, `audit`, `selection`, `change_plan`, `build`, `built_file`, `kept_file`, `job`, `ingest_reaudit`); `404` for none catalogued |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
-| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
+| `GET /api/v1/support-files`                        | every MAME support file: `{"sha256", "kind", "file", "mame_version", "commit", "origin", "source_url", "imported_at"}`, `kind` one of `catver`, `languages` or `bestgames` |
+| `POST /api/v1/support-files`                       | import a MAME support file: multipart `source_url`?, `file`; 201 when it's new, 400 when its header names no support file or MAME version |
+| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`), and `next_at`, when they are next fetched if they are owed but must wait |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, and `coverage`: the regions it covers, absent when it covers every game |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
@@ -1956,7 +1994,8 @@ Its screens:
   **Delete revision**, in a revision's ⋯ menu and its detail, deletes a DAT revision nothing depends on after you
   confirm; while something does, its detail says what, linking the source sets that use its DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
-  **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
+  Under MAME, **Support files** shows the same for the MAME support files, and whether they have been fetched for your
+  newest ListXML DAT revision. **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, the DAT's header rule and how many games
   may not play without their header, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload

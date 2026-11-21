@@ -517,6 +517,32 @@ fn the_api_uploads_a_cue_pack_for_a_dat_and_lists_it() {
 }
 
 #[test]
+fn the_api_uploads_a_support_file_and_lists_it() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let ini = b";; catver.ini 0.289 / 21-Aug-26 / MAME 0.289 ;;\r\n[Category]\r\npong=Sports / Tennis\r\n";
+
+    let (status, body) = client.upload_form("/support-files", &[], "catver.ini", ini);
+    assert_eq!(status, 201, "{body}");
+    let imported: title_select_api::support::SupportFileImport =
+        serde_json::from_value(body).unwrap();
+    assert_eq!(imported.outcome, ImportOutcome::Added);
+    assert_eq!(
+        imported.file.kind,
+        title_select_api::support::SupportFileKind::Catver
+    );
+    assert_eq!(imported.file.mame_version, "0.289");
+    let files: Vec<title_select_api::support::SupportFileRecord> = client.json("/support-files");
+    assert_eq!(files, [imported.file]);
+
+    let (status, _) = client.upload_form("/support-files", &[], "catver.ini", ini);
+    assert_eq!(status, 200, "the same bytes again");
+    let (status, _) = client.upload_form("/support-files", &[], "notes.ini", b"[Category]\r\n");
+    assert_eq!(status, 400);
+}
+
+#[test]
 fn an_uploaded_dat_of_no_known_provider_is_kept_by_its_format_and_name_and_a_provider_field_is_refused()
  {
     let env = Env::new();

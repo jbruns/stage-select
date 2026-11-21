@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::common::*;
 use crate::sevenz_fixtures;
 use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
+use title_select_api::support::{SupportFileKind, SupportFileOrigin};
 use title_select_api::{AuditEvidence, JobKind};
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
@@ -685,6 +686,101 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     };
     assert_eq!(changed("Alpha"), [plan.id], "the import is in its history");
     assert!(changed("Beta").is_empty(), "another DAT's set is untouched");
+}
+
+/// A MAME support file as progetto-SNAPS publishes it, its header naming `file` and MAME 0.289.
+fn support_ini(file: &str) -> Vec<u8> {
+    format!(
+        "[FOLDER_SETTINGS]\r\nRootFolderIcon mame\r\n\r\n;; {file} 0.289 / 21-Aug-26 / MAME 0.289 ;;\r\n\r\n\
+         [Category]\r\npong=Sports / Tennis\r\n"
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_dropped_in_support_file_is_known_by_its_header_imported_and_kept_and_another_ini_is_no_game() {
+    let env = Env::new();
+    write_file(
+        &env.dir("in").join("categories.ini"),
+        &support_ini("catver.ini"),
+    );
+    write_file(
+        &env.dir("in").join("mame.ini"),
+        b"[core]\r\nrompath roms\r\n",
+    );
+    env.scan();
+    env.scan();
+
+    let item = env.item("categories.ini");
+    assert_eq!(item.state, ItemState::Assessed, "{item:?}");
+    assert_eq!(item.assessment.proposal, Some(Proposal::SupportFileImport));
+    let found = item.assessment.support_file.clone().unwrap();
+    assert_eq!(
+        (found.kind, found.mame_version.as_str(), found.imported),
+        (SupportFileKind::Catver, "0.289", false),
+        "known by its header, not its file name"
+    );
+    let other = env.item("mame.ini");
+    assert_eq!(other.state, ItemState::Unsupported, "{other:?}");
+    assert_eq!(other.assessment.proposal, None, "never proposed as a game");
+    assert!(
+        other
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.contains("not a MAME support file")),
+        "{other:?}"
+    );
+
+    let plan = env.plan(IngestAction::DatImport, &["categories.ini"]);
+    assert!(
+        env.store.support_files().unwrap().is_empty(),
+        "nothing until approved"
+    );
+    assert!(
+        env.store
+            .plan_ingest(
+                &env.config,
+                "in",
+                &PlanIngest {
+                    action: IngestAction::DatImport,
+                    items: vec![other.id],
+                    additions: Default::default(),
+                },
+            )
+            .is_err()
+    );
+    let applied = env
+        .store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert!(applied.outcomes[0].moved, "{applied:?}");
+    let kept = env.store.support_files().unwrap();
+    assert_eq!(
+        kept.iter()
+            .map(|f| (f.kind, f.mame_version.as_str(), f.origin, f.file.as_str()))
+            .collect::<Vec<_>>(),
+        [(
+            SupportFileKind::Catver,
+            "0.289",
+            SupportFileOrigin::Import,
+            "categories.ini"
+        )]
+    );
+    assert_eq!(
+        env.listing(),
+        [".title-select/retained/1/categories.ini.kept", "mame.ini"]
+    );
+
+    // The same file dropped in again is already held.
+    write_file(
+        &env.dir("in").join("catver.ini"),
+        &support_ini("catver.ini"),
+    );
+    env.scan();
+    env.scan();
+    let again = env.item("catver.ini");
+    assert_eq!(again.state, ItemState::AlreadyHeld, "{again:?}");
+    assert!(again.assessment.support_file.unwrap().imported);
 }
 
 /// The only way a No-Intro DAT Revision arrives: the Operator drops it in, and it is recognized from its header.

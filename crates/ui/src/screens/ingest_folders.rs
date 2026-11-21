@@ -54,6 +54,7 @@ fn proposal_label(proposal: &Proposal) -> String {
             "A candidate addition; no registered system uses its extension".into()
         }
         Proposal::DatImport => "A DAT you may import".into(),
+        Proposal::SupportFileImport => "A MAME support file you may import".into(),
     }
 }
 
@@ -78,6 +79,18 @@ fn evidence(a: &Assessment) -> AnyView {
             format!(", a DAT you don't have yet: {}", d.dat)
         };
         view! { <li>{format!("DAT {} version {}{imported}", d.name, d.version)}</li> }
+    });
+    let support = a.support_file.as_ref().map(|f| {
+        let imported = if f.imported { ", already imported" } else { "" };
+        view! {
+            <li>
+                {format!(
+                    "MAME support file {} for MAME {}{imported}",
+                    f.kind.file_name(),
+                    f.mame_version,
+                )}
+            </li>
+        }
     });
     let dats = (!a.matches.is_empty()).then(super::dats::dats_resource);
     let matches = a
@@ -113,7 +126,7 @@ fn evidence(a: &Assessment) -> AnyView {
         .collect_view();
     let sha = crate::ingest_model::item_checksum(a)
         .map(|sha| view! { <li>"SHA-256 " <code class="hash">{sha.to_string()}</code></li> });
-    view! { <ul class="plain">{sha} {dat} {matches}</ul> }.into_any()
+    view! { <ul class="plain">{sha} {dat} {support} {matches}</ul> }.into_any()
 }
 
 /// An Ingest Folder in the list of them.
@@ -450,14 +463,19 @@ impl ItemRow {
                 }) => format!("Addition for {system}"),
                 _ => "Addition; choose its system".into(),
             },
-            IngestStatus::DatFile => match &item.assessment.dat {
-                Some(d) => format!("Import DAT {} {}", d.name, d.version),
-                None => "Import the DAT".into(),
+            IngestStatus::ImportFile => match (&item.assessment.dat, &item.assessment.support_file)
+            {
+                (Some(d), _) => format!("Import DAT {} {}", d.name, d.version),
+                (None, Some(f)) => format!("Import {} {}", f.kind.file_name(), f.mame_version),
+                (None, None) => "Import it".into(),
             },
-            IngestStatus::Duplicate => match &item.assessment.dat {
-                Some(_) => "DAT already imported".into(),
-                None => "Already held".into(),
-            },
+            IngestStatus::Duplicate => {
+                match (&item.assessment.dat, &item.assessment.support_file) {
+                    (Some(_), _) => "DAT already imported".into(),
+                    (None, Some(_)) => "Already imported".into(),
+                    (None, None) => "Already held".into(),
+                }
+            }
             IngestStatus::Unreadable => item
                 .reason
                 .clone()

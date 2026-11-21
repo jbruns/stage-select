@@ -107,6 +107,12 @@ enum Command {
         #[command(subcommand)]
         command: CuePackCommand,
     },
+    /// Manage MAME support files: catver.ini, languages.ini and bestgames.ini from progetto-SNAPS, which
+    /// selecting arcade machines will read. With fetching from MAME on, the service fetches them for you.
+    SupportFile {
+        #[command(subcommand)]
+        command: SupportFileCommand,
+    },
     /// Manage the source set registry.
     Set {
         #[command(subcommand)]
@@ -252,6 +258,20 @@ enum CuePackCommand {
         source_url: Option<String>,
     },
     /// List the cue packs you imported.
+    List,
+}
+
+#[derive(Subcommand)]
+enum SupportFileCommand {
+    /// Import an unmodified catver.ini, languages.ini or bestgames.ini. Its header says which it is and the MAME
+    /// version it is for. Importing the same bytes again changes nothing.
+    Import {
+        file: PathBuf,
+        /// Where the file was downloaded from.
+        #[arg(long)]
+        source_url: Option<String>,
+    },
+    /// List the support files you imported or the service fetched.
     List,
 }
 
@@ -730,11 +750,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let (revision, outcome) = open_store(store)?
                 .import_dat(&file, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
-            let what = match outcome {
-                ImportOutcome::Added => "imported",
-                ImportOutcome::AlreadyImported => "already imported",
-                ImportOutcome::Restored => "already imported; its file is restored",
-            };
+            let what = imported(outcome);
             println!(
                 "{}: DAT revision {} (version {}) {what}",
                 revision.dat, revision.sha256, revision.version
@@ -773,11 +789,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let (pack, outcome) = open_store(store)?
                 .import_cue_pack(&file, &dat, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
-            let what = match outcome {
-                ImportOutcome::Added => "imported",
-                ImportOutcome::AlreadyImported => "already imported",
-                ImportOutcome::Restored => "already imported; its file is restored",
-            };
+            let what = imported(outcome);
             println!(
                 "{}: cue pack {} ({}) {what}",
                 pack.dat,
@@ -802,6 +814,58 @@ fn run(cli: Cli) -> Result<(), String> {
                     } else {
                         "\tfile deleted; import it again to use it"
                     }
+                );
+            }
+            Ok(())
+        }
+        Command::SupportFile {
+            command: SupportFileCommand::Import { file, source_url },
+        } => {
+            let size = std::fs::metadata(&file)
+                .map_err(|e| format!("{}: {e}", file.display()))?
+                .len();
+            if size > title_select_store::SUPPORT_FILE_LIMIT {
+                return Err(format!(
+                    "{}: a support file is at most {} bytes",
+                    file.display(),
+                    title_select_store::SUPPORT_FILE_LIMIT
+                ));
+            }
+            let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let (kept, outcome) = open_store(store)?
+                .import_support_file(&bytes, &name, source_url.as_deref())
+                .map_err(|e| e.to_string())?;
+            let what = imported(outcome);
+            println!(
+                "{} for MAME {}: support file {} {what}",
+                kept.kind.file_name(),
+                kept.mame_version,
+                kept.sha256
+            );
+            Ok(())
+        }
+        Command::SupportFile {
+            command: SupportFileCommand::List,
+        } => {
+            for kept in open_store(store)?
+                .support_files()
+                .map_err(|e| e.to_string())?
+            {
+                let origin = match &kept.commit {
+                    Some(commit) => format!("fetched at {commit}"),
+                    None => "imported".to_owned(),
+                };
+                println!(
+                    "{}\tMAME {}\t{}\t{origin}\t{}\t{}",
+                    kept.kind.file_name(),
+                    kept.mame_version,
+                    kept.file,
+                    kept.imported_at,
+                    kept.sha256
                 );
             }
             Ok(())
@@ -910,6 +974,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     }
                     Some(Proposal::Addition { system: None }) => "addition".to_owned(),
                     Some(Proposal::DatImport) => "DAT import".to_owned(),
+                    Some(Proposal::SupportFileImport) => "support file import".to_owned(),
                     None => item.reason.clone().unwrap_or_default(),
                 };
                 println!(
@@ -1182,6 +1247,15 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
+    }
+}
+
+/// What importing a DAT revision, cue pack or support file did, as the end of its line.
+fn imported(outcome: ImportOutcome) -> &'static str {
+    match outcome {
+        ImportOutcome::Added => "imported",
+        ImportOutcome::AlreadyImported => "already imported",
+        ImportOutcome::Restored => "already imported; its file is restored",
     }
 }
 

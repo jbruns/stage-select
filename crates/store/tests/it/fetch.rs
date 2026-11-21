@@ -4,13 +4,14 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use title_select_api::fetch::{
-    FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
+    FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger, SUPPORT_SYSTEM,
 };
 use title_select_api::settings::{FetchSettings, SettingsUpdate};
+use title_select_api::support::{SupportFileKind, SupportFileOrigin};
 use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
 use title_select_engine::cap::Clock;
 use title_select_store::config::Config;
@@ -25,6 +26,8 @@ enum Reply {
     Body(Vec<u8>),
     Status(u16),
     Redirect(String),
+    /// The body, once the request is seen (the first barrier) and then let go (the second).
+    Paused(Vec<u8>, Arc<Barrier>, Arc<Barrier>),
 }
 
 /// A request the fake provider saw.
@@ -78,6 +81,11 @@ impl FakeProvider {
                     Some(Reply::Body(body)) => (200, String::new(), body),
                     Some(Reply::Status(status)) => (status, String::new(), Vec::new()),
                     Some(Reply::Redirect(to)) => (302, format!("Location: {to}\r\n"), Vec::new()),
+                    Some(Reply::Paused(body, seen, go)) => {
+                        seen.wait();
+                        go.wait();
+                        (200, String::new(), body)
+                    }
                     None => (404, String::new(), Vec::new()),
                 };
                 let head = format!(
@@ -211,6 +219,8 @@ fn each_provider_may_address_only_its_own_hosts_by_name_on_their_default_ports()
         "https://release-assets.githubusercontent.com/github-production-release-asset/1",
         "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1",
         "https://raw.githubusercontent.com/mamedev/mame/mame0270/hash/nes.xml",
+        "https://api.github.com/repos/AntoPISA/MAME_SupportFiles/commits/main",
+        "https://raw.githubusercontent.com/AntoPISA/MAME_SupportFiles/ad2049f2b06181c0e2dabda710f3b712cf97d36d/catver.ini/catver.ini",
     ] {
         assert_eq!(mame.refusal(url), None, "{url}");
     }
@@ -1068,6 +1078,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         .unwrap();
     env.store.set_follow("NES", true).unwrap();
     env.serve_mame("mame0270");
+    env.serve_support(COMMIT_A, "0.270");
 
     let report = env
         .fetch(FetchProvider::Mame, FetchTrigger::Manual)
@@ -1081,6 +1092,10 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
             ("mame".into(), FetchArtifact::Dat, added),
             ("nes".into(), FetchArtifact::Dat, added),
         ]
+        .into_iter()
+        .chain(support_outcomes(FetchOutcome::Added))
+        .collect::<Vec<_>>(),
+        "the ListXML it brought brings the support files after it"
     );
     assert_eq!(report.attempts[1].version.as_deref(), Some("mame0270"));
     assert_eq!(
@@ -1089,8 +1104,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         "a software list, whose header has no version, takes the release's tag"
     );
     assert!(
-        report
-            .attempts
+        report.attempts[..3]
             .iter()
             .all(|a| a.release.as_deref() == Some("mame0270"))
     );
@@ -1200,4 +1214,673 @@ fn a_mame_release_asset_outside_the_official_release_downloads_is_refused() {
         )]
     );
     assert_eq!(env.fake.seen().len(), 1);
+}
+
+/// The mirror MAME's support files are fetched from.
+const MIRROR: &str = "/AntoPISA/MAME_SupportFiles";
+
+/// A support file as progetto-SNAPS publishes it, with its `;; … MAME 0.NNN ;;` header, for MAME `version`.
+fn support_ini(file: &str, version: &str) -> Vec<u8> {
+    format!(
+        "[FOLDER_SETTINGS]\r\nRootFolderIcon mame\r\nSubFolderIcon folder\r\n\r\n\
+         ;; {file} {version} / 21-Aug-26 / MAME {version} ;;\r\n\r\n[ROOT_FOLDER]\r\n\r\n[Category]\r\n\
+         pong=Sports / Tennis\r\n"
+    )
+    .into_bytes()
+}
+
+const SUPPORT: [&str; 3] = ["catver.ini", "languages.ini", "bestgames.ini"];
+
+impl Env {
+    /// Imports the ListXML of `build` and registers the Source Set `Arcade` bound to it, not Following.
+    fn add_arcade(&self, build: &str) {
+        self.store
+            .import_dat_bytes(&listxml(build), &format!("{build}.xml"), None)
+            .unwrap();
+        if self.store.source_set("Arcade").is_err() {
+            std::fs::create_dir_all(self._tmp.path().join("sets/Arcade")).unwrap();
+            self.store
+                .add_source_set(&self.config, "sets", "Arcade", "MAME/MAME")
+                .unwrap();
+        }
+    }
+
+    /// Serves the mirror at `commit`, its support files naming MAME `version`.
+    fn serve_support(&self, commit: &str, version: &str) {
+        self.fake.reply(
+            &format!("/repos{MIRROR}/commits/main"),
+            Reply::Body(commit.as_bytes().to_vec()),
+        );
+        for file in SUPPORT {
+            self.fake.reply(
+                &format!("{MIRROR}/{commit}/{file}/{file}"),
+                Reply::Body(support_ini(file, version)),
+            );
+        }
+    }
+
+    /// The paths of the requests sent to the mirror, through the API or for its files.
+    fn support_requests(&self) -> Vec<String> {
+        self.fake
+            .seen()
+            .into_iter()
+            .map(|s| s.path)
+            .filter(|p| p.contains("MAME_SupportFiles"))
+            .collect()
+    }
+}
+
+const COMMIT_A: &str = "ad2049f2b06181c0e2dabda710f3b712cf97d36d";
+const COMMIT_B: &str = "bbeff16968f34ee51340f5948598462d88ed07d5";
+
+fn support_outcomes(outcome: FetchOutcome) -> Vec<(String, FetchArtifact, Option<FetchOutcome>)> {
+    [
+        FetchArtifact::SupportCommit,
+        FetchArtifact::Catver,
+        FetchArtifact::Languages,
+        FetchArtifact::Bestgames,
+    ]
+    .into_iter()
+    .map(|a| (SUPPORT_SYSTEM.to_string(), a, Some(outcome)))
+    .collect()
+}
+
+#[test]
+fn a_new_listxml_brings_the_support_files_at_the_mirrors_commit_once_and_not_again_the_same_day() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(report.stopped, None, "{report:?}");
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+    assert!(
+        report
+            .attempts
+            .iter()
+            .all(|a| a.commit.as_deref() == Some(COMMIT_A)),
+        "{report:?}"
+    );
+    assert_eq!(
+        report.attempts[1..]
+            .iter()
+            .map(|a| a.version.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("0.289"); 3],
+        "each file's version is the one its header names"
+    );
+    assert_eq!(
+        env.support_requests(),
+        [
+            format!("/repos{MIRROR}/commits/main"),
+            format!("{MIRROR}/{COMMIT_A}/catver.ini/catver.ini"),
+            format!("{MIRROR}/{COMMIT_A}/languages.ini/languages.ini"),
+            format!("{MIRROR}/{COMMIT_A}/bestgames.ini/bestgames.ini"),
+        ]
+    );
+    assert_eq!(
+        env.pace.waits(),
+        vec![MIN_GAP; env.fake.seen().len()],
+        "a second before each"
+    );
+    let agents: Vec<_> = env.fake.seen().into_iter().map(|s| s.user_agent).collect();
+    assert!(
+        agents
+            .iter()
+            .all(|a| a.as_deref().is_some_and(|a| a.starts_with("title-select/"))),
+        "{agents:?}"
+    );
+
+    let kept = env.store.support_files().unwrap();
+    let mut kinds: Vec<_> = kept
+        .iter()
+        .map(|f| {
+            (
+                f.kind,
+                f.mame_version.as_str(),
+                f.commit.as_deref(),
+                f.origin,
+            )
+        })
+        .collect();
+    kinds.sort_by_key(|k| k.0);
+    assert_eq!(
+        kinds,
+        [
+            (
+                SupportFileKind::Catver,
+                "0.289",
+                Some(COMMIT_A),
+                SupportFileOrigin::Fetch
+            ),
+            (
+                SupportFileKind::Languages,
+                "0.289",
+                Some(COMMIT_A),
+                SupportFileOrigin::Fetch
+            ),
+            (
+                SupportFileKind::Bestgames,
+                "0.289",
+                Some(COMMIT_A),
+                SupportFileOrigin::Fetch
+            ),
+        ]
+    );
+    for file in &kept {
+        assert!(
+            env.store
+                .dir()
+                .join("support_files")
+                .join(&file.sha256)
+                .is_file()
+        );
+    }
+
+    // The same day, nothing more is sent, whatever starts the fetch.
+    let seen = env.fake.seen().len();
+    let again = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(again.attempts.is_empty(), "{again:?}");
+    assert!(matches!(
+        env.fetch(FetchProvider::Mame, FetchTrigger::Manual),
+        Err(Error::Refused(_))
+    ));
+    // Nor when a newer ListXML arrives that day: the files wait for the day to pass.
+    env.add_arcade("mame0290");
+    let newer = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(newer.attempts.is_empty(), "{newer:?}");
+    assert_eq!(env.fake.seen().len(), seen);
+
+    // A day later the newer ListXML brings them again, from the commit the mirror is at then.
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let later = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&later), support_outcomes(FetchOutcome::Added));
+    assert!(
+        later
+            .attempts
+            .iter()
+            .all(|a| a.commit.as_deref() == Some(COMMIT_B))
+    );
+    assert_eq!(
+        env.store.support_files().unwrap().len(),
+        6,
+        "the earlier files are kept too"
+    );
+
+    // With no newer ListXML, another day brings nothing.
+    env.backdate(25);
+    let none = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(none.attempts.is_empty(), "{none:?}");
+}
+
+#[test]
+fn a_first_listxml_of_a_second_dat_brings_the_support_files_though_another_has_more_revisions() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+
+    // A second ListXML DAT, whose one revision ranks first within it and so below MAME/MAME's second.
+    env.backdate(25);
+    let second = add_second_listxml(&env, "mame0291");
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(!support.fetched_for_listxml, "{support:?}");
+    assert_eq!(support.listxml, second);
+
+    env.serve_support(COMMIT_B, "0.291");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(support.fetched_for_listxml);
+    assert_eq!(support.next_at, None, "nothing is owed, so nothing is next");
+}
+
+/// Imports `build`'s ListXML as the only revision of a second ListXML DAT, `MAME/MAME Second`, bound to the Source
+/// Set `Second`. Returns its SHA-256.
+fn add_second_listxml(env: &Env, build: &str) -> String {
+    let (second, _) = env
+        .store
+        .import_dat_bytes(&listxml(build), &format!("{build}.xml"), None)
+        .unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO dats (provider, name) VALUES ('MAME', 'MAME Second')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE dat_revisions SET dat_id = last_insert_rowid(), header_order = 1 WHERE sha256 = ?1",
+        [&second.sha256],
+    )
+    .unwrap();
+    std::fs::create_dir_all(env._tmp.path().join("sets/Second")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Second", "MAME/MAME Second")
+        .unwrap();
+    second.sha256
+}
+
+#[test]
+fn one_fetch_serves_every_listxml_dat_owed_the_support_files() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    add_second_listxml(&env, "mame0290");
+    env.serve_support(COMMIT_A, "0.290");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    assert!(mame.support.as_ref().unwrap().fetched_for_listxml);
+    env.backdate(25);
+    let next_day = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(next_day.attempts.is_empty(), "{next_day:?}");
+}
+
+#[test]
+fn an_older_listxml_imported_again_does_not_count_its_old_fetch_for_a_newer_one() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    env.store
+        .unregister_source_set(&env.config, "Arcade")
+        .unwrap();
+    env.store.delete_dat_revision(&old).unwrap();
+
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    // 0.289 again, now imported after 0.290: the fetch made for it before must not count for 0.290.
+    env.store
+        .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
+        .unwrap();
+    env.serve_support(COMMIT_B, "0.290");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
+fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    let seen = Arc::new(Barrier::new(2));
+    let go = Arc::new(Barrier::new(2));
+    env.fake.reply(
+        &format!("{MIRROR}/{COMMIT_A}/catver.ini/catver.ini"),
+        Reply::Paused(support_ini("catver.ini", "0.289"), seen.clone(), go.clone()),
+    );
+    std::thread::scope(|scope| {
+        let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
+        // While catver.ini is in flight: 0.290 arrives, then 0.289 is imported again after it.
+        seen.wait();
+        env.store
+            .unregister_source_set(&env.config, "Arcade")
+            .unwrap();
+        env.store.delete_dat_revision(&old).unwrap();
+        env.add_arcade("mame0290");
+        env.store
+            .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
+            .unwrap();
+        go.wait();
+        // The fetch still sends every file, for 0.289 as it was chosen, not as imported again.
+        let first = fetching.join().unwrap().unwrap();
+        assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
+    });
+
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let newer = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&newer), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
+fn a_listxml_deleted_while_its_commit_check_is_in_flight_is_fetched_for_and_its_replacement_after()
+{
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    let seen = Arc::new(Barrier::new(2));
+    let go = Arc::new(Barrier::new(2));
+    env.fake.reply(
+        &format!("/repos{MIRROR}/commits/main"),
+        Reply::Paused(COMMIT_A.as_bytes().to_vec(), seen.clone(), go.clone()),
+    );
+    std::thread::scope(|scope| {
+        let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
+        // While the commit check is in flight: 0.289 is deleted and 0.290 imported in its place.
+        seen.wait();
+        env.store
+            .unregister_source_set(&env.config, "Arcade")
+            .unwrap();
+        env.store.delete_dat_revision(&old).unwrap();
+        env.add_arcade("mame0290");
+        go.wait();
+        // The fetch names 0.289's row, so deleting it kept the row and 0.290 couldn't take its id: every file is sent.
+        let first = fetching.join().unwrap().unwrap();
+        assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
+    });
+
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let newer = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&newer), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
+fn an_unchanged_mirror_brings_the_same_files_unchanged() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    let again = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(outcomes(&again), support_outcomes(FetchOutcome::Unchanged));
+    assert_eq!(env.store.support_files().unwrap().len(), 3);
+}
+
+#[test]
+fn nothing_is_fetched_for_the_support_files_while_mame_fetching_is_off() {
+    let env = Env::new(REDUMP);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.serve_psx("2");
+    assert!(matches!(
+        env.fetch(FetchProvider::Mame, FetchTrigger::Schedule),
+        Err(Error::Refused(_))
+    ));
+    env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert!(env.support_requests().is_empty());
+    assert!(env.store.support_files().unwrap().is_empty());
+}
+
+#[test]
+fn nothing_is_fetched_for_the_support_files_without_a_listxml_source_set() {
+    let env = Env::new(MAME);
+    // A ListXML no Source Set is bound to.
+    env.store
+        .import_dat_bytes(&listxml("mame0289"), "mame.xml", None)
+        .unwrap();
+    env.serve_support(COMMIT_A, "0.289");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(report.attempts.is_empty(), "{report:?}");
+    assert!(env.support_requests().is_empty());
+}
+
+#[test]
+fn a_failed_support_file_stops_the_fetch_keeps_the_last_good_files_and_is_shown() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    let good = env.store.support_files().unwrap();
+
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    env.serve_support(COMMIT_B, "0.290");
+    env.fake.reply(
+        &format!("{MIRROR}/{COMMIT_B}/languages.ini/languages.ini"),
+        Reply::Status(503),
+    );
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(
+        outcomes(&report),
+        [
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::SupportCommit,
+                Some(FetchOutcome::Added)
+            ),
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::Catver,
+                Some(FetchOutcome::Added)
+            ),
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::Languages,
+                Some(FetchOutcome::Failed)
+            ),
+        ]
+    );
+    assert!(
+        report.stopped.as_deref().is_some_and(|e| e.contains("503")),
+        "{report:?}"
+    );
+    let kept = env.store.support_files().unwrap();
+    for file in &good {
+        assert!(kept.contains(file), "{file:?} is kept");
+        assert!(
+            env.store
+                .dir()
+                .join("support_files")
+                .join(&file.sha256)
+                .is_file()
+        );
+    }
+
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert_eq!(support.source_sets, ["Arcade"]);
+    assert!(!support.fetched_for_listxml);
+    let parse = |t: &str| t.parse::<jiff::Timestamp>().unwrap();
+    let last_due = support
+        .artifacts
+        .iter()
+        .filter_map(|a| a.next_at.as_deref().map(parse))
+        .max();
+    assert!(last_due.is_some());
+    assert_eq!(
+        support.next_at.as_deref().map(parse),
+        last_due,
+        "they are next fetched once the last of their requests is due"
+    );
+    let languages = support
+        .artifacts
+        .iter()
+        .find(|a| a.artifact == FetchArtifact::Languages)
+        .unwrap();
+    assert_eq!(
+        languages.last_attempt.as_ref().unwrap().outcome,
+        Some(FetchOutcome::Failed)
+    );
+    assert_eq!(
+        languages.last_success.as_ref().unwrap().version.as_deref(),
+        Some("0.289"),
+        "the last good file stands"
+    );
+
+    // The next day all of them are fetched again, as they have not all been fetched for the newer ListXML.
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let retry = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(
+        outcomes(&retry),
+        [
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::SupportCommit,
+                Some(FetchOutcome::Unchanged)
+            ),
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::Catver,
+                Some(FetchOutcome::Unchanged)
+            ),
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::Languages,
+                Some(FetchOutcome::Added)
+            ),
+            (
+                SUPPORT_SYSTEM.into(),
+                FetchArtifact::Bestgames,
+                Some(FetchOutcome::Added)
+            ),
+        ]
+    );
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    assert!(mame.support.as_ref().unwrap().fetched_for_listxml);
+}
+
+#[test]
+fn a_support_file_that_is_not_the_one_asked_for_or_names_no_mame_version_fails() {
+    for (body, why) in [
+        (support_ini("languages.ini", "0.289"), "languages.ini"),
+        (b"[Category]\r\npong=Sports / Tennis\r\n".to_vec(), "header"),
+        (support_ini("catver.ini", "soon"), "MAME version"),
+    ] {
+        let env = Env::new(MAME);
+        env.add_arcade("mame0289");
+        env.serve_support(COMMIT_A, "0.289");
+        env.fake.reply(
+            &format!("{MIRROR}/{COMMIT_A}/catver.ini/catver.ini"),
+            Reply::Body(body),
+        );
+        let report = env
+            .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+            .unwrap();
+        assert_eq!(report.attempts[1].outcome, Some(FetchOutcome::Failed));
+        let error = report.stopped.unwrap();
+        assert!(error.contains(why), "{why}: {error}");
+        assert!(env.store.support_files().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_commit_check_that_answers_no_commit_fails() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fake.reply(
+        &format!("/repos{MIRROR}/commits/main"),
+        Reply::Body(b"<html>".to_vec()),
+    );
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(
+        outcomes(&report),
+        [(
+            SUPPORT_SYSTEM.into(),
+            FetchArtifact::SupportCommit,
+            Some(FetchOutcome::Failed)
+        )]
+    );
+    assert_eq!(env.support_requests().len(), 1);
+}
+
+#[test]
+fn the_commit_is_not_checked_while_any_support_file_waits_out_its_day() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    // A request for catver.ini recorded since, as another Service could.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at, outcome)
+         VALUES ('mame', ?1, 'catver', 'manual', 'Operator', 'x', ?2, ?2, 'failed')",
+        rusqlite::params![SUPPORT_SYSTEM, jiff::Timestamp::now().to_string()],
+    )
+    .unwrap();
+    let seen = env.support_requests().len();
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert!(report.attempts.is_empty(), "{report:?}");
+    assert_eq!(env.support_requests().len(), seen);
 }

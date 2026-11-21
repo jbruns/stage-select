@@ -178,7 +178,7 @@ fn action_text(action: IngestAction) -> &'static str {
     match action {
         IngestAction::Discard => "Discard: each item is kept aside in the folder's kept files.",
         IngestAction::DatImport => {
-            "Import DATs: each is imported, then kept aside in the folder's kept files."
+            "Import: each DAT or support file is imported, then kept aside in the folder's kept files."
         }
         IngestAction::Addition => {
             "Add as additions: each is repacked into its system's additions set, its original kept aside once the \

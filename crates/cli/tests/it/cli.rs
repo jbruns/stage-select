@@ -707,3 +707,45 @@ fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does
     assert!(deleted.contains("deleted"), "{deleted}");
     assert!(deleted.contains("no longer listed"), "{deleted}");
 }
+
+#[test]
+fn support_file_import_keeps_a_support_file_and_list_prints_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store);
+        cmd
+    };
+    let ini = dir.path().join("languages.ini");
+    std::fs::write(
+        &ini,
+        ";; languages.ini 0.289 / 21-Aug-26 / MAME 0.289 ;;\r\n[English]\r\npong\r\n",
+    )
+    .unwrap();
+
+    let imported = run_ok(ts().args(["support-file", "import"]).arg(&ini));
+    assert!(
+        imported.starts_with("languages.ini for MAME 0.289: support file ")
+            && imported.ends_with(" imported\n"),
+        "{imported}"
+    );
+    let again = run_ok(ts().args(["support-file", "import"]).arg(&ini));
+    assert!(again.ends_with(" already imported\n"), "{again}");
+    let listed = run_ok(ts().args(["support-file", "list"]));
+    assert!(
+        listed.starts_with("languages.ini\tMAME 0.289\tlanguages.ini\timported\t"),
+        "{listed}"
+    );
+
+    let other = dir.path().join("notes.ini");
+    std::fs::write(&other, "[English]\r\npong\r\n").unwrap();
+    let out = ts()
+        .args(["support-file", "import"])
+        .arg(&other)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("not a MAME support file"), "{err}");
+}

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use super::{CUE_PACKS, CUES, DATS, Error, Result, SBI_PACKS, Store, io_error};
+use super::{CUE_PACKS, CUES, DATS, Error, Result, SBI_PACKS, SUPPORT_FILES, Store, io_error};
 
 /// The cue sheet blobs a row holds: those of Placed Games' CHDs, and those a placing Build's items recorded once
 /// written, until their Games are placed or the placement is undone.
@@ -99,7 +99,8 @@ impl Store {
     /// Deletes every file in the blob directory that is not the blob of a DAT Revision whose row holds it,
     /// including temp files left by an interrupted write, and every file in the cue pack directory that is not the
     /// file of a cue pack whose row holds it, including one whose deletion was recorded but not finished, and SBI packs
-    /// alike. Returns the names it deleted, a cue pack's under `cue_packs/` and an SBI pack's under `sbi_packs/`.
+    /// and support files alike. Returns the names it deleted, a cue pack's under `cue_packs/`, an SBI pack's under
+    /// `sbi_packs/` and a support file's under `support_files/`.
     ///
     /// It holds the writer throughout, so no import in this process is between writing a blob and inserting its
     /// row; the store's lock excludes every other process.
@@ -127,6 +128,11 @@ impl Store {
                     SBI_PACKS,
                     "SELECT sha256 FROM sbi_packs WHERE blob_dropped_at IS NULL",
                     "sbi_packs/",
+                ),
+                (
+                    SUPPORT_FILES,
+                    "SELECT sha256 FROM support_files",
+                    "support_files/",
                 ),
                 (CUES, HELD_CUES, "cues/"),
             ] {

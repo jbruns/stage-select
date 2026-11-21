@@ -215,6 +215,16 @@ pub struct FoundDat {
     pub imported: bool,
 }
 
+/// A MAME Support File found in an Ingest Folder, known by its header whatever its file name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoundSupportFile {
+    pub kind: crate::support::SupportFileKind,
+    /// The MAME version its `;; … MAME 0.NNN ;;` header names.
+    pub mame_version: String,
+    /// Whether these exact bytes are already kept.
+    pub imported: bool,
+}
+
 /// What an item is to Title Select once assessed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -232,6 +242,8 @@ pub enum Proposal {
     },
     /// A DAT file you may import.
     DatImport,
+    /// A MAME Support File you may import.
+    SupportFileImport,
 }
 
 /// What assessing an item found.
@@ -248,6 +260,8 @@ pub struct Assessment {
     pub matches: Vec<ItemMatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat: Option<FoundDat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_file: Option<FoundSupportFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposal: Option<Proposal>,
 }
@@ -310,7 +324,7 @@ pub struct DismissIngestItems {
 pub enum IngestAction {
     /// Keep it aside in the Ingest Folder's kept files.
     Discard,
-    /// Import it as a DAT Revision, then keep it aside.
+    /// Import it as a DAT Revision or a MAME Support File, then keep it aside.
     DatImport,
     /// Add it as an Addition: written into its system's Additions Set, the original deleted only once the
     /// copy is found to be exactly it.
@@ -376,6 +390,9 @@ pub struct IngestPlanItem {
     /// For a DAT import: the DAT it is imported as a revision of, as `<provider>/<name>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat: Option<String>,
+    /// For an import of a MAME Support File: which file it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_file: Option<crate::support::SupportFileKind>,
     /// Whether assessment read it as a DAT, whatever the plan does with it: its `sha256` is then a DAT Revision's
     /// identity, which the workbench doesn't show. Absent when false, so plans made before it keep their digest.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

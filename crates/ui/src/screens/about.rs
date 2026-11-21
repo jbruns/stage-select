@@ -8,6 +8,8 @@ use crate::model::is_plain_text;
 
 const RETOOL: &str = "https://github.com/unexpectedpanda/retool";
 const CLONE_LISTS: &str = "https://github.com/unexpectedpanda/retool-clonelists-metadata";
+const PROGETTO_SNAPS: &str = "https://www.progettosnaps.net/support/";
+const SUPPORT_MIRROR: &str = "https://github.com/AntoPISA/MAME_SupportFiles";
 
 /// A licence text shipped beside the workbench's bundle, under `/licences/`.
 struct Licence {
@@ -80,6 +82,16 @@ pub fn About() -> impl IntoView {
             <p class="note">
                 "To see the clone-list commit this build is pinned to, run " <code>"title-select --version"</code>
                 "."
+            </p>
+        </section>
+        <section id="support-files" aria-labelledby="support-files-title">
+            <h2 id="support-files-title">"MAME support files"</h2>
+            <p>
+                "When you turn on fetching from MAME, Title Select fetches catver.ini, languages.ini and bestgames.ini from "
+                <a href=PROGETTO_SNAPS>"progetto-SNAPS"</a>
+                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select will read them to select arcade machines. They are fetched from the maintainer's own "
+                <a href=SUPPORT_MIRROR>"GitHub mirror"</a>
+                ", never shipped with Title Select, and the copyright in them stays with progetto-SNAPS. Our thanks to progetto-SNAPS and its maintainer."
             </p>
         </section>
         <section id="default-orders" aria-labelledby="default-orders-title">

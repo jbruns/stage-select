@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use title_select_api::fetch::{
-    FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
+    FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger, SUPPORT_SYSTEM,
 };
 use title_select_api::romm::{RommReconciled, RommReconciliation};
 use title_select_api::{Job, JobEvent, JobKind, JobProgress, SettingsChanged};
@@ -562,13 +562,23 @@ pub fn log_fetch(
                     FetchArtifact::Dat => "DAT revision",
                     FetchArtifact::Cues => "cue pack",
                     FetchArtifact::Sbi => "SBI pack",
+                    FetchArtifact::SupportCommit => "support files commit",
+                    FetchArtifact::Catver => "catver.ini",
+                    FetchArtifact::Languages => "languages.ini",
+                    FetchArtifact::Bestgames => "bestgames.ini",
                 };
-                let version = attempt.version.as_deref().or(attempt.release.as_deref());
+                let version = attempt
+                    .version
+                    .as_deref()
+                    .or(attempt.release.as_deref())
+                    .or(attempt.commit.as_deref());
                 let version = version.map_or_else(String::new, |v| format!(" ({v})"));
-                eprintln!(
-                    "title-select: fetched a new {what} of {}{version} from {name}",
-                    attempt.system
-                );
+                let of = if attempt.system == SUPPORT_SYSTEM {
+                    String::new()
+                } else {
+                    format!(" of {}", attempt.system)
+                };
+                eprintln!("title-select: fetched a new {what}{of}{version} from {name}");
             }
         }
         if let Some(why) = &report.stopped {

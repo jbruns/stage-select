@@ -108,6 +108,12 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
                 .post(upload_cue_pack)
                 .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
+        .route(
+            "/support-files",
+            get(support_files)
+                .post(upload_support_file)
+                .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+        )
         .route("/path-templates", get(path_templates))
         .route("/settings", get(settings).patch(change_settings))
         .route("/romm/test", post(test_romm))
@@ -581,6 +587,55 @@ async fn upload_cue_pack(
     Ok((
         status,
         Json(title_select_api::CuePackImport { pack, outcome }),
+    ))
+}
+
+async fn support_files(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<title_select_api::support::SupportFileRecord>>> {
+    Ok(Json(blocking(&state, Store::support_files).await?))
+}
+
+/// Imports a MAME Support File the Operator uploads, `catver.ini`, `languages.ini` or `bestgames.ini`, as its header names it.
+async fn upload_support_file(
+    State(state): State<AppState>,
+    multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
+) -> ApiResult<(
+    StatusCode,
+    Json<title_select_api::support::SupportFileImport>,
+)> {
+    let mut multipart = multipart?;
+    let (mut source_url, mut file) = (None, None);
+    while let Some(field) = multipart.next_field().await? {
+        match field.name() {
+            Some("source_url") => source_url = Some(field.text().await?).filter(|s| !s.is_empty()),
+            Some("file") => {
+                let name = field.file_name().unwrap_or_default().to_owned();
+                file = Some((name, field.bytes().await?));
+            }
+            other => {
+                return Err(ApiError::bad_request(format!(
+                    "unexpected form field {:?}",
+                    other.unwrap_or_default()
+                )));
+            }
+        }
+    }
+    let (name, bytes) = file.ok_or_else(|| ApiError::bad_request("the form has no file"))?;
+    if name.is_empty() {
+        return Err(ApiError::bad_request("the file has no filename"));
+    }
+    let (file, outcome) = blocking(&state, move |store| {
+        store.import_support_file(&bytes, &name, source_url.as_deref())
+    })
+    .await?;
+    let status = match outcome {
+        title_select_api::ImportOutcome::Added => StatusCode::CREATED,
+        _ => StatusCode::OK,
+    };
+    Ok((
+        status,
+        Json(title_select_api::support::SupportFileImport { file, outcome }),
     ))
 }
 

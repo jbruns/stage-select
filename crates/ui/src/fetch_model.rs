@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use title_select_api::fetch::{
-    FetchArtifact, FetchArtifactStatus, FetchOutcome, FetchProviderStatus, FetchStatus, FetchSystem,
+    FetchArtifact, FetchArtifactStatus, FetchOutcome, FetchProviderStatus, FetchStatus,
+    FetchSupport, FetchSystem,
 };
 
 use crate::parts::status::{FetchState, highest};
@@ -24,10 +25,12 @@ pub fn artifact_state(status: &FetchArtifactStatus, enabled: bool, running: bool
     }
 }
 
-/// Where a system stands: its worst artifact, or off when its provider is.
-pub fn system_state(provider: &FetchProviderStatus, system: &FetchSystem) -> FetchState {
-    let states = system
-        .artifacts
+/// Where `artifacts` of `provider` stand together: the worst of them, or off when their provider is.
+fn artifacts_state(
+    provider: &FetchProviderStatus,
+    artifacts: &[FetchArtifactStatus],
+) -> FetchState {
+    let states = artifacts
         .iter()
         .map(|a| artifact_state(a, provider.enabled, provider.running));
     match highest(states) {
@@ -35,6 +38,16 @@ pub fn system_state(provider: &FetchProviderStatus, system: &FetchSystem) -> Fet
         None if !provider.enabled => FetchState::Off,
         None => FetchState::NotFetched,
     }
+}
+
+/// Where a system stands: its worst artifact, or off when its provider is.
+pub fn system_state(provider: &FetchProviderStatus, system: &FetchSystem) -> FetchState {
+    artifacts_state(provider, &system.artifacts)
+}
+
+/// Where MAME's support files stand: their worst request, or off when MAME is.
+pub fn support_state(provider: &FetchProviderStatus, support: &FetchSupport) -> FetchState {
+    artifacts_state(provider, &support.artifacts)
 }
 
 /// Where a provider stands as a whole.
@@ -50,7 +63,8 @@ pub fn provider_state(provider: &FetchProviderStatus) -> FetchState {
         .iter()
         .map(|r| artifact_state(r, true, false));
     let systems = provider.systems.iter().map(|s| system_state(provider, s));
-    highest(release.chain(systems)).unwrap_or(FetchState::NotFetched)
+    let support = provider.support.iter().map(|s| support_state(provider, s));
+    highest(release.chain(systems).chain(support)).unwrap_or(FetchState::NotFetched)
 }
 
 /// What an artifact is called, in a sentence.
@@ -60,6 +74,10 @@ pub fn artifact_name(artifact: FetchArtifact) -> &'static str {
         FetchArtifact::Dat => "DAT",
         FetchArtifact::Cues => "cue pack",
         FetchArtifact::Sbi => "SBI pack",
+        FetchArtifact::SupportCommit => "commit check",
+        FetchArtifact::Catver => "catver.ini",
+        FetchArtifact::Languages => "languages.ini",
+        FetchArtifact::Bestgames => "bestgames.ini",
     }
 }
 
@@ -81,10 +99,30 @@ pub fn next_fetch(artifacts: &[FetchArtifactStatus]) -> Option<String> {
     artifacts.iter().filter_map(|a| a.next_at.clone()).min()
 }
 
+/// When a fetch is next sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextFetch {
+    Now,
+    At(String),
+}
+
+/// When MAME's support files are next fetched: none while MAME is off or they're fetched for every newest ListXML
+/// DAT revision, else when the store says every request of theirs may be sent.
+pub fn support_next(provider: &FetchProviderStatus, support: &FetchSupport) -> Option<NextFetch> {
+    if !provider.enabled || support.fetched_for_listxml {
+        return None;
+    }
+    Some(
+        support
+            .next_at
+            .clone()
+            .map_or(NextFetch::Now, NextFetch::At),
+    )
+}
+
 /// Each failed artifact's latest error, as `(artifact, error)`.
-pub fn failures(system: &FetchSystem) -> Vec<(FetchArtifact, String)> {
-    system
-        .artifacts
+pub fn failures(artifacts: &[FetchArtifactStatus]) -> Vec<(FetchArtifact, String)> {
+    artifacts
         .iter()
         .filter_map(|a| a.last_attempt.as_ref())
         .filter(|a| a.outcome == Some(FetchOutcome::Failed))
@@ -131,6 +169,8 @@ mod tests {
             version: None,
             pack: None,
             release: None,
+            commit: None,
+            support_file: None,
         }
     }
 
@@ -157,6 +197,7 @@ mod tests {
             enabled,
             running,
             release: None,
+            support: None,
             systems: vec![FetchSystem {
                 system: Some("psx".into()),
                 dat: "Redump/Sony - PlayStation".into(),
@@ -190,13 +231,72 @@ mod tests {
         assert_eq!(system_state(&p, system), FetchState::Failed);
         assert_eq!(provider_state(&p), FetchState::Failed);
         assert_eq!(
-            failures(system),
+            failures(&system.artifacts),
             [(FetchArtifact::Cues, "HTTP 503".to_string())]
         );
         assert_eq!(
             last_fetched(&system.artifacts).as_deref(),
             Some("2026-01-01T00:00:00Z")
         );
+    }
+
+    #[test]
+    fn a_failed_support_file_fails_its_provider_and_shows_its_error() {
+        let mut p = provider(true, false, vec![]);
+        p.systems.clear();
+        let failed = attempt(
+            FetchArtifact::Languages,
+            Some(FetchOutcome::Failed),
+            "2026-01-02T00:00:00Z",
+        );
+        let support = FetchSupport {
+            source_sets: vec!["Arcade".into()],
+            listxml: "ab".into(),
+            fetched_for_listxml: false,
+            artifacts: vec![
+                status(FetchArtifact::SupportCommit, None, None),
+                status(FetchArtifact::Languages, Some(failed), None),
+            ],
+            next_at: None,
+        };
+        assert_eq!(support_state(&p, &support), FetchState::Failed);
+        assert_eq!(
+            failures(&support.artifacts),
+            [(FetchArtifact::Languages, "HTTP 503".to_string())]
+        );
+        p.support = Some(support);
+        assert_eq!(provider_state(&p), FetchState::Failed);
+    }
+
+    #[test]
+    fn the_support_files_are_next_fetched_once_every_request_is_due_and_not_at_all_when_nothing_is_owed()
+     {
+        let mut support = FetchSupport {
+            source_sets: vec!["Arcade".into()],
+            listxml: "ab".into(),
+            fetched_for_listxml: false,
+            artifacts: vec![FetchArtifactStatus {
+                next_at: Some("2026-01-02T00:00:00Z".into()),
+                ..status(FetchArtifact::SupportCommit, None, None)
+            }],
+            next_at: Some("2026-01-02T00:00:03Z".into()),
+        };
+        let on = provider(true, false, vec![]);
+        assert_eq!(
+            support_next(&on, &support),
+            Some(NextFetch::At("2026-01-02T00:00:03Z".into())),
+            "when every request is due, not the first"
+        );
+        support.next_at = None;
+        assert_eq!(support_next(&on, &support), Some(NextFetch::Now));
+        let off = provider(false, false, vec![]);
+        assert_eq!(
+            support_next(&off, &support),
+            None,
+            "nothing is sent while MAME is off"
+        );
+        support.fetched_for_listxml = true;
+        assert_eq!(support_next(&on, &support), None, "nothing is owed");
     }
 
     #[test]
