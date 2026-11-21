@@ -110,11 +110,12 @@ fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
 }
 
 /// A store with the MAME Source Set `mame` in the Root `sets`, which lets repairs write it, and the Library Folder
-/// `arcade` bound to it in the writable Root `play`, by its id.
+/// `arcade` bound to it in the writable Root `play`.
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
     config: Config,
+    /// The Library Folder's id.
     folder: i64,
 }
 
@@ -634,7 +635,7 @@ fn a_placed_game_stays_self_contained_whatever_the_source_sets_layout() {
         zips.retain(|(zip, _)| *zip != format!("{placed}.zip"));
         zips
     };
-    let parent_split = || {
+    let blaster_split = || {
         let mut zips = unchanged("blasterj");
         let parent = zips.iter_mut().find(|(zip, _)| zip == "blaster.zip");
         parent.unwrap().1 = vec!["gfx.u4".into(), "prog.u3".into()];
@@ -643,13 +644,12 @@ fn a_placed_game_stays_self_contained_whatever_the_source_sets_layout() {
     for (layout, placed, set) in [
         (SetLayout::NonMerged, "blaster", unchanged("blaster")),
         (SetLayout::NonMerged, "blasterj", unchanged("blasterj")),
-        // Split, or merged with no parent's ZIP in the Source Set's folder to go in, the clone keeps the graphics it
-        // shares with its parent: that folder has no other copy.
+        // The clone of a placed parent stays non-merged, with no parent beside it.
         (SetLayout::Split, "blaster", unchanged("blaster")),
-        (SetLayout::Split, "blasterj", parent_split()),
+        (SetLayout::Split, "blasterj", blaster_split()),
         (SetLayout::Merged, "blaster", unchanged("blaster")),
         // The merged parent's ZIP holds none of its placed clone's ROMs.
-        (SetLayout::Merged, "blasterj", parent_split()),
+        (SetLayout::Merged, "blasterj", blaster_split()),
     ] {
         a_placed_game_stays_self_contained_under(layout, placed, set);
     }

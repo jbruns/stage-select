@@ -173,7 +173,7 @@ fn a_set_layout_says_which_roms_each_games_zip_holds_and_no_zip_holds_a_disk() {
 }
 
 #[test]
-fn a_game_stored_apart_is_laid_out_non_merged_and_no_merged_zip_holds_it_or_is_held_by_it() {
+fn a_game_stored_apart_and_its_clones_are_laid_out_non_merged_and_no_merged_zip_holds_it() {
     let dat = family();
     let blaster = index(&dat, "blaster");
     let blasterj = index(&dat, "blasterj");
@@ -198,18 +198,11 @@ fn a_game_stored_apart_is_laid_out_non_merged_and_no_merged_zip_holds_it_or_is_h
         };
         assert_eq!(names(&laid.roms[blaster]), names(parent), "{layout:?}");
 
-        // The parent apart: its clone has a ZIP of its own, as split, unless the layout is non-merged.
+        // The parent apart: its clone is laid out non-merged too, with no parent beside it.
         let laid = dat.laid_out_apart(Some(layout), |g| g == blaster);
-        assert_eq!(
-            names(&laid.roms[blaster]),
-            names(&whole.roms[blaster]),
-            "{layout:?}"
-        );
-        let clone = match layout {
-            SetLayout::NonMerged => &whole.roms[blasterj],
-            _ => &split.roms[blasterj],
-        };
-        assert_eq!(names(&laid.roms[blasterj]), names(clone), "{layout:?}");
+        for g in [blaster, blasterj] {
+            assert_eq!(names(&laid.roms[g]), names(&whole.roms[g]), "{layout:?}");
+        }
     }
 }
 

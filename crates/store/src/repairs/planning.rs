@@ -149,6 +149,7 @@ type RomKey = (String, String);
 /// every ROM is only itself. The layout is the Source Set's, for the files in its folder: a Placed Game is a Library
 /// Folder's self-contained Game, laid out apart ([`Dat::laid_out_apart`]), so no repair strips the BIOS or device ROMs
 /// it runs with, adds its clones' to it, or puts its ROMs in its merged parent's ZIP, and it is repacked with no family.
+/// Its clones are laid out non-merged too, with no parent beside them.
 struct LayoutIndex<'a> {
     dat: &'a Dat,
     layout: Option<SetLayout>,

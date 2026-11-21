@@ -976,8 +976,8 @@ impl Dat {
     }
 
     /// As [`Dat::laid_out`], with each Game for which `stored_apart` holds, by its index, kept apart from the others, as
-    /// a Placed Game is in a Library Folder (ADR 0026): under any layout it is laid out non-merged, a merged parent
-    /// holds none of its ROMs, and a clone of it whose ZIP it would hold merged is laid out split.
+    /// a Placed Game is in a Library Folder (ADR 0026): under any layout it is laid out non-merged, and a merged parent
+    /// holds none of its ROMs. So is each clone of it, which has no parent beside it to share ROMs with.
     pub fn laid_out_apart(
         &self,
         layout: Option<SetLayout>,
@@ -1043,7 +1043,7 @@ impl Dat {
         }
         let mut roms = Vec::with_capacity(self.games.len());
         for g in 0..self.games.len() {
-            let layout = match stored_apart(g) {
+            let layout = match stored_apart(g) || parents[g].is_some_and(&stored_apart) {
                 true => SetLayout::NonMerged,
                 false => layout,
             };
@@ -1055,7 +1055,6 @@ impl Dat {
                 }
                 SetLayout::Split => Some(gather(g, &mut unshared(g))),
                 SetLayout::Merged => match parents[g] {
-                    Some(p) if stored_apart(p) => Some(gather(g, &mut unshared(g))),
                     Some(_) => None,
                     None => {
                         let mut all = unshared(g).chain(
