@@ -1,5 +1,6 @@
 //! Reading a DAT into a DAT Revision: Logiqx XML, MAME's ListXML (`<mame>`, named `MAME` and versioned by its build),
-//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned).
+//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned). A Logiqx or ListXML Game also
+//! gives the machine model the arcade selector and family counting read (ADRs 0025 to 0027), and its Disks.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,11 +15,228 @@ use crate::Error;
 pub struct Rom {
     pub game: usize,
     pub name: String,
+    /// Its size in bytes; 0 for a Disk, which a DAT gives no size.
     pub size: u64,
     pub crc: Option<String>,
     pub md5: Option<String>,
     pub sha1: Option<String>,
     pub sha256: Option<String>,
+    /// The name of the ROM it shares with the Game it is `romof` (`merge=`), as that Game lists it.
+    pub merge: Option<String>,
+    pub status: DumpStatus,
+    /// Whether the Game may run without it (`optional="yes"`).
+    pub optional: bool,
+    /// Whether it is a Disk (`<disk>`): a CHD named `<disk>.chd`, listed by SHA-1 alone and with no size, which only
+    /// its name finds.
+    pub disk: bool,
+}
+
+impl Rom {
+    /// Its name as the DAT lists it: a Disk's less `.chd`.
+    pub fn listed_name(&self) -> &str {
+        match self.disk {
+            true => self.name.strip_suffix(".chd").unwrap_or(&self.name),
+            false => &self.name,
+        }
+    }
+}
+
+/// Whether a ROM's dump is known good, as a DAT's `status` says; good when it says nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DumpStatus {
+    /// `good`, or Logiqx's `verified`.
+    Good,
+    /// `baddump`: its checksums are of a dump known to be bad.
+    BadDump,
+    /// `nodump`: no good dump is known, and its checksums are left out.
+    NoDump,
+}
+
+impl DumpStatus {
+    fn parse(text: Option<&str>) -> DumpStatus {
+        match text {
+            Some("baddump") => DumpStatus::BadDump,
+            Some("nodump") => DumpStatus::NoDump,
+            _ => DumpStatus::Good,
+        }
+    }
+}
+/// What a Game's entry says of the machine it is (ADR 0027). Every field is optional, machine by machine: none means
+/// the entry doesn't say, and a filter on it keeps the machine, while some is what the entry says, an empty list
+/// included. Nothing is filled in that the DAT doesn't give.
+///
+/// A ListXML machine is MAME's complete output, so its DTD's defaults apply and it knows every flag, list and count:
+/// a flag it leaves out is the default (`runnable` yes, the rest no), and an element it leaves out is an empty list or
+/// a count of 0. So no `<display>` there means screenless, and no `<input>`, a device's, means no players, coins or
+/// controls. A Logiqx game knows only what its own entry writes: another game's `<display>` says nothing of its
+/// screens. A software item knows nothing.
+///
+/// A name (`romof`, `sampleof`, `sourcefile`, `<year>`, `<manufacturer>`) and the `<driver>` are none where the entry
+/// gives none, in either format: MAME leaves them out where there is none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Machine {
+    /// The Game whose ROMs it shares (`romof`): its parent, or its BIOS for a parent.
+    pub romof: Option<String>,
+    pub is_bios: Option<bool>,
+    pub is_device: Option<bool>,
+    pub is_mechanical: Option<bool>,
+    pub runnable: Option<bool>,
+    /// The Game whose samples it uses (`sampleof`).
+    pub sample_of: Option<String>,
+    /// The driver source it is defined in (`sourcefile`), such as `atari/pong.cpp`.
+    pub source_file: Option<String>,
+    /// The devices it names (`<device_ref>`), in DAT order.
+    pub device_refs: Option<Vec<String>>,
+    /// The samples it plays (`<sample>`), in DAT order.
+    pub samples: Option<Vec<String>>,
+    pub year: Option<String>,
+    pub manufacturer: Option<String>,
+    pub driver: Option<Driver>,
+    /// Its screens (`<display>`), in DAT order; empty for a screenless machine.
+    pub displays: Option<Vec<Display>>,
+    /// How many players its `<input>` takes (`players`).
+    pub players: Option<u32>,
+    /// How many coin slots its `<input>` has (`coins`).
+    pub coins: Option<u32>,
+    /// Each `<control>`'s type, such as `joy` or `dial`, in DAT order.
+    pub controls: Option<Vec<String>>,
+    /// Whether it names a software list (`<softwarelist>`).
+    pub has_software_list: Option<bool>,
+    /// The parts it emulates imperfectly or not at all (`<feature>`), in DAT order.
+    pub features: Option<Vec<Feature>>,
+}
+
+impl Machine {
+    /// A ListXML machine before its entry is read: every flag, list and count at its DTD default.
+    fn listxml() -> Machine {
+        Machine {
+            is_bios: Some(false),
+            is_device: Some(false),
+            is_mechanical: Some(false),
+            runnable: Some(true),
+            device_refs: Some(Vec::new()),
+            samples: Some(Vec::new()),
+            displays: Some(Vec::new()),
+            players: Some(0),
+            coins: Some(0),
+            controls: Some(Vec::new()),
+            has_software_list: Some(false),
+            features: Some(Vec::new()),
+            ..Machine::default()
+        }
+    }
+
+    /// Whether it says anything of `signal`.
+    pub fn knows(&self, signal: Signal) -> bool {
+        match signal {
+            Signal::Romof => self.romof.is_some(),
+            Signal::Bios => self.is_bios.is_some(),
+            Signal::Device => self.is_device.is_some(),
+            Signal::Mechanical => self.is_mechanical.is_some(),
+            Signal::Runnable => self.runnable.is_some(),
+            Signal::SampleOf => self.sample_of.is_some(),
+            Signal::SourceFile => self.source_file.is_some(),
+            Signal::DeviceRefs => self.device_refs.is_some(),
+            Signal::Samples => self.samples.is_some(),
+            Signal::Year => self.year.is_some(),
+            Signal::Manufacturer => self.manufacturer.is_some(),
+            Signal::Driver => self.driver.is_some(),
+            Signal::Displays => self.displays.is_some(),
+            Signal::Players => self.players.is_some(),
+            Signal::Coins => self.coins.is_some(),
+            Signal::Controls => self.controls.is_some(),
+            Signal::SoftwareLists => self.has_software_list.is_some(),
+            Signal::Features => self.features.is_some(),
+        }
+    }
+}
+
+/// What a DAT may say of its machines, one per field of [`Machine`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Signal {
+    Romof,
+    Bios,
+    Device,
+    Mechanical,
+    Runnable,
+    SampleOf,
+    SourceFile,
+    DeviceRefs,
+    Samples,
+    Year,
+    Manufacturer,
+    Driver,
+    Displays,
+    Players,
+    Coins,
+    Controls,
+    SoftwareLists,
+    Features,
+}
+
+impl Signal {
+    pub const ALL: [Signal; 18] = [
+        Signal::Romof,
+        Signal::Bios,
+        Signal::Device,
+        Signal::Mechanical,
+        Signal::Runnable,
+        Signal::SampleOf,
+        Signal::SourceFile,
+        Signal::DeviceRefs,
+        Signal::Samples,
+        Signal::Year,
+        Signal::Manufacturer,
+        Signal::Driver,
+        Signal::Displays,
+        Signal::Players,
+        Signal::Coins,
+        Signal::Controls,
+        Signal::SoftwareLists,
+        Signal::Features,
+    ];
+}
+
+/// How well a driver works, as MAME rates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DriverStatus {
+    Preliminary,
+    Imperfect,
+    Good,
+}
+
+impl DriverStatus {
+    fn parse(text: &str) -> Option<DriverStatus> {
+        match text {
+            "good" => Some(DriverStatus::Good),
+            "imperfect" => Some(DriverStatus::Imperfect),
+            "preliminary" => Some(DriverStatus::Preliminary),
+            _ => None,
+        }
+    }
+}
+
+/// A machine's `<driver>`: its overall `status` and its `emulation`'s; none for a value MAME doesn't write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Driver {
+    pub status: Option<DriverStatus>,
+    pub emulation: Option<DriverStatus>,
+}
+
+/// A machine's screen: its `type`, such as `raster`, `vector`, `lcd` or `svg`, and its rotation in degrees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Display {
+    pub kind: Option<String>,
+    pub rotate: Option<u16>,
+}
+
+/// A part a machine emulates imperfectly or not at all: its `type`, such as `sound` or `protection`, and the
+/// `status` or `overall` MAME gives it, such as `imperfect` or `unemulated`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Feature {
+    pub kind: String,
+    pub status: Option<String>,
+    pub overall: Option<String>,
 }
 
 pub struct Dat {
@@ -42,6 +260,8 @@ pub struct Dat {
     pub descriptions: Vec<String>,
     /// The parent each Game is a clone of (`cloneof`), by the Game's index; none for a parent or a DAT without them.
     pub cloneof: Vec<Option<String>>,
+    /// What each Game's entry says of its machine, by the Game's index.
+    pub machines: Vec<Machine>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -73,6 +293,20 @@ fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
     Ok(out)
 }
 
+/// A number attribute; none if it is absent or no number.
+fn number<T: std::str::FromStr>(a: &HashMap<String, String>, key: &str) -> Option<T> {
+    a.get(key).and_then(|v| v.parse().ok())
+}
+
+/// A `yes`/`no` attribute; none if it is absent or neither.
+fn yes(a: &HashMap<String, String>, key: &str) -> Option<bool> {
+    match a.get(key).map(String::as_str) {
+        Some("yes") => Some(true),
+        Some("no") => Some(false),
+        _ => None,
+    }
+}
+
 impl Dat {
     pub fn read(path: &Path) -> Result<Dat, Error> {
         let bytes =
@@ -99,6 +333,7 @@ impl Dat {
             games: Vec::new(),
             descriptions: Vec::new(),
             cloneof: Vec::new(),
+            machines: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -153,11 +388,20 @@ impl Dat {
                     let in_header = root == Some(DatFormat::Logiqx)
                         && stack.len() >= 2
                         && stack[stack.len() - 2] == "header";
-                    let in_game = stack.len() >= 2
-                        && matches!(
-                            stack[stack.len() - 2].as_str(),
-                            "game" | "machine" | "software"
-                        );
+                    let parent = stack.len().checked_sub(2).map(|i| stack[i].as_str());
+                    let in_game = matches!(parent, Some("game" | "machine" | "software"));
+                    let in_machine = root != Some(DatFormat::SoftwareList)
+                        && matches!(parent, Some("game" | "machine"));
+                    let machine = dat.machines.last_mut().filter(|_| in_machine);
+                    match (stack.last().map(String::as_str), machine) {
+                        (Some("year"), Some(machine)) => {
+                            machine.year.get_or_insert_default().push_str(&text)
+                        }
+                        (Some("manufacturer"), Some(machine)) => {
+                            machine.manufacturer.get_or_insert_default().push_str(&text)
+                        }
+                        _ => {}
+                    }
                     match stack.last().map(String::as_str) {
                         Some("description") if in_game => {
                             if let Some(description) = dat.descriptions.last_mut() {
@@ -220,6 +464,13 @@ impl Dat {
         )
     }
 
+    /// Whether any of its machines says anything of `signal`: if none does, a filter on it is unavailable for this
+    /// DAT (ADR 0027). Where it is carried, a machine that doesn't know it still says nothing, and a filter on it
+    /// keeps that machine.
+    pub fn carries(&self, signal: Signal) -> bool {
+        self.machines.iter().any(|m| m.knows(signal))
+    }
+
     /// Refuses a DAT whose format gives it no native name, naming the file at `path` and the missing field.
     pub fn check_name(&self, path: &Path) -> Result<(), Error> {
         if !self.name.trim().is_empty() {
@@ -273,10 +524,29 @@ impl Dat {
     fn open(&mut self, e: &BytesStart, root: Option<DatFormat>) -> Result<String, Error> {
         let tag = e.local_name().as_ref().to_string();
         match (root, tag.as_str()) {
-            (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
-                self.start_game(e)?
+            (Some(format @ (DatFormat::Logiqx | DatFormat::Listxml)), "game" | "machine") => {
+                self.start_game(e)?;
+                let a = attrs(e)?;
+                let machine = match format {
+                    DatFormat::Listxml => Machine::listxml(),
+                    _ => Machine::default(),
+                };
+                let flag = |key: &str, default: Option<bool>| yes(&a, key).or(default);
+                self.machines.push(Machine {
+                    romof: a.get("romof").cloned(),
+                    is_bios: flag("isbios", machine.is_bios),
+                    is_device: flag("isdevice", machine.is_device),
+                    is_mechanical: flag("ismechanical", machine.is_mechanical),
+                    runnable: flag("runnable", machine.runnable),
+                    sample_of: a.get("sampleof").cloned(),
+                    source_file: a.get("sourcefile").cloned(),
+                    ..machine
+                });
             }
-            (Some(DatFormat::SoftwareList), "software") => self.start_game(e)?,
+            (Some(DatFormat::SoftwareList), "software") => {
+                self.start_game(e)?;
+                self.machines.push(Machine::default());
+            }
             // A software list's unnamed ROM has no file of its own: it reads on in the file of the named ROM before
             // it. As MAME's rom_file_size measures that file, one that continues or skips reads on from where the
             // last read ended, and one that reloads reads again from the start; the file is as large as the
@@ -304,6 +574,59 @@ impl Dat {
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
+            // Disks come only from ListXML machines (ADR 0026's amendment).
+            (Some(DatFormat::Listxml), "disk") => self.add_disk(e)?,
+            (
+                Some(DatFormat::Logiqx | DatFormat::Listxml),
+                "device_ref" | "sample" | "driver" | "display" | "input" | "control"
+                | "softwarelist" | "feature",
+            ) => {
+                let Some(machine) = self.machines.last_mut() else {
+                    return Ok(tag);
+                };
+                let mut a = attrs(e)?;
+                match tag.as_str() {
+                    "device_ref" => machine
+                        .device_refs
+                        .get_or_insert_default()
+                        .extend(a.remove("name")),
+                    "sample" => machine
+                        .samples
+                        .get_or_insert_default()
+                        .extend(a.remove("name")),
+                    "driver" => {
+                        let status = |key: &str| a.get(key).and_then(|v| DriverStatus::parse(v));
+                        machine.driver = Some(Driver {
+                            status: status("status"),
+                            emulation: status("emulation"),
+                        });
+                    }
+                    "display" => machine.displays.get_or_insert_default().push(Display {
+                        kind: a.remove("type"),
+                        rotate: number(&a, "rotate"),
+                    }),
+                    // A count left out keeps ListXML's 0, where MAME leaves out no coins; in Logiqx it stays unknown.
+                    "input" => {
+                        machine.players = number(&a, "players").or(machine.players);
+                        machine.coins = number(&a, "coins").or(machine.coins);
+                    }
+                    "control" => machine
+                        .controls
+                        .get_or_insert_default()
+                        .extend(a.remove("type")),
+                    "softwarelist" => machine.has_software_list = Some(true),
+                    "feature" => {
+                        if let Some(kind) = a.remove("type") {
+                            machine.features.get_or_insert_default().push(Feature {
+                                kind,
+                                status: a.remove("status"),
+                                overall: a.remove("overall"),
+                            });
+                        }
+                    }
+                    _ => unreachable!("matched above"),
+                }
+            }
             (Some(DatFormat::Logiqx), "clrmamepro") if self.games.is_empty() => {
                 if let Some(rule) = attrs(e)?.remove("header") {
                     self.header_rule = Some(rule);
@@ -328,11 +651,6 @@ impl Dat {
 
     fn add_rom(&mut self, e: &BytesStart) -> Result<(), Error> {
         let a = attrs(e)?;
-        let game = self
-            .games
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| Error::Dat("a rom is outside any game".into()))?;
         let name = a
             .get("name")
             .ok_or_else(|| Error::Dat("a rom has no name".into()))?
@@ -342,18 +660,17 @@ impl Dat {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| Error::Dat(format!("rom {name} has no valid size")))?;
         let lower = |k: &str| a.get(k).map(|v| v.to_ascii_lowercase());
+        let rom = self.listed(&a, "rom", name, a.get("merge").cloned())?;
         let rom = Rom {
-            game,
-            name,
             size,
             crc: lower("crc"),
             md5: lower("md5"),
             sha1: lower("sha1"),
             sha256: lower("sha256"),
+            ..rom
         };
         let idx = self.roms.len();
         self.extent = Some((rom.size, rom.size));
-        self.by_name.entry(rom.name.clone()).or_default().push(idx);
         match &rom.crc {
             Some(crc) => self
                 .by_size_crc
@@ -366,8 +683,64 @@ impl Dat {
                 .or_default()
                 .push(idx),
         }
-        self.roms.push(rom);
+        self.push_rom(rom);
         Ok(())
+    }
+
+    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size. Only its name
+    /// finds it here; matching it by its SHA-1 is #228's.
+    fn add_disk(&mut self, e: &BytesStart) -> Result<(), Error> {
+        let a = attrs(e)?;
+        let chd = |name: &String| format!("{name}.chd");
+        let name = chd(a
+            .get("name")
+            .ok_or_else(|| Error::Dat("a disk has no name".into()))?);
+        let rom = self.listed(&a, "disk", name, a.get("merge").map(chd))?;
+        self.extent = None;
+        self.push_rom(Rom {
+            sha1: a.get("sha1").map(|v| v.to_ascii_lowercase()),
+            disk: true,
+            ..rom
+        });
+        Ok(())
+    }
+
+    /// A ROM of the last Game named `name`, with what its `element`'s attributes `a` say of it beside its size and
+    /// checksums, which it leaves out.
+    fn listed(
+        &self,
+        a: &HashMap<String, String>,
+        element: &str,
+        name: String,
+        merge: Option<String>,
+    ) -> Result<Rom, Error> {
+        let game = self
+            .games
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| Error::Dat(format!("a {element} is outside any game")))?;
+        Ok(Rom {
+            game,
+            name,
+            size: 0,
+            crc: None,
+            md5: None,
+            sha1: None,
+            sha256: None,
+            merge,
+            status: DumpStatus::parse(a.get("status").map(String::as_str)),
+            optional: yes(a, "optional").unwrap_or(false),
+            disk: false,
+        })
+    }
+
+    /// Adds `rom` as the next ROM, found by its name.
+    fn push_rom(&mut self, rom: Rom) {
+        self.by_name
+            .entry(rom.name.clone())
+            .or_default()
+            .push(self.roms.len());
+        self.roms.push(rom);
     }
 
     /// Makes the last ROM read `size` bytes.
