@@ -311,10 +311,10 @@ pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game,
 const ENTRY_SEQ: usize = 12;
 
 const GAME_COLUMNS: &str =
-    "name, status, missing_roms, claimed_roms, warnings, available_elsewhere";
+    "name, status, missing_roms, claimed_roms, warnings, available_elsewhere, dependencies";
 
 /// The `seq` column's index, when selected after [`GAME_COLUMNS`].
-const GAME_SEQ: usize = 6;
+const GAME_SEQ: usize = 7;
 
 pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
     let text: String = row.get(i)?;
@@ -532,14 +532,15 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     }
     let mut game = tx.prepare(
         "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings,
-                                  available_elsewhere)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                  available_elsewhere, dependencies)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
         let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
         let warnings = serde_json::to_string(&g.warnings).map_err(corrupt)?;
         let elsewhere = serde_json::to_string(&g.available_elsewhere).map_err(corrupt)?;
+        let dependencies = serde_json::to_string(&g.dependencies).map_err(corrupt)?;
         game.execute(params![
             id,
             seq as i64,
@@ -548,7 +549,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             missing,
             claimed,
             warnings,
-            elsewhere
+            elsewhere,
+            dependencies
         ])?;
     }
     drop((entry, game));
@@ -719,6 +721,7 @@ fn game_from_row(row: &Row) -> Result<Game> {
     let claimed: String = row.get(3)?;
     let warnings: String = row.get(4)?;
     let elsewhere: String = row.get(5)?;
+    let dependencies: String = row.get(6)?;
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
@@ -726,6 +729,7 @@ fn game_from_row(row: &Row) -> Result<Game> {
         claimed_roms: serde_json::from_str(&claimed).map_err(corrupt)?,
         warnings: serde_json::from_str(&warnings).map_err(corrupt)?,
         available_elsewhere: serde_json::from_str(&elsewhere).map_err(corrupt)?,
+        dependencies: serde_json::from_str(&dependencies).map_err(corrupt)?,
     })
 }
 
@@ -1088,7 +1092,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 6` report of a stored Audit, generated from its rows.
+    /// The `schema: 7` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

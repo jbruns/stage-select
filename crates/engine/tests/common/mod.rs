@@ -174,6 +174,35 @@ fn write_dat_xml<R: AsRef<[RomSpec]>>(
     path
 }
 
+/// A ListXML machine: what its tag says beside its name, as written (such as `cloneof="p" romof="p"` or
+/// `isdevice="yes"`), its ROMs, and the devices it names (`<device_ref>`).
+pub struct MachineSpec {
+    pub name: &'static str,
+    pub attrs: &'static str,
+    pub roms: Vec<RomSpec>,
+    pub devices: &'static [&'static str],
+}
+
+/// Writes a MAME ListXML of `machines` to `dir/mame.xml` and returns its path.
+pub fn write_listxml(dir: &Path, machines: &[MachineSpec]) -> PathBuf {
+    let mut xml = String::from("<?xml version=\"1.0\"?>\n<mame build=\"0.289 (mame0289)\">\n");
+    for m in machines {
+        xml.push_str(&format!("  <machine name=\"{}\" {}>\n", m.name, m.attrs));
+        xml.push_str(&format!("    <description>{}</description>\n", m.name));
+        for r in &m.roms {
+            xml.push_str(&format!("    {}\n", rom_xml(r)));
+        }
+        for d in m.devices {
+            xml.push_str(&format!("    <device_ref name=\"{d}\"/>\n"));
+        }
+        xml.push_str("  </machine>\n");
+    }
+    xml.push_str("</mame>\n");
+    let path = dir.join("mame.xml");
+    fs::write(&path, xml).unwrap();
+    path
+}
+
 pub fn write_file(path: &Path, payload: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, payload).unwrap();

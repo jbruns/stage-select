@@ -793,6 +793,7 @@ mod tests {
                 claimed_roms: vec![],
                 warnings: vec![],
                 available_elsewhere: vec![],
+                dependencies: vec![],
             },
         }
     }

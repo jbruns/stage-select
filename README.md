@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 6,                       // version of this report's shape
+  "schema": 7,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -105,6 +105,24 @@ A game whose ROM is inside another game's ZIP, here a track two discs share, add
 }
 ```
 
+A MAME machine, here one whose sound device is missing, names its dependencies, each with its own status:
+
+```jsonc
+{
+  "games": [
+    {
+      "name": "blaster",
+      "status": "complete",
+      "dependencies": [
+        { "game": "acmebios", "status": "complete" },
+        { "game": "acmesnd", "status": "missing" },
+        { "game": "z80", "status": "nothing_to_check" }
+      ]
+    }
+  ]
+}
+```
+
 An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds these:
 
 ```jsonc
@@ -147,13 +165,24 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   the nearest of its ZIP and the folders above it that is named for a game, so `<game>/tracks/Track 02.bin` is in
   `<game>/`. An entry in `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms`
   name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
-  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not. A clone's parent's ZIP or
-  folder counts as the clone's own, because merged and split sets keep a clone's files there.
+  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not.
+- A game's ancestors' ZIPs and folders count as its own: its parent's (`cloneof`), and each one up its `romof` chain
+  to its BIOS, because merged and split sets keep a family's shared files there. In them, an entry counts towards a
+  ROM by its name or, failing that, by its checksums under another name, as MAME looks for it: a clone's ROM that its
+  parent lists under another name counts from the parent's ZIP. Such an entry's `roms` still names only the ROMs its
+  finding gives.
+- `dependencies` lists the BIOSes and devices a game reaches through `romof` and `device_ref`, transitively, in DAT
+  order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is
+  satisfied. A dependency's status never changes the game's: a machine whose own files are all present is `complete`
+  even when a device it needs is `missing`.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
+- Schema 7 counts a game's ancestors' ZIPs and folders as its own, its BIOS's included, and adds `dependencies`. An
+  audit stored before this keeps the statuses it found, and has no `dependencies`, until you audit the source set
+  again.
 - Schema 6 adds the game status `nothing_to_check`, and its count in `summary.games`, which every report gives.
 - Schema 5 counts a game's status only from its own files and adds `available_elsewhere`; schema 4 counted every
   entry wherever it was. An audit stored before this keeps the statuses it found, and has no `available_elsewhere`,
@@ -1677,7 +1706,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 6` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 7` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |

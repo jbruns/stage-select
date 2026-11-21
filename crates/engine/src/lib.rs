@@ -14,7 +14,7 @@ pub mod sevenz;
 pub mod torrentzip;
 pub mod zipdir;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 pub use read::Pools;
@@ -517,20 +517,8 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         before += walked.files.len();
         segments.push((walked.items, reads.into_iter()));
     }
-    let game_index: HashMap<&str, usize> = dat
-        .games
-        .iter()
-        .enumerate()
-        .map(|(i, g)| (g.as_str(), i))
-        .collect();
-    let parents = dat
-        .cloneof
-        .iter()
-        .map(|p| p.as_deref().and_then(|p| game_index.get(p).copied()))
-        .collect();
     let mut scan = Scan {
-        game_index,
-        parents,
+        ancestors: (0..dat.games.len()).map(|g| dat.ancestors(g)).collect(),
         covered: vec![None; dat.roms.len()],
         elsewhere: vec![BTreeSet::new(); dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
@@ -599,10 +587,8 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
 /// What an Audit has found so far.
 struct Scan<'d> {
     dat: &'d Dat,
-    /// Each Game's index, by its name.
-    game_index: HashMap<&'d str, usize>,
-    /// The parent each Game is a clone of, by the Game's index.
-    parents: Vec<Option<usize>>,
+    /// The Games whose ZIPs and folders count as each Game's own, by the Game's index ([`Dat::ancestors`]).
+    ancestors: Vec<Vec<usize>>,
     /// The strongest Evidence Level any Entry holding each ROM for its own Game has.
     covered: Vec<Option<EvidenceLevel>>,
     /// For each ROM, the other Games whose ZIP or folder holds an Entry whose payload is that ROM's (ADR 0017).
@@ -630,21 +616,29 @@ impl Scan<'_> {
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
         let container = self.container(&path, member.as_deref());
-        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). A
-        // clone's parent's is the clone's own: merged and split sets keep a clone's files there.
+        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). Its
+        // ancestors' are the Game's own (ADR 0025): merged and split sets keep a family's shared files there.
         let elsewhere = |r: usize| {
             let game = self.dat.roms[r].game;
-            container.filter(|g| *g != game && Some(*g) != self.parents[game])
+            container.filter(|g| !self.ancestors[game].contains(g))
         };
-        let own: Vec<usize> = payload
-            .iter()
-            .copied()
-            .filter(|r| elsewhere(*r).is_none())
-            .collect();
+        let matching = matching_roms(self.dat, known);
+        // In a family's ZIP or folder, a ROM counts by its name or, failing that, by its checksums under another
+        // name, as MAME searches (ADR 0025): every ROM whose checksums the payload has counts, such as a clone's ROM
+        // that its parent lists under another name. A loose file in no Game's counts towards the ROMs its Finding
+        // gives.
+        let own: Vec<usize> = match container {
+            Some(_) => matching
+                .iter()
+                .copied()
+                .filter(|r| elsewhere(*r).is_none())
+                .collect(),
+            None => payload.clone(),
+        };
         // Every ROM whose checksums the Entry's payload has, not only those it counts towards, so a track named for
         // its own Game still shows where another Game's copy is. Repair cannot yet source from those: it fills a
         // Game only from Entries that count towards it.
-        let others: Vec<(usize, usize)> = matching_roms(self.dat, known)
+        let others: Vec<(usize, usize)> = matching
             .into_iter()
             .filter_map(|r| elsewhere(r).map(|g| (r, g)))
             .collect();
@@ -697,7 +691,7 @@ impl Scan<'_> {
         });
         zip.into_iter()
             .chain(parts)
-            .find_map(|name| self.game_index.get(name).copied())
+            .find_map(|name| self.dat.game(name))
     }
 
     fn games(&self) -> Vec<Game> {
@@ -705,7 +699,8 @@ impl Scan<'_> {
         for (r, rom) in self.dat.roms.iter().enumerate() {
             roms_of[rom.game].push(r);
         }
-        self.dat
+        let mut games: Vec<Game> = self
+            .dat
             .games
             .iter()
             .zip(roms_of)
@@ -751,9 +746,24 @@ impl Scan<'_> {
                         .into_iter()
                         .collect(),
                     available_elsewhere,
+                    dependencies: Vec::new(),
                 }
             })
-            .collect()
+            .collect();
+        // A Dependency's Game Status is its own, and changes none of the Games that need it.
+        let statuses: Vec<GameStatus> = games.iter().map(|g| g.status).collect();
+        for (g, game) in games.iter_mut().enumerate() {
+            game.dependencies = self
+                .dat
+                .dependencies(g)
+                .into_iter()
+                .map(|d| Dependency {
+                    game: self.dat.games[d].clone(),
+                    status: statuses[d],
+                })
+                .collect();
+        }
+        games
     }
 }
 

@@ -90,6 +90,41 @@ fn a_listxml_machine_names_its_family_its_devices_its_samples_and_its_driver_sou
 }
 
 #[test]
+fn a_games_ancestors_are_its_parent_and_its_romof_chain_and_its_dependencies_its_bios_and_devices()
+{
+    let dat = family();
+    let names = |games: Vec<usize>| -> Vec<&str> {
+        games.into_iter().map(|g| dat.games[g].as_str()).collect()
+    };
+    let ancestors = |game| names(dat.ancestors(index(&dat, game)));
+    let dependencies = |game| names(dat.dependencies(index(&dat, game)));
+
+    assert_eq!(ancestors("blasterj"), ["blasterj", "blaster", "arcbios"]);
+    assert_eq!(ancestors("crane"), ["crane", "arcbios"]);
+    assert_eq!(ancestors("z80"), ["z80"]);
+    // The parent is an ancestor, never a Dependency; the devices come through the BIOS's and each other's device_refs.
+    assert_eq!(dependencies("blasterj"), ["arcbios", "acmesnd", "z80"]);
+    assert_eq!(dependencies("crane"), ["arcbios", "acmesnd", "z80"]);
+    assert_eq!(dependencies("arcbios"), ["acmesnd", "z80"]);
+    assert_eq!(dependencies("z80"), Vec::<&str>::new());
+}
+
+#[test]
+fn a_logiqx_game_whose_entry_doesnt_say_it_is_a_bios_is_no_dependency() {
+    let xml = br#"<?xml version="1.0"?>
+<datafile>
+  <header><name>Test</name></header>
+  <game name="bios"><description>BIOS</description></game>
+  <game name="game" romof="bios"><description>Game</description></game>
+</datafile>
+"#;
+    let dat = Dat::parse(xml, Path::new("test.dat")).unwrap();
+
+    assert_eq!(dat.ancestors(1), [1, 0]);
+    assert_eq!(dat.dependencies(1), Vec::<usize>::new());
+}
+
+#[test]
 fn mame_listxml_is_the_mame_dat_versioned_by_its_build() {
     let xml = br#"<?xml version="1.0"?>
 <!DOCTYPE mame [
