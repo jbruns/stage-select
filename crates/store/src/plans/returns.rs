@@ -10,12 +10,13 @@
 use std::collections::{BTreeMap, HashSet};
 
 use title_select_api::build::{
-    ExpectedRom, FileIdentity, FileOutcome, PlanItem, PlanReturn, PlanSource, ReturnFile,
-    ReturnHow, ReturnPlaced,
+    ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, ReturnFile, ReturnHow,
+    ReturnPlaced,
 };
-use title_select_api::storage::{Placement, placement, release_of};
+use title_select_api::storage::{Placement, placement_writing, release_of};
+use title_select_engine::dat::Dat;
 
-use super::{Built, Folder, Inputs, same_roms};
+use super::{Built, Folder, Inputs, roms_of, same_roms};
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::open_folder;
@@ -44,12 +45,14 @@ struct Found<'a> {
 }
 
 /// The releases placed in the folder that go back to their Source Set's folder, with the paths in the folder of the
-/// placed files they take; and says in `notes` why any that should go back stays.
+/// placed files they take; and says in `notes` why any that should go back stays. A release `held` back stays whole,
+/// placed files and all: its return waits on the hold.
 pub(super) fn returns(
     config: &Config,
     inputs: &Inputs,
     folder: Option<&Folder>,
-    items: &[PlanItem],
+    dat: Option<&Dat>,
+    held: &BTreeMap<String, String>,
     notes: &mut Vec<String>,
 ) -> (Vec<PlanReturn>, HashSet<String>) {
     let mut out = Vec::new();
@@ -66,7 +69,16 @@ pub(super) fn returns(
     for p in &inputs.placed {
         releases.entry(release_of(&p.game)).or_default().push(p);
     }
-    let selected = |game: &str| !remove_all && items.iter().any(|i| i.game == game);
+    // Selected by the Selection itself, not by the items built: a selected Game with nothing to build has no item
+    // (ADR 0025), and stays placed.
+    let chosen: HashSet<&str> = inputs
+        .selection
+        .groups
+        .iter()
+        .flat_map(|g| &g.winners)
+        .map(|w| w.title.as_str())
+        .collect();
+    let selected = |game: &str| !remove_all && chosen.contains(game);
     let mut stays: Vec<String> = Vec::new();
     let writable = config
         .root(&inputs.set_root)
@@ -86,7 +98,7 @@ pub(super) fn returns(
         games.sort_unstable();
         games.dedup();
         // The folder keeps a release placed in it while its Games are selected there, Single Copy is on for its
-        // system, and it holds the Source Set's Placed Games.
+        // system, and it holds the Source Set's Placed Games; and, whatever else, while the release is held back.
         let why = if remove_all {
             Some("you are removing every built file of this folder".to_owned())
         } else if let Some(game) = games.iter().find(|g| !selected(g)) {
@@ -103,6 +115,13 @@ pub(super) fn returns(
         let Some(why) = why else {
             continue;
         };
+        if let Some(hold) = held.get(release) {
+            stays.push(format!(
+                "{release} stays placed here: {why}, but nothing of {release} moves while {hold}. Once that is no \
+                 longer so, a later plan returns {release} to source set {set}'s folder"
+            ));
+            continue;
+        }
         if !writable {
             stays.push(format!(
                 "{release} stays placed here: root {} doesn't let Title Select write to source set {set}'s folder",
@@ -119,7 +138,7 @@ pub(super) fn returns(
                 continue;
             }
         };
-        match one(inputs, folder, scan, set_dir, placed, &selected) {
+        match one(inputs, folder, scan, set_dir, dat, placed, &selected) {
             Ok((found, files)) => {
                 if let Some(clash) = files.iter().find(|f| !paths.insert(f.path.clone())) {
                     stays.push(format!(
@@ -216,12 +235,13 @@ pub(crate) fn bytes(n: u64) -> String {
 }
 
 /// How the release of `placed`, the placed files of its Games, goes back: each placed file as found, and each file
-/// put in the Source Set's folder `set_dir`, from them; or why it stays.
+/// put in the Source Set's folder `set_dir`, from them, stored as `dat` lists each Game's ROMs; or why it stays.
 fn one<'a>(
     inputs: &'a Inputs,
     folder: &Folder,
     scan: &crate::checks::Scan,
     set_dir: &FolderDir,
+    dat: Option<&Dat>,
     placed: &[&title_select_api::build::PlacedFile],
     selected: &dyn Fn(&str) -> bool,
 ) -> Result<(Vec<Found<'a>>, Vec<ReturnFile>), String> {
@@ -282,7 +302,11 @@ fn one<'a>(
             .flat_map(|f| f.built.roms.iter().cloned())
             .collect();
         let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
-        let (laid, _) = placement(inputs.set_storage, game, &names);
+        // Its format is decided by every ROM the DAT lists for it and every ROM built, though only those built go
+        // home; by those built alone when the DAT, or the Game in it, is gone.
+        let listed = dat.map(|dat| roms_of(dat, game)).unwrap_or_default();
+        let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
+        let (laid, _) = placement_writing(inputs.set_storage, game, &listed, &names);
         let outputs: Vec<(String, bool, Vec<ExpectedRom>)> = match laid {
             Placement::TorrentZip(name) => vec![(name, false, roms.clone())],
             Placement::Loose(name) => vec![(name, true, roms.clone())],

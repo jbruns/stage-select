@@ -126,6 +126,8 @@ pub struct Needs {
     pub complete: usize,
     pub incomplete: usize,
     pub missing: usize,
+    /// Nothing to Check: no ROM or Disk to look for, so it doesn't hold the Game back.
+    pub nothing_to_check: usize,
     /// Not in the latest Audit, or not audited.
     pub unknown: usize,
     /// Complete or incomplete with some ROM on Claim Evidence alone.
@@ -147,6 +149,7 @@ impl Needs {
                 Some(GameStatus::Complete) => needs.complete += 1,
                 Some(GameStatus::Incomplete) => needs.incomplete += 1,
                 Some(GameStatus::Missing) => needs.missing += 1,
+                Some(GameStatus::NothingToCheck) => needs.nothing_to_check += 1,
                 None => needs.unknown += 1,
             }
             if matches!(status, Some(GameStatus::Complete | GameStatus::Incomplete))
@@ -159,11 +162,12 @@ impl Needs {
     }
 
     pub fn count(&self) -> usize {
-        self.complete + self.incomplete + self.missing + self.unknown
+        self.complete + self.incomplete + self.missing + self.nothing_to_check + self.unknown
     }
 
     /// The count and what you have of them: "3 dependencies, all complete", "2 dependencies: 1 missing, 1 not
-    /// audited", and how many rest on claim evidence alone: "(1 on claim evidence only)". `None` when there are none.
+    /// audited", and how many rest on claim evidence alone: "(1 on claim evidence only)". Nothing to Check counts as
+    /// satisfied: "3 dependencies, all satisfied: 2 complete, 1 nothing to check". `None` when there are none.
     pub fn summary(&self) -> Option<String> {
         let n = self.count();
         if n == 0 {
@@ -179,11 +183,28 @@ impl Needs {
             let all = if n == 1 { "complete" } else { "all complete" };
             return Some(format!("{n} {what}, {all}{claims}"));
         }
+        // Nothing to Check doesn't hold a Game back, so a line of only those and complete ones is satisfied.
+        if self.complete + self.nothing_to_check == n {
+            // No claims to note: claim evidence only ever backs a complete or incomplete dependency.
+            if self.complete == 0 {
+                let all = if n == 1 {
+                    "nothing to check"
+                } else {
+                    "all with nothing to check"
+                };
+                return Some(format!("{n} {what}, {all}"));
+            }
+            return Some(format!(
+                "{n} {what}, all satisfied: {} complete, {} nothing to check{claims}",
+                self.complete, self.nothing_to_check
+            ));
+        }
         let parts: Vec<String> = [
             (self.missing, "missing"),
             (self.incomplete, "incomplete"),
             (self.unknown, "not audited"),
             (self.complete, "complete"),
+            (self.nothing_to_check, "nothing to check"),
         ]
         .into_iter()
         .filter(|(k, _)| *k > 0)
@@ -375,6 +396,36 @@ mod tests {
             Some("1 dependency, complete")
         );
         assert_eq!(Needs::of(&[], &all, &none).summary(), None);
+        let romless = statuses(&[
+            ("neogeo", GameStatus::Complete),
+            ("z80", GameStatus::NothingToCheck),
+            ("ym2610", GameStatus::Complete),
+        ]);
+        assert_eq!(
+            Needs::of(&deps, &romless, &none).summary().as_deref(),
+            Some("3 dependencies, all satisfied: 2 complete, 1 nothing to check")
+        );
+        assert_eq!(
+            Needs::of(&deps[1..2], &romless, &none).summary().as_deref(),
+            Some("1 dependency, nothing to check")
+        );
+        let devices = statuses(&[
+            ("z80", GameStatus::NothingToCheck),
+            ("ym2610", GameStatus::NothingToCheck),
+        ]);
+        assert_eq!(
+            Needs::of(&deps[1..], &devices, &none).summary().as_deref(),
+            Some("2 dependencies, all with nothing to check")
+        );
+        let partly = statuses(&[
+            ("neogeo", GameStatus::Missing),
+            ("z80", GameStatus::NothingToCheck),
+            ("ym2610", GameStatus::Complete),
+        ]);
+        assert_eq!(
+            Needs::of(&deps, &partly, &none).summary().as_deref(),
+            Some("3 dependencies: 1 missing, 1 complete, 1 nothing to check")
+        );
     }
 
     #[test]

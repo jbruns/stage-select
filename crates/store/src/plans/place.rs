@@ -37,13 +37,15 @@ struct Found {
 }
 
 /// Makes each release of `items` that can be placed here placements, under Single Copy, when this folder holds the
-/// Source Set's Placed Games; and says in `notes` what placing does, and why any release is copied instead.
+/// Source Set's Placed Games, other than one `held` back; and says in `notes` what placing does, and why any release
+/// is copied instead.
 pub(super) fn place(
     config: &Config,
     inputs: &Inputs,
     folder: Option<&Folder>,
     sources: &mut Sources,
     items: &mut [PlanItem],
+    held: &BTreeMap<String, String>,
     notes: &mut Vec<String>,
 ) {
     if !inputs.storage.single_copy {
@@ -98,7 +100,7 @@ pub(super) fn place(
     let (mut renamed, mut copies, mut converted, mut built) = (0, 0, 0, 0);
     let mut chds = 0;
     let (mut freed, mut written) = (0u64, 0u64);
-    for members in releases.values() {
+    for (_, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
         let placing: Vec<usize> = members
             .iter()
             .copied()
