@@ -765,8 +765,8 @@ fn a_cue_that_now_has_nothing_to_build_stays_with_its_track_and_in_its_releases_
 }
 
 /// Builds Duo as ISOs, then audits it with `absent` of its discs' images optional and gone from the source set, and
-/// stores the system's games as `storage` says; returns the folder, the Selection and the files the first build
-/// wrote.
+/// stores the system's games as `storage` says; returns the store, the folder, the Selection and the files the first
+/// build wrote.
 fn duo_built_then(
     absent: &[usize],
     storage: SystemStorage,
@@ -881,6 +881,63 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
             .all(|i| i.kind == ItemKind::Blocked),
         "{:?}",
         plan.content.items
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Saga (USA) is left as it is")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn a_disc_left_in_place_with_its_sbi_file_holds_none_of_its_release_back() {
+    let mut env = Env::new(StorageFormat::LooseFolder);
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        sbi: Some(true),
+        ..Default::default()
+    });
+    let folder = env.folder();
+    env.built(&folder, env.selection(&SAGA));
+    let before = env.files();
+    audit_with_absent_optional(
+        &mut env,
+        &[
+            (SAGA[0], "Saga (USA) (Disc 1).cue"),
+            (SAGA[0], "Saga (USA) (Disc 1) (Track 1).bin"),
+        ],
+    );
+    // Disc 2's track goes missing from the library: it is built again, beside Disc 1 and its SBI file.
+    let track = "Saga (USA).m3u/Saga (USA) (Disc 2) (Track 1).bin";
+    std::fs::remove_file(env.dir().join(track)).unwrap();
+    env.check(&folder);
+    let plan = env.built(&folder, env.selection(&SAGA));
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .any(|i| i.target == track && i.kind.writes()),
+        "{:?}",
+        plan.content.items
+    );
+    assert!(
+        !plan
+            .content
+            .notes
+            .iter()
+            .any(|n| n.contains("left as it is")),
+        "{:?}",
+        plan.content.notes
+    );
+    assert_eq!(env.files(), before);
+    assert_eq!(
+        read(&env, M3U),
+        "Saga (USA) (Disc 1).cue\nSaga (USA) (Disc 2).cue\n"
     );
 }
 
