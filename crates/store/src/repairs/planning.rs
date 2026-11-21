@@ -154,8 +154,6 @@ struct LayoutIndex<'a> {
     dat: &'a Dat,
     layout: Option<SetLayout>,
     laid: Laid,
-    /// Whether each Game, by its index, is placed, so laid out apart.
-    placed: Vec<bool>,
     /// Each ROM's index, by its Game and name.
     index: HashMap<(&'a str, &'a str), usize>,
 }
@@ -165,12 +163,10 @@ impl<'a> LayoutIndex<'a> {
         let layout = storage
             .set_layout
             .filter(|_| dat.format == DatFormat::Listxml);
-        let placed: Vec<bool> = dat.games.iter().map(|g| placed.contains_key(g)).collect();
         LayoutIndex {
             dat,
             layout,
-            laid: dat.laid_out_apart(layout, |g| placed[g]),
-            placed,
+            laid: dat.laid_out_apart(layout, |g| placed.contains_key(&dat.games[g])),
             index: dat
                 .roms
                 .iter()
@@ -244,10 +240,9 @@ impl<'a> LayoutIndex<'a> {
         Some(self.family(g))
     }
 
-    /// Whether Game `g` is laid out apart from its family, non-merged ([`Dat::laid_out_apart`]): it is placed, or its
-    /// parent is.
+    /// Whether Game `g` is laid out apart from its family, non-merged ([`Laid::apart`]): it is placed, or its parent is.
     fn apart(&self, g: usize) -> bool {
-        self.placed[g] || self.dat.family_parent(g).is_some_and(|p| self.placed[p])
+        self.laid.apart[g]
     }
 
     /// The layout Game `g`'s ZIP is laid out in: the Set Layout, or non-merged for a Game laid out apart.

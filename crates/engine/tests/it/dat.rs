@@ -202,6 +202,7 @@ fn a_game_stored_apart_and_its_clones_are_laid_out_non_merged_and_no_merged_zip_
         let laid = dat.laid_out_apart(Some(layout), |g| g == blaster);
         for g in [blaster, blasterj] {
             assert_eq!(names(&laid.roms[g]), names(&whole.roms[g]), "{layout:?}");
+            assert!(laid.apart[g], "{layout:?}");
         }
     }
 }

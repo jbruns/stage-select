@@ -57,6 +57,8 @@ pub struct Laid {
     /// The ROM each ROM is one with, by its index: under a layout, the ROM its `merge=` leads to at the top of the
     /// Games it is `romof` ([`Dat::shared_with`]), so two ROMs with one root are the same bytes; without, itself.
     pub roots: Vec<usize>,
+    /// Whether each Game, by its index, is laid out apart from its family, non-merged ([`Dat::laid_out_apart`]).
+    pub apart: Vec<bool>,
 }
 
 /// Whether ROMs `a` and `b` are alike: the same size, and every checksum both give equal.
@@ -975,13 +977,13 @@ impl Dat {
         self.laid_out_apart(layout, |_| false)
     }
 
-    /// As [`Dat::laid_out`], with each Game for which `stored_apart` holds, by its index, kept apart from the others, as
-    /// a Placed Game is in a Library Folder (ADR 0026): under any layout it is laid out non-merged, and a merged parent
-    /// holds none of its ROMs. So is each clone of it, which has no parent beside it to share ROMs with.
+    /// As [`Dat::laid_out`], with each Game for which `kept_apart` holds, by its index, kept apart from the others, as
+    /// a Placed Game is in a Library Folder (ADR 0026), and each clone of it, which has no parent beside it to share ROMs
+    /// with: under any layout each is laid out apart, non-merged, and a merged parent holds none of its ROMs.
     pub fn laid_out_apart(
         &self,
         layout: Option<SetLayout>,
-        stored_apart: impl Fn(usize) -> bool,
+        kept_apart: impl Fn(usize) -> bool,
     ) -> Laid {
         let mut roms_of: Vec<Vec<usize>> = vec![Vec::new(); self.games.len()];
         for (r, rom) in self.roms.iter().enumerate() {
@@ -992,6 +994,7 @@ impl Dat {
                 roms: roms_of.into_iter().map(Some).collect(),
                 left_out: Vec::new(),
                 roots: (0..self.roms.len()).collect(),
+                apart: vec![false; self.games.len()],
             };
         };
         let roots: Vec<usize> = (0..self.roms.len()).map(|r| self.shared_root(r)).collect();
@@ -1041,9 +1044,12 @@ impl Dat {
                 clones[*p].push(c);
             }
         }
+        let apart: Vec<bool> = (0..self.games.len())
+            .map(|g| kept_apart(g) || parents[g].is_some_and(&kept_apart))
+            .collect();
         let mut roms = Vec::with_capacity(self.games.len());
         for g in 0..self.games.len() {
-            let layout = match stored_apart(g) || parents[g].is_some_and(&stored_apart) {
+            let layout = match apart[g] {
                 true => SetLayout::NonMerged,
                 false => layout,
             };
@@ -1060,7 +1066,7 @@ impl Dat {
                         let mut all = unshared(g).chain(
                             clones[g]
                                 .iter()
-                                .filter(|&&c| !stored_apart(c))
+                                .filter(|&&c| !apart[c])
                                 .flat_map(|&c| unshared(c)),
                         );
                         Some(gather(g, &mut all))
@@ -1072,6 +1078,7 @@ impl Dat {
             roms,
             left_out,
             roots,
+            apart,
         }
     }
 

@@ -750,7 +750,7 @@ fn a_bios_whose_rom_only_a_placed_game_holds_is_missing_from_the_source_sets_fol
 }
 
 #[test]
-fn a_placed_game_is_repaired_apart_from_its_family_in_the_source_sets_folder() {
+fn a_placed_game_is_repaired_where_it_is_placed_apart_from_its_family() {
     let env = Env::with(listxml(Some("blaster")));
     env.zip("acmebios.zip", &["bios.u1"]);
     env.zip("acmesnd.zip", &["snd.u2"]);
