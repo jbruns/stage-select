@@ -2425,7 +2425,9 @@ fn kept_as(path: &str, names: &mut BTreeSet<String>) -> String {
 /// Appends to `steps` the steps that release each placed release of `applied`, before any other step (ADR 0023): a
 /// Keep step for each file laid out beside its CHDs, then one for each CHD of it still there, needing every one of
 /// those, so that a release is found again by its CHDs until the last of them is kept, and a file beside them that
-/// can't be set aside leaves the whole release placed. Nothing of a release is extracted, deleted, put home or filled, so each step ends with its file either still placed or kept: a
+/// can't be set aside leaves the whole release placed. A release every CHD of which is gone is found again by its
+/// records alone, which the last Keep of a file beside them drops: that Keep needs every one before it. Nothing of a
+/// release is extracted, deleted, put home or filled, so each step ends with its file either still placed or kept: a
 /// stop between them leaves a release with some discs placed and the rest kept, which the next repair releases.
 fn released_steps(
     i: &Inputs,
@@ -2466,6 +2468,9 @@ fn released_steps(
             });
             steps.len() as u32 - 1
         };
+        let gone = discs
+            .iter()
+            .all(|p| p.release.as_ref().is_some_and(|r| r.freed == Freed::Gone));
         let files: Vec<(&Proposed, &Released, &String)> = discs
             .iter()
             .flat_map(|p| {
@@ -2474,8 +2479,11 @@ fn released_steps(
             })
             .collect();
         let mut beside = Vec::new();
-        for (p, r, path) in &files {
-            let needs = Vec::new();
+        for (n, (p, r, path)) in files.iter().enumerate() {
+            let needs = match gone && n + 1 == files.len() {
+                true => beside.clone(),
+                false => Vec::new(),
+            };
             beside.push(keep(
                 p,
                 path,

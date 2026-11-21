@@ -3064,8 +3064,9 @@ impl Store {
 
     /// The other placed CHDs, by Library Folder and path, of the release that step `step`'s Game belongs to, when its
     /// Keep of `path` releases part of it: those it forgets if it finds them gone. A CHD's Keep forgets them; a Keep
-    /// of a file laid out beside the CHDs does only when the plan keeps none of them, every one being gone, so that a
-    /// release stays recorded by its CHDs until one of them is kept.
+    /// of a file laid out beside the CHDs does only when the plan keeps none of them, every one being gone, and only
+    /// when it is the release's last Keep, which needs every one before it: so a release stays recorded by its CHDs
+    /// until one of them is kept, and by its records until every file beside them is.
     fn other_placed_chds(
         &self,
         r: &Repairing,
@@ -3087,10 +3088,28 @@ impl Store {
                 |s| matches!(&s.step, RepairStep::Keep { path, .. } if *path == placed_path(*f, p)),
             )
         };
-        Ok(match this.is_empty() && others.iter().any(kept) {
-            true => Vec::new(),
-            false => others,
-        })
+        let last = r
+            .plan
+            .content
+            .steps
+            .iter()
+            .rposition(|s| {
+                matches!(s.step, RepairStep::Keep { .. })
+                    && r.plan
+                        .content
+                        .items
+                        .iter()
+                        .find(|i| i.key == s.item)
+                        .and_then(|i| i.game.as_deref())
+                        .is_some_and(|g| release_of(g) == release)
+            })
+            .is_some_and(|last| last == step.seq as usize);
+        Ok(
+            match this.is_empty() && (others.iter().any(kept) || !last) {
+                true => Vec::new(),
+                false => others,
+            },
+        )
     }
 
     /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then

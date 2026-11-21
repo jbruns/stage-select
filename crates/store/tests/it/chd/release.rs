@@ -1360,3 +1360,59 @@ fn a_gone_disc_put_back_as_its_release_is_released_stays_placed() {
         each_disc_once(&env, &folder, put_back, None);
     }
 }
+
+/// A release laid out flat both of whose CHDs are gone, and one of whose SBI files changed after the plan was made so
+/// that it can't be set aside, leaves both discs recorded: the gone placements are forgotten only with the last file
+/// beside them, which needs every one before it. With disc 2's SBI file changed, disc 1's is kept aside; with disc
+/// 1's changed, disc 2's is skipped. Audited again, the next repair finds the release by its records and sets the rest
+/// aside.
+#[test]
+fn a_release_whose_every_chd_is_gone_stays_recorded_until_its_last_side_file_is_kept() {
+    let Some(chdman) = chdman() else { return };
+    for changed in [2, 1] {
+        let mut env = Env::new(Some(&chdman));
+        let folder = flat_saga(&mut env, &chdman);
+        for n in 1..=2 {
+            std::fs::remove_file(env.dir().join(format!("Saga (USA) (Disc {n}).chd"))).unwrap();
+        }
+        env.audit(title_select_engine::AuditEvidence::Full);
+        let plan = env.repair_plan(&[]);
+        assert!(only_keeps(&plan), "{:#?}", plan.content.steps);
+        let sbi = env.dir().join(format!("Saga (USA) (Disc {changed}).sbi"));
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+                if at == Fault::RepairApproving {
+                    std::fs::write(&sbi, b"another SBI file").unwrap();
+                }
+            })));
+        env.repair(&plan);
+        env.store.hook_faults(None);
+        let kept: Vec<String> = match changed {
+            2 => vec![placed_path(folder.id, "Saga (USA) (Disc 1).sbi")],
+            _ => Vec::new(),
+        };
+        assert_eq!(env.set_kept(), kept, "disc {changed}'s SBI file changed");
+        assert_eq!(
+            env.placed_paths(),
+            ["Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd"],
+            "disc {changed}'s SBI file changed: both discs stay recorded"
+        );
+        assert!(
+            env.dir()
+                .join(format!("Saga (USA) (Disc {changed}).sbi"))
+                .exists()
+        );
+
+        env.audit(title_select_engine::AuditEvidence::Full);
+        env.repair(&env.repair_plan(&[]));
+        assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+        assert_eq!(
+            env.set_kept(),
+            [
+                placed_path(folder.id, "Saga (USA) (Disc 1).sbi"),
+                placed_path(folder.id, "Saga (USA) (Disc 2).sbi"),
+            ],
+            "disc {changed}'s SBI file changed"
+        );
+    }
+}
