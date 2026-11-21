@@ -764,7 +764,8 @@ fn a_cue_that_now_has_nothing_to_build_stays_with_its_track_and_in_its_releases_
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
 }
 
-/// Builds Duo as ISOs, then audits it with `absent` of its discs' images optional and gone from the source set, and
+/// Builds Duo as ISOs, then audits it with the images of the discs numbered `absent` optional and gone from the source
+/// set, and
 /// stores the system's games as `storage` says; returns the store, the folder, the Selection and the files the first
 /// build wrote.
 fn duo_built_then(
@@ -837,6 +838,43 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
         },
     );
     leaves_duo_as_it_is(&env, &folder, selection, &before);
+}
+
+#[test]
+fn a_release_with_a_file_gone_is_built_from_what_is_left_when_its_format_changes() {
+    let Some(_) = chdman() else { return };
+    let (env, folder, selection, _) = duo_built_then(
+        &[1],
+        SystemStorage {
+            format: Some(StorageFormat::Chd),
+            ..Default::default()
+        },
+    );
+    std::fs::remove_file(env.dir().join("Duo (USA).m3u/Duo (USA) (Disc 2).iso")).unwrap();
+    env.check(&folder);
+    let plan = env.built(&folder, selection);
+
+    assert!(
+        !plan
+            .content
+            .notes
+            .iter()
+            .any(|n| n.contains("Duo (USA) is left as it is")),
+        "{:?}",
+        plan.content.notes
+    );
+    assert_eq!(
+        env.files(),
+        [
+            "Duo (USA).m3u/Duo (USA) (Disc 1).iso",
+            "Duo (USA).m3u/Duo (USA) (Disc 2).chd",
+            "Duo (USA).m3u/Duo (USA).m3u",
+        ]
+    );
+    assert_eq!(
+        read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
+        "Duo (USA) (Disc 2).chd\n"
+    );
 }
 
 #[test]
@@ -930,7 +968,7 @@ fn a_disc_left_in_place_with_its_sbi_file_holds_none_of_its_release_back() {
             .content
             .notes
             .iter()
-            .any(|n| n.contains("left as it is")),
+            .any(|n| n.contains("Saga (USA) is left as it is")),
         "{:?}",
         plan.content.notes
     );

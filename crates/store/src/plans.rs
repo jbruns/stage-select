@@ -724,7 +724,7 @@ fn removals(
         }
         if nothing.left.contains(target) {
             out.push(leave(format!(
-                "{} has nothing to build at {target} now, so it is left as it is",
+                "{} has nothing to build at {target} now, so {target} is left as it is",
                 built.game
             )));
             continue;
@@ -1782,31 +1782,33 @@ fn plan_items(
     // A selected Game with nothing to build at a file of it, whose files from an earlier Build are still there in a
     // format or layout the plan no longer lays it out in, holds its release back: those files stay, so nothing else of
     // the release is written, moved, placed or kept aside, and its `.m3u` and SBI files stay as they are. A disc's SBI
-    // file is generated beside it, never one of its files.
+    // file is generated beside it, never one of its files. A release only goes on as it was while the check finds
+    // every file built for it there: one with a file gone is built from what is left, as any other is.
     for (_, title) in &winners {
         let Some(at) = unbuilt_of(title).into_iter().next() else {
             continue;
         };
+        let release = release_of(title);
         let targets: Vec<String> = files_of(title).into_iter().map(|(t, ..)| t).collect();
         let earlier = inputs.built.iter().find(|(target, b)| {
             b.game == *title
                 && !b.roms.is_empty()
                 && !targets.contains(target)
-                && scan.is_some_and(|s| {
-                    s.files
-                        .iter()
-                        .any(|f| f.target == **target && f.outcome != FileOutcome::Missing)
-                })
+                && found(scan, target)
         });
-        if let Some((from, _)) = earlier {
-            let release = release_of(title);
+        let whole = inputs
+            .built
+            .iter()
+            .filter(|(_, b)| release_of(&b.game) == release)
+            .all(|(target, _)| found(scan, target));
+        if let Some((from, _)) = earlier.filter(|_| whole) {
             nothing.held.entry(release.clone()).or_insert_with(|| {
                 let why = format!(
                     "{title} has nothing to build at {at}, and {from}, built for it before, is still there"
                 );
                 notes.push(format!(
-                    "{release} is left as it is: {why}. Nothing of {release} is written, moved or kept aside until \
-                     an audit finds a ROM of {title} again, or you store its system as it was"
+                    "{release} is left as it is: {why}. Nothing of it is written, moved or kept aside until an audit \
+                     finds a ROM of {title}, or you move {from} out of the folder to build {release} without it"
                 ));
                 why
             });
@@ -2005,10 +2007,19 @@ fn builds(kind: ItemKind) -> bool {
 struct NothingToBuild {
     /// Each selected Game with nothing to build at a file of it, once for each such file.
     games: Vec<String>,
-    /// The files a build wrote for a disc there, with nothing to build at them now, that stay with it in its release.
+    /// The files a Build wrote for a disc there, with nothing to build at them now, that stay with it in its release.
     left: HashSet<String>,
     /// Each release held back, left as it is whole, with why.
     held: BTreeMap<String, String>,
+}
+
+/// Whether `scan` found a file at `target`, as built or not.
+fn found(scan: Option<&Scan>, target: &str) -> bool {
+    scan.is_some_and(|s| {
+        s.files
+            .iter()
+            .any(|f| f.target == target && f.outcome != FileOutcome::Missing)
+    })
 }
 
 /// Whether `scan` found the file built at `target` as the build wrote it, or holding the same ROMs.
