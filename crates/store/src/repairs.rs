@@ -3029,7 +3029,8 @@ impl Store {
 
     /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first. A
     /// placed CHD, or a file laid out beside a release's CHDs, kept aside releases what it is of the release, and each
-    /// disc of the release whose CHD is gone is then no longer placed either.
+    /// disc of the release whose CHD is gone is then no longer placed either: each forgotten only while its Library
+    /// Folder is still the one at its path and nothing is at its path.
     #[allow(clippy::too_many_arguments)]
     fn run_keep(
         &self,
@@ -3044,10 +3045,9 @@ impl Store {
         let kept_placed = split_placed(path).map(|(folder, rel)| (folder, rel.to_owned()));
         let others = self.other_placed_chds(r, step, path)?;
         let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
-            // The placed file kept, then each gone disc, is looked for again at its path as the Keep is recorded, and
-            // forgotten only while nothing is there and its Library Folder is still the one at its path. One put back
-            // since, or in a folder that can't be shown to be the one at its path, stays placed, and the kept copy stays
-            // kept: the release is then parted, for the next repair to release the rest of.
+            // Each is looked for again as the Keep is recorded: one put back since, or in a folder that can't be shown to
+            // be the one at its path, stays placed, and the kept copy stays kept, so the release is parted, for the next
+            // repair to release the rest of.
             for (folder, placed) in kept_placed.iter().chain(&others) {
                 if self.held_in_place(config, r, *folder)?.is_ok()
                     && r.holds(&placed_path(*folder, placed)).map_err(io_err)? == Some(false)

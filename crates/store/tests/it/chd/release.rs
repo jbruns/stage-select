@@ -654,8 +654,8 @@ fn a_two_disc_release_with_a_damaged_disc_sets_every_disc_aside() {
         assert_eq!(item.chosen, RepairChoice::KeepAside, "{item:?}");
         assert!(
             item.note.as_deref().is_some_and(|n| n.contains(
-                "a game's discs are never split, so this sets every disc of Saga (USA) aside in your source set's \
-                 kept files"
+                "a repair never sets one disc of a game aside alone, so this sets every disc of Saga (USA) aside \
+                 in your source set's kept files"
             )),
             "{item:?}"
         );
@@ -1825,9 +1825,57 @@ fn a_chd_put_back_in_a_replaced_folder(across: bool) {
     );
 }
 
+/// The play library folder moved away and made again, with everything in it moved into the new one and disc 2's CHD
+/// put back, as disc 2's Keep is recorded: the folder held is no longer the one at its path, so disc 2 stays placed and
+/// its copy stays kept, and the next repair after a full audit sets disc 2 aside again.
+#[test]
+fn a_chd_put_back_in_a_replaced_library_folder_as_its_keep_is_recorded_stays_placed() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    let plan = env.repair_plan(&[]);
+    let seq = keeping(&plan, SAGA_CHDS[1]);
+    let path = env.dir().join(SAGA_CHDS[1]);
+    let bytes = std::fs::read(&path).unwrap();
+    let lib = env.dir();
+    let away = env.tmp.path().join("moved-library");
+    let restored = path.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairMoved(seq) {
+                std::fs::rename(&lib, &away).unwrap();
+                std::fs::create_dir(&lib).unwrap();
+                for entry in std::fs::read_dir(&away).unwrap() {
+                    let entry = entry.unwrap();
+                    std::fs::rename(entry.path(), lib.join(entry.file_name())).unwrap();
+                }
+                std::fs::write(&restored, &bytes).unwrap();
+            }
+        })));
+    env.repair(&plan);
+    env.store.hook_faults(None);
+    assert!(path.is_file());
+    assert!(
+        env.set_kept()
+            .contains(&placed_path(folder.id, SAGA_CHDS[1]))
+    );
+    assert!(
+        env.placed_paths().contains(&SAGA_CHDS[1].to_owned()),
+        "a restored CHD is orphaned: {:?}",
+        env.placed_paths()
+    );
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let next = env.repair_plan(&[]);
+    assert!(only_keeps(&next), "{:#?}", next.content);
+    keeping(&next, SAGA_CHDS[1]);
+    env.repair(&next);
+    assert!(!path.exists());
+    assert!(env.placed_paths().is_empty(), "{:?}", env.placed_paths());
+}
+
 /// Both CHDs and the .m3u gone, disc 2 filled in the source set by a repair approved before disc 1's CHD was put back
-/// by hand: the release is split, as on main. The next full audit finds disc 1's CHD placed, and the next repair
-/// writes nothing more for either disc.
+/// by hand: the release is split, a limit the README states. The next full audit finds disc 1's CHD placed, and the
+/// next repair writes nothing more for either disc.
 #[test]
 fn a_release_split_by_a_chd_put_back_after_its_repair_was_approved_is_written_no_further() {
     let Some(chdman) = chdman() else { return };

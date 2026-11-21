@@ -799,8 +799,8 @@ fn released_note(game: &str, r: &Released) -> String {
              delete it once you no longer need it"
         ),
         (true, _) => format!(
-            "A repair can't fix a CHD in place, and a game's discs are never split, so {this} every disc of \
-             {release} aside in your source set's kept files, each CHD as it is, with the files laid out beside them, \
+            "A repair can't fix a CHD in place, and a repair never sets one disc of a game aside alone, so {this} \
+             every disc of {release} aside in your source set's kept files, each CHD as it is, with the files laid out beside them, \
              where you can delete them once you no longer need them"
         ),
     };
@@ -1887,8 +1887,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .and_then(|g| Some((placed_releases.get(&release_of(&g)).copied()?, g)));
         let note = match sibling {
             Some((chd, game)) => format!(
-                "left as it is: {chd}, a disc of {}, is still placed as a CHD in a play library folder. A game's \
-                 discs are never split, so {game} isn't repaired in your source set while one is placed. Run a full \
+                "left as it is: {chd}, a disc of {}, is still placed as a CHD in a play library folder. A repair \
+                 never splits a game's discs, so {game} isn't repaired in your source set while one is placed. Run a full \
                  audit: if a placed CHD of the game doesn't verify or is gone, the next repair sets the game's CHDs \
                  aside in your source set's kept files, and the repair after the audit rebuilds the game",
                 release_of(&game)
