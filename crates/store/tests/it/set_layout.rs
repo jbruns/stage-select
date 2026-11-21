@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use title_select_api::build::AddLibraryFolder;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use title_select_api::selection::SelectionProfile;
 use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
 use title_select_engine::build::is_torrentzip;
@@ -25,6 +27,8 @@ fn payload(name: &str) -> &'static [u8] {
         "prog.u3" => b"program",
         "gfx.u4" | "gfxj.u4" => b"graphics",
         "progj.u3" => b"program j",
+        // The BIOS's ROM, under a name of a Game's own.
+        "gamebios.u1" => b"bios",
         // Under the name of a nodump ROM, which no file matches.
         "pal.u5" => b"pal?",
         other => panic!("no ROM {other}"),
@@ -105,7 +109,8 @@ fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
     zips
 }
 
-/// A store with the MAME Source Set `mame` in the Root `sets`, which lets repairs write it.
+/// A store with the MAME Source Set `mame` in the Root `sets`, which lets repairs write it, and the writable Root `play`
+/// for a Library Folder.
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
@@ -122,9 +127,11 @@ impl Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("sets");
         std::fs::create_dir_all(sets.join("mame")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("play")).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n",
+            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
             sets.display().to_string(),
+            tmp.path().join("play").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
@@ -150,15 +157,46 @@ impl Env {
 
     /// Writes `zip` as TorrentZip, holding `members`.
     fn zip(&self, zip: &str, members: &[&str]) {
-        let mut members = members.to_vec();
-        members.sort_by(|a, b| torrentzip::compare_names(a, b));
-        let file = std::fs::File::create_new(self.set().join(zip)).unwrap();
-        let mut writer = torrentzip::Writer::new(file).unwrap();
-        for m in members {
-            let p = payload(m);
-            writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
-        }
-        writer.finish().unwrap();
+        write_zip(&self.set().join(zip), members);
+    }
+
+    /// The Library Folder `arcade`, bound to the Source Set and so holding its Placed Games.
+    fn library(&self) -> PathBuf {
+        self.tmp.path().join("play/arcade")
+    }
+
+    /// Writes `game`'s TorrentZip holding `members` in the Library Folder `arcade`, which it adds, and records it placed
+    /// there, as Single Copy places a self-contained Game.
+    fn place(&self, game: &str, members: &[&str]) {
+        self.store
+            .save_profile(
+                "Mine",
+                &SelectionProfile::default(),
+                None,
+                "Operator",
+                &[],
+                WORKERS,
+            )
+            .unwrap();
+        let folder = self
+            .store
+            .add_library_folder(
+                &self.config,
+                &AddLibraryFolder {
+                    root: "play".into(),
+                    path: Some("arcade".into()),
+                    template: None,
+                    source_set: "mame".into(),
+                    profile: "Mine".into(),
+                },
+            )
+            .unwrap();
+        std::fs::create_dir_all(self.library()).unwrap();
+        let name = format!("{game}.zip");
+        write_zip(&self.library().join(&name), members);
+        self.store
+            .record_placement(&self.config, "mame", game, folder.id, &[&name])
+            .unwrap();
     }
 
     /// Sets the MAME system's set layout.
@@ -233,6 +271,19 @@ impl Env {
         others.sort();
         (zips, others)
     }
+}
+
+/// Writes the TorrentZip `path`, holding `members`.
+fn write_zip(path: &Path, members: &[&str]) {
+    let mut members = members.to_vec();
+    members.sort_by(|a, b| torrentzip::compare_names(a, b));
+    let file = std::fs::File::create_new(path).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    for m in members {
+        let p = payload(m);
+        writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
+    }
+    writer.finish().unwrap();
 }
 
 fn members(path: &Path) -> Vec<String> {
@@ -553,4 +604,87 @@ fn choosing_to_repair_one_game_of_a_family_another_is_left_by_default_is_refused
             .unwrap();
         assert_ne!(item.chosen, RepairChoice::Leave, "{item:#?}");
     }
+}
+
+#[test]
+fn a_placed_game_stays_self_contained_whatever_the_source_sets_layout() {
+    for layout in SetLayout::ALL {
+        for placed in ["blaster", "blasterj"] {
+            a_placed_game_stays_self_contained_under(layout, placed);
+        }
+    }
+}
+
+/// The family is stored non-merged with `placed` placed in a Library Folder, its BIOS and device ROMs inside; you
+/// change the set layout to `layout` and apply every item as it is by default. A split clone whose parent is placed
+/// keeps the ROMs it shares with it, the only copy in the source set's folder, so it may stay as it is.
+fn a_placed_game_stays_self_contained_under(layout: SetLayout, placed: &str) {
+    let env = Env::new();
+    let mut stored = family(SetLayout::NonMerged);
+    let at = stored
+        .iter()
+        .position(|(zip, _)| *zip == format!("{placed}.zip"))
+        .unwrap();
+    let (_, own) = stored.remove(at);
+    for (zip, members) in &stored {
+        env.zip(zip, members);
+    }
+    env.place(placed, &own);
+    env.layout(layout);
+    env.audit();
+
+    let plan = env.plan();
+
+    assert!(
+        (plan.content.items.iter()).all(|i| i.game.as_deref() != Some(placed)),
+        "{layout:?}, {placed}: {:#?}",
+        plan.content.items
+    );
+    let report = env.approve(&plan);
+    let zip = env.library().join(format!("{placed}.zip"));
+    assert_eq!(members(&zip), own, "{layout:?}, {placed}");
+    assert!(is_torrentzip(&zip), "{layout:?}, {placed}");
+    verified(&report);
+    assert!(
+        (env.plan().content.items.iter()).all(|i| i.chosen == RepairChoice::Leave),
+        "{layout:?}, {placed}: nothing more to repair"
+    );
+}
+
+#[test]
+fn a_placed_game_keeps_its_bios_rom_named_its_own_way_when_the_set_layout_turns_split() {
+    let env = Env::with(listxml(None).replacen(
+        &rom("bios.u1", Some("bios.u1")),
+        &rom("gamebios.u1", Some("bios.u1")),
+        1,
+    ));
+    // The BIOS's ZIP needs repacking: it isn't TorrentZip.
+    let mut bios =
+        zip::ZipWriter::new(std::fs::File::create_new(env.set().join("acmebios.zip")).unwrap());
+    bios.start_file("bios.u1", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    std::io::Write::write_all(&mut bios, payload("bios.u1")).unwrap();
+    bios.finish().unwrap();
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    env.zip(
+        "blasterj.zip",
+        &["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"],
+    );
+    let own = ["gamebios.u1", "gfx.u4", "prog.u3", "snd.u2"];
+    env.place("blaster", &own);
+    env.layout(SetLayout::Split);
+    env.audit();
+
+    let plan = env.plan();
+    assert!(
+        (plan.content.items.iter())
+            .any(|i| i.key == "game:acmebios" && i.chosen == RepairChoice::Apply),
+        "{:#?}",
+        plan.content.items
+    );
+    let report = env.approve(&plan);
+
+    assert_eq!(members(&env.library().join("blaster.zip")), own);
+    assert!(is_torrentzip(&env.set().join("acmebios.zip")));
+    verified(&report);
 }

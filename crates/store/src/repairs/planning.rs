@@ -141,7 +141,9 @@ type RomKey = (String, String);
 
 /// Where the Set Layout keeps each ROM (ADR 0026): the ROMs each Game's ZIP or folder holds, and which ROMs are one ROM
 /// shared through `merge=`. Only a ListXML DAT has a Set Layout; for any other, each Game holds the ROMs it lists and
-/// every ROM is only itself.
+/// every ROM is only itself. The layout is the Source Set's, for the files in its folder: a Placed Game is a Library
+/// Folder's self-contained Game, so it is laid out non-merged whatever the layout, and no repair strips the BIOS or
+/// device ROMs it runs with or adds its clones' to it.
 struct LayoutIndex<'a> {
     dat: &'a Dat,
     layout: Option<SetLayout>,
@@ -151,14 +153,30 @@ struct LayoutIndex<'a> {
 }
 
 impl<'a> LayoutIndex<'a> {
-    fn of(dat: &'a Dat, storage: Storage) -> Self {
+    fn of(dat: &'a Dat, storage: Storage, placed: &HashMap<String, Located>) -> Self {
         let layout = storage
             .set_layout
             .filter(|_| dat.format == DatFormat::Listxml);
+        let mut laid = dat.laid_out(layout);
+        let is_placed = |g: usize| placed.contains_key(&dat.games[g]);
+        if layout.is_some_and(|l| l != SetLayout::NonMerged) && !placed.is_empty() {
+            let whole = dat.laid_out(Some(SetLayout::NonMerged));
+            for (g, roms) in whole
+                .roms
+                .into_iter()
+                .enumerate()
+                .filter(|(g, _)| is_placed(*g))
+            {
+                laid.roms[g] = roms;
+            }
+            laid.left_out.retain(|&(g, _)| !is_placed(g));
+            laid.left_out
+                .extend(whole.left_out.into_iter().filter(|&(g, _)| is_placed(g)));
+        }
         LayoutIndex {
             dat,
             layout,
-            laid: dat.laid_out(layout),
+            laid,
             index: dat
                 .roms
                 .iter()
@@ -1489,7 +1507,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         &mut notes,
     );
     let mut good: BTreeSet<String> = BTreeSet::new();
-    let layout_index = LayoutIndex::of(i.dat, i.storage);
+    let layout_index = LayoutIndex::of(i.dat, i.storage, i.placed);
     for &(game, r) in &layout_index.laid.left_out {
         let (owner, name) = layout_index.key(r);
         notes.push(format!(
@@ -1513,13 +1531,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .iter()
         .map(|g| (g.name.as_str(), g))
         .collect();
-    // Where each Game is: where it is placed, or else where every file the Audit found holding a ROM of it is.
+    // Where each Game is: where it is placed, or else where every file the Audit found holding a ROM of it is, but for
+    // another Game's Placed files, which hold a copy of each BIOS or device ROM that Game runs with.
     let mut found_at: HashMap<&str, BTreeSet<Located>> = HashMap::new();
     for ((game, _), paths) in &held_by {
-        found_at
-            .entry(game.as_str())
-            .or_default()
-            .extend(paths.iter().map(|p| located(p)));
+        found_at.entry(game.as_str()).or_default().extend(
+            (paths.iter())
+                .filter(|p| i.placed_files.get(**p).is_none_or(|of| of == game))
+                .map(|p| located(p)),
+        );
     }
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = &wanted[index];
@@ -1563,11 +1583,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     true => placed_path(*folder, name),
                     false => placed_path(*folder, &format!("{dir}/{name}")),
                 };
+                // Its own files: the BIOS or device ROMs it holds are also in those Games' files.
                 let held: BTreeSet<&str> = roms
                     .iter()
                     .filter_map(|r| held_by.get(&(game.clone(), r.name.clone())))
                     .flatten()
                     .copied()
+                    .filter(|p| i.placed_files.get(*p) == Some(game))
                     .collect();
                 placed_as = match (held.iter().next(), roms.as_slice()) {
                     (Some(only), _) if held.len() == 1 && name_is_zip(only) => {
