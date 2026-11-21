@@ -420,3 +420,74 @@ fn a_machine_that_names_no_language_ties_with_the_first_language() {
     assert_eq!(gauntlet.winners[0].title, "gauntlet");
     assert_eq!(gauntlet.alternatives[0].rule.stage, "election:language");
 }
+
+#[test]
+fn a_newer_six_digit_date_beats_an_older_eight_digit_one_in_the_election() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("fighter.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="fighter"><description>Fighter (World 900101)</description>
+    <display type="raster" rotate="0"/><driver status="preliminary"/></machine>
+  <machine name="fighterb" cloneof="fighter"><description>Fighter (World 19900101)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="fighterc" cloneof="fighter"><description>Fighter (World 990101)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let selection = run(&dat, &ArcadeSettings::default()).selection;
+    let fighter = group(&selection, "fighter");
+    assert_eq!(fighter.winners[0].title, "fighterc");
+    assert_eq!(fighter.alternatives[0].title, "fighterb");
+    assert_eq!(fighter.alternatives[0].rule.stage, "election:revision");
+}
+
+/// A comment longer than any prefix a sniff might read.
+fn long_preamble() -> String {
+    format!(
+        "<?xml version=\"1.0\"?>\n<!-- {} -->\n",
+        "a long preamble ".repeat(1 << 17)
+    )
+}
+
+#[test]
+fn a_listxml_behind_a_long_preamble_goes_to_the_arcade_selector() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("listxml.xml");
+    let listxml = std::fs::read_to_string(data("arcade.xml")).unwrap();
+    let body = listxml.split_once("?>").map_or(&*listxml, |(_, body)| body);
+    std::fs::write(&dat, long_preamble() + body).unwrap();
+    assert!(std::fs::metadata(&dat).unwrap().len() > 1 << 21);
+    let engine = engine();
+    assert_eq!(engine.systems(&[&dat]).unwrap(), [Some("MAME".to_owned())]);
+    let selection = engine
+        .run(&dat, &SelectionProfile::default(), &support::options())
+        .unwrap()
+        .selection;
+    assert!(selection.pins.arcade.is_some());
+}
+
+#[test]
+fn a_software_list_behind_a_long_preamble_is_refused() {
+    let work = tempfile::tempdir().unwrap();
+    let list = work.path().join("list.xml");
+    std::fs::write(
+        &list,
+        long_preamble()
+            + r#"<softwarelist name="acme_cart" description="Acme cartridges">
+  <software name="game"><description>Game</description></software>
+</softwarelist>
+"#,
+    )
+    .unwrap();
+    let engine = engine();
+    assert_eq!(engine.systems(&[&list]).unwrap(), [None]);
+    let error = engine
+        .run(&list, &SelectionProfile::default(), &support::options())
+        .unwrap_err();
+    assert_eq!(error.to_string(), SOFTWARE_LIST_REFUSAL);
+}

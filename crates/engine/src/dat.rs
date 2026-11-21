@@ -293,6 +293,16 @@ fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
     Ok(out)
 }
 
+/// The format a DAT's root element names, or `None` for one this reader doesn't know.
+fn root_format(root: &BytesStart) -> Option<DatFormat> {
+    match root.local_name().as_ref() {
+        "datafile" => Some(DatFormat::Logiqx),
+        "mame" => Some(DatFormat::Listxml),
+        "softwarelist" => Some(DatFormat::SoftwareList),
+        _ => None,
+    }
+}
+
 /// A number attribute; none if it is absent or no number.
 fn number<T: std::str::FromStr>(a: &HashMap<String, String>, key: &str) -> Option<T> {
     a.get(key).and_then(|v| v.parse().ok())
@@ -350,20 +360,18 @@ impl Dat {
                 Event::Start(e) if stack.is_empty() => {
                     let tag = e.local_name().as_ref().to_string();
                     let a = attrs(&e)?;
-                    root = match tag.as_str() {
-                        "datafile" => Some(DatFormat::Logiqx),
-                        "mame" => {
+                    root = root_format(&e);
+                    match root {
+                        Some(DatFormat::Listxml) => {
                             dat.name = "MAME".into();
                             dat.version = a.get("build").cloned().unwrap_or_default();
-                            Some(DatFormat::Listxml)
                         }
-                        "softwarelist" => {
+                        Some(DatFormat::SoftwareList) => {
                             dat.name = a.get("name").cloned().unwrap_or_default();
                             dat.description = a.get("description").cloned();
-                            Some(DatFormat::SoftwareList)
                         }
-                        _ => None,
-                    };
+                        Some(DatFormat::Logiqx) | None => {}
+                    }
                     stack.push(tag);
                 }
                 Event::Start(e) => {
@@ -452,24 +460,19 @@ impl Dat {
         Ok(dat)
     }
 
-    /// The format of the DAT whose bytes begin with `prefix`, by its root element, or `None` when `prefix` is no XML
-    /// this reader knows, such as a ClrMamePro DAT, or holds no root element.
-    pub fn format_of(prefix: &[u8]) -> Option<DatFormat> {
-        let mut reader = quick_xml::Reader::from_reader(prefix);
+    /// The format of the DAT `reader` reads, by its root element as [`Dat::parse`] finds it: the first element at the
+    /// top level, however long the prologue before it. `None` when that root is no element this reader knows, when
+    /// there is none, as in a ClrMamePro DAT, or when the XML breaks before it. Only an I/O error is an error.
+    pub fn format_of(reader: impl std::io::BufRead) -> Result<Option<DatFormat>, Error> {
+        let mut reader = quick_xml::Reader::from_reader(reader);
         let mut buf = Vec::new();
         loop {
-            match reader.read_event_into(&mut buf).ok()? {
-                Event::Start(e) | Event::Empty(e) => {
-                    return match e.local_name().as_ref() {
-                        "datafile" => Some(DatFormat::Logiqx),
-                        "mame" => Some(DatFormat::Listxml),
-                        "softwarelist" => Some(DatFormat::SoftwareList),
-                        _ => None,
-                    };
-                }
-                Event::Text(t) if !AsRef::<str>::as_ref(&t).trim().is_empty() => return None,
-                Event::Eof => return None,
-                _ => {}
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => return Ok(root_format(&e)),
+                Ok(Event::Eof) => return Ok(None),
+                Err(quick_xml::Error::Io(err)) => return Err(Error::Dat(err.to_string())),
+                Err(_) => return Ok(None),
+                Ok(_) => {}
             }
             buf.clear();
         }

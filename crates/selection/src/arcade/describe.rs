@@ -170,7 +170,7 @@ fn language(part: &str) -> Option<String> {
 }
 
 /// Reads "ver 1.2", "v1.2", "rev B", "Rev. 2" and a six- or eight-digit date into `[major, minor, patch, revision,
-/// date]`.
+/// date]`, the date as `YYYYMMDD` (see [`date`]).
 fn revision(part: &str, out: &mut [u32; 5]) {
     let words: Vec<&str> = part.split_whitespace().collect();
     for (i, word) in words.iter().enumerate() {
@@ -194,13 +194,27 @@ fn revision(part: &str, out: &mut [u32; 5]) {
                     .and_then(version)
                 {
                     out[..3].copy_from_slice(&v);
-                } else if (word.len() == 6 || word.len() == 8)
-                    && word.bytes().all(|b| b.is_ascii_digit())
-                {
-                    out[4] = word.parse().unwrap_or(0);
+                } else if let Some(date) = date(word) {
+                    out[4] = date;
                 }
             }
         }
+    }
+}
+
+/// A `YYMMDD` or `YYYYMMDD` date as `YYYYMMDD`, so both forms compare as one calendar. Research 0105 doesn't say how
+/// a date is read: MAME's arcade machines date from the 1970s on, so a two-digit year from 70 is in the 1900s and one
+/// below 70 in the 2000s.
+fn date(word: &str) -> Option<u32> {
+    if !word.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u32 = word.parse().ok()?;
+    match word.len() {
+        8 => Some(n),
+        6 if n / 10_000 >= 70 => Some(19_000_000 + n),
+        6 => Some(20_000_000 + n),
+        _ => None,
     }
 }
 
@@ -266,6 +280,30 @@ mod tests {
         assert!(rev("Shooter (v1.10)") > rev("Shooter (v1.2)"));
         assert_eq!(rev("Shooter (US, V 1.2)"), rev("Shooter (US, ver 1.2)"));
         assert!(rev("Fighter (World 910522)") > rev("Fighter (World 910411)"));
+    }
+
+    #[test]
+    fn six_and_eight_digit_dates_compare_as_one_calendar() {
+        let rev = |d: &str| describe(d, None).revision;
+        assert!(rev("Fighter (World 990101)") > rev("Fighter (World 19900101)"));
+        assert_eq!(
+            rev("Fighter (World 990101)"),
+            rev("Fighter (World 19990101)")
+        );
+        // Two-digit years from 70 are the 1900s, the rest the 2000s.
+        assert!(rev("Fighter (World 010101)") > rev("Fighter (World 991231)"));
+        assert_eq!(
+            rev("Fighter (World 700101)"),
+            rev("Fighter (World 19700101)")
+        );
+        assert_eq!(
+            rev("Fighter (World 691231)"),
+            rev("Fighter (World 20691231)")
+        );
+        assert_eq!(
+            describe("Fighter (World 990101)", None).revision[4],
+            19990101
+        );
     }
 
     #[test]

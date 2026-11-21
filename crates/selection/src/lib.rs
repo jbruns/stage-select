@@ -445,15 +445,12 @@ fn expected_pins() -> Result<SelectionPins, Error> {
     })
 }
 
-/// The format of the DAT at `path`, by the root element in its first MiB, or `None` for one this reader doesn't know,
-/// such as a ClrMamePro DAT, which the Retool port reads.
+/// The format of the DAT at `path`, by its root element as `Dat::read` finds it, or `None` for one this reader doesn't
+/// know, such as a ClrMamePro DAT, which the Retool port reads.
 fn format_of(path: &Path) -> Result<Option<DatFormat>, Error> {
     let file = File::open(path).map_err(io(path.display().to_string()))?;
-    let mut prefix = Vec::new();
-    file.take(1 << 20)
-        .read_to_end(&mut prefix)
-        .map_err(io(path.display().to_string()))?;
-    Ok(title_select_engine::dat::Dat::format_of(&prefix))
+    title_select_engine::dat::Dat::format_of(std::io::BufReader::new(file))
+        .map_err(|e| Error::Dat(format!("{}: {e}", path.display())))
 }
 
 fn sha256_file(path: &Path) -> Result<String, Error> {

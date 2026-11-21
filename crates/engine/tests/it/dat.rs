@@ -741,8 +741,8 @@ fn a_software_list_gives_machines_that_know_nothing_and_no_disks() {
 }
 
 #[test]
-fn a_dats_format_is_known_by_its_root_element_from_its_first_bytes() {
-    let format = |text: &str| Dat::format_of(text.as_bytes());
+fn a_dats_format_is_known_by_its_root_element() {
+    let format = |text: &str| Dat::format_of(text.as_bytes()).unwrap();
     assert_eq!(
         format(
             "<?xml version=\"1.0\"?>\n<!DOCTYPE mame [\n<!ELEMENT mame (machine+)>\n]>\n<mame build=\"0.289\">"
@@ -760,4 +760,30 @@ fn a_dats_format_is_known_by_its_root_element_from_its_first_bytes() {
     assert_eq!(format("clrmamepro (\n\tname \"Test\"\n)"), None);
     assert_eq!(format("<?xml version=\"1.0\"?><catalogue>"), None);
     assert_eq!(format(""), None);
+    assert_eq!(format("<?xml version=\"1.0\"?><datafile"), None);
+}
+
+#[test]
+fn a_dats_format_is_found_past_a_prologue_of_any_length() {
+    let preamble = format!(
+        "<?xml version=\"1.0\"?>\n<!-- {} -->\n",
+        "x".repeat(4 << 20)
+    );
+    for (root, format) in [
+        ("<mame build=\"0.289\"></mame>", DatFormat::Listxml),
+        (
+            "<softwarelist name=\"nes\"></softwarelist>",
+            DatFormat::SoftwareList,
+        ),
+    ] {
+        let text = preamble.clone() + root;
+        let reader = std::io::BufReader::with_capacity(1 << 16, text.as_bytes());
+        assert_eq!(Dat::format_of(reader).unwrap(), Some(format));
+        assert_eq!(
+            Dat::parse(text.as_bytes(), Path::new("dat.xml"))
+                .unwrap()
+                .format,
+            format
+        );
+    }
 }

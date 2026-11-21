@@ -589,7 +589,7 @@ const STEPS: &[Step] = &[
     },
 ];
 
-/// A revision as its description gives it: "version 1.2.0, rev 2, dated 910522".
+/// A revision as its description gives it: "version 1.2.0, rev 2, dated 19910522".
 fn revision_text(revision: [u32; 5]) -> String {
     let [major, minor, patch, rev, date] = revision;
     let mut parts = Vec::new();
