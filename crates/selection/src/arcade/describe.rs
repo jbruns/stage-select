@@ -204,18 +204,29 @@ fn revision(part: &str, out: &mut [u32; 5]) {
 
 /// A `YYMMDD` or `YYYYMMDD` date as `YYYYMMDD`, so both forms compare as one calendar. Research 0105 doesn't say how
 /// a date is read: MAME's arcade machines date from the 1970s on, so a two-digit year from 70 is in the 1900s and one
-/// below 70 in the 2000s.
+/// below 70 in the 2000s. A number that is no calendar date, such as `000000` or `991332`, is none: like any revision
+/// that can't be read, it ranks as naming none.
 fn date(word: &str) -> Option<u32> {
     if !word.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     let n: u32 = word.parse().ok()?;
-    match word.len() {
-        8 => Some(n),
-        6 if n / 10_000 >= 70 => Some(19_000_000 + n),
-        6 => Some(20_000_000 + n),
-        _ => None,
-    }
+    let date = match word.len() {
+        8 => n,
+        6 if n / 10_000 >= 70 => 19_000_000 + n,
+        6 => 20_000_000 + n,
+        _ => return None,
+    };
+    let (year, month, day) = (date / 10_000, date / 100 % 100, date % 100);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    (1..=days).contains(&day).then_some(date)
 }
 
 fn version(text: &str) -> Option<[u32; 3]> {
@@ -304,6 +315,25 @@ mod tests {
             describe("Fighter (World 990101)", None).revision[4],
             19990101
         );
+    }
+
+    #[test]
+    fn a_number_that_is_no_calendar_date_names_no_date() {
+        let date = |d: &str| describe(d, None).revision[4];
+        for impossible in [
+            "000000", "991332", "990001", "991300", "990230", "19990230", "20000000", "19991232",
+        ] {
+            assert_eq!(
+                date(&format!("Fighter (World {impossible})")),
+                0,
+                "{impossible}"
+            );
+        }
+        assert_eq!(date("Fighter (World 960229)"), 19960229);
+        assert_eq!(date("Fighter (World 20000229)"), 20000229);
+        assert_eq!(date("Fighter (World 990229)"), 0);
+        assert_eq!(date("Fighter (World 19000229)"), 0);
+        assert_eq!(date("Fighter (World 991231)"), 19991231);
     }
 
     #[test]

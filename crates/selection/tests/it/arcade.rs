@@ -491,3 +491,69 @@ fn a_software_list_behind_a_long_preamble_is_refused() {
         .unwrap_err();
     assert_eq!(error.to_string(), SOFTWARE_LIST_REFUSAL);
 }
+
+#[test]
+fn a_clrmamepro_dat_naming_an_xml_root_in_its_text_goes_to_the_retool_port() {
+    let original = support::fixtures().join("source/systems/Microsoft - Xbox - BIOS Datfile.dat");
+    let text = std::fs::read_to_string(&original).unwrap();
+    let engine = engine();
+    let expected = engine
+        .run(&original, &SelectionProfile::default(), &support::options())
+        .unwrap()
+        .selection;
+    assert!(!winners(&expected).is_empty());
+    let work = tempfile::tempdir().unwrap();
+    for root in ["<mame>", "<softwarelist>"] {
+        let dat = work.path().join("xbox.dat");
+        let named = text.replacen(
+            "description \"Microsoft - Xbox - BIOS Images (7) (2010-09-13)\"",
+            &format!("description \"A {root} guide\""),
+            1,
+        );
+        assert_ne!(named, text);
+        std::fs::write(&dat, named).unwrap();
+        let selection = engine
+            .run(&dat, &SelectionProfile::default(), &support::options())
+            .unwrap()
+            .selection;
+        assert!(selection.pins.arcade.is_none(), "{root}");
+        assert_eq!(winners(&selection), winners(&expected), "{root}");
+    }
+}
+
+#[test]
+fn a_number_that_is_no_calendar_date_ranks_as_naming_no_revision() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("fighter.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="fighter"><description>Fighter (World)</description>
+    <display type="raster" rotate="0"/><driver status="preliminary"/></machine>
+  <machine name="fightera" cloneof="fighter"><description>Fighter (World 000000)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="fighterb" cloneof="fighter"><description>Fighter (World 991231)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="fighterc" cloneof="fighter"><description>Fighter (World 991332)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let selection = run(&dat, &ArcadeSettings::default()).selection;
+    let fighter = group(&selection, "fighter");
+    assert_eq!(fighter.winners[0].title, "fighterb");
+    let alternatives: BTreeMap<_, _> = fighter
+        .alternatives
+        .iter()
+        .map(|a| (a.title.as_str(), a.rule.stage.as_str()))
+        .collect();
+    assert_eq!(
+        alternatives,
+        BTreeMap::from([
+            ("fightera", "election:revision"),
+            ("fighterc", "election:revision"),
+        ])
+    );
+}
