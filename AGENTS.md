@@ -19,7 +19,7 @@ Single-context: root `GLOSSARY.md` and `docs/adr/`. Before exploring the codebas
 
 ### Build and test
 
-The toolchain is pinned in `rust-toolchain.toml`. GitHub CI runs exactly these, and gates every merge:
+The toolchain is pinned in `rust-toolchain.toml`. GitHub CI runs exactly these:
 
 ```sh
 tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar and sha256sum

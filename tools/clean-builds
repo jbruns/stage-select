@@ -1,8 +1,9 @@
 #!/bin/sh
 # Frees the disk that finished agent work leaves behind: T3 worktrees whose branch is done, and the build and scratch
-# folders in /tmp (tools/check's /tmp/ts-target-<worktree folder>, and /tmp/ts-<issue>-*) whose worktree is gone or
-# whose branch is done. A branch is done when its PR is merged or closed, or when origin/main already holds its
-# commits; without gh, only that last test applies.
+# folders and files in /tmp whose worktree is gone or whose branch is done. tools/check's /tmp/ts-target-<folder>
+# belongs to the worktree in <folder>; /tmp/ts-<issue>-* belongs to the worktrees on a branch named <issue>-* or
+# */<issue>-*. A branch is done when its PR is merged or closed, or when origin/main already holds its commits;
+# without gh, only that last test applies.
 #
 #   tools/clean-builds [--dry-run]   list what it would remove, and the space that would free (the default)
 #   tools/clean-builds --yes         remove it, and report the space freed
@@ -90,7 +91,7 @@ state() {
 }
 
 kb() {
-    du -sk "$1" 2>/dev/null | awk '{ print $1 }'
+    du -sk "$1" 2>/dev/null | awk '{ print $1 } END { if (NR == 0) print 0 }'
 }
 
 human() {
@@ -127,6 +128,8 @@ done
 [ -n "$roots" ] || say "no T3 worktrees"
 while IFS="$tab" read -r path head branch locked; do
     name=$(basename -- "$path")
+    # As tools/check names the worktree's build folder.
+    folder=$(printf '%s\n' "$name" | tr -c 'A-Za-z0-9._\n-' '_')
     [ -d "$path" ] || continue
     st=$(state "$branch" "$head")
     label="${branch:-detached at $(printf '%.7s' "$head")}"
@@ -166,7 +169,7 @@ while IFS="$tab" read -r path head branch locked; do
     elif [ "$verdict" = keep ]; then
         echo "  keep     $name  ($label: $why)"
     fi
-    printf '%s\t%s\t%s\t%s\n' "$name" "$branch" "${st%%:*}" "$verdict" >>"$work/worktrees"
+    printf '%s\t%s\t%s\t%s\n' "$folder" "$branch" "${st%%:*}" "$verdict" >>"$work/worktrees"
 done <"$work/list"
 
 # The worktree a /tmp folder belongs to: "gone", "done" or "live". A worktree being removed counts as gone.
@@ -178,7 +181,10 @@ owner_of_target() {
 
 owner_of_issue() {
     awk -F "$tab" -v n="$1" '
-        index($2, n "-") == 1 && $4 != "remove" { found = 1; if ($3 == "live") s = "live"; else if (s == "") s = "done" }
+        (index($2, n "-") == 1 || index($2, "/" n "-") > 0) && $4 != "remove" {
+            found = 1
+            if ($3 == "live") s = "live"; else if (s == "") s = "done"
+        }
         END { print found ? s : "gone" }' "$work/worktrees"
 }
 

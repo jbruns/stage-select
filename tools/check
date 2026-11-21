@@ -33,9 +33,13 @@ crates=
 while [ $# -gt 0 ]; do
     case $1 in
     --dry-run) dry=1 ;;
-    --ci) mode=ci ;;
+    --ci)
+        [ "$mode" != crate ] || fail "--ci and --crate don't combine"
+        mode=ci
+        ;;
     --crate)
         [ $# -ge 2 ] || fail "--crate needs a crate"
+        [ "$mode" != ci ] || fail "--ci and --crate don't combine"
         mode=crate
         crates="$crates $2"
         shift
@@ -90,7 +94,7 @@ passed() {
     if [ -n "$dry" ]; then say "dry run: nothing ran"; else say "passed"; fi
 }
 
-lists() {
+fetch_lists() {
     run tools/clone-lists/fetch
     run tools/curated-list/fetch
 }
@@ -99,7 +103,7 @@ fixtures_filter="not binary_id(title-select-selection::fixtures)"
 
 if [ "$mode" = ci ]; then
     say "running exactly what GitHub CI runs"
-    lists
+    fetch_lists
     run cargo fmt --check
     run cargo clippy --all-targets --locked -- -D warnings
     run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
@@ -119,6 +123,34 @@ package() {
     printf '%s\n' "$graph" | awk -v x="$1" '$1 == x || $2 == x { print $2; exit }'
 }
 
+# The packages in $1 and every crate that depends on one of them, as " <package>..." with $1 first.
+with_dependents() {
+    have=$1
+    while :; do
+        more=$(printf '%s\n' "$graph" | awk -v have="$have" '
+            BEGIN { n = split(have, h, " "); for (i = 1; i <= n; i++) seen[h[i]] = 1 }
+            !($2 in seen) { for (i = 3; i <= NF; i++) if ($i in seen) { printf " %s", $2; break } }')
+        [ -n "$more" ] || break
+        have="$have$more"
+    done
+    printf '%s\n' "$have"
+}
+
+# Fetches the clone lists and the curated list when the tests of a crate in $1 read them: selection's, and those of
+# every crate that runs a selection.
+lists() {
+    readers=$(with_dependents " title-select-selection")
+    for p in $1; do
+        case "$readers " in
+        *" $p "*)
+            fetch_lists
+            return
+            ;;
+        esac
+    done
+    say "clone lists: not needed, as no crate here runs a selection"
+}
+
 if [ "$mode" = crate ]; then
     names=
     set_p=
@@ -132,7 +164,7 @@ if [ "$mode" = crate ]; then
     say "crates:$names"
     # shellcheck disable=SC2086 # $set_p is one "-p <package>" pair per crate
     run cargo clippy --locked --all-targets $set_p -- -D warnings
-    lists
+    lists "$names"
     # shellcheck disable=SC2086
     run cargo nextest run --profile ci --locked $set_p "$@"
     passed
@@ -199,18 +231,18 @@ case " $seeds " in
     direct=
     for f in $seeds; do
         p=$(package "$f")
-        [ -n "$p" ] || fail "crates/$f is not a workspace crate"
-        direct="$direct $p"
+        if [ -n "$p" ]; then
+            direct="$direct $p"
+        else
+            # A removed crate: the crates that depended on it changed their manifests too.
+            say "crates/$f is no longer a workspace crate"
+        fi
     done
-    # Add each crate that depends on an affected crate, until none is left to add.
-    affected=$direct
-    while :; do
-        more=$(printf '%s\n' "$graph" | awk -v have="$affected" '
-            BEGIN { n = split(have, h, " "); for (i = 1; i <= n; i++) seen[h[i]] = 1 }
-            !($2 in seen) { for (i = 3; i <= NF; i++) if ($i in seen) { printf " %s", $2; break } }')
-        [ -n "$more" ] || break
-        affected="$affected$more"
-    done
+    [ -n "$direct" ] || {
+        say "no crate is affected, so there is nothing to build"
+        exit 0
+    }
+    affected=$(with_dependents "$direct")
     say "changed:$direct"
     [ "$affected" = "$direct" ] || say "and their dependents:${affected#"$direct"}"
     ;;
@@ -246,7 +278,7 @@ if [ -n "$wasm" ]; then
     run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
     run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
 fi
-lists
+lists "$affected"
 # shellcheck disable=SC2086
 run cargo nextest run --profile ci --locked $set_p -E "$fixtures_filter"
 [ -z "$fixtures" ] ||
