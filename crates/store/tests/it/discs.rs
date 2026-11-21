@@ -549,27 +549,19 @@ fn a_loose_build_puts_a_release_of_isos_in_its_m3u_folder_listing_each_disc_in_o
     );
 }
 
-/// Audits `env`'s Source Set against a revision of its DAT that marks each of `roms` optional, with no file holding
-/// any of them, and makes it the revision `env` selects from.
-fn audit_without_optional(env: &mut Env, roms: &[&str]) {
+/// Audits `env`'s Source Set against a revision of its DAT that marks each of `roms`, a game and one of its ROMs,
+/// optional, with no file holding any of them, and makes it the revision `env` selects from.
+fn audit_with_absent_optional(env: &mut Env, roms: &[(&str, &str)]) {
     let mut xml = std::fs::read_to_string(env.tmp.path().join("in/test.dat"))
         .unwrap()
         .replace("<version>1</version>", "<version>2</version>");
-    for name in roms {
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    for (game, rom) in roms {
         xml = xml.replace(
-            &format!(r#"<rom name="{name}""#),
-            &format!(r#"<rom optional="yes" name="{name}""#),
+            &format!(r#"<rom name="{rom}""#),
+            &format!(r#"<rom optional="yes" name="{rom}""#),
         );
-        let game = &name[..name.rfind([' ', '.']).unwrap()];
-        let game = game.strip_suffix(" (Track 1)").unwrap_or(game);
-        let path = env
-            .tmp
-            .path()
-            .join("roots/sets")
-            .join(SET)
-            .join(game)
-            .join(name);
-        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(set.join(game).join(rom)).unwrap();
     }
     let dat = env.tmp.path().join("in/test-2.dat");
     std::fs::write(&dat, xml).unwrap();
@@ -587,7 +579,7 @@ fn audit_without_optional(env: &mut Env, roms: &[&str]) {
 #[test]
 fn a_release_whose_disc_lists_only_an_absent_optional_rom_lists_its_other_discs_in_its_m3u() {
     let mut env = Env::with(StorageFormat::LooseFolder, duo);
-    audit_without_optional(&mut env, &["Duo (USA) (Disc 2).iso"]);
+    audit_with_absent_optional(&mut env, &[(DUO[1], "Duo (USA) (Disc 2).iso")]);
     let folder = env.folder();
     env.built(&folder, env.selection(&DUO));
 
@@ -607,11 +599,17 @@ fn a_release_whose_disc_lists_only_an_absent_optional_rom_lists_its_other_discs_
 }
 
 #[test]
-fn a_disc_built_before_that_now_has_nothing_to_build_stays_in_its_releases_m3u() {
+fn discs_built_before_that_now_have_nothing_to_build_stay_in_their_releases_m3u() {
     let mut env = Env::with(StorageFormat::LooseFolder, duo);
     let folder = env.folder();
     env.built(&folder, env.selection(&DUO));
-    audit_without_optional(&mut env, &["Duo (USA) (Disc 2).iso"]);
+    audit_with_absent_optional(
+        &mut env,
+        &[
+            (DUO[0], "Duo (USA) (Disc 1).iso"),
+            (DUO[1], "Duo (USA) (Disc 2).iso"),
+        ],
+    );
     let plan = env.built(&folder, env.selection(&DUO));
 
     assert!(
@@ -629,6 +627,44 @@ fn a_disc_built_before_that_now_has_nothing_to_build_stays_in_its_releases_m3u()
 }
 
 #[test]
+fn a_disc_built_before_that_now_has_nothing_to_build_keeps_its_sbi_file_and_holds_none_of_its_release_back()
+ {
+    let mut env = Env::new(StorageFormat::LooseFolder);
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        sbi: Some(true),
+        ..Default::default()
+    });
+    let folder = env.folder();
+    env.built(&folder, env.selection(&SAGA));
+    let before = env.files();
+    // Saga's Disc 1, which the pack has an SBI file for, now lists only optional ROMs, and no file holds them.
+    audit_with_absent_optional(
+        &mut env,
+        &[
+            (SAGA[0], "Saga (USA) (Disc 1).cue"),
+            (SAGA[0], "Saga (USA) (Disc 1) (Track 1).bin"),
+        ],
+    );
+    let plan = env.built(&folder, env.selection(&SAGA));
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:?}",
+        plan.content.items
+    );
+    assert_eq!(env.files(), before);
+    assert_eq!(
+        read(&env, M3U),
+        "Saga (USA) (Disc 1).cue\nSaga (USA) (Disc 2).cue\n"
+    );
+}
+
+#[test]
 fn a_disc_with_nothing_to_build_has_no_sbi_file_and_holds_none_of_its_release_back() {
     let mut env = Env::new(StorageFormat::LooseFolder);
     env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
@@ -638,11 +674,11 @@ fn a_disc_with_nothing_to_build_has_no_sbi_file_and_holds_none_of_its_release_ba
         ..Default::default()
     });
     // Saga's Disc 1, which the pack has an SBI file for, lists only optional ROMs, and no file holds them.
-    audit_without_optional(
+    audit_with_absent_optional(
         &mut env,
         &[
-            "Saga (USA) (Disc 1).cue",
-            "Saga (USA) (Disc 1) (Track 1).bin",
+            (SAGA[0], "Saga (USA) (Disc 1).cue"),
+            (SAGA[0], "Saga (USA) (Disc 1) (Track 1).bin"),
         ],
     );
     let folder = env.folder();

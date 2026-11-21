@@ -722,10 +722,11 @@ fn removals(
         }
         // A file generated beside its discs that the plan no longer writes, an SBI file or an `.m3u`, is no longer
         // needed, whether or not its games are still selected.
+        // A file generated for the game, its SBI file, never replaces one of its ROMs' files.
         let generated = built.roms.is_empty();
         if let Some(item) = items
             .iter()
-            .find(|i| i.game == built.game)
+            .find(|i| i.game == built.game && i.generated.is_none())
             .filter(|_| !generated)
         {
             let outcome = scan
@@ -1773,41 +1774,36 @@ fn plan_items(
         "one item for each file wanted with something to build"
     );
     let additions = items.split_off(officials - nothing_to_build.len());
+    // A disc whose entry file has nothing to build is left out of its release's `.m3u` and has no SBI file, unless a
+    // build wrote that file before and the check found it as it was: the plan leaves it in place, so it is one of the
+    // release's files that is already there. The `.m3u` lists only discs in the folder, and none is written for a
+    // release with none.
+    let left_in_place = |title: &str| {
+        laid.get(title)
+            .and_then(|l| l.entry.as_ref())
+            .filter(|entry| unbuilt.contains(*entry))
+            .map(|entry| inputs.built.contains_key(entry) && as_built(scan, entry))
+    };
+    let in_folder = |title: &str| left_in_place(title) != Some(false);
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()
             .filter(|i| games.contains(&i.game.as_str()))
             .map(|i| (i.kind, i.group.clone()))
+            .chain(
+                winners
+                    .iter()
+                    .filter(|(_, t)| games.contains(t) && left_in_place(t) == Some(true))
+                    .map(|(g, _)| (ItemKind::Unchanged, (*g).to_owned())),
+            )
             .collect()
-    };
-    // A disc whose entry file has nothing to build, and isn't a file built before that the check found as it was, is
-    // left out of its release's `.m3u` and has no SBI file: the `.m3u` lists only discs in the folder, and none is
-    // written for a release with none.
-    let built_entry = |title: &str| {
-        laid.get(title)
-            .and_then(|l| l.entry.as_ref())
-            .is_none_or(|entry| {
-                !unbuilt.contains(entry)
-                    || inputs.built.contains_key(entry)
-                        && scan.is_some_and(|s| {
-                            s.files.iter().any(|f| {
-                                f.target == *entry
-                                    && matches!(
-                                        f.outcome,
-                                        FileOutcome::Unchanged
-                                            | FileOutcome::Refreshed
-                                            | FileOutcome::Repacked
-                                    )
-                            })
-                        })
-            })
     };
     let mut generated = Vec::new();
     for (release, discs) in &playlists {
         let discs: Vec<(u32, &str)> = discs
             .iter()
             .copied()
-            .filter(|(_, title)| built_entry(title))
+            .filter(|(_, title)| in_folder(title))
             .collect();
         if discs.is_empty() {
             continue;
@@ -1838,7 +1834,7 @@ fn plan_items(
             ),
         ));
     }
-    for (group, game, target, file) in sbis.into_iter().filter(|s| built_entry(s.1)) {
+    for (group, game, target, file) in sbis.into_iter().filter(|s| in_folder(s.1)) {
         let parts = parts_of(&items, &[game]);
         generated.push((
             vec![game],
@@ -1948,6 +1944,19 @@ fn builds(kind: ItemKind) -> bool {
         kind,
         ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt | ItemKind::Place
     )
+}
+
+/// Whether `scan` found the file built at `target` as the build wrote it, or holding the same ROMs.
+fn as_built(scan: Option<&Scan>, target: &str) -> bool {
+    scan.is_some_and(|s| {
+        s.files.iter().any(|f| {
+            f.target == target
+                && matches!(
+                    f.outcome,
+                    FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
+                )
+        })
+    })
 }
 
 /// A release goes in place whole or not at all: every disc, every track, its `.m3u` and its SBI files. Once one of
@@ -2060,15 +2069,7 @@ fn in_the_way(
                 .built
                 .get(&found.name)
                 .is_some_and(|b| title_select_api::storage::release_of(&b.game) == release)
-            && scan.is_some_and(|s| {
-                s.files.iter().any(|f| {
-                    f.target == found.name
-                        && matches!(
-                            f.outcome,
-                            FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
-                        )
-                })
-            })
+            && as_built(scan, &found.name)
     };
     if let Some((dir, _)) = target.split_once('/') {
         let found = files.get(&name_key(dir))?;
