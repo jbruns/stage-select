@@ -181,11 +181,18 @@ pub struct ItemMatch {
     pub game: String,
     /// The ROMs matched, by name, each with the member that matched it, if a ZIP member did.
     pub roms: Vec<MatchedRom>,
-    /// Whether every ROM of the Game is among the payloads.
+    /// Whether every ROM the Game needs is among the payloads: an optional or nodump ROM isn't needed (ADR 0025).
     pub complete: bool,
     /// Whether the item holds payloads that are not the Game's ROMs.
     pub extra: bool,
     pub need: Need,
+}
+
+impl ItemMatch {
+    /// The ROM `name` of the Game, if the item holds it.
+    pub fn rom(&self, name: &str) -> Option<&MatchedRom> {
+        self.roms.iter().find(|r| r.rom == name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

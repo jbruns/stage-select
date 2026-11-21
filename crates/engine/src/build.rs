@@ -1144,7 +1144,8 @@ pub fn holds_as(probe: &Probe, roms: &[ExpectedRom], loose: bool) -> bool {
     !probe.zip && probe.error.is_none() && matches(&payload.checksums(), rom)
 }
 
-/// The Games of `dat` whose ROMs are exactly the payloads `probe` holds, whatever they are named.
+/// The Games of `dat` whose ROMs are exactly the payloads `probe` holds, whatever they are named: each ROM it needs,
+/// and any it doesn't (ADR 0025).
 pub struct GameIndex<'a> {
     dat: &'a Dat,
     roms_of: Vec<Vec<usize>>,
@@ -1156,11 +1157,16 @@ impl<'a> GameIndex<'a> {
         for (i, rom) in dat.roms.iter().enumerate() {
             roms_of[rom.game].push(i);
         }
+        // Each needed ROM first, so that a payload is matched to it before an optional ROM with the same checksums.
+        for roms in &mut roms_of {
+            roms.sort_by_key(|&rom| !dat.roms[rom].needed());
+        }
         GameIndex { dat, roms_of }
     }
 
-    /// The first Game, in DAT order, whose every ROM is one of the payloads and that has as many ROMs as there are
-    /// payloads.
+    /// The Game whose ROMs the payloads are, one payload to each ROM, with every ROM it needs among them: an optional
+    /// ROM may be absent, and a nodump one always is, as no payload matches it. The first in DAT order with no ROM
+    /// absent, or else the first in DAT order.
     pub fn game_of(&self, probe: &Probe) -> Option<&'a str> {
         if probe.error.is_some() {
             return None;
@@ -1174,28 +1180,37 @@ impl<'a> GameIndex<'a> {
         games.sort_unstable();
         games.dedup();
         let sums: Vec<Checksums> = probe.payloads.iter().map(Payload::checksums).collect();
-        games
+        // How many of `game`'s ROMs are absent, if it fits the payloads.
+        let absent = |game: usize| -> Option<usize> {
+            let roms = &self.roms_of[game];
+            let mut used = vec![false; roms.len()];
+            for s in &sums {
+                let (i, _) = roms
+                    .iter()
+                    .enumerate()
+                    .find(|(i, rom)| !used[*i] && s.matches(&self.dat.roms[**rom]))?;
+                used[i] = true;
+            }
+            let absent: Vec<usize> = roms
+                .iter()
+                .zip(&used)
+                .filter(|(_, used)| !**used)
+                .map(|(rom, _)| *rom)
+                .collect();
+            absent
+                .iter()
+                .all(|rom| !self.dat.roms[*rom].needed())
+                .then_some(absent.len())
+        };
+        let fitting: Vec<(usize, usize)> = games
             .into_iter()
-            .find(|&game| {
-                let roms = &self.roms_of[game];
-                roms.len() == sums.len() && {
-                    let mut used = vec![false; sums.len()];
-                    roms.iter().all(|&rom| {
-                        let found = sums
-                            .iter()
-                            .enumerate()
-                            .find(|(i, s)| !used[*i] && s.matches(&self.dat.roms[rom]));
-                        match found {
-                            Some((i, _)) => {
-                                used[i] = true;
-                                true
-                            }
-                            None => false,
-                        }
-                    })
-                }
-            })
-            .map(|game| self.dat.games[game].as_str())
+            .filter_map(|game| Some((game, absent(game)?)))
+            .collect();
+        fitting
+            .iter()
+            .find(|(_, absent)| *absent == 0)
+            .or(fitting.first())
+            .map(|(game, _)| self.dat.games[*game].as_str())
     }
 }
 

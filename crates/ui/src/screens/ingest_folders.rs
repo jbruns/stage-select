@@ -108,7 +108,7 @@ fn evidence(a: &Assessment) -> AnyView {
                 .join(", ");
             let mut notes = vec![m.need.label().to_string()];
             if !m.complete {
-                notes.push("not every ROM of the game".into());
+                notes.push("not every ROM the game needs".into());
             }
             if m.extra {
                 notes.push("with other members".into());

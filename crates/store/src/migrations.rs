@@ -53,6 +53,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0042_support_files.sql"),
     include_str!("migrations/0043_nothing_to_check.sql"),
     include_str!("migrations/0044_dependencies.sql"),
+    include_str!("migrations/0045_dump_status.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

@@ -21,7 +21,7 @@ pub use read::Pools;
 pub use title_select_api::Workers;
 pub use title_select_api::report::*;
 
-use dat::Dat;
+use dat::{Dat, DumpStatus};
 use payload::Checksums;
 use read::{FileRead, Known, Origin, ToRead};
 
@@ -518,7 +518,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         segments.push((walked.items, reads.into_iter()));
     }
     let mut scan = Scan {
-        ancestors: (0..dat.games.len()).map(|g| dat.ancestors(g)).collect(),
+        holders: Holders::new(&dat),
         covered: vec![None; dat.roms.len()],
         elsewhere: vec![BTreeSet::new(); dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
@@ -589,8 +589,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
 /// What an Audit has found so far.
 struct Scan<'d> {
     dat: &'d Dat,
-    /// The Games whose ZIPs and folders count as each Game's own, by the Game's index ([`Dat::ancestors`]).
-    ancestors: Vec<Vec<usize>>,
+    holders: Holders<'d>,
     /// The strongest Evidence Level any Entry holding each ROM for its own Game has.
     covered: Vec<Option<EvidenceLevel>>,
     /// For each ROM, the other Games whose ZIP or folder holds an Entry whose payload is that ROM's (ADR 0017).
@@ -632,17 +631,30 @@ impl Scan<'_> {
     }
 
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
-        let full = member.as_deref().unwrap_or(&path);
-        let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
-        let (finding, payload, named) = classify(self.dat, name, known);
-        let container = self.container(&path, member.as_deref());
+        let name = entry_name(&path, member.as_deref());
+        let container = self.holders.container(&path, member.as_deref());
         // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). Its
         // ancestors' are the Game's own (ADR 0025): merged and split sets keep a family's shared files there.
         let elsewhere = |r: usize| {
-            let game = self.dat.roms[r].game;
-            container.filter(|g| !self.ancestors[game].contains(g))
+            container.filter(|c| self.holders.holder(*c, self.dat.roms[r].game).is_none())
         };
+        let (finding, payload, named) = classify(self.dat, name, known, |named| {
+            self.holders.nearest(container, named.iter().copied())
+        });
+        // A file under a nodump ROM's name can't match it: no good dump is known (ADR 0025).
+        let reason = named
+            .filter(|r| {
+                finding == Finding::Mismatched && self.dat.roms[*r].status == DumpStatus::NoDump
+            })
+            .map(|_| NOT_DUMPED.to_owned());
         let matching = matching_roms(self.dat, known);
+        // A file whose name gives a nodump ROM ([`Holders::nodump_named`]) is that ROM's, which no file can match
+        // (ADR 0025): it never counts by its checksums for another ROM, of the Game whose file holds it or of any
+        // other in the family, as a repair leaves it where it is by default. It still counts for a ROM it is named
+        // for and matches.
+        let nodump_name = self.holders.nodump_named(container, name).is_some();
+        // A Matched Entry's payload is the ROMs it is named for.
+        let named_for = |r: &usize| finding == Finding::Matched && payload.contains(r);
         // In a family's ZIP or folder, a ROM counts by its name or, failing that, by its checksums under another
         // name, as MAME searches (ADR 0025), such as a clone's ROM that its parent lists under another name. In the
         // Game's own, an Entry counts only for the ROMs it is named for or, failing that, for one ROM with its
@@ -652,7 +664,7 @@ impl Scan<'_> {
             Some(c) => matching
                 .iter()
                 .copied()
-                .filter(|r| elsewhere(*r).is_none())
+                .filter(|r| elsewhere(*r).is_none() && (!nodump_name || named_for(r)))
                 .partition(|r| self.dat.roms[*r].game == c),
             None => (Vec::new(), payload.clone()),
         };
@@ -675,10 +687,8 @@ impl Scan<'_> {
             level,
             has_header: header.is_some(),
         };
-        // A Matched Entry's payload is the ROMs it is named for.
-        let (by_name, by_checksums): (Vec<usize>, Vec<usize>) = container_roms
-            .into_iter()
-            .partition(|r| finding == Finding::Matched && payload.contains(r));
+        let (by_name, by_checksums): (Vec<usize>, Vec<usize>) =
+            container_roms.into_iter().partition(named_for);
         if by_name.is_empty() {
             if !by_checksums.is_empty() {
                 self.unnamed.push(Unnamed {
@@ -702,7 +712,7 @@ impl Scan<'_> {
             }),
             roms: payload.iter().map(|r| rom_ref(self.dat, *r)).collect(),
             named_rom: named.map(|r| rom_ref(self.dat, r)),
-            reason: None,
+            reason,
         });
     }
 
@@ -722,32 +732,16 @@ impl Scan<'_> {
 
     /// Counts each Entry in a Game's own ZIP or folder that none of its ROMs is named for towards the first of those
     /// ROMs with its checksums that nothing has counted for yet, once every other Entry is in, so that one file never
-    /// stands in for several identical ROMs, such as a disc's identical tracks. A ROM another Entry counts for only by
-    /// Claim Evidence stays at Claim.
+    /// stands in for several identical ROMs, such as a disc's identical tracks. A needed ROM comes before an optional
+    /// one, which never lowers the Game Status (ADR 0025). A ROM another Entry counts for only by Claim Evidence stays
+    /// at Claim.
     fn settle(&mut self) {
-        for u in std::mem::take(&mut self.unnamed) {
+        for mut u in std::mem::take(&mut self.unnamed) {
+            u.roms.sort_by_key(|r| !self.dat.roms[*r].needed());
             if let Some(r) = u.roms.into_iter().find(|r| self.covered[*r].is_none()) {
                 self.count(r, u.held);
             }
         }
-    }
-
-    /// The Game whose ZIP or folder holds the Entry at `path` (relative to the Source Set's root, or a Placed Game's
-    /// in its Library Folder), `member` of it in
-    /// a ZIP: the nearest of the ZIP, by its name less `.zip`, and the folders above it or the loose file that is
-    /// named for a Game. None when none is.
-    fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
-        // A Placed Game's file is held as it is in its Library Folder.
-        let path = title_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
-        let mut parts = path.split(['/', '\\']).rev();
-        let file = parts.next()?;
-        let zip = member.and_then(|_| {
-            let (stem, ext) = file.rsplit_once('.')?;
-            ext.eq_ignore_ascii_case("zip").then_some(stem)
-        });
-        zip.into_iter()
-            .chain(parts)
-            .find_map(|name| self.dat.game_index(name))
     }
 
     fn games(&self) -> Vec<Game> {
@@ -783,20 +777,35 @@ impl Scan<'_> {
                     .filter(|r| self.covered[**r] == Some(EvidenceLevel::Claim))
                     .map(|r| self.dat.roms[*r].name.clone())
                     .collect();
-                let status = if !roms.iter().any(|r| self.dat.roms[*r].needed()) {
+                // A ROM it needn't have, optional or nodump, never lowers its Game Status (ADR 0025).
+                let mut needed = roms
+                    .iter()
+                    .filter(|r| self.dat.roms[**r].needed())
+                    .peekable();
+                let status = if needed.peek().is_none() {
                     GameStatus::NothingToCheck
+                } else if needed.all(|r| self.covered[*r].is_some()) {
+                    GameStatus::Complete
+                } else if missing_roms.len() == roms.len() {
+                    GameStatus::Missing
                 } else {
-                    match missing_roms.len() {
-                        0 => GameStatus::Complete,
-                        n if n == roms.len() => GameStatus::Missing,
-                        _ => GameStatus::Incomplete,
-                    }
+                    GameStatus::Incomplete
+                };
+                let names_of = |of: fn(&dat::Rom) -> bool| -> Vec<String> {
+                    roms.iter()
+                        .map(|r| &self.dat.roms[*r])
+                        .filter(|r| of(r))
+                        .map(|r| r.name.clone())
+                        .collect()
                 };
                 Game {
                     name: name.clone(),
                     status,
                     missing_roms,
                     claimed_roms,
+                    not_dumped: names_of(|r| r.status == DumpStatus::NoDump),
+                    bad_dumps: names_of(|r| r.status == DumpStatus::BadDump),
+                    optional_roms: names_of(|r| r.optional),
                     warnings: header_missing
                         .then_some(GameWarning::HeaderMissing)
                         .into_iter()
@@ -870,9 +879,112 @@ fn rom_ref(dat: &Dat, r: usize) -> RomRef {
     }
 }
 
+/// The name of the Entry at `path`, `member` of it in a ZIP: its file name, less any folders.
+pub fn entry_name<'a>(path: &'a str, member: Option<&'a str>) -> &'a str {
+    let full = member.unwrap_or(path);
+    full.rsplit(['/', '\\']).next().unwrap_or(full)
+}
+
+/// Which Game's ZIP or folder holds an Entry, and what that Game is to the Game of each ROM the Entry may be: the one
+/// place an Audit and a Repair tell whose file an Entry is in.
+pub struct Holders<'d> {
+    dat: &'d Dat,
+    /// The parent each Game is a clone of, by the Game's index.
+    parents: Vec<Option<usize>>,
+    /// The Games whose ZIPs and folders count as each Game's own, by the Game's index ([`Dat::ancestors`]).
+    ancestors: Vec<Vec<usize>>,
+}
+
+impl<'d> Holders<'d> {
+    pub fn new(dat: &'d Dat) -> Self {
+        Holders {
+            dat,
+            parents: (dat.cloneof.iter())
+                .map(|p| p.as_deref().and_then(|p| dat.game_index(p)))
+                .collect(),
+            ancestors: (0..dat.games.len()).map(|g| dat.ancestors(g)).collect(),
+        }
+    }
+
+    /// The Game whose ZIP or folder holds the Entry at `path` (relative to the Source Set's root, or a Placed Game's
+    /// in its Library Folder), `member` of it in a ZIP: the nearest of the ZIP, by its name less `.zip`, and the
+    /// folders above it or the loose file that is named for a Game. None when none is.
+    pub fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
+        // A Placed Game's file is held as it is in its Library Folder.
+        let path = title_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
+        let mut parts = path.split(['/', '\\']).rev();
+        let file = parts.next()?;
+        let zip = member.and_then(|_| {
+            let (stem, ext) = file.rsplit_once('.')?;
+            ext.eq_ignore_ascii_case("zip").then_some(stem)
+        });
+        zip.into_iter()
+            .chain(parts)
+            .find_map(|name| self.dat.game_index(name))
+    }
+
+    /// What the Game `container`, whose ZIP or folder holds an Entry, is to `game`; none when it is none of that
+    /// Game's ancestors ([`Dat::ancestors`]).
+    fn holder(&self, container: usize, game: usize) -> Option<Holder> {
+        match container {
+            c if c == game => Some(Holder::Own),
+            c if Some(c) == self.parents[game] => Some(Holder::Parent),
+            c if self.ancestors[game].contains(&c) => Some(Holder::Ancestor),
+            _ => None,
+        }
+    }
+
+    /// The nodump ROM whose name an Entry named `name` is under, when [`Holders::nearest`] gives one of the ROMs with
+    /// that name for the Game `container`, whose ZIP or folder holds it. No file can match that ROM (ADR 0025).
+    pub fn nodump_named(&self, container: Option<usize>, name: &str) -> Option<usize> {
+        self.nearest(container, self.dat.roms_named(name).iter().copied())
+            .filter(|r| self.dat.roms[*r].status == DumpStatus::NoDump)
+    }
+
+    /// Of `roms`, one of the Game `container`, or else one of a clone of it, or else one of a Game it is another
+    /// ancestor of, such as a Game whose BIOS it is; of several, a nodump one first, as no file can match it, then the
+    /// first in the order given. None when none is any of those, or no Game's file holds the Entry.
+    pub fn nearest(
+        &self,
+        container: Option<usize>,
+        roms: impl Iterator<Item = usize>,
+    ) -> Option<usize> {
+        let container = container?;
+        roms.filter_map(|r| {
+            let rom = &self.dat.roms[r];
+            let holder = self.holder(container, rom.game)?;
+            // False, a nodump ROM, sorts first.
+            let dumped = rom.status != DumpStatus::NoDump;
+            Some(((holder, dumped), r))
+        })
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, r)| r)
+    }
+}
+
+/// What the Game whose ZIP or folder holds an Entry is to a ROM's Game. Its order is the order the name of a
+/// Mismatched Entry is given a ROM in: the holding Game's own ROM first, whatever else may count that file as its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Holder {
+    /// That Game.
+    Own,
+    /// Its parent: merged and split sets keep a clone's files in its parent's ZIP or folder, so they count as the
+    /// clone's own.
+    Parent,
+    /// Another of its ancestors, such as its BIOS or its parent's: split sets keep a family's shared files there, so
+    /// they count as its own (ADR 0025).
+    Ancestor,
+}
+
 /// Decides an Entry's Finding by payload before name (ADR 0002). Returns the Finding, the ROMs the payload
-/// matches, and the ROM the name gives when that differs from the payload's.
-fn classify(dat: &Dat, name: &str, known: &Known) -> (Finding, Vec<usize>, Option<usize>) {
+/// matches, and the ROM the name gives when that differs from the payload's. For a Mismatched Entry, that is the
+/// ROM `nearest` picks of those with its name ([`Holders::nearest`]), or else the first of them in the DAT.
+fn classify(
+    dat: &Dat,
+    name: &str,
+    known: &Known,
+    nearest: impl Fn(&[usize]) -> Option<usize>,
+) -> (Finding, Vec<usize>, Option<usize>) {
     let payload = matching_roms(dat, known);
     let named = dat.roms_named(name);
     // Every ROM with this name and payload, so an identical ROM shared by several Games counts for each.
@@ -887,7 +999,10 @@ fn classify(dat: &Dat, name: &str, known: &Known) -> (Finding, Vec<usize>, Optio
     match (payload.is_empty(), named.first()) {
         (false, None) => (Finding::Misnamed, payload, None),
         (false, Some(n)) => (Finding::Conflicting, payload, Some(*n)),
-        (true, Some(n)) => (Finding::Mismatched, payload, Some(*n)),
+        (true, Some(n)) => {
+            let named = nearest(named).unwrap_or(*n);
+            (Finding::Mismatched, payload, Some(named))
+        }
         (true, None) => (Finding::Unmatched, payload, None),
     }
 }

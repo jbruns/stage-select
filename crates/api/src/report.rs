@@ -1,4 +1,4 @@
-//! The `schema: 7` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 8` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 7;
+pub const SCHEMA: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -341,6 +341,9 @@ pub struct RomRef {
     pub name: String,
 }
 
+/// The reason a Mismatched Entry named for a nodump ROM gives: no file can match that ROM (ADR 0025).
+pub const NOT_DUMPED: &str = "no good dump known";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     /// Path relative to the Source Set's root.
@@ -358,7 +361,8 @@ pub struct Entry {
     /// Absent for an Unreadable Entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,
-    /// Why an Unreadable Entry could not be read.
+    /// Why an Unreadable Entry could not be read, or why a Mismatched one matches no ROM when the reason is known:
+    /// [`NOT_DUMPED`] for one named for a nodump ROM.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -367,11 +371,23 @@ pub struct Entry {
 pub struct Game {
     pub name: String,
     pub status: GameStatus,
+    /// Its ROMs no Entry holds for it, in DAT order, nodump and optional ones included.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_roms: Vec<String>,
     /// The ROMs counted present only on Claim Evidence: no Entry's payload was read and matched them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub claimed_roms: Vec<String>,
+    /// Its ROMs with no good dump known (`nodump`), in DAT order: no file matches one, so each is among its missing
+    /// ROMs, and its Game Status leaves them out (ADR 0025).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_dumped: Vec<String>,
+    /// Its ROMs whose checksums are of a dump known to be bad (`baddump`), in DAT order. They count as any other ROM.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bad_dumps: Vec<String>,
+    /// Its optional ROMs, in DAT order. One counts when present; one absent is among its missing ROMs, but never lowers
+    /// its Game Status (ADR 0025).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional_roms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<GameWarning>,
     /// Its missing ROMs that are Available Elsewhere (ADR 0017), in DAT order.
@@ -465,6 +481,9 @@ mod tests {
             status: GameStatus::Complete,
             missing_roms: vec![],
             claimed_roms: vec![],
+            not_dumped: vec![],
+            bad_dumps: vec![],
+            optional_roms: vec![],
             warnings: vec![],
             available_elsewhere: vec![],
             dependencies,

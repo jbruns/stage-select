@@ -7,6 +7,7 @@ mod common;
 mod sevenz_fixtures;
 
 mod audit;
+mod build;
 mod dat;
 mod evidence;
 mod family;

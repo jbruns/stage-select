@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 7,                       // version of this report's shape
+  "schema": 8,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -146,9 +146,14 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   so an identical ROM shared by several games counts for each. For a misnamed or conflicting entry it is every
   ROM the payload matches, so the entry completes the game its payload belongs to.
 - `named_rom` is the ROM the entry's name gives, present when it differs from the payload's (conflicting, mismatched).
+  When several games list a mismatched entry's name, it is the ROM of the game whose ZIP or folder holds the entry, or
+  else a clone's of that game, or else one of a game further down its family, such as a game on that BIOS; of several
+  of these, a nodump ROM comes first.
 - `evidence.algorithms` lists what the finding rests on. For a payload match, it is size plus each checksum that
   every ROM in `roms` supplies; all of them were compared and agreed. A mismatched or unmatched entry has only size and
-  CRC32, the lookup that found no matching ROM. An unreadable entry has no evidence and a `reason` instead.
+  CRC32, the lookup that found no matching ROM. An unreadable entry has no evidence and a `reason` instead. A
+  mismatched entry named for a ROM the DAT marks `nodump` has the `reason` `no good dump known`: no file can match that
+  ROM, so a repair leaves the file where it is unless you choose otherwise.
 - `evidence.level` is `payload` when the checksums were computed by reading the payload, and `claim` when a quick
   inventory took them from a ZIP archive's directory; a claim's `algorithms` are always size and CRC32, and it has
   no `read_at`. `read_at` is when the payload was read. `reused` is `unchanged_file_heuristic` when the audit reused
@@ -159,7 +164,10 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
 - `warnings` on a game lists its warnings, and `summary.warnings` counts the games with each. The only warning is
   `header_missing`: an NES or Atari 7800 game matched by a dump without its header, which may not play.
 - A game is `complete`, `incomplete`, `missing` or `nothing_to_check`, counting only its own files; `missing_roms`
-  lists its ROMs no entry of its own matched. `claimed_roms`, present only after a quick inventory, lists its ROMs that
+  lists its ROMs no entry of its own matched. A ROM the DAT marks `nodump` matches no file, and one it marks optional
+  need not be present: neither keeps a game from `complete`, though both are in `missing_roms` while absent. A game
+  lists them in `not_dumped` and `optional_roms`, and its ROMs the DAT marks `baddump` in `bad_dumps`: those match the
+  checksums the DAT gives, like any other ROM. `claimed_roms`, present only after a quick inventory, lists its ROMs that
   only a claim matched: its status rests on claims for them, and a build never uses a claim as a source.
 - A game's own files are every entry except those inside another game's ZIP or folder. An entry's ZIP or folder is
   the nearest of its ZIP and the folders above it that is named for a game, so `<game>/tracks/Track 02.bin` is in
@@ -170,7 +178,9 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   to its BIOS, because merged and split sets keep a family's shared files there. In its own and its ancestors' ZIPs
   and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
   MAME looks for it: a clone's ROM that its parent lists under another name counts from the parent's ZIP. Such an
-  entry's `roms` still names only the ROMs its finding gives.
+  entry's `roms` still names only the ROMs its finding gives. A nodump ROM matches no file there either. An entry under
+  the name of a nodump ROM of the game whose ZIP or folder holds it, or of a game in that game's family, ranked as
+  for `named_rom`, never counts by its checksums for another ROM.
 - `dependencies` lists the BIOSes and devices a game reaches through `romof` and `device_ref`, transitively, in DAT
   order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is
   satisfied. A dependency's status never changes the game's: a machine whose own files are all present is `complete`
@@ -180,6 +190,10 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
+- Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
+  named for a nodump ROM. A game whose only absent ROMs are optional or have no good dump known is now `complete`.
+  An audit stored before this keeps the statuses it found, and lists none of these, until you audit the source set
+  again.
 - Schema 7 counts a game's ancestors' ZIPs and folders as its own, its BIOS's included, and adds `dependencies`. An
   audit stored before this keeps the statuses it found, and has no `dependencies`, until you audit the source set
   again.
@@ -1706,7 +1720,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 7` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 8` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |

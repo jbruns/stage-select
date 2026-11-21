@@ -310,11 +310,11 @@ pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game,
 /// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
 const ENTRY_SEQ: usize = 12;
 
-const GAME_COLUMNS: &str =
-    "name, status, missing_roms, claimed_roms, warnings, available_elsewhere, dependencies";
+const GAME_COLUMNS: &str = "name, status, missing_roms, claimed_roms, warnings, available_elsewhere, dependencies, \
+                            not_dumped, bad_dumps, optional_roms";
 
 /// The `seq` column's index, when selected after [`GAME_COLUMNS`].
-const GAME_SEQ: usize = 7;
+const GAME_SEQ: usize = 10;
 
 pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
     let text: String = row.get(i)?;
@@ -532,12 +532,11 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     }
     let mut game = tx.prepare(
         "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings,
-                                  available_elsewhere, dependencies)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                                  available_elsewhere, dependencies, not_dumped, bad_dumps, optional_roms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
-        let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
-        let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
+        let json = |roms: &[String]| serde_json::to_string(roms).map_err(corrupt);
         let warnings = serde_json::to_string(&g.warnings).map_err(corrupt)?;
         let elsewhere = serde_json::to_string(&g.available_elsewhere).map_err(corrupt)?;
         let dependencies = serde_json::to_string(&g.dependencies).map_err(corrupt)?;
@@ -546,11 +545,14 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             seq as i64,
             g.name,
             g.status.as_str(),
-            missing,
-            claimed,
+            json(&g.missing_roms)?,
+            json(&g.claimed_roms)?,
             warnings,
             elsewhere,
-            dependencies
+            dependencies,
+            json(&g.not_dumped)?,
+            json(&g.bad_dumps)?,
+            json(&g.optional_roms)?,
         ])?;
     }
     drop((entry, game));
@@ -722,6 +724,10 @@ fn game_from_row(row: &Row) -> Result<Game> {
     let warnings: String = row.get(4)?;
     let elsewhere: String = row.get(5)?;
     let dependencies: String = row.get(6)?;
+    let roms = |i: usize| -> Result<Vec<String>> {
+        let json: String = row.get(i)?;
+        serde_json::from_str(&json).map_err(corrupt)
+    };
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
@@ -730,6 +736,9 @@ fn game_from_row(row: &Row) -> Result<Game> {
         warnings: serde_json::from_str(&warnings).map_err(corrupt)?,
         available_elsewhere: serde_json::from_str(&elsewhere).map_err(corrupt)?,
         dependencies: serde_json::from_str(&dependencies).map_err(corrupt)?,
+        not_dumped: roms(7)?,
+        bad_dumps: roms(8)?,
+        optional_roms: roms(9)?,
     })
 }
 
@@ -1092,7 +1101,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 7` report of a stored Audit, generated from its rows.
+    /// The `schema: 8` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

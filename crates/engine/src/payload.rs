@@ -4,7 +4,7 @@ use sha1::Digest;
 
 use title_select_api::HeaderRule;
 
-use crate::dat::Rom;
+use crate::dat::{DumpStatus, Rom};
 use crate::hex;
 
 /// A payload's checksums. When a Header Rule found a Header at its start, they are of the bytes after it, and
@@ -94,8 +94,11 @@ impl Hasher {
 }
 
 impl Checksums {
+    /// Whether this payload is `rom`: its size and every checksum the DAT gives agree. A nodump ROM, whose DAT gives
+    /// none, matches no payload (ADR 0025).
     pub fn matches(&self, rom: &Rom) -> bool {
-        rom.size == self.size
+        rom.status != DumpStatus::NoDump
+            && rom.size == self.size
             && rom.crc.as_deref().is_none_or(|v| v == self.crc)
             && rom.md5.as_deref().is_none_or(|v| v == self.md5)
             && rom.sha1.as_deref().is_none_or(|v| v == self.sha1)

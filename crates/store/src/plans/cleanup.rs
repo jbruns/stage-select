@@ -19,7 +19,7 @@ use title_select_engine::meter::Tally;
 
 use super::{
     Blocker, Folder, Found, Inputs, LaidFile, Planned, Sources as SetSources, blocker,
-    check_folder, insert_plan, laid_files, load, roms_of, short, to_json,
+    check_folder, insert_plan, laid_files, load, short, to_json,
 };
 use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
@@ -66,7 +66,14 @@ fn selected_game(
             "it holds {game}, which the selection does not select"
         ));
     }
-    let roms = roms_of(dat, game);
+    // Each ROM the game needs, and each other one a payload is (ADR 0025): a build writes no other.
+    let roms: Vec<ExpectedRom> = dat
+        .roms
+        .iter()
+        .filter(|r| dat.games[r.game] == game)
+        .filter(|r| r.needed() || probe.payloads.iter().any(|p| p.checksums().matches(r)))
+        .map(|r| dat.expected(r))
+        .collect();
     if !holds_as(probe, &roms, stored_loose.is_some()) {
         return Err(match stored_loose {
             Some(_) => format!(

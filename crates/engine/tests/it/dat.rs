@@ -242,6 +242,44 @@ fn a_software_list_rom_is_as_large_as_its_furthest_read_counting_from_each_reloa
 }
 
 #[test]
+fn no_payload_size_finds_a_nodump_rom_in_any_dat_format() {
+    let listxml = br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="game"><rom name="pal.u1" size="8" status="nodump"/></machine>
+</mame>
+"#;
+    let logiqx = br#"<?xml version="1.0"?>
+<datafile>
+  <header><name>Test - System</name></header>
+  <game name="game"><rom name="pal.u1" size="8" crc="11111111" status="nodump"/></game>
+</datafile>
+"#;
+    let list = br#"<?xml version="1.0"?>
+<softwarelist name="nes" description="Test">
+  <software name="game">
+    <description>Game</description>
+    <part name="cart" interface="nes_cart">
+      <dataarea name="rom" size="8">
+        <rom name="game.bin" size="4" status="nodump" offset="0"/>
+        <rom size="4" offset="4" loadflag="continue"/>
+      </dataarea>
+    </part>
+  </software>
+</softwarelist>
+"#;
+    for (xml, file, size, crc) in [
+        (&listxml[..], "mame.xml", 8, "00000000"),
+        (&logiqx[..], "test.dat", 8, "11111111"),
+        (&list[..], "nes.xml", 8, "00000000"),
+    ] {
+        let dat = Dat::parse(xml, Path::new(file)).unwrap();
+        assert_eq!(dat.roms[0].status, DumpStatus::NoDump, "{file}");
+        assert_eq!(dat.roms[0].size, size, "{file}");
+        assert_eq!(dat.candidates(size, crc).count(), 0, "{file}");
+    }
+}
+
+#[test]
 fn xml_that_is_no_dat_is_refused() {
     let err = Dat::parse(b"<html><body/></html>", Path::new("page.xml"))
         .err()

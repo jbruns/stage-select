@@ -307,3 +307,247 @@ fn in_a_games_own_zip_a_misnamed_entry_skips_a_rom_a_loose_file_counts_for() {
     let g = game(&report, "Disc (USA)");
     assert_eq!(g.status, GameStatus::Complete, "{:?}", g.missing_roms);
 }
+
+/// `spec`'s `<rom>` element with `attrs` added, such as `optional="yes"`.
+fn rom_with(spec: RomSpec, attrs: &str) -> String {
+    rom_xml(&spec).replace("/>", &format!(" {attrs}/>"))
+}
+
+/// A nodump `<rom>` of `size` bytes, with no checksums.
+fn nodump(name: &str, size: usize) -> String {
+    format!(r#"<rom name="{name}" size="{size}" status="nodump"/>"#)
+}
+
+/// Writes a MAME ListXML of `machines`, each a name, its attributes and its `<rom>` elements, and returns its path.
+fn write_machines(f: &Fixture, machines: &[(&str, &str, Vec<String>)]) -> std::path::PathBuf {
+    let mut xml = String::from(r#"<?xml version="1.0"?><mame build="0.289 (mame0289)">"#);
+    for (name, attrs, roms) in machines {
+        xml += &format!(r#"<machine name="{name}" {attrs}><description>{name}</description>"#);
+        xml += &roms.concat();
+        xml += "</machine>";
+    }
+    xml += "</mame>";
+    let path = f.dat_dir.path().join("mame.xml");
+    write_file(&path, xml.as_bytes());
+    path
+}
+
+fn entry<'r>(report: &'r Report, member: &str) -> &'r title_select_engine::Entry {
+    report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some(member))
+        .unwrap()
+}
+
+#[test]
+fn a_nodump_rom_whose_name_is_in_its_parents_zip_never_matches() {
+    let f = Fixture::new();
+    let dat = write_machines(
+        &f,
+        &[
+            ("blaster", "", vec![rom_xml(&rom("prog.u3", b"program"))]),
+            (
+                "blasterj",
+                r#"cloneof="blaster" romof="blaster""#,
+                vec![rom_xml(&rom("progj.u3", b"program j")), nodump("pal.u1", 8)],
+            ),
+        ],
+    );
+    // Merged: the clone's files are in its parent's ZIP, a file under its nodump ROM's name among them.
+    write_zip(
+        &f.set_path("blaster.zip"),
+        &[
+            ("prog.u3", b"program"),
+            ("progj.u3", b"program j"),
+            ("pal.u1", b"8 bytes!"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let pal = entry(&report, "pal.u1");
+    assert_eq!(pal.finding, title_select_engine::Finding::Mismatched);
+    assert!(pal.roms.is_empty());
+    let named = pal.named_rom.as_ref().unwrap();
+    assert_eq!(
+        (named.game.as_str(), named.name.as_str()),
+        ("blasterj", "pal.u1")
+    );
+    assert_eq!(pal.reason.as_deref(), Some("no good dump known"));
+    let clone = game(&report, "blasterj");
+    assert_eq!(clone.status, GameStatus::Complete);
+    assert_eq!(clone.missing_roms, ["pal.u1"]);
+    assert_eq!(clone.not_dumped, ["pal.u1"]);
+}
+
+#[test]
+fn a_file_under_a_nodump_roms_name_never_counts_by_its_checksums_for_another_rom_of_the_game() {
+    let f = Fixture::new();
+    let dat = write_machines(
+        &f,
+        &[(
+            "blaster",
+            "",
+            vec![
+                rom_xml(&rom("prog.u3", b"program")),
+                rom_xml(&rom("gfx.u4", b"8 bytes!")),
+                nodump("pal.u1", 8),
+            ],
+        )],
+    );
+    // The file under the nodump ROM's name has the bytes of `gfx.u4`, which no file is named for.
+    write_zip(
+        &f.set_path("blaster.zip"),
+        &[("prog.u3", b"program"), ("pal.u1", b"8 bytes!")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let blaster = game(&report, "blaster");
+    assert_eq!(blaster.status, GameStatus::Incomplete);
+    assert_eq!(blaster.missing_roms, ["gfx.u4", "pal.u1"]);
+}
+
+#[test]
+fn a_clone_whose_only_absent_roms_are_optional_or_nodump_is_complete_from_its_parents_zip() {
+    let f = Fixture::new();
+    let dat = write_machines(
+        &f,
+        &[
+            (
+                "acmebios",
+                r#"isbios="yes""#,
+                vec![
+                    rom_xml(&rom("bios.u1", b"bios")),
+                    rom_with(rom("diag.u9", b"diagnostics"), r#"optional="yes""#),
+                ],
+            ),
+            (
+                "blaster",
+                r#"romof="acmebios""#,
+                vec![
+                    rom_xml(&rom("bios.u1", b"bios")),
+                    rom_xml(&rom("prog.u3", b"program")),
+                    rom_with(rom("snd.u5", b"sound"), r#"optional="yes""#),
+                ],
+            ),
+            (
+                "blasterj",
+                r#"cloneof="blaster" romof="blaster""#,
+                vec![
+                    rom_xml(&rom("bios.u1", b"bios")),
+                    rom_xml(&rom("progj.u3", b"program j")),
+                    rom_with(rom("snd.u5", b"sound"), r#"optional="yes""#),
+                    rom_with(rom("sndj.u6", b"sound j"), r#"optional="yes""#),
+                    nodump("pal.u1", 8),
+                ],
+            ),
+        ],
+    );
+    // Split: the BIOS's ZIP holds its needed ROM, the parent's its own and its clone's, and one of the clone's two
+    // optional ROMs; the BIOS's optional ROM, the clone's other one and its nodump ROM are nowhere.
+    write_zip(&f.set_path("acmebios.zip"), &[("bios.u1", b"bios")]);
+    write_zip(
+        &f.set_path("blaster.zip"),
+        &[
+            ("prog.u3", b"program"),
+            ("progj.u3", b"program j"),
+            ("snd.u5", b"sound"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let clone = game(&report, "blasterj");
+    assert_eq!(clone.status, GameStatus::Complete);
+    // An optional ROM in an ancestor's ZIP counts.
+    assert_eq!(clone.missing_roms, ["sndj.u6", "pal.u1"]);
+    assert_eq!(clone.optional_roms, ["snd.u5", "sndj.u6"]);
+    // A Dependency lacking only an optional ROM is Complete too.
+    assert_eq!(
+        clone.dependencies,
+        [dependency("acmebios", GameStatus::Complete)]
+    );
+}
+
+#[test]
+fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_another_descendants()
+ {
+    // `blaster.zip` holds `x.u9`, whose bytes match nothing. `blasterb` is on `blaster` by `romof` alone, so
+    // `blaster` is its ancestor but not its parent; `blasterj` and `blasterk` are its clones. `rival`, outside the
+    // family, lists `x.u9` first of all, and `blasterb` before the others, so DAT order alone would name neither of
+    // the nearer ones. Each case gives what `blasterb`, `blasterj`, `blasterk` and `blaster` list as `x.u9`.
+    let x = |payload: &[u8]| Some(rom_xml(&rom("x.u9", payload)));
+    let nodump_x = || Some(nodump("x.u9", 3));
+    let no_good = Some("no good dump known");
+    let cases = [
+        ([x(b"b"), x(b"j"), x(b"k"), x(b"own")], "blaster", None),
+        ([x(b"b"), x(b"j"), x(b"k"), None], "blasterj", None),
+        // Nodump comes first only among equals, such as two clones: never before a nearer Game's ROM.
+        ([None, x(b"j"), nodump_x(), None], "blasterk", no_good),
+        ([None, nodump_x(), None, x(b"own")], "blaster", None),
+        ([nodump_x(), x(b"j"), None, None], "blasterj", None),
+        ([nodump_x(), None, None, None], "blasterb", no_good),
+    ];
+    for (i, (listed, named_game, reason)) in cases.into_iter().enumerate() {
+        let f = Fixture::new();
+        let [b, j, k, own] = listed;
+        let clone = r#"cloneof="blaster" romof="blaster""#;
+        let machines = [
+            ("rival", "", vec![x(b"rival").unwrap()]),
+            ("blasterb", r#"romof="blaster""#, b.into_iter().collect()),
+            ("blasterj", clone, j.into_iter().collect()),
+            ("blasterk", clone, k.into_iter().collect()),
+            (
+                "blaster",
+                "",
+                [rom_xml(&rom("prog.u3", b"program"))]
+                    .into_iter()
+                    .chain(own)
+                    .collect(),
+            ),
+        ];
+        let dat = write_machines(&f, &machines);
+        write_zip(
+            &f.set_path("blaster.zip"),
+            &[("prog.u3", b"program"), ("x.u9", b"bad")],
+        );
+
+        let report = audit(&dat, f.set.path()).unwrap();
+
+        let e = entry(&report, "x.u9");
+        assert_eq!(
+            e.finding,
+            title_select_engine::Finding::Mismatched,
+            "case {i}"
+        );
+        let named = e.named_rom.as_ref().unwrap();
+        assert_eq!(named.game, named_game, "case {i}");
+        assert_eq!(e.reason.as_deref(), reason, "case {i}");
+    }
+}
+
+#[test]
+fn in_a_games_own_zip_a_misnamed_entry_counts_for_a_needed_rom_before_an_optional_one() {
+    let f = Fixture::new();
+    // The optional ROM is listed first, with the needed one's checksums.
+    let dat = write_machines(
+        &f,
+        &[(
+            "blaster",
+            "",
+            vec![
+                rom_with(rom("alt.u2", b"program"), r#"optional="yes""#),
+                rom_xml(&rom("prog.u3", b"program")),
+            ],
+        )],
+    );
+    write_zip(&f.set_path("blaster.zip"), &[("copy.bin", b"program")]);
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let blaster = game(&report, "blaster");
+    assert_eq!(blaster.status, GameStatus::Complete);
+    assert_eq!(blaster.missing_roms, ["alt.u2"]);
+}

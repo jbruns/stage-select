@@ -870,3 +870,221 @@ fn a_machine_of_only_nodump_or_optional_roms_is_nothing_to_check_and_a_disk_only
     );
     assert_eq!(report.summary.games.get(&GameStatus::Missing), Some(&1));
 }
+
+/// A DAT, ListXML or else Logiqx, of `game`, which lists a good ROM, an 8-byte nodump ROM, a baddump ROM and an
+/// optional ROM, and `half`, which lists a ROM and an optional ROM. Its names and payloads are invented.
+fn dump_status_dat(f: &Fixture, listxml: bool) -> std::path::PathBuf {
+    let with = |spec: RomSpec, attr: &str| rom_xml(&spec).replace("/>", &format!(" {attr}/>"));
+    let body = format!(
+        r#"<{game} name="game"><description>Game</description>
+    {}
+    <rom name="pal.u1" size="8" status="nodump"/>
+    {}
+    {}
+  </{game}>
+  <{game} name="half"><description>Half</description>
+    {}
+    {}
+  </{game}>"#,
+        rom_xml(&rom("good.6e", b"good-rom")),
+        with(rom("bad.7f", b"bad-dump"), r#"status="baddump""#),
+        with(rom("snd.u2", b"optional"), r#"optional="yes""#),
+        rom_xml(&rom("half.a", b"half-rom")),
+        with(rom("half.b", b"half-opt"), r#"optional="yes""#),
+        game = if listxml { "machine" } else { "game" },
+    );
+    let (file, xml) = match listxml {
+        true => (
+            "mame.xml",
+            format!(r#"<?xml version="1.0"?><mame build="0.289 (mame0289)">{body}</mame>"#),
+        ),
+        false => (
+            "test.dat",
+            format!(
+                r#"<?xml version="1.0"?><datafile><header><name>Test - System</name></header>{body}</datafile>"#
+            ),
+        ),
+    };
+    let path = f.dat_dir.path().join(file);
+    write_file(&path, xml.as_bytes());
+    path
+}
+
+fn entry<'r>(
+    report: &'r title_select_engine::Report,
+    member: &str,
+) -> &'r title_select_engine::Entry {
+    report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref().unwrap_or(&e.path) == member)
+        .unwrap()
+}
+
+#[test]
+fn a_payload_of_a_nodump_roms_size_matches_nothing_and_a_file_under_its_name_is_mismatched() {
+    for listxml in [true, false] {
+        let f = Fixture::new();
+        let dat = dump_status_dat(&f, listxml);
+        write_zip(
+            &f.set_path("game.zip"),
+            &[
+                ("good.6e", b"good-rom"),
+                ("bad.7f", b"bad-dump"),
+                ("pal.u1", b"8 bytes!"),
+            ],
+        );
+        write_file(&f.set_path("stray.bin"), b"8 bytes!");
+
+        let report = audit(&dat, f.set.path()).unwrap();
+
+        let pal = entry(&report, "pal.u1");
+        assert_eq!(pal.finding, Finding::Mismatched, "listxml {listxml}");
+        assert!(pal.roms.is_empty(), "listxml {listxml}");
+        assert_eq!(pal.named_rom.as_ref().unwrap().name, "pal.u1");
+        assert_eq!(pal.reason.as_deref(), Some("no good dump known"));
+        let stray = entry(&report, "stray.bin");
+        assert_eq!(stray.finding, Finding::Unmatched, "listxml {listxml}");
+        assert_eq!(stray.reason, None);
+        let game = report.games.iter().find(|g| g.name == "game").unwrap();
+        assert_eq!(game.status, GameStatus::Complete, "listxml {listxml}");
+        assert_eq!(game.not_dumped, ["pal.u1"]);
+        assert_eq!(game.missing_roms, ["pal.u1", "snd.u2"]);
+    }
+}
+
+#[test]
+fn a_game_whose_only_absent_roms_are_optional_or_nodump_is_complete() {
+    for listxml in [true, false] {
+        let f = Fixture::new();
+        let dat = dump_status_dat(&f, listxml);
+        write_zip(
+            &f.set_path("game.zip"),
+            &[("good.6e", b"good-rom"), ("bad.7f", b"bad-dump")],
+        );
+        write_zip(&f.set_path("half.zip"), &[("half.b", b"half-opt")]);
+
+        let report = audit(&dat, f.set.path()).unwrap();
+
+        let game = report.games.iter().find(|g| g.name == "game").unwrap();
+        assert_eq!(game.status, GameStatus::Complete, "listxml {listxml}");
+        assert_eq!(game.optional_roms, ["snd.u2"]);
+        // An optional ROM that is present doesn't make up for a needed one that is absent.
+        assert_eq!(
+            status_of(&report, "half"),
+            GameStatus::Incomplete,
+            "listxml {listxml}"
+        );
+        let games = &report.summary.games;
+        assert_eq!(games.get(&GameStatus::Complete), Some(&1));
+        assert_eq!(games.get(&GameStatus::Incomplete), Some(&1));
+    }
+}
+
+#[test]
+fn a_baddump_rom_is_verified_on_payload_evidence() {
+    for listxml in [true, false] {
+        let f = Fixture::new();
+        let dat = dump_status_dat(&f, listxml);
+        write_zip(
+            &f.set_path("game.zip"),
+            &[("good.6e", b"good-rom"), ("bad.7f", b"bad-dump")],
+        );
+
+        let report = audit(&dat, f.set.path()).unwrap();
+
+        let bad = entry(&report, "bad.7f");
+        assert_eq!(bad.finding, Finding::Matched, "listxml {listxml}");
+        assert_eq!(
+            bad.evidence.as_ref().unwrap().level,
+            EvidenceLevel::Payload,
+            "listxml {listxml}"
+        );
+        let game = report.games.iter().find(|g| g.name == "game").unwrap();
+        assert_eq!(game.bad_dumps, ["bad.7f"]);
+        assert_eq!(game.status, GameStatus::Complete);
+    }
+}
+
+#[test]
+fn a_file_under_a_name_two_games_list_is_mismatched_against_the_rom_of_the_game_holding_it() {
+    let f = Fixture::new();
+    let dat = f.dat_dir.path().join("mame.xml");
+    let xml = format!(
+        r#"<?xml version="1.0"?><mame build="0.289 (mame0289)">
+  <machine name="first"><description>First</description>{}</machine>
+  <machine name="second"><description>Second</description><rom name="pal.u1" size="8" status="nodump"/></machine>
+</mame>"#,
+        rom_xml(&rom("pal.u1", b"pal-good"))
+    );
+    write_file(&dat, xml.as_bytes());
+    write_zip(&f.set_path("first.zip"), &[("pal.u1", b"8 bytes!")]);
+    write_zip(&f.set_path("second.zip"), &[("pal.u1", b"8 bytes!")]);
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let named = |path: &str| {
+        let e = report.entries.iter().find(|e| e.path == path).unwrap();
+        assert_eq!(e.finding, Finding::Mismatched, "{path}");
+        (
+            e.named_rom.as_ref().unwrap().game.as_str(),
+            e.reason.as_deref(),
+        )
+    };
+    assert_eq!(named("first.zip"), ("first", None));
+    assert_eq!(named("second.zip"), ("second", Some("no good dump known")));
+}
+
+#[test]
+fn a_file_in_a_parents_zip_is_mismatched_against_the_parents_rom_before_a_clones() {
+    let f = Fixture::new();
+    let dat = f.dat_dir.path().join("mame.xml");
+    // The clone comes first, and a parent's ZIP holds its clones' files too, so either Game's `pal.u1` could name it.
+    let xml = format!(
+        r#"<?xml version="1.0"?><mame build="0.289 (mame0289)">
+  <machine name="clone" cloneof="parent" romof="parent"><description>Clone</description>{}</machine>
+  <machine name="parent"><description>Parent</description>{}<rom name="pal.u1" size="8" status="nodump"/></machine>
+</mame>"#,
+        rom_xml(&rom("pal.u1", b"pal-good")),
+        rom_xml(&rom("main.1", b"main-rom"))
+    );
+    write_file(&dat, xml.as_bytes());
+    write_zip(
+        &f.set_path("parent.zip"),
+        &[("main.1", b"main-rom"), ("pal.u1", b"8 bytes!")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let pal = entry(&report, "pal.u1");
+    assert_eq!(pal.finding, Finding::Mismatched);
+    assert_eq!(pal.named_rom.as_ref().unwrap().game, "parent");
+    assert_eq!(pal.reason.as_deref(), Some("no good dump known"));
+}
+
+#[test]
+fn a_file_in_a_parents_zip_under_a_name_two_clones_list_is_mismatched_against_the_nodump_one() {
+    let f = Fixture::new();
+    let dat = f.dat_dir.path().join("mame.xml");
+    let xml = format!(
+        r#"<?xml version="1.0"?><mame build="0.289 (mame0289)">
+  <machine name="dumped" cloneof="parent" romof="parent"><description>Dumped</description>{}</machine>
+  <machine name="undumped" cloneof="parent" romof="parent"><description>Undumped</description><rom name="pal.u1" size="8" status="nodump"/></machine>
+  <machine name="parent"><description>Parent</description>{}</machine>
+</mame>"#,
+        rom_xml(&rom("pal.u1", b"pal-good")),
+        rom_xml(&rom("main.1", b"main-rom"))
+    );
+    write_file(&dat, xml.as_bytes());
+    write_zip(
+        &f.set_path("parent.zip"),
+        &[("main.1", b"main-rom"), ("pal.u1", b"8 bytes!")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let pal = entry(&report, "pal.u1");
+    assert_eq!(pal.finding, Finding::Mismatched);
+    assert_eq!(pal.named_rom.as_ref().unwrap().game, "undumped");
+    assert_eq!(pal.reason.as_deref(), Some("no good dump known"));
+}
