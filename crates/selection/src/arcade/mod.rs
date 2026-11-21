@@ -104,7 +104,7 @@ impl Range {
             (Some(min), Some(max)) => format!("{min} to {max}"),
             (Some(min), None) => format!("{min} or more"),
             (None, Some(max)) => format!("{max} or fewer"),
-            (None, None) => "any".into(),
+            (None, None) => "any number".into(),
         }
     }
 }
@@ -187,7 +187,7 @@ impl Candidate<'_> {
     }
 }
 
-/// What the selector decided, before your choices apply.
+/// What the selector decided, before the Operator's choices apply.
 pub(crate) struct Elected {
     pub groups: Vec<SelectionGroup>,
     pub pins: ArcadePins,
@@ -195,7 +195,7 @@ pub(crate) struct Elected {
 }
 
 /// Fails when the run must stop.
-pub(crate) type Check<'a> = &'a dyn Fn() -> Result<(), Error>;
+pub(crate) type Stop<'a> = &'a dyn Fn() -> Result<(), Error>;
 
 /// Checks the include and exclude lists' patterns.
 pub(crate) fn check(settings: &ArcadeSettings) -> Result<(), Error> {
@@ -208,11 +208,13 @@ pub(crate) fn check(settings: &ArcadeSettings) -> Result<(), Error> {
 }
 
 /// Filters `dat`'s machines and elects one per family.
-pub(crate) fn elect(dat: &Dat, settings: &ArcadeSettings, stop: Check) -> Result<Elected, Error> {
-    check(settings)?;
-    // Checked above, so every line compiles.
-    let include = matchers(&settings.include, "include").0;
-    let exclude = matchers(&settings.exclude, "exclude").0;
+pub(crate) fn elect(dat: &Dat, settings: &ArcadeSettings, stop: Stop) -> Result<Elected, Error> {
+    let (include, mut problems) = matchers(&settings.include, "include");
+    let (exclude, more) = matchers(&settings.exclude, "exclude");
+    problems.extend(more);
+    if !problems.is_empty() {
+        return Err(Error::Patterns(problems));
+    }
     let mut has_disks = vec![false; dat.games.len()];
     for rom in dat.roms.iter().filter(|r| r.disk) {
         has_disks[rom.game] = true;
@@ -422,7 +424,8 @@ fn filter(
             "players",
             "players",
             format!(
-                "for {players} players, outside {}",
+                "for {players} {}, outside {}",
+                if players == 1 { "player" } else { "players" },
                 settings.players.describe()
             ),
         );
@@ -447,7 +450,7 @@ fn filter(
             return drop(
                 "controls",
                 "controls",
-                format!("it has none of {} controls", wanted.join(", ")),
+                format!("it has none of these controls: {}", wanted.join(", ")),
             );
         }
     }
@@ -496,10 +499,10 @@ struct Step {
     describe: fn(&Candidate, &ArcadeSettings) -> String,
 }
 
-/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, last.
-fn rank(names: &[String], order: &[String]) -> i64 {
+/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`.
+fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
     if names.is_empty() {
-        return order.len() as i64 + 1;
+        return unnamed;
     }
     names
         .iter()
@@ -526,7 +529,11 @@ const STEPS: &[Step] = &[
     },
     Step {
         stage: "election:region",
-        key: |c, s| vec![rank(&c.described.regions, &s.region_order)],
+        // A machine that names no region ranks after every region: a bootleg rarely names one.
+        key: |c, s| {
+            let unnamed = s.region_order.len() as i64 + 1;
+            vec![rank(&c.described.regions, &s.region_order, unnamed)]
+        },
         describe: |c, _| match c.described.regions.is_empty() {
             true => "names no region".into(),
             false => format!("region {}", c.described.regions.join(", ")),
@@ -534,7 +541,8 @@ const STEPS: &[Step] = &[
     },
     Step {
         stage: "election:language",
-        key: |c, s| vec![rank(&c.described.languages, &s.language_order)],
+        // Most descriptions name no language, so one that names none ties with the first language.
+        key: |c, s| vec![rank(&c.described.languages, &s.language_order, 0)],
         describe: |c, _| match c.described.languages.is_empty() {
             true => "names no language".into(),
             false => format!("language {}", c.described.languages.join(", ")),

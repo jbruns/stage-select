@@ -86,7 +86,9 @@ pub fn describe(description: &str, manufacturer: Option<&str>) -> Described {
                     out.regions.push(region);
                 }
             }
-            if let Some(language) = language(part) {
+            if let Some(language) = language(part)
+                && !out.languages.contains(&language)
+            {
                 out.languages.push(language);
             }
             revision(part, &mut out.revision);
@@ -175,7 +177,7 @@ fn revision(part: &str, out: &mut [u32; 5]) {
         let lower = word.trim_end_matches('.').to_ascii_lowercase();
         let next = words.get(i + 1).copied();
         match lower.as_str() {
-            "ver" | "version" => {
+            "v" | "ver" | "version" => {
                 if let Some(v) = next.and_then(version) {
                     out[..3].copy_from_slice(&v);
                 }
@@ -186,7 +188,11 @@ fn revision(part: &str, out: &mut [u32; 5]) {
                 }
             }
             _ => {
-                if let Some(v) = lower.strip_prefix('v').and_then(version) {
+                if let Some(v) = lower
+                    .strip_prefix('v')
+                    .filter(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+                    .and_then(version)
+                {
                     out[..3].copy_from_slice(&v);
                 } else if (word.len() == 6 || word.len() == 8)
                     && word.bytes().all(|b| b.is_ascii_digit())
@@ -258,6 +264,7 @@ mod tests {
         assert!(rev("Shooter (US, rev A)") > rev("Shooter (US)"));
         assert!(rev("Shooter (ver 1.2)") > rev("Shooter (ver 1.1)"));
         assert!(rev("Shooter (v1.10)") > rev("Shooter (v1.2)"));
+        assert_eq!(rev("Shooter (US, V 1.2)"), rev("Shooter (US, ver 1.2)"));
         assert!(rev("Fighter (World 910522)") > rev("Fighter (World 910411)"));
     }
 
@@ -286,5 +293,9 @@ mod tests {
             ["English"]
         );
         assert!(describe("Sailor (Japan)", None).languages.is_empty());
+        assert_eq!(
+            describe("Sailor (English, English version)", None).languages,
+            ["English"]
+        );
     }
 }

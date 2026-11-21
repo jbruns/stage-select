@@ -334,7 +334,7 @@ fn an_invalid_list_pattern_is_refused() {
 }
 
 #[test]
-fn your_choices_decide_a_family_and_one_gone_from_the_dat_revision_needs_review() {
+fn the_operators_choices_decide_a_family_and_one_gone_from_the_dat_revision_needs_review() {
     let mut profile = SelectionProfile::default();
     let choices = profile.choices.entry("MAME".into()).or_default();
     choices.insert("shooter".into(), set(&["shooteru"]));
@@ -397,4 +397,26 @@ fn coverage_is_refused_for_an_arcade_dat() {
         .run(&data("arcade.xml"), &SelectionProfile::default(), &options)
         .unwrap_err();
     assert!(error.to_string().contains("coverage"), "{error}");
+}
+
+#[test]
+fn a_machine_that_names_no_language_ties_with_the_first_language() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("gauntlet.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="gauntlet"><description>Gauntlet (rev 14)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="gauntletj" cloneof="gauntlet"><description>Gauntlet (Japanese, rev 13)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let selection = run(&dat, &ArcadeSettings::default()).selection;
+    let gauntlet = group(&selection, "gauntlet");
+    assert_eq!(gauntlet.winners[0].title, "gauntlet");
+    assert_eq!(gauntlet.alternatives[0].rule.stage, "election:language");
 }

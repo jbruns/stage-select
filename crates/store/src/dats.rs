@@ -160,7 +160,6 @@ impl OrderKey {
     }
 }
 
-/// The DAT `<provider>/<name>`, spelled exactly so.
 /// The DAT Format of the DAT `dat_id`'s newest revision, or `None` before it has one.
 pub(crate) fn dat_format(c: &Connection, dat_id: i64) -> Result<Option<DatFormat>> {
     let format: Option<String> = c
@@ -195,6 +194,7 @@ pub(crate) fn check_coverable(c: &Connection, dat_id: i64, coverage: Option<&str
     }
 }
 
+/// The DAT `<provider>/<name>`, spelled exactly so.
 pub(crate) fn find_dat(c: &Connection, provider: &str, name: &str) -> Result<Option<i64>> {
     Ok(c.query_row(
         "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",

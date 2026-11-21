@@ -68,7 +68,7 @@ pub enum Error {
     /// A DAT the engine can't read.
     #[error("the DAT: {0}")]
     Dat(String),
-    /// A Selection the engine won't make, such as of a software list, and why, as you read it.
+    /// A Selection the engine won't make, such as of a software list, and why, as the Operator reads it.
     #[error("{0}")]
     Refused(String),
 }
