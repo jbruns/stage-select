@@ -1002,7 +1002,10 @@ fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
             .notes
             .iter()
             .any(|n| n.contains("Duo (USA) stays placed here")
-                && n.contains("goes back to source set")),
+                && n.contains(
+                    "nothing of Duo (USA) moves while Duo (USA) (Disc 1) has nothing to build"
+                )
+                && n.contains("a later plan returns Duo (USA) to source set")),
         "{:?}",
         plan.content.notes
     );
@@ -1033,7 +1036,10 @@ fn a_held_release_stays_placed_when_single_copy_is_turned_off() {
             .notes
             .iter()
             .any(|n| n.contains("Duo (USA) stays placed here")
-                && n.contains("goes back to source set")),
+                && n.contains(
+                    "nothing of Duo (USA) moves while Duo (USA) (Disc 1) has nothing to build"
+                )
+                && n.contains("a later plan returns Duo (USA) to source set")),
         "{:?}",
         plan.content.notes
     );

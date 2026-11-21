@@ -98,7 +98,7 @@ pub(super) fn returns(
         games.sort_unstable();
         games.dedup();
         // The folder keeps a release placed in it while its Games are selected there, Single Copy is on for its
-        // system, and it holds the Source Set's Placed Games.
+        // system, and it holds the Source Set's Placed Games; and, whatever else, while the release is held back.
         let why = if remove_all {
             Some("you are removing every built file of this folder".to_owned())
         } else if let Some(game) = games.iter().find(|g| !selected(g)) {
@@ -117,8 +117,8 @@ pub(super) fn returns(
         };
         if let Some(hold) = held.get(release) {
             stays.push(format!(
-                "{release} stays placed here: {why}, but nothing of {release} moves while {hold}; it goes back to \
-                 source set {set}'s folder once that changes"
+                "{release} stays placed here: {why}, but nothing of {release} moves while {hold}. Once that is no \
+                 longer so, a later plan returns {release} to source set {set}'s folder"
             ));
             continue;
         }
