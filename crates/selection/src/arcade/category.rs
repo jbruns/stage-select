@@ -2,38 +2,8 @@
 //! (research 0105 §4): its driver's source directory, whether it names a software list, and its control types. The
 //! heuristic agrees with catver about 91% of the time on MAME 0.289, and misses quiz, mature and most tabletop machines.
 
+use title_select_api::arcade::Category;
 use title_select_engine::dat::Machine;
-
-/// A kind of machine the category filter can drop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Category {
-    /// Computers, consoles, handhelds, calculators, chess computers, instruments and other machines that aren't arcade
-    /// games.
-    NonArcade,
-    /// Gambling, redemption and electromechanical machines.
-    Gambling,
-    /// Mahjong, hanafuda and other tabletop machines.
-    Tabletop,
-    /// Board games and chess computers.
-    BoardGame,
-    /// Quiz and trivia machines.
-    Quiz,
-    /// What catver marks `* Mature *`, whatever its category.
-    Mature,
-}
-
-impl Category {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Category::NonArcade => "non-arcade",
-            Category::Gambling => "gambling",
-            Category::Tabletop => "tabletop",
-            Category::BoardGame => "board game",
-            Category::Quiz => "quiz",
-            Category::Mature => "mature",
-        }
-    }
-}
 
 /// catver's top-level categories of machines that aren't arcade games.
 const NON_ARCADE_CATEGORIES: &[&str] = &[

@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 use sha2::Digest;
 use title_select_api::selection::{
     CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
-    SelectionProfile,
+    SelectionProfile, SystemSettings,
 };
 use title_select_api::support::SupportFileKind;
-use title_select_selection::arcade::{ArcadeSettings, Orientation, Range, Variant};
+use title_select_api::{DatSystem, SourceSetSystem};
+use title_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
 use title_select_selection::{Engine, Outcome};
 
 use crate::support;
@@ -30,14 +31,25 @@ fn engine() -> Engine {
     support::fixture_engine()
 }
 
+/// A Profile whose global `arcade` block is `settings`.
+fn arcade_profile(settings: &ArcadeSettings) -> SelectionProfile {
+    SelectionProfile {
+        arcade: Some(settings.clone()),
+        ..SelectionProfile::default()
+    }
+}
+
 fn run(dat: &Path, settings: &ArcadeSettings) -> Outcome {
     run_with(dat, &SelectionProfile::default(), settings)
 }
 
+/// Selects from `dat` with `profile`, its global `arcade` block set to `settings`.
 fn run_with(dat: &Path, profile: &SelectionProfile, settings: &ArcadeSettings) -> Outcome {
-    engine()
-        .run_arcade(dat, profile, settings, &support::options())
-        .unwrap()
+    let profile = SelectionProfile {
+        arcade: Some(settings.clone()),
+        ..profile.clone()
+    };
+    engine().run(dat, &profile, &support::options()).unwrap()
 }
 
 /// Checks the Selection, less its pins, and the trace against the goldens `<name>.selection.json` and
@@ -156,7 +168,7 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
 
     let arcade = selection.pins.arcade.as_ref().unwrap();
     assert_eq!(arcade.build, "0.289 (mame0289)");
-    assert_eq!(arcade.category, CategorySource::ListxmlHeuristic);
+    assert_eq!(arcade.category, Some(CategorySource::ListxmlHeuristic));
     assert!(arcade.unavailable.is_empty());
 }
 
@@ -293,6 +305,8 @@ fn a_filter_whose_signal_the_dat_lacks_is_unavailable_and_drops_nothing() {
     let arcade = outcome.selection.pins.arcade.clone().unwrap();
     assert!(arcade.unavailable.contains(&"quality".to_owned()));
     assert!(arcade.unavailable.contains(&"year".to_owned()));
+    // A filter you left off isn't listed, though the DAT has nothing for it either.
+    assert!(!arcade.unavailable.contains(&"players".to_owned()));
     // A machine that names no region ranks after every region you order.
     assert_eq!(winners(&outcome.selection), set(&["barej"]));
     assert!(exclusions(&outcome.selection).is_empty());
@@ -324,15 +338,100 @@ fn an_invalid_list_pattern_is_refused() {
         exclude: vec!["/(".into()],
         ..ArcadeSettings::default()
     };
+    let profile = SelectionProfile {
+        arcade: Some(settings),
+        ..SelectionProfile::default()
+    };
     let error = engine()
-        .run_arcade(
-            &data("arcade.xml"),
-            &SelectionProfile::default(),
-            &settings,
-            &support::options(),
-        )
+        .run(&data("arcade.xml"), &profile, &support::options())
         .unwrap_err();
     assert!(error.to_string().contains("/("), "{error}");
+    let checked = engine().check(&profile, &[]).unwrap_err().to_string();
+    assert!(
+        checked.starts_with("Your global arcade settings: exclude list: /(:"),
+        "{checked}"
+    );
+}
+
+#[test]
+fn a_systems_arcade_block_replaces_the_global_one() {
+    let mut profile = SelectionProfile {
+        arcade: Some(ArcadeSettings {
+            exclude: vec!["|fighter".into()],
+            ..ArcadeSettings::default()
+        }),
+        ..SelectionProfile::default()
+    };
+    let global = engine()
+        .run(&data("arcade.xml"), &profile, &support::options())
+        .unwrap()
+        .selection;
+    assert_eq!(exclusions(&global)["fighter"], "list");
+    assert!(!global.system_settings);
+
+    profile.systems.insert(
+        "MAME".into(),
+        SystemSettings {
+            arcade: Some(ArcadeSettings {
+                exclude: vec!["|shooter".into()],
+                ..ArcadeSettings::default()
+            }),
+            ..SystemSettings::default()
+        },
+    );
+    let own = engine()
+        .run(&data("arcade.xml"), &profile, &support::options())
+        .unwrap()
+        .selection;
+    let dropped = exclusions(&own);
+    assert_eq!(dropped["shooter"], "list");
+    assert!(!dropped.contains_key("fighter"));
+    assert!(own.system_settings);
+}
+
+#[test]
+fn the_election_runs_your_steps_in_your_order() {
+    // Parent first: the preliminary parent beats its good clone, which the default order elects.
+    let settings = ArcadeSettings {
+        minimum_driver_status: None,
+        election: vec![ElectionStep::Parent, ElectionStep::Status],
+        ..ArcadeSettings::default()
+    };
+    let racer = run(&data("arcade.xml"), &settings).selection;
+    let racer = group(&racer, "racer");
+    assert_eq!(racer.winners[0].title, "racer");
+    assert_eq!(racer.winners[0].rule.stage, "election:parent");
+
+    // With no steps, the shortname decides.
+    let settings = ArcadeSettings {
+        minimum_driver_status: None,
+        election: Vec::new(),
+        ..ArcadeSettings::default()
+    };
+    let selection = run(&data("arcade.xml"), &settings).selection;
+    let racer = group(&selection, "racer");
+    assert_eq!(racer.winners[0].title, "racer");
+    assert_eq!(racer.winners[0].rule.stage, "election:shortname");
+
+    let twice = SelectionProfile {
+        arcade: Some(ArcadeSettings {
+            election: vec![ElectionStep::Region, ElectionStep::Region],
+            ..ArcadeSettings::default()
+        }),
+        ..SelectionProfile::default()
+    };
+    let problem = engine().check(&twice, &[]).unwrap_err().to_string();
+    assert_eq!(
+        problem,
+        "Your global arcade settings: election order: Preferred region is listed twice."
+    );
+}
+
+#[test]
+fn an_arcade_selection_pins_no_clone_lists_or_trace_schema() {
+    let selection = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
+    assert!(selection.pins.retool.is_none());
+    assert!(selection.pins.title_select_version.is_some());
 }
 
 #[test]
@@ -379,7 +478,13 @@ fn selection_refuses_a_software_list_and_names_listxml_systems_mame() {
     let listxml = data("arcade.xml");
     assert_eq!(
         engine.systems(&[&listxml, &list]).unwrap(),
-        [Some("MAME".to_owned()), None]
+        [
+            Some(DatSystem {
+                name: "MAME".to_owned(),
+                arcade: true
+            }),
+            None
+        ]
     );
     // Run dispatches a ListXML to the arcade selector.
     let selection = engine
@@ -424,6 +529,60 @@ fn a_machine_that_names_no_language_ties_with_the_first_language() {
 }
 
 #[test]
+fn an_empty_region_order_leaves_region_out_of_the_election() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("outrun.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="outrun"><description>Out Run</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="outrunj" cloneof="outrun"><description>Out Run (Japan)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let settings = ArcadeSettings {
+        election: vec![ElectionStep::Region, ElectionStep::Parent],
+        region_order: Vec::new(),
+        ..ArcadeSettings::default()
+    };
+    let selection = run(&dat, &settings).selection;
+    let outrun = group(&selection, "outrun");
+    assert_eq!(outrun.winners[0].title, "outrun");
+    assert_eq!(outrun.winners[0].rule.stage, "election:parent");
+}
+
+#[test]
+fn an_empty_language_order_leaves_language_out_of_the_election() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = work.path().join("outrun.xml");
+    std::fs::write(
+        &dat,
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="outrun"><description>Out Run</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+  <machine name="outrunj" cloneof="outrun"><description>Out Run (Japanese)</description>
+    <display type="raster" rotate="0"/><driver status="good"/></machine>
+</mame>
+"#,
+    )
+    .unwrap();
+    let settings = ArcadeSettings {
+        election: vec![ElectionStep::Language, ElectionStep::Parent],
+        language_order: Vec::new(),
+        ..ArcadeSettings::default()
+    };
+    let selection = run(&dat, &settings).selection;
+    let outrun = group(&selection, "outrun");
+    assert_eq!(outrun.winners[0].title, "outrun");
+    assert_eq!(outrun.winners[0].rule.stage, "election:parent");
+}
+
+#[test]
 fn a_newer_six_digit_date_beats_an_older_eight_digit_one_in_the_election() {
     let work = tempfile::tempdir().unwrap();
     let dat = work.path().join("fighter.xml");
@@ -465,7 +624,12 @@ fn a_listxml_behind_a_long_preamble_goes_to_the_arcade_selector() {
     std::fs::write(&dat, long_preamble() + body).unwrap();
     assert!(std::fs::metadata(&dat).unwrap().len() > 1 << 21);
     let engine = engine();
-    assert_eq!(engine.systems(&[&dat]).unwrap(), [Some("MAME".to_owned())]);
+    assert_eq!(
+        engine.systems(&[&dat]).unwrap()[0]
+            .as_ref()
+            .map(|s| s.name.as_str()),
+        Some("MAME")
+    );
     let selection = engine
         .run(&dat, &SelectionProfile::default(), &support::options())
         .unwrap()
@@ -574,12 +738,7 @@ fn run_supported(engine: &Engine, kinds: &[&str], settings: &ArcadeSettings) -> 
         ..support::options()
     };
     engine
-        .run_arcade(
-            &data("arcade.xml"),
-            &SelectionProfile::default(),
-            settings,
-            &options,
-        )
+        .run(&data("arcade.xml"), &arcade_profile(settings), &options)
         .unwrap()
 }
 
@@ -619,7 +778,7 @@ fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
     assert!(winners(selection).contains("mystery"));
 
     let arcade = selection.pins.arcade.as_ref().unwrap();
-    assert_eq!(arcade.category, CategorySource::Catver);
+    assert_eq!(arcade.category, Some(CategorySource::Catver));
     assert_eq!(arcade.category_fallbacks, 2);
     let pinned: Vec<(SupportFileKind, &str, bool)> = arcade
         .support_files
@@ -666,6 +825,86 @@ fn languages_ini_gives_the_language_election_the_languages_of_each_machine_it_li
         sailor.alternatives[0].rule.message,
         "language Japanese, which ranks below language English"
     );
+}
+
+#[test]
+fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
+    let work = tempfile::tempdir().unwrap();
+    let languages = work.path().join("languages.ini");
+    std::fs::write(
+        &languages,
+        ";; languages.ini 0.289 / 01-Jan-26 / MAME 0.289 ;;\n\n[English]\nsailore\n\n[Russian]\nsailor\n",
+    )
+    .unwrap();
+    let profile = arcade_profile(&ArcadeSettings {
+        language_order: vec!["russian".into(), "English".into()],
+        ..ArcadeSettings::default()
+    });
+    let engine = engine();
+    engine.check(&profile, &[]).unwrap();
+    let options = title_select_selection::RunOptions {
+        support_files: vec![languages],
+        ..support::options()
+    };
+    let selection = engine
+        .run(&data("arcade.xml"), &profile, &options)
+        .unwrap()
+        .selection;
+    let sailor = group(&selection, "sailor");
+    assert_eq!(sailor.winners[0].title, "sailor");
+    assert_eq!(sailor.winners[0].rule.stage, "election:language");
+}
+
+#[test]
+fn an_arcade_block_for_a_system_that_isnt_arcade_is_refused() {
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        "Nintendo - Game Boy".into(),
+        SystemSettings {
+            arcade: Some(ArcadeSettings::default()),
+            ..SystemSettings::default()
+        },
+    );
+    let problem = engine().check(&profile, &[]).unwrap_err().to_string();
+    assert_eq!(
+        problem,
+        "Your Nintendo - Game Boy settings: arcade settings apply only to MAME, whose DATs are arcade DATs. Remove \
+         them from Nintendo - Game Boy."
+    );
+}
+
+#[test]
+fn an_arcade_block_for_mame_is_refused_when_its_dats_are_logiqx_dats() {
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        "MAME".into(),
+        SystemSettings {
+            arcade: Some(ArcadeSettings::default()),
+            ..SystemSettings::default()
+        },
+    );
+    let logiqx = SourceSetSystem {
+        source_set: "mame-logiqx".into(),
+        system: Some("MAME".into()),
+        arcade: false,
+    };
+    let problem = engine()
+        .check(&profile, std::slice::from_ref(&logiqx))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        problem,
+        "Your MAME settings: your MAME DATs aren't arcade DATs, so your arcade settings for MAME never apply. Remove \
+         them from MAME."
+    );
+    // With no MAME DAT registered yet, or a ListXML among them, the block can apply.
+    engine().check(&profile, &[]).unwrap();
+    let listxml = SourceSetSystem {
+        source_set: "mame".into(),
+        arcade: true,
+        ..logiqx.clone()
+    };
+    engine().check(&profile, &[logiqx, listxml]).unwrap();
 }
 
 #[test]
@@ -836,10 +1075,9 @@ fn the_curated_list_at_another_commit_is_refused() {
     };
     let error = engine()
         .with_curated_list(list.path())
-        .run_arcade(
+        .run(
             &data("arcade.xml"),
-            &SelectionProfile::default(),
-            &settings,
+            &arcade_profile(&settings),
             &support::options(),
         )
         .unwrap_err();
@@ -856,10 +1094,9 @@ fn two_support_files_of_one_kind_are_refused() {
         ..support::options()
     };
     let error = engine()
-        .run_arcade(
+        .run(
             &data("arcade.xml"),
-            &SelectionProfile::default(),
-            &ArcadeSettings::default(),
+            &arcade_profile(&ArcadeSettings::default()),
             &options,
         )
         .unwrap_err();
@@ -878,10 +1115,9 @@ fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
     };
     let outcome = engine()
         .with_curated_list(&dir)
-        .run_arcade(
+        .run(
             &data("arcade.xml"),
-            &SelectionProfile::default(),
-            &settings,
+            &arcade_profile(&settings),
             &support::options(),
         )
         .unwrap_or_else(|e| {
@@ -901,4 +1137,64 @@ fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
             .len()
             > 100
     );
+}
+
+#[test]
+fn a_profiles_rating_settings_reach_the_selector() {
+    // A system's own block, read from JSON as the store keeps it.
+    let profile: SelectionProfile = serde_json::from_str(
+        r#"{"systems":{"MAME":{"arcade":{"minimum_rating":70,"drop_unrated":true}}}}"#,
+    )
+    .unwrap();
+    let options = title_select_selection::RunOptions {
+        support_files: support_files(&["bestgames"]),
+        ..support::options()
+    };
+    let selection = engine()
+        .run(&data("arcade.xml"), &profile, &options)
+        .unwrap()
+        .selection;
+    assert_eq!(winners(&selection), set(&["fighteru", "shooterw"]));
+    let dropped = exclusions(&selection);
+    // Below the minimum, and unrated.
+    assert_eq!(dropped["racera"], "rating");
+    assert_eq!(dropped["mystery"], "rating");
+    assert!(selection.system_settings);
+
+    // A profile that leaves them out rates nothing.
+    let unrated = engine()
+        .run(&data("arcade.xml"), &SelectionProfile::default(), &options)
+        .unwrap()
+        .selection;
+    assert!(!exclusions(&unrated).values().any(|stage| stage == "rating"));
+}
+
+#[test]
+fn a_profiles_curated_switch_reaches_the_selector_and_is_off_by_default() {
+    let list = curated_list(&["shooteru"]);
+    let engine = engine().with_curated_list(list.path());
+    let profile: SelectionProfile = serde_json::from_str(r#"{"arcade":{"curated":true}}"#).unwrap();
+    let selection = engine
+        .run(&data("arcade.xml"), &profile, &support::options())
+        .unwrap()
+        .selection;
+    assert_eq!(winners(&selection), set(&["shooteru"]));
+    assert_eq!(
+        group(&selection, "shooter").winners[0].rule.stage,
+        "election:curated"
+    );
+    assert_eq!(exclusions(&selection)["fighteru"], "curated");
+
+    // Off, the list isn't read, so a missing one doesn't matter, and the Selection records none.
+    let off = engine
+        .with_curated_list(&list.path().join("missing"))
+        .run(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            &support::options(),
+        )
+        .unwrap()
+        .selection;
+    assert!(winners(&off).len() > 1);
+    assert_eq!(off.pins.arcade.unwrap().curated, None);
 }

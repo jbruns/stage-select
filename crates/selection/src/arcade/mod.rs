@@ -2,14 +2,17 @@
 //! machines by filters on ListXML's signals, elects one machine per family (a parent and its clones) by an ordered
 //! chain of steps, each one Rule, and lists each winner's Dependencies once (ADR 0025).
 //!
-//! Every signal is optional: a filter keeps a machine whose entry doesn't say, and a filter whose signal no machine of
-//! the DAT carries is unavailable, which the Selection records. The Support Files are optional too: catver decides
-//! category, and for a machine it doesn't list, or without it, a ListXML-only heuristic does; languages.ini gives the
-//! language election its languages, else the description does; bestgames rates families. The Selection records the
-//! ones it read, and a file behind the ListXML's MAME version as drift.
+//! Every signal is optional: a filter keeps a machine whose entry doesn't say, and a filter you turn on whose signal no
+//! machine of the DAT carries is unavailable, which the Selection records. The Support Files are optional too: catver
+//! decides category, and for a machine it doesn't list, or without it, a ListXML-only heuristic does; languages.ini
+//! gives the language election its languages, else the description does; bestgames rates families, and the rating
+//! filter is unavailable without it. The Selection records the ones it read, and a file behind the ListXML's MAME
+//! version as drift.
 //!
 //! The curated list, `curated-mame-arcade-romset`, is optional: on, it keeps only the families it names and prefers
-//! the machine it names.
+//! the machine it names, before the election's other steps.
+//!
+//! Its settings are the Selection Profile's `arcade` block (`SelectionProfile::arcade_settings`).
 
 mod category;
 mod describe;
@@ -25,9 +28,11 @@ use title_select_api::selection::{
 use title_select_api::support::SupportFileKind;
 use title_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
 
-pub use category::Category;
-pub use describe::Variant;
 pub use support::{SupportFiles, Tier};
+pub use title_select_api::arcade::{
+    ArcadeSettings, Category, ElectionStep, Orientation, Range, Variant, is_arcade_system,
+    same_name, takes_arcade_settings,
+};
 
 use crate::native::UserRegex;
 use crate::{CuratedList, Error};
@@ -35,136 +40,37 @@ use crate::{CuratedList, Error};
 /// What the curated list is called where a Rule cites it.
 const CURATED_NAME: &str = "curated-mame-arcade-romset";
 
-/// What the arcade selector keeps and prefers. The defaults are ADR 0027's; the Selection Profile's `arcade` block
-/// (#250) will set them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArcadeSettings {
-    pub drop_mechanical: bool,
-    /// Drop machines with no screen.
-    pub drop_screenless: bool,
-    /// Drop machines that name a software list: computers and consoles.
-    pub drop_software_lists: bool,
-    pub drop_categories: BTreeSet<Category>,
-    /// Drop machines whose driver status is below this; `None` keeps every status.
-    pub minimum_driver_status: Option<DriverStatus>,
-    pub drop_variants: BTreeSet<Variant>,
-    pub years: Range,
-    pub players: Range,
-    /// Keep only machines with at least one of these control types; empty keeps every machine.
-    pub require_controls: BTreeSet<String>,
-    /// Drop machines with any of these control types.
-    pub forbid_controls: BTreeSet<String>,
-    /// Keep only machines whose first screen is this way round; `None` keeps both.
-    pub orientation: Option<Orientation>,
-    /// Drop machines that need Disks (CHDs).
-    pub drop_disks: bool,
-    /// Drop machines that play samples.
-    pub drop_samples: bool,
-    /// Regions in order of preference, as `World` or `USA`; a region left out ranks after those listed.
-    pub region_order: Vec<String>,
-    pub language_order: Vec<String>,
-    /// Machines kept whatever the filters say, but for BIOSes, devices and machines that can't run, in the override
-    /// syntax: plain text matches part of a shortname or description, `|` all of one, `/` a regular expression.
-    pub include: Vec<String>,
-    /// Machines dropped, in the same syntax; `include` wins.
-    pub exclude: Vec<String>,
-    /// Drop families whose parent bestgames rates below this, as a tier's lower bound, such as 70 for
-    /// `70 to 80 (Good)`; `None` keeps every rating.
-    pub minimum_rating: Option<u32>,
-    /// Drop families bestgames doesn't rate.
-    pub drop_unrated: bool,
-    /// Keep only the families the curated list names, and prefer the machine it names.
-    pub curated: bool,
+/// Whether `settings` read bestgames: a minimum rating, or dropping unrated families.
+fn rates(settings: &ArcadeSettings) -> bool {
+    settings.minimum_rating.is_some() || settings.drop_unrated
 }
 
-impl Default for ArcadeSettings {
-    fn default() -> Self {
-        ArcadeSettings {
-            drop_mechanical: true,
-            drop_screenless: true,
-            drop_software_lists: true,
-            drop_categories: [
-                Category::NonArcade,
-                Category::Gambling,
-                Category::Tabletop,
-                Category::BoardGame,
-                Category::Quiz,
-                Category::Mature,
-            ]
-            .into(),
-            minimum_driver_status: Some(DriverStatus::Imperfect),
-            drop_variants: BTreeSet::new(),
-            years: Range::default(),
-            players: Range::default(),
-            require_controls: BTreeSet::new(),
-            forbid_controls: BTreeSet::new(),
-            orientation: None,
-            drop_disks: false,
-            drop_samples: false,
-            region_order: describe::default_region_order(),
-            language_order: describe::default_language_order(),
-            include: Vec::new(),
-            exclude: Vec::new(),
-            minimum_rating: None,
-            drop_unrated: false,
-            curated: false,
-        }
-    }
-}
-
-impl ArcadeSettings {
-    fn rates(&self) -> bool {
-        self.minimum_rating.is_some() || self.drop_unrated
-    }
-}
-
-/// An inclusive range; an open end is `None`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Range {
-    pub min: Option<u32>,
-    pub max: Option<u32>,
-}
-
-impl Range {
-    fn is_open(&self) -> bool {
-        self.min.is_none() && self.max.is_none()
-    }
-
-    fn contains(&self, n: u32) -> bool {
-        self.min.is_none_or(|min| n >= min) && self.max.is_none_or(|max| n <= max)
-    }
-
-    fn describe(&self) -> String {
-        match (self.min, self.max) {
-            (Some(min), Some(max)) => format!("{min} to {max}"),
-            (Some(min), None) => format!("{min} or more"),
-            (None, Some(max)) => format!("{max} or fewer"),
-            (None, None) => "any number".into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Orientation {
-    Horizontal,
-    Vertical,
-}
-
-/// Each filter, by the name the Selection records it unavailable under, with the signals it reads.
-const FILTER_SIGNALS: &[(&str, &[Signal])] = &[
-    ("mechanical", &[Signal::Mechanical]),
-    ("screenless", &[Signal::Displays]),
-    ("software_lists", &[Signal::SoftwareLists]),
+/// Each filter, by the name the Selection records it unavailable under, with the signals it reads and whether the
+/// settings turn it on.
+type FilterOn = fn(&ArcadeSettings) -> bool;
+const FILTER_SIGNALS: &[(&str, &[Signal], FilterOn)] = &[
+    ("mechanical", &[Signal::Mechanical], |s| s.drop_mechanical),
+    ("screenless", &[Signal::Displays], |s| s.drop_screenless),
+    ("software_lists", &[Signal::SoftwareLists], |s| {
+        s.drop_software_lists
+    }),
     (
         "category",
         &[Signal::SourceFile, Signal::SoftwareLists, Signal::Controls],
+        |s| !s.drop_categories.is_empty(),
     ),
-    ("quality", &[Signal::Driver]),
-    ("year", &[Signal::Year]),
-    ("players", &[Signal::Players]),
-    ("controls", &[Signal::Controls]),
-    ("orientation", &[Signal::Displays]),
-    ("samples", &[Signal::Samples]),
+    ("quality", &[Signal::Driver], |s| {
+        s.minimum_driver_status.is_some()
+    }),
+    ("year", &[Signal::Year], |s| !s.years.is_open()),
+    ("players", &[Signal::Players], |s| !s.players.is_open()),
+    ("controls", &[Signal::Controls], |s| {
+        !s.require_controls.is_empty() || !s.forbid_controls.is_empty()
+    }),
+    ("orientation", &[Signal::Displays], |s| {
+        s.orientation.is_some()
+    }),
+    ("samples", &[Signal::Samples], |s| s.drop_samples),
 ];
 
 /// A pattern of an include or exclude list.
@@ -200,7 +106,7 @@ fn matchers(lines: &[String], list: &str) -> (Vec<Matcher>, Vec<String>) {
     for line in lines {
         match Matcher::new(line) {
             Ok(m) => out.push(m),
-            Err(e) => problems.push(format!("arcade {list} list: {line}: {e}")),
+            Err(e) => problems.push(format!("{list} list: {line}: {e}")),
         }
     }
     (out, problems)
@@ -236,9 +142,22 @@ pub(crate) struct Elected {
 /// Fails when the run must stop.
 pub(crate) type Stop<'a> = &'a dyn Fn() -> Result<(), Error>;
 
-/// Checks the include and exclude lists' patterns.
-pub(crate) fn check(settings: &ArcadeSettings) -> Result<(), Error> {
-    lists(settings).map(|_| ())
+/// Checks that the selector can read `settings`, the `scope` block of a Profile (`global` or a system's name): its
+/// orders and control types, and the include and exclude lists' patterns.
+pub(crate) fn check(settings: &ArcadeSettings, scope: &str) -> Result<(), Error> {
+    let mut problems = settings.problems();
+    if let Err(Error::Patterns(more)) = lists(settings) {
+        problems.extend(more);
+    }
+    match problems.is_empty() {
+        true => Ok(()),
+        false => Err(Error::Patterns(
+            problems
+                .into_iter()
+                .map(|p| format!("Your {scope} arcade settings: {p}."))
+                .collect(),
+        )),
+    }
 }
 
 /// The include and exclude lists' matchers, or every line of them the selector can't read.
@@ -331,7 +250,8 @@ pub(crate) fn elect(
 
     let mut trace = Vec::new();
     let mut category_fallbacks = 0;
-    match (&support.catver, support.version(SupportFileKind::Catver)) {
+    let category = match (&support.catver, support.version(SupportFileKind::Catver)) {
+        _ if settings.drop_categories.is_empty() => None,
         (Some(catver), Some(version)) => {
             trace.push(json!({
                 "type": "category",
@@ -359,13 +279,17 @@ pub(crate) fn elect(
                     "message": "catver.ini doesn't list it, so the ListXML heuristic decides its category",
                 }));
             }
+            Some(CategorySource::Catver)
         }
-        _ => trace.push(json!({
-            "type": "category",
-            "source": "listxml_heuristic",
-            "message": "category from the ListXML heuristic: no catver.ini was read",
-        })),
-    }
+        _ => {
+            trace.push(json!({
+                "type": "category",
+                "source": "listxml_heuristic",
+                "message": "category from the ListXML heuristic: no catver.ini was read",
+            }));
+            Some(CategorySource::ListxmlHeuristic)
+        }
+    };
     let build = support::version_number(&dat.version);
     let mut support_pins = support.pins.clone();
     for pin in &mut support_pins {
@@ -392,20 +316,24 @@ pub(crate) fn elect(
             "message": format!("{CURATED_NAME} names shortnames this DAT doesn't have, which match nothing"),
         }));
     }
+    // A filter you turned on that has nothing to read in this DAT.
     let mut unavailable: Vec<String> = FILTER_SIGNALS
         .iter()
-        .filter(|(filter, _)| !(*filter == "category" && support.catver.is_some()))
-        .filter(|(_, signals)| !signals.iter().any(|s| dat.carries(*s)))
-        .map(|(filter, _)| filter.to_string())
+        .filter(|(filter, _, _)| !(*filter == "category" && support.catver.is_some()))
+        .filter(|(_, signals, on)| on(settings) && !signals.iter().any(|s| dat.carries(*s)))
+        .map(|(filter, _, _)| filter.to_string())
         .collect();
-    if settings.rates() && support.bestgames.is_none() {
+    if rates(settings) && support.bestgames.is_none() {
         unavailable.push("rating".into());
     }
     for filter in &unavailable {
         trace.push(json!({
             "type": "unavailable",
             "filter": filter,
-            "message": "no machine of the DAT says, so the filter drops nothing",
+            "message": match filter.as_str() {
+                "rating" => "no bestgames.ini was read, so the filter drops nothing",
+                _ => "no machine of the DAT says, so the filter drops nothing",
+            },
         }));
     }
 
@@ -457,7 +385,7 @@ pub(crate) fn elect(
             }
         }
         if !left.is_empty()
-            && settings.rates()
+            && rates(settings)
             && let Some((bestgames, version)) = support.bestgames()
         {
             // A family the rating filter would drop has machines left only because the include list names them.
@@ -508,10 +436,7 @@ pub(crate) fn elect(
         groups,
         pins: ArcadePins {
             build: dat.version.clone(),
-            category: match support.catver {
-                Some(_) => CategorySource::Catver,
-                None => CategorySource::ListxmlHeuristic,
-            },
+            category,
             unavailable,
             category_fallbacks,
             support_files: support_pins,
@@ -636,7 +561,7 @@ fn filter(
             }
         }
     }
-    if settings.rates()
+    if rates(settings)
         && let Some((bestgames, version)) = context.support.bestgames()
     {
         match bestgames.get(c.family()) {
@@ -678,8 +603,8 @@ fn filter(
             "driver status",
             format!(
                 "driver status {}, below {}",
-                status_name(status),
-                status_name(minimum)
+                status.as_str(),
+                minimum.as_str()
             ),
         );
     }
@@ -772,18 +697,9 @@ fn filter(
     None
 }
 
-fn status_name(status: DriverStatus) -> &'static str {
-    match status {
-        DriverStatus::Good => "good",
-        DriverStatus::Imperfect => "imperfect",
-        DriverStatus::Preliminary => "preliminary",
-    }
-}
-
-/// One election step: its stage, each candidate's key (lower is better), and the messages for the candidates it
-/// keeps and removes.
+/// One election step: each candidate's key (lower is better), and the messages for the candidates it keeps and
+/// removes. Its stage is its `ElectionStep`'s, or the curated list's.
 struct Step {
-    stage: &'static str,
     key: fn(&Candidate, &ArcadeSettings) -> Vec<i64>,
     describe: fn(&Candidate, &ArcadeSettings) -> String,
 }
@@ -791,29 +707,36 @@ struct Step {
 /// The election step the curated list decides, whose Rules cite the list.
 const CURATED_STAGE: &str = "election:curated";
 
-/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`.
+/// The curated list's step, which runs before the steps the settings order when they keep to the list.
+const CURATED_STEP: Step = Step {
+    key: |c, _| vec![!c.curated as i64],
+    describe: |c, _| match c.curated {
+        true => format!("named by {CURATED_NAME}"),
+        false => format!("not the machine {CURATED_NAME} names"),
+    },
+};
+
+/// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`. Names
+/// match by [`same_name`].
 fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
     if names.is_empty() {
         return unnamed;
     }
     names
         .iter()
-        .map(|n| order.iter().position(|o| o == n).unwrap_or(order.len()) as i64)
+        .map(|n| {
+            order
+                .iter()
+                .position(|o| same_name(o, n))
+                .unwrap_or(order.len()) as i64
+        })
         .min()
         .unwrap_or(order.len() as i64)
 }
 
-const STEPS: &[Step] = &[
+/// The steps, in `ElectionStep::ALL`'s order.
+const STEPS: [Step; 6] = [
     Step {
-        stage: CURATED_STAGE,
-        key: |c, _| vec![!c.curated as i64],
-        describe: |c, _| match c.curated {
-            true => format!("named by {CURATED_NAME}"),
-            false => format!("not the machine {CURATED_NAME} names"),
-        },
-    },
-    Step {
-        stage: "election:status",
         key: |c, _| {
             vec![match c.machine.driver.as_ref().and_then(|d| d.status) {
                 Some(DriverStatus::Good) => 0,
@@ -823,14 +746,17 @@ const STEPS: &[Step] = &[
             }]
         },
         describe: |c, _| match c.machine.driver.as_ref().and_then(|d| d.status) {
-            Some(status) => format!("driver status {}", status_name(status)),
+            Some(status) => format!("driver status {}", status.as_str()),
             None => "no driver status".into(),
         },
     },
     Step {
-        stage: "election:region",
-        // A machine that names no region ranks after every region: a bootleg rarely names one.
+        // A machine that names no region ranks after every region: a bootleg rarely names one. With no regions
+        // listed, region doesn't decide.
         key: |c, s| {
+            if s.region_order.is_empty() {
+                return vec![0];
+            }
             let unnamed = s.region_order.len() as i64 + 1;
             vec![rank(&c.described.regions, &s.region_order, unnamed)]
         },
@@ -840,7 +766,6 @@ const STEPS: &[Step] = &[
         },
     },
     Step {
-        stage: "election:language",
         // Most descriptions name no language, so one that names none ties with the first language.
         key: |c, s| vec![rank(&c.languages, &s.language_order, 0)],
         describe: |c, _| match c.languages.is_empty() {
@@ -849,7 +774,6 @@ const STEPS: &[Step] = &[
         },
     },
     Step {
-        stage: "election:parent",
         key: |c, _| vec![c.parent.is_some() as i64],
         describe: |c, _| match c.parent {
             Some(_) => "a clone".into(),
@@ -857,7 +781,6 @@ const STEPS: &[Step] = &[
         },
     },
     Step {
-        stage: "election:revision",
         key: |c, _| {
             c.described
                 .revision
@@ -868,7 +791,6 @@ const STEPS: &[Step] = &[
         describe: |c, _| revision_text(c.described.revision),
     },
     Step {
-        stage: "election:variant",
         key: |c, _| {
             vec![
                 c.described
@@ -927,7 +849,7 @@ fn elect_family(
             true => Rule {
                 stage: CURATED_STAGE.into(),
                 reference: curated_url.map(str::to_owned),
-                message: format!("named by {CURATED_NAME}"),
+                message: (CURATED_STEP.describe)(only, settings),
             },
             false => Rule {
                 stage: "election".into(),
@@ -936,7 +858,17 @@ fn elect_family(
             },
         });
     }
-    for step in STEPS {
+    let steps = settings
+        .curated
+        .then_some((CURATED_STAGE, &CURATED_STEP))
+        .into_iter()
+        .chain(
+            settings
+                .election
+                .iter()
+                .map(|&which| (which.stage(), &STEPS[which as usize])),
+        );
+    for (stage, step) in steps {
         if decided.is_some() {
             break;
         }
@@ -951,12 +883,12 @@ fn elect_family(
         if !lost.is_empty() {
             let winning = (step.describe)(kept[0], settings);
             let reference = curated_url
-                .filter(|_| step.stage == CURATED_STAGE)
+                .filter(|_| stage == CURATED_STAGE)
                 .map(str::to_owned);
             trace.push(json!({
                 "type": "election",
                 "group": group.group,
-                "stage": step.stage,
+                "stage": stage,
                 "kept": kept.iter().map(|c| c.name).collect::<Vec<_>>(),
                 "removed": lost.iter().map(|c| c.name).collect::<Vec<_>>(),
                 "message": winning,
@@ -965,7 +897,7 @@ fn elect_family(
                 removed.push((
                     c.name,
                     Rule {
-                        stage: step.stage.into(),
+                        stage: stage.into(),
                         reference: reference.clone(),
                         message: format!(
                             "{}, which ranks below {winning}",
@@ -976,7 +908,7 @@ fn elect_family(
             }
             if kept.len() == 1 {
                 decided = Some(Rule {
-                    stage: step.stage.into(),
+                    stage: stage.into(),
                     reference,
                     message: winning,
                 });

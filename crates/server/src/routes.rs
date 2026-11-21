@@ -2012,10 +2012,7 @@ async fn check_profile(
     body: Result<Json<SelectionProfile>, JsonRejection>,
 ) -> ApiResult<Json<ProfileCheck>> {
     let Json(profile) = body?;
-    let engine = state.engine()?;
-    let checked = tokio::task::spawn_blocking(move || engine.check(&profile))
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?;
+    let checked = check_against_registered(&state, profile).await?;
     Ok(Json(ProfileCheck {
         problems: match checked {
             Ok(()) => Vec::new(),
@@ -2024,6 +2021,21 @@ async fn check_profile(
             Err(err) => return Err(err.into()),
         },
     }))
+}
+
+/// Checks `profile` as the engine reads it, against the kind of each registered Source Set's DAT.
+async fn check_against_registered(
+    state: &AppState,
+    profile: SelectionProfile,
+) -> ApiResult<Result<(), title_select_selection::Error>> {
+    let engine = state.engine()?;
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let registered = crate::selections::systems(&store, &engine)?;
+        Ok(engine.check(&profile, &registered))
+    })
+    .await
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?
 }
 
 async fn profiles(State(state): State<AppState>) -> ApiResult<Json<Vec<ProfileRecord>>> {
@@ -2100,11 +2112,7 @@ async fn save_profile(
     body: Result<Json<SaveProfile>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<SavedProfile>)> {
     let (Path(name), Json(save)) = (name?, body?);
-    let engine = state.engine()?;
-    let profile = save.profile.clone();
-    tokio::task::spawn_blocking(move || engine.check(&profile))
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
+    check_against_registered(&state, save.profile.clone()).await??;
     let workers = state.workers();
     let saved = blocking(&state, move |store| {
         store.save_profile(
