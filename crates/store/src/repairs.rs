@@ -490,21 +490,6 @@ fn io_err(e: io::Error) -> Error {
     Error::Io(e.to_string())
 }
 
-/// Forgets the placed file `rel` of Library Folder `folder`, kept aside from `name` in `parent`, unless something is
-/// at `name` again as its Keep is recorded. A file put back there, as while a stop left the Keep unrecorded, stays
-/// placed for the next Audit and Repair to see, and the kept copy stays kept.
-fn unplace_kept(
-    tx: &Transaction,
-    parent: &FolderDir,
-    name: &str,
-    (folder, rel): (i64, &str),
-) -> Result<()> {
-    match parent.stat(name).map_err(io_err)? {
-        Some(_) => Ok(()),
-        None => crate::placements::forget_placed(tx, folder, rel),
-    }
-}
-
 fn digest(content: &RepairPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
     Sha256::digest(&bytes)
@@ -2338,7 +2323,7 @@ impl Store {
                         );
                     }
                 }
-                self.run_keep(r, step, path, kept_name, reason, &seen_of(seen))
+                self.run_keep(config, r, step, path, kept_name, reason, &seen_of(seen))
             }
             RepairStep::Rename {
                 from,
@@ -3045,8 +3030,10 @@ impl Store {
     /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first. A
     /// placed CHD, or a file laid out beside a release's CHDs, kept aside releases what it is of the release, and each
     /// disc of the release whose CHD is gone is then no longer placed either.
+    #[allow(clippy::too_many_arguments)]
     fn run_keep(
         &self,
+        config: &Config,
         r: &Repairing,
         step: &StepRow,
         path: &str,
@@ -3054,13 +3041,18 @@ impl Store {
         reason: &str,
         seen: &Seen,
     ) -> Ran {
+        let kept_placed = split_placed(path).map(|(folder, rel)| (folder, rel.to_owned()));
         let others = self.other_placed_chds(r, step, path)?;
         let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
-            // Each is looked for again as the Keep is recorded, and forgotten only while it is still gone: one put back
-            // since stays placed, and the release is then parted, for the next repair to release the rest of.
-            for (folder, other) in &others {
-                if r.holds(&placed_path(*folder, other)).map_err(io_err)? == Some(false) {
-                    crate::placements::forget_placed(tx, *folder, other)?;
+            // The placed file kept, then each gone disc, is looked for again at its path as the Keep is recorded, and
+            // forgotten only while nothing is there and its Library Folder is still the one at its path. One put back
+            // since, or in a folder that can't be shown to be the one at its path, stays placed, and the kept copy stays
+            // kept: the release is then parted, for the next repair to release the rest of.
+            for (folder, placed) in kept_placed.iter().chain(&others) {
+                if self.held_in_place(config, r, *folder)?.is_ok()
+                    && r.holds(&placed_path(*folder, placed)).map_err(io_err)? == Some(false)
+                {
+                    crate::placements::forget_placed(tx, *folder, placed)?;
                 }
             }
             tx.execute(
@@ -3257,18 +3249,12 @@ impl Store {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )
                 .optional()?;
-            // A Placed Game's file kept aside is the Source Set's kept file, no longer placed.
-            let unplace = |tx: &Transaction| match split_placed(path) {
-                Some(placed) => unplace_kept(tx, parent, name, placed),
-                None => Ok(()),
-            };
             if let Some((id, rdev, rino, name)) = recorded {
                 if (rdev, rino) != (dev, ino) || name != path {
                     return Ok(Err(format!(
                         "{kept} in the kept files is recorded as another file than {path}; it was left as it is"
                     )));
                 }
-                unplace(tx)?;
                 finish(tx, id)?;
                 return Ok(Ok(id));
             }
@@ -3292,7 +3278,6 @@ impl Store {
                 ],
             )?;
             let id = tx.last_insert_rowid();
-            unplace(tx)?;
             finish(tx, id)?;
             Ok(Ok(id))
         })?;
@@ -3302,8 +3287,8 @@ impl Store {
     /// Keeps the Placed Game's file `path`, in the Library Folder `lib` as `name` in `parent`, aside as `kept` in the
     /// Source Set's kept files of this repair's generation, where no rename takes it: copied there and recorded kept
     /// first, so its Game always has a copy recorded, then deleted where it was placed only while it is still exactly
-    /// what was copied ([`crate::carry`]). Then it is no longer placed, and `finish` runs in the same transaction.
-    /// When it can't be proven unchanged, it stays placed, its copy stays kept, and the step fails saying why.
+    /// what was copied ([`crate::carry`]), and then `finish` runs. When it can't be proven unchanged, it stays placed,
+    /// its copy stays kept, and the step fails saying why.
     #[allow(clippy::too_many_arguments)]
     fn keep_across(
         &self,
@@ -3317,7 +3302,7 @@ impl Store {
         finish: &dyn Fn(&Transaction, i64) -> Result<()>,
     ) -> Result<std::result::Result<Option<i64>, String>> {
         let content = &r.plan.content;
-        let Some((folder, rel)) = split_placed(path) else {
+        let Some((folder, _)) = split_placed(path) else {
             return Ok(Err(format!("{path} is not a placed game's file")));
         };
         let generation = match open_retention(self, r.scope(), &r.dir, content.generation, true)? {
@@ -3442,7 +3427,6 @@ impl Store {
             return Ok(Ok(None));
         }
         let done = self.write(|tx| {
-            unplace_kept(tx, parent, name, (folder, rel))?;
             finish(tx, kept_id)?;
             Ok(kept_id)
         })?;

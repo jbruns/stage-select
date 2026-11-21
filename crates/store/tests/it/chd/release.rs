@@ -1757,3 +1757,109 @@ fn a_two_disc_release_with_copies_ingested_before_it_is_released_is_rebuilt_by_t
     assert_eq!(env.status(SAGA[0]), GameStatus::Complete);
     assert_eq!(env.status(SAGA[1]), GameStatus::Complete);
 }
+
+/// Disc 1's folder moved away and made again, with disc 1's CHD put back at its path, as its Keep is recorded, on one
+/// filesystem and across two: the CHD stays placed and the copy stays kept, so the release is parted, and the next
+/// repair after a full audit sets disc 1 aside again.
+#[test]
+fn a_chd_put_back_in_a_replaced_folder_as_its_keep_is_recorded_stays_placed() {
+    a_chd_put_back_in_a_replaced_folder(false);
+}
+
+#[test]
+fn a_chd_put_back_in_a_replaced_folder_as_its_keep_is_recorded_across_mounts_stays_placed() {
+    a_chd_put_back_in_a_replaced_folder(true);
+}
+
+fn a_chd_put_back_in_a_replaced_folder(across: bool) {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    env.store.copy_across_filesystems(across);
+    let plan = env.repair_plan(&[]);
+    let seq = keeping(&plan, SAGA_CHDS[0]);
+    let path = env.dir().join(SAGA_CHDS[0]);
+    let bytes = std::fs::read(&path).unwrap();
+    let parent = path.parent().unwrap().to_owned();
+    let away = env.dir().join("moved-release");
+    let restored = path.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            let at = match across {
+                false => fault == Fault::RepairMoved(seq),
+                true => fault == Fault::RepairCarryChecking(seq),
+            };
+            if at {
+                std::fs::rename(&parent, &away).unwrap();
+                std::fs::create_dir(&parent).unwrap();
+                std::fs::write(&restored, &bytes).unwrap();
+            }
+        })));
+    env.repair(&plan);
+    env.store.hook_faults(None);
+    assert!(path.is_file());
+    assert!(
+        env.set_kept()
+            .contains(&placed_path(folder.id, SAGA_CHDS[0]))
+    );
+    assert!(
+        env.placed_paths().contains(&SAGA_CHDS[0].to_owned()),
+        "across={across}: a restored CHD is orphaned: {:?}",
+        env.placed_paths()
+    );
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let next = env.repair_plan(&[]);
+    assert!(only_keeps(&next), "{:#?}", next.content);
+    keeping(&next, SAGA_CHDS[0]);
+    env.repair(&next);
+    assert!(!path.exists());
+    assert!(env.placed_paths().is_empty(), "{:?}", env.placed_paths());
+    assert_eq!(
+        env.set_kept()
+            .iter()
+            .filter(|k| **k == placed_path(folder.id, SAGA_CHDS[0]))
+            .count(),
+        2,
+        "{:?}",
+        env.set_kept()
+    );
+}
+
+/// Both CHDs and the .m3u gone, disc 2 filled in the source set by a repair approved before disc 1's CHD was put back
+/// by hand: the release is split, as on main. The next full audit finds disc 1's CHD placed, and the next repair
+/// writes nothing more for either disc.
+#[test]
+fn a_release_split_by_a_chd_put_back_after_its_repair_was_approved_is_written_no_further() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    damaged_saga(&mut env, &chdman, 2);
+    store_as_torrentzip(&env);
+    let path = env.dir().join(SAGA_CHDS[0]);
+    let bytes = std::fs::read(&path).unwrap();
+    for chd in SAGA_CHDS {
+        std::fs::remove_file(env.dir().join(chd)).unwrap();
+    }
+    std::fs::remove_file(env.dir().join("Saga (USA).m3u/Saga (USA).m3u")).unwrap();
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let zip = saga_zip(&env, 2);
+    ingest(&mut env, &chdman, "Saga 2.zip", &zip);
+    let plan = env.repair_plan(&[]);
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .run_repair_job(&env.config, approved.job.unwrap(), None)
+        .unwrap();
+    env.follow_up(plan.id);
+    assert!(env.placed_paths().contains(&SAGA_CHDS[0].to_owned()));
+    assert!(
+        !env.in_set(SAGA[1]).is_empty(),
+        "the split this test starts from"
+    );
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let next = env.repair_plan(&[]);
+    assert!(plans_nothing_for_saga(&next), "{:#?}", next.content);
+}
