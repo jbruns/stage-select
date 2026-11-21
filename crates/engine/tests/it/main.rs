@@ -9,6 +9,7 @@ mod sevenz_fixtures;
 mod audit;
 mod build;
 mod dat;
+mod disks;
 mod evidence;
 mod family;
 mod fixdat;

@@ -31,8 +31,10 @@ Library that is ready to play.
   prefers space chooses merged or split, and pays with a repack at every Build.
 - **Disks are always merged.** A family's Disks sit loose in a folder named for its parent, `<parent>/<disk>.chd`,
   beside the ZIPs and whatever the ROM layout: that is the only layout CHD sets are distributed in, and no family has
-  two different disks of one name. This is the one exception to a release sharing one format. A software list's Disks
-  sit at `<list>/<software>/<disk>.chd`.
+  two different disks of one name. This is the one exception to a release sharing one format. A Disk a Game shares
+  with its BIOS (`romof`, `merge=`) sits in the BIOS's folder under the BIOS's name for it, as a merged set keeps it
+  there: the furthest ancestor that lists the Disk holds it, and ADR 0025 counts it from there. A software list's
+  Disks sit at `<list>/<software>/<disk>.chd`.
 - **Disks are DAT-exact files**, so a MAME Source Set may hold CHDs, as ADR 0013's amendment allows for any DAT that
   lists compressed images. #228's Evidence rules apply: header SHA-1 as Claim Evidence; `chdman verify`, requiring its
   `Overall SHA1 verification successful!` line and never `-f`, as Payload Evidence; only self-contained CHD v5. A delta
@@ -50,8 +52,9 @@ Library that is ready to play.
   Operator to add to RomM's `exclude.roms.multi_file.names`, and says what happens without them.
 - **Single Copy** is offered for a MAME system only when its Source Sets are non-merged, where a Winner's ZIP is the
   Source Set's own. Disks are always copied, never placed: a merged Disk folder may serve several Games.
-- **Ingest.** A folder named for a Game of a registered MAME Source Set's DAT Revision and holding only `.chd` files is
-  assessed as that family's Disks, each verified before any plan moves it; any other folder stays Unsupported.
+- **Ingest.** A folder named for a Game of a registered MAME Source Set's DAT Revision and holding only `.chd` files,
+  hidden files and partial downloads aside, is assessed as that family's Disks, each verified before any plan moves it;
+  any other folder stays Unsupported.
 
 ## Considered Options
 

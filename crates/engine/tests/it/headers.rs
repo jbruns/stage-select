@@ -214,7 +214,7 @@ fn the_json_report_carries_the_header_size_and_the_warning() {
 
     let json = serde_json::to_value(audit(&dat, f.set.path()).unwrap()).unwrap();
 
-    assert_eq!(json["schema"], 8);
+    assert_eq!(json["schema"], 9);
     assert_eq!(
         json["dat_revision"]["header_rule"],
         serde_json::json!({"name": NES, "rule": "nes"})
@@ -261,6 +261,7 @@ fn run(
             reads,
             tally: Default::default(),
             placed: &[],
+            disks: None,
         },
     )
     .unwrap()
@@ -419,6 +420,7 @@ fn a_read_made_under_another_header_rule_is_read_again() {
                 read_at: "2026-01-02T03:04:05Z".parse().unwrap(),
                 members: vec![(None, whole.finish())],
                 header_rule: None,
+                disk: None,
             },
         )],
         ..Reads::default()

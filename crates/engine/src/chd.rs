@@ -24,6 +24,13 @@ pub const V5_HEADER: usize = 124;
 /// The bytes of a cue sheet read to find its tracks; a Redump sheet is a few kilobytes.
 pub const CUE_MAX: u64 = 1 << 20;
 
+/// What `chdman verify` says once a CHD's data and checksummed metadata hash to its header's combined SHA-1.
+pub const VERIFIED: &str = "Overall SHA1 verification successful!";
+
+/// What `chdman verify` says, exiting 0, of a CHD it read but didn't verify: that a SHA-1 its header records isn't
+/// its data's, or that it is uncompressed, which it doesn't verify.
+const REFUTED: [&str; 2] = ["SHA1 in header", "No verification to be done"];
+
 /// The bytes of chdman's output kept for an error.
 const LOG_TAIL: u64 = 2048;
 
@@ -81,6 +88,44 @@ pub struct Header {
     /// The SHA-1 of its raw data and its checksummed metadata, such as a CD's track list, together, as hex: the
     /// same however it is compressed, and what a CHD is checked by once it is verified.
     pub sha1: String,
+    /// The combined SHA-1 of the parent CHD a delta CHD needs, as hex: none for a self-contained CHD, whose header
+    /// holds zeros there.
+    pub parent_sha1: Option<String>,
+}
+
+/// Why a CHD's header can't be taken.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderRefusal {
+    /// Its first bytes can't be read.
+    Unread(String),
+    /// It is no CHD.
+    NotChd,
+    /// It is a CHD of this version, not 5: what it holds is never compared with a DAT.
+    Version(u32),
+}
+
+impl HeaderRefusal {
+    /// Why a CHD read as a Disk (ADR 0026) can match none, telling you to update an older one.
+    pub fn as_disk(self) -> String {
+        match self {
+            HeaderRefusal::Version(version) => format!(
+                "it is a version {version} CHD, and only a version 5 CHD can match a disk; update it outside Title \
+                 Select, with chdman copy, then audit again"
+            ),
+            refusal => refusal.why(),
+        }
+    }
+
+    /// Why the CHD's header isn't read.
+    pub fn why(self) -> String {
+        match self {
+            HeaderRefusal::Unread(why) => why,
+            HeaderRefusal::NotChd => "it is not a CHD".into(),
+            HeaderRefusal::Version(version) => {
+                format!("it is a version {version} CHD, and only version 5 is read")
+            }
+        }
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -90,24 +135,47 @@ fn hex(bytes: &[u8]) -> String {
 /// The v5 header of `file`, read from its first [`V5_HEADER`] bytes alone: its tag, length and version are checked,
 /// nothing past it is read.
 pub fn header(file: &File) -> Result<Header, String> {
+    read_header(file).map_err(HeaderRefusal::why)
+}
+
+/// As [`header`], telling a header that can't be read from one that is no CHD v5's.
+pub fn read_header(file: &File) -> Result<Header, HeaderRefusal> {
     let mut raw = [0u8; V5_HEADER];
-    file.read_exact_at(&mut raw, 0)
-        .map_err(|e| format!("its CHD header can't be read: {e}"))?;
-    if &raw[0..8] != b"MComprHD" {
-        return Err("it is not a CHD".into());
+    // An older CHD's header is shorter than a v5's: as much of it as the file holds is read, and its tag and version
+    // say what it is.
+    let mut n = 0;
+    while n < V5_HEADER {
+        match file.read_at(&mut raw[n..], n as u64) {
+            Ok(0) => break,
+            Ok(read) => n += read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => {
+                return Err(HeaderRefusal::Unread(format!(
+                    "its CHD header can't be read: {e}"
+                )));
+            }
+        }
+    }
+    if n < 16 || &raw[0..8] != b"MComprHD" {
+        return Err(HeaderRefusal::NotChd);
     }
     let be32 = |at: usize| u32::from_be_bytes(raw[at..at + 4].try_into().expect("4 bytes"));
     let be64 = |at: usize| u64::from_be_bytes(raw[at..at + 8].try_into().expect("8 bytes"));
     let (length, version) = (be32(8), be32(12));
-    if version != 5 || length as usize != V5_HEADER {
-        return Err(format!(
-            "it is a version {version} CHD, and only version 5 is read"
+    if version != 5 {
+        return Err(HeaderRefusal::Version(version));
+    }
+    if length as usize != V5_HEADER || n < V5_HEADER {
+        return Err(HeaderRefusal::Unread(
+            "its CHD header can't be read: it is cut short, or its length isn't a version 5 header's".into(),
         ));
     }
+    let parent = &raw[104..124];
     Ok(Header {
         logical_bytes: be64(32),
         raw_sha1: hex(&raw[64..84]),
         sha1: hex(&raw[84..104]),
+        parent_sha1: parent.iter().any(|b| *b != 0).then(|| hex(parent)),
     })
 }
 
@@ -516,6 +584,17 @@ pub struct Limits {
     pub per_gib: Duration,
 }
 
+impl Default for Limits {
+    /// The configuration's defaults.
+    fn default() -> Limits {
+        let timeouts = title_select_api::settings::ChdTimeouts::default();
+        Limits {
+            base: Duration::from_secs(timeouts.seconds),
+            per_gib: Duration::from_secs(timeouts.seconds_per_gib),
+        }
+    }
+}
+
 impl Limits {
     /// The time chdman may take over a disc of `bytes`.
     pub fn for_bytes(&self, bytes: u64) -> Duration {
@@ -577,6 +656,26 @@ impl Stop {
         match self {
             Stop::Cancelled => "you cancelled it, and chdman was stopped".into(),
             Stop::Failed(why) | Stop::Corrupt(why) => why.clone(),
+        }
+    }
+}
+
+/// Why `chdman verify` didn't prove a CHD's data hashes to its header's combined SHA-1 (ADR 0026).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unverified {
+    /// chdman read the CHD and said it isn't verified, as when its SHA-1 doesn't match, it is uncompressed, or it is
+    /// damaged: a verdict on the file, which holds while it is unchanged.
+    Refuted(String),
+    /// Nothing was learnt of the CHD, as when chdman isn't there, couldn't start, was stopped, or ended without a
+    /// verdict: it may verify once that is put right, so it is never kept as the file's read.
+    Unchecked(String),
+}
+
+impl Unverified {
+    /// Why it isn't verified, whichever it is.
+    pub fn why(self) -> String {
+        match self {
+            Unverified::Refuted(why) | Unverified::Unchecked(why) => why,
         }
     }
 }
@@ -902,6 +1001,38 @@ impl Chdman {
             )));
         }
         Ok(given)
+    }
+
+    /// Verifies the CHD at `input`, an absolute path, where it is, with `chdman verify` run in `dir`, a scratch
+    /// folder its log is written in: chdman decompresses every hunk and hashes them with the checksummed metadata.
+    /// It succeeds only when chdman exits 0 and says [`VERIFIED`], since it exits 0 too when a SHA-1 doesn't match,
+    /// and for an uncompressed CHD, which it doesn't verify. chdman is never given `-f`, which rewrites the header,
+    /// so the CHD is only read. Only an exit 0 saying [`VERIFIED`] or one of [`REFUTED`], or an exit chdman chose
+    /// saying the CHD is damaged, is a verdict on it: a program that exits 0 saying neither read nothing of it.
+    pub fn verify_in_place(
+        &self,
+        dir: &Path,
+        input: &Path,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(), Unverified> {
+        let args: [&OsStr; 3] = ["verify".as_ref(), "-i".as_ref(), input.as_os_str()];
+        match self.run(dir, &args, cancelled) {
+            Ok(()) => {}
+            Err(Stop::Corrupt(why)) => return Err(Unverified::Refuted(why)),
+            Err(stop) => return Err(Unverified::Unchecked(stop.why())),
+        }
+        let said = tail(&dir.join("chdman.log"));
+        if said.contains(VERIFIED) {
+            Ok(())
+        } else if REFUTED.iter().any(|r| said.contains(r)) {
+            Err(Unverified::Refuted(format!(
+                "chdman verify didn't confirm its SHA-1: {said}"
+            )))
+        } else {
+            Err(Unverified::Unchecked(format!(
+                "chdman verify ended without saying whether its SHA-1 matched: {said}"
+            )))
+        }
     }
 }
 

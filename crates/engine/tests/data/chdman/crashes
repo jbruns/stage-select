@@ -1,0 +1,4 @@
+#!/bin/sh
+# A chdman that ends on a signal before it gives any verdict, as a crash does.
+echo "chdman - MAME Compressed Hunks of Data (CHD) manager 0.289 (unknown)"
+kill -KILL $$

@@ -54,6 +54,8 @@ pub(super) struct RunningAudit {
     resumes: Option<i64>,
     /// The files of the Source Set's Placed Games, by the Library Folder that holds them.
     placed: Vec<PlacedRead>,
+    /// How chdman verifies the Source Set's Disks (ADR 0026).
+    disks: title_select_engine::ChdAudit,
 }
 
 /// What an Audit reads of the Placed Games one Library Folder holds: their recorded files, through the folder's Root.
@@ -143,7 +145,7 @@ impl PayloadReads for StoredReads<'_> {
         let found = self.store.read(|c| {
             let row = c
                 .query_row(
-                    "SELECT dev, ino, size, mtime_ns, ctime_ns, read_at, members, header_rule FROM payload_reads
+                    "SELECT dev, ino, size, mtime_ns, ctime_ns, read_at, members, header_rule, disk_sha1 FROM payload_reads
                      WHERE source_set_id = ?1 AND path = ?2 AND (?3 IS NULL OR job_id = ?3)",
                     params![self.set_id, path, only_job],
                     |r| {
@@ -158,11 +160,12 @@ impl PayloadReads for StoredReads<'_> {
                             r.get::<_, String>(5)?,
                             r.get::<_, String>(6)?,
                             r.get::<_, Option<String>>(7)?,
+                            r.get::<_, Option<String>>(8)?,
                         ))
                     },
                 )
                 .optional()?;
-            let Some((stamp, read_at, members, header_rule)) = row else {
+            let Some((stamp, read_at, members, header_rule, disk)) = row else {
                 return Ok(None);
             };
             let members: Vec<(Option<String>, Checksums)> =
@@ -174,6 +177,7 @@ impl PayloadReads for StoredReads<'_> {
                 header_rule: header_rule
                     .map(|r| HeaderRule::parse(&r).ok_or_else(|| corrupt(&r)))
                     .transpose()?,
+                disk,
             }))
         });
         found.unwrap_or_else(|err| {
@@ -190,8 +194,8 @@ impl PayloadReads for StoredReads<'_> {
                     tx.execute(
                         "INSERT OR REPLACE INTO payload_reads
                              (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members,
-                              header_rule)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                              header_rule, disk_sha1)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         params![
                             self.set_id,
                             path,
@@ -203,7 +207,8 @@ impl PayloadReads for StoredReads<'_> {
                             read.read_at.to_string(),
                             self.job,
                             members,
-                            read.header_rule.map(HeaderRule::as_str)
+                            read.header_rule.map(HeaderRule::as_str),
+                            read.disk
                         ],
                     )?;
                     self.stamp(tx, path, false, &read.stamp)
@@ -896,6 +901,11 @@ impl Store {
             .transpose()?;
         let source_set_path = resolved.path.display().to_string();
         let placed = self.placed_reads(config, set.id, how.job)?;
+        // chdman, found as a Build finds it, reads a Disk's CHD from the Source Set's Root, so is counted against it.
+        let tally = how.job.map_or_else(Default::default, |job| {
+            self.meter.job(job).tally(Some(&set.record.root))
+        });
+        let disks = self.disk_audit(config, tally)?;
         let (id, revision) = self.write(|tx| {
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             crate::placements::check_no_holding_build(tx, set.id, &set.record.name)?;
@@ -927,7 +937,23 @@ impl Store {
             evidence: how.evidence,
             resumes: how.resumes,
             placed,
+            disks,
         })
+    }
+
+    /// How a Disk's CHD is verified (ADR 0026): with chdman as the configuration finds it, counting what it reads in
+    /// `tally`, within the CHD time limits, in the store's `tmp/`.
+    pub(crate) fn disk_audit(
+        &self,
+        config: &Config,
+        tally: title_select_engine::meter::Tally,
+    ) -> Result<title_select_engine::ChdAudit> {
+        Ok(title_select_engine::ChdAudit::verifying(
+            title_select_engine::chd::locate(config.chd.chdman.as_deref()),
+            tally,
+            self.settings()?.chd_limits(),
+            self.dir().join(crate::TMP),
+        ))
     }
 
     /// What an Audit of Source Set `set` reads of its Placed Games, by the Library Folder that holds them, with the
@@ -1078,6 +1104,7 @@ impl Store {
                     self.meter.job(job).tally(Some(&running.resolved.root))
                 }),
                 placed: &placed,
+                disks: Some(&running.disks),
             },
         )?;
         if let Some(err) = reads
@@ -1101,7 +1128,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 8` report of a stored Audit, generated from its rows.
+    /// The `schema: 9` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

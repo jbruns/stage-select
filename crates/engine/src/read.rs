@@ -35,6 +35,13 @@ pub enum Known {
     Payload(Checksums),
     /// Its size and CRC32 as an archive's directory gives them.
     Claim { size: u64, crc: String },
+    /// A CHD's combined SHA-1, as its header records it: what a Disk is listed by. Its Evidence is the file's
+    /// [`Origin`]: claimed from the header, or proven by `chdman verify`.
+    Disk(String),
+    /// A delta CHD, which can't be read without the parent CHD whose combined SHA-1 this is.
+    Delta(String),
+    /// A file read as a Disk that can match none, and why: a CHD older than version 5, or no CHD.
+    NoDisk(String),
 }
 
 /// Where a file's checksums came from.
@@ -66,6 +73,8 @@ pub struct ToRead {
     pub beneath: Option<PathBuf>,
     /// For a Placed Game's CHD, what it holds and how chdman reads it.
     pub chd: Option<Box<ChdRead>>,
+    /// Whether it is a CHD read as a Disk (ADR 0026): a `.chd` file of a Source Set whose DAT lists Disks.
+    pub disk: bool,
 }
 
 /// A placed CHD to read, and how.
@@ -165,6 +174,8 @@ pub struct How<'a> {
     pub might_be_headered: &'a (dyn Fn(u64) -> bool + Sync),
     /// Where each payload byte read is counted, and its Job's readers and hash workers at work.
     pub tally: &'a Tally,
+    /// How chdman verifies a Disk's CHD; none where there is none to run.
+    pub disks: Option<&'a crate::ChdAudit>,
 }
 
 /// One payload for a hash worker: its chunks, the Header Rule to hash them under, and where to send its checksums.
@@ -499,11 +510,15 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
     if let Some(chd) = &file.chd {
         return read_chd(file, chd, how, jobs);
     }
+    if file.disk {
+        return read_disk(file, how);
+    }
     if let Some(reads) = how.reads {
         let now = file.stamp();
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
             && prior.header_rule == how.header
+            && prior.disk.is_none()
         {
             reads.reused(&file.rel, &now);
             return FileRead {
@@ -551,6 +566,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: Hand) -> FileRead {
                     read_at,
                     members,
                     header_rule: how.header,
+                    disk: None,
                 },
             ),
             _ => reads.record_unreadable(&file.rel, &stamp),
@@ -578,6 +594,7 @@ fn read_chd(file: &ToRead, chd: &ChdRead, how: How, jobs: Hand) -> FileRead {
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
             && prior.header_rule == how.header
+            && prior.disk.is_none()
         {
             reads.reused(&file.rel, &now);
             let mut members: Vec<_> = prior
@@ -616,9 +633,115 @@ fn read_chd(file: &ToRead, chd: &ChdRead, how: How, jobs: Hand) -> FileRead {
                     read_at,
                     members,
                     header_rule: how.header,
+                    disk: None,
                 },
             ),
             _ => reads.record_unreadable(&file.rel, &stamp),
+        }
+    }
+    read
+}
+
+/// Reads the CHD `file` as a Disk (ADR 0026): its header's combined SHA-1, claimed from the header in a quick
+/// inventory, and otherwise proven by `chdman verify`, or by an earlier verification while the file's stamp holds. A
+/// delta CHD, or a file that is no CHD v5, is read no further.
+fn read_disk(file: &ToRead, how: How) -> FileRead {
+    let mut read = FileRead {
+        members: Vec::new(),
+        error: None,
+        origin: Origin::Claimed,
+    };
+    let opened = match file.open() {
+        Ok(opened) => opened,
+        Err(e) => {
+            read.error = Some(e.to_string());
+            return read;
+        }
+    };
+    let stamp = opened
+        .metadata()
+        .ok()
+        .and_then(|m| FileStamp::from_metadata(&m));
+    // Recorded as a file it couldn't read, so that a repair can tell whether it changed since.
+    let record_unreadable = || {
+        if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+            reads.record_unreadable(&file.rel, &stamp);
+        }
+    };
+    let header = match crate::chd::read_header(&opened) {
+        Ok(header) => header,
+        Err(crate::chd::HeaderRefusal::Unread(why)) => {
+            record_unreadable();
+            read.error = Some(why);
+            return read;
+        }
+        Err(refusal) => {
+            record_unreadable();
+            read.members
+                .push((None, Ok(Known::NoDisk(refusal.as_disk()))));
+            return read;
+        }
+    };
+    if let Some(parent) = header.parent_sha1 {
+        record_unreadable();
+        read.members.push((None, Ok(Known::Delta(parent))));
+        return read;
+    }
+    // A quick inventory only ever claims a Disk, by its header: never Payload Evidence, not even an earlier read's.
+    if how.evidence == AuditEvidence::Quick {
+        if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+            reads.claimed(&file.rel, &stamp);
+        }
+        read.members.push((None, Ok(Known::Disk(header.sha1))));
+        return read;
+    }
+    if let (Some(reads), Some(now)) = (how.reads, stamp)
+        && let Some(prior) = reads.prior(&file.rel)
+        && prior.stamp == now
+        && let Some(sha1) = prior.disk
+    {
+        reads.reused(&file.rel, &now);
+        read.origin = Origin::Reused(prior.read_at);
+        read.members.push((None, Ok(Known::Disk(sha1))));
+        return read;
+    }
+    let read_at = jiff::Timestamp::now();
+    read.origin = Origin::Read(read_at);
+    let verified = match how.disks {
+        Some(disks) => disks.verify(&file.path, &header),
+        None => Err(crate::chd::Unverified::Unchecked(
+            "chdman isn't available to this audit, so its CHD can't be verified".into(),
+        )),
+    };
+    how.tally.file_read();
+    // The file chdman read by its path is still the one held open, as it was before.
+    let still = stamp.is_some() && FileStamp::of(&file.path) == stamp && {
+        let now = opened.metadata().ok();
+        now.and_then(|m| FileStamp::from_metadata(&m)) == stamp
+    };
+    match verified {
+        Ok(()) if still => {
+            if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+                reads.record(
+                    &file.rel,
+                    &PayloadRead {
+                        stamp,
+                        read_at,
+                        members: Vec::new(),
+                        header_rule: how.header,
+                        disk: Some(header.sha1.clone()),
+                    },
+                );
+            }
+            read.members.push((None, Ok(Known::Disk(header.sha1))));
+        }
+        Ok(()) => {
+            record_unreadable();
+            read.error = Some("it changed while chdman verified it".into());
+        }
+        Err(why) => {
+            record_unreadable();
+            read.error = Some(why.why());
         }
     }
     read
@@ -733,7 +856,7 @@ fn claim_chd(
 }
 
 /// One CHD's folder in the scratch directory, removed with what is in it once dropped.
-struct ChdScratch(PathBuf);
+pub(crate) struct ChdScratch(pub(crate) PathBuf);
 
 impl Drop for ChdScratch {
     fn drop(&mut self) {
@@ -1030,6 +1153,7 @@ mod tests {
                     rel: format!("{i}.bin"),
                     beneath: None,
                     chd: None,
+                    disk: false,
                 }
             })
             .collect()
@@ -1052,6 +1176,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let (readers, hashers) = (Pool::new(4), Pool::new(4));
             // Four at once for the first 12 files, one at a time to the 36th, then three at once.
@@ -1157,6 +1282,7 @@ mod tests {
                             header: None,
                             might_be_headered: &|_| false,
                             tally: &Default::default(),
+                            disks: None,
                         };
                         let read = read_files(&files, how, each, Some(pools), None).unwrap();
                         assert!(read.iter().all(|r| r.error.is_none()));
@@ -1199,6 +1325,7 @@ mod tests {
                             header: None,
                             might_be_headered: &|_| false,
                             tally: &Default::default(),
+                            disks: None,
                         };
                         let read = read_files(&files, how, each, Some(pools), None).unwrap();
                         assert!(read.iter().all(|r| r.error.is_none()));
@@ -1222,6 +1349,7 @@ mod tests {
                     rel: format!("{i}.bin"),
                     beneath: None,
                     chd: None,
+                    disk: false,
                 }
             })
             .collect()
@@ -1254,6 +1382,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let began = Workers {
                 readers: 4,
@@ -1296,6 +1425,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let each = Workers {
                 readers: 64,
@@ -1325,6 +1455,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let each = Workers {
                 readers: 8,
@@ -1371,6 +1502,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let each = Workers {
                 readers: 8,
@@ -1436,6 +1568,7 @@ mod tests {
                     header: None,
                     might_be_headered: &|_| false,
                     tally: &Default::default(),
+                    disks: None,
                 };
                 read_files(&files, how, each, Some(pools), None).unwrap()
             }));
@@ -1448,6 +1581,7 @@ mod tests {
                 header: None,
                 might_be_headered: &|_| false,
                 tally: &Default::default(),
+                disks: None,
             };
             let read = read_files(&files, how, each, Some(pools), None).unwrap();
             assert!(read.iter().all(|r| r.error.is_none()));

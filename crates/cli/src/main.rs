@@ -640,6 +640,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     reads: None,
                     tally: Default::default(),
                     placed: &[],
+                    disks: Some(&title_select_engine::ChdAudit::located()),
                 },
             )
             .map_err(|e| e.to_string())?;
