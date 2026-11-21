@@ -16,6 +16,7 @@ use title_select_api::selection::{
 };
 use title_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorage};
 use title_select_api::{JobKind, JobState};
+use title_select_engine::GameStatus;
 use title_select_engine::build::verify;
 use title_select_engine::torrentzip::{self, Writer};
 use title_select_store::config::Config;
@@ -6692,7 +6693,7 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
         .iter()
         .find(|g| g.game.name == "Duel (Europe)")
         .unwrap();
-    assert_eq!(clone.game.status, title_select_engine::GameStatus::Complete);
+    assert_eq!(clone.game.status, GameStatus::Complete);
     let id = env.record(&selection(&revision.sha256, vec![group("Duel (Europe)")]));
     let folder = env.folder("atari2600");
 

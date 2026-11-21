@@ -249,33 +249,78 @@ fn a_disc_with_one_of_its_identical_tracks_held_is_incomplete() {
     assert_eq!(g.missing_roms, TRACKS[1..]);
 }
 
-#[test]
-fn in_a_games_own_zip_a_misnamed_entry_counts_for_a_rom_no_entry_is_named_for() {
-    let f = Fixture::new();
-    let dat = alien_trilogy(&f);
-    // The misnamed copies come first, so they cannot take a track that an Entry later in the ZIP is named for.
-    let mut members: Vec<(&str, &[u8])> = vec![
-        ("audio copy 1.bin", b"identical audio"),
-        ("audio copy 2.bin", b"identical audio"),
-    ];
+/// Two misnamed copies of the identical track, walked before the ZIP's Entries named for the other tracks, so they
+/// cannot take a track an Entry is named for.
+fn alien_trilogy_with_misnamed_copies(f: &Fixture, copies: &[&str]) -> std::path::PathBuf {
+    let dat = alien_trilogy(f);
+    let mut members: Vec<(&str, &[u8])> = copies
+        .iter()
+        .map(|c| (*c, &b"identical audio"[..]))
+        .collect();
     members.extend(TRACKS[2..].iter().map(|t| (*t, &b"identical audio"[..])));
     members.push(("Alien Trilogy (Germany).cue", b"cue sheet"));
     members.push(("Alien Trilogy (Germany) (Track 01).bin", b"data track"));
     write_zip(&f.set_path("Alien Trilogy (Germany).zip"), &members);
+    dat
+}
+
+#[test]
+fn in_a_games_own_zip_a_misnamed_entry_counts_for_a_rom_no_entry_is_named_for() {
+    let f = Fixture::new();
+    let dat = alien_trilogy_with_misnamed_copies(&f, &["audio copy 1.bin", "audio copy 2.bin"]);
 
     let report = audit(&dat, f.set.path()).unwrap();
 
     let g = game(&report, "Alien Trilogy (Germany)");
     assert_eq!(g.status, GameStatus::Complete, "{:?}", g.missing_roms);
+}
 
-    // One misnamed copy fewer leaves exactly one track short.
-    std::fs::remove_file(f.set_path("Alien Trilogy (Germany).zip")).unwrap();
-    members.remove(0);
-    write_zip(&f.set_path("Alien Trilogy (Germany).zip"), &members);
+#[test]
+fn in_a_games_own_zip_one_misnamed_entry_does_not_stand_in_for_two_tracks() {
+    let f = Fixture::new();
+    let dat = alien_trilogy_with_misnamed_copies(&f, &["audio copy.bin"]);
 
     let report = audit(&dat, f.set.path()).unwrap();
 
     let g = game(&report, "Alien Trilogy (Germany)");
     assert_eq!(g.status, GameStatus::Incomplete);
     assert_eq!(g.missing_roms.len(), 1, "{:?}", g.missing_roms);
+}
+
+#[test]
+fn a_misnamed_entry_in_a_clones_zip_counts_for_a_rom_its_parents_zip_does_not_hold() {
+    let f = Fixture::new();
+    let dat = f.dat_with_clones(&[
+        ("Disc (USA)", None, vec![rom("Disc (USA).bin", b"disc")]),
+        (
+            "Disc (Europe)",
+            Some("Disc (USA)"),
+            vec![
+                rom("Disc (Europe) (Track 1).bin", b"silence"),
+                rom("Disc (Europe) (Track 2).bin", b"silence"),
+            ],
+        ),
+    ]);
+    // A merged set's parent ZIP holds the clone's first track under its name; the clone's ZIP holds a misnamed copy.
+    write_zip(
+        &f.set_path("Disc (USA).zip"),
+        &[
+            ("Disc (USA).bin", b"disc"),
+            ("Disc (Europe) (Track 1).bin", b"silence"),
+        ],
+    );
+    write_zip(
+        &f.set_path("Disc (Europe).zip"),
+        &[("track.bin", b"silence")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let clone = game(&report, "Disc (Europe)");
+    assert_eq!(
+        clone.status,
+        GameStatus::Complete,
+        "{:?}",
+        clone.missing_roms
+    );
 }
