@@ -2,7 +2,7 @@
 //! or a MAME software list (`<softwarelist>`, named by its list name, unversioned). A Logiqx or ListXML Game also
 //! gives the machine model the arcade selector and family counting read (ADRs 0025 to 0027), and its Disks.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
@@ -61,46 +61,97 @@ impl DumpStatus {
         }
     }
 }
-
-/// What a Game's entry says of the machine it is (ADR 0027). Every field is optional: a ListXML machine fills them
-/// all, a Logiqx game only what it carries, and a software item none. A flag the entry leaves out takes its DTD's
-/// default, and an element it leaves out is none or empty.
+/// What a Game's entry says of the machine it is (ADR 0027). Every field is optional, machine by machine: none means
+/// the entry doesn't say, and a filter on it keeps the machine, while some is what the entry says, an empty list
+/// included. Nothing is filled in that the DAT doesn't give.
 ///
-/// A field says something only where its DAT carries its [`Signal`] ([`Dat::carries`]): otherwise it is its default
-/// and means "not known", not "no". Whether a DAT carries a signal is the DAT's to say, not one machine's: MAME writes
-/// `<display>` for every machine with a screen, so in ListXML no displays means screenless, while a Logiqx DAT that
-/// writes `<display>` for no game says nothing of any screen.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A ListXML machine is MAME's complete output, so its DTD's defaults apply and it knows every flag, list and count:
+/// a flag it leaves out is the default (`runnable` yes, the rest no), and an element it leaves out is an empty list or
+/// a count of 0. So no `<display>` there means screenless, and no `<input>`, a device's, means no players, coins or
+/// controls. A Logiqx game knows only what its own entry writes: another game's `<display>` says nothing of its
+/// screens. A software item knows nothing.
+///
+/// A name (`romof`, `sampleof`, `sourcefile`, `<year>`, `<manufacturer>`) and the `<driver>` are none where the entry
+/// gives none, in either format: MAME leaves them out where there is none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Machine {
     /// The Game whose ROMs it shares (`romof`): its parent, or its BIOS for a parent.
     pub romof: Option<String>,
-    pub is_bios: bool,
-    pub is_device: bool,
-    pub is_mechanical: bool,
-    pub runnable: bool,
+    pub is_bios: Option<bool>,
+    pub is_device: Option<bool>,
+    pub is_mechanical: Option<bool>,
+    pub runnable: Option<bool>,
     /// The Game whose samples it uses (`sampleof`).
     pub sample_of: Option<String>,
     /// The driver source it is defined in (`sourcefile`), such as `atari/pong.cpp`.
     pub source_file: Option<String>,
     /// The devices it names (`<device_ref>`), in DAT order.
-    pub device_refs: Vec<String>,
+    pub device_refs: Option<Vec<String>>,
     /// The samples it plays (`<sample>`), in DAT order.
-    pub samples: Vec<String>,
+    pub samples: Option<Vec<String>>,
     pub year: Option<String>,
     pub manufacturer: Option<String>,
     pub driver: Option<Driver>,
-    /// Its screens (`<display>`), in DAT order; none for a screenless machine.
-    pub displays: Vec<Display>,
-    pub input: Option<Input>,
+    /// Its screens (`<display>`), in DAT order; empty for a screenless machine.
+    pub displays: Option<Vec<Display>>,
+    /// How many players its `<input>` takes (`players`).
+    pub players: Option<u32>,
+    /// How many coin slots its `<input>` has (`coins`).
+    pub coins: Option<u32>,
+    /// Each `<control>`'s type, such as `joy` or `dial`, in DAT order.
+    pub controls: Option<Vec<String>>,
     /// Whether it names a software list (`<softwarelist>`).
-    pub has_software_list: bool,
+    pub has_software_list: Option<bool>,
     /// The parts it emulates imperfectly or not at all (`<feature>`), in DAT order.
-    pub features: Vec<Feature>,
+    pub features: Option<Vec<Feature>>,
 }
 
-/// What a DAT may say of its machines, one per field of [`Machine`]. A ListXML DAT carries every one, as its DTD
-/// gives each attribute a default and MAME writes each element wherever it applies; a Logiqx DAT carries those it
-/// writes for at least one Game, its DTD giving the flags the same defaults; a software list carries none.
+impl Machine {
+    /// A ListXML machine before its entry is read: every flag, list and count at its DTD default.
+    fn listxml() -> Machine {
+        Machine {
+            is_bios: Some(false),
+            is_device: Some(false),
+            is_mechanical: Some(false),
+            runnable: Some(true),
+            device_refs: Some(Vec::new()),
+            samples: Some(Vec::new()),
+            displays: Some(Vec::new()),
+            players: Some(0),
+            coins: Some(0),
+            controls: Some(Vec::new()),
+            has_software_list: Some(false),
+            features: Some(Vec::new()),
+            ..Machine::default()
+        }
+    }
+
+    /// Whether it says anything of `signal`.
+    pub fn knows(&self, signal: Signal) -> bool {
+        match signal {
+            Signal::Romof => self.romof.is_some(),
+            Signal::Bios => self.is_bios.is_some(),
+            Signal::Device => self.is_device.is_some(),
+            Signal::Mechanical => self.is_mechanical.is_some(),
+            Signal::Runnable => self.runnable.is_some(),
+            Signal::SampleOf => self.sample_of.is_some(),
+            Signal::SourceFile => self.source_file.is_some(),
+            Signal::DeviceRefs => self.device_refs.is_some(),
+            Signal::Samples => self.samples.is_some(),
+            Signal::Year => self.year.is_some(),
+            Signal::Manufacturer => self.manufacturer.is_some(),
+            Signal::Driver => self.driver.is_some(),
+            Signal::Displays => self.displays.is_some(),
+            Signal::Players => self.players.is_some(),
+            Signal::Coins => self.coins.is_some(),
+            Signal::Controls => self.controls.is_some(),
+            Signal::SoftwareLists => self.has_software_list.is_some(),
+            Signal::Features => self.features.is_some(),
+        }
+    }
+}
+
+/// What a DAT may say of its machines, one per field of [`Machine`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Signal {
     Romof,
@@ -116,13 +167,15 @@ pub enum Signal {
     Manufacturer,
     Driver,
     Displays,
-    Input,
+    Players,
+    Coins,
+    Controls,
     SoftwareLists,
     Features,
 }
 
 impl Signal {
-    pub const ALL: [Signal; 16] = [
+    pub const ALL: [Signal; 18] = [
         Signal::Romof,
         Signal::Bios,
         Signal::Device,
@@ -136,24 +189,12 @@ impl Signal {
         Signal::Manufacturer,
         Signal::Driver,
         Signal::Displays,
-        Signal::Input,
+        Signal::Players,
+        Signal::Coins,
+        Signal::Controls,
         Signal::SoftwareLists,
         Signal::Features,
     ];
-
-    /// The signal of a `<game>` or `<machine>` attribute.
-    fn of_attribute(key: &str) -> Option<Signal> {
-        Some(match key {
-            "romof" => Signal::Romof,
-            "isbios" => Signal::Bios,
-            "isdevice" => Signal::Device,
-            "ismechanical" => Signal::Mechanical,
-            "runnable" => Signal::Runnable,
-            "sampleof" => Signal::SampleOf,
-            "sourcefile" => Signal::SourceFile,
-            _ => return None,
-        })
-    }
 }
 
 /// How well a driver works, as MAME rates it.
@@ -189,14 +230,6 @@ pub struct Display {
     pub rotate: Option<u16>,
 }
 
-/// A machine's `<input>`: how many players and coin slots, and each `<control>`'s type, such as `joy` or `dial`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Input {
-    pub players: Option<u32>,
-    pub coins: Option<u32>,
-    pub controls: Vec<String>,
-}
-
 /// A part a machine emulates imperfectly or not at all: its `type`, such as `sound` or `protection`, and the
 /// `status` or `overall` MAME gives it, such as `imperfect` or `unemulated`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,29 +237,6 @@ pub struct Feature {
     pub kind: String,
     pub status: Option<String>,
     pub overall: Option<String>,
-}
-
-impl Default for Machine {
-    fn default() -> Self {
-        Machine {
-            romof: None,
-            is_bios: false,
-            is_device: false,
-            is_mechanical: false,
-            runnable: true,
-            sample_of: None,
-            source_file: None,
-            device_refs: Vec::new(),
-            samples: Vec::new(),
-            year: None,
-            manufacturer: None,
-            driver: None,
-            displays: Vec::new(),
-            input: None,
-            has_software_list: false,
-            features: Vec::new(),
-        }
-    }
 }
 
 pub struct Dat {
@@ -252,8 +262,6 @@ pub struct Dat {
     pub cloneof: Vec<Option<String>>,
     /// What each Game's entry says of its machine, by the Game's index.
     pub machines: Vec<Machine>,
-    /// The signals its machines carry.
-    signals: HashSet<Signal>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -326,7 +334,6 @@ impl Dat {
             descriptions: Vec::new(),
             cloneof: Vec::new(),
             machines: Vec::new(),
-            signals: HashSet::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -348,7 +355,6 @@ impl Dat {
                         "mame" => {
                             dat.name = "MAME".into();
                             dat.version = a.get("build").cloned().unwrap_or_default();
-                            dat.signals.extend(Signal::ALL);
                             Some(DatFormat::Listxml)
                         }
                         "softwarelist" => {
@@ -389,11 +395,9 @@ impl Dat {
                     let machine = dat.machines.last_mut().filter(|_| in_machine);
                     match (stack.last().map(String::as_str), machine) {
                         (Some("year"), Some(machine)) => {
-                            dat.signals.insert(Signal::Year);
                             machine.year.get_or_insert_default().push_str(&text)
                         }
                         (Some("manufacturer"), Some(machine)) => {
-                            dat.signals.insert(Signal::Manufacturer);
                             machine.manufacturer.get_or_insert_default().push_str(&text)
                         }
                         _ => {}
@@ -460,10 +464,11 @@ impl Dat {
         )
     }
 
-    /// Whether its machines carry `signal`: if not, each machine's field for it is its default and says nothing, and a
-    /// filter on it is unavailable (ADR 0027).
+    /// Whether any of its machines says anything of `signal`: if none does, a filter on it is unavailable for this
+    /// DAT (ADR 0027). Where it is carried, a machine that doesn't know it still says nothing, and a filter on it
+    /// keeps that machine.
     pub fn carries(&self, signal: Signal) -> bool {
-        self.signals.contains(&signal)
+        self.machines.iter().any(|m| m.knows(signal))
     }
 
     /// Refuses a DAT whose format gives it no native name, naming the file at `path` and the missing field.
@@ -519,21 +524,23 @@ impl Dat {
     fn open(&mut self, e: &BytesStart, root: Option<DatFormat>) -> Result<String, Error> {
         let tag = e.local_name().as_ref().to_string();
         match (root, tag.as_str()) {
-            (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
+            (Some(format @ (DatFormat::Logiqx | DatFormat::Listxml)), "game" | "machine") => {
                 self.start_game(e)?;
                 let a = attrs(e)?;
-                self.signals
-                    .extend(a.keys().filter_map(|key| Signal::of_attribute(key)));
-                let flag = |key: &str, default: bool| yes(&a, key).unwrap_or(default);
+                let machine = match format {
+                    DatFormat::Listxml => Machine::listxml(),
+                    _ => Machine::default(),
+                };
+                let flag = |key: &str, default: Option<bool>| yes(&a, key).or(default);
                 self.machines.push(Machine {
                     romof: a.get("romof").cloned(),
-                    is_bios: flag("isbios", false),
-                    is_device: flag("isdevice", false),
-                    is_mechanical: flag("ismechanical", false),
-                    runnable: flag("runnable", true),
+                    is_bios: flag("isbios", machine.is_bios),
+                    is_device: flag("isdevice", machine.is_device),
+                    is_mechanical: flag("ismechanical", machine.is_mechanical),
+                    runnable: flag("runnable", machine.runnable),
                     sample_of: a.get("sampleof").cloned(),
                     source_file: a.get("sourcefile").cloned(),
-                    ..Machine::default()
+                    ..machine
                 });
             }
             (Some(DatFormat::SoftwareList), "software") => {
@@ -577,20 +584,16 @@ impl Dat {
                 let Some(machine) = self.machines.last_mut() else {
                     return Ok(tag);
                 };
-                self.signals.insert(match tag.as_str() {
-                    "device_ref" => Signal::DeviceRefs,
-                    "sample" => Signal::Samples,
-                    "driver" => Signal::Driver,
-                    "display" => Signal::Displays,
-                    "input" | "control" => Signal::Input,
-                    "softwarelist" => Signal::SoftwareLists,
-                    "feature" => Signal::Features,
-                    _ => unreachable!("matched above"),
-                });
                 let mut a = attrs(e)?;
                 match tag.as_str() {
-                    "device_ref" => machine.device_refs.extend(a.remove("name")),
-                    "sample" => machine.samples.extend(a.remove("name")),
+                    "device_ref" => machine
+                        .device_refs
+                        .get_or_insert_default()
+                        .extend(a.remove("name")),
+                    "sample" => machine
+                        .samples
+                        .get_or_insert_default()
+                        .extend(a.remove("name")),
                     "driver" => {
                         let status = |key: &str| a.get(key).and_then(|v| DriverStatus::parse(v));
                         machine.driver = Some(Driver {
@@ -598,26 +601,23 @@ impl Dat {
                             emulation: status("emulation"),
                         });
                     }
-                    "display" => machine.displays.push(Display {
+                    "display" => machine.displays.get_or_insert_default().push(Display {
                         kind: a.remove("type"),
                         rotate: number(&a, "rotate"),
                     }),
+                    // A count left out keeps ListXML's 0, where MAME leaves out no coins; in Logiqx it stays unknown.
                     "input" => {
-                        machine.input = Some(Input {
-                            players: number(&a, "players"),
-                            coins: number(&a, "coins"),
-                            controls: Vec::new(),
-                        })
+                        machine.players = number(&a, "players").or(machine.players);
+                        machine.coins = number(&a, "coins").or(machine.coins);
                     }
                     "control" => machine
-                        .input
-                        .get_or_insert_default()
                         .controls
+                        .get_or_insert_default()
                         .extend(a.remove("type")),
-                    "softwarelist" => machine.has_software_list = true,
+                    "softwarelist" => machine.has_software_list = Some(true),
                     "feature" => {
                         if let Some(kind) = a.remove("type") {
-                            machine.features.push(Feature {
+                            machine.features.get_or_insert_default().push(Feature {
                                 kind,
                                 status: a.remove("status"),
                                 overall: a.remove("overall"),

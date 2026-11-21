@@ -27,7 +27,7 @@ fn index(dat: &Dat, game: &str) -> usize {
 #[test]
 fn a_listxml_machine_says_whether_it_is_a_bios_device_or_mechanical_and_whether_it_runs() {
     let dat = family();
-    let kinds: Vec<(&str, bool, bool, bool, bool)> = dat
+    let kinds: Vec<_> = dat
         .games
         .iter()
         .zip(&dat.machines)
@@ -51,6 +51,7 @@ fn a_listxml_machine_says_whether_it_is_a_bios_device_or_mechanical_and_whether_
             ("blasterj", false, false, false, true),
             ("crane", false, false, true, true),
         ]
+        .map(|(g, b, d, m, r)| (g, Some(b), Some(d), Some(m), Some(r)))
     );
 }
 
@@ -66,11 +67,25 @@ fn a_listxml_machine_names_its_family_its_devices_its_samples_and_its_driver_sou
     let blaster = &dat.machines[index(&dat, "blaster")];
     assert_eq!(blaster.romof.as_deref(), Some("arcbios"));
     assert_eq!(blaster.source_file.as_deref(), Some("acme/blaster.cpp"));
-    assert_eq!(blaster.device_refs, ["acmesnd", "z80"]);
+    assert_eq!(
+        blaster.device_refs.as_deref(),
+        Some(&["acmesnd".to_string(), "z80".into()][..])
+    );
     assert_eq!(blaster.sample_of.as_deref(), Some("blaster"));
-    assert_eq!(blaster.samples, ["laser", "boom"]);
+    assert_eq!(
+        blaster.samples.as_deref(),
+        Some(&["laser".to_string(), "boom".into()][..])
+    );
     let acmesnd = &dat.machines[index(&dat, "acmesnd")];
-    assert_eq!(acmesnd.device_refs, ["z80"]);
+    assert_eq!(
+        acmesnd.device_refs.as_deref(),
+        Some(&["z80".to_string()][..])
+    );
+    assert_eq!(
+        acmesnd.samples.as_deref(),
+        Some(&[][..]),
+        "known to play none"
+    );
     assert_eq!(dat.machines[index(&dat, "arcbios")].romof, None);
 }
 
@@ -293,7 +308,7 @@ fn header_fields_in_cdata_are_read_like_text_without_unescaping() {
 
 #[test]
 fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_and_features() {
-    use title_select_engine::dat::{Display, Driver, DriverStatus, Feature, Input};
+    use title_select_engine::dat::{Display, Driver, DriverStatus, Feature};
     let dat = family();
     let blaster = &dat.machines[index(&dat, "blaster")];
     assert_eq!(dat.descriptions[index(&dat, "blaster")], "Blaster (World)");
@@ -308,23 +323,20 @@ fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_a
     );
     assert_eq!(
         blaster.displays,
-        [Display {
+        Some(vec![Display {
             kind: Some("raster".into()),
             rotate: Some(0),
-        }]
+        }])
     );
+    assert_eq!((blaster.players, blaster.coins), (Some(2), Some(2)));
     assert_eq!(
-        blaster.input,
-        Some(Input {
-            players: Some(2),
-            coins: Some(2),
-            controls: vec!["joy".into(), "joy".into(), "dial".into()],
-        })
+        blaster.controls,
+        Some(vec!["joy".into(), "joy".into(), "dial".into()])
     );
-    assert!(blaster.has_software_list);
+    assert_eq!(blaster.has_software_list, Some(true));
     assert_eq!(
         blaster.features,
-        [
+        Some(vec![
             Feature {
                 kind: "sound".into(),
                 status: Some("imperfect".into()),
@@ -335,7 +347,7 @@ fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_a
                 status: None,
                 overall: Some("unemulated".into()),
             },
-        ]
+        ])
     );
 
     let blasterj = &dat.machines[index(&dat, "blasterj")];
@@ -345,12 +357,13 @@ fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_a
     );
     assert_eq!(
         blasterj.displays,
-        [Display {
+        Some(vec![Display {
             kind: Some("vector".into()),
             rotate: Some(90),
-        }]
+        }])
     );
-    assert!(!blasterj.has_software_list);
+    assert_eq!(blasterj.has_software_list, Some(false));
+    assert_eq!(blasterj.features, Some(Vec::new()));
 
     let crane = &dat.machines[index(&dat, "crane")];
     assert_eq!(crane.year.as_deref(), Some("199?"));
@@ -359,21 +372,24 @@ fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_a
         crane.driver.as_ref().and_then(|d| d.emulation),
         Some(DriverStatus::Preliminary)
     );
-    assert!(
-        crane.displays.is_empty(),
+    assert_eq!(
+        crane.displays,
+        Some(Vec::new()),
         "a screenless machine lists no display"
     );
     assert_eq!(
-        crane.input,
-        Some(Input {
-            players: Some(1),
-            coins: Some(1),
-            controls: Vec::new(),
-        })
+        (crane.players, crane.coins, &crane.controls),
+        (Some(1), Some(1), &Some(Vec::new())),
+        "an input with no control is known to have none"
     );
 
     let z80 = &dat.machines[index(&dat, "z80")];
-    assert_eq!((&z80.driver, &z80.input, &z80.year), (&None, &None, &None));
+    assert_eq!((&z80.driver, &z80.year), (&None, &None));
+    assert_eq!(
+        (z80.players, z80.coins, &z80.controls),
+        (Some(0), Some(0), &Some(Vec::new())),
+        "a machine with no input has no players, coins or controls"
+    );
 }
 
 /// Each ROM of `game` as `(name, merge, status, optional)`.
@@ -474,12 +490,12 @@ fn a_listxml_disk_is_a_rom_named_for_its_chd_and_listed_by_sha1_alone() {
 fn a_rom_less_device_is_a_game_with_no_roms() {
     let dat = family();
     let z80 = index(&dat, "z80");
-    assert!(dat.machines[z80].is_device);
+    assert_eq!(dat.machines[z80].is_device, Some(true));
     assert!(dat.roms.iter().all(|r| r.game != z80));
 }
 
 #[test]
-fn a_logiqx_dat_without_machine_fields_gives_default_machines_and_good_roms() {
+fn a_logiqx_dat_without_machine_fields_gives_machines_that_know_nothing_and_good_roms() {
     use title_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <datafile>
@@ -497,7 +513,11 @@ fn a_logiqx_dat_without_machine_fields_gives_default_machines_and_good_roms() {
     let dat = Dat::parse(xml, Path::new("a2600.dat")).unwrap();
     assert_eq!(dat.games, ["Game (USA)", "Game (Europe)"]);
     assert_eq!(dat.cloneof, [None, Some("Game (USA)".into())]);
-    assert_eq!(dat.machines, [Machine::default(), Machine::default()]);
+    assert_eq!(
+        dat.machines,
+        [Machine::default(), Machine::default()],
+        "they know nothing"
+    );
     let flags = |game| rom_flags(&dat, game);
     assert_eq!(
         (flags("Game (USA)"), flags("Game (Europe)")),
@@ -508,11 +528,11 @@ fn a_logiqx_dat_without_machine_fields_gives_default_machines_and_good_roms() {
     );
     assert!(dat.roms.iter().all(|r| r.size == 4 && !r.disk));
     assert_eq!(dat.candidates(4, "0f0f0f0f").collect::<Vec<_>>(), [0]);
-    assert_eq!(carried(&dat), [], "its default machines say nothing");
+    assert_eq!(carried(&dat), [], "its machines say nothing");
 }
 
 #[test]
-fn a_listxml_dat_carries_every_signal_even_where_its_machines_leave_them_to_the_dtd() {
+fn a_listxml_machine_knows_every_flag_list_and_count_even_where_it_leaves_them_to_the_dtd() {
     let xml = br#"<?xml version="1.0"?>
 <mame build="0.289">
   <machine name="pong">
@@ -522,7 +542,25 @@ fn a_listxml_dat_carries_every_signal_even_where_its_machines_leave_them_to_the_
 </mame>
 "#;
     let dat = Dat::parse(xml, Path::new("mame.xml")).unwrap();
-    assert_eq!(carried(&dat), Signal::ALL);
+    use Signal::*;
+    assert_eq!(
+        carried(&dat),
+        [
+            Bios,
+            Device,
+            Mechanical,
+            Runnable,
+            DeviceRefs,
+            Samples,
+            Displays,
+            Players,
+            Coins,
+            Controls,
+            SoftwareLists,
+            Features,
+        ],
+        "every signal but the names and driver it gives none of"
+    );
     let pong = &dat.machines[0];
     assert_eq!(
         (
@@ -531,10 +569,13 @@ fn a_listxml_dat_carries_every_signal_even_where_its_machines_leave_them_to_the_
             pong.is_mechanical,
             pong.runnable
         ),
-        (false, false, false, true),
+        (Some(false), Some(false), Some(false), Some(true)),
         "the DTD's defaults"
     );
-    assert!(pong.displays.is_empty(), "known to have no screen");
+    assert_eq!(pong.displays, Some(Vec::new()), "known to have no screen");
+    assert_eq!(pong.has_software_list, Some(false));
+    assert_eq!((pong.romof.as_deref(), pong.year.as_deref()), (None, None));
+    assert!(Signal::ALL.into_iter().all(|s| family().carries(s)));
 }
 
 #[test]
@@ -559,8 +600,89 @@ fn a_logiqx_dat_carries_only_the_signals_some_game_of_it_writes() {
         carried(&dat),
         [Signal::Romof, Signal::Bios, Signal::Year, Signal::Driver]
     );
-    assert!(!dat.carries(Signal::Runnable) && dat.machines[1].runnable);
-    assert!(!dat.carries(Signal::Displays) && dat.machines[1].displays.is_empty());
+    assert_eq!(
+        (dat.machines[0].is_bios, dat.machines[1].is_bios),
+        (Some(true), None)
+    );
+    assert_eq!(dat.machines[1].runnable, None);
+    assert_eq!(dat.machines[1].displays, None);
+}
+
+#[test]
+fn a_logiqx_game_without_a_display_is_unknown_even_where_another_game_has_one() {
+    use title_select_engine::dat::Display;
+    let game = |name: &str, display: &str| {
+        format!(
+            r#"<game name="{name}"><description>{name}</description>{display}<rom name="{name}.bin" size="4" crc="0f0f0f0f"/></game>"#
+        )
+    };
+    let dat_of = |games: &[String]| {
+        let xml = format!(
+            r#"<?xml version="1.0"?><datafile><header><name>FinalBurn Neo - Arcade Games</name></header>{}</datafile>"#,
+            games.concat()
+        );
+        Dat::parse(xml.as_bytes(), Path::new("fbneo.dat")).unwrap()
+    };
+    let a = game("a", "");
+    let b = game("b", r#"<display type="raster" rotate="90"/>"#);
+
+    let both = dat_of(&[a.clone(), b]);
+    assert!(both.carries(Signal::Displays));
+    assert_eq!(
+        both.machines[0].displays, None,
+        "a says nothing of its screens"
+    );
+    assert_eq!(
+        both.machines[1].displays,
+        Some(vec![Display {
+            kind: Some("raster".into()),
+            rotate: Some(90),
+        }])
+    );
+
+    let alone = dat_of(&[a]);
+    assert!(!alone.carries(Signal::Displays));
+    assert_eq!(
+        alone.machines[0], both.machines[0],
+        "taking b away changes nothing of a"
+    );
+}
+
+#[test]
+fn a_logiqx_input_gives_only_the_counts_and_controls_it_writes() {
+    let xml = br#"<?xml version="1.0"?>
+<datafile>
+  <header><name>FinalBurn Neo - Arcade Games</name></header>
+  <game name="duo">
+    <description>Duo</description>
+    <input players="2"/>
+    <rom name="duo.bin" size="4" crc="0f0f0f0f"/>
+  </game>
+  <game name="paddle">
+    <description>Paddle</description>
+    <input players="1" coins="1">
+      <control type="paddle"/>
+    </input>
+    <rom name="paddle.bin" size="4" crc="1f0f0f0f"/>
+  </game>
+</datafile>
+"#;
+    let dat = Dat::parse(xml, Path::new("fbneo.dat")).unwrap();
+    let duo = &dat.machines[0];
+    assert_eq!(
+        (duo.players, duo.coins, &duo.controls),
+        (Some(2), None, &None),
+        "no coins or controls are known"
+    );
+    let paddle = &dat.machines[1];
+    assert_eq!(
+        (paddle.players, paddle.coins, &paddle.controls),
+        (Some(1), Some(1), &Some(vec!["paddle".into()]))
+    );
+    assert_eq!(
+        carried(&dat),
+        [Signal::Players, Signal::Coins, Signal::Controls]
+    );
 }
 
 #[test]
@@ -583,7 +705,7 @@ fn a_logiqx_dat_fills_the_machine_fields_it_carries_but_lists_no_disks() {
 </datafile>
 "#;
     let dat = Dat::parse(xml, Path::new("fbneo.dat")).unwrap();
-    assert!(dat.machines[0].is_bios);
+    assert_eq!(dat.machines[0].is_bios, Some(true));
     assert_eq!(dat.machines[0].year.as_deref(), Some("1990"));
     assert_eq!(dat.machines[0].manufacturer.as_deref(), Some("SNK"));
     assert_eq!(dat.machines[1].romof.as_deref(), Some("neogeo"));
@@ -594,7 +716,7 @@ fn a_logiqx_dat_fills_the_machine_fields_it_carries_but_lists_no_disks() {
 }
 
 #[test]
-fn a_software_list_gives_default_machines_and_no_disks() {
+fn a_software_list_gives_machines_that_know_nothing_and_no_disks() {
     use title_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <softwarelist name="cdi" description="Philips CD-i discs">
