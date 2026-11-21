@@ -627,6 +627,47 @@ fn discs_built_before_that_now_have_nothing_to_build_stay_in_their_releases_m3u(
 }
 
 #[test]
+fn a_release_none_of_whose_discs_has_anything_to_build_has_no_m3u() {
+    let mut env = Env::with(StorageFormat::LooseFolder, duo);
+    audit_with_absent_optional(
+        &mut env,
+        &[
+            (DUO[0], "Duo (USA) (Disc 1).iso"),
+            (DUO[1], "Duo (USA) (Disc 2).iso"),
+        ],
+    );
+    let folder = env.folder();
+    let plan = env.built(&folder, env.selection(&DUO));
+
+    assert!(plan.content.items.is_empty(), "{:?}", plan.content.items);
+    assert!(env.files().is_empty(), "{:?}", env.files());
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete, None);
+}
+
+#[test]
+fn a_disc_built_before_whose_track_is_gone_is_left_out_of_its_releases_m3u() {
+    let mut env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    env.built(&folder, env.selection(&SAGA));
+    audit_with_absent_optional(
+        &mut env,
+        &[
+            (SAGA[0], "Saga (USA) (Disc 1).cue"),
+            (SAGA[0], "Saga (USA) (Disc 1) (Track 1).bin"),
+        ],
+    );
+    std::fs::remove_file(
+        env.dir()
+            .join("Saga (USA).m3u/Saga (USA) (Disc 1) (Track 1).bin"),
+    )
+    .unwrap();
+    env.built(&folder, env.selection(&SAGA));
+
+    assert_eq!(read(&env, M3U), "Saga (USA) (Disc 2).cue\n");
+}
+
+#[test]
 fn a_disc_built_before_that_now_has_nothing_to_build_keeps_its_sbi_file_and_holds_none_of_its_release_back()
  {
     let mut env = Env::new(StorageFormat::LooseFolder);

@@ -722,8 +722,8 @@ fn removals(
         }
         // A file generated beside its discs that the plan no longer writes, an SBI file or an `.m3u`, is no longer
         // needed, whether or not its games are still selected.
-        // A file generated for the game, its SBI file, never replaces one of its ROMs' files.
         let generated = built.roms.is_empty();
+        // A disc's SBI file is an item of its game too, but never replaces a file of the disc's ROMs.
         if let Some(item) = items
             .iter()
             .find(|i| i.game == built.game && i.generated.is_none())
@@ -1774,17 +1774,23 @@ fn plan_items(
         "one item for each file wanted with something to build"
     );
     let additions = items.split_off(officials - nothing_to_build.len());
-    // A disc whose entry file has nothing to build is left out of its release's `.m3u` and has no SBI file, unless a
-    // build wrote that file before and the check found it as it was: the plan leaves it in place, so it is one of the
-    // release's files that is already there. The `.m3u` lists only discs in the folder, and none is written for a
-    // release with none.
-    let left_in_place = |title: &str| {
+    // A disc whose entry file has nothing to build is left out of its release's `.m3u` and has no SBI file, unless it
+    // is left in place: a build wrote each of its files the plan doesn't, and the check found each as it was. The
+    // `.m3u` lists only discs in the folder, and none is written for a release with none.
+    let entry_unbuilt = |title: &str| {
         laid.get(title)
             .and_then(|l| l.entry.as_ref())
-            .filter(|entry| unbuilt.contains(*entry))
-            .map(|entry| inputs.built.contains_key(entry) && as_built(scan, entry))
+            .is_some_and(|entry| unbuilt.contains(entry))
     };
-    let in_folder = |title: &str| left_in_place(title) != Some(false);
+    let left_in_place = |title: &str| {
+        entry_unbuilt(title)
+            && laid[title]
+                .files
+                .iter()
+                .filter(|f| unbuilt.contains(*f))
+                .all(|f| inputs.built.get(f).is_some_and(|b| b.game == title) && as_built(scan, f))
+    };
+    let in_folder = |title: &str| !entry_unbuilt(title) || left_in_place(title);
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()
@@ -1793,7 +1799,7 @@ fn plan_items(
             .chain(
                 winners
                     .iter()
-                    .filter(|(_, t)| games.contains(t) && left_in_place(t) == Some(true))
+                    .filter(|(_, t)| games.contains(t) && left_in_place(t))
                     .map(|(g, _)| (ItemKind::Unchanged, (*g).to_owned())),
             )
             .collect()
