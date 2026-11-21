@@ -255,7 +255,8 @@ enum DiskRead {
     NoDisk { why: String },
     /// chdman's verdict is that it isn't Verified, and why.
     Unverified { why: String },
-    /// Nothing was learnt of it, as chdman couldn't run, and why: it is read again at the next scan, never kept.
+    /// Nothing was learnt of it, as its header couldn't be read or chdman couldn't run, and why: it is read again at the
+    /// next scan, never kept.
     Unchecked { why: String },
 }
 
