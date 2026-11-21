@@ -358,11 +358,11 @@ pub struct Entry {
     /// For a Conflicting or Mismatched Entry, the ROM its name gives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub named_rom: Option<RomRef>,
-    /// Absent for an Unreadable Entry.
+    /// Absent for an Unreadable Entry, and for an Unmatched one with a `reason`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,
     /// Why an Unreadable Entry could not be read, or why a Mismatched one matches no ROM when the reason is known:
-    /// [`NOT_DUMPED`] for one named for a nodump ROM.
+    /// [`NOT_DUMPED`] for one named for a nodump ROM; or why an Unmatched one, a CHD read as a Disk, can match none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }

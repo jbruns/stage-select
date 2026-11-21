@@ -1201,6 +1201,7 @@ mod tests {
             reads: Some(reads),
             tally,
             placed: &[],
+            disks: None,
         };
         title_select_engine::audit_with(dat, set, &options).unwrap();
     }

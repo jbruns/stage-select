@@ -73,6 +73,9 @@ pub struct Options<'a> {
     pub tally: meter::Tally,
     /// The files of the Source Set's Placed Games, read as its Entries from the Library Folders that hold them.
     pub placed: &'a [Placed<'a>],
+    /// How chdman verifies the Source Set's Disks (ADR 0026), in an Audit that reads payloads; none where there is no
+    /// chdman to run, and each Disk's CHD such an Audit can't reuse an earlier read of is then Unreadable.
+    pub disks: Option<&'a ChdAudit>,
 }
 
 /// The recorded files of a Source Set's Placed Games in one Library Folder (ADR 0023). Only these are read of it,
@@ -120,6 +123,23 @@ pub struct ChdAudit {
     pub chdman: Result<chd::Chdman, String>,
     pub limits: chd::Limits,
     pub tmp: std::path::PathBuf,
+}
+
+impl ChdAudit {
+    /// chdman as [`chd::locate`] finds it without a configuration, with the default limits, its scratch directories in
+    /// the system's temporary directory: what an Audit without a store runs.
+    pub fn located() -> ChdAudit {
+        ChdAudit {
+            chdman: chd::locate(None).map(|program| chd::Chdman {
+                program,
+                threads: None,
+                deadline: Default::default(),
+                tally: Default::default(),
+            }),
+            limits: Default::default(),
+            tmp: std::env::temp_dir(),
+        }
+    }
 }
 
 /// A file as `stat` sees it: what the change test compares. An earlier read of a file is reused only while every
@@ -173,6 +193,9 @@ pub struct PayloadRead {
     pub members: Vec<(Option<String>, Checksums)>,
     /// The Header Rule the payloads were hashed under. A read is reused only under the same rule.
     pub header_rule: Option<HeaderRule>,
+    /// For a CHD read as a Disk, the combined SHA-1 `chdman verify` proved its data hashes to; it then has no
+    /// `members`. A read is reused as a Disk's only when it is one.
+    pub disk: Option<String>,
 }
 
 /// Earlier payload reads an Audit may reuse, and where it records its own. Both are called from the reader
@@ -204,7 +227,8 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Audits the Source Set at `root` against the DAT Revision at `dat_path`, reading every payload.
+/// Audits the Source Set at `root` against the DAT Revision at `dat_path`, reading every payload, and verifying each
+/// Disk's CHD with chdman as [`ChdAudit::located`] finds it.
 pub fn audit(dat_path: &Path, root: &Path) -> Result<Report, Error> {
     let file = dat_path
         .file_name()
@@ -223,6 +247,7 @@ pub fn audit(dat_path: &Path, root: &Path) -> Result<Report, Error> {
             reads: None,
             tally: Default::default(),
             placed: &[],
+            disks: Some(&ChdAudit::located()),
         },
     )
 }
@@ -319,6 +344,7 @@ fn walk(
             rel,
             beneath: None,
             chd: None,
+            disk: false,
         });
     }
 
@@ -374,6 +400,7 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
                     rel: at,
                     beneath: Some(base.to_path_buf()),
                     chd,
+                    disk: false,
                 });
                 stamps.push(metadata.and_then(|m| FileStamp::from_metadata(&m)));
             }
@@ -456,8 +483,18 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         )));
     }
     let dat = Dat::read(dat_path)?;
-    let Walked { items, files } =
+    let Walked { items, mut files } =
         walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
+    // A Source Set of a DAT that lists Disks keeps them as CHDs (ADR 0026), each read by its header.
+    if dat.has_disks() {
+        for file in &mut files {
+            file.disk = !file.is_zip
+                && file
+                    .path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("chd"));
+        }
+    }
     let placed: Vec<Walked> = options.placed.iter().map(|p| walk_placed(p).0).collect();
 
     let header = dat.header();
@@ -475,6 +512,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         header,
         might_be_headered: &might_be_headered,
         tally: &options.tally,
+        disks: options.disks,
     };
     // Progress counts every file read, the Source Set's own and its Placed Games' in each Library Folder.
     let total = files.len() + placed.iter().map(|w| w.files.len()).sum::<usize>();
@@ -631,6 +669,23 @@ impl Scan<'_> {
     }
 
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
+        match known {
+            Known::Delta(parent) => return self.unreadable(path, member, self.needs_parent(parent)),
+            Known::NoDisk(why) => {
+                self.entries.push(Entry {
+                    path,
+                    member,
+                    finding: Finding::Unmatched,
+                    roms: Vec::new(),
+                    named_rom: None,
+                    // No checksum of it was compared: it holds none a Disk is listed by.
+                    evidence: None,
+                    reason: Some(why.clone()),
+                });
+                return;
+            }
+            _ => {}
+        }
         let name = entry_name(&path, member.as_deref());
         let container = self.holders.container(&path, member.as_deref());
         // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). Its
@@ -678,9 +733,12 @@ impl Scan<'_> {
         for (r, g) in others {
             self.elsewhere[r].insert(g);
         }
+        let disk = matches!(known, Known::Disk(_));
         let (level, header) = match known {
             Known::Payload(sums) => (EvidenceLevel::Payload, sums.header),
-            Known::Claim { .. } => (EvidenceLevel::Claim, None),
+            Known::Disk(_) if origin != Origin::Claimed => (EvidenceLevel::Payload, None),
+            Known::Claim { .. } | Known::Disk(_) => (EvidenceLevel::Claim, None),
+            Known::Delta(_) | Known::NoDisk(_) => unreachable!("recorded above"),
         };
         let held = Held {
             finding,
@@ -708,12 +766,30 @@ impl Scan<'_> {
             finding,
             evidence: Some(Evidence {
                 header: header.map(|bytes| Header { bytes }),
-                ..evidence(self.dat, &payload, origin)
+                ..evidence(self.dat, &payload, origin, disk)
             }),
             roms: payload.iter().map(|r| rom_ref(self.dat, *r)).collect(),
             named_rom: named.map(|r| rom_ref(self.dat, r)),
             reason,
         });
+    }
+
+    /// Why a delta CHD whose parent's combined SHA-1 is `parent` can't be read, naming the Disk that parent is.
+    fn needs_parent(&self, parent: &str) -> String {
+        let named = self.dat.disks_with_sha1(parent).first().map(|r| {
+            let rom = &self.dat.roms[*r];
+            format!("{} of {}", rom.name, self.dat.games[rom.game])
+        });
+        match named {
+            Some(named) => format!(
+                "it is a delta CHD, which can't be read without its parent CHD, {named} (SHA-1 {parent}); replace \
+                 it with a self-contained CHD"
+            ),
+            None => format!(
+                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}, which no disk of \
+                 the DAT is; replace it with a self-contained CHD"
+            ),
+        }
     }
 
     /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one
@@ -835,8 +911,8 @@ impl Scan<'_> {
 
 /// For a payload match, size plus each checksum that every matched ROM supplies, since every supplied
 /// checksum was compared and agreed. Without one, only the size-and-CRC32 lookup that found no candidate. A claim
-/// compares only size and CRC32.
-fn evidence(dat: &Dat, roms: &[usize], origin: Origin) -> Evidence {
+/// compares only size and CRC32. A CHD read as a Disk, `disk`, is compared by its combined SHA-1 alone.
+fn evidence(dat: &Dat, roms: &[usize], origin: Origin, disk: bool) -> Evidence {
     let (level, read_at, reused) = match origin {
         Origin::Read(at) => (EvidenceLevel::Payload, Some(at), None),
         Origin::Reused(at) => (
@@ -846,7 +922,9 @@ fn evidence(dat: &Dat, roms: &[usize], origin: Origin) -> Evidence {
         ),
         Origin::Claimed => (EvidenceLevel::Claim, None, None),
     };
-    let algorithms = if roms.is_empty() || level == EvidenceLevel::Claim {
+    let algorithms = if disk {
+        vec!["sha1".into()]
+    } else if roms.is_empty() || level == EvidenceLevel::Claim {
         vec!["size".into(), "crc32".into()]
     } else {
         let all_supply = |has: fn(&dat::Rom) -> bool| roms.iter().all(|r| has(&dat.roms[*r]));
@@ -1019,5 +1097,7 @@ fn matching_roms(dat: &Dat, known: &Known) -> Vec<usize> {
             .candidates(*size, crc)
             .filter(|r| dat.roms[*r].crc.as_deref() == Some(crc.as_str()))
             .collect(),
+        Known::Disk(sha1) => dat.disks_with_sha1(sha1).to_vec(),
+        Known::Delta(_) | Known::NoDisk(_) => Vec::new(),
     }
 }

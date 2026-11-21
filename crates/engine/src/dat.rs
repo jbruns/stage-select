@@ -268,6 +268,8 @@ pub struct Dat {
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
     /// ROMs the DAT lists without a CRC, which the size-and-CRC index cannot find.
     by_size_without_crc: HashMap<u64, Vec<usize>>,
+    /// Disks, by the SHA-1 the DAT lists them by; never a nodump Disk.
+    by_disk_sha1: HashMap<String, Vec<usize>>,
     /// Where a software list's last ROM is read to, and the furthest any read of it reached, while unnamed ROMs that
     /// follow may still read on in its file.
     extent: Option<(u64, u64)>,
@@ -374,6 +376,7 @@ impl Dat {
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
             by_size_without_crc: HashMap::new(),
+            by_disk_sha1: HashMap::new(),
             extent: None,
         };
         let mut stack: Vec<String> = Vec::new();
@@ -754,8 +757,8 @@ impl Dat {
         Ok(())
     }
 
-    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size. Only its name
-    /// finds it here; matching it by its SHA-1 is #228's.
+    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size, found by its
+    /// name or by the SHA-1 a CHD's header records.
     fn add_disk(&mut self, e: &BytesStart) -> Result<(), Error> {
         let a = attrs(e)?;
         let chd = |name: &String| format!("{name}.chd");
@@ -764,8 +767,16 @@ impl Dat {
             .ok_or_else(|| Error::Dat("a disk has no name".into()))?);
         let rom = self.listed(&a, "disk", name, a.get("merge").map(chd))?;
         self.extent = None;
+        let sha1 = a.get("sha1").map(|v| v.to_ascii_lowercase());
+        // No CHD matches a nodump Disk, whatever the DAT lists beside it (ADR 0025).
+        if let Some(sha1) = sha1.as_ref().filter(|_| rom.status != DumpStatus::NoDump) {
+            self.by_disk_sha1
+                .entry(sha1.clone())
+                .or_default()
+                .push(self.roms.len());
+        }
         self.push_rom(Rom {
-            sha1: a.get("sha1").map(|v| v.to_ascii_lowercase()),
+            sha1,
             disk: true,
             ..rom
         });
@@ -927,6 +938,16 @@ impl Dat {
 
     pub fn roms_named(&self, name: &str) -> &[usize] {
         self.by_name.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    /// The Disks a CHD whose header records `sha1`, as lowercase hex, matches.
+    pub fn disks_with_sha1(&self, sha1: &str) -> &[usize] {
+        self.by_disk_sha1.get(sha1).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether the DAT lists any Disk, so that a `.chd` file in a Source Set is read as one.
+    pub fn has_disks(&self) -> bool {
+        self.roms.iter().any(|r| r.disk)
     }
 
     /// The ROMs a payload of this size and CRC32 could match, never a nodump one; each must still be compared in full.

@@ -1,0 +1,7 @@
+#!/bin/sh
+# A chdman whose verify exits 0 without saying the CHD's combined SHA-1 verified, as chdman does when it doesn't match.
+echo "chdman - MAME Compressed Hunks of Data (CHD) manager 0.289 (unknown)"
+case "$1" in
+verify) echo "Raw SHA1 verification successful!"; echo "Error: Overall SHA1 in header = 0, actual SHA1 = 1" >&2 ;;
+*) exit 2 ;;
+esac

@@ -418,6 +418,7 @@ mod tests {
             rel: "a.zip".into(),
             beneath: None,
             chd: None,
+            disk: false,
         }];
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,
@@ -425,6 +426,7 @@ mod tests {
             header: None,
             might_be_headered: &|_| false,
             tally: &Default::default(),
+            disks: None,
         };
         let workers = Workers {
             readers: 1,
@@ -640,6 +642,7 @@ mod tests {
             rel: "a.zip".into(),
             beneath: None,
             chd: None,
+            disk: false,
         }];
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,
@@ -647,6 +650,7 @@ mod tests {
             header: None,
             might_be_headered: &|_| false,
             tally: &Default::default(),
+            disks: None,
         };
         let workers = Workers {
             readers: 1,
