@@ -84,10 +84,18 @@ else
     say "sccache: not on PATH, so builds are not shared between build folders"
 fi
 
+# Prints the command, quoting each argument that holds a space, then runs it unless this is a dry run.
 run() {
-    echo "+ $*"
+    line=+
+    for arg; do
+        case $arg in
+        *" "*) line="$line '$arg'" ;;
+        *) line="$line $arg" ;;
+        esac
+    done
+    echo "$line"
     [ -n "$dry" ] && return 0
-    "$@" || fail "failed (exit $?): $*"
+    "$@" || fail "failed (exit $?): ${line#+ }"
 }
 
 passed() {
@@ -101,22 +109,31 @@ fetch_lists() {
 
 fixtures_filter="not binary_id(title-select-selection::fixtures)"
 
+wasm_clippy() {
+    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+}
+
+release_fixtures() {
+    run cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+}
+
 if [ "$mode" = ci ]; then
     say "running exactly what GitHub CI runs"
     fetch_lists
     run cargo fmt --check
     run cargo clippy --all-targets --locked -- -D warnings
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+    wasm_clippy
     run cargo nextest run --profile ci --locked -E "$fixtures_filter"
-    run cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+    release_fixtures
     passed
     exit 0
 fi
 
 # Each workspace crate as "<folder> <package> <path dependency>...", dev-dependencies included: a change to a crate
 # a test links can break that test.
-graph=$(cargo metadata --format-version 1 --no-deps --locked | jq -r '.packages[]
+metadata=$(cargo metadata --format-version 1 --no-deps --locked) || fail "cargo metadata failed"
+graph=$(printf '%s\n' "$metadata" | jq -r '.packages[]
     | [(.manifest_path | split("/") | .[-2]), .name, (.dependencies[] | select(.path) | .name)] | join(" ")')
 
 package() {
@@ -153,20 +170,20 @@ lists() {
 
 if [ "$mode" = crate ]; then
     names=
-    set_p=
+    pkg_args=
     for x in $crates; do
         p=$(package "$x")
         [ -n "$p" ] || fail "$x is not a workspace crate"
         names="$names $p"
-        set_p="$set_p -p $p"
+        pkg_args="$pkg_args -p $p"
     done
     [ $# -gt 0 ] || set -- -E "$fixtures_filter"
     say "crates:$names"
-    # shellcheck disable=SC2086 # $set_p is one "-p <package>" pair per crate
-    run cargo clippy --locked --all-targets $set_p -- -D warnings
+    # shellcheck disable=SC2086 # $pkg_args is one "-p <package>" pair per crate
+    run cargo clippy --locked --all-targets $pkg_args -- -D warnings
     lists "$names"
     # shellcheck disable=SC2086
-    run cargo nextest run --profile ci --locked $set_p "$@"
+    run cargo nextest run --profile ci --locked $pkg_args "$@"
     passed
     exit 0
 fi
@@ -253,8 +270,8 @@ affects() {
     printf '%s\n' $affected | grep -qx "$1"
 }
 
-set_p=
-for p in $affected; do set_p="$set_p -p $p"; done
+pkg_args=
+for p in $affected; do pkg_args="$pkg_args -p $p"; done
 wasm=
 if affects title-select-api || affects title-select-ui; then
     wasm=1
@@ -270,17 +287,13 @@ else
     say "release fixtures: no, selection is unaffected"
 fi
 
-# shellcheck disable=SC2086 # $set_p is one "-p <package>" pair per crate
-run cargo fmt --check $set_p
+# shellcheck disable=SC2086 # $pkg_args is one "-p <package>" pair per crate
+run cargo fmt --check $pkg_args
 # shellcheck disable=SC2086
-run cargo clippy --locked --all-targets $set_p -- -D warnings
-if [ -n "$wasm" ]; then
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
-fi
+run cargo clippy --locked --all-targets $pkg_args -- -D warnings
+[ -z "$wasm" ] || wasm_clippy
 lists "$affected"
 # shellcheck disable=SC2086
-run cargo nextest run --profile ci --locked $set_p -E "$fixtures_filter"
-[ -z "$fixtures" ] ||
-    run cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+run cargo nextest run --profile ci --locked $pkg_args -E "$fixtures_filter"
+[ -z "$fixtures" ] || release_fixtures
 passed
