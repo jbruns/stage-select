@@ -1818,7 +1818,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .collect();
     // The releases not released here one of whose CHDs is recorded placed and is there, each with one such CHD: no
     // Game of one is filled, rebuilt or written in the Source Set's folder, whatever the Audit read, since that would
-    // split it. The next repair after a full audit releases it, or leaves it placed.
+    // split it. The next Repair after a Full Audit releases it, or leaves it placed.
     let mut placed_releases: BTreeMap<String, &str> = BTreeMap::new();
     for path in i
         .placed_chds
@@ -1870,8 +1870,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .and_then(|g| Some((placed_releases.get(&release_of(&g)).copied()?, g)));
         let note = match sibling {
             Some((chd, game)) => format!(
-                "left as it is: {chd}, a disc of {}, is still placed as a CHD in a play library folder, and a \
-                 game's discs are never split, so {game} isn't rebuilt in your source set while it is. Run a full \
+                "left as it is: {chd}, a disc of {}, is still placed as a CHD in a play library folder. A game's \
+                 discs are never split, so {game} isn't repaired in your source set while one is placed. Run a full \
                  audit: if a placed CHD of the game doesn't verify or is gone, the next repair sets the game's CHDs \
                  aside in your source set's kept files, and the repair after the audit rebuilds the game",
                 release_of(&game)

@@ -482,9 +482,9 @@ fn io_err(e: io::Error) -> Error {
     Error::Io(e.to_string())
 }
 
-/// Forgets the placed file `rel` of Library Folder `folder`, kept aside from `name` in `parent`, unless anything is
-/// there again, looked for as the Keep is recorded: a file put back since, as while a stop left the Keep unrecorded,
-/// stays placed for the next Audit and Repair, and the kept copy stays kept.
+/// Forgets the placed file `rel` of Library Folder `folder`, kept aside from `name` in `parent`, unless something is
+/// at `name` again as its Keep is recorded. A file put back there, as while a stop left the Keep unrecorded, stays
+/// placed for the next Audit and Repair to see, and the kept copy stays kept.
 fn unplace_kept(
     tx: &Transaction,
     parent: &FolderDir,

@@ -1425,14 +1425,8 @@ fn rescan(env: &Env) {
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
 }
 
-/// With a disc's CHD gone and the other disc's CHD placed but read by a quick inventory only, by its claim, the release
-/// isn't released: nothing is filled for either disc, not even the gone one from an ingest folder, as that would split
-/// the game between the source set and the play library.
-#[test]
-fn a_gone_disc_beside_a_placed_chd_read_only_by_its_claim_is_never_filled() {
-    let Some(chdman) = chdman() else { return };
-    let mut env = Env::new(Some(&chdman));
-    let (_folder, _) = damaged_saga(&mut env, &chdman, 2);
+/// Has the source set store Saga's system as TorrentZip.
+fn store_as_torrentzip(env: &Env) {
     let mut policy = env.store.storage_policy().unwrap();
     policy
         .source_sets
@@ -1441,6 +1435,26 @@ fn a_gone_disc_beside_a_placed_chd_read_only_by_its_claim_is_never_filled() {
         .or_default()
         .format = Some(StorageFormat::TorrentZip);
     env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+/// Whether `plan` has no step for either disc of Saga.
+fn plans_nothing_for_saga(plan: &RepairPlan) -> bool {
+    !plan
+        .content
+        .steps
+        .iter()
+        .any(|step| step.item.starts_with("game:Saga"))
+}
+
+/// With a disc's CHD gone and the other disc's CHD placed but read by a quick inventory only, by its claim, the release
+/// isn't released: nothing is filled for either disc, not even the gone one from an ingest folder, as that would split
+/// the game between the source set and the play library.
+#[test]
+fn a_gone_disc_beside_a_placed_chd_read_only_by_its_claim_is_never_filled() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (_folder, _) = damaged_saga(&mut env, &chdman, 2);
+    store_as_torrentzip(&env);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
     env.audit(title_select_engine::AuditEvidence::Quick);
     let zip = saga_zip(&env, 2);
@@ -1473,15 +1487,7 @@ fn a_placed_chd_rewritten_under_its_stamp_since_an_incremental_audit_is_left_as_
     let changed = env.dir().join(SAGA_CHDS[0]);
     corrupt_keeping_stamp(&changed);
     let plan = env.repair_plan(&[]);
-    assert!(
-        !plan
-            .content
-            .steps
-            .iter()
-            .any(|step| step.item.starts_with("game:Saga")),
-        "{:#?}",
-        plan.content.steps
-    );
+    assert!(plans_nothing_for_saga(&plan), "{:#?}", plan.content);
 }
 
 /// With a disc's CHD gone and the other disc's CHD changed since the full audit, the release isn't released, and the
@@ -1491,14 +1497,7 @@ fn a_gone_disc_beside_a_placed_chd_changed_since_the_full_audit_is_never_filled(
     let Some(chdman) = chdman() else { return };
     let mut env = Env::new(Some(&chdman));
     let (folder, _) = damaged_saga(&mut env, &chdman, 2);
-    let mut policy = env.store.storage_policy().unwrap();
-    policy
-        .source_sets
-        .systems
-        .entry(SYSTEM.into())
-        .or_default()
-        .format = Some(StorageFormat::TorrentZip);
-    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    store_as_torrentzip(&env);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
     env.audit(title_select_engine::AuditEvidence::Full);
     corrupt_keeping_stamp(&env.dir().join(SAGA_CHDS[0]));
@@ -1515,15 +1514,7 @@ fn a_gone_disc_beside_a_placed_chd_changed_since_the_full_audit_is_never_filled(
         )) && note.contains("Run a full audit"),
         "{note}"
     );
-    assert!(
-        !plan
-            .content
-            .steps
-            .iter()
-            .any(|step| step.item.starts_with("game:Saga")),
-        "{:#?}",
-        plan.content
-    );
+    assert!(plans_nothing_for_saga(&plan), "{:#?}", plan.content);
 }
 
 /// A repair stopped after disc 1's CHD is moved into the kept files and before that is recorded; a CHD is put back
@@ -1586,15 +1577,7 @@ fn a_gone_disc_beside_a_damaged_chd_read_only_by_its_claim_is_never_filled() {
     let zip = saga_zip(&env, 2);
     ingest(&mut env, &chdman, "Saga 2.zip", &zip);
     let plan = env.repair_plan(&[]);
-    assert!(
-        !plan
-            .content
-            .steps
-            .iter()
-            .any(|step| step.item.starts_with("game:Saga")),
-        "{:#?}",
-        plan.content
-    );
+    assert!(plans_nothing_for_saga(&plan), "{:#?}", plan.content);
 }
 
 /// A release left part way, disc 1 kept and disc 2 still placed, with a copy of disc 1 ingested since: after a full
@@ -1625,14 +1608,7 @@ fn a_parted_release_with_an_ingest_copy_is_never_filled() {
             env.set_kept()
                 .contains(&placed_path(folder.id, SAGA_CHDS[0]))
         );
-        let mut policy = env.store.storage_policy().unwrap();
-        policy
-            .source_sets
-            .systems
-            .entry(SYSTEM.into())
-            .or_default()
-            .format = Some(StorageFormat::TorrentZip);
-        env.store.set_storage_policy(&policy, "Operator").unwrap();
+        store_as_torrentzip(&env);
         env.audit(evidence);
         let zip = saga_zip(&env, 1);
         ingest(&mut env, &chdman, "Saga 1.zip", &zip);
