@@ -52,8 +52,9 @@ Library that is ready to play.
   Operator to add to RomM's `exclude.roms.multi_file.names`, and says what happens without them.
 - **Single Copy** is offered for a MAME system only when its Source Sets are non-merged, where a Winner's ZIP is the
   Source Set's own. Disks are always copied, never placed: a merged Disk folder may serve several Games.
-- **Ingest.** A folder named for a Game of a registered MAME Source Set's DAT Revision and holding only `.chd` files is
-  assessed as that family's Disks, each verified before any plan moves it; any other folder stays Unsupported.
+- **Ingest.** A folder named for a Game of a registered MAME Source Set's DAT Revision and holding only `.chd` files,
+  hidden files and partial downloads aside, is assessed as that family's Disks, each verified before any plan moves it;
+  any other folder stays Unsupported.
 
 ## Considered Options
 

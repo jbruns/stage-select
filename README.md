@@ -1524,10 +1524,11 @@ Each item is one of:
   candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
-A folder named for a MAME game that holds nothing but CHDs is a folder of disks: each CHD in it is an item of its own,
-read as a disk of that game, of its parent or BIOS, or of a game it is the parent or BIOS of, and verified with
-`chdman verify` when it is assessed. A CHD chdman can't verify is unreadable, with what chdman said. A folder named for
-a MAME game that holds anything else is unsupported, and says which file in it isn't a CHD.
+A folder named for a MAME game that holds nothing but CHDs, hidden files and partial downloads aside, is a folder of
+disks: each CHD in it is an item of its own, read as a disk of that game, of its parent or BIOS, or of a game it is the
+parent or BIOS of, and verified with `chdman verify` when it is assessed. A CHD chdman can't verify is unreadable, with
+what chdman said. A folder named for a MAME game that holds anything else is unsupported, and says which file in it
+isn't a CHD.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
 plan, whatever state it shows; an unsupported or dismissed item can still be discarded unread once settled, and

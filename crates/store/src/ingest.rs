@@ -286,20 +286,19 @@ enum Folder {
 }
 
 /// What the folder `name` of `dir` is (ADR 0026): one named for a Game of a registered Source Set's DAT that lists
-/// Disks and holding only `.chd` files, or nothing, is a family's Disks, each read as an item of its own; any other is
-/// Unsupported.
+/// Disks and holding only `.chd` files, or nothing, hidden files and partial downloads aside, is a family's Disks, each
+/// read as an item of its own; any other is Unsupported.
 fn disk_folder(dir: &FolderDir, name: &str, matcher: &Matcher) -> std::io::Result<Folder> {
     if !matcher.names_disk_family(name) {
         return Ok(Folder::Other);
     }
     let folder = dir.sub(name)?;
     let mut chds = Vec::new();
-    // A hidden file or a download still in progress is passed over, as a scan passes it over at the top.
-    for (child, _) in folder
-        .entries()?
-        .into_iter()
-        .filter(|(c, _)| !is_ignored(c))
-    {
+    for (child, _) in folder.entries()? {
+        // A hidden file or a download still in progress is passed over, as a scan passes it over at the top.
+        if is_ignored(&child) {
+            continue;
+        }
         let Some(st) = folder.stat(&child)? else {
             continue;
         };
