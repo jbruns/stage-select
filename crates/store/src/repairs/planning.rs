@@ -131,7 +131,7 @@ pub(super) struct Planned {
     pub items: Vec<RepairItem>,
     pub steps: Vec<PlannedStep>,
     pub notes: Vec<String>,
-    /// The items that release a disc of a placed release, chosen to, by key.
+    /// The items that release a disc of a placed release, by key, unless you chose to leave them.
     pub released: BTreeSet<String>,
 }
 
@@ -786,10 +786,18 @@ fn released_note(game: &str, r: &Released) -> String {
              where you can delete them once you no longer need them"
         ),
     };
+    // An ingest folder's copy of a healthy disc was assessed as already held while its CHD was placed.
+    let rescan = match r.freed {
+        Freed::Healthy => {
+            " A copy of it in an ingest folder found while it was placed counts as already held, so scan that folder \
+             again after the audit."
+        }
+        _ => "",
+    };
     format!(
         "{found} {aside}. This repair only sets files aside, so {game} is then missing: with a good copy of it in an \
-         ingest folder, the next repair after the audit rebuilds it in your source set, and the next build places it \
-         again"
+         ingest folder, the next repair after the audit this one queues rebuilds it in your source set, and the next \
+         build places it again.{rescan}"
     )
 }
 
@@ -2107,7 +2115,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         ));
     }
     let steps = steps_of(i, &proposed);
-    let released = proposed
+    let releasing = proposed
         .iter()
         .filter(|p| p.release.is_some() && p.item.chosen != RepairChoice::Leave)
         .map(|p| p.item.key.clone())
@@ -2116,7 +2124,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         items: proposed.into_iter().map(|p| p.item).collect(),
         steps,
         notes,
-        released,
+        released: releasing,
     })
 }
 
@@ -2480,7 +2488,8 @@ fn released_steps(
             .collect();
         let mut beside = Vec::new();
         for (n, (p, r, path)) in files.iter().enumerate() {
-            let needs = match gone && n + 1 == files.len() {
+            let last_of_gone = gone && n + 1 == files.len();
+            let needs = match last_of_gone {
                 true => beside.clone(),
                 false => Vec::new(),
             };

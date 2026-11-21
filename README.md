@@ -1295,21 +1295,22 @@ placed CHD doesn't hold its disc as the DAT lists it, or that its file is gone, 
 take the game out of your play library, and does so by default: the CHD is set aside in your source set's kept files,
 where you can delete it like any kept file, its placement is forgotten and its flag cleared, and the game is missing.
 That repair only sets files aside; it never fills the game. To get it back, bring a good copy through an ingest
-folder: with one there, the next repair after the audit rebuilds the game in your source set, as for any missing game,
-and the next build places it again. A game of several discs is taken out whole, never one disc alone: every disc's CHD
-is set aside, the healthy ones too, with the `.m3u` and any SBI files, as a game missing a disc isn't fully playable.
-Nothing is extracted, put back in your source set or deleted, so bring the whole game back through an ingest folder,
-and delete the kept CHDs once you no longer need them. Until the next build places the game again, checking your play
-library folder reports each disc it took out as missing. The repair plan states the space it needs in your source
-set's root, counting each CHD copied there from a folder it can't prove is on the same mount, and can't be approved
-without it. If a CHD it planned to rename has to be copied after all, the repair copies it only when it fits, and
-otherwise leaves it placed. If the service stops while a repair copies a CHD across mounts, after the copy and before
-it can prove the original safe to delete, you may find the copy in your kept files and the CHD still placed: nothing
-is lost, the copy is never deleted to leave one, and the next repair sets the placed CHD aside again. A CHD the last
-audit didn't read as it is now, such as one a quick inventory read only the header of, is never taken out: the plan
-leaves it placed and asks you to run a full audit first. One the audit read but chdman couldn't extract may be
-damaged, but chdman missing or stopped, or too little free space, does the same, so the plan offers to take it out and
-leaves it placed unless you choose to.
+folder: with one there, the next repair after the audit that repair queues rebuilds the game in your source set, as
+for any missing game, and the next build places it again. A copy of a healthy disc already in an ingest folder was
+assessed as already held while its CHD was placed, so scan that folder again after the audit. A game of several discs
+is taken out whole, never one disc alone: every disc's CHD is set aside, the healthy ones too, with the `.m3u` and any
+SBI files, as a game missing a disc isn't fully playable. Nothing is extracted, put back in your source set or
+deleted, so bring the whole game back through an ingest folder, and delete the kept CHDs once you no longer need them.
+Until the next build places the game again, checking your play library folder reports each disc it took out as
+missing. The repair plan states the space it needs in your source set's root, counting each CHD copied there from a
+folder it can't prove is on the same mount, and can't be approved without it. If a CHD it planned to rename has to be
+copied after all, the repair copies it only when it fits, and otherwise leaves it placed. If the service stops while a
+repair copies a CHD across mounts, after the copy and before it can prove the original safe to delete, you may find
+the copy in your kept files and the CHD still placed: nothing is lost, the copy is never deleted to leave one, and the
+next repair after an audit sets the placed CHD aside again. A CHD the last audit didn't read as it is now, such as one
+a quick inventory read only the header of, is never taken out: the plan leaves it placed and asks you to run a full
+audit first. One the audit read but chdman couldn't extract may be damaged, but chdman missing or stopped, or too
+little free space, does the same, so the plan offers to take it out and leaves it placed unless you choose to.
 
 ### Ingest folders
 

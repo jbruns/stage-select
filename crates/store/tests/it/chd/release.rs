@@ -209,7 +209,7 @@ fn a_repair_releases_a_damaged_placed_chd_into_the_source_sets_kept_files() {
         "is the only copy of Orbit (USA)",
         "sets it aside in your source set's kept files, where you can delete it",
         "This repair only sets files aside",
-        "with a good copy of it in an ingest folder, the next repair after the audit rebuilds it",
+        "with a good copy of it in an ingest folder, the next repair after the audit this one queues rebuilds it",
     ] {
         assert!(note.contains(said), "{said}: {note}");
     }
@@ -1415,4 +1415,51 @@ fn a_release_whose_every_chd_is_gone_stays_recorded_until_its_last_side_file_is_
             "disc {changed}'s SBI file changed"
         );
     }
+}
+
+/// Scans the ingest folder again, as you do once the audit after a release has run.
+fn rescan(env: &Env) {
+    let job = env.store.enqueue_ingest_scan("in", "Operator").unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let ended = env.store.run_ingest_scan_job(&env.config, job.id).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+}
+
+/// With a good copy of both discs in an ingest folder before the release, the repair that releases the release only
+/// sets it aside. The healthy disc's copy was assessed as already held while its CHD was placed, which its note says:
+/// once the audit has run and the ingest folder is scanned again, the next repair fills both discs, and the next build
+/// places both again as CHDs a full audit verifies.
+#[test]
+fn a_two_disc_release_with_copies_ingested_before_it_is_released_is_rebuilt_by_the_next_repair() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, selection) = damaged_saga(&mut env, &chdman, 2);
+    for n in [1, 2] {
+        let zip = saga_zip(&env, n);
+        ingest(&mut env, &chdman, &format!("Saga {n}.zip"), &zip);
+    }
+    let plan = env.repair_plan(&[]);
+    assert!(only_keeps(&plan), "{:#?}", plan.content.steps);
+    let note = item_of(&plan, SAGA[0]).note.clone().unwrap_or_default();
+    assert!(
+        note.contains("scan that folder again after the audit"),
+        "{note}"
+    );
+    let done = env.repair(&plan);
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    assert_eq!(env.set_kept(), saga_released(&folder));
+    assert!(env.in_set("Saga").is_empty(), "{:?}", env.in_set("Saga"));
+
+    rescan(&env);
+    let done = env.repair(&env.repair_plan(&[]));
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    assert_eq!(saga_home(&env, 1), saga_roms(1));
+    assert_eq!(saga_home(&env, 2), saga_roms(2));
+    let job = env.build(&env.plan(&folder, selection));
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
+    assert_eq!(env.placed_paths(), SAGA_CHDS);
+    assert!(env.in_set("Saga").is_empty(), "{:?}", env.in_set("Saga"));
+    env.audit(title_select_engine::AuditEvidence::Full);
+    assert_eq!(env.status(SAGA[0]), GameStatus::Complete);
+    assert_eq!(env.status(SAGA[1]), GameStatus::Complete);
 }

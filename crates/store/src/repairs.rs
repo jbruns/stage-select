@@ -3088,6 +3088,7 @@ impl Store {
                 |s| matches!(&s.step, RepairStep::Keep { path, .. } if *path == placed_path(*f, p)),
             )
         };
+        // The release's own last Keep, by its discs' items: no other item's Keep, such as a Conflicting Entry's.
         let last = r
             .plan
             .content
@@ -3095,12 +3096,8 @@ impl Store {
             .iter()
             .rposition(|s| {
                 matches!(s.step, RepairStep::Keep { .. })
-                    && r.plan
-                        .content
-                        .items
-                        .iter()
-                        .find(|i| i.key == s.item)
-                        .and_then(|i| i.game.as_deref())
+                    && s.item
+                        .strip_prefix("game:")
                         .is_some_and(|g| release_of(g) == release)
             })
             .is_some_and(|last| last == step.seq as usize);
