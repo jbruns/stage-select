@@ -27,6 +27,7 @@ fn payload(name: &str) -> &'static [u8] {
         "prog.u3" => b"program",
         "gfx.u4" | "gfxj.u4" => b"graphics",
         "progj.u3" => b"program j",
+        "extra.u6" => b"extra",
         // The BIOS's ROM, under a name of a Game's own.
         "gamebios.u1" => b"bios",
         // Under the name of a nodump ROM, which no file matches.
@@ -785,4 +786,143 @@ fn a_placed_game_is_repaired_where_it_is_placed_apart_from_its_family() {
     let zip = env.library().join("blasterj.zip");
     assert_eq!(members(&zip), own);
     assert!(is_torrentzip(&zip));
+}
+
+/// The BIOS and device of [`listxml`]; a parent on them with a ROM of its own, `extra.u6`; and its clone, which shares
+/// every ROM of the parent and may run without `extra.u6`.
+fn listxml_optional() -> String {
+    let optional =
+        rom("extra.u6", Some("extra.u6")).replacen("<rom ", r#"<rom optional="yes" "#, 1);
+    format!(
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="acmebios" isbios="yes"><description>Acme BIOS</description>{bios}</machine>
+  <machine name="acmesnd" isdevice="yes" runnable="no"><description>Acme Sound</description>{snd}</machine>
+  <machine name="blaster" romof="acmebios"><description>Blaster</description>{bios_m}{prog}{gfx}{extra}
+    <device_ref name="acmesnd"/></machine>
+  <machine name="blasterb" cloneof="blaster" romof="blaster"><description>Blaster (bootleg)</description>{bios_m}{prog_m}{gfx_m}{optional}
+    <device_ref name="acmesnd"/></machine>
+</mame>
+"#,
+        bios = rom("bios.u1", None),
+        snd = rom("snd.u2", None),
+        bios_m = rom("bios.u1", Some("bios.u1")),
+        prog = rom("prog.u3", None),
+        gfx = rom("gfx.u4", None),
+        extra = rom("extra.u6", None),
+        prog_m = rom("prog.u3", Some("prog.u3")),
+        gfx_m = rom("gfx.u4", Some("gfx.u4")),
+    )
+}
+
+#[test]
+fn a_placed_clone_without_an_optional_rom_its_parent_holds_stays_placed_in_any_layout() {
+    for layout in [SetLayout::NonMerged, SetLayout::Split, SetLayout::Merged] {
+        a_placed_clone_without_an_optional_rom_stays_placed_under(layout);
+    }
+}
+
+/// The parent is stored as `layout` keeps it, and its clone, which shares every ROM it needs with the parent, is placed
+/// without the optional ROM only the parent's ZIP holds: no item keeps the placed ZIP aside, and applying the plan as it
+/// is by default leaves it placed as it is.
+fn a_placed_clone_without_an_optional_rom_stays_placed_under(layout: SetLayout) {
+    let env = Env::with(listxml_optional());
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    // The placed clone is laid out apart, so under split and merged its parent's ZIP holds only the parent's own ROMs.
+    match layout {
+        SetLayout::NonMerged => env.zip(
+            "blaster.zip",
+            &["bios.u1", "extra.u6", "gfx.u4", "prog.u3", "snd.u2"],
+        ),
+        SetLayout::Split | SetLayout::Merged => {
+            env.zip("blaster.zip", &["extra.u6", "gfx.u4", "prog.u3"])
+        }
+    }
+    let own = ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"];
+    env.place("blasterb", &own);
+    env.layout(layout);
+    env.audit();
+
+    let plan = env.plan();
+
+    let items = &plan.content.items;
+    assert!(
+        items.iter().all(|i| i.chosen != RepairChoice::KeepAside
+            || !i.path.as_deref().unwrap_or_default().contains("blasterb")),
+        "{layout:?}: {items:#?}"
+    );
+    let notes = &plan.content.notes;
+    assert!(
+        notes.contains(
+            &"blasterb is left as it is where it is placed: no file there holds extra.u6, and no ingest folder \
+              holds it whole, with its payloads read"
+                .into()
+        ),
+        "{layout:?}: {notes:#?}"
+    );
+    if items.iter().any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(&plan);
+    }
+    let zip = env.library().join("blasterb.zip");
+    assert_eq!(members(&zip), own, "{layout:?}");
+    let report = env.audit();
+    assert_eq!(
+        statuses(&report).get("blasterb"),
+        Some(&GameStatus::Complete),
+        "{layout:?}"
+    );
+    assert_eq!(
+        members(&env.set().join("blaster.zip")),
+        match layout {
+            SetLayout::NonMerged => vec!["bios.u1", "extra.u6", "gfx.u4", "prog.u3", "snd.u2"],
+            SetLayout::Split | SetLayout::Merged => vec!["extra.u6", "gfx.u4", "prog.u3"],
+        },
+        "{layout:?}"
+    );
+}
+
+#[test]
+fn a_placed_clones_copy_never_makes_the_source_sets_only_copy_a_spare_one_in_any_layout() {
+    for layout in [SetLayout::NonMerged, SetLayout::Split, SetLayout::Merged] {
+        the_only_copy_of_shared_graphics_stays_under(layout);
+    }
+}
+
+/// The clone is placed, and its parent's ZIP, missing its program ROM, is the source set's only copy of the graphics
+/// the clone shares: no item keeps that ZIP aside by default.
+fn the_only_copy_of_shared_graphics_stays_under(layout: SetLayout) {
+    let env = Env::new();
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    env.zip("blaster.zip", &["gfx.u4"]);
+    env.place("blasterj", &["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"]);
+    env.layout(layout);
+    env.audit();
+
+    let plan = env.plan();
+
+    let items = &plan.content.items;
+    assert!(
+        items.iter().all(|i| i.chosen != RepairChoice::KeepAside
+            || !i
+                .path
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with("blaster.zip")),
+        "{layout:?}: {items:#?}"
+    );
+    if items.iter().any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(&plan);
+    }
+    assert_eq!(
+        members(&env.set().join("blaster.zip")),
+        ["gfx.u4"],
+        "{layout:?}"
+    );
+    assert_eq!(
+        members(&env.library().join("blasterj.zip")),
+        ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"],
+        "{layout:?}"
+    );
 }
