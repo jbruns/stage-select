@@ -60,14 +60,60 @@ pub(super) struct Inputs<'a> {
 /// its top), for a Placed Game; none for the Source Set's own folder.
 pub(super) type Located = Option<(i64, String)>;
 
-/// Where the file at `path`, as an Audit names it, is.
-fn located(path: &str) -> Located {
-    split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
+/// Which side of the boundary between the Source Set's own folder and its Placements (ADR 0023) a file or a Game is
+/// on. A repair of the Source Set's folder reads, counts and keeps aside only the files there: a Placed Game's files are
+/// a Library Folder's self-contained Game, touched only by a repair of that Game where it is placed, or by the release
+/// of its placed CHDs, and they never hold a surviving copy of a ROM for the Source Set's folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Scope<'a> {
+    /// The Source Set's own folder.
+    Source,
+    /// Where the Placed Game it names is placed.
+    Placed(&'a str),
 }
 
-/// Whether `path` is a file of a Placed Game other than `game`, by `placed_files` ([`Inputs::placed_files`]).
-fn placed_elsewhere(placed_files: &HashMap<String, String>, path: &str, game: &str) -> bool {
-    placed_files.get(path).is_some_and(|of| of != game)
+impl Scope<'_> {
+    /// Whether a copy of a ROM in this scope survives for a file in scope `of`: one of its own scope, or of the Source
+    /// Set's folder, which every Placed Game returns home to.
+    fn keeps_for(self, of: Scope) -> bool {
+        self == of || self == Scope::Source
+    }
+}
+
+/// The scope of every file and Game a repair plans for, worked out once ([`Scope`]).
+struct Scopes<'a> {
+    /// Every file the Audit found or the walk sees now, by its path.
+    files: HashMap<&'a str, Scope<'a>>,
+    placed: &'a HashMap<String, Located>,
+}
+
+impl<'a> Scopes<'a> {
+    fn of(i: &Inputs<'a>) -> Self {
+        let scope = |path: &'a str| match i.placed_files.get(path) {
+            Some(game) => Scope::Placed(game.as_str()),
+            None => Scope::Source,
+        };
+        let paths = (i.files.keys().map(String::as_str))
+            .chain(i.report.entries.iter().map(|e| e.path.as_str()));
+        Scopes {
+            files: paths.map(|path| (path, scope(path))).collect(),
+            placed: i.placed,
+        }
+    }
+
+    /// The scope of the file at `path`: where the Placed Game it is a file of is placed, or else the Source Set's folder.
+    fn file(&self, path: &str) -> Scope<'a> {
+        self.files.get(path).copied().unwrap_or(Scope::Source)
+    }
+
+    /// The scope of Game `game`: where it is placed, when the Audit found a file of it there, or else the Source Set's
+    /// folder, where a Placed Game whose every file is gone is filled.
+    fn game(&self, game: &str) -> Scope<'a> {
+        match self.placed.get_key_value(game) {
+            Some((game, _)) => Scope::Placed(game.as_str()),
+            None => Scope::Source,
+        }
+    }
 }
 
 /// Why a repair leaves a Placed Game it would have to convert.
@@ -298,10 +344,10 @@ struct Preserved<'a> {
     dat: &'a HashMap<RomKey, &'a Rom>,
     /// Every file the Audit found holding each ROM.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
-    /// The Placed Game each placed file is of ([`Inputs::placed_files`]).
-    placed_files: &'a HashMap<String, String>,
-    /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]).
-    produced: BTreeSet<usize>,
+    scopes: &'a Scopes<'a>,
+    /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]), by the scope it writes
+    /// them in: its Game's.
+    produced: HashMap<Scope<'a>, BTreeSet<usize>>,
     layout_index: &'a LayoutIndex<'a>,
     /// The files an applied item keeps aside.
     displaced: BTreeSet<&'a str>,
@@ -313,22 +359,25 @@ impl<'a> Preserved<'a> {
         proposed: &'a [Proposed],
         dat: &'a HashMap<RomKey, &'a Rom>,
         held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
-        placed_files: &'a HashMap<String, String>,
+        scopes: &'a Scopes<'a>,
         layout_index: &'a LayoutIndex<'a>,
         owners: &[Vec<usize>],
     ) -> Self {
         let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
+        let mut produced: HashMap<Scope, BTreeSet<usize>> = HashMap::new();
+        for game in proposed
+            .iter()
+            .filter(applied)
+            .filter_map(|p| p.produces.as_deref())
+        {
+            (produced.entry(scopes.game(game)).or_default())
+                .extend(layout_index.roots_of([game].into_iter(), owners));
+        }
         Preserved {
             dat,
             held_by,
-            placed_files,
-            produced: layout_index.roots_of(
-                proposed
-                    .iter()
-                    .filter(applied)
-                    .filter_map(|p| p.produces.as_deref()),
-                owners,
-            ),
+            scopes,
+            produced,
             layout_index,
             displaced: proposed
                 .iter()
@@ -338,17 +387,17 @@ impl<'a> Preserved<'a> {
         }
     }
 
-    /// The ROMs `file` holds that would have no copy left once it is kept aside: no file that stays holds one, but for
-    /// another Placed Game's files, which hold the BIOS and device ROMs it runs with apart from the Source Set; and no
-    /// applied item writes its payload, as a ROM of whichever Game, that the DAT pins at least as closely as it.
-    fn lost(&self, file: &Usable) -> BTreeSet<RomKey> {
+    /// The ROMs the file at `path` holds that would have no copy left in its scope once it is kept aside
+    /// ([`Scope::keeps_for`]): no file there that stays holds one, and no applied item writes its payload there, as a
+    /// ROM of whichever Game, that the DAT pins at least as closely as it.
+    fn lost(&self, path: &str, file: &Usable) -> BTreeSet<RomKey> {
+        let scope = self.scopes.file(path);
         let mut lost = BTreeSet::new();
         for roms in file.payloads() {
             for rom in &roms {
                 let held = self.held_by.get(rom).is_some_and(|by| {
                     by.iter().any(|p| {
-                        !self.displaced.contains(p)
-                            && !placed_elsewhere(self.placed_files, p, &rom.0)
+                        !self.displaced.contains(p) && self.scopes.file(p).keeps_for(scope)
                     })
                 });
                 let pinned = |w: &RomKey| {
@@ -357,10 +406,10 @@ impl<'a> Preserved<'a> {
                 };
                 let written = roms.iter().any(|w| {
                     pinned(w)
-                        && self
-                            .layout_index
-                            .root(&w.0, &w.1)
-                            .is_some_and(|r| self.produced.contains(&r))
+                        && self.layout_index.root(&w.0, &w.1).is_some_and(|r| {
+                            (self.produced.iter())
+                                .any(|(at, roots)| at.keeps_for(scope) && roots.contains(&r))
+                        })
                 });
                 if !held && !written {
                     lost.insert(rom.clone());
@@ -1315,6 +1364,7 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
 
 pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     let mut notes = Vec::new();
+    let scopes = Scopes::of(i);
     let mut by_path: BTreeMap<&str, Vec<&Entry>> = BTreeMap::new();
     for entry in &i.report.entries {
         by_path.entry(&entry.path).or_default().push(entry);
@@ -1543,19 +1593,6 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .iter()
         .map(|g| (g.name.as_str(), g))
         .collect();
-    // Where each Game is: where it is placed, or else where every file the Audit found holding a ROM of it is, but for
-    // another Placed Game's files, which hold a copy of each BIOS or device ROM that Game runs with.
-    let mut found_at: HashMap<&str, BTreeSet<Located>> = HashMap::new();
-    for ((game, _), paths) in &held_by {
-        let at: BTreeSet<Located> = paths
-            .iter()
-            .filter(|p| !placed_elsewhere(i.placed_files, p, game))
-            .map(|p| located(p))
-            .collect();
-        if !at.is_empty() {
-            found_at.entry(game.as_str()).or_default().extend(at);
-        }
-    }
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = &wanted[index];
         // The Game and name of each of `roms`: one of another Game where the layout puts it here.
@@ -1576,18 +1613,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         if released.contains_key(&release_of(game)) {
             continue;
         }
-        let location: Located = match (i.placed.get(game), found_at.get(game.as_str())) {
-            (Some(at), _) => at.clone(),
-            (None, None) => None,
-            (None, Some(at)) if at.len() == 1 => at.iter().next().cloned().flatten(),
-            (None, Some(_)) => {
-                notes.push(format!(
-                    "{game} is left as it is: its files are both in the source set's folder and placed in a play \
-                     library folder"
-                ));
-                continue;
-            }
-        };
+        // Where the Game is, and the scope of the files its item reads and keeps aside: where it is placed, or else
+        // the Source Set's folder, whatever copies of its ROMs another Placed Game holds.
+        let scope = scopes.game(game);
+        let location: Located = i.placed.get(game).cloned().flatten();
         // A Placed Game stays stored as it is placed, under the names the DAT gives: a TorrentZip, its one ROM loose,
         // or its ROMs loose together, in the folder of the Library Folder it is in.
         let placed_as;
@@ -1604,7 +1633,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .filter_map(|r| held_by.get(&(game.clone(), r.name.clone())))
                     .flatten()
                     .copied()
-                    .filter(|p| i.placed_files.get(*p) == Some(game))
+                    .filter(|p| scopes.file(p) == scope)
                     .collect();
                 placed_as = match (held.iter().next(), roms.as_slice()) {
                     (Some(only), _) if held.len() == 1 && name_is_zip(only) => {
@@ -1667,8 +1696,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             if file.unreadable
                 || kept_conflicts.contains(path)
                 || left_conflicts.contains(path)
-                || located(path) != location
-                || placed_elsewhere(i.placed_files, path, game)
+                || scopes.file(path) != scope
             {
                 continue;
             }
@@ -2208,9 +2236,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
 
-        // Some ROM is not in the Source Set: filled from an Ingest Folder, when an item holds the Game whole.
+        // Some ROM is not in the Source Set: filled from an Ingest Folder, when an item holds the Game whole, in place of
+        // the files of the Game's scope that hold a ROM of it.
         let attributable: Vec<&str> = by_path
             .iter()
+            .filter(|(path, _)| scopes.file(path) == scope)
             .filter(|(path, entries)| {
                 is_target(path)
                     || entries.iter().any(|e| match e.finding {
@@ -2254,9 +2284,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
             continue;
         }
-        // Each unused item holding every ROM the Game needs, with each ROM of `roms` it doesn't hold, and whether the
-        // Source Set holds that ROM. One lacking a ROM the Source Set holds never fills it, so that the ROM is never
-        // set aside with the file it is in; of the others, the one lacking fewest fills it.
+        // Each unused item holding every ROM the Game needs, with each ROM of `roms` it doesn't hold, and whether a file
+        // of the Game's scope holds that ROM. One lacking a ROM held there never fills it, so that the ROM is never set
+        // aside with the file it is in; of the others, the one lacking fewest fills it.
         let fillers: Vec<(usize, Vec<(&str, bool)>)> = i
             .candidates
             .iter()
@@ -2273,7 +2303,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .zip(&keys)
                     .filter(|(rom, _)| c.matched.rom(&rom.name).is_none())
                     .map(|(rom, (owner, name))| {
-                        let held = held_by.contains_key(&(owner.to_string(), name.to_string()));
+                        let held = (held_by.get(&(owner.to_string(), name.to_string())))
+                            .is_some_and(|by| by.iter().any(|p| scopes.file(p) == scope));
                         (rom.name.as_str(), held)
                     })
                     .collect();
@@ -2652,7 +2683,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             &proposed,
             &dat_roms,
             &held_by,
-            i.placed_files,
+            &scopes,
             &layout_index,
             &owners,
         );
@@ -2662,7 +2693,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 && p.displaces.iter().any(|(path, _)| {
                     usable
                         .get(path.as_str())
-                        .is_some_and(|file| !preserved.lost(file).is_empty())
+                        .is_some_and(|file| !preserved.lost(path, file).is_empty())
                 })
         });
         let Some(lost) = lost else {
@@ -2706,10 +2737,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     }
 
     // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of ROMs that a
-    // Game's own file there holds, where the layout keeps them once repaired. A Placed Game's files are in a Library
-    // Folder, apart from the Source Set's folder: they never make a file of it a spare copy, and are never one
-    // themselves, as a placed file holding a ROM leaves its Library Folder only when its Game returns home or is
-    // repaired there.
+    // Game's own file there holds, where the layout keeps them once repaired. A Placed Game's files are of another
+    // scope: they never make a file of the Source Set's folder a spare copy, and are never one themselves, as a placed
+    // file holding a ROM leaves its Library Folder only when its Game returns home or is repaired there.
     let whole = layout_index.roots_of(
         good.iter()
             .map(String::as_str)
@@ -2719,7 +2749,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .filter(|p| p.item.chosen != RepairChoice::Leave)
                     .filter_map(|p| p.produces.as_deref()),
             )
-            .filter(|game| !i.placed.contains_key(*game)),
+            .filter(|game| scopes.game(game) == Scope::Source),
         &owners,
     );
     let covered = |game: &str, rom: &str| {
@@ -2732,11 +2762,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         if referenced.contains(path) || file.unreadable || file.entries.is_empty() {
             continue;
         }
-        let placed = i.placed_files.contains_key(*path);
+        let source = scopes.file(path) == Scope::Source;
         let spare = file.entries.iter().all(|e| match e.finding {
             Finding::Unmatched => true,
             Finding::Matched | Finding::Misnamed => {
-                !placed && e.roms.iter().all(|r| covered(&r.game, &r.name))
+                source && e.roms.iter().all(|r| covered(&r.game, &r.name))
             }
             _ => false,
         });
@@ -2825,7 +2855,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             &proposed,
             &dat_roms,
             &held_by,
-            i.placed_files,
+            &scopes,
             &layout_index,
             &owners,
         );
@@ -2843,8 +2873,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 let lost: BTreeSet<String> = p
                     .displaces
                     .iter()
-                    .filter_map(|(path, _)| usable.get(path.as_str()))
-                    .flat_map(|file| preserved.lost(file))
+                    .filter_map(|(path, _)| Some((path, usable.get(path.as_str())?)))
+                    .flat_map(|(path, file)| preserved.lost(path, file))
                     .map(|(game, name)| format!("{name} of {game}"))
                     .collect();
                 (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))

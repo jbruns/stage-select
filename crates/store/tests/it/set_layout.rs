@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use title_select_api::build::AddLibraryFolder;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::selection::SelectionProfile;
-use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
+use title_select_api::storage::{SetLayout, SystemStorage, split_placed};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_engine::torrentzip;
@@ -131,10 +131,13 @@ impl Env {
         let sets = tmp.path().join("sets");
         std::fs::create_dir_all(sets.join("mame")).unwrap();
         std::fs::create_dir_all(tmp.path().join("play")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
+             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
             sets.display().to_string(),
             tmp.path().join("play").display().to_string(),
+            tmp.path().join("in").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
@@ -213,7 +216,7 @@ impl Env {
 
     /// Sets the MAME system's set layout.
     fn layout(&self, layout: SetLayout) {
-        let mut policy = StoragePolicy::default();
+        let mut policy = self.store.storage_policy().unwrap();
         policy.source_sets.systems.insert(
             "MAME/MAME".into(),
             SystemStorage {
@@ -222,6 +225,50 @@ impl Env {
             },
         );
         self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
+    /// Turns Single Copy for play libraries `on` or off.
+    fn single_copy(&self, on: bool) {
+        let mut policy = self.store.storage_policy().unwrap();
+        policy.play_libraries.single_copy = on;
+        self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
+    /// Registers the Ingest Folder `in`, which settles at once, holding a TorrentZip `zip` of `members`, and scans it
+    /// until that is assessed.
+    fn ingest(&self, zip: &str, members: &[&str]) {
+        write_zip(&self.tmp.path().join("in").join(zip), members);
+        self.store
+            .update_settings(
+                &self.config,
+                &title_select_api::settings::SettingsUpdate {
+                    ingest_folders: Some(
+                        [(
+                            "in".to_owned(),
+                            title_select_api::settings::IngestCadence {
+                                settle_secs: 0,
+                                scan_every_minutes: None,
+                            },
+                        )]
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
+        self.store
+            .register_ingest_folder(&self.config, "in")
+            .unwrap();
+        for _ in 0..2 {
+            let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
+            self.store.claim_job().unwrap().unwrap();
+            let ended = self
+                .store
+                .run_ingest_scan_job(&self.config, job.id)
+                .unwrap();
+            assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        }
     }
 
     fn audit(&self) -> title_select_api::Report {
@@ -738,16 +785,22 @@ fn a_bios_whose_rom_only_a_placed_game_holds_is_missing_from_the_source_sets_fol
     env.place("blaster", &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]);
     env.audit();
 
+    let report = env.audit();
+    assert_eq!(
+        statuses(&report).get("acmebios"),
+        Some(&GameStatus::Missing)
+    );
+
     let plan = env.plan();
 
-    let notes = &plan.content.notes;
+    // The placed copy of its ROM is no file of the BIOS's to fill in place of or repack: nothing in the Source Set's
+    // folder holds it, so nothing repairs it.
+    let items = &plan.content.items;
     assert!(
-        notes.contains(
-            &"acmebios is left as it is: no ingest folder holds it whole, with its payloads read"
-                .into()
-        ),
-        "{notes:#?}"
+        items.iter().all(|i| i.game.as_deref() != Some("acmebios")),
+        "{items:#?}"
     );
+    no_placed_file_in_a_source_set_folder_repair(&plan, "acmebios missing");
 }
 
 #[test]
@@ -925,4 +978,342 @@ fn a_placed_clones_copy_never_makes_the_source_sets_only_copy_a_spare_one_under(
         ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"],
         "{layout:?}"
     );
+}
+
+/// [`listxml_optional`] with no device: the clone shares every ROM it needs with its parent, which needs only its BIOS.
+fn listxml_shared() -> String {
+    listxml_optional().replace("\n    <device_ref name=\"acmesnd\"/>", "")
+}
+
+#[test]
+fn an_ingest_fill_of_a_parent_never_keeps_its_placed_clone_aside_in_any_layout() {
+    for layout in SetLayout::ALL {
+        for single_copy in [true, false] {
+            an_ingest_fill_of_a_parent_never_keeps_its_placed_clone_aside_under(
+                layout,
+                single_copy,
+            );
+        }
+    }
+}
+
+/// The parent's ZIP lacks its program ROM, an Ingest Folder holds the parent whole, and the healthy clone, which
+/// shares every ROM it needs with the parent, is placed: the parent's fill keeps only files of the Source Set's folder
+/// aside, and applying the plan as it is by default leaves the placed clone as it is.
+fn an_ingest_fill_of_a_parent_never_keeps_its_placed_clone_aside_under(
+    layout: SetLayout,
+    single_copy: bool,
+) {
+    let env = Env::with(listxml_shared());
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    env.zip("blaster.zip", &["extra.u6", "gfx.u4"]);
+    let own = ["bios.u1", "gfx.u4", "prog.u3"];
+    env.place("blasterb", &own);
+    env.single_copy(single_copy);
+    env.layout(layout);
+    env.audit();
+    env.ingest("blaster.zip", &["bios.u1", "extra.u6", "gfx.u4", "prog.u3"]);
+
+    let plan = env.plan();
+
+    let at = format!("{layout:?}, single copy {single_copy}");
+    let fill = (plan.content.items.iter())
+        .find(|i| i.key == "game:blaster")
+        .unwrap_or_else(|| panic!("{at}: {:#?}", plan.content.items));
+    assert_eq!(fill.chosen, RepairChoice::Apply, "{at}: {fill:#?}");
+    assert!(!fill.summary.contains("blasterb"), "{at}: {}", fill.summary);
+    no_placed_file_in_a_source_set_folder_repair(&plan, &at);
+    let report = env.approve(&plan);
+    assert_eq!(members(&env.library().join("blasterb.zip")), own, "{at}");
+    assert_eq!(
+        statuses(&report).get("blasterb"),
+        Some(&GameStatus::Complete),
+        "{at}"
+    );
+    assert!(
+        members(&env.set().join("blaster.zip")).contains(&"prog.u3".to_owned()),
+        "{at}"
+    );
+    let next = env.plan().content.items;
+    assert!(
+        next.iter().all(|i| i.game.as_deref() != Some("blasterb")),
+        "{at}: {next:#?}"
+    );
+}
+
+#[test]
+fn a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_device_rom_in_any_layout()
+ {
+    for layout in SetLayout::ALL {
+        a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_device_rom_under(
+            layout,
+        );
+    }
+}
+
+/// The device's ZIP holds only a file under its nodump ROM's name, so it is left by default; the parent, stored
+/// non-merged, holds the Source Set's folder's only copy of the device's sound ROM; and the placed clone needs
+/// repacking, as it isn't TorrentZip. The clone's repack writes the sound ROM only where it is placed, so the plan as
+/// it is by default never strips it from the parent: the device is no more missing after than before.
+fn a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_device_rom_under(
+    layout: SetLayout,
+) {
+    let env = Env::with(listxml(Some("acmesnd")));
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["pal.u5"]);
+    env.zip("blaster.zip", &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]);
+    let own = ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"];
+    write_plain_zip(&env.library().join("blasterj.zip"), &own);
+    env.placed("blasterj");
+    env.layout(layout);
+    let before = env.audit();
+
+    let plan = env.plan();
+
+    no_placed_file_in_a_source_set_folder_repair(&plan, &format!("{layout:?}"));
+    if plan
+        .content
+        .items
+        .iter()
+        .all(|i| i.chosen == RepairChoice::Leave)
+    {
+        return;
+    }
+    let report = env.approve(&plan);
+    assert_eq!(
+        statuses(&report).get("acmesnd"),
+        statuses(&before).get("acmesnd"),
+        "{layout:?}: {:#?}",
+        plan.content.items
+    );
+    let (zips, _) = env.listing();
+    assert!(
+        zips.iter()
+            .any(|(_, members)| members.iter().any(|m| m == "snd.u2")),
+        "{layout:?}: {zips:#?}"
+    );
+    assert_eq!(
+        members(&env.library().join("blasterj.zip")),
+        own,
+        "{layout:?}"
+    );
+}
+
+#[test]
+fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
+    let sha1 = |p: &[u8]| -> String {
+        <sha1::Sha1 as sha1::Digest>::digest(p)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    // The clone's graphics are the parent's by `merge=`, alike as the DAT gives them, the parent's by their CRC and the
+    // clone's by their SHA-1; but the bytes each DAT line pins differ, so a file of the clone's is no copy of the
+    // parent's.
+    let env = Env::with(
+        listxml(None)
+            .replacen(
+                &rom("gfx.u4", None),
+                &format!(
+                    r#"<rom name="gfx.u4" size="8" crc="{:08x}"/>"#,
+                    crc32fast::hash(b"graphics")
+                ),
+                1,
+            )
+            .replacen(
+                &rom("gfxj.u4", Some("gfx.u4")),
+                &format!(
+                    r#"<rom name="gfxj.u4" merge="gfx.u4" size="8" sha1="{}"/>"#,
+                    sha1(b"graphicz")
+                ),
+                1,
+            ),
+    );
+    env.stored(SetLayout::Split);
+    // Under split the clone's ZIP holds none of its graphics, which the parent's ZIP holds as the layout gives them:
+    // this holds the only copy of the bytes the clone's line pins.
+    let file = std::fs::File::create_new(env.set().join("spare.zip")).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    writer.add("gfxj.u4", 8, &mut &b"graphicz"[..]).unwrap();
+    writer.finish().unwrap();
+    env.layout(SetLayout::Split);
+    env.audit();
+
+    let plan = env.plan();
+
+    let spare = (plan.content.items.iter())
+        .find(|i| i.path.as_deref() == Some("spare.zip"))
+        .unwrap_or_else(|| panic!("{:#?}", plan.content.items));
+    assert_eq!(spare.default, RepairChoice::Leave, "{spare:#?}");
+    assert_eq!(spare.chosen, RepairChoice::Leave, "{spare:#?}");
+    assert_eq!(
+        spare.note.as_deref(),
+        Some(
+            "left as it is: it holds the last copy in the source set of gfxj.u4 of blasterj; if you choose to keep \
+             it aside, you can restore it from the kept files"
+        )
+    );
+}
+
+#[test]
+fn a_repair_of_the_source_sets_folder_never_reads_counts_or_displaces_a_placed_file() {
+    for layout in SetLayout::ALL {
+        for damage in [Damage::Repack, Damage::Spare, Damage::Fill] {
+            for placed in ["blaster", "blasterj"] {
+                a_repair_of_the_source_sets_folder_never_touches_a_placed_file_under(
+                    layout, placed, damage,
+                );
+            }
+            a_repair_of_the_source_sets_folder_never_touches_a_placed_clone_it_shares_with_under(
+                layout, damage,
+            );
+        }
+    }
+}
+
+/// What is wrong with the Source Set's folder.
+#[derive(Debug, Clone, Copy)]
+enum Damage {
+    /// The other Game's ZIP needs repacking: it is stored merged, or isn't TorrentZip.
+    Repack,
+    /// A ZIP holds only copies of ROMs other Games hold.
+    Spare,
+    /// The other Game's ZIP lacks its program ROM, which an Ingest Folder holds it whole with.
+    Fill,
+}
+
+/// `placed` is placed self-contained, and the Source Set's folder is damaged as `damage` says.
+fn a_repair_of_the_source_sets_folder_never_touches_a_placed_file_under(
+    layout: SetLayout,
+    placed: &str,
+    damage: Damage,
+) {
+    let env = Env::new();
+    let at = format!("{layout:?}, {placed} placed, {damage:?}");
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    let mut stored = family(SetLayout::NonMerged);
+    let own = stored
+        .iter()
+        .position(|(zip, _)| *zip == format!("{placed}.zip"))
+        .map(|at| stored.remove(at).1)
+        .unwrap();
+    env.place(placed, &own);
+    let other = stored
+        .iter()
+        .find(|(zip, _)| !zip.starts_with("acme"))
+        .cloned()
+        .unwrap();
+    match damage {
+        Damage::Repack => env.zip(other.0, &["gfx.u4", "prog.u3", "progj.u3"]),
+        Damage::Spare => {
+            env.zip(other.0, &other.1);
+            env.zip("copies.zip", &["bios.u1", "gfx.u4"]);
+        }
+        Damage::Fill => {
+            // An Ingest Folder item holds the ROMs one Game lists, never a device's.
+            let own: Vec<&str> = (other.1.iter().copied())
+                .filter(|m| *m != "snd.u2")
+                .collect();
+            let full: Vec<&str> = (other.1.iter().copied())
+                .filter(|m| !m.starts_with("prog"))
+                .collect();
+            env.zip(other.0, &full);
+            env.ingest(other.0, &own);
+        }
+    }
+    env.layout(layout);
+    env.audit();
+    every_item_of_the_source_sets_folder_stays_there(&env, &at);
+}
+
+/// The clone of [`listxml_shared`], which shares every ROM it needs with its parent, is placed, and the parent's ZIP
+/// is damaged as `damage` says: a repair of the parent finds every ROM it might take from the clone's ZIP already
+/// written, so only the boundary keeps the placed ZIP out of it.
+fn a_repair_of_the_source_sets_folder_never_touches_a_placed_clone_it_shares_with_under(
+    layout: SetLayout,
+    damage: Damage,
+) {
+    let env = Env::with(listxml_shared());
+    let at = format!("{layout:?}, shared clone placed, {damage:?}");
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.place("blasterb", &["bios.u1", "gfx.u4", "prog.u3"]);
+    match damage {
+        Damage::Repack => write_plain_zip(
+            &env.set().join("blaster.zip"),
+            &["extra.u6", "gfx.u4", "prog.u3"],
+        ),
+        Damage::Spare => {
+            env.zip("blaster.zip", &["extra.u6", "gfx.u4", "prog.u3"]);
+            env.zip("copies.zip", &["gfx.u4", "prog.u3"]);
+        }
+        Damage::Fill => {
+            env.zip("blaster.zip", &["extra.u6", "gfx.u4"]);
+            env.ingest("blaster.zip", &["bios.u1", "extra.u6", "gfx.u4", "prog.u3"]);
+        }
+    }
+    env.layout(layout);
+    env.audit();
+    every_item_of_the_source_sets_folder_stays_there(&env, &at);
+}
+
+/// Neither the plan as it is by default nor one with every item chosen to be applied or kept aside has an item of the
+/// Source Set's folder that reads, writes, renames or keeps aside a placed file.
+fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
+    let plan = env.plan();
+    no_placed_file_in_a_source_set_folder_repair(&plan, at);
+    let choices = (plan.content.items.iter())
+        .filter(|i| !i.key.starts_with("conflict:"))
+        .filter_map(|i| {
+            let apply = (i.choices.iter())
+                .find(|c| matches!(c, RepairChoice::Apply | RepairChoice::KeepAside))?;
+            Some((i.key.clone(), *apply))
+        })
+        .collect();
+    let chosen = env
+        .store
+        .plan_repair(
+            &env.config,
+            "mame",
+            &PlanRepair {
+                choices,
+                ..PlanRepair::default()
+            },
+        )
+        .unwrap();
+    no_placed_file_in_a_source_set_folder_repair(&chosen, &format!("{at}, every item chosen"));
+}
+
+/// No step of an item of a Game in the Source Set's folder, or of a file there, names a placed file: it reads, writes,
+/// renames and keeps aside only files of the Source Set's folder.
+fn no_placed_file_in_a_source_set_folder_repair(plan: &RepairPlan, at: &str) {
+    let placed_items: Vec<&str> = (plan.content.items.iter())
+        .filter(|i| i.path.as_deref().is_some_and(|p| split_placed(p).is_some()))
+        .map(|i| i.key.as_str())
+        .collect();
+    for step in &plan.content.steps {
+        if placed_items.contains(&step.item.as_str()) {
+            continue;
+        }
+        let paths: Vec<&str> = match &step.step {
+            RepairStep::Build {
+                target, sources, ..
+            } => std::iter::once(target.as_str())
+                .chain(sources.keys().map(String::as_str))
+                .collect(),
+            RepairStep::Keep { path, .. } => vec![path.as_str()],
+            RepairStep::Rename { from, to, .. } => vec![from.as_str(), to.as_str()],
+            RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
+                vec![target.as_str()]
+            }
+            RepairStep::Delete { path, .. } => vec![path.as_str()],
+        };
+        assert!(
+            paths.iter().all(|p| split_placed(p).is_none()),
+            "{at}: {} touches a placed file: {step:#?}\n{:#?}",
+            step.item,
+            plan.content.items
+        );
+    }
 }
