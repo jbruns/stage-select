@@ -361,6 +361,10 @@ impl crate::carry::Intents for StepCarry<'_> {
         })
     }
 
+    fn moved(&self) {
+        self.store.fault_point(Fault::RepairCarryMoved(self.seq));
+    }
+
     fn verifying(&self) {
         self.store.fault_point(Fault::RepairCarryChecking(self.seq));
     }
@@ -797,6 +801,16 @@ impl Repairing<'_> {
         }
     }
 
+    /// The Game of the item `step` carries out, if it is a Game's.
+    fn game_of(&self, step: &StepRow) -> Option<&str> {
+        self.plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == step.item)
+            .and_then(|i| i.game.as_deref())
+    }
+
     /// Where what is read of `path` is counted: its folder's Root's.
     fn tally(&self, path: &str) -> &Tally {
         split_placed(path)
@@ -1042,6 +1056,7 @@ impl Store {
             needs: needs
                 .map(|needs| BTreeMap::from([(record.root.clone(), needs)]))
                 .unwrap_or_default(),
+            releases: planned.releases,
         };
         let digest = digest(&content);
         let packs: BTreeSet<&str> = content
@@ -1186,6 +1201,7 @@ impl Store {
             set_aside: true,
             coverage: None,
             needs: BTreeMap::new(),
+            releases: BTreeMap::new(),
         };
         let digest = digest(&content);
         self.write(|tx| {
@@ -1258,11 +1274,11 @@ impl Store {
             })
         };
         let mut needs = 0;
-        for s in planned
-            .steps
-            .iter()
-            .filter(|s| planned.released.contains(&s.item))
-        {
+        for s in planned.steps.iter().filter(|s| {
+            s.item
+                .strip_prefix("game:")
+                .is_some_and(|game| planned.releases.contains_key(&release_of(game)))
+        }) {
             needs += match &s.step {
                 RepairStep::Keep { path, seen, .. } if !renamed(path)? => rounded(seen.file.size),
                 RepairStep::Build { roms, loose, .. } | RepairStep::Fill { roms, loose, .. } => {
@@ -2259,15 +2275,21 @@ impl Store {
                 ..
             } => {
                 for need in needs {
-                    let build = self.other_step(r.plan.id, *need)?;
-                    if build.state != "done" {
+                    let needed = self.other_step(r.plan.id, *need)?;
+                    if needed.state != "done" {
+                        let why = match &needed.step {
+                            // A placed CHD is released only with every file laid out beside it.
+                            RepairStep::Keep { path: beside, .. } => format!(
+                                "{path} was left as it is, since {beside} could not be set aside with it"
+                            ),
+                            _ => format!(
+                                "{path} was left as it is, since its game's new file was not written"
+                            ),
+                        };
                         return self.step_failed(
                             step,
                             "skipped",
-                            format!(
-                                "{path} was left as it is, since its game's new file was not written: {}",
-                                build.error.unwrap_or_default()
-                            ),
+                            format!("{why}: {}", needed.error.unwrap_or_default()),
                         );
                     }
                 }
@@ -2295,8 +2317,9 @@ impl Store {
     }
 
     /// Why `step` can't write what it writes while a CHD of its Game's release is placed: a file of the Game where
-    /// one of its CHDs is placed, or any file of the Game while a CHD of its release is still there. None otherwise, and
-    /// for a step that writes nothing, such as one keeping a CHD aside.
+    /// one of its CHDs is placed, or any file of the Game while a CHD of its release is still there, or, for a release
+    /// this plan releases, any file of it is still where the plan found it, whether or not it is still recorded so.
+    /// None otherwise, and for a step that writes nothing, such as one keeping a CHD aside.
     fn placed_chd_in_the_way(
         &self,
         config: &Config,
@@ -2310,14 +2333,7 @@ impl Store {
             RepairStep::Rename { to, .. } => to,
             RepairStep::Keep { .. } | RepairStep::Delete { .. } => return Ok(None),
         };
-        let Some(game) = r
-            .plan
-            .content
-            .items
-            .iter()
-            .find(|i| i.key == step.item)
-            .and_then(|i| i.game.as_deref())
-        else {
+        let Some(game) = r.game_of(step) else {
             return Ok(None);
         };
         let release = release_of(game);
@@ -2332,26 +2348,38 @@ impl Store {
             )));
         }
         for chd in &chds {
-            let at = placed_path(chd.folder, &chd.path);
-            let there = match r.locate(&at) {
-                Ok((dir, rel)) => dir.stat(rel).map_err(io_err)?.is_some(),
-                Err(_) => {
-                    let row = self.read(|c| folder_by_id(c, chd.folder))?;
-                    match open_folder(config, &row.root, &row.path) {
-                        Ok(dir) => dir.stat(&chd.path).map_err(io_err)?.is_some(),
-                        // A folder that can't be read now may still hold it.
-                        Err(_) => true,
-                    }
-                }
-            };
-            if there {
+            if self.still_there(config, r, &placed_path(chd.folder, &chd.path))? {
                 return Ok(Some(format!(
                     "{} is placed as a CHD, so {target} is never written while it is; it was left as it is",
                     chd.game
                 )));
             }
         }
+        for at in r.plan.content.releases.get(&release).into_iter().flatten() {
+            if self.still_there(config, r, at)? {
+                return Ok(Some(format!(
+                    "{at} is still in your play library, so {target} is never written while it is; it was left as \
+                     it is"
+                )));
+            }
+        }
         Ok(None)
+    }
+
+    /// Whether anything is at `at`, a Placed Game's path as the plan names it. A Library Folder that can't be read now
+    /// may still hold it.
+    fn still_there(&self, config: &Config, r: &Repairing, at: &str) -> Result<bool> {
+        if let Ok((dir, rel)) = r.locate(at) {
+            return Ok(dir.stat(rel).map_err(io_err)?.is_some());
+        }
+        let Some((folder, rel)) = split_placed(at) else {
+            return Ok(true);
+        };
+        let row = self.read(|c| folder_by_id(c, folder))?;
+        Ok(match open_folder(config, &row.root, &row.path) {
+            Ok(dir) => dir.stat(rel).map_err(io_err)?.is_some(),
+            Err(_) => true,
+        })
     }
 
     /// Writes a Build step's file under a staged name recorded first, from its sources while each is still the file
@@ -3036,8 +3064,8 @@ impl Store {
     }
 
     /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first. A
-    /// placed CHD kept aside releases its disc, and each other disc of its release whose CHD is gone is then no longer
-    /// placed either.
+    /// placed CHD, or a file laid out beside a release's CHDs, kept aside releases what it is of the release, and each
+    /// disc of the release whose CHD is gone is then no longer placed either.
     fn run_keep(
         &self,
         r: &Repairing,
@@ -3047,10 +3075,18 @@ impl Store {
         reason: &str,
         seen: &Seen,
     ) -> Ran {
-        let gone = self.gone_beside(r, path)?;
+        let siblings = self.siblings(r, step, path)?;
         let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
-            for (folder, path) in &gone {
-                crate::placements::forget_placed(tx, *folder, path)?;
+            // Each is looked for again as the Keep is recorded: one put back since stays placed, and the release is
+            // then parted, for the next repair to release the rest of.
+            for (folder, sibling) in &siblings {
+                let gone = match r.locate(&placed_path(*folder, sibling)) {
+                    Ok((dir, rel)) => dir.stat(rel).map_err(io_err)?.is_none(),
+                    Err(_) => false,
+                };
+                if gone {
+                    crate::placements::forget_placed(tx, *folder, sibling)?;
+                }
             }
             tx.execute(
                 "UPDATE repair_steps SET state = 'done', kept_id = ?2, finished_at = ?3 WHERE id = ?1",
@@ -3071,32 +3107,21 @@ impl Store {
         }
     }
 
-    /// The files of the other discs of the release whose placed CHD `path` is, by Library Folder and path, that are
-    /// gone from where they were placed: forgotten once `path` is kept aside. None when `path` is no placed CHD; a
-    /// Library Folder that can't be read now leaves its files placed.
-    fn gone_beside(&self, r: &Repairing, path: &str) -> Result<Vec<(i64, String)>> {
-        let Some((folder, rel)) = split_placed(path) else {
+    /// The placed CHDs, by Library Folder and path, of the release of the Game step `step`'s item is, other than
+    /// `path`, when `path` is a Placed Game's file: those a Keep of `path` forgets once it finds them gone.
+    fn siblings(&self, r: &Repairing, step: &StepRow, path: &str) -> Result<Vec<(i64, String)>> {
+        let (Some(game), Some((folder, rel))) = (r.game_of(step), split_placed(path)) else {
             return Ok(Vec::new());
         };
-        let chds = self.read(|c| crate::placements::placed_chds_of(c, r.plan.content.set_id))?;
-        let Some(this) = chds.iter().find(|c| c.folder == folder && c.path == rel) else {
-            return Ok(Vec::new());
-        };
-        let release = release_of(&this.game);
-        let mut gone = Vec::new();
-        for chd in chds
-            .iter()
-            .filter(|c| c.game != this.game && release_of(&c.game) == release)
-        {
-            let at = placed_path(chd.folder, &chd.path);
-            let Ok((dir, rel)) = r.locate(&at) else {
-                continue;
-            };
-            if dir.stat(rel).map_err(io_err)?.is_none() {
-                gone.push((chd.folder, chd.path.clone()));
-            }
-        }
-        Ok(gone)
+        let release = release_of(game);
+        Ok(self
+            .read(|c| crate::placements::placed_chds_of(c, r.plan.content.set_id))?
+            .into_iter()
+            .filter(|c| {
+                release_of(&c.game) == release && (c.folder, c.path.as_str()) != (folder, rel)
+            })
+            .map(|c| (c.folder, c.path))
+            .collect())
     }
 
     /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then
@@ -3402,13 +3427,17 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         if let Err(why) = crate::carry::dispose(&original, &dest, &intents)? {
-            self.fail_step(
-                step,
-                "failed",
-                format!(
+            // A disc has one recorded copy: one left placed drops its kept copy, while that is provably the same.
+            let why = match self.drop_duplicate(&original, &dest, &intents, kept_id)? {
+                true => format!(
+                    "{path} was copied into the kept files, but {why}; it stays placed, and its copy, the same bytes, \
+                     was deleted"
+                ),
+                false => format!(
                     "{path} was copied into the kept files as {kept}, but {why}; it stays placed"
                 ),
-            )?;
+            };
+            self.fail_step(step, "failed", why)?;
             return Ok(Ok(None));
         }
         let done = self.write(|tx| {
@@ -3417,6 +3446,53 @@ impl Store {
             Ok(kept_id)
         })?;
         Ok(Ok(Some(done)))
+    }
+
+    /// Deletes `d`, the copy of `o` recorded kept as `kept_id`, once `o` could not be deleted, and only while it is
+    /// provably a duplicate: `o` still where it was, exactly what was copied, reading through a fresh descriptor as the
+    /// SHA-256 recorded, and `d` still the copy made, reading as that too. Its record goes first, then the copy, put
+    /// back under the name it was staged under and removed as a copy a stop left unpublished is, so that a stop part
+    /// way makes the Keep again from the start. Whether it was deleted.
+    fn drop_duplicate(
+        &self,
+        o: &crate::carry::Original,
+        d: &crate::carry::Dest,
+        intents: &StepCarry,
+        kept_id: i64,
+    ) -> Result<bool> {
+        use crate::carry::Intents;
+        let intent = intents.load()?;
+        let (Some(sha), Some(staged), Some(id)) =
+            (&intent.sha256, &intent.staged, intent.staged_id)
+        else {
+            return Ok(false);
+        };
+        let Ok(file) = o.dir.open_file(o.name) else {
+            return Ok(false);
+        };
+        let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+        if Identity::of(&st) != o.id
+            || file_stat(&st) != o.file
+            || still_sha256(&file, ctime_ns(&st), o.tally)
+                .map_err(io_err)?
+                .as_ref()
+                != Some(sha)
+            || crate::carry::published_holds(d, intents)?.is_err()
+        {
+            return Ok(false);
+        }
+        self.write(|tx| {
+            tx.execute("DELETE FROM source_kept WHERE id = ?1", [kept_id])?;
+            Ok(())
+        })?;
+        d.dir.rename_new(d.name, d.root, staged).map_err(io_err)?;
+        d.dir.sync().map_err(io_err)?;
+        if is_file(d.root, staged, id).map_err(io_err)? {
+            d.root.unlink(staged).map_err(io_err)?;
+            d.root.sync_holding(staged).map_err(io_err)?;
+        }
+        intents.save(&crate::carry::Intent::default())?;
+        Ok(true)
     }
 
     /// Settles `st`, found kept as `kept` where the rename of `path` should have put the file planned: another file
@@ -3539,13 +3615,7 @@ impl Store {
         };
         // A Placed Game's file stays a file of the Game it was placed as: never renamed as another's.
         if let Some((folder, rel)) = split_placed(from) {
-            let game = r
-                .plan
-                .content
-                .items
-                .iter()
-                .find(|i| i.key == step.item)
-                .and_then(|i| i.game.as_deref());
+            let game = r.game_of(step);
             let placed = self.read(|c| crate::placements::placed_game_of(c, folder, rel))?;
             if placed.is_none() || placed.as_deref() != game {
                 return self.step_failed(
@@ -3890,12 +3960,8 @@ impl Store {
     ) -> Result<()> {
         let (folder, rel) = split_placed(target).expect("a placed target");
         let game = r
-            .plan
-            .content
-            .items
-            .iter()
-            .find(|i| i.key == step.item)
-            .and_then(|i| i.game.clone())
+            .game_of(step)
+            .map(str::to_owned)
             .ok_or_else(|| Error::Io(format!("step {} names no game", step.seq)))?;
         self.write(|tx| {
             let sha: String = tx.query_row(
@@ -3922,14 +3988,7 @@ impl Store {
         r: &Repairing,
         step: &StepRow,
     ) -> Result<Vec<(i64, String)>> {
-        let Some(game) = r
-            .plan
-            .content
-            .items
-            .iter()
-            .find(|i| i.key == step.item)
-            .and_then(|i| i.game.as_deref())
-        else {
+        let Some(game) = r.game_of(step) else {
             return Ok(Vec::new());
         };
         let set = r.plan.content.set_id;
@@ -3985,12 +4044,8 @@ impl Store {
         sha256: Option<String>,
     ) -> Result<std::result::Result<Filled, String>> {
         let game = r
-            .plan
-            .content
-            .items
-            .iter()
-            .find(|i| i.key == step.item)
-            .and_then(|i| i.game.clone())
+            .game_of(step)
+            .map(str::to_owned)
             .ok_or_else(|| Error::Io(format!("step {} names no game", step.seq)))?;
         let file = match r.open_source(target) {
             Ok(file) => file,

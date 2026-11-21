@@ -71,6 +71,9 @@ pub(crate) struct Intent {
 pub(crate) trait Intents {
     fn load(&self) -> Result<Intent>;
     fn save(&self, intent: &Intent) -> Result<()>;
+    /// Called once the original is moved into its `.deleting` slot, before its change time there is recorded: a point a
+    /// test can stop at.
+    fn moved(&self) {}
     /// Called once the original is set aside to delete and read back, just before its published copy is checked a
     /// last time: a point a test can change the copy at.
     fn verifying(&self) {}
@@ -350,7 +353,23 @@ pub(crate) fn dispose_as(
         intents.save(intent)
     };
     let slot = match intent.slot.clone() {
-        Some(slot) => slot,
+        Some(slot) => {
+            // Moved before a stop that came before its change time there was recorded, so no stamp of it is trusted:
+            // put back, it is disposed of from the start, moved again under a held descriptor and read through a fresh
+            // one.
+            let unstamped = intent.moved_ctime.is_none()
+                && o.deleting
+                    .stat(&slot)
+                    .map_err(io_err)?
+                    .is_some_and(|st| is_file(&st, o.id));
+            if unstamped && o.deleting.rename_new(&slot, o.dir, o.name).is_ok() {
+                o.deleting.sync().map_err(io_err)?;
+                o.dir.sync().map_err(io_err)?;
+                unslot(&mut intent)?;
+                return dispose_as(o, d, intents, published);
+            }
+            slot
+        }
         None => {
             match o.dir.stat(o.name).map_err(io_err)? {
                 // Gone already, by another hand: nothing is left to delete, while its copy holds.
@@ -391,6 +410,7 @@ pub(crate) fn dispose_as(
                     o.label
                 )));
             }
+            intents.moved();
             // Its change time, which the rename moved, read through the descriptor held across it.
             if let Some(held) = &pin {
                 let moved = rustix::fs::fstat(held).map_err(|e| io_err(e.into()))?;

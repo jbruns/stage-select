@@ -357,6 +357,55 @@ fn a_damaged_placed_chd_released_across_filesystems_is_deleted_only_with_a_trust
     }
 }
 
+/// Across filesystems, a file copied into the source set's kept files whose original can't then be moved out of its
+/// folder to be deleted stays placed, and its copy, provably the same bytes, is deleted: each file is in one place,
+/// recorded once. The .m3u is the first file kept, so the CHDs, which need it kept first, are left placed too. Once
+/// the folder can be written again, the next repair releases the whole release.
+#[test]
+fn a_copy_across_filesystems_whose_original_cant_be_deleted_is_dropped_as_a_duplicate() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    env.store.copy_across_filesystems(true);
+    let saga = env.dir().join("Saga (USA).m3u");
+    std::fs::set_permissions(&saga, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let done = env.repair(&env.repair_plan(&[]));
+    std::fs::set_permissions(&saga, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(
+        done.outcomes.iter().all(|o| !o.done),
+        "{:#?}",
+        done.outcomes
+    );
+    assert!(
+        done.outcomes
+            .iter()
+            .flat_map(|o| o.detail.iter().chain(&o.error))
+            .any(|d| d.contains("its copy, the same bytes, was deleted")),
+        "{:#?}",
+        done.outcomes
+    );
+    assert!(env.set_kept().is_empty(), "{:?}", env.set_kept());
+    each_disc_once(&env, &folder, "its folder can't be written");
+    let retained = env
+        .tmp
+        .path()
+        .join("roots/sets")
+        .join(SET)
+        .join(".title-select/retained");
+    assert!(
+        tree(&retained).iter().all(|f| !f.contains("Saga")),
+        "no copy is left in the kept files: {:?}",
+        tree(&retained)
+    );
+
+    env.audit(title_select_engine::AuditEvidence::Full);
+    env.repair(&env.repair_plan(&[]));
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(env.set_kept(), saga_released(&folder));
+}
+
 /// A release the source set's root hasn't the space for is refused before it runs, nothing changed; with the space,
 /// the same plan runs.
 #[test]
@@ -1049,4 +1098,218 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
             placed_path(folder.id, "Saga (USA) (Disc 2).sbi"),
         ]
     );
+}
+
+/// A two-disc release both of whose CHDs are gone is still released, for what is laid out beside them: the .m3u is
+/// set aside in the source set's kept files, and neither disc is recorded placed any more.
+#[test]
+fn a_release_whose_every_chd_is_gone_sets_its_m3u_aside_and_forgets_its_discs() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    placing_chds(&mut env, &chdman);
+    let (folder, selection) = env.folder(&SAGA);
+    env.build(&env.plan(&folder, selection));
+    for chd in SAGA_CHDS {
+        std::fs::remove_file(env.dir().join(chd)).unwrap();
+    }
+    env.audit(title_select_engine::AuditEvidence::Full);
+    let plan = env.repair_plan(&[]);
+    for game in SAGA {
+        assert_eq!(item_of(&plan, game).chosen, RepairChoice::KeepAside);
+    }
+    assert!(
+        plan.content.steps.iter().any(
+            |s| matches!(&s.step, RepairStep::Keep { path, .. } if path.ends_with("Saga (USA).m3u"))
+        ),
+        "the .m3u is set aside: {plan:#?}"
+    );
+    env.repair(&plan);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(
+        env.set_kept(),
+        [placed_path(folder.id, "Saga (USA).m3u/Saga (USA).m3u")]
+    );
+}
+
+/// A file laid out beside a release's CHDs that can't be set aside, the .m3u changed after the plan was made, leaves
+/// the whole release placed and recorded: no CHD is set aside without it. Audited again, the next repair releases it
+/// whole.
+#[test]
+fn a_release_whose_m3u_cant_be_set_aside_stays_placed_whole() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    let plan = env.repair_plan(&[]);
+    let m3u = env.dir().join("Saga (USA).m3u/Saga (USA).m3u");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+            if at == Fault::RepairApproving {
+                std::fs::write(&m3u, b"a changed playlist\n").unwrap();
+            }
+        })));
+    let done = env.repair(&plan);
+    env.store.hook_faults(None);
+    assert!(
+        done.outcomes.iter().all(|o| !o.done),
+        "{:#?}",
+        done.outcomes
+    );
+    let mut placed: Vec<String> = env
+        .store
+        .placed_files(SET)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.path)
+        .collect();
+    placed.sort();
+    assert_eq!(placed, SAGA_CHDS, "both discs stay placed");
+    assert!(env.set_kept().is_empty(), "{:?}", env.set_kept());
+    each_disc_once(&env, &folder, "the .m3u changed");
+
+    env.audit(title_select_engine::AuditEvidence::Full);
+    env.repair(&env.repair_plan(&[]));
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(env.set_kept(), saga_released(&folder));
+}
+
+/// A CHD put back where it was placed once its own Keep has set it aside, so that it is no longer recorded placed,
+/// still stops the fill of its release: nothing is written in the source set while a file of the release is in the
+/// play library folder where the plan found it.
+#[test]
+fn a_chd_put_back_after_it_is_set_aside_stops_the_fill_of_its_release() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    damaged_saga(&mut env, &chdman, 2);
+    let zip = saga_zip(&env, 2);
+    ingest(&mut env, &chdman, "Saga 2.zip", &zip);
+    let plan = env.repair_plan(&[]);
+    let seq = keeping(&plan, SAGA_CHDS[1]);
+    let path = env.dir().join(SAGA_CHDS[1]);
+    let bytes = std::fs::read(&path).unwrap();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+            if at == Fault::RepairStepDone(seq) {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, &bytes).unwrap();
+            }
+        })));
+    env.repair(&plan);
+    env.store.hook_faults(None);
+    assert!(
+        env.in_set("Saga").is_empty(),
+        "a fill wrote while a CHD of its release was in the play library folder: {:?}",
+        env.in_set("Saga")
+    );
+}
+
+/// With disc 2 damaged and a good copy of each disc in an ingest folder, the one repair that releases the release
+/// fills both discs, the healthy one too, once every CHD of it is set aside.
+#[test]
+fn a_released_release_is_filled_whole_from_ingest_folders_in_the_same_plan() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    damaged_saga(&mut env, &chdman, 2);
+    for n in [1, 2] {
+        let zip = saga_zip(&env, n);
+        ingest(&mut env, &chdman, &format!("Saga {n}.zip"), &zip);
+    }
+    let plan = env.repair_plan(&[]);
+    for game in SAGA {
+        let item = item_of(&plan, game);
+        assert_eq!(item.kind, RepairKind::Replace, "{item:?}");
+        assert!(
+            item.note
+                .as_deref()
+                .is_some_and(|n| n.contains("this plan then rebuilds")),
+            "{item:?}"
+        );
+    }
+    env.repair(&plan);
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(saga_home(&env, 1), saga_roms(1));
+    assert_eq!(saga_home(&env, 2), saga_roms(2));
+    assert_eq!(env.status(SAGA[0]), GameStatus::Complete);
+    assert_eq!(env.status(SAGA[1]), GameStatus::Complete);
+}
+
+/// Stopped across filesystems once a CHD's original is moved to be deleted, before its change time there is recorded,
+/// and started again, the repair trusts no stamp it didn't record: it puts the original back, moves it again under a
+/// held descriptor and reads it through a fresh one, and deletes it only then. Each disc is placed or kept, never both,
+/// and the release ends kept whole.
+#[test]
+fn a_release_stopped_before_its_delete_stamp_is_recorded_deletes_only_on_a_fresh_proof() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    env.store.copy_across_filesystems(true);
+    let plan = env.repair_plan(&[]);
+    let seq = keeping(&plan, SAGA_CHDS[0]);
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+            if at == Fault::RepairCarryMoved(seq) {
+                panic!("stopped at {at:?}");
+            }
+        })));
+    let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store
+            .run_repair_job(&env.config, approved.job.unwrap(), None)
+    }));
+    env.store.hook_faults(None);
+    assert!(stopped.is_err());
+    let env = env.restarted(true);
+    each_disc_once(&env, &folder, "stopped before the stamp was recorded");
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+    assert_eq!(env.set_kept(), saga_released(&folder));
+}
+
+/// A gone disc's CHD put back as its release is released is looked for again before its placement is forgotten. Put
+/// back as the .m3u, the first file of the release, is set aside, it stays placed and recorded; put back later, once
+/// it was found gone and forgotten, it is still in the play library folder where the plan found it. Either way the
+/// fill of it planned from an ingest folder isn't written while it is there.
+#[test]
+fn a_gone_disc_put_back_as_its_release_is_released_is_never_filled_over() {
+    let Some(chdman) = chdman() else { return };
+    for put_back in ["Saga (USA).m3u/Saga (USA).m3u", SAGA_CHDS[0]] {
+        let mut env = Env::new(Some(&chdman));
+        let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+        let path = env.dir().join(SAGA_CHDS[1]);
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        env.audit(title_select_engine::AuditEvidence::Full);
+        let zip = saga_zip(&env, 2);
+        ingest(&mut env, &chdman, "Saga 2.zip", &zip);
+        let plan = env.repair_plan(&[]);
+        let seq = keeping(&plan, put_back);
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+                if at == Fault::RepairMoved(seq) {
+                    std::fs::write(&path, &bytes).unwrap();
+                }
+            })));
+        env.repair(&plan);
+        env.store.hook_faults(None);
+        assert!(
+            env.in_set("Saga").is_empty(),
+            "{put_back}: the CHD put back is in the play library folder, yet its disc was filled: {:?}",
+            env.in_set("Saga")
+        );
+        if put_back == SAGA_CHDS[0] {
+            continue;
+        }
+        let placed: Vec<String> = env
+            .store
+            .placed_files(SET)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        assert_eq!(placed, [SAGA_CHDS[1]], "the CHD put back stays placed");
+        each_disc_once(&env, &folder, "disc 2 put back");
+    }
 }

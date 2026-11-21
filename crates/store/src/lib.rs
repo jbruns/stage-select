@@ -333,6 +333,9 @@ pub enum Fault {
     RepairMoved(u32),
     /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
     RepairStepDone(u32),
+    /// After the original a repair's step with this sequence number carried across filesystems is moved into its
+    /// folder's private `.deleting` area to be deleted, before its change time there is recorded.
+    RepairCarryMoved(u32),
     /// After the original a repair's step with this sequence number carried across filesystems is set aside to delete
     /// and read back, before its published copy is checked a last time and the original deleted.
     RepairCarryChecking(u32),

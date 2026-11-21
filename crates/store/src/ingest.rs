@@ -2399,14 +2399,15 @@ pub(crate) struct FillCandidate {
 }
 
 /// Every item that may fill a Game of Source Set `set` as DAT Revision `dat_revision` lists it, in the order the
-/// items were first seen.
+/// items were first seen: those it is proposed to fill, and those matching a Game the Source Set already holds, which
+/// a repair uses only for a Game it takes out of its play library first.
 pub(crate) fn fill_candidates(
     c: &Connection,
     set: &str,
     dat_revision: &str,
 ) -> Result<Vec<FillCandidate>> {
     let mut stmt = c.prepare(&format!(
-        "{ITEM_QUERY} WHERE folder_id = ?1 AND state = 'assessed' ORDER BY id"
+        "{ITEM_QUERY} WHERE folder_id = ?1 AND state IN ('assessed', 'already_held') ORDER BY id"
     ))?;
     let mut found = Vec::new();
     for folder in c

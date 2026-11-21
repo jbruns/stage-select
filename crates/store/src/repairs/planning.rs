@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
+use title_select_api::ingest::Need;
 use title_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep, SeenFile,
 };
@@ -130,8 +131,9 @@ pub(super) struct Planned {
     pub items: Vec<RepairItem>,
     pub steps: Vec<PlannedStep>,
     pub notes: Vec<String>,
-    /// The items that release a disc of a placed release, chosen to, by key.
-    pub released: BTreeSet<String>,
+    /// The placed releases it releases, each with every path of it the plan found: its CHDs, gone ones included, and
+    /// the files laid out beside them.
+    pub releases: BTreeMap<String, Vec<String>>,
 }
 
 /// A ROM, by its Game and name.
@@ -660,8 +662,9 @@ fn healthy_chd(i: &Inputs, path: &str) -> bool {
 /// The placed releases a repair releases (ADR 0023), each disc of each with what becomes of its CHD: every release
 /// one of whose CHDs the Audit read as it is now and found damaged, or one of whose CHDs is gone, while each other CHD
 /// of it the Audit read as it is now. A release is released whole: every CHD of it still there is set aside, healthy
-/// or not, and a gone one leaves nothing to set aside. A release one of whose CHDs the Audit didn't read as it is now,
-/// as when it changed since or was read only by its claim, is not released, and needs review.
+/// or not, and a gone one leaves nothing to set aside; one every CHD of which is gone is released for the files laid
+/// out beside them, and only when there are some. A release one of whose CHDs the Audit didn't read as it is now, as
+/// when it changed since or was read only by its claim, is not released, and needs review.
 fn releases(
     i: &Inputs,
     by_path: &BTreeMap<&str, Vec<&Entry>>,
@@ -710,10 +713,13 @@ fn releases(
             || freed
                 .iter()
                 .any(|(_, _, how)| matches!(how, Some(Freed::Damaged | Freed::Gone)));
+        // A release every CHD of which is gone is released only for what is laid out beside them: its records are
+        // dropped as that is set aside. With nothing beside them, each disc is filled as any Placed Game with no file
+        // left is.
         let present = freed
             .iter()
             .any(|(_, _, how)| matches!(how, Some(Freed::Damaged | Freed::Healthy)));
-        if unsettled || !damaged || !present {
+        if unsettled || !damaged || !(present || i.beside.contains_key(&release)) {
             continue;
         }
         let several = i
@@ -918,6 +924,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .copied()
             .filter(|path| released_paths.contains(path)),
     );
+    // Whether Ingest Folder item `c` may fill `game`: one matching a Game the Source Set holds only when the plan
+    // releases it, so that a released release is filled whole, its healthy discs too.
+    let fills = |c: &FillCandidate, game: &str| {
+        c.matched.game == game && (c.matched.need != Need::Held || released_games.contains(game))
+    };
 
     // Conflicting Entries first: what you choose for each decides what a Game may be written from.
     let mut applied_conflicts: BTreeSet<(&str, Option<&str>)> = BTreeSet::new();
@@ -1167,7 +1178,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     return None;
                 }
                 i.candidates.iter().position(|c| {
-                    c.matched.game == *game
+                    fills(c, game)
                         && !used_candidates.contains(&c.item.id)
                         && c.matched.roms.iter().any(|m| m.rom == rom.name)
                 })
@@ -1694,7 +1705,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let Some(candidate) = i.candidates.iter().position(|c| {
-            c.matched.game == *game && c.matched.complete && !used_candidates.contains(&c.item.id)
+            fills(c, game) && c.matched.complete && !used_candidates.contains(&c.item.id)
         }) else {
             if !attributable.is_empty() || !occupants.is_empty() {
                 notes.push(format!(
@@ -2147,16 +2158,23 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         ));
     }
     let steps = steps_of(i, &proposed);
-    let released = proposed
-        .iter()
-        .filter(|p| p.release.is_some() && p.item.chosen != RepairChoice::Leave)
-        .map(|p| p.item.key.clone())
-        .collect();
+    let mut releases: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in &proposed {
+        if let Some(r) = p
+            .release
+            .as_ref()
+            .filter(|_| p.item.chosen != RepairChoice::Leave)
+        {
+            let paths = releases.entry(r.release.clone()).or_default();
+            paths.push(r.chd.clone());
+            paths.extend(r.beside.iter().cloned());
+        }
+    }
     Ok(Planned {
         items: proposed.into_iter().map(|p| p.item).collect(),
         steps,
         notes,
-        released,
+        releases,
     })
 }
 
@@ -2463,11 +2481,12 @@ fn kept_as(path: &str, names: &mut BTreeSet<String>) -> String {
 }
 
 /// Appends to `steps` the steps that release each placed release of `applied`, before any other step (ADR 0023): a
-/// Keep step for each file laid out beside its CHDs, then one for each CHD of it still there, so that a release is
-/// found again by its CHDs until the last of them is kept. Nothing of a release is extracted, deleted or put home, so
+/// Keep step for each file laid out beside its CHDs, then one for each CHD of it still there, needing every one of
+/// those, so that a release is found again by its CHDs until the last of them is kept, and a file beside them that
+/// can't be set aside leaves the whole release placed. Nothing of a release is extracted, deleted or put home, so
 /// each step ends with its file either still placed or kept: a stop between them leaves a release with some discs
-/// placed and the rest kept, which the next repair releases. A fill of a disc
-/// follows, as any does, and is written only once no CHD of its release is still placed.
+/// placed and the rest kept, which the next repair releases. A fill of a disc follows, as any does, and is written
+/// only once no file of its release is still where the plan found it.
 fn released_steps(
     i: &Inputs,
     applied: &[&Proposed],
@@ -2493,7 +2512,7 @@ fn released_steps(
         }
     };
     for discs in releases.into_values() {
-        let mut keep = |p: &Proposed, path: &str, reason: String| {
+        let mut keep = |p: &Proposed, path: &str, reason: String, needs: Vec<u32>| {
             steps.push(PlannedStep {
                 item: p.item.key.clone(),
                 step: RepairStep::Keep {
@@ -2501,46 +2520,42 @@ fn released_steps(
                     kept_name: kept_as(path, names),
                     reason,
                     seen: seen(path),
-                    needs: Vec::new(),
+                    needs,
                     affects: Vec::new(),
                 },
             });
+            steps.len() as u32 - 1
         };
+        let mut beside = Vec::new();
         for p in &discs {
             let r = p.release.as_ref().expect("a release's disc");
             for path in &r.beside {
-                keep(
+                beside.push(keep(
                     p,
                     path,
                     format!(
                         "it was laid out beside the CHDs of {}, set aside with them",
                         r.release
                     ),
-                );
+                    Vec::new(),
+                ));
             }
         }
         for p in &discs {
             let r = p.release.as_ref().expect("a release's disc");
             let game = p.item.game.as_deref().unwrap_or(&r.release);
-            match r.freed {
-                Freed::Damaged => keep(
-                    p,
-                    &r.chd,
-                    format!(
-                        "it was the only copy of {game}, a CHD that didn't verify, set aside by a repair"
-                    ),
+            let reason = match r.freed {
+                Freed::Damaged => format!(
+                    "it was the only copy of {game}, a CHD that didn't verify, set aside by a repair"
                 ),
-                Freed::Healthy => keep(
-                    p,
-                    &r.chd,
-                    format!(
-                        "it was the only copy of {game}, set aside by a repair with the other discs of {}, one of \
-                         which didn't verify or was gone",
-                        r.release
-                    ),
+                Freed::Healthy => format!(
+                    "it was the only copy of {game}, set aside by a repair with the other discs of {}, one of which \
+                     didn't verify or was gone",
+                    r.release
                 ),
-                Freed::Gone => {}
-            }
+                Freed::Gone => continue,
+            };
+            keep(p, &r.chd, reason, beside.clone());
         }
     }
 }
