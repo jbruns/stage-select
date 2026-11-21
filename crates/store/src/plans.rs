@@ -661,13 +661,14 @@ fn keep_of(
 }
 
 /// What the plan does with each file built into the folder whose game is no longer selected: one the check found
-/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. A file of a game of
-/// `nothing_to_build`, selected but with nothing to build, is left as it is. Files of `untouched` releases are skipped.
+/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. A file of a game selected
+/// but with nothing to build, one `nothing` leaves in place, and every file of a release it holds back, is left as it
+/// is. Files of `untouched` releases are skipped.
 fn removals(
     inputs: &Inputs,
     folder: &Folder,
     items: &[PlanItem],
-    nothing_to_build: &[String],
+    nothing: &NothingToBuild,
     untouched: &BTreeSet<String>,
     returned: &HashSet<String>,
 ) -> Vec<PlanRemoval> {
@@ -698,7 +699,7 @@ fn removals(
                 target: target.clone(),
                 game: built.game.clone(),
                 kind: RemovalKind::Leave,
-                reason: match nothing_to_build.contains(&placed.game) {
+                reason: match nothing.games.contains(&placed.game) {
                     true => format!(
                         "{} has nothing to build now, so {target}, placed here from source set {}, is left as it is",
                         placed.game, inputs.folder.source_set
@@ -718,6 +719,25 @@ fn removals(
             || untouched.contains(target)
             || converted.contains(target.as_str())
         {
+            continue;
+        }
+        let leave = |reason: String| PlanRemoval {
+            target: target.clone(),
+            game: built.game.clone(),
+            kind: RemovalKind::Leave,
+            reason,
+            keep: None,
+            converts_to: None,
+        };
+        if nothing.left.contains(target) {
+            out.push(leave(format!(
+                "{} has nothing to build at {target} now, so it is left as it is",
+                built.game
+            )));
+            continue;
+        }
+        if let Some(why) = nothing.held.get(&release_of(&built.game)) {
+            out.push(leave(format!("{why}; {target} stays")));
             continue;
         }
         // A file generated beside its discs that the plan no longer writes, an SBI file or an `.m3u`, is no longer
@@ -809,18 +829,11 @@ fn removals(
         }
         // A selected game with nothing to build keeps the file built for it before: it may hold a ROM the game
         // doesn't need, which counts when present (ADR 0025).
-        if !generated && nothing_to_build.contains(&built.game) {
-            out.push(PlanRemoval {
-                target: target.clone(),
-                game: built.game.clone(),
-                kind: RemovalKind::Leave,
-                reason: format!(
-                    "{} has nothing to build now, so {target} is left as it is",
-                    built.game
-                ),
-                keep: None,
-                converts_to: None,
-            });
+        if !generated && nothing.games.contains(&built.game) {
+            out.push(leave(format!(
+                "{} has nothing to build now, so {target} is left as it is",
+                built.game
+            )));
             continue;
         }
         let lower = name_key(target);
@@ -1211,7 +1224,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
 
     let mut items = Vec::new();
     let mut placing = Vec::new();
-    let mut nothing_to_build = Vec::new();
+    let mut nothing = NothingToBuild::default();
     if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(
             config,
@@ -1220,7 +1233,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             folder.as_ref(),
             &unresolved,
             &mut placing,
-            &mut nothing_to_build,
+            &mut nothing,
         );
     }
     let (returns, returned) = match (&folder, dat, usable_audit) {
@@ -1233,22 +1246,12 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         _ => Default::default(),
     };
     let removals = match (&folder, dat, usable_audit) {
-        (Some(folder), _, _) if inputs.choices.remove_all => removals(
-            inputs,
-            folder,
-            &items,
-            &nothing_to_build,
-            &untouched,
-            &returned,
-        ),
-        (Some(folder), Some(_), Some(_)) => removals(
-            inputs,
-            folder,
-            &items,
-            &nothing_to_build,
-            &untouched,
-            &returned,
-        ),
+        (Some(folder), _, _) if inputs.choices.remove_all => {
+            removals(inputs, folder, &items, &nothing, &untouched, &returned)
+        }
+        (Some(folder), Some(_), Some(_)) => {
+            removals(inputs, folder, &items, &nothing, &untouched, &returned)
+        }
         _ => Vec::new(),
     };
     let (previous, changes) = match &inputs.previous {
@@ -1347,7 +1350,7 @@ fn plan_items(
     folder: Option<&Folder>,
     unresolved: &BTreeSet<&str>,
     notes: &mut Vec<String>,
-    nothing_to_build: &mut Vec<String>,
+    nothing: &mut NothingToBuild,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
     let scan = folder.and_then(|f| f.scan.as_ref());
@@ -1494,7 +1497,7 @@ fn plan_items(
                 "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and the \
                  audit read none of them in a file"
             ));
-            nothing_to_build.push(game.to_owned());
+            nothing.games.push(game.to_owned());
             unbuilt.insert(target);
             continue;
         }
@@ -1769,28 +1772,66 @@ fn plan_items(
         items.push(item);
     }
     debug_assert_eq!(
-        items.len() + nothing_to_build.len(),
+        items.len() + nothing.games.len(),
         wanted_len,
         "one item for each file wanted with something to build"
     );
-    let additions = items.split_off(officials - nothing_to_build.len());
-    // A disc whose entry file has nothing to build is left out of its release's `.m3u` and has no SBI file, unless it
-    // is left in place: a build wrote each of its files the plan doesn't, and the check found each as it was. The
-    // `.m3u` lists only discs in the folder, and none is written for a release with none.
-    let entry_unbuilt = |title: &str| {
-        laid.get(title)
-            .and_then(|l| l.entry.as_ref())
-            .is_some_and(|entry| unbuilt.contains(entry))
+    let additions = items.split_off(officials - nothing.games.len());
+    let unbuilt_of = |title: &str| -> Vec<String> {
+        files_of(title)
+            .into_iter()
+            .map(|(target, ..)| target)
+            .filter(|target| unbuilt.contains(target))
+            .collect()
     };
+    // A selected game with nothing to build at a file of it, whose files from an earlier build are still there in a
+    // format or layout the plan no longer lays it out in, holds its release back: those files stay, so nothing else of
+    // the release is written, moved or kept aside, and its `.m3u` stays as it is.
+    for (_, title) in &winners {
+        let Some(at) = unbuilt_of(title).into_iter().next() else {
+            continue;
+        };
+        let targets: Vec<String> = files_of(title).into_iter().map(|(t, ..)| t).collect();
+        let earlier = inputs.built.iter().find(|(target, b)| {
+            b.game == *title
+                && !targets.contains(target)
+                && scan.is_some_and(|s| {
+                    s.files
+                        .iter()
+                        .any(|f| f.target == **target && f.outcome != FileOutcome::Missing)
+                })
+        });
+        if let Some((from, _)) = earlier {
+            let release = release_of(title);
+            nothing.held.entry(release.clone()).or_insert_with(|| {
+                let why = format!(
+                    "{release} is left as it is: {title} has nothing to build at {at}, and {from}, built for it \
+                     before, stays where it is"
+                );
+                notes.push(format!(
+                    "{why}. Nothing else of {release} is written, moved or kept aside until {title} has something to \
+                     build, or you make its ROMs required again"
+                ));
+                why
+            });
+        }
+    }
+    // A disc with nothing to build at a file of it is left out of its release's `.m3u` and has no SBI file, unless it
+    // is left in place: a build wrote each such file for it there, and the check found each as built. Those files stay.
+    // The `.m3u` lists only discs in the folder, and none is written for a release with none.
     let left_in_place = |title: &str| {
-        entry_unbuilt(title)
-            && laid[title]
-                .files
+        let unbuilt = unbuilt_of(title);
+        !unbuilt.is_empty()
+            && unbuilt
                 .iter()
-                .filter(|f| unbuilt.contains(*f))
                 .all(|f| inputs.built.get(f).is_some_and(|b| b.game == title) && as_built(scan, f))
     };
-    let in_folder = |title: &str| !entry_unbuilt(title) || left_in_place(title);
+    for (_, title) in &winners {
+        if left_in_place(title) {
+            nothing.left.extend(unbuilt_of(title));
+        }
+    }
+    let in_folder = |title: &str| unbuilt_of(title).is_empty() || left_in_place(title);
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()
@@ -1805,7 +1846,10 @@ fn plan_items(
             .collect()
     };
     let mut generated = Vec::new();
-    for (release, discs) in &playlists {
+    for (release, discs) in playlists
+        .iter()
+        .filter(|(r, _)| !nothing.held.contains_key(*r))
+    {
         let discs: Vec<(u32, &str)> = discs
             .iter()
             .copied()
@@ -1840,7 +1884,10 @@ fn plan_items(
             ),
         ));
     }
-    for (group, game, target, file) in sbis.into_iter().filter(|s| in_folder(s.1)) {
+    for (group, game, target, file) in sbis
+        .into_iter()
+        .filter(|s| in_folder(s.1) && !nothing.held.contains_key(&release_of(s.1)))
+    {
         let parts = parts_of(&items, &[game]);
         generated.push((
             vec![game],
@@ -1873,7 +1920,7 @@ fn plan_items(
             .map_or(items.len(), |n| at + n);
         items.insert(at, item);
     }
-    whole_releases(&mut items);
+    whole_releases(&mut items, &nothing.held);
     place::place(config, inputs, folder, &mut sources, &mut items, notes);
     items.extend(additions);
     items
@@ -1952,6 +1999,17 @@ fn builds(kind: ItemKind) -> bool {
     )
 }
 
+/// The files of selected Games a plan has nothing to build at (ADR 0025), and what becomes of them.
+#[derive(Default)]
+struct NothingToBuild {
+    /// Each selected Game with nothing to build at a file of it, once for each such file.
+    games: Vec<String>,
+    /// The files a build wrote for a disc there, with nothing to build at them now, that stay with it in its release.
+    left: HashSet<String>,
+    /// Each release held back, left as it is whole, with why.
+    held: BTreeMap<String, String>,
+}
+
 /// Whether `scan` found the file built at `target` as the build wrote it, or holding the same ROMs.
 fn as_built(scan: Option<&Scan>, target: &str) -> bool {
     scan.is_some_and(|s| {
@@ -1966,9 +2024,10 @@ fn as_built(scan: Option<&Scan>, target: &str) -> bool {
 }
 
 /// A release goes in place whole or not at all: every disc, every track, its `.m3u` and its SBI files. Once one of
-/// them can't be built, or is left as it is, nothing else of the release is written, and each says which one.
-fn whole_releases(items: &mut [PlanItem]) {
-    let mut stopped: HashMap<String, String> = HashMap::new();
+/// them can't be built, or is left as it is, or the release is `held` back, nothing else of the release is written,
+/// and each says why.
+fn whole_releases(items: &mut [PlanItem], held: &BTreeMap<String, String>) {
+    let mut stopped: HashMap<String, String> = held.clone().into_iter().collect();
     for item in items.iter().filter(|i| !builds(i.kind)) {
         stopped
             .entry(release_of(&item.game))
