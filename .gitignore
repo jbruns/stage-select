@@ -5,6 +5,7 @@
 
 # Per-issue agent worktrees
 .worktrees/
+.claude/worktrees/
 /.venv/
 
 # Clone lists for Selection, fetched by tools/clone-lists/fetch
