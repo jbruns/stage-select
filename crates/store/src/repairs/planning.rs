@@ -64,7 +64,7 @@ pub(super) type Located = Option<(i64, String)>;
 /// the Source Set's folder reads, counts and keeps aside only the files there: a Placed Game's files are a Library
 /// Folder's self-contained Game, touched only by a repair of that Game where it is placed, or by the release of its
 /// placed CHDs, and they never hold a surviving copy of a ROM for the Source Set's folder. A Library Folder file of no
-/// Placed Game is in neither.
+/// Placed Game is in neither: it is [`Scope::Elsewhere`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Scope<'a> {
     /// The Source Set's own folder.
@@ -404,8 +404,8 @@ impl<'a> Preserved<'a> {
     }
 
     /// The ROMs the file at `path` holds that would have no copy left in its scope once it is kept aside
-    /// ([`Scope::survives_for`]): no file there that stays holds one, and no applied item writes its payload there, as a
-    /// ROM of whichever Game, that the DAT pins at least as closely as it.
+    /// ([`Scope::survives_for`]): no file there that stays holds one, and no applied item writes its payload there, as
+    /// a ROM of whichever Game, that the DAT pins at least as closely as it.
     fn lost(&self, path: &str, file: &Usable) -> BTreeSet<RomKey> {
         let scope = self.scopes.file(path);
         let mut lost = BTreeSet::new();
