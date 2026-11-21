@@ -476,20 +476,22 @@ fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
     Ok(out)
 }
 
-/// The ListXML DAT Revision MAME's Support Files are fetched for: the newest revision of a ListXML DAT that a
-/// registered Source Set is bound to, Following or not, by id and SHA-256.
+/// The newest revision of each ListXML DAT that a registered Source Set is bound to, Following or not, by id and
+/// SHA-256, in import order. MAME's Support Files are fetched for each.
 // The DAT Format is the narrowest sign today that a DAT is a ListXML; the machine model (#245) is to replace it.
-// header_order is numbered within one DAT, so with two ListXML DATs bound the pick between them is arbitrary; there is
-// one MAME ListXML DAT in practice.
-fn support_target(c: &Connection) -> Result<Option<(i64, String)>> {
-    Ok(c.query_row(
-        "SELECT r.id, r.sha256 FROM source_sets s JOIN dat_revisions r ON r.dat_id = s.dat_id
-         WHERE s.unregistered_at IS NULL AND r.deleted_at IS NULL AND r.format = 'listxml'
-         ORDER BY r.header_order DESC, r.id DESC LIMIT 1",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )
-    .optional()?)
+// header_order is numbered within one DAT, so each DAT's newest is found on its own.
+fn support_targets(c: &Connection) -> Result<Vec<(i64, String)>> {
+    let mut stmt = c.prepare(
+        "SELECT r.id, r.sha256 FROM dat_revisions r
+         WHERE r.id = (SELECT n.id FROM dat_revisions n
+                       WHERE n.dat_id = r.dat_id AND n.deleted_at IS NULL AND n.format = 'listxml'
+                       ORDER BY n.header_order DESC, n.id DESC LIMIT 1)
+           AND EXISTS (SELECT 1 FROM source_sets s WHERE s.dat_id = r.dat_id AND s.unregistered_at IS NULL)
+         ORDER BY r.import_seq, r.id",
+    )?;
+    Ok(stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 /// The registered Source Sets bound to a ListXML DAT.
@@ -536,12 +538,17 @@ fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     Ok(true)
 }
 
-/// The ListXML DAT Revision the Support Files are owed for, if they haven't all been fetched for the newest.
-fn support_owed(c: &Connection) -> Result<Option<i64>> {
-    match support_target(c)? {
-        Some((revision, _)) if !support_fetched_for(c, revision)? => Ok(Some(revision)),
-        _ => Ok(None),
+/// The ListXML DAT Revision the Support Files are owed for, by id and SHA-256: the last imported of the targets they
+/// haven't all been fetched for. A fetch is recorded for one revision, so with two owed the other waits for the next
+/// day's.
+fn support_owed(c: &Connection) -> Result<Option<(i64, String)>> {
+    let mut owed = None;
+    for target in support_targets(c)? {
+        if !support_fetched_for(c, target.0)? {
+            owed = Some(target);
+        }
     }
+    Ok(owed)
 }
 
 /// The one member of the ZIP `bytes` whose name ends with `ext`, read whole up to `limit` bytes.
@@ -668,7 +675,7 @@ impl Store {
                     .filter_map(|f| mame_system(&f.dat).map(|s| (s, f)))
                     .collect();
                 // A Source Set bound to a ListXML has Support Files to fetch, whether or not anything Follows.
-                let listxml = self.read(support_target)?.is_some();
+                let listxml = !self.read(support_targets)?.is_empty();
                 if systems.is_empty() && !listxml {
                     return refuse_or_nothing(no_followed(name, &followed))
                         .map(|_: Option<()>| report);
@@ -840,7 +847,7 @@ impl Store {
         report: &mut FetchReport,
     ) -> Result<()> {
         let provider = FetchProvider::Mame;
-        let Some(revision) = self.read(support_owed)? else {
+        let Some((revision, _)) = self.read(support_owed)? else {
             return Ok(());
         };
         // A commit check is sent only when every file may follow it.
@@ -1285,17 +1292,26 @@ impl Store {
 
 /// Where fetching MAME's Support Files stands, while a registered Source Set is bound to a ListXML DAT.
 fn support_status(c: &Connection) -> Result<Option<FetchSupport>> {
-    let Some((revision, listxml)) = support_target(c)? else {
+    let next_at_of = |c, artifact| next_at(c, FetchProvider::Mame, SUPPORT_SYSTEM, artifact);
+    let owed = support_owed(c)?;
+    let Some((_, listxml)) = owed.clone().or(support_targets(c)?.pop()) else {
         return Ok(None);
     };
+    let mut next_at = None;
+    if owed.is_some() {
+        for artifact in support_artifacts() {
+            next_at = next_at.max(next_at_of(c, artifact)?);
+        }
+    }
     Ok(Some(FetchSupport {
         source_sets: listxml_source_sets(c)?,
         listxml,
-        fetched_for_listxml: support_fetched_for(c, revision)?,
+        fetched_for_listxml: owed.is_none(),
         artifacts: support_artifacts()
             .into_iter()
             .map(|a| artifact_status(c, FetchProvider::Mame, SUPPORT_SYSTEM, a))
             .collect::<Result<_>>()?,
+        next_at: next_at.map(|t| t.to_string()),
     }))
 }
 

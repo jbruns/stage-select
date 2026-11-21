@@ -70,7 +70,7 @@ pub fn status(item: &IngestItem) -> Option<IngestStatus> {
         ItemState::Gone => return None,
         ItemState::Assessed => match &item.assessment.proposal {
             Some(Proposal::SourceSet { .. }) => IngestStatus::MatchesSourceSet,
-            Some(Proposal::DatImport) => IngestStatus::DatFile,
+            Some(Proposal::DatImport | Proposal::SupportFileImport) => IngestStatus::DatFile,
             Some(Proposal::Addition { .. }) | None => IngestStatus::NoDatMatch,
         },
     })
@@ -116,7 +116,7 @@ impl Decision {
     pub fn verb(self) -> &'static str {
         match self {
             Decision::Add => "Add as additions",
-            Decision::Import => "Import DATs",
+            Decision::Import => "Import",
             Decision::Discard => "Discard",
             Decision::Dismiss => "Dismiss",
         }
@@ -127,8 +127,8 @@ impl Decision {
         match (self, n) {
             (Decision::Add, 1) => "Add 1 as an addition".into(),
             (Decision::Add, n) => format!("Add {n} as additions"),
-            (Decision::Import, 1) => "Import 1 DAT".into(),
-            (Decision::Import, n) => format!("Import {n} DATs"),
+            (Decision::Import, 1) => "Import 1 file".into(),
+            (Decision::Import, n) => format!("Import {n} files"),
             (Decision::Discard, n) => format!("Discard {n}"),
             (Decision::Dismiss, n) => format!("Dismiss {n}"),
         }
@@ -138,7 +138,7 @@ impl Decision {
     pub fn single(self) -> &'static str {
         match self {
             Decision::Add => "Add as an addition",
-            Decision::Import => "Import the DAT",
+            Decision::Import => "Import it",
             Decision::Discard => "Discard",
             Decision::Dismiss => "Dismiss until it changes",
         }
@@ -148,7 +148,7 @@ impl Decision {
     pub fn pending(self) -> &'static str {
         match self {
             Decision::Add => "Planning additions…",
-            Decision::Import => "Planning DAT imports…",
+            Decision::Import => "Planning imports…",
             Decision::Discard => "Planning discards…",
             Decision::Dismiss => "Dismissing…",
         }
@@ -162,8 +162,8 @@ impl Decision {
                 "items can't be added as additions: they matched a DAT, hold more than one file, or have no system yet",
             ),
             Decision::Import => (
-                "1 item isn't a DAT to import",
-                "items aren't DATs to import",
+                "1 item isn't a DAT or support file to import",
+                "items aren't DATs or support files to import",
             ),
             Decision::Discard => (
                 "1 item can't be discarded yet: it's still arriving, being moved or gone",
@@ -218,7 +218,12 @@ pub fn applies(decision: Decision, item: &IngestItem, choices: &Choices) -> bool
         }
         Decision::Import => {
             state == ItemState::Assessed
-                && item.assessment.dat.as_ref().is_some_and(|d| !d.imported)
+                && (item.assessment.dat.as_ref().is_some_and(|d| !d.imported)
+                    || item
+                        .assessment
+                        .support_file
+                        .as_ref()
+                        .is_some_and(|f| !f.imported))
         }
         Decision::Discard => matches!(
             state,
@@ -703,10 +708,31 @@ mod tests {
     }
 
     #[test]
+    fn a_support_file_is_imported_as_a_dat_is_until_it_is_held() {
+        let support = |imported: bool| {
+            item(
+                1,
+                "catver.ini",
+                if imported { "already_held" } else { "assessed" },
+                serde_json::json!({"support_file": {"kind": "catver", "mame_version": "0.289",
+                    "imported": imported}, "proposal": {"kind": "support_file_import"}}),
+            )
+        };
+        let choices = Choices::default();
+        let new = support(false);
+        assert_eq!(status(&new), Some(IngestStatus::DatFile));
+        assert!(applies(Decision::Import, &new, &choices));
+        assert!(!applies(Decision::Add, &new, &choices));
+        let held = support(true);
+        assert_eq!(status(&held), Some(IngestStatus::Duplicate));
+        assert!(!applies(Decision::Import, &held, &choices));
+    }
+
+    #[test]
     fn labels_count_the_items() {
         assert_eq!(Decision::Add.label(1), "Add 1 as an addition");
         assert_eq!(Decision::Add.label(3), "Add 3 as additions");
-        assert_eq!(Decision::Import.label(2), "Import 2 DATs");
+        assert_eq!(Decision::Import.label(2), "Import 2 files");
         assert_eq!(
             Decision::Discard.left_out(2),
             "2 items can't be discarded yet: they're still arriving, being moved or gone."

@@ -1418,6 +1418,65 @@ fn a_new_listxml_brings_the_support_files_at_the_mirrors_commit_once_and_not_aga
 }
 
 #[test]
+fn a_first_listxml_of_a_second_dat_brings_the_support_files_though_another_has_more_revisions() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.add_arcade("mame0290");
+    env.fetch(FetchProvider::Mame, FetchTrigger::Manual)
+        .unwrap();
+
+    // A second ListXML DAT, whose one revision ranks first within it and so below MAME/MAME's second.
+    env.backdate(25);
+    let (second, _) = env
+        .store
+        .import_dat_bytes(&listxml("mame0291"), "mame0291.xml", None)
+        .unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO dats (provider, name) VALUES ('MAME', 'MAME Second')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE dat_revisions SET dat_id = last_insert_rowid(), header_order = 1 WHERE sha256 = ?1",
+        [&second.sha256],
+    )
+    .unwrap();
+    std::fs::create_dir_all(env._tmp.path().join("sets/Second")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Second", "MAME/MAME Second")
+        .unwrap();
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(!support.fetched_for_listxml, "{support:?}");
+    assert_eq!(support.listxml, second.sha256);
+
+    env.serve_support(COMMIT_B, "0.291");
+    let report = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&report), support_outcomes(FetchOutcome::Added));
+    let status = env.store.fetch_status(&env.fetcher).unwrap();
+    let mame = status
+        .providers
+        .iter()
+        .find(|p| p.provider == FetchProvider::Mame)
+        .unwrap();
+    let support = mame.support.as_ref().unwrap();
+    assert!(support.fetched_for_listxml);
+    assert_eq!(support.next_at, None, "nothing is owed, so nothing is next");
+}
+
+#[test]
 fn an_unchanged_mirror_brings_the_same_files_unchanged() {
     let env = Env::new(MAME);
     env.add_arcade("mame0289");
@@ -1528,6 +1587,18 @@ fn a_failed_support_file_stops_the_fetch_keeps_the_last_good_files_and_is_shown(
     let support = mame.support.as_ref().unwrap();
     assert_eq!(support.source_sets, ["Arcade"]);
     assert!(!support.fetched_for_listxml);
+    let parse = |t: &str| t.parse::<jiff::Timestamp>().unwrap();
+    let last_due = support
+        .artifacts
+        .iter()
+        .filter_map(|a| a.next_at.as_deref().map(parse))
+        .max();
+    assert!(last_due.is_some());
+    assert_eq!(
+        support.next_at.as_deref().map(parse),
+        last_due,
+        "they are next fetched once the last of their requests is due"
+    );
     let languages = support
         .artifacts
         .iter()

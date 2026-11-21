@@ -99,6 +99,27 @@ pub fn next_fetch(artifacts: &[FetchArtifactStatus]) -> Option<String> {
     artifacts.iter().filter_map(|a| a.next_at.clone()).min()
 }
 
+/// When a fetch is next sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextFetch {
+    Now,
+    At(String),
+}
+
+/// When MAME's support files are next fetched: none while they're fetched for every newest ListXML DAT revision,
+/// else when the store says every request of theirs may be sent.
+pub fn support_next(support: &FetchSupport) -> Option<NextFetch> {
+    if support.fetched_for_listxml {
+        return None;
+    }
+    Some(
+        support
+            .next_at
+            .clone()
+            .map_or(NextFetch::Now, NextFetch::At),
+    )
+}
+
 /// Each failed artifact's latest error, as `(artifact, error)`.
 pub fn failures(artifacts: &[FetchArtifactStatus]) -> Vec<(FetchArtifact, String)> {
     artifacts
@@ -236,6 +257,7 @@ mod tests {
                 status(FetchArtifact::SupportCommit, None, None),
                 status(FetchArtifact::Languages, Some(failed), None),
             ],
+            next_at: None,
         };
         assert_eq!(support_state(&p, &support), FetchState::Failed);
         assert_eq!(
@@ -244,6 +266,30 @@ mod tests {
         );
         p.support = Some(support);
         assert_eq!(provider_state(&p), FetchState::Failed);
+    }
+
+    #[test]
+    fn the_support_files_are_next_fetched_once_every_request_is_due_and_not_at_all_when_nothing_is_owed()
+     {
+        let mut support = FetchSupport {
+            source_sets: vec!["Arcade".into()],
+            listxml: "ab".into(),
+            fetched_for_listxml: false,
+            artifacts: vec![FetchArtifactStatus {
+                next_at: Some("2026-01-02T00:00:00Z".into()),
+                ..status(FetchArtifact::SupportCommit, None, None)
+            }],
+            next_at: Some("2026-01-02T00:00:03Z".into()),
+        };
+        assert_eq!(
+            support_next(&support),
+            Some(NextFetch::At("2026-01-02T00:00:03Z".into())),
+            "when every request is due, not the first"
+        );
+        support.next_at = None;
+        assert_eq!(support_next(&support), Some(NextFetch::Now));
+        support.fetched_for_listxml = true;
+        assert_eq!(support_next(&support), None, "nothing is owed");
     }
 
     #[test]

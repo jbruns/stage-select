@@ -974,8 +974,9 @@ screen. A fetch that fails is tried again the next day, until all three have bee
 
 Each file is kept unmodified, by its SHA-256, with the commit it was fetched at and the MAME version its header names
 (`;; catver.ini 0.289 / 21-Aug-26 / MAME 0.289 ;;` is for MAME 0.289). A file whose header doesn't name the file asked
-for, or names no MAME version, fails the fetch. You can import them yourself instead, with `support-file import` or
-`POST /api/v1/support-files`; the header says which file it is, whatever its name.
+for, or names no MAME version, fails the fetch. You can bring them in yourself instead: drop them into an ingest folder
+as you would a DAT (see "Ingest folders"), or import them on the DATs screen, with `support-file import` or with
+`POST /api/v1/support-files`. The header says which file it is, whatever its name.
 
 ### Selection profiles
 
@@ -1369,13 +1370,15 @@ Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate addition, with the system its extension suggests when exactly one registered system uses it;
-  or a DAT you may import. A game outside its source set's coverage is shown as outside your coverage, and the item
+  a DAT you may import; or a MAME support file you may import, an `.ini` file whose header names `catver.ini`,
+  `languages.ini` or `bestgames.ini` and a MAME version, whatever the file is called. A game outside its source set's coverage is shown as outside your coverage, and the item
   isn't proposed to fill it (see "Coverage");
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
-  imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
+  imported, or a support file already imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further; or a DAT with no name to know it by, which can't be imported and is never a candidate addition;
+  never read further; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
+  or an `.ini` file that matches no game and isn't a MAME support file, which is never a candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
@@ -1386,7 +1389,9 @@ anything changed.
 Discarding an item moves it into the folder's kept files, `.title-select/retained/<generation>/<name>.kept`. Importing
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
-audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Within one filesystem a move is a rename that never replaces anything. What
+audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
+file keeps it as `support-file import` would, then keeps the file aside the same way; a newer ListXML's support files
+are still fetched, if fetching from MAME is on. Within one filesystem a move is a rename that never replaces anything. What
 arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
 meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
 The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is

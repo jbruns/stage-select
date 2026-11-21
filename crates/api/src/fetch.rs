@@ -211,12 +211,17 @@ pub struct FetchProviderStatus {
 pub struct FetchSupport {
     /// The registered Source Sets bound to a ListXML DAT, Following or not.
     pub source_sets: Vec<String>,
-    /// The ListXML DAT Revision they are next fetched for, by its SHA-256: the newest of those Source Sets' DATs'.
+    /// The ListXML DAT Revision they are next fetched for, by its SHA-256: a DAT's newest that they haven't been
+    /// fetched for, or else the last imported of those Source Sets' DATs' newest revisions.
     pub listxml: String,
-    /// Whether the Support Files have been fetched for it.
+    /// Whether the Support Files have been fetched for every one of those DATs' newest revisions.
     pub fetched_for_listxml: bool,
     /// The commit check, then each file.
     pub artifacts: Vec<FetchArtifactStatus>,
+    /// When they are next fetched, while they are owed but a request of theirs waits out its day: once the last of
+    /// them may be sent, as the commit check waits for every file. Absent when they may be fetched now, and when
+    /// they are owed for nothing.
+    pub next_at: Option<String>,
 }
 
 /// The body of `GET /fetch`: every fetchable DAT Provider, with its Following systems.

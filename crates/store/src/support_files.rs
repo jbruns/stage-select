@@ -44,6 +44,11 @@ fn by_sha(c: &Connection, sha256: &str) -> Result<Option<SupportFileRecord>> {
     Ok(c.query_row(&sql, [sha256], record_from_row).optional()?)
 }
 
+/// Whether the store keeps the Support File whose SHA-256 is `sha256`.
+pub(crate) fn is_kept(c: &Connection, sha256: &str) -> Result<bool> {
+    Ok(by_sha(c, sha256)?.is_some())
+}
+
 /// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
 /// version it is for. `file` names it in an error.
 pub(crate) fn read_header(

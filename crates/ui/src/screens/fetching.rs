@@ -6,8 +6,8 @@ use title_select_api::fetch::{FetchProviderStatus, FetchStatus, FetchSupport, Fe
 use crate::api;
 use crate::events::use_live;
 use crate::fetch_model::{
-    artifact_name, failures, last_fetched, next_fetch, provider_state, refresh_after,
-    support_state, system_state,
+    NextFetch, artifact_name, failures, last_fetched, next_fetch, provider_state, refresh_after,
+    support_next, support_state, system_state,
 };
 use crate::model::when;
 use crate::parts::pending::{ActionPending, Pending};
@@ -237,11 +237,18 @@ fn SystemProblems(systems: Vec<FetchSystem>) -> impl IntoView {
 fn SupportPanel(provider: FetchProviderStatus, support: FetchSupport) -> impl IntoView {
     let state = support_state(&provider, &support);
     let last = last_fetched(&support.artifacts).map_or_else(|| "Never".to_string(), |t| when(&t));
-    let next = next_fetch(&support.artifacts).map_or_else(|| "Now".to_string(), |t| when(&t));
-    let owed = if support.fetched_for_listxml {
-        "Fetched for your newest MAME ListXML DAT revision."
-    } else {
-        "Not yet fetched for your newest MAME ListXML DAT revision."
+    let (owed, next) = match support_next(&support) {
+        None => (
+            "Fetched for your newest MAME ListXML DAT revision.",
+            "They're fetched again when a newer one arrives.".to_string(),
+        ),
+        Some(next) => (
+            "Not yet fetched for your newest MAME ListXML DAT revision.",
+            match next {
+                NextFetch::Now => "Next: now.".to_string(),
+                NextFetch::At(t) => format!("Next: {}.", when(&t)),
+            },
+        ),
     };
     let problems: Vec<String> = failures(&support.artifacts)
         .into_iter()
@@ -256,7 +263,7 @@ fn SupportPanel(provider: FetchProviderStatus, support: FetchSupport) -> impl In
                     support.source_sets.join(", "),
                 )}
             </p>
-            <p>{format!("Last fetched: {last}. Next: {next}.")}</p>
+            <p>{format!("Last fetched: {last}. {next}")}</p>
             {(!problems.is_empty())
                 .then(|| {
                     view! {

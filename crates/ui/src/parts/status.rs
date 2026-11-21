@@ -883,8 +883,8 @@ impl Status for IngestStatus {
             IngestStatus::DatFile => look(
                 Glyph::FileText,
                 Tone::Review,
-                "DAT file",
-                "It's a DAT file you may import.",
+                "File to import",
+                "It's a DAT or MAME support file you may import.",
             ),
             IngestStatus::Unreadable => look(
                 Glyph::FileX,

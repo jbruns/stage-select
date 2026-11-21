@@ -17,10 +17,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
 use title_select_api::ingest::{
-    Assessment, FolderEntry, FoundDat, IngestAction, IngestFolder, IngestItem, IngestKeptFile,
-    IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem, ItemMatch,
-    ItemMove, ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
+    Assessment, FolderEntry, FoundDat, FoundSupportFile, IngestAction, IngestFolder, IngestItem,
+    IngestKeptFile, IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem,
+    ItemMatch, ItemMove, ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
 };
+use title_select_api::support::SupportFileKind;
 use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
 use title_select_engine::FileStamp;
 use title_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
@@ -36,6 +37,7 @@ use super::jobs::{finish_running, job_by_id};
 use super::kept::{Scope, settle_dir_temps};
 use super::plans::{json, to_json};
 use super::sets::set_by_name;
+use super::support_files::SUPPORT_FILE_LIMIT;
 use super::{Error, Fault, Result, Store, now};
 use crate::config::{Config, Root};
 
@@ -223,6 +225,12 @@ struct ItemRead {
     /// Why a file read as a DAT cannot be imported, such as having no name to know it by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     refused_dat: Option<String>,
+    /// For a `.ini` file: the MAME Support File its header says it is, and the MAME version it is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    support: Option<(SupportFileKind, String)>,
+    /// For a `.ini` file: why it is not a MAME Support File.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refused_support: Option<String>,
 }
 
 /// A DAT file's native name and version, and the provider part of its key as it reads, not yet spelled as the store
@@ -891,6 +899,20 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             found(ItemState::Assessed, assessment, None)
         });
     }
+    if let Some((kind, version)) = &read.support {
+        let imported = store.read(|c| crate::support_files::is_kept(c, &probe.sha256))?;
+        assessment.support_file = Some(FoundSupportFile {
+            kind: *kind,
+            mame_version: version.clone(),
+            imported,
+        });
+        return Ok(if imported {
+            found(ItemState::AlreadyHeld, assessment, None)
+        } else {
+            assessment.proposal = Some(Proposal::SupportFileImport);
+            found(ItemState::Assessed, assessment, None)
+        });
+    }
     let archive = probe.zip || probe.sevenz;
     let matches = match matcher.matches(&probe.payloads, archive) {
         Ok(matches) => matches,
@@ -922,6 +944,14 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
                 need: best.need,
             });
             ItemState::Assessed
+        }
+        // An .ini file is a MAME Support File or a setting, never a game to add.
+        None if let Some(why) = &read.refused_support => {
+            return Ok(found(
+                ItemState::Unsupported,
+                assessment,
+                Some(format!("{why}, and an .ini file isn't added as a game")),
+            ));
         }
         None => {
             let exts: BTreeSet<String> = if archive {
@@ -977,6 +1007,24 @@ fn read_item(
         }
     };
     let (mut dat, mut refused_dat) = (None, None);
+    let (mut support, mut refused_support) = (None, None);
+    if !probe.zip && !probe.sevenz && extension(name).as_deref() == Some("ini") {
+        // A MAME Support File is known by its header, whatever its name, as when it is imported.
+        let mut bytes = Vec::new();
+        file.seek(SeekFrom::Start(0))
+            .and_then(|_| (&file).take(SUPPORT_FILE_LIMIT + 1).read_to_end(&mut bytes))
+            .map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > SUPPORT_FILE_LIMIT {
+            refused_support = Some(format!(
+                "it is larger than a MAME support file, at most {SUPPORT_FILE_LIMIT} bytes"
+            ));
+        } else {
+            match crate::support_files::read_header(&bytes, name) {
+                Ok(read) => support = Some(read),
+                Err(why) => refused_support = Some(why),
+            }
+        }
+    }
     if !probe.zip
         && !probe.sevenz
         && probe.size <= DAT_LIMIT
@@ -1008,9 +1056,43 @@ fn read_item(
             probe,
             dat,
             refused_dat,
+            support,
+            refused_support,
         })),
         _ => Err(changed()),
     }
+}
+
+/// Reads the file `item` of a plan through `dir`, up to `limit` bytes, while it is still the file planned: its
+/// identity, stat and SHA-256 as the plan bound them, with no other link to it.
+fn read_planned(dir: &FolderDir, item: &IngestPlanItem, limit: u64) -> Result<Vec<u8>> {
+    let changed = || Error::Conflict(format!("{} changed since the plan was made", item.name));
+    let file = dir
+        .open_file(&item.name)
+        .map_err(|e| Error::Io(e.to_string()))?;
+    let planned = Seen {
+        identity: item.identity.into(),
+        file: item.file.clone(),
+        ctime_ns: item.ctime_ns,
+    };
+    let st = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
+    if Seen::of(&st) != planned || st.st_nlink != 1 {
+        return Err(changed());
+    }
+    let mut bytes = Vec::new();
+    (&file)
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| Error::Io(e.to_string()))?;
+    let sha: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
+    if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
+        return Err(changed());
+    }
+    Ok(bytes)
 }
 
 fn store_found(tx: &Transaction, id: i64, found: &Found) -> Result<()> {
@@ -1735,13 +1817,27 @@ impl Store {
                         None,
                     )
                 }
+                IngestAction::DatImport if item.assessment.support_file.is_some() => {
+                    let found = item.assessment.support_file.as_ref().unwrap();
+                    (
+                        format!(
+                            "imported as the MAME support file {} (MAME {}), then kept",
+                            found.kind.file_name(),
+                            found.mame_version
+                        ),
+                        None,
+                    )
+                }
                 IngestAction::DatImport => {
                     let Some(dat) = &item.assessment.dat else {
                         return Err(Error::Refused(match &item.reason {
                             Some(why) if item.state == ItemState::Unsupported => {
                                 format!("{} can't be imported: {why}", item.name)
                             }
-                            _ => format!("{} is not a DAT file that can be imported", item.name),
+                            _ => format!(
+                                "{} is not a DAT file or MAME support file that can be imported",
+                                item.name
+                            ),
                         }));
                     };
                     (
@@ -1763,6 +1859,12 @@ impl Store {
                 destination,
                 reason,
                 dat,
+                support_file: match request.action {
+                    IngestAction::DatImport => {
+                        item.assessment.support_file.as_ref().map(|f| f.kind)
+                    }
+                    _ => None,
+                },
                 dat_file: item.assessment.dat.is_some(),
                 addition,
                 addition_target,
@@ -1957,7 +2059,11 @@ impl Store {
         for item in &content.items {
             let mut detail = Vec::new();
             if content.action == IngestAction::DatImport {
-                match self.import_from_ingest(&dir, id, item, actor, workers) {
+                let imported = match item.support_file {
+                    Some(_) => self.import_support_from_ingest(&dir, item),
+                    None => self.import_from_ingest(&dir, id, item, actor, workers),
+                };
+                match imported {
                     Ok(done) => detail.extend(done),
                     Err(err) => {
                         outcomes.push(IngestOutcome {
@@ -2037,32 +2143,8 @@ impl Store {
         actor: &str,
         workers: Workers,
     ) -> Result<Vec<String>> {
-        let changed = || Error::Conflict(format!("{} changed since the plan was made", item.name));
-        let file = dir
-            .open_file(&item.name)
-            .map_err(|e| Error::Io(e.to_string()))?;
-        let planned = Seen {
-            identity: item.identity.into(),
-            file: item.file.clone(),
-            ctime_ns: item.ctime_ns,
-        };
-        let st = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
-        if Seen::of(&st) != planned || st.st_nlink != 1 {
-            return Err(changed());
-        }
-        let mut bytes = Vec::new();
-        (&file)
-            .take(DAT_LIMIT + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| Error::Io(e.to_string()))?;
-        let sha: String = Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
-        if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
-            return Err(changed());
-        }
+        let bytes = read_planned(dir, item, DAT_LIMIT)?;
+        let sha = item.sha256.clone().unwrap_or_default();
         let parsed = Dat::parse(&bytes, Path::new(&item.name))?;
         parsed.check_name(Path::new(&item.name))?;
         let name = parsed.name.clone();
@@ -2161,6 +2243,28 @@ impl Store {
             });
         }
         Ok(done)
+    }
+
+    /// Imports the MAME Support File `item` of an approved plan, read through `dir` while it is still the file planned.
+    /// Returns what it did.
+    fn import_support_from_ingest(
+        &self,
+        dir: &FolderDir,
+        item: &IngestPlanItem,
+    ) -> Result<Vec<String>> {
+        let bytes = read_planned(dir, item, SUPPORT_FILE_LIMIT)?;
+        let (record, outcome) = self.import_support_file(&bytes, &item.name, None)?;
+        let file = record.kind.file_name();
+        let version = &record.mame_version;
+        Ok(vec![match outcome {
+            ImportOutcome::Added => format!("imported {file} for MAME {version}"),
+            ImportOutcome::AlreadyImported => {
+                format!("{file} for MAME {version} was already imported")
+            }
+            ImportOutcome::Restored => {
+                format!("{file} for MAME {version} was imported before; its file is kept again")
+            }
+        }])
     }
 
     /// Queues each incremental Audit a DAT imported from an Ingest Folder owes, once its revision is imported and

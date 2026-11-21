@@ -986,6 +986,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     }
                     Some(Proposal::Addition { system: None }) => "addition".to_owned(),
                     Some(Proposal::DatImport) => "DAT import".to_owned(),
+                    Some(Proposal::SupportFileImport) => "support file import".to_owned(),
                     None => item.reason.clone().unwrap_or_default(),
                 };
                 println!(
