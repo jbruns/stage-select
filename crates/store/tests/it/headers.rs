@@ -356,6 +356,7 @@ fn selection(sha256: &str, titles: &[&str]) -> Selection {
         groups: titles
             .iter()
             .map(|title| SelectionGroup {
+                dependencies: Vec::new(),
                 group: title.to_lowercase(),
                 unresolved: false,
                 winners: vec![Winner {

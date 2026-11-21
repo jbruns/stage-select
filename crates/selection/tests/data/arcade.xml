@@ -1,0 +1,206 @@
+<?xml version="1.0"?>
+<!-- A synthetic MAME ListXML for the arcade selector's tests. Its names, descriptions and checksums are invented. It
+     holds a BIOS and a device chain that two winners share, a BIOS nothing needs, families that the driver status, the
+     region and a bootleg decide, and machines each filter drops. -->
+<!DOCTYPE mame [
+<!ELEMENT mame (machine+)>
+]>
+<mame build="0.289 (mame0289)" debug="no" mameconfig="10">
+  <machine name="acmebios" sourcefile="acme/acmehw.cpp" isbios="yes">
+    <description>Acme Hardware BIOS</description>
+    <year>1990</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="bios.u1" size="16" crc="a0000001" sha1="a000000000000000000000000000000000000001"/>
+    <device_ref name="acmesnd"/>
+  </machine>
+  <machine name="oldbios" sourcefile="acme/oldhw.cpp" isbios="yes">
+    <description>Acme Old Hardware BIOS</description>
+    <rom name="old.u1" size="16" crc="a0000002" sha1="a000000000000000000000000000000000000002"/>
+  </machine>
+  <machine name="acmesnd" sourcefile="acme/acmesnd.cpp" isdevice="yes" runnable="no">
+    <description>Acme Sound Board</description>
+    <rom name="snd.u2" size="8" crc="a0000003" sha1="a000000000000000000000000000000000000003"/>
+    <device_ref name="z80"/>
+  </machine>
+  <machine name="z80" sourcefile="devices/cpu/z80/z80.cpp" isdevice="yes" runnable="no">
+    <description>Zilog Z80</description>
+  </machine>
+
+  <!-- The driver status decides: an imperfect parent and a good clone. -->
+  <machine name="fighter" sourcefile="acme/fighter.cpp" romof="acmebios">
+    <description>Fighter (World 910522)</description>
+    <year>1991</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="fighter.u3" size="32" crc="a0000004" sha1="a000000000000000000000000000000000000004"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="0"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="imperfect" emulation="imperfect"/>
+  </machine>
+  <machine name="fighteru" sourcefile="acme/fighter.cpp" cloneof="fighter" romof="fighter">
+    <description>Fighter (US 910611)</description>
+    <year>1991</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="fighteru.u3" size="32" crc="a0000005" sha1="a000000000000000000000000000000000000005"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="0"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+
+  <!-- The quality filter drops a preliminary parent, so its good clone wins. It needs a disk and samples. -->
+  <machine name="racer" sourcefile="acme/racer.cpp" sampleof="racer">
+    <description>Racer (Japan)</description>
+    <year>1994</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="racer.u3" size="32" crc="a0000006" sha1="a000000000000000000000000000000000000006"/>
+    <disk name="racer" sha1="d000000000000000000000000000000000000001"/>
+    <sample name="engine"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="paddle"/><control type="pedal"/></input>
+    <driver status="preliminary" emulation="preliminary"/>
+  </machine>
+  <machine name="racera" sourcefile="acme/racer.cpp" cloneof="racer" romof="racer" sampleof="racer">
+    <description>Racer (Asia)</description>
+    <year>1994</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="racera.u3" size="32" crc="a0000007" sha1="a000000000000000000000000000000000000007"/>
+    <disk name="racer" merge="racer" sha1="d000000000000000000000000000000000000001"/>
+    <sample name="engine"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="paddle"/><control type="pedal"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+
+  <!-- The region decides, over the parent: World, then US, Europe and Japan. A World bootleg loses as a bootleg. -->
+  <machine name="shooter" sourcefile="acme/shooter.cpp" romof="acmebios">
+    <description>Shooter (Japan)</description>
+    <year>1992</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="shooter.u3" size="32" crc="a0000008" sha1="a000000000000000000000000000000000000008"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="270"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="shootere" sourcefile="acme/shooter.cpp" cloneof="shooter" romof="shooter">
+    <description>Shooter (Europe)</description>
+    <year>1992</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="shootere.u3" size="32" crc="a0000009" sha1="a000000000000000000000000000000000000009"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="270"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="shooteru" sourcefile="acme/shooter.cpp" cloneof="shooter" romof="shooter">
+    <description>Shooter (US, rev B)</description>
+    <year>1992</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="shooteru.u3" size="32" crc="a000000a" sha1="a00000000000000000000000000000000000000a"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="270"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="shooterw" sourcefile="acme/shooter.cpp" cloneof="shooter" romof="shooter">
+    <description>Shooter (World)</description>
+    <year>1992</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="shooterw.u3" size="32" crc="a000000b" sha1="a00000000000000000000000000000000000000b"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="270"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="shooterb" sourcefile="acme/shooter.cpp" cloneof="shooter" romof="shooter">
+    <description>Shooter (World, bootleg)</description>
+    <year>1993</year>
+    <manufacturer>bootleg</manufacturer>
+    <rom name="shooterb.u3" size="32" crc="a000000c" sha1="a00000000000000000000000000000000000000c"/>
+    <device_ref name="acmesnd"/>
+    <display type="raster" rotate="270"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+
+  <!-- A machine whose region is a word in its title, not a region. -->
+  <machine name="worldh" sourcefile="acme/worldh.cpp">
+    <description>World Heroes (World Heroes 2)</description>
+    <year>1993</year>
+    <rom name="worldh.u3" size="32" crc="a000000d" sha1="a00000000000000000000000000000000000000d"/>
+    <display type="vector" rotate="0"/>
+    <input players="4" coins="4"><control type="joy"/><control type="lightgun"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+
+  <!-- Machines the default filters drop. -->
+  <machine name="crane" sourcefile="acme/crane.cpp" ismechanical="yes">
+    <description>Crane Game</description>
+    <rom name="crane.u3" size="16" crc="a000000e" sha1="a00000000000000000000000000000000000000e"/>
+    <display type="raster" rotate="0"/>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="jukebox" sourcefile="acme/jukebox.cpp">
+    <description>Jukebox</description>
+    <rom name="jukebox.u3" size="16" crc="a000000f" sha1="a00000000000000000000000000000000000000f"/>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="homepc" sourcefile="acme/homepc.cpp">
+    <description>Home PC</description>
+    <rom name="homepc.u3" size="16" crc="a0000010" sha1="a000000000000000000000000000000000000010"/>
+    <display type="raster" rotate="0"/>
+    <input players="1"><control type="keyboard"/></input>
+    <driver status="good" emulation="good"/>
+    <softwarelist tag="flop" name="homepc_flop" status="original"/>
+  </machine>
+  <machine name="typist" sourcefile="acme/typist.cpp">
+    <description>Typing Tutor</description>
+    <rom name="typist.u3" size="16" crc="a0000011" sha1="a000000000000000000000000000000000000011"/>
+    <display type="raster" rotate="0"/>
+    <input players="1"><control type="keyboard"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="calcul8" sourcefile="casio/calc.cpp">
+    <description>Calculator 8</description>
+    <rom name="calcul8.u3" size="16" crc="a0000012" sha1="a000000000000000000000000000000000000012"/>
+    <display type="lcd" rotate="0"/>
+    <input players="1"><control type="keypad"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="pokerace" sourcefile="acme/poker.cpp">
+    <description>Poker Ace</description>
+    <rom name="pokerace.u3" size="16" crc="a0000013" sha1="a000000000000000000000000000000000000013"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="gambling"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="reels" sourcefile="aristocrat/reels.cpp">
+    <description>Reels of Fortune</description>
+    <rom name="reels.u3" size="16" crc="a0000014" sha1="a000000000000000000000000000000000000014"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="mjhouse" sourcefile="acme/mahjong.cpp">
+    <description>Mahjong House (Japan)</description>
+    <rom name="mjhouse.u3" size="16" crc="a0000015" sha1="a000000000000000000000000000000000000015"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="mahjong"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="proto" sourcefile="acme/proto.cpp">
+    <description>Proto Blaster (prototype)</description>
+    <year>1996</year>
+    <rom name="proto.u3" size="16" crc="a0000016" sha1="a000000000000000000000000000000000000016"/>
+    <display type="raster" rotate="0"/>
+    <input players="1" coins="1"><control type="joy"/></input>
+    <driver status="imperfect" emulation="imperfect"/>
+  </machine>
+  <machine name="mystery" sourcefile="acme/mystery.cpp">
+    <description>Mystery Machine</description>
+    <rom name="mystery.u3" size="16" crc="a0000017" sha1="a000000000000000000000000000000000000017"/>
+    <display type="raster"/>
+    <input players="1" coins="1"><control type="joy"/></input>
+  </machine>
+</mame>

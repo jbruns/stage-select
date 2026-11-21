@@ -133,6 +133,7 @@ impl Env {
             groups: titles
                 .iter()
                 .map(|title| SelectionGroup {
+                    dependencies: Vec::new(),
                     group: title.to_lowercase(),
                     unresolved: false,
                     winners: vec![Winner {

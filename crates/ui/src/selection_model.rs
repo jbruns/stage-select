@@ -18,6 +18,7 @@ pub fn role_label(role: Role) -> &'static str {
         Role::Winner => "Selected",
         Role::Alternative => "Alternative",
         Role::Exclusion => "Excluded",
+        Role::Dependency => "Dependency",
     }
 }
 
@@ -720,6 +721,7 @@ mod tests {
 
     fn group(name: &str, winner: &str, alternatives: &[&str], excluded: &[&str]) -> SelectionGroup {
         SelectionGroup {
+            dependencies: Vec::new(),
             group: name.into(),
             unresolved: false,
             winners: vec![Winner {

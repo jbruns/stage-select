@@ -381,6 +381,7 @@ mod tests {
 
     fn group(winners: &[&str], exclusions: &[&str]) -> SelectionGroup {
         SelectionGroup {
+            dependencies: Vec::new(),
             group: "title".into(),
             unresolved: false,
             winners: winners

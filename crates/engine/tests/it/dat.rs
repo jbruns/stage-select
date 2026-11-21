@@ -739,3 +739,115 @@ fn a_software_list_gives_machines_that_know_nothing_and_no_disks() {
     assert_eq!(carried(&dat), []);
     assert!(dat.roms.is_empty());
 }
+
+#[test]
+fn a_dats_format_is_known_by_its_root_element() {
+    let format = |text: &str| Dat::format_of(text.as_bytes()).unwrap();
+    assert_eq!(
+        format(
+            "<?xml version=\"1.0\"?>\n<!DOCTYPE mame [\n<!ELEMENT mame (machine+)>\n]>\n<mame build=\"0.289\">"
+        ),
+        Some(DatFormat::Listxml)
+    );
+    assert_eq!(
+        format("<?xml version=\"1.0\"?><!-- a comment --><datafile><header>"),
+        Some(DatFormat::Logiqx)
+    );
+    assert_eq!(
+        format("<softwarelist name=\"nes\">"),
+        Some(DatFormat::SoftwareList)
+    );
+    assert_eq!(format("clrmamepro (\n\tname \"Test\"\n)"), None);
+    assert_eq!(format("<?xml version=\"1.0\"?><catalogue>"), None);
+    assert_eq!(format(""), None);
+    assert_eq!(format("<?xml version=\"1.0\"?><datafile"), None);
+}
+
+#[test]
+fn a_dats_format_is_found_past_a_prologue_of_any_length() {
+    let preamble = format!(
+        "<?xml version=\"1.0\"?>\n<!-- {} -->\n",
+        "x".repeat(4 << 20)
+    );
+    for (root, format) in [
+        ("<mame build=\"0.289\"></mame>", DatFormat::Listxml),
+        (
+            "<softwarelist name=\"nes\"></softwarelist>",
+            DatFormat::SoftwareList,
+        ),
+    ] {
+        let text = preamble.clone() + root;
+        let reader = std::io::BufReader::with_capacity(1 << 16, text.as_bytes());
+        assert_eq!(Dat::format_of(reader).unwrap(), Some(format));
+        assert_eq!(
+            Dat::parse(text.as_bytes(), Path::new("dat.xml"))
+                .unwrap()
+                .format,
+            format
+        );
+    }
+}
+
+/// A ClrMamePro DAT whose header names an XML root in its text, as `<mame>` in its description.
+fn clrmamepro_naming(root: &str) -> String {
+    format!(
+        "clrmamepro (\n\tname \"Test\"\n\tdescription \"A {root} guide\"\n)\n\ngame (\n\tname \"game\"\n)\n"
+    )
+}
+
+#[test]
+fn a_dat_that_opens_with_no_markup_is_no_xml_whatever_its_text_names() {
+    for root in ["<mame>", "<softwarelist>", "<datafile>"] {
+        let text = clrmamepro_naming(root);
+        assert_eq!(Dat::format_of(text.as_bytes()).unwrap(), None, "{root}");
+        assert!(
+            Dat::parse(text.as_bytes(), Path::new("test.dat")).is_err(),
+            "{root}"
+        );
+    }
+    let format = |text: &str| Dat::format_of(text.as_bytes()).unwrap();
+    assert_eq!(
+        format("\u{feff}\r\n\t <mame build=\"0.289\">"),
+        Some(DatFormat::Listxml)
+    );
+    assert_eq!(
+        format("<?pi data?>\n<softwarelist name=\"nes\">"),
+        Some(DatFormat::SoftwareList)
+    );
+    assert_eq!(format("\u{feff}  \n"), None);
+    let parsed = Dat::parse(
+        "\u{feff}\n<mame build=\"0.289\"></mame>".as_bytes(),
+        Path::new("mame.xml"),
+    );
+    assert_eq!(parsed.unwrap().format, DatFormat::Listxml);
+}
+
+/// Counts the bytes read through it.
+struct Counting<R> {
+    inner: R,
+    read: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl<R: std::io::Read> std::io::Read for Counting<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.read.set(self.read.get() + n);
+        Ok(n)
+    }
+}
+
+#[test]
+fn a_text_dats_format_is_known_from_a_bounded_prefix() {
+    let text = clrmamepro_naming("plain") + &"game (\n\tname \"game\"\n)\n".repeat(1 << 20);
+    assert!(text.len() > 16 << 20);
+    let read = std::rc::Rc::default();
+    let reader = std::io::BufReader::with_capacity(
+        1 << 16,
+        Counting {
+            inner: text.as_bytes(),
+            read: std::rc::Rc::clone(&read),
+        },
+    );
+    assert_eq!(Dat::format_of(reader).unwrap(), None);
+    assert!(read.get() <= 1 << 16, "read {} bytes", read.get());
+}

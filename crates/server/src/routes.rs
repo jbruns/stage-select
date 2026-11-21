@@ -351,7 +351,9 @@ impl From<title_select_selection::Error> for ApiError {
     fn from(err: title_select_selection::Error) -> ApiError {
         use title_select_selection::Error as E;
         let status = match &err {
-            E::Profile(_) | E::Patterns(_) | E::Unsupported(_) => StatusCode::BAD_REQUEST,
+            E::Profile(_) | E::Patterns(_) | E::Unsupported(_) | E::Refused(_) | E::Dat(_) => {
+                StatusCode::BAD_REQUEST
+            }
             E::Cancelled => StatusCode::CONFLICT,
             E::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             E::Install(_) => StatusCode::SERVICE_UNAVAILABLE,

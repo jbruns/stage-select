@@ -893,7 +893,8 @@ impl Store {
         let rel = self.check_library_path(config, &add.root, &rel)?;
         let root = config.root(&add.root).expect("a checked root");
         self.read(|c| {
-            set_by_name(c, &add.source_set)?;
+            let set = set_by_name(c, &add.source_set)?;
+            crate::dats::check_selectable(c, set.dat_id)?;
             active_profile_id(c, &add.profile)?;
             Ok(())
         })?;

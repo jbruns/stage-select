@@ -590,6 +590,7 @@ fn select(env: &Env, title: &str, sha256: &str) -> i64 {
         summary: SelectionSummary::default(),
         coverage_drift: CoverageDrift::default(),
         groups: vec![SelectionGroup {
+            dependencies: Vec::new(),
             group: title.to_lowercase(),
             unresolved: false,
             winners: vec![Winner {

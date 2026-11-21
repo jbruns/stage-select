@@ -325,6 +325,7 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
 fn row<'r>(rows: &'r mut BTreeMap<String, SelectionGroup>, name: &str) -> &'r mut SelectionGroup {
     rows.entry(name.to_owned())
         .or_insert_with(|| SelectionGroup {
+            dependencies: Vec::new(),
             group: name.to_owned(),
             unresolved: false,
             winners: Vec::new(),

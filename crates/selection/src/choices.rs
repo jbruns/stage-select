@@ -127,12 +127,13 @@ fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
 }
 
 /// Recounts the summary from the groups.
-fn recount(selection: &mut Selection) {
+pub(crate) fn recount(selection: &mut Selection) {
     let summary = &mut selection.summary;
     summary.groups = selection.groups.len();
     summary.winners = selection.groups.iter().map(|g| g.winners.len()).sum();
     summary.alternatives = selection.groups.iter().map(|g| g.alternatives.len()).sum();
     summary.exclusions = selection.groups.iter().map(|g| g.exclusions.len()).sum();
+    summary.dependencies = selection.groups.iter().map(|g| g.dependencies.len()).sum();
     summary.unresolved = selection.groups.iter().filter(|g| g.unresolved).count();
     let status = |s: ChoiceStatus| {
         selection
@@ -174,6 +175,7 @@ mod tests {
                 ..CoverageDrift::default()
             },
             groups: vec![SelectionGroup {
+                dependencies: Vec::new(),
                 group: "game".into(),
                 unresolved,
                 winners: vec![Winner {

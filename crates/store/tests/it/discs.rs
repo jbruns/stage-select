@@ -403,6 +403,7 @@ fn files_in(dir: &Path) -> Vec<String> {
 
 fn group(title: &str) -> SelectionGroup {
     SelectionGroup {
+        dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
         winners: vec![Winner {

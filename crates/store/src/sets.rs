@@ -245,6 +245,7 @@ impl Store {
             let (provider, dat_name) = split_dat(&dat)?;
             let dat_id: i64 = crate::dats::catalogued_dat(tx, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))?;
+            crate::dats::check_coverable(tx, dat_id, coverage.as_deref())?;
             let clash: Option<String> = tx
                 .query_row(
                     "SELECT name FROM source_sets
@@ -304,6 +305,7 @@ impl Store {
         let coverage = coverage_json(coverage)?;
         self.write(|tx| {
             let set = set_by_name(tx, name)?;
+            crate::dats::check_coverable(tx, set.dat_id, coverage.as_deref())?;
             // An approved repair carries out a plan made for the Coverage it had (ADR 0021).
             let repairing: Option<i64> = tx
                 .query_row(

@@ -1157,6 +1157,7 @@ mod profiles_and_selections {
             coverage_drift: CoverageDrift::default(),
             groups: vec![
                 SelectionGroup {
+                    dependencies: Vec::new(),
                     group: "combat".into(),
                     unresolved: false,
                     winners: vec![Winner {
@@ -1170,6 +1171,7 @@ mod profiles_and_selections {
                     drift: true,
                 },
                 SelectionGroup {
+                    dependencies: Vec::new(),
                     group: "pong".into(),
                     unresolved: false,
                     winners: vec![],

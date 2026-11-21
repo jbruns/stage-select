@@ -20,7 +20,7 @@ use title_select_api::storage::{
     Laid, Storage, StorageFormat, StorageScope, lay_out, multidisc_dir, playlist, playlist_name,
     release_of, sbi_beside,
 };
-use title_select_api::{DatRevisionRecord, Job, Workers};
+use title_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
 use title_select_engine::dat::Dat;
 
@@ -2585,6 +2585,11 @@ impl Store {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
         })?;
+        if !choices.remove_all && inputs.revision.format == DatFormat::SoftwareList {
+            return Err(Error::Refused(
+                title_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
+            ));
+        }
         inputs.copy_across = self.across_filesystems(None);
         if inputs.storage.sbi {
             inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;

@@ -25,7 +25,20 @@ pub(crate) use pipeline::run;
 
 /// Reads one of the Operator's `/pattern` lines as Python's `re` would, or says why the engine can't.
 pub(crate) fn user_regex(pattern: &str) -> Result<(), String> {
-    pyre::Re::user(pattern).map(|_| ())
+    UserRegex::new(pattern).map(|_| ())
+}
+
+/// One of the Operator's `/pattern` lines, compiled as Python's `re` reads it without case.
+pub(crate) struct UserRegex(pyre::Re);
+
+impl UserRegex {
+    pub fn new(pattern: &str) -> Result<UserRegex, String> {
+        pyre::Re::user(pattern).map(UserRegex)
+    }
+
+    pub fn search(&self, text: &str) -> bool {
+        self.0.search(text)
+    }
 }
 
 /// The system `dat` is for, as its header names it, or `None` for a DAT the engine can't read.

@@ -160,6 +160,40 @@ impl OrderKey {
     }
 }
 
+/// The DAT Format of the DAT `dat_id`'s newest revision, or `None` before it has one.
+pub(crate) fn dat_format(c: &Connection, dat_id: i64) -> Result<Option<DatFormat>> {
+    let format: Option<String> = c
+        .query_row(
+            "SELECT format FROM dat_revisions WHERE dat_id = ?1 AND deleted_at IS NULL
+             ORDER BY import_seq DESC LIMIT 1",
+            [dat_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(format.as_deref().and_then(DatFormat::parse))
+}
+
+/// Refuses a Selection, Library Folder or Build of the DAT `dat_id` when it is a MAME software list (ADR 0027's
+/// amendment).
+pub(crate) fn check_selectable(c: &Connection, dat_id: i64) -> Result<()> {
+    match dat_format(c, dat_id)? {
+        Some(DatFormat::SoftwareList) => Err(Error::Refused(
+            title_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Refuses Coverage for the DAT `dat_id` when it is a MAME ListXML (ADR 0027).
+pub(crate) fn check_coverable(c: &Connection, dat_id: i64, coverage: Option<&str>) -> Result<()> {
+    match (coverage, dat_format(c, dat_id)?) {
+        (Some(_), Some(DatFormat::Listxml)) => Err(Error::Refused(
+            title_select_api::selection::ARCADE_COVERAGE_REFUSAL.to_owned(),
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// The DAT `<provider>/<name>`, spelled exactly so.
 pub(crate) fn find_dat(c: &Connection, provider: &str, name: &str) -> Result<Option<i64>> {
     Ok(c.query_row(

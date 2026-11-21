@@ -4,6 +4,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod arcade;
 mod conformance;
 mod discs;
 mod fetch;
