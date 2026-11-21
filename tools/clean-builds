@@ -1,0 +1,234 @@
+#!/bin/sh
+# Frees the disk that finished agent work leaves behind: T3 worktrees whose branch is done, and the build and scratch
+# folders in /tmp (tools/check's /tmp/ts-target-<worktree folder>, and /tmp/ts-<issue>-*) whose worktree is gone or
+# whose branch is done. A branch is done when its PR is merged or closed, or when origin/main already holds its
+# commits; without gh, only that last test applies.
+#
+#   tools/clean-builds [--dry-run]   list what it would remove, and the space that would free (the default)
+#   tools/clean-builds --yes         remove it, and report the space freed
+#
+# It never removes the main worktree, this worktree, a locked worktree, a worktree with tracked changes or untracked
+# files, or anything modified in the last 60 minutes. Needs git and the POSIX tools, and gh to see PRs.
+set -eu
+
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo"
+
+fail() {
+    echo "clean-builds: $*" >&2
+    exit 1
+}
+
+say() {
+    echo "clean-builds: $*"
+}
+
+act=
+case ${1:-} in
+'' | --dry-run) ;;
+--yes) act=1 ;;
+*) fail "unknown option $1 (see the top of $0)" ;;
+esac
+[ $# -le 1 ] || fail "takes one option at most"
+
+base_ref=origin/main
+git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null || fail "needs $base_ref; run git fetch origin"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+tab=$(printf '\t')
+
+# Every PR's branch, state and head commit, newest first, in one call rather than one per branch.
+: >"$work/prs"
+if ! command -v gh >/dev/null 2>&1 ||
+    ! gh pr list --state all --limit 1000 --json headRefName,state,headRefOid \
+        --jq '.[] | [.headRefName, .state, .headRefOid] | @tsv' >"$work/prs" 2>/dev/null; then
+    : >"$work/prs"
+    say "gh is missing or failed: a branch counts as done only when $base_ref holds its commits"
+fi
+
+# Whether anything under $1 changed in the last 60 minutes.
+recent() {
+    [ -n "$(find "$1" -mmin -60 -print 2>/dev/null | head -n 1)" ]
+}
+
+# Whether worktree git folder $1 saw a commit or checkout in the last 60 minutes. Its index is left out: any
+# `git status` rewrites it.
+recent_git() {
+    [ -n "$(find "$1/HEAD" "$1/logs/HEAD" -mmin -60 -print 2>/dev/null)" ]
+}
+
+# "done: <why>" or "live: <why>" for branch $1 (empty when detached) at commit $2.
+state() {
+    if [ "$1" = main ]; then
+        echo "live: main"
+        return
+    fi
+    # A branch's PRs, or for a detached worktree, the PRs whose head is its commit.
+    pr=$(awk -F "$tab" -v b="$1" -v h="$2" '(b != "" ? $1 == b : $3 == h) {
+            if ($2 == "OPEN") open = 1; else if (s == "") s = $2 }
+        END { print open ? "OPEN" : (s != "" ? s : "NONE") }' "$work/prs")
+    case $pr in
+    OPEN)
+        echo "live: PR open"
+        return
+        ;;
+    MERGED)
+        echo "done: PR merged"
+        return
+        ;;
+    CLOSED)
+        echo "done: PR closed"
+        return
+        ;;
+    esac
+    if git merge-base --is-ancestor "$2" "$base_ref" 2>/dev/null; then
+        echo "done: $base_ref holds its commits"
+    else
+        echo "live: commits not on $base_ref"
+    fi
+}
+
+kb() {
+    du -sk "$1" 2>/dev/null | awk '{ print $1 }'
+}
+
+human() {
+    awk -v k="$1" 'BEGIN { printf "%.1f GB", k / 1048576 }'
+}
+
+# Free space, summed over the disks that hold /tmp and the worktrees.
+available() {
+    # shellcheck disable=SC2086 # one root per word
+    df -Pk /tmp $roots | awk 'NR > 1 && !seen[$1]++ { s += $4 } END { print s }'
+}
+
+# Each worktree as path, commit, branch and "locked" or "", tab-separated.
+git worktree list --porcelain | awk -v OFS="$tab" '
+    /^worktree / { path = substr($0, 10); head = ""; branch = ""; locked = "" }
+    /^HEAD / { head = $2 }
+    /^branch / { branch = substr($2, 12) }
+    /^locked/ { locked = "locked" }
+    /^$/ && path != "" { print path, head, branch, locked; path = "" }
+    END { if (path != "") print path, head, branch, locked }' >"$work/list"
+
+main_wt=$(head -n 1 "$work/list" | cut -f1)
+this_wt=$(git rev-parse --show-toplevel)
+freed=0
+# The T3 worktrees root: the folder holding the t3-* worktrees.
+roots=$(cut -f1 "$work/list" | sed -n 's|/t3-[^/]*$||p' | sort -u)
+before=$(available)
+
+# Worktrees: each one's folder name, branch, state and whether it stays, for the /tmp folders below.
+: >"$work/worktrees"
+for root in $roots; do
+    say "worktrees under $root:"
+done
+[ -n "$roots" ] || say "no T3 worktrees"
+while IFS="$tab" read -r path head branch locked; do
+    name=$(basename -- "$path")
+    [ -d "$path" ] || continue
+    st=$(state "$branch" "$head")
+    label="${branch:-detached at $(printf '%.7s' "$head")}"
+    verdict=keep
+    why=${st#*: }
+    case $name in t3-*) t3=1 ;; *) t3= ;; esac
+    if [ -z "$t3" ] || [ "$path" = "$main_wt" ]; then
+        verdict=skip
+    elif [ "$path" = "$this_wt" ]; then
+        why="this worktree"
+    elif [ -n "$locked" ]; then
+        why="locked"
+    elif [ "${st%%:*}" = live ]; then
+        :
+    elif recent "$path" || recent_git "$(git -C "$path" rev-parse --absolute-git-dir)"; then
+        why="modified in the last 60 minutes"
+    elif [ -n "$(git --no-optional-locks -C "$path" status --porcelain 2>/dev/null)" ]; then
+        # --no-optional-locks keeps status from rewriting the index, which would make the worktree look recent.
+        why="has changes"
+    else
+        verdict=remove
+    fi
+    if [ "$verdict" = remove ]; then
+        size=$(kb "$path")
+        if [ -n "$act" ]; then
+            if git worktree remove -- "$path" 2>"$work/err"; then
+                echo "  removed  $name  ($label: $why, $(human "$size"))"
+                freed=$((freed + size))
+            else
+                verdict=keep
+                echo "  kept     $name  ($label: git refused: $(head -n 1 "$work/err"))"
+            fi
+        else
+            echo "  remove   $name  ($label: $why, $(human "$size"))"
+            freed=$((freed + size))
+        fi
+    elif [ "$verdict" = keep ]; then
+        echo "  keep     $name  ($label: $why)"
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$name" "$branch" "${st%%:*}" "$verdict" >>"$work/worktrees"
+done <"$work/list"
+
+# The worktree a /tmp folder belongs to: "gone", "done" or "live". A worktree being removed counts as gone.
+owner_of_target() {
+    awk -F "$tab" -v n="$1" '
+        $1 == n { found = 1; s = ($4 == "remove") ? "gone" : $3 }
+        END { print found ? s : "gone" }' "$work/worktrees"
+}
+
+owner_of_issue() {
+    awk -F "$tab" -v n="$1" '
+        index($2, n "-") == 1 && $4 != "remove" { found = 1; if ($3 == "live") s = "live"; else if (s == "") s = "done" }
+        END { print found ? s : "gone" }' "$work/worktrees"
+}
+
+say "build and scratch folders in /tmp:"
+found=
+for item in /tmp/ts-*; do
+    [ -e "$item" ] || continue
+    found=1
+    name=${item#/tmp/ts-}
+    case $name in
+    target-*)
+        owner=$(owner_of_target "${name#target-}")
+        whose="worktree ${name#target-}"
+        ;;
+    [0-9]*)
+        issue=${name%%[!0-9]*}
+        owner=$(owner_of_issue "$issue")
+        whose="#$issue's worktrees"
+        ;;
+    *)
+        echo "  keep     $item  (no worktree to match it to)"
+        continue
+        ;;
+    esac
+    case $owner in
+    live)
+        echo "  keep     $item  ($whose: in use)"
+        continue
+        ;;
+    gone) why="$whose: gone" ;;
+    done) why="$whose: branch done" ;;
+    esac
+    if recent "$item"; then
+        echo "  keep     $item  ($why, but modified in the last 60 minutes)"
+        continue
+    fi
+    size=$(kb "$item")
+    if [ -n "$act" ]; then
+        rm -rf -- "$item"
+        echo "  removed  $item  ($why, $(human "$size"))"
+    else
+        echo "  remove   $item  ($why, $(human "$size"))"
+    fi
+    freed=$((freed + size))
+done
+[ -n "$found" ] || echo "  none"
+
+if [ -n "$act" ]; then
+    after=$(available)
+    say "free space: $(human "$before") before, $(human "$after") after, $(human $((after - before))) freed"
+else
+    say "dry run: removing these would free about $(human "$freed"); pass --yes to remove them"
+fi
