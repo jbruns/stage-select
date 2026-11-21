@@ -11,6 +11,9 @@ crates/ui/bench/
 # The clone-list pins, which the binary embeds, and the script that fetches what they pin.
 !third_party/clone-lists/pins.toml
 !tools/clone-lists/fetch
+# The curated-list pin, and the script that fetches what it pins.
+!third_party/curated-list/pins.toml
+!tools/curated-list/fetch
 # Retool's licence, for the About page: the selection engine is a port of Retool.
 !third_party/retool/LICENSE
 # The stand-in for SDL that chdman is built with.
