@@ -65,6 +65,11 @@ fn located(path: &str) -> Located {
     split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
 }
 
+/// Whether `path` is a file of a Placed Game other than `game`.
+fn placed_elsewhere(i: &Inputs, path: &str, game: &str) -> bool {
+    i.placed_files.get(path).is_some_and(|of| of != game)
+}
+
 /// Why a repair leaves a Placed Game it would have to convert.
 const PLACED_WRITES: &str = "it is placed in a play library folder, where a repair renames, repacks, replaces or \
      completes its files but doesn't yet convert them";
@@ -142,8 +147,8 @@ type RomKey = (String, String);
 /// Where the Set Layout keeps each ROM (ADR 0026): the ROMs each Game's ZIP or folder holds, and which ROMs are one ROM
 /// shared through `merge=`. Only a ListXML DAT has a Set Layout; for any other, each Game holds the ROMs it lists and
 /// every ROM is only itself. The layout is the Source Set's, for the files in its folder: a Placed Game is a Library
-/// Folder's self-contained Game, so it is laid out non-merged whatever the layout, and no repair strips the BIOS or
-/// device ROMs it runs with or adds its clones' to it.
+/// Folder's self-contained Game, laid out apart ([`Dat::laid_out_apart`]), so no repair strips the BIOS or device ROMs
+/// it runs with, adds its clones' to it, or puts its ROMs in its merged parent's ZIP.
 struct LayoutIndex<'a> {
     dat: &'a Dat,
     layout: Option<SetLayout>,
@@ -157,22 +162,7 @@ impl<'a> LayoutIndex<'a> {
         let layout = storage
             .set_layout
             .filter(|_| dat.format == DatFormat::Listxml);
-        let mut laid = dat.laid_out(layout);
-        let is_placed = |g: usize| placed.contains_key(&dat.games[g]);
-        if layout.is_some_and(|l| l != SetLayout::NonMerged) && !placed.is_empty() {
-            let whole = dat.laid_out(Some(SetLayout::NonMerged));
-            for (g, roms) in whole
-                .roms
-                .into_iter()
-                .enumerate()
-                .filter(|(g, _)| is_placed(*g))
-            {
-                laid.roms[g] = roms;
-            }
-            laid.left_out.retain(|&(g, _)| !is_placed(g));
-            laid.left_out
-                .extend(whole.left_out.into_iter().filter(|&(g, _)| is_placed(g)));
-        }
+        let laid = dat.laid_out_apart(layout, |g| placed.contains_key(&dat.games[g]));
         LayoutIndex {
             dat,
             layout,
@@ -1535,11 +1525,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // another Game's Placed files, which hold a copy of each BIOS or device ROM that Game runs with.
     let mut found_at: HashMap<&str, BTreeSet<Located>> = HashMap::new();
     for ((game, _), paths) in &held_by {
-        found_at.entry(game.as_str()).or_default().extend(
-            (paths.iter())
-                .filter(|p| i.placed_files.get(**p).is_none_or(|of| of == game))
-                .map(|p| located(p)),
-        );
+        let at: BTreeSet<Located> = paths
+            .iter()
+            .filter(|p| !placed_elsewhere(i, p, game))
+            .map(|p| located(p))
+            .collect();
+        if !at.is_empty() {
+            found_at.entry(game.as_str()).or_default().extend(at);
+        }
     }
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = &wanted[index];
@@ -1583,7 +1576,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     true => placed_path(*folder, name),
                     false => placed_path(*folder, &format!("{dir}/{name}")),
                 };
-                // Its own files: the BIOS or device ROMs it holds are also in those Games' files.
+                // Its own files, not the BIOS's or devices' own, which hold the ROMs of them it holds too.
                 let held: BTreeSet<&str> = roms
                     .iter()
                     .filter_map(|r| held_by.get(&(game.clone(), r.name.clone())))
@@ -1653,7 +1646,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 || kept_conflicts.contains(path)
                 || left_conflicts.contains(path)
                 || located(path) != location
-                || i.placed_files.get(*path).is_some_and(|of| of != game)
+                || placed_elsewhere(i, path, game)
             {
                 continue;
             }

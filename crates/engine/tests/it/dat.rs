@@ -173,6 +173,33 @@ fn a_set_layout_says_which_roms_each_games_zip_holds_and_no_zip_holds_a_disk() {
 }
 
 #[test]
+fn a_game_stored_apart_is_laid_out_non_merged_and_its_merged_parent_holds_none_of_its_roms() {
+    let dat = family();
+    let blasterj = index(&dat, "blasterj");
+    let names = |roms: &Option<Vec<usize>>| -> Option<Vec<&str>> {
+        (roms.as_ref()).map(|roms| roms.iter().map(|&r| dat.roms[r].name.as_str()).collect())
+    };
+    let whole = dat.laid_out(Some(SetLayout::NonMerged));
+    let split = dat.laid_out(Some(SetLayout::Split));
+
+    for layout in SetLayout::ALL {
+        let laid = dat.laid_out_apart(Some(layout), |g| g == blasterj);
+        assert_eq!(
+            names(&laid.roms[blasterj]),
+            names(&whole.roms[blasterj]),
+            "{layout:?}"
+        );
+        // Merged, the parent holds only its own ROMs, as split.
+        let blaster = index(&dat, "blaster");
+        let parent = match layout {
+            SetLayout::NonMerged => &whole.roms[blaster],
+            _ => &split.roms[blaster],
+        };
+        assert_eq!(names(&laid.roms[blaster]), names(parent), "{layout:?}");
+    }
+}
+
+#[test]
 fn a_zip_holds_one_rom_of_a_name_and_says_which_it_left_out() {
     let xml = br#"<?xml version="1.0"?>
 <mame build="0.289 (mame0289)">

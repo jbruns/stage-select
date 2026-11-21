@@ -109,12 +109,13 @@ fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
     zips
 }
 
-/// A store with the MAME Source Set `mame` in the Root `sets`, which lets repairs write it, and the writable Root `play`
-/// for a Library Folder.
+/// A store with the MAME Source Set `mame` in the Root `sets`, which lets repairs write it, and the Library Folder
+/// `arcade` bound to it in the writable Root `play`, by its id.
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
     config: Config,
+    folder: i64,
 }
 
 impl Env {
@@ -141,7 +142,35 @@ impl Env {
         store
             .add_source_set(&config, "sets", "mame", &revision.dat)
             .unwrap();
-        Env { tmp, store, config }
+        store
+            .save_profile(
+                "Mine",
+                &SelectionProfile::default(),
+                None,
+                "Operator",
+                &[],
+                WORKERS,
+            )
+            .unwrap();
+        let folder = store
+            .add_library_folder(
+                &config,
+                &AddLibraryFolder {
+                    root: "play".into(),
+                    path: Some("arcade".into()),
+                    template: None,
+                    source_set: "mame".into(),
+                    profile: "Mine".into(),
+                },
+            )
+            .unwrap()
+            .id;
+        Env {
+            tmp,
+            store,
+            config,
+            folder,
+        }
     }
 
     fn set(&self) -> PathBuf {
@@ -160,42 +189,18 @@ impl Env {
         write_zip(&self.set().join(zip), members);
     }
 
-    /// The Library Folder `arcade`, bound to the Source Set and so holding its Placed Games.
+    /// The Library Folder `arcade`: the only one bound to the Source Set, so the one holding its Placed Games.
     fn library(&self) -> PathBuf {
         self.tmp.path().join("play/arcade")
     }
 
-    /// Writes `game`'s TorrentZip holding `members` in the Library Folder `arcade`, which it adds, and records it placed
-    /// there, as Single Copy places a self-contained Game.
+    /// Writes `game`'s TorrentZip holding `members` in the Library Folder, and records it placed there, as Single Copy
+    /// places a self-contained Game.
     fn place(&self, game: &str, members: &[&str]) {
-        self.store
-            .save_profile(
-                "Mine",
-                &SelectionProfile::default(),
-                None,
-                "Operator",
-                &[],
-                WORKERS,
-            )
-            .unwrap();
-        let folder = self
-            .store
-            .add_library_folder(
-                &self.config,
-                &AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("arcade".into()),
-                    template: None,
-                    source_set: "mame".into(),
-                    profile: "Mine".into(),
-                },
-            )
-            .unwrap();
-        std::fs::create_dir_all(self.library()).unwrap();
         let name = format!("{game}.zip");
         write_zip(&self.library().join(&name), members);
         self.store
-            .record_placement(&self.config, "mame", game, folder.id, &[&name])
+            .record_placement(&self.config, "mame", game, self.folder, &[&name])
             .unwrap();
     }
 
@@ -608,17 +613,39 @@ fn choosing_to_repair_one_game_of_a_family_another_is_left_by_default_is_refused
 
 #[test]
 fn a_placed_game_stays_self_contained_whatever_the_source_sets_layout() {
-    for layout in SetLayout::ALL {
-        for placed in ["blaster", "blasterj"] {
-            a_placed_game_stays_self_contained_under(layout, placed);
-        }
+    let unchanged = |placed: &str| {
+        let mut zips = expect(SetLayout::NonMerged);
+        zips.retain(|(zip, _)| *zip != format!("{placed}.zip"));
+        zips
+    };
+    let parent_split = || {
+        let mut zips = unchanged("blasterj");
+        zips[2].1 = vec!["gfx.u4".into(), "prog.u3".into()];
+        zips
+    };
+    for (layout, placed, set) in [
+        (SetLayout::NonMerged, "blaster", unchanged("blaster")),
+        (SetLayout::NonMerged, "blasterj", unchanged("blasterj")),
+        // The clone keeps the graphics it shares with its parent: the source set's folder has no other copy.
+        (SetLayout::Split, "blaster", unchanged("blaster")),
+        (SetLayout::Split, "blasterj", parent_split()),
+        // The clone's ZIP has no merged parent's ZIP in the source set's folder to go in.
+        (SetLayout::Merged, "blaster", unchanged("blaster")),
+        // The merged parent's ZIP holds none of its placed clone's ROMs.
+        (SetLayout::Merged, "blasterj", parent_split()),
+    ] {
+        a_placed_game_stays_self_contained_under(layout, placed, set);
     }
 }
 
-/// The family is stored non-merged with `placed` placed in a Library Folder, its BIOS and device ROMs inside; you
-/// change the set layout to `layout` and apply every item as it is by default. A split clone whose parent is placed
-/// keeps the ROMs it shares with it, the only copy in the source set's folder, so it may stay as it is.
-fn a_placed_game_stays_self_contained_under(layout: SetLayout, placed: &str) {
+/// The family is stored non-merged with `placed` placed in the Library Folder, its BIOS and device ROMs inside; the
+/// Operator changes the Set Layout to `layout` and applies every item as it is by default, which leaves the Source
+/// Set's ZIPs as `set` gives.
+fn a_placed_game_stays_self_contained_under(
+    layout: SetLayout,
+    placed: &str,
+    set: Vec<(String, Vec<String>)>,
+) {
     let env = Env::new();
     let mut stored = family(SetLayout::NonMerged);
     let at = stored
@@ -635,19 +662,21 @@ fn a_placed_game_stays_self_contained_under(layout: SetLayout, placed: &str) {
 
     let plan = env.plan();
 
+    let items = &plan.content.items;
     assert!(
-        (plan.content.items.iter()).all(|i| i.game.as_deref() != Some(placed)),
-        "{layout:?}, {placed}: {:#?}",
-        plan.content.items
+        items.iter().all(|i| i.game.as_deref() != Some(placed)),
+        "{layout:?}, {placed}: {items:#?}"
     );
     let report = env.approve(&plan);
     let zip = env.library().join(format!("{placed}.zip"));
     assert_eq!(members(&zip), own, "{layout:?}, {placed}");
     assert!(is_torrentzip(&zip), "{layout:?}, {placed}");
+    assert_eq!(env.listing().0, set, "{layout:?}, {placed}");
     verified(&report);
+    let next = env.plan().content.items;
     assert!(
-        (env.plan().content.items.iter()).all(|i| i.chosen == RepairChoice::Leave),
-        "{layout:?}, {placed}: nothing more to repair"
+        next.iter().all(|i| i.chosen == RepairChoice::Leave),
+        "{layout:?}, {placed}: {next:#?}"
     );
 }
 
@@ -687,4 +716,23 @@ fn a_placed_game_keeps_its_bios_rom_named_its_own_way_when_the_set_layout_turns_
     assert_eq!(members(&env.library().join("blaster.zip")), own);
     assert!(is_torrentzip(&env.set().join("acmebios.zip")));
     verified(&report);
+}
+
+#[test]
+fn a_bios_whose_rom_only_a_placed_game_holds_is_missing_from_the_source_sets_folder() {
+    let env = Env::new();
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    env.place("blaster", &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]);
+    env.audit();
+
+    let plan = env.plan();
+
+    let notes = &plan.content.notes;
+    assert!(
+        notes.contains(
+            &"acmebios is left as it is: no ingest folder holds it whole, with its payloads read"
+                .into()
+        ),
+        "{notes:#?}"
+    );
 }
