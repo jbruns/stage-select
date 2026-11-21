@@ -291,9 +291,6 @@ struct Brought {
     asset_url: Option<String>,
     commit: Option<String>,
     support: Option<String>,
-    for_revision: Option<i64>,
-    /// The `import_seq` `for_revision` had when the fetch chose it.
-    for_import_seq: Option<i64>,
 }
 
 impl Brought {
@@ -736,6 +733,7 @@ impl Store {
                         trigger,
                         actor,
                         &url,
+                        None,
                         |s, _, f| s.check_mame_release(f, &url, web),
                     )?;
                     if let Some(attempt) = attempt {
@@ -832,6 +830,7 @@ impl Store {
                 trigger,
                 actor,
                 &step.url,
+                None,
                 |s, fetch, f| {
                     let mut brought = match step.artifact {
                         FetchArtifact::Dat
@@ -882,7 +881,8 @@ impl Store {
         report: &mut FetchReport,
     ) -> Result<()> {
         let provider = FetchProvider::Mame;
-        // The import_seq comes with the revision, from the query that chose it, and every request records it.
+        // The import_seq comes with the revision, from the query that chose it; each request records both as it is
+        // reserved.
         let Some(owed) = self.read(support_owed)? else {
             return Ok(());
         };
@@ -902,8 +902,10 @@ impl Store {
             trigger,
             actor,
             &url,
-            |s, _, f| s.check_support_commit(f, &url, target),
+            Some(target),
+            |s, _, f| s.check_support_commit(f, &url),
         )?;
+        // Not due, or the ListXML it was for was deleted outright after it was chosen.
         let Some(attempt) = attempt else {
             return Ok(());
         };
@@ -928,7 +930,8 @@ impl Store {
                 trigger,
                 actor,
                 &url,
-                |s, _, f| s.keep_fetched_support(kind, f, &commit, target),
+                Some(target),
+                |s, _, f| s.keep_fetched_support(kind, f, &commit),
             )?;
             // Another fetch reserved this request first.
             let Some(attempt) = attempt else { continue };
@@ -944,7 +947,6 @@ impl Store {
         &self,
         fetched: Fetched,
         url: &str,
-        (revision, seq): (i64, i64),
     ) -> std::result::Result<Brought, String> {
         let commit = String::from_utf8_lossy(&fetched.bytes).trim().to_owned();
         if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -966,8 +968,6 @@ impl Store {
         let same = previous.is_some_and(|(a, _)| a.commit.as_deref() == Some(commit.as_str()));
         Ok(Brought {
             commit: Some(commit),
-            for_revision: Some(revision),
-            for_import_seq: Some(seq),
             ..Brought::new(if same {
                 FetchOutcome::Unchanged
             } else {
@@ -982,7 +982,6 @@ impl Store {
         kind: SupportFileKind,
         fetched: Fetched,
         commit: &str,
-        (revision, seq): (i64, i64),
     ) -> std::result::Result<Brought, String> {
         let file = kind.file_name();
         let (named, _) = crate::support_files::read_header(&fetched.bytes, &fetched.url)?;
@@ -1005,8 +1004,6 @@ impl Store {
         Ok(Brought {
             commit: Some(commit.to_owned()),
             support: Some(record.sha256),
-            for_revision: Some(revision),
-            for_import_seq: Some(seq),
             ..Brought::new(if outcome == ImportOutcome::Added {
                 FetchOutcome::Added
             } else {
@@ -1018,6 +1015,11 @@ impl Store {
     /// Reserves a request by recording it, unless one for the same system's artifact was recorded within a day, sends
     /// it and runs `then` on its body, and records how it ended. Returns `None`, sending nothing, if it was not due:
     /// the check and the record are one transaction, so no two fetches can both send it.
+    ///
+    /// `for_listxml`, a Support File request's ListXML DAT Revision by id and the import_seq it was chosen at, is
+    /// recorded with the reservation, so that while the request is in flight the revision's row is named by history:
+    /// deleting it keeps the row, whose id and import_seq no later import can take. `None`, sending nothing, if that
+    /// id no longer has that import_seq: the row was deleted outright, and its id perhaps taken, after it was chosen.
     #[allow(clippy::too_many_arguments)]
     fn attempt(
         &self,
@@ -1028,15 +1030,28 @@ impl Store {
         trigger: FetchTrigger,
         actor: &str,
         url: &str,
+        for_listxml: Option<(i64, i64)>,
         then: impl FnOnce(&Store, i64, Fetched) -> std::result::Result<Brought, String>,
     ) -> Result<Option<FetchAttempt>> {
         let id = self.write(|tx| {
             if next_at(tx, provider, system, artifact)?.is_some() {
                 return Ok(None);
             }
+            if let Some((revision, import_seq)) = for_listxml {
+                let same: bool = tx.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM dat_revisions WHERE id = ?1 AND import_seq = ?2)",
+                    [revision, import_seq],
+                    |r| r.get(0),
+                )?;
+                if !same {
+                    return Ok(None);
+                }
+            }
+            let (for_revision, for_import_seq) = for_listxml.unzip();
             tx.execute(
-                "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, for_revision_id,
+                                      for_import_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     provider.as_str(),
                     system,
@@ -1044,7 +1059,9 @@ impl Store {
                     trigger.as_str(),
                     actor,
                     url,
-                    now()
+                    now(),
+                    for_revision,
+                    for_import_seq
                 ],
             )?;
             Ok(Some(tx.last_insert_rowid()))
@@ -1070,8 +1087,8 @@ impl Store {
         let finished = self.write(|tx| {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = ?3, error = ?4, dat_revision_id = ?5,
-                 pack_sha256 = ?6, release = ?7, asset_url = ?8, commit_sha = ?9, support_sha256 = ?10,
-                 for_revision_id = ?11, for_import_seq = ?12 WHERE id = ?1",
+                 pack_sha256 = ?6, release = ?7, asset_url = ?8, commit_sha = ?9, support_sha256 = ?10
+                 WHERE id = ?1",
                 params![
                     id,
                     now(),
@@ -1082,9 +1099,7 @@ impl Store {
                     brought.release,
                     brought.asset_url,
                     brought.commit,
-                    brought.support,
-                    brought.for_revision,
-                    brought.for_import_seq
+                    brought.support
                 ],
             )?;
             if let Some(error) = &error {

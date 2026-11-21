@@ -1579,6 +1579,51 @@ fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
             .import_dat_bytes(&listxml("mame0289"), "mame0289.xml", None)
             .unwrap();
         go.wait();
+        // 0.289, imported again, is no longer the revision the fetch chose, so it sends nothing more for it.
+        let first = fetching.join().unwrap().unwrap();
+        assert_eq!(
+            outcomes(&first),
+            support_outcomes(FetchOutcome::Added)[..2].to_vec()
+        );
+    });
+
+    env.backdate(25);
+    env.serve_support(COMMIT_B, "0.290");
+    let newer = env
+        .fetch(FetchProvider::Mame, FetchTrigger::Schedule)
+        .unwrap();
+    assert_eq!(outcomes(&newer), support_outcomes(FetchOutcome::Added));
+}
+
+#[test]
+fn a_listxml_deleted_while_its_commit_check_is_in_flight_keeps_its_place_from_a_replacement() {
+    let env = Env::new(MAME);
+    env.add_arcade("mame0289");
+    env.serve_support(COMMIT_A, "0.289");
+    let old = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.dat == "MAME/MAME")
+        .unwrap()
+        .sha256;
+    let seen = Arc::new(Barrier::new(2));
+    let go = Arc::new(Barrier::new(2));
+    env.fake.reply(
+        &format!("/repos{MIRROR}/commits/main"),
+        Reply::Paused(COMMIT_A.as_bytes().to_vec(), seen.clone(), go.clone()),
+    );
+    std::thread::scope(|scope| {
+        let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
+        // While the commit check is in flight: 0.289 is deleted and 0.290 imported in its place.
+        seen.wait();
+        env.store
+            .unregister_source_set(&env.config, "Arcade")
+            .unwrap();
+        env.store.delete_dat_revision(&old).unwrap();
+        env.add_arcade("mame0290");
+        go.wait();
         let first = fetching.join().unwrap().unwrap();
         assert_eq!(outcomes(&first), support_outcomes(FetchOutcome::Added));
     });
