@@ -25,7 +25,7 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{ExpectedRom, FileStat, Marker, STATE, kept_name};
+use title_select_api::build::{ExpectedRom, FileStat, Marker, STATE};
 use title_select_api::ingest::IngestMarker;
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
@@ -35,7 +35,7 @@ use title_select_engine::meter::{self, Tally, copy_chunked};
 use title_select_engine::payload::{Checksums, Hasher};
 use title_select_engine::sevenz;
 
-use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
+use super::{check_ingest_marker, ingest_by_id, item_unmovable, kept_leaf, open_ingest};
 use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
@@ -1039,7 +1039,7 @@ impl Store {
     fn choose_aside(&self, m: &MoveRow, retention: &FolderDir) -> Result<String> {
         let mut nth = 1;
         let aside = loop {
-            let candidate = kept_name(&m.name, nth);
+            let candidate = kept_leaf(&m.name, nth);
             if retention.stat(&candidate).map_err(io)?.is_none() {
                 break candidate;
             }
@@ -2034,7 +2034,7 @@ impl Store {
                 )),
             ),
         };
-        let kept = kept_name(&m.name, 1);
+        let kept = kept_leaf(&m.name, 1);
         let mut _pin = None;
         if is_seen(src, &m.name, &m.seen).map_err(io)? {
             self.set_state(m.id, "retaining")?;
@@ -2348,6 +2348,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
+    use title_select_api::build::kept_name;
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()

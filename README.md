@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 8,                       // version of this report's shape
+  "schema": 9,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -151,7 +151,8 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   of these, a nodump ROM comes first.
 - `evidence.algorithms` lists what the finding rests on. For a payload match, it is size plus each checksum that
   every ROM in `roms` supplies; all of them were compared and agreed. A mismatched or unmatched entry has only size and
-  CRC32, the lookup that found no matching ROM. An unreadable entry has no evidence and a `reason` instead. A
+  CRC32, the lookup that found no matching ROM; a CHD matched as a disk has only `sha1`. An unreadable entry, or an
+  unmatched CHD that can match no disk, has no evidence and a `reason` instead. A
   mismatched entry named for a ROM the DAT marks `nodump` has the `reason` `no good dump known`: no file can match that
   ROM, so a repair leaves the file where it is unless you choose otherwise.
 - `evidence.level` is `payload` when the checksums were computed by reading the payload, and `claim` when a quick
@@ -185,11 +186,23 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is
   satisfied. A dependency's status never changes the game's: a machine whose own files are all present is `complete`
   even when a device it needs is `missing`.
+- A MAME ListXML's disks are CHDs in the family's folder, `<parent>/<disk>.chd`, as a merged CHD set keeps them; a
+  clone's disk counts from its parent's folder, by its name or by its SHA-1 under another name. A quick inventory
+  claims a disk by the SHA-1 in its CHD's header. A full audit proves it by running `chdman verify`, which reads the
+  whole CHD and must say its SHA-1 verified, and an incremental audit reuses that while the CHD is unchanged. Without
+  chdman, a full audit can't prove a disk, and the CHD is unreadable. A CHD whose data doesn't give back its SHA-1,
+  or an uncompressed CHD, which holds no SHA-1 of its data to verify, is unreadable with what chdman said. So is a
+  delta CHD, which can't be read without its parent CHD: its `reason` names that parent's disk, and you replace it
+  with a self-contained CHD. A CHD of a version before 5 is unmatched, with no evidence and a `reason`: update it
+  with `chdman copy` and audit again. A disk the DAT marks `nodump` is never matched. A `.chd` beside a DAT that lists
+  no disks is read as any other file.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
+- Schema 9 reads a MAME ListXML's disks from CHDs, and gives an unmatched entry a `reason` when it is a CHD that can
+  match no disk. An audit stored before this keeps what it found until you audit the source set again.
 - Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
   named for a nodump ROM. A game whose only absent ROMs are optional or have no good dump known is now `complete`.
   An audit stored before this keeps the statuses it found, and lists none of these, until you audit the source set
@@ -1505,7 +1518,9 @@ Each item is one of:
   item would replace an unverified copy;
 - unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
   game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
-  never read further; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
+  never read further, but a folder named for a MAME game that holds only CHDs, each of which is its own item, read as
+  a disk of that game's family and verified with `chdman verify`; a delta CHD, which needs its parent CHD; a CHD
+  whose SHA-1 is that of no disk of the folder's family; a DAT with no name to know it by, which can't be imported and is never a candidate addition;
   or an `.ini` file that matches no game and isn't a MAME support file, which is never a candidate addition;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
@@ -1561,6 +1576,10 @@ approving approves the plan as it was made, so it waits while you have changes y
   loose track is moved, or copied while another file it fills is still to be written, and deleted from the ingest folder only once what was written is exactly its ROM; a ZIP is
   kept in the ingest folder's kept files once every file it fills is written. What no file holds yet stays missing,
   and the plan says which ROMs;
+- a MAME game's missing disk is filed from an ingest folder's CHD that `chdman verify` proved, into its family's
+  folder, `<parent>/<disk>.chd`, as a merged CHD set keeps it, replacing a CHD there that can match no disk and
+  keeping that one aside. A disk the audit matched stays where it is: a repair never keeps it aside, and never packs a
+  CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
@@ -1720,7 +1739,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 8` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 9` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |

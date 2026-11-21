@@ -126,6 +126,31 @@ pub struct ChdAudit {
 }
 
 impl ChdAudit {
+    /// Verifies the CHD at `path`, whose header is `header`, where it is with `chdman verify` (ADR 0026), in a scratch
+    /// folder of its own that is removed once it is done: what makes a Disk Verified.
+    pub fn verify(&self, path: &Path, header: &chd::Header) -> Result<(), String> {
+        static SCRATCH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let chdman = chd::Chdman {
+            deadline: self.limits.for_bytes(header.logical_bytes),
+            ..self
+                .chdman
+                .clone()
+                .map_err(|why| format!("its CHD can't be verified: {why}"))?
+        };
+        let dir = self.tmp.join(format!(
+            "verify-disk-{}-{}",
+            std::process::id(),
+            SCRATCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _scratch = read::ChdScratch(dir.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let input = std::path::absolute(path).map_err(|e| e.to_string())?;
+        chdman
+            .verify_in_place(&dir, &input, &|| false)
+            .map_err(|stop| stop.why())
+    }
+
     /// chdman as [`chd::locate`] finds it without a configuration, with the default limits, its scratch directories in
     /// the system's temporary directory: what an Audit without a store runs.
     pub fn located() -> ChdAudit {
@@ -670,7 +695,9 @@ impl Scan<'_> {
 
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
         match known {
-            Known::Delta(parent) => return self.unreadable(path, member, self.needs_parent(parent)),
+            Known::Delta(parent) => {
+                return self.unreadable(path, member, self.needs_parent(parent));
+            }
             Known::NoDisk(why) => {
                 self.entries.push(Entry {
                     path,
@@ -774,22 +801,8 @@ impl Scan<'_> {
         });
     }
 
-    /// Why a delta CHD whose parent's combined SHA-1 is `parent` can't be read, naming the Disk that parent is.
     fn needs_parent(&self, parent: &str) -> String {
-        let named = self.dat.disks_with_sha1(parent).first().map(|r| {
-            let rom = &self.dat.roms[*r];
-            format!("{} of {}", rom.name, self.dat.games[rom.game])
-        });
-        match named {
-            Some(named) => format!(
-                "it is a delta CHD, which can't be read without its parent CHD, {named} (SHA-1 {parent}); replace \
-                 it with a self-contained CHD"
-            ),
-            None => format!(
-                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}, which no disk of \
-                 the DAT is; replace it with a self-contained CHD"
-            ),
-        }
+        needs_parent(self.dat, parent)
     }
 
     /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one
@@ -906,6 +919,24 @@ impl Scan<'_> {
                 .collect();
         }
         games
+    }
+}
+
+/// Why a delta CHD whose parent's combined SHA-1 is `parent` can't be read, naming the Disk of `dat` that parent is.
+pub fn needs_parent(dat: &Dat, parent: &str) -> String {
+    let named = dat.disks_with_sha1(parent).first().map(|r| {
+        let rom = &dat.roms[*r];
+        format!("{} of {}", rom.name, dat.games[rom.game])
+    });
+    match named {
+        Some(named) => format!(
+            "it is a delta CHD, which can't be read without its parent CHD, {named} (SHA-1 {parent}); replace it \
+             with a self-contained CHD"
+        ),
+        None => format!(
+            "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}, which no disk of the \
+             DAT is; replace it with a self-contained CHD"
+        ),
     }
 }
 

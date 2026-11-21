@@ -101,6 +101,17 @@ pub enum HeaderRefusal {
 }
 
 impl HeaderRefusal {
+    /// Why a CHD read as a Disk (ADR 0026) can match none, telling you to update an older one.
+    pub fn as_disk(self) -> String {
+        match self {
+            HeaderRefusal::Version(version) => format!(
+                "it is a version {version} CHD, and only a version 5 CHD can match a disk. Update it outside Title \
+                 Select, with chdman copy, then audit again"
+            ),
+            refusal => refusal.why(),
+        }
+    }
+
     pub fn why(self) -> String {
         match self {
             HeaderRefusal::Unread(why) => why,
@@ -133,7 +144,11 @@ pub fn read_header(file: &File) -> Result<Header, HeaderRefusal> {
             Ok(0) => break,
             Ok(read) => n += read,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(HeaderRefusal::Unread(format!("its CHD header can't be read: {e}"))),
+            Err(e) => {
+                return Err(HeaderRefusal::Unread(format!(
+                    "its CHD header can't be read: {e}"
+                )));
+            }
         }
     }
     if n < 16 || &raw[0..8] != b"MComprHD" {

@@ -23,10 +23,10 @@ use title_select_api::ingest::{
 };
 use title_select_api::support::SupportFileKind;
 use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
-use title_select_engine::FileStamp;
 use title_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
 use title_select_engine::dat::Dat;
 use title_select_engine::sevenz::{self, Decoding};
+use title_select_engine::{ChdAudit, FileStamp};
 
 use self::moves::{Destination, Move};
 use super::audits::choose_revision;
@@ -55,6 +55,12 @@ const SEVENZ_UNREAD: &str = "7z archives are not opened";
 
 /// The largest file read as a possible DAT.
 const DAT_LIMIT: u64 = 512 << 20;
+
+/// The `nth` name an item `name` is kept under in the Ingest Folder's kept files: its file's, in no folder, as a CHD of a
+/// folder of Disks is in one.
+pub(super) fn kept_leaf(name: &str, nth: u32) -> String {
+    kept_name(name.rsplit('/').next().unwrap_or(name), nth)
+}
 
 /// Whether a scan passes over `name`: a dotfile, Title Select's own entries among them, or a download not yet
 /// finished.
@@ -231,6 +237,80 @@ struct ItemRead {
     /// For a `.ini` file: why it is not a MAME Support File.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     refused_support: Option<String>,
+    /// For a CHD in a folder of a MAME family's Disks: what its header and `chdman verify` said of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    disk: Option<DiskRead>,
+}
+
+/// What a scan found of a CHD in a folder of a MAME family's Disks (ADR 0026), which is verified before any plan
+/// moves it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DiskRead {
+    /// `chdman verify` proved its data hashes to its header's combined SHA-1, this.
+    Verified { sha1: String },
+    /// It is a delta CHD, needing the parent CHD whose combined SHA-1 this is.
+    Delta { parent: String },
+    /// It can match no Disk, and why: a CHD older than version 5, or no CHD.
+    NoDisk { why: String },
+    /// It wasn't verified, and why.
+    Unverified { why: String },
+}
+
+/// Reads the CHD `file`, at `path`, of a folder of Disks: its header, and `chdman verify` as `disks` runs it.
+fn read_disk(file: &std::fs::File, path: &Path, disks: &ChdAudit) -> DiskRead {
+    use title_select_engine::chd::HeaderRefusal;
+    match title_select_engine::chd::read_header(file) {
+        Err(HeaderRefusal::Unread(why)) => DiskRead::Unverified { why },
+        Err(refusal) => DiskRead::NoDisk {
+            why: refusal.as_disk(),
+        },
+        Ok(header) => match header.parent_sha1.clone() {
+            Some(parent) => DiskRead::Delta { parent },
+            None => match disks.verify(path, &header) {
+                Ok(()) => DiskRead::Verified { sha1: header.sha1 },
+                Err(why) => DiskRead::Unverified { why },
+            },
+        },
+    }
+}
+
+/// What a scan takes a folder at the top of an Ingest Folder for.
+enum Folder {
+    /// A folder like any other, Unsupported.
+    Other,
+    /// A folder of a MAME family's Disks: each CHD in it, by its path in the Ingest Folder, as statted.
+    Disks(Vec<(String, Stat)>),
+    /// A folder named for a Game of a DAT with Disks that holds more than CHDs, Unsupported with why.
+    Mixed(String),
+}
+
+/// What the folder `name` of `dir` is (ADR 0026): one named for a Game of a registered Source Set's DAT that lists Disks
+/// and holding only `.chd` files, or nothing, is a family's Disks, each read as an item of its own; any other is
+/// Unsupported.
+fn disk_folder(dir: &FolderDir, name: &str, matcher: &Matcher) -> std::io::Result<Folder> {
+    if !matcher.names_disk_family(name) {
+        return Ok(Folder::Other);
+    }
+    let folder = dir.sub(name)?;
+    let mut chds = Vec::new();
+    for (child, _) in folder.entries()? {
+        let Some(st) = folder.stat(&child)? else {
+            continue;
+        };
+        let chd = FolderDir::kind(&st) == FileType::RegularFile
+            && !is_ignored(&child)
+            && extension(&child).as_deref() == Some("chd");
+        if !chd {
+            return Ok(Folder::Mixed(format!(
+                "it is a folder named for a MAME game, and {child} in it is not a CHD; only a folder holding \
+                 nothing but CHDs is read, each as a disk of its family"
+            )));
+        }
+        chds.push((format!("{name}/{child}"), st));
+    }
+    // An empty one, as one whose CHDs a repair moved out leaves, is no item at all.
+    Ok(Folder::Disks(chds))
 }
 
 /// A DAT file's native name and version, and the provider part of its key as it reads, not yet spelled as the store
@@ -591,6 +671,8 @@ struct DatIndex {
     /// The names of the ROMs each Game needs, as [`title_select_engine::dat::Rom::needed`] says: neither optional nor
     /// nodump.
     needed: Vec<Vec<String>>,
+    /// Whether it lists Disks, so that a folder named for one of its Games may hold a family's CHDs.
+    has_disks: bool,
     extensions: HashSet<String>,
 }
 
@@ -669,6 +751,7 @@ impl Matcher {
                     }
                     let extensions = dat.roms.iter().filter_map(|r| extension(&r.name)).collect();
                     matcher.dats.push(DatIndex {
+                        has_disks: dat.has_disks(),
                         dat,
                         needed,
                         extensions,
@@ -754,6 +837,72 @@ impl Matcher {
             }
         }
         Ok(found)
+    }
+
+    /// Whether `name` is a Game of a registered Source Set's DAT that lists Disks.
+    fn names_disk_family(&self, name: &str) -> bool {
+        self.sets.iter().any(|set| {
+            let index = &self.dats[set.index];
+            index.has_disks && index.dat.game_index(name).is_some()
+        })
+    }
+
+    /// Each Source Set Game a CHD whose verified combined SHA-1 is `sha1`, at `name` (`<folder>/<file>`), is a Disk
+    /// of: the folder's Game, a Game whose ancestors' folders hold its files (ADR 0025), or one of the folder's Game's
+    /// ancestors, as a folder named for a clone may hold its parent's Disks.
+    fn disk_matches(&self, name: &str, sha1: &str) -> Vec<ItemMatch> {
+        let folder = name.split_once('/').map_or(name, |(folder, _)| folder);
+        let mut found = Vec::new();
+        for set in &self.sets {
+            let index = &self.dats[set.index];
+            let dat = &index.dat;
+            let Some(family) = dat.game_index(folder) else {
+                continue;
+            };
+            let mut games: BTreeMap<usize, Vec<MatchedRom>> = BTreeMap::new();
+            for rom in dat.disks_with_sha1(sha1).iter().map(|r| &dat.roms[*r]) {
+                if dat.ancestors(rom.game).contains(&family)
+                    || dat.ancestors(family).contains(&rom.game)
+                {
+                    games.entry(rom.game).or_default().push(MatchedRom {
+                        rom: rom.name.clone(),
+                        member: None,
+                    });
+                }
+            }
+            for (game, roms) in games {
+                let name = dat.games[game].clone();
+                found.push(ItemMatch {
+                    source_set: set.name.clone(),
+                    dat_revision: set.revision.clone(),
+                    complete: index.needed[game]
+                        .iter()
+                        .all(|n| roms.iter().any(|r| r.rom == *n)),
+                    extra: false,
+                    need: set.need(&name, &roms),
+                    game: name,
+                    roms,
+                });
+            }
+        }
+        found
+    }
+
+    /// Why a delta CHD whose parent's combined SHA-1 is `parent` stays put, naming the Disk that parent is in the first
+    /// DAT that lists it.
+    fn needs_parent(&self, parent: &str) -> String {
+        let dat = self
+            .sets
+            .iter()
+            .map(|set| &self.dats[set.index].dat)
+            .find(|dat| !dat.disks_with_sha1(parent).is_empty())
+            .or_else(|| self.sets.first().map(|set| &self.dats[set.index].dat));
+        match dat {
+            Some(dat) => title_select_engine::needs_parent(dat, parent),
+            None => format!(
+                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}"
+            ),
+        }
     }
 
     /// The one DAT, as `<provider>/<name>`, of a registered Source Set with a ROM ending `.ext`, if exactly one has.
@@ -915,9 +1064,24 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
         });
     }
     let archive = probe.zip || probe.sevenz;
-    let matches = match matcher.matches(&probe.payloads, archive) {
-        Ok(matches) => matches,
-        Err(why) => return Ok(Found::unsupported(why)),
+    // A CHD of a folder of Disks matches only by the combined SHA-1 chdman verified, and only its family's Disks; one
+    // that wasn't verified, or can match none, stays put with why.
+    let matches = match &read.disk {
+        Some(DiskRead::Verified { sha1 }) => matcher.disk_matches(name, sha1),
+        Some(DiskRead::Delta { parent }) => {
+            let why = matcher.needs_parent(parent);
+            return Ok(found(ItemState::Unsupported, assessment, Some(why)));
+        }
+        Some(DiskRead::NoDisk { why }) => {
+            return Ok(found(ItemState::Unsupported, assessment, Some(why.clone())));
+        }
+        Some(DiskRead::Unverified { why }) => {
+            return Ok(found(ItemState::Unreadable, assessment, Some(why.clone())));
+        }
+        None => match matcher.matches(&probe.payloads, archive) {
+            Ok(matches) => matches,
+            Err(why) => return Ok(Found::unsupported(why)),
+        },
     };
     assessment.payloads = probe
         .payloads
@@ -945,6 +1109,17 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
                 need: best.need,
             });
             ItemState::Assessed
+        }
+        // A verified CHD that is no Disk of its folder's family is never a game to add.
+        None if read.disk.is_some() => {
+            let folder = name.split_once('/').map_or(name, |(folder, _)| folder);
+            return Ok(found(
+                ItemState::Unsupported,
+                assessment,
+                Some(format!(
+                    "its SHA-1 is that of no disk of {folder}'s family in a registered source set's DAT"
+                )),
+            ));
         }
         // An .ini file is a MAME Support File or a setting, never a game to add.
         None if let Some(why) = &read.refused_support => {
@@ -979,12 +1154,13 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
 /// member; parsed as a DAT when its name says it may be one. Trusted only if it is the same file, unchanged, before
 /// and after. A ZIP is judged from its directory, and a 7z from its header, before any member is decompressed, and
 /// its reading stops at the limits of a game's archive; one refused is `Ok(Err(why))`. A 7z decodes within
-/// `decoding`.
+/// `decoding`. A CHD of a folder of Disks is verified with chdman as `disks` runs it.
 fn read_item(
     dir: &FolderDir,
     name: &str,
     seen: &Seen,
     decoding: &Decoding,
+    disks: Option<&ChdAudit>,
 ) -> std::result::Result<std::result::Result<ItemRead, String>, String> {
     let changed = || "it changed while it was read".to_owned();
     let mut file = dir.open_file(name).map_err(|e| e.to_string())?;
@@ -1052,6 +1228,8 @@ fn read_item(
             }
         }
     }
+    // chdman reads it by its path, which is checked below to be the file read, unchanged, once it is done.
+    let disk = disks.map(|disks| read_disk(&file, &dir.path().join(name), disks));
     let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     match dir.stat(name) {
         Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => Ok(Ok(ItemRead {
@@ -1060,6 +1238,7 @@ fn read_item(
             refused_dat,
             support,
             refused_support,
+            disk,
         })),
         _ => Err(changed()),
     }
@@ -1416,13 +1595,45 @@ impl Store {
         let mut items = self.read(|c| present_items(c, folder))?;
         let mut matcher: Option<Matcher> = None;
         let started = jiff::Timestamp::now();
-        for (name, _) in entries {
-            if is_ignored(&name) {
+        // Each entry at the top of the folder is an item, but a folder of a MAME family's Disks, each CHD of which is
+        // one (ADR 0026); with why a folder named for a Game is refused, when it is.
+        let mut found: Vec<(String, Stat, Option<String>)> = Vec::new();
+        for (top, _) in entries {
+            if is_ignored(&top) {
                 continue;
             }
-            let Some(st) = dir.stat(&name).map_err(|e| Error::Io(e.to_string()))? else {
+            let Some(st) = dir.stat(&top).map_err(|e| Error::Io(e.to_string()))? else {
                 continue;
             };
+            if FolderDir::kind(&st) != FileType::Directory {
+                found.push((top, st, None));
+                continue;
+            }
+            let matcher = match &mut matcher {
+                Some(matcher) => matcher,
+                None => matcher.insert(Matcher::load(self)?),
+            };
+            match disk_folder(&dir, &top, matcher).map_err(|e| Error::Io(e.to_string()))? {
+                Folder::Disks(chds) => found.extend(chds.into_iter().map(|(n, st)| (n, st, None))),
+                Folder::Mixed(why) => found.push((top, st, Some(why))),
+                Folder::Other => found.push((top, st, None)),
+            }
+        }
+        // chdman verifies each CHD of a folder of Disks before any plan moves it, reading it from the folder's Root.
+        let disks = ChdAudit {
+            chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
+                title_select_engine::chd::Chdman {
+                    program,
+                    threads: None,
+                    deadline: Default::default(),
+                    tally: title_select_engine::meter::this_thread()
+                        .map_or_else(Default::default, |job| job.tally(Some(&row.root))),
+                }
+            }),
+            limits: self.settings()?.chd_limits(),
+            tmp: self.dir().join(crate::TMP),
+        };
+        for (name, st, refused) in found {
             let seen = Seen::of(&st);
             let existing = items.remove(&name);
             // Settled once its stat has stayed as recorded for the interval, whatever state it is shown in.
@@ -1451,7 +1662,7 @@ impl Store {
                     Ok(())
                 })?;
             }
-            if let Some(reason) = unsupported_at_sight(&name, &st) {
+            if let Some(reason) = refused.or_else(|| unsupported_at_sight(&name, &st)) {
                 self.record_seen(
                     folder,
                     &name,
@@ -1505,7 +1716,9 @@ impl Store {
                     self.fault_point(Fault::IngestRead);
                     let from = title_select_engine::meter::this_thread()
                         .map_or_else(Default::default, |job| job.tally(Some(&row.root)));
-                    match read_item(&dir, &name, &seen, &self.decoding(config, &from)) {
+                    // Only a CHD of a folder of Disks is in a folder.
+                    let disks = name.contains('/').then_some(&disks);
+                    match read_item(&dir, &name, &seen, &self.decoding(config, &from), disks) {
                         Ok(Ok(read)) => (read, true),
                         Ok(Err(why)) => {
                             let again = existing.item.state == ItemState::Unsupported
@@ -1769,7 +1982,7 @@ impl Store {
                     )));
                 }
             }
-            let kept = kept_name(&item.name, 1);
+            let kept = kept_leaf(&item.name, 1);
             let mut addition = None;
             let mut addition_target = None;
             let mut destination = format!("{RETENTION}/{generation}/{kept}");
@@ -2091,7 +2304,7 @@ impl Store {
                     sha256: item.sha256.clone(),
                     dest: Destination::Kept {
                         generation: content.generation,
-                        kept_name: kept_name(&item.name, 1),
+                        kept_name: kept_leaf(&item.name, 1),
                         reason: item.reason.clone(),
                     },
                     repack: None,

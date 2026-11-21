@@ -212,6 +212,35 @@ fn a_quick_inventory_claims_a_disk_by_the_sha1_its_chds_header_records() {
 }
 
 #[test]
+fn a_nodump_disk_is_never_matched_and_a_game_is_complete_without_it() {
+    let f = Fixture::new();
+    write_zip(&f.set_path("blaster.zip"), &[("prog.u1", b"program")]);
+    let roms = format!(
+        r#"    <rom name="prog.u1" size="7" crc="{:08x}"/>
+    <disk name="blaster" sha1="{}" status="nodump" region="ide:0:hdd" index="0" writable="no"/>"#,
+        crc32fast::hash(b"program"),
+        sha(1)
+    );
+    let dat = listxml(f.dat_dir.path(), &[("blaster", "", &roms)]);
+    // A CHD under the nodump Disk's name, whose header records the SHA-1 the DAT lists beside it.
+    write_file(
+        &f.set_path("blaster/blaster.chd"),
+        &synthetic_chd(5, &sha(1), None),
+    );
+
+    let report = run(&dat, f.set.path(), AuditEvidence::Quick, None, None);
+
+    assert_ne!(
+        entry(&report, "blaster/blaster.chd").finding,
+        Finding::Matched
+    );
+    let g = game(&report, "blaster");
+    assert_eq!(g.status, GameStatus::Complete);
+    assert_eq!(g.missing_roms, ["blaster.chd"]);
+    assert_eq!(g.not_dumped, ["blaster.chd"]);
+}
+
+#[test]
 fn a_clones_disks_in_its_parents_folder_count_for_it_by_name_and_by_sha1_under_another_name() {
     let f = Fixture::new();
     let dat = listxml(
@@ -454,7 +483,10 @@ fn a_real_chd_whose_header_sha1_its_data_doesnt_hash_to_is_unreadable_in_a_full_
     let dat = blaster(&f, &sha(0x11));
 
     let quick = run(&dat, f.set.path(), AuditEvidence::Quick, None, None);
-    assert_eq!(entry(&quick, "blaster/blaster.chd").finding, Finding::Matched);
+    assert_eq!(
+        entry(&quick, "blaster/blaster.chd").finding,
+        Finding::Matched
+    );
 
     let disks = chd_audit(&chdman, tmp.path());
     let full = run(&dat, f.set.path(), AuditEvidence::Full, Some(&disks), None);
@@ -476,7 +508,12 @@ fn a_real_delta_chd_is_unreadable_however_it_is_audited() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = f.set_path("blaster/blaster.chd");
     let parent_sha1 = real_chd(&chdman, &parent, 1, None);
-    let delta_sha1 = real_chd(&chdman, &f.set_path("blaster/blasterj.chd"), 2, Some(&parent));
+    let delta_sha1 = real_chd(
+        &chdman,
+        &f.set_path("blaster/blasterj.chd"),
+        2,
+        Some(&parent),
+    );
     let dat = listxml(
         f.dat_dir.path(),
         &[
@@ -496,7 +533,10 @@ fn a_real_delta_chd_is_unreadable_however_it_is_audited() {
 
     let full = run(&dat, f.set.path(), AuditEvidence::Full, Some(&disks), None);
 
-    assert_eq!(entry(&full, "blaster/blaster.chd").finding, Finding::Matched);
+    assert_eq!(
+        entry(&full, "blaster/blaster.chd").finding,
+        Finding::Matched
+    );
     let delta = entry(&full, "blaster/blasterj.chd");
     assert_eq!(delta.finding, Finding::Unreadable);
     assert!(

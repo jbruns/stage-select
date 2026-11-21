@@ -674,18 +674,13 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
             unreadable(&mut read, why);
             return read;
         }
-        Err(crate::chd::HeaderRefusal::Version(version)) => {
-            read.members.push((
-                None,
-                Ok(Known::NoDisk(format!(
-                    "it is a version {version} CHD, and only a version 5 CHD can match a disk. Update it outside \
-                     Title Select, with chdman copy, then audit again"
-                ))),
-            ));
-            return read;
-        }
-        Err(refusal @ crate::chd::HeaderRefusal::NotChd) => {
-            read.members.push((None, Ok(Known::NoDisk(refusal.why()))));
+        // Recorded as a file it couldn't read, so that a repair can tell whether it changed since.
+        Err(refusal) => {
+            if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+                reads.record_unreadable(&file.rel, &stamp);
+            }
+            read.members
+                .push((None, Ok(Known::NoDisk(refusal.as_disk()))));
             return read;
         }
     };
@@ -716,7 +711,10 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
     }
     let read_at = jiff::Timestamp::now();
     read.origin = Origin::Read(read_at);
-    let verified = verify_disk(file, &header, how);
+    let verified = match how.disks {
+        Some(disks) => disks.verify(&file.path, &header),
+        None => Err("chdman isn't available to this audit, so its CHD can't be verified".into()),
+    };
     how.tally.file_read();
     // The file chdman read by its path is still the one held open, as it was before.
     let still = stamp.is_some() && FileStamp::of(&file.path) == stamp && {
@@ -743,33 +741,6 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
         Err(why) => unreadable(&mut read, why),
     }
     read
-}
-
-/// Runs `chdman verify` on the Disk's CHD `file`, whose header is `header`, in a scratch folder of its own.
-fn verify_disk(file: &ToRead, header: &crate::chd::Header, how: How) -> Result<(), String> {
-    static SCRATCH: AtomicUsize = AtomicUsize::new(0);
-    let audit = how
-        .disks
-        .ok_or("chdman isn't available to this audit, so its CHD can't be verified")?;
-    let chdman = crate::chd::Chdman {
-        deadline: audit.limits.for_bytes(header.logical_bytes),
-        ..audit
-            .chdman
-            .clone()
-            .map_err(|why| format!("its CHD can't be verified: {why}"))?
-    };
-    let dir = audit.tmp.join(format!(
-        "audit-disk-{}-{}",
-        std::process::id(),
-        SCRATCH.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _scratch = ChdScratch(dir.clone());
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let input = std::path::absolute(&file.path).map_err(|e| e.to_string())?;
-    chdman
-        .verify_in_place(&dir, &input, &|| false)
-        .map_err(|stop| stop.why())
 }
 
 /// A placed CHD's disc: whether it is a CD or a DVD, and the ROMs its tracks are, in order. Its cue sheet's read, or
@@ -881,7 +852,7 @@ fn claim_chd(
 }
 
 /// One CHD's folder in the scratch directory, removed with what is in it once dropped.
-struct ChdScratch(PathBuf);
+pub(crate) struct ChdScratch(pub(crate) PathBuf);
 
 impl Drop for ChdScratch {
     fn drop(&mut self) {

@@ -848,12 +848,137 @@ fn released_note(game: &str, r: &Released) -> String {
     )
 }
 
+/// Whether `name` of Game `game` is one of the DAT's Disks.
+fn is_disk(dat: &Dat, game: &str, name: &str) -> bool {
+    dat.roms_named(name)
+        .iter()
+        .any(|r| dat.roms[*r].disk && dat.games[dat.roms[*r].game] == game)
+}
+
+/// Whether the ingest candidate `c` holds Disks of its Game: a CHD of a folder of Disks, which fills only them.
+fn fills_disks(dat: &Dat, c: &FillCandidate) -> bool {
+    c.matched
+        .roms
+        .iter()
+        .any(|m| is_disk(dat, &c.matched.game, &m.rom))
+}
+
+/// Proposes filling each Disk the Audit found missing from an Ingest Folder item that holds it, a CHD `chdman verify`
+/// proved when it was assessed (ADR 0026): moved as it is into its family's folder, `<parent>/<disk>.chd`, under the name
+/// its family's parent lists it by when it is shared (`merge=`). A file there that holds nothing of it, such as a delta
+/// or an older CHD, is kept aside for it; one the Audit didn't read as it is now leaves it as it is.
+fn disk_fills<'p>(
+    i: &Inputs,
+    usable: &BTreeMap<&'p str, Usable>,
+    left_conflicts: &BTreeSet<&str>,
+    used: &mut BTreeSet<i64>,
+    referenced: &mut BTreeSet<&'p str>,
+    proposed: &mut Vec<Proposed>,
+    notes: &mut Vec<String>,
+) {
+    let missing: HashSet<(&str, &str)> = i
+        .report
+        .games
+        .iter()
+        .flat_map(|g| g.missing_roms.iter().map(|r| (g.name.as_str(), r.as_str())))
+        .collect();
+    // Each Disk's file, by its path in the Source Set, with every missing Disk it would be, in DAT order.
+    let mut targets: BTreeMap<String, Vec<&Rom>> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for rom in i.dat.roms.iter().filter(|r| r.disk && r.needed()) {
+        let game = &i.dat.games[rom.game];
+        if !missing.contains(&(game.as_str(), rom.name.as_str())) || !(i.covers)(game) {
+            continue;
+        }
+        let family = i.dat.cloneof[rom.game].as_deref().unwrap_or(game);
+        let target = format!("{family}/{}", rom.merge.as_deref().unwrap_or(&rom.name));
+        if !targets.contains_key(&target) {
+            order.push(target.clone());
+        }
+        targets.entry(target).or_default().push(rom);
+    }
+    for target in order {
+        let disks = &targets[&target];
+        let Some(candidate) = i.candidates.iter().position(|c| {
+            !used.contains(&c.item.id)
+                && disks.iter().any(|d| {
+                    c.matched.game == i.dat.games[d.game]
+                        && c.matched.roms.iter().any(|m| m.rom == d.name)
+                })
+        }) else {
+            continue;
+        };
+        let c = &i.candidates[candidate];
+        let rom = disks
+            .iter()
+            .find(|d| c.matched.game == i.dat.games[d.game])
+            .expect("the disk it matched");
+        let game = &i.dat.games[rom.game];
+        let mut displaces = Vec::new();
+        if i.files.contains_key(&target) {
+            match usable.get_key_value(target.as_str()) {
+                Some((path, _)) if !left_conflicts.contains(path) => {
+                    referenced.insert(path);
+                    displaces.push((target.clone(), format!("{target} was written in its place")));
+                }
+                Some(_) => {
+                    notes.push(format!(
+                        "{target} is left as it is: it holds a conflicting entry you chose to leave; choose to keep \
+                         that entry aside to fill it"
+                    ));
+                    continue;
+                }
+                None => {
+                    notes.push(format!(
+                        "{target} is left as it is: the audit did not read it as it is now, so it isn't filled from \
+                         {} in ingest folder {}",
+                        c.item.name, c.root
+                    ));
+                    continue;
+                }
+            }
+        }
+        used.insert(c.item.id);
+        let from = format!("{} in ingest folder {}", c.item.name, c.root);
+        let (kind, summary) = match displaces.is_empty() {
+            true => (RepairKind::Fill, format!("write {target} from {from}")),
+            false => (
+                RepairKind::Replace,
+                format!("keep {target} aside, and write it from {from}"),
+            ),
+        };
+        proposed.push(Proposed {
+            item: RepairItem {
+                key: format!("disk:{target}"),
+                ..game_item(game, &target, kind, summary)
+            },
+            proposal: Some(Proposal::Folder {
+                parts: vec![Part::Fill {
+                    target: target.clone(),
+                    rom: ExpectedRom {
+                        name: target.rsplit('/').next().unwrap_or(&target).to_owned(),
+                        ..i.dat.expected(rom)
+                    },
+                    candidate,
+                }],
+            }),
+            displaces,
+            produces: None,
+            checked: true,
+            target: None,
+            converts: Vec::new(),
+            release: None,
+        });
+    }
+}
+
 /// The ROMs of each Game of the DAT, by its index, that a repair writes, in DAT order: each it needs, and each other one
 /// (ADR 0025) that a file of the Source Set, an Ingest Folder item or a cue pack holds. One it doesn't need that none
-/// holds never keeps the Game from being repaired.
+/// holds never keeps the Game from being repaired. A Disk is never one: it stays a CHD of its own in its family's
+/// folder (ADR 0026), filled there by [`disk_fills`].
 fn wanted_roms(i: &Inputs, held_by: &HashMap<RomKey, BTreeSet<&str>>) -> Vec<Vec<ExpectedRom>> {
     let mut wanted = vec![Vec::new(); i.dat.games.len()];
-    for rom in &i.dat.roms {
+    for rom in i.dat.roms.iter().filter(|r| !r.disk) {
         let expected = i.dat.expected(rom);
         let game = &i.dat.games[rom.game];
         let held = || {
@@ -990,7 +1115,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             ));
             continue;
         }
-        let unreadable = entries.iter().any(|e| e.finding == Finding::Unreadable);
+        // A CHD the Audit read as a Disk and found can match none, as an older CHD can't, is left as one it couldn't
+        // read: it holds nothing a repair writes from, and only a Disk filled in its place moves it.
+        let unreadable = entries.iter().any(|e| {
+            e.finding == Finding::Unreadable
+                || (e.finding == Finding::Unmatched && e.reason.is_some())
+        });
         let stamp = match unreadable {
             true => i.unreadable.get(*path),
             false => i.stamps.get(*path),
@@ -1128,6 +1258,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     let mut stays_zip = 0;
     let mut used_candidates: BTreeSet<i64> = BTreeSet::new();
+    // A file holding a Disk stays where it is, whatever else a repair does: it is never kept aside as holding nothing a
+    // Game needs, since no repair writes a Disk anywhere else (ADR 0026).
+    referenced.extend(by_path.iter().filter_map(|(path, entries)| {
+        entries
+            .iter()
+            .any(|e| {
+                matches!(
+                    e.finding,
+                    Finding::Matched | Finding::Misnamed | Finding::Conflicting
+                ) && e.roms.iter().any(|r| is_disk(i.dat, &r.game, &r.name))
+            })
+            .then_some(*path)
+    }));
+    disk_fills(
+        i,
+        &usable,
+        &left_conflicts,
+        &mut used_candidates,
+        &mut referenced,
+        &mut proposed,
+        &mut notes,
+    );
     let mut good: BTreeSet<String> = BTreeSet::new();
     let wanted = wanted_roms(i, &held_by);
     let placements = placements_of(i, &wanted);
@@ -1832,6 +1984,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 c.matched.game == *game
                     && c.matched.complete
                     && !used_candidates.contains(&c.item.id)
+                    && !fills_disks(i.dat, c)
             })
             .map(|(n, c)| {
                 let lacks = roms

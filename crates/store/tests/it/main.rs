@@ -14,6 +14,7 @@ mod chd;
 mod coverage;
 mod dat_deletion;
 mod discs;
+mod disks;
 mod fetch;
 mod headers;
 mod ingest;
