@@ -22,8 +22,8 @@ use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
     game_status_label, game_status_text, games_found, games_of_status_label, header_rule_text,
-    header_text, needs_review_from_counts, parse_ndjson, payload_read_text, warning_counts,
-    warning_text, when,
+    header_text, needs_review_from_counts, parse_ndjson, payload_read_text, unneeded,
+    warning_counts, warning_text, when,
 };
 use crate::parts::pending::Pending;
 use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
@@ -994,8 +994,14 @@ pub fn GamesPanel(
                     <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it unless the file is named for the other game."</p>
                 }
             });
+            let unneeded_note = game.missing_roms.iter().any(|r| unneeded(&game, r)).then(|| {
+                view! {
+                    <p class="note">"An absent ROM that is optional, or that has no good dump known, doesn't keep this game from being complete."</p>
+                }
+            });
             view! {
                 <h4>"Absent ROMs"</h4>
+                {unneeded_note}
                 {elsewhere}
                 <ul class="data">{absent_roms(&game).into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}</ul>
             }
@@ -1005,6 +1011,13 @@ pub fn GamesPanel(
                 <h4>"Present only on claim evidence"</h4>
                 <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
                 <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
+            }
+        });
+        let bad_dumps = (!game.bad_dumps.is_empty()).then(|| {
+            view! {
+                <h4>"Known bad dumps"</h4>
+                <p class="note">"The DAT lists these ROMs by the checksums of dumps known to be bad. A file that matches one counts like any other."</p>
+                <ul class="data">{game.bad_dumps.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
             }
         });
         let warnings = (!game.warnings.is_empty()).then(|| {
@@ -1026,6 +1039,7 @@ pub fn GamesPanel(
             {placement}
             {warnings}
             {absent}
+            {bad_dumps}
             {claimed}
         })
     };

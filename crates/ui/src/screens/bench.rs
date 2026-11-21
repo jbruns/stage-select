@@ -138,6 +138,9 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     warnings: vec![],
                     available_elsewhere: vec![],
                     dependencies: vec![],
+                    not_dumped: vec![],
+                    bad_dumps: vec![],
+                    optional_roms: vec![],
                 },
             }
         })

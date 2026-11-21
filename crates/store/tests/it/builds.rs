@@ -79,6 +79,11 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        Env::with_dat(|xml| xml)
+    }
+
+    /// As [`Env::new`], with the DAT's XML as `edit` makes it.
+    fn with_dat(edit: impl FnOnce(String) -> String) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("roots/sets");
         let play = tmp.path().join("roots/play");
@@ -93,6 +98,7 @@ impl Env {
             "20260101-000000",
             &games(),
         );
+        std::fs::write(&dat, edit(std::fs::read_to_string(&dat).unwrap())).unwrap();
         let (revision, _) = store.import_dat(&dat, None).unwrap();
         store
             .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
@@ -4286,7 +4292,11 @@ fn a_build_stopped_after_it_advanced_the_generation_is_still_badged() {
 
 /// Pong and Combat built from their sources; Missing selected, with no source, so the folder is incomplete.
 fn cleaned() -> (Env, LibraryFolder, PathBuf) {
-    let env = Env::new();
+    cleaned_with(Env::new())
+}
+
+/// As [`cleaned`], in `env`.
+fn cleaned_with(env: Env) -> (Env, LibraryFolder, PathBuf) {
     env.audit();
     let id = titles(&env, &["Pong (USA)", "Combat (USA)", "Missing (USA)"]);
     let folder = env.folder("atari2600");
@@ -4490,6 +4500,32 @@ fn acknowledging_alone_writes_nothing_to_the_folder() {
     let checked = check(&env, &after);
     assert_eq!(checked.drift.len(), 1);
     assert!(checked.acknowledged.is_empty());
+}
+
+#[test]
+fn a_file_holding_the_roms_a_selected_game_needs_is_adopted_without_its_nodump_rom() {
+    let (env, folder, dir) = cleaned_with(Env::with_dat(|xml| {
+        xml.replace(
+            r#"<rom name="Missing (USA).a26""#,
+            r#"<rom name="Missing (USA).txt" size="6" status="nodump"/><rom name="Missing (USA).a26""#,
+        )
+    }));
+    missing_zip(&dir.join("missing copy.zip"));
+
+    let plan = cleanup(
+        &env,
+        &folder,
+        choose(&[("missing copy.zip", CleanupAction::Adopt)]),
+    );
+
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let built = env.store.built_files(folder.id).unwrap();
+    let missing = built.iter().find(|f| f.game == "Missing (USA)").unwrap();
+    assert_eq!(missing.kind, ItemKind::Adopt);
+    let after = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(after.incomplete, None);
+    assert!(check(&env, &after).drift.is_empty());
 }
 
 #[test]

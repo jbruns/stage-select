@@ -46,7 +46,8 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn rom_xml(r: &RomSpec) -> String {
+/// The `<rom>` element a DAT lists `r` with.
+pub fn rom_xml(r: &RomSpec) -> String {
     let p = &r.payload;
     let mut checksums = String::new();
     if r.crc {

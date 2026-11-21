@@ -12,10 +12,10 @@ use title_select_api::storage::{
     MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, is_reserved_name,
     placed_path, placement_writing, release_of, split_placed,
 };
-use title_select_api::{Entry, EvidenceLevel, Finding, Report};
-use title_select_engine::FileStamp;
-use title_select_engine::dat::{Dat, Rom};
+use title_select_api::{Entry, EvidenceLevel, Finding, NOT_DUMPED, Report};
+use title_select_engine::dat::{Dat, DumpStatus, Rom};
 use title_select_engine::payload::Checksums;
+use title_select_engine::{FileStamp, Holders, entry_name};
 
 use super::{as_read, seen_file};
 use crate::checks::Seen;
@@ -416,6 +416,28 @@ struct Proposed {
     converts: Vec<String>,
     /// The disc of a placed release it releases, and what becomes of its CHD.
     release: Option<Released>,
+}
+
+impl Proposed {
+    /// The files it takes from where they are: those it keeps aside or converts, and those it renames into place.
+    fn takes(&self) -> impl Iterator<Item = &str> {
+        let renames: Vec<&str> = match &self.proposal {
+            Some(Proposal::Rename { from, .. }) => vec![from.as_str()],
+            Some(Proposal::Folder { parts }) => parts
+                .iter()
+                .filter_map(|p| match p {
+                    Part::Rename { from, .. } => Some(from.as_str()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        self.displaces
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .chain(self.converts.iter().map(String::as_str))
+            .chain(renames)
+    }
 }
 
 fn entry_key(entry: &Entry) -> String {
@@ -846,6 +868,61 @@ fn wanted_roms(i: &Inputs, held_by: &HashMap<RomKey, BTreeSet<&str>>) -> Vec<Vec
         }
     }
     wanted
+}
+
+/// The nodump ROM, by its name and Game, whose name `entry` has, when no file can match that ROM (ADR 0025): the
+/// ROM of that name [`Holders::nearest`] gives, whatever the Entry's payload is; or else the one a Mismatched Entry
+/// is named for, when the Audit found it has no good dump known.
+fn not_dumped<'a>(dat: &'a Dat, holders: &Holders, entry: &'a Entry) -> Option<(&'a str, &'a str)> {
+    let name = entry_name(&entry.path, entry.member.as_deref());
+    let container = holders.container(&entry.path, entry.member.as_deref());
+    let own = holders
+        .nearest(container, dat.roms_named(name).iter().copied())
+        .map(|r| &dat.roms[r])
+        .filter(|r| r.status == DumpStatus::NoDump)
+        .map(|r| (r.name.as_str(), dat.games[r.game].as_str()));
+    own.or_else(|| {
+        entry
+            .named_rom
+            .as_ref()
+            .filter(|_| {
+                entry.finding == Finding::Mismatched && entry.reason.as_deref() == Some(NOT_DUMPED)
+            })
+            .map(|r| (r.name.as_str(), r.game.as_str()))
+    })
+}
+
+/// What an item left by default for a file under a nodump ROM's name would do if the Operator chose it.
+#[derive(Clone, Copy)]
+enum IfChosen {
+    /// A Game item: move the file, or keep it aside.
+    Repair,
+    /// A file holding nothing a Game needs: keep it aside.
+    KeepAside,
+}
+
+/// Why an item that would take `files` from where they are, as `if_chosen` says, is left by default, when one holds an
+/// Entry under a nodump ROM's name: it matches no ROM, but an emulator may load it (ADR 0025). The Operator can still
+/// choose it.
+fn left_for_nodump<'a>(
+    dat: &Dat,
+    holders: &Holders,
+    files: impl IntoIterator<Item = &'a Usable<'a>>,
+    if_chosen: IfChosen,
+) -> Option<String> {
+    let (result, choose) = match if_chosen {
+        IfChosen::Repair => ("repairing would move it or keep it aside", "repair"),
+        IfChosen::KeepAside => ("this would keep it aside", "keep it aside"),
+    };
+    let (entry, (rom, of)) = files
+        .into_iter()
+        .flat_map(|file| file.entries.iter().copied())
+        .find_map(|e| Some((e, not_dumped(dat, holders, e)?)))?;
+    Some(format!(
+        "left as it is by default: {} has the name of {rom} of {of}, which has no good dump known, and {result}. An \
+         emulator may still load it, so choose whether to {choose}.",
+        entry_label(entry),
+    ))
 }
 
 fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
@@ -1745,10 +1822,55 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
             continue;
         }
-        let Some(candidate) = i.candidates.iter().position(|c| {
-            c.matched.game == *game && c.matched.complete && !used_candidates.contains(&c.item.id)
-        }) else {
-            if !attributable.is_empty() || !occupants.is_empty() {
+        // Each unused item holding every ROM the Game needs, with each ROM of `roms` it doesn't hold, and whether the
+        // Source Set holds that ROM. One lacking a ROM the Source Set holds never fills it, so that the ROM is never
+        // set aside with the file it is in; of the others, the one lacking fewest fills it.
+        let fillers: Vec<(usize, Vec<(&str, bool)>)> = i
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.matched.game == *game
+                    && c.matched.complete
+                    && !used_candidates.contains(&c.item.id)
+            })
+            .map(|(n, c)| {
+                let lacks = roms
+                    .iter()
+                    .filter(|rom| c.matched.rom(&rom.name).is_none())
+                    .map(|rom| {
+                        let held = held_by.contains_key(&(game.clone(), rom.name.clone()));
+                        (rom.name.as_str(), held)
+                    })
+                    .collect();
+                (n, lacks)
+            })
+            .collect();
+        let Some(candidate) = fillers
+            .iter()
+            .filter(|(_, lacks)| lacks.iter().all(|(_, held)| !held))
+            .min_by_key(|(_, lacks)| lacks.len())
+            .map(|(n, _)| *n)
+        else {
+            if let Some((n, lacks)) = fillers.first() {
+                let c = &i.candidates[*n];
+                let set_aside: Vec<&str> = lacks
+                    .iter()
+                    .filter(|(_, held)| *held)
+                    .map(|(rom, _)| *rom)
+                    .collect();
+                let them = match set_aside.len() {
+                    1 => "it",
+                    _ => "them",
+                };
+                notes.push(format!(
+                    "{game} is left as it is: {item} in ingest folder {} holds every ROM the game needs, but not {}, \
+                     which your source set holds and a repair would set aside; add {them} to {item} to repair the game",
+                    c.root,
+                    set_aside.join(", "),
+                    item = c.item.name,
+                ));
+            } else if !attributable.is_empty() || !occupants.is_empty() {
                 notes.push(format!(
                     "{game} is left as it is: no ingest folder holds it whole, with its payloads read"
                 ));
@@ -1979,6 +2101,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
     }
 
+    // An item that would take a file under a nodump ROM's name from where it is, to keep it aside, convert it or
+    // rename it into place, is left by default. A file is told by the Game whose file holds it, not by what its payload
+    // matches, which may be another Game's ROM; the files held nothing a Game needs, kept aside below, are told alike.
+    // A release's item sets only its CHDs aside, whose Disks a name never matches, and is left to its own rules.
+    let holders = Holders::new(i.dat);
+    for p in proposed
+        .iter_mut()
+        .filter(|p| p.item.default != RepairChoice::Leave && p.release.is_none())
+    {
+        let takes = p.takes().filter_map(|path| usable.get(path));
+        let Some(note) = left_for_nodump(i.dat, &holders, takes, IfChosen::Repair) else {
+            continue;
+        };
+        let item = &mut p.item;
+        if !item.choices.contains(&RepairChoice::Leave) {
+            item.choices.push(RepairChoice::Leave);
+        }
+        item.default = RepairChoice::Leave;
+        item.chosen = RepairChoice::Leave;
+        item.note = Some(note);
+    }
+
     // The choices you made in place of the defaults; those for files holding nothing are checked below.
     for (key, choice) in i.choices {
         let Some(found) = proposed.iter_mut().find(|p| p.item.key == *key) else {
@@ -2106,7 +2250,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let key = format!("file:{path}");
-        let default = RepairChoice::KeepAside;
+        let nodump = left_for_nodump(i.dat, &holders, [file], IfChosen::KeepAside);
+        let default = match nodump {
+            Some(_) => RepairChoice::Leave,
+            None => RepairChoice::KeepAside,
+        };
         let chosen = i.choices.get(&key).copied().unwrap_or(default);
         // A file holding one ROM no DAT knows can be added as an Addition, from where it is kept.
         let addable =
@@ -2154,7 +2302,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 choices,
                 default,
                 chosen,
-                note: None,
+                note: nodump,
                 addition,
                 addition_rom: None,
                 addition_target: None,
@@ -2675,18 +2823,17 @@ fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
         .iter()
         .position(|g| g == game)
         .expect("a game of the DAT");
+    // Each ROM of the Game the item holds, in DAT order, which is each the Game needs and maybe others (ADR 0025).
     let roms: Vec<RepairRom> = roms_of(i.dat, index)
         .into_iter()
-        .map(|rom| RepairRom {
-            member: c
-                .matched
-                .roms
-                .iter()
-                .find(|m| m.rom == rom.name)
-                .and_then(|m| m.member.clone()),
-            rom,
-            from: c.item.name.clone(),
-            cue_pack: None,
+        .filter_map(|rom| {
+            let matched = c.matched.rom(&rom.name)?;
+            Some(RepairRom {
+                member: matched.member.clone(),
+                rom,
+                from: c.item.name.clone(),
+                cue_pack: None,
+            })
         })
         .collect();
     // The original is deleted only once what was written reads as exactly this one ROM, from a loose file.

@@ -588,8 +588,9 @@ struct AuditIndex {
 
 struct DatIndex {
     dat: Dat,
-    /// How many ROMs each Game lists.
-    rom_counts: Vec<usize>,
+    /// The names of the ROMs each Game needs, as [`title_select_engine::dat::Rom::needed`] says: neither optional nor
+    /// nodump.
+    needed: Vec<Vec<String>>,
     extensions: HashSet<String>,
 }
 
@@ -607,13 +608,9 @@ impl SetIndex {
         match audit.games.get(game) {
             None => Need::Missing,
             Some((status, _, _)) if status == "missing" => Need::Missing,
-            // A Game with Nothing to Check still lacks an optional ROM that is absent.
-            Some((status, missing, _))
-                if matches!(status.as_str(), "incomplete" | "nothing_to_check")
-                    && roms.iter().any(|r| missing.contains(&r.rom)) =>
-            {
-                Need::Missing
-            }
+            // Held is decided ROM by ROM: whatever its Game Status, a Game lacks a ROM no Entry holds, as an optional
+            // one may be in a Complete Game (ADR 0025).
+            Some((_, missing, _)) if roms.iter().any(|r| missing.contains(&r.rom)) => Need::Missing,
             Some((_, _, claimed)) => audit.bad.get(game).copied().unwrap_or(
                 match roms.iter().any(|r| claimed.contains(&r.rom)) {
                     true => Need::Claimed,
@@ -666,14 +663,14 @@ impl Matcher {
                     let Ok(dat) = Dat::parse(&bytes, &path) else {
                         continue;
                     };
-                    let mut rom_counts = vec![0; dat.games.len()];
-                    for rom in &dat.roms {
-                        rom_counts[rom.game] += 1;
+                    let mut needed = vec![Vec::new(); dat.games.len()];
+                    for rom in dat.roms.iter().filter(|r| r.needed()) {
+                        needed[rom.game].push(rom.name.clone());
                     }
                     let extensions = dat.roms.iter().filter_map(|r| extension(&r.name)).collect();
                     matcher.dats.push(DatIndex {
                         dat,
-                        rom_counts,
+                        needed,
                         extensions,
                     });
                     parsed.insert(revision.sha256.clone(), matcher.dats.len() - 1);
@@ -746,7 +743,9 @@ impl Matcher {
                 found.push(ItemMatch {
                     source_set: set.name.clone(),
                     dat_revision: set.revision.clone(),
-                    complete: roms.len() == index.rom_counts[game],
+                    complete: index.needed[game]
+                        .iter()
+                        .all(|n| roms.iter().any(|r| r.rom == *n)),
                     extra: used.len() < payloads.len(),
                     game: name,
                     roms,

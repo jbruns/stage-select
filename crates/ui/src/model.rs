@@ -56,16 +56,37 @@ pub fn game_status_text(game: &Game) -> String {
     status_text(game.status, !game.claimed_roms.is_empty())
 }
 
-/// A Game's absent ROMs, each Available Elsewhere one naming the Games whose ZIP or folder holds it.
+/// Whether `game` need not have its ROM `rom` (ADR 0025): it has no good dump known, or is optional, so its absence
+/// keeps the Game from no Game Status.
+pub fn unneeded(game: &Game, rom: &str) -> bool {
+    let named = |roms: &[String]| roms.iter().any(|r| r == rom);
+    named(&game.not_dumped) || named(&game.optional_roms)
+}
+
+/// A Game's absent ROMs, each saying when it has no good dump known or is optional, which keeps the Game from no Game
+/// Status, and each Available Elsewhere one naming the Games whose ZIP or folder holds it.
 pub fn absent_roms(game: &Game) -> Vec<String> {
     game.missing_roms
         .iter()
-        .map(
-            |rom| match game.available_elsewhere.iter().find(|a| &a.rom == rom) {
-                Some(a) => format!("{rom}: available in {}", a.games.join(" or ")),
-                None => rom.clone(),
-            },
-        )
+        .map(|rom| {
+            let elsewhere = game.available_elsewhere.iter().find(|a| &a.rom == rom);
+            let notes: Vec<String> = [
+                game.not_dumped
+                    .contains(rom)
+                    .then(|| "no good dump known, so no file can match it".to_owned()),
+                game.optional_roms
+                    .contains(rom)
+                    .then(|| "optional".to_owned()),
+                elsewhere.map(|a| format!("available in {}", a.games.join(" or "))),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            match notes.is_empty() {
+                true => rom.clone(),
+                false => format!("{rom}: {}", notes.join("; ")),
+            }
+        })
         .collect()
 }
 
@@ -794,6 +815,9 @@ mod tests {
                 warnings: vec![],
                 available_elsewhere: vec![],
                 dependencies: vec![],
+                not_dumped: vec![],
+                bad_dumps: vec![],
+                optional_roms: vec![],
             },
         }
     }
@@ -835,6 +859,25 @@ mod tests {
                 "Track 2.bin: available in Game A (USA) or Game A (Japan)"
             ]
         );
+    }
+
+    #[test]
+    fn an_absent_rom_says_when_it_has_no_good_dump_known_or_is_optional() {
+        let mut game = game("pacman", GameStatus::Complete).game;
+        game.missing_roms = vec!["pal.u1".into(), "snd.u2".into(), "both.u3".into()];
+        game.not_dumped = vec!["pal.u1".into(), "both.u3".into()];
+        game.optional_roms = vec!["snd.u2".into(), "both.u3".into()];
+
+        assert_eq!(
+            absent_roms(&game),
+            [
+                "pal.u1: no good dump known, so no file can match it",
+                "snd.u2: optional",
+                "both.u3: no good dump known, so no file can match it; optional"
+            ]
+        );
+        assert!(unneeded(&game, "pal.u1") && unneeded(&game, "snd.u2"));
+        assert!(!unneeded(&game, "pong.a26"));
     }
 
     const FULL: &[&str] = &["size", "crc32", "md5", "sha1", "sha256"];

@@ -748,21 +748,9 @@ impl Dat {
             sha256: lower("sha256"),
             ..rom
         };
-        let idx = self.roms.len();
         self.extent = Some((rom.size, rom.size));
-        match &rom.crc {
-            Some(crc) => self
-                .by_size_crc
-                .entry((rom.size, crc.clone()))
-                .or_default()
-                .push(idx),
-            None => self
-                .by_size_without_crc
-                .entry(rom.size)
-                .or_default()
-                .push(idx),
-        }
         self.push_rom(rom);
+        self.index_by_size(self.roms.len() - 1);
         Ok(())
     }
 
@@ -835,8 +823,16 @@ impl Dat {
         if let Some(bucket) = bucket {
             bucket.retain(|&i| i != idx);
         }
-        let rom = &mut self.roms[idx];
-        rom.size = size;
+        self.roms[idx].size = size;
+        self.index_by_size(idx);
+    }
+
+    /// Makes ROM `idx` a candidate for payloads of its size, unless it is nodump: no payload matches one (ADR 0025).
+    fn index_by_size(&mut self, idx: usize) {
+        let rom = &self.roms[idx];
+        if rom.status == DumpStatus::NoDump {
+            return;
+        }
         match &rom.crc {
             Some(crc) => self
                 .by_size_crc
@@ -933,7 +929,7 @@ impl Dat {
         self.by_name.get(name).map_or(&[], Vec::as_slice)
     }
 
-    /// The ROMs a payload of this size and CRC32 could match; each must still be compared in full.
+    /// The ROMs a payload of this size and CRC32 could match, never a nodump one; each must still be compared in full.
     pub fn candidates(&self, size: u64, crc: &str) -> impl Iterator<Item = usize> + '_ {
         let with_crc = self.by_size_crc.get(&(size, crc.to_string()));
         let without_crc = self.by_size_without_crc.get(&size);

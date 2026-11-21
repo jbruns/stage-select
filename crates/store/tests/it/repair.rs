@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::common::*;
 use crate::sevenz_fixtures;
 use title_select_api::build::PlanKeptDeletion;
+use title_select_api::ingest::Need;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::storage::{StorageFormat, SystemStorage};
 use title_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
@@ -390,6 +391,16 @@ fn a_game_listing_more_than_one_rom_stays_torrentzip_though_only_one_is_written(
 /// Imports a DAT in which Manual lists a ROM and an optional one no file holds, and Extras lists only an optional ROM,
 /// which no file holds, then audits the Source Set holding Manual's needed ROM.
 fn audit_manual_without_its_optional_rom(env: &Env) {
+    let revision = import_manual_with_an_optional_rom(env);
+    env.put("manual.bin", b"manual game");
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+}
+
+/// Imports a DAT in which Manual lists a ROM and an optional one, and Extras lists only an optional ROM; returns its
+/// SHA-256.
+fn import_manual_with_an_optional_rom(env: &Env) -> String {
     let mut games = alpha_games();
     games.extend([
         (
@@ -416,16 +427,618 @@ fn audit_manual_without_its_optional_rom(env: &Env) {
         );
     }
     std::fs::write(&dat, xml).unwrap();
-    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
-    env.put("manual.bin", b"manual game");
+    env.store.import_dat(&dat, None).unwrap().0.sha256
+}
+
+/// Imports a DAT in which Adventure's manual is a nodump ROM, and audits Alpha holding Adventure in a ZIP that isn't
+/// TorrentZip, with a member under the manual's name, which no file can match.
+fn audit_adventure_with_a_member_under_a_nodump_roms_name(env: &Env) {
+    let revision = import_adventure_with_a_nodump_manual(env);
+    write_zip(
+        &env.set().join("Adventure (USA).zip"),
+        &[
+            ("Adventure (USA).a26", b"adventure"),
+            ("Adventure (USA).txt", b"manual"),
+        ],
+    );
     env.store
-        .audit_source_set(
-            &env.config,
-            "Alpha",
-            Some(&revision.sha256),
-            AuditEvidence::Full,
-        )
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
+}
+
+/// Imports a DAT in which Adventure's manual is a nodump ROM; returns its SHA-256.
+fn import_adventure_with_a_nodump_manual(env: &Env) -> String {
+    let games: Vec<(&str, Option<&str>, Vec<RomSpec>)> = alpha_games()
+        .into_iter()
+        .map(|(game, roms)| (game, None, roms))
+        .collect();
+    import_with_nodumps(env, &games, &[("Adventure (USA)", "Adventure (USA).txt")])
+}
+
+#[test]
+fn an_ingest_item_holding_the_optional_rom_a_complete_game_lacks_fills_it() {
+    let env = Env::new();
+    audit_manual_without_its_optional_rom(&env);
+    let manual = env
+        .latest_report()
+        .games
+        .into_iter()
+        .find(|g| g.name == "Manual (USA)");
+    assert_eq!(manual.unwrap().status, GameStatus::Complete);
+    env.ingest("manual.zip", |p| {
+        write_zip(
+            p,
+            &[
+                ("Manual (USA).a26", b"manual game"),
+                ("Manual (USA).txt", b"manual text"),
+            ],
+        )
+    });
+
+    let items = env.store.ingest_items("in").unwrap();
+    let alpha = items[0]
+        .assessment
+        .matches
+        .iter()
+        .find(|m| m.source_set == "Alpha");
+    assert_eq!(
+        alpha.map(|m| m.need),
+        Some(Need::Missing),
+        "{:#?}",
+        items[0]
+    );
+    let plan = env.plan();
+    assert_eq!(
+        item(&plan, "game:Manual (USA)").kind,
+        RepairKind::Replace,
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+
+    env.audit(AuditEvidence::Full);
+    let manual = env
+        .latest_report()
+        .games
+        .into_iter()
+        .find(|g| g.name == "Manual (USA)");
+    let manual = manual.unwrap();
+    assert_eq!(manual.status, GameStatus::Complete);
+    assert!(manual.missing_roms.is_empty(), "{manual:?}");
+}
+
+#[test]
+fn a_missing_game_is_filled_from_an_ingest_item_without_its_optional_rom() {
+    let env = Env::new();
+    let revision = import_manual_with_an_optional_rom(&env);
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    env.ingest("manual.zip", |p| {
+        write_zip(p, &[("Manual (USA).a26", b"manual game")])
+    });
+
+    let plan = env.plan();
+    assert_eq!(
+        item(&plan, "game:Manual (USA)").kind,
+        RepairKind::Fill,
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+
+    env.audit(AuditEvidence::Full);
+    let manual = env
+        .latest_report()
+        .games
+        .into_iter()
+        .find(|g| g.name == "Manual (USA)");
+    let manual = manual.unwrap();
+    assert_eq!(manual.status, GameStatus::Complete);
+    assert_eq!(manual.missing_roms, ["Manual (USA).txt"]);
+}
+
+#[test]
+fn an_ingest_item_without_the_optional_rom_a_file_holds_never_replaces_that_file() {
+    let env = Env::new();
+    let revision = import_manual_with_an_optional_rom(&env);
+    write_zip(
+        &env.set().join("Manual (USA).zip"),
+        &[("Manual (USA).txt", b"manual text")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    env.ingest("manual.zip", |p| {
+        write_zip(p, &[("Manual (USA).a26", b"manual game")])
+    });
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.game.as_deref() != Some("Manual (USA)")),
+        "{:#?}",
+        plan.content.items
+    );
+    assert!(
+        plan.content.notes.contains(
+            &"Manual (USA) is left as it is: manual.zip in ingest folder in holds every ROM the game needs, but \
+              not Manual (USA).txt, which your source set holds and a repair would set aside; add it to \
+              manual.zip to repair the game"
+                .to_owned()
+        ),
+        "{:?}",
+        plan.content.notes
+    );
+
+    // An item that also holds the optional ROM fills it, beside the one that doesn't.
+    env.ingest("manual both.zip", |p| {
+        write_zip(
+            p,
+            &[
+                ("Manual (USA).a26", b"manual game"),
+                ("Manual (USA).txt", b"manual text"),
+            ],
+        )
+    });
+    let plan = env.plan();
+    let manual = item(&plan, "game:Manual (USA)");
+    assert_eq!(manual.kind, RepairKind::Replace);
+    assert!(
+        manual.summary.contains("from manual both.zip"),
+        "{}",
+        manual.summary
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .all(|n| !n.starts_with("Manual (USA)")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn an_optional_rom_only_another_ingest_item_holds_never_holds_back_a_fill() {
+    let env = Env::new();
+    let revision = import_manual_with_an_optional_rom(&env);
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    env.ingest("manual.zip", |p| {
+        write_zip(p, &[("Manual (USA).a26", b"manual game")])
+    });
+    env.ingest("manual text.zip", |p| {
+        write_zip(p, &[("Manual (USA).txt", b"manual text")])
+    });
+
+    let plan = env.plan();
+
+    assert_eq!(
+        item(&plan, "game:Manual (USA)").kind,
+        RepairKind::Fill,
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn a_missing_game_is_filled_from_the_ingest_item_that_also_holds_its_optional_rom() {
+    let env = Env::new();
+    let revision = import_manual_with_an_optional_rom(&env);
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    env.ingest("manual.zip", |p| {
+        write_zip(p, &[("Manual (USA).a26", b"manual game")])
+    });
+    env.ingest("manual both.zip", |p| {
+        write_zip(
+            p,
+            &[
+                ("Manual (USA).a26", b"manual game"),
+                ("Manual (USA).txt", b"manual text"),
+            ],
+        )
+    });
+
+    let plan = env.plan();
+
+    let manual = item(&plan, "game:Manual (USA)");
+    assert_eq!(manual.kind, RepairKind::Fill);
+    assert!(
+        manual.summary.contains("from manual both.zip"),
+        "{}",
+        manual.summary
+    );
+}
+
+#[test]
+fn a_missing_game_with_a_nodump_rom_is_filled_from_an_ingest_item() {
+    let env = Env::new();
+    let revision = import_adventure_with_a_nodump_manual(&env);
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    env.ingest("adventure.zip", |p| {
+        write_zip(p, &[("Adventure (USA).a26", b"adventure")])
+    });
+
+    let plan = env.plan();
+    assert_eq!(
+        item(&plan, "game:Adventure (USA)").kind,
+        RepairKind::Fill,
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+
+    assert!(is_torrentzip(&env.set().join("Adventure (USA).zip")));
+    env.audit(AuditEvidence::Full);
+    let adventure = env
+        .latest_report()
+        .games
+        .into_iter()
+        .find(|g| g.name == "Adventure (USA)");
+    let adventure = adventure.unwrap();
+    assert_eq!(adventure.status, GameStatus::Complete);
+    assert_eq!(adventure.not_dumped, ["Adventure (USA).txt"]);
+}
+
+#[test]
+fn a_repair_keeps_a_file_under_a_nodump_roms_name_by_default() {
+    let env = Env::new();
+    audit_adventure_with_a_member_under_a_nodump_roms_name(&env);
+    let report = env.latest_report();
+    let manual = report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some("Adventure (USA).txt"))
+        .unwrap();
+    assert_eq!(manual.finding, Finding::Mismatched);
+    assert_eq!(manual.reason.as_deref(), Some("no good dump known"));
+    let adventure = report
+        .games
+        .iter()
+        .find(|g| g.name == "Adventure (USA)")
+        .unwrap();
+    assert_eq!(adventure.status, GameStatus::Complete);
+    assert_eq!(adventure.not_dumped, ["Adventure (USA).txt"]);
+
+    let plan = env.plan();
+
+    let repack = item(&plan, "game:Adventure (USA)");
+    assert_eq!(repack.default, RepairChoice::Leave, "{repack:#?}");
+    assert_eq!(repack.chosen, RepairChoice::Leave);
+    assert!(repack.choices.contains(&RepairChoice::Apply), "{repack:#?}");
+    assert!(
+        repack
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Adventure (USA).txt")),
+        "{repack:#?}"
+    );
+    let zip = env.set().join("Adventure (USA).zip");
+    let before = std::fs::read(&zip).unwrap();
+    env.approve(&plan);
+    assert_eq!(std::fs::read(&zip).unwrap(), before, "{:?}", env.listing());
+}
+
+#[test]
+fn you_can_choose_to_repair_a_game_whose_file_holds_a_file_under_a_nodump_roms_name() {
+    let env = Env::new();
+    audit_adventure_with_a_member_under_a_nodump_roms_name(&env);
+
+    let plan = env.plan_with(&[("game:Adventure (USA)", RepairChoice::Apply)]);
+
+    assert_eq!(
+        item(&plan, "game:Adventure (USA)").chosen,
+        RepairChoice::Apply
+    );
+    env.approve(&plan);
+    assert!(is_torrentzip(&env.set().join("Adventure (USA).zip")));
+}
+
+/// Imports a DAT of `games`, each with its parent if it is a clone, in which each ROM `nodumps` names, by its Game and
+/// name, is a nodump ROM; returns its SHA-256.
+fn import_with_nodumps(
+    env: &Env,
+    games: &[(&str, Option<&str>, Vec<RomSpec>)],
+    nodumps: &[(&str, &str)],
+) -> String {
+    import_edited_with_nodumps(env, games, nodumps, |xml| xml)
+}
+
+/// [`import_with_nodumps`], with the DAT's text edited by `edit` first.
+fn import_edited_with_nodumps(
+    env: &Env,
+    games: &[(&str, Option<&str>, Vec<RomSpec>)],
+    nodumps: &[(&str, &str)],
+    edit: impl Fn(String) -> String,
+) -> String {
+    let dat = write_dat_with_clones(&env.tmp.path().join("dats"), games);
+    let xml = edit(std::fs::read_to_string(&dat).unwrap());
+    let mut game = "";
+    let xml: Vec<String> = xml
+        .lines()
+        .map(|line| {
+            if let Some(name) = line.trim_start().strip_prefix(r#"<game name=""#) {
+                game = name.split('"').next().unwrap();
+            }
+            match nodumps
+                .iter()
+                .find(|(g, r)| *g == game && line.contains(&format!(r#"<rom name="{r}""#)))
+            {
+                Some((_, r)) => format!(r#"    <rom name="{r}" size="8" status="nodump"/>"#),
+                None => line.to_owned(),
+            }
+        })
+        .collect();
+    std::fs::write(&dat, xml.join("\n")).unwrap();
+    env.store.import_dat(&dat, None).unwrap().0.sha256
+}
+
+/// Alpha lists `pal.u1`, and Beta lists its own `pal.u1` as a nodump ROM; returns the DAT's SHA-256.
+fn import_alpha_and_beta_sharing_a_nodump_roms_name(env: &Env) -> String {
+    import_with_nodumps(
+        env,
+        &[
+            ("Alpha (USA)", None, vec![rom("pal.u1", b"pal-good")]),
+            (
+                "Beta (USA)",
+                None,
+                vec![rom("Beta (USA).a26", b"beta"), rom("pal.u1", b"pal-beta")],
+            ),
+        ],
+        &[("Beta (USA)", "pal.u1")],
+    )
+}
+
+/// Approves `plan`, and checks that the item for `game` was left by default, with a note, and that `file` is as it was.
+fn assert_left_by_default(env: &Env, plan: &RepairPlan, game: &str, file: &str) {
+    let left = item(plan, &format!("game:{game}"));
+    assert_eq!(left.default, RepairChoice::Leave, "{left:#?}");
+    assert_eq!(left.chosen, RepairChoice::Leave);
+    assert!(left.choices.contains(&RepairChoice::Apply), "{left:#?}");
+    assert!(
+        left.note.as_deref().is_some_and(|n| n.contains("pal.u1")),
+        "{left:#?}"
+    );
+    let path = env.set().join(file);
+    let before = std::fs::read(&path).unwrap();
+    env.approve(plan);
+    assert_eq!(std::fs::read(&path).unwrap(), before, "{:?}", env.listing());
+}
+
+#[test]
+fn a_repair_keeps_another_games_rom_under_a_nodump_roms_name_in_its_games_file_by_default() {
+    let env = Env::new();
+    let revision = import_alpha_and_beta_sharing_a_nodump_roms_name(&env);
+    // Beta's ZIP isn't TorrentZip, and its `pal.u1` holds the bytes of Alpha's.
+    write_zip(
+        &env.set().join("Beta (USA).zip"),
+        &[("Beta (USA).a26", b"beta"), ("pal.u1", b"pal-good")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    let report = env.latest_report();
+    let pal = report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some("pal.u1"))
+        .unwrap();
+    assert_eq!(pal.finding, Finding::Matched);
+    assert_eq!(pal.roms[0].game, "Alpha (USA)");
+
+    let plan = env.plan();
+
+    assert_eq!(item(&plan, "game:Beta (USA)").kind, RepairKind::Repack);
+    assert_left_by_default(&env, &plan, "Beta (USA)", "Beta (USA).zip");
+}
+
+#[test]
+fn a_repair_never_moves_a_file_under_a_nodump_roms_name_to_the_game_it_matches_by_default() {
+    let env = Env::new();
+    let revision = import_alpha_and_beta_sharing_a_nodump_roms_name(&env);
+    // Beta's TorrentZip holds only its `pal.u1`, with the bytes of Alpha's: exactly Alpha, under Beta's name.
+    crate::single_copy::torrentzip(
+        &env.set().join("Beta (USA).zip"),
+        &[("pal.u1", b"pal-good")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+
+    let plan = env.plan();
+
+    assert_eq!(item(&plan, "game:Alpha (USA)").kind, RepairKind::Rename);
+    assert_left_by_default(&env, &plan, "Alpha (USA)", "Beta (USA).zip");
+}
+
+#[test]
+fn a_repair_keeps_a_file_under_a_parents_nodump_roms_name_that_a_clone_listed_first_has_dumped() {
+    let env = Env::new();
+    let revision = import_with_nodumps(
+        &env,
+        &[
+            (
+                "Clone (USA)",
+                Some("Parent (USA)"),
+                vec![rom("pal.u1", b"pal-good")],
+            ),
+            (
+                "Parent (USA)",
+                None,
+                vec![
+                    rom("Parent (USA).a26", b"parent"),
+                    rom("pal.u1", b"pal-parent"),
+                ],
+            ),
+        ],
+        &[("Parent (USA)", "pal.u1")],
+    );
+    write_zip(
+        &env.set().join("Parent (USA).zip"),
+        &[("Parent (USA).a26", b"parent"), ("pal.u1", b"8 bytes!")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+
+    let plan = env.plan();
+
+    assert_eq!(item(&plan, "game:Parent (USA)").kind, RepairKind::Repack);
+    assert_left_by_default(&env, &plan, "Parent (USA)", "Parent (USA).zip");
+}
+
+#[test]
+fn a_repair_keeps_a_file_in_an_ancestors_zip_under_a_nodump_roms_name_of_a_game_on_it() {
+    let env = Env::new();
+    // Board is on Base by `romof` alone, so Base's ZIP counts as Board's own. Rival, outside the family, lists a
+    // dumped `pal.u1` first.
+    let revision = import_edited_with_nodumps(
+        &env,
+        &[
+            ("Rival (USA)", None, vec![rom("pal.u1", b"pal-good")]),
+            ("Board (USA)", None, vec![rom("pal.u1", b"pal-board")]),
+            ("Base (USA)", None, vec![rom("Base (USA).a26", b"base")]),
+        ],
+        &[("Board (USA)", "pal.u1")],
+        |xml| xml.replace(r#""Board (USA)""#, r#""Board (USA)" romof="Base (USA)""#),
+    );
+    write_zip(
+        &env.set().join("Base (USA).zip"),
+        &[("Base (USA).a26", b"base"), ("pal.u1", b"8 bytes!")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+    let report = env.latest_report();
+    let pal = report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some("pal.u1"))
+        .unwrap();
+    assert_eq!(pal.named_rom.as_ref().unwrap().game, "Board (USA)");
+
+    let plan = env.plan();
+
+    assert_eq!(item(&plan, "game:Base (USA)").kind, RepairKind::Repack);
+    assert_left_by_default(&env, &plan, "Base (USA)", "Base (USA).zip");
+}
+
+#[test]
+fn a_repair_keeps_a_file_in_a_parents_zip_under_a_nodump_roms_name_of_one_clone_though_another_has_it_dumped()
+ {
+    let env = Env::new();
+    let revision = import_with_nodumps(
+        &env,
+        &[
+            (
+                "Dumped (USA)",
+                Some("Parent (USA)"),
+                vec![rom("pal.u1", b"pal-good")],
+            ),
+            (
+                "Undumped (USA)",
+                Some("Parent (USA)"),
+                vec![rom("pal.u1", b"pal-undumped")],
+            ),
+            (
+                "Parent (USA)",
+                None,
+                vec![rom("Parent (USA).a26", b"parent")],
+            ),
+        ],
+        &[("Undumped (USA)", "pal.u1")],
+    );
+    write_zip(
+        &env.set().join("Parent (USA).zip"),
+        &[("Parent (USA).a26", b"parent"), ("pal.u1", b"8 bytes!")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+
+    let plan = env.plan();
+
+    assert_eq!(item(&plan, "game:Parent (USA)").kind, RepairKind::Repack);
+    assert_left_by_default(&env, &plan, "Parent (USA)", "Parent (USA).zip");
+}
+
+#[test]
+fn a_loose_file_under_a_nodump_roms_name_in_its_games_folder_is_never_moved_or_kept_aside_by_default()
+ {
+    let env = Env::new();
+    let revision = import_with_nodumps(
+        &env,
+        &[
+            ("Alpha (USA)", None, vec![rom("pal.u1", b"pal-good")]),
+            (
+                "Beta (USA)",
+                None,
+                vec![
+                    rom("Beta (USA).a26", b"beta"),
+                    rom("Beta (USA).b", b"beta b"),
+                    rom("pal.u1", b"pal-beta"),
+                ],
+            ),
+        ],
+        &[("Beta (USA)", "pal.u1")],
+    );
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.systems.insert(
+        "No-Intro/Test - System".into(),
+        SystemStorage {
+            format: Some(StorageFormat::LooseFolder),
+            ..Default::default()
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    // Beta's folder is as it should be, and its `pal.u1` holds the bytes of Alpha's, which Alpha holds too.
+    env.put("Beta (USA)/Beta (USA).a26", b"beta");
+    env.put("Beta (USA)/Beta (USA).b", b"beta b");
+    env.put("Beta (USA)/pal.u1", b"pal-good");
+    let audit = || {
+        env.store
+            .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+            .unwrap()
+    };
+    audit();
+
+    // Alpha lacks its own copy, and the only one is Beta's.
+    let plan = env.plan();
+    let alpha = item(&plan, "game:Alpha (USA)");
+    assert_eq!(alpha.kind, RepairKind::Rename, "{alpha:#?}");
+    assert_eq!(alpha.default, RepairChoice::Leave, "{alpha:#?}");
+    assert!(
+        alpha.note.as_deref().is_some_and(|n| n.contains("pal.u1")),
+        "{alpha:#?}"
+    );
+
+    // With its own copy, Beta's is a file holding only a copy of a ROM Alpha's own file holds.
+    env.put("Alpha (USA)/pal.u1", b"pal-good");
+    audit();
+    let plan = env.plan();
+    let pal = item(&plan, "file:Beta (USA)/pal.u1");
+    assert_eq!(pal.default, RepairChoice::Leave, "{pal:#?}");
+    assert_eq!(pal.chosen, RepairChoice::Leave);
+    assert!(pal.choices.contains(&RepairChoice::KeepAside), "{pal:#?}");
+    assert!(
+        pal.note.as_deref().is_some_and(|n| n.contains("pal.u1")),
+        "{pal:#?}"
+    );
+    env.approve(&plan);
+    assert!(
+        env.set().join("Beta (USA)/pal.u1").exists(),
+        "{:?}",
+        env.listing()
+    );
 }
 
 #[test]
