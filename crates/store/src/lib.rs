@@ -36,6 +36,7 @@ mod sets;
 pub mod settings;
 mod stale;
 mod storage;
+mod support_files;
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
@@ -52,6 +53,7 @@ pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
+pub use support_files::{SUPPORT_FILE_LIMIT, SUPPORT_FILES};
 pub use title_select_api::{
     AuditSummary, DatRevisionRecord, DeletedDatRevision, DeletionBlocker, DeletionBlockerKind,
     ImportOutcome, Job, JobState, LastVerified, SourceSetRecord, Workers,

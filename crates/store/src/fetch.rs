@@ -5,6 +5,10 @@
 //! import does, and the Operator decides when to audit. Each system's artifact is requested at most once a day,
 //! whatever started the fetch and however the last request ended; requests to one provider are at least
 //! [`MIN_GAP`] apart; and a fetch stops at its first error, keeping the last good revision.
+//!
+//! A MAME fetch also brings progetto-SNAPS's support files (ADR 0012's amendment), from its GitHub mirror at the commit
+//! the GitHub API names, once for each newest ListXML DAT Revision a registered Source Set is bound to: after the
+//! DATs, under the same courtesy rules.
 
 mod http;
 
@@ -17,8 +21,10 @@ use std::time::Duration;
 use rusqlite::{Connection, OptionalExtension, params};
 use title_select_api::fetch::{
     FetchArtifact, FetchArtifactStatus, FetchAttempt, FetchOutcome, FetchProvider,
-    FetchProviderStatus, FetchReport, FetchStatus, FetchSystem, FetchTrigger,
+    FetchProviderStatus, FetchReport, FetchStatus, FetchSupport, FetchSystem, FetchTrigger,
+    SUPPORT_SYSTEM,
 };
+use title_select_api::support::{SupportFileKind, SupportFileOrigin};
 use title_select_api::{CuePackOrigin, ImportOutcome};
 use title_select_engine::cap::{Clock, Monotonic};
 use title_select_engine::dat::Dat;
@@ -35,13 +41,17 @@ const ONCE_A_DAY: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
 /// The largest download, and the largest DAT read out of one.
 const MAX_DOWNLOAD: u64 = 512 << 20;
 const MAX_DAT: u64 = 1 << 30;
-/// The largest answer to a release check.
+/// The largest answer to a release or commit check.
 const MAX_RELEASE: u64 = 4 << 20;
+
+/// progetto-SNAPS's GitHub mirror of its support files, and the branch whose commit they are fetched at.
+const SUPPORT_MIRROR: &str = "AntoPISA/MAME_SupportFiles";
+const SUPPORT_BRANCH: &str = "main";
 
 /// Redump's own hosts.
 const REDUMP_HOSTS: &[&str] = &["redump.org", "www.redump.org"];
 /// GitHub's hosts that MAME's releases are found and fetched from: its API, its web, the raw files software lists
-/// are read from, and the hosts GitHub's documentation names for downloading release assets.
+/// and the support files are read from, and the hosts GitHub's documentation names for downloading release assets.
 const GITHUB_HOSTS: &[&str] = &[
     "api.github.com",
     "github.com",
@@ -279,6 +289,9 @@ struct Brought {
     pack: Option<String>,
     release: Option<String>,
     asset_url: Option<String>,
+    commit: Option<String>,
+    support: Option<String>,
+    for_revision: Option<i64>,
 }
 
 impl Brought {
@@ -292,7 +305,11 @@ impl Brought {
 
 const ATTEMPT_COLUMNS: &str =
     "f.id, f.provider, f.system, f.artifact, f.trigger, f.url, f.started_at, f.finished_at,
-     f.outcome, f.error, r.sha256, r.version, f.pack_sha256, f.release, f.asset_url";
+     f.outcome, f.error, r.sha256, coalesce(r.version, sf.mame_version), f.pack_sha256, f.release, f.asset_url,
+     f.commit_sha, f.support_sha256";
+/// The fetches [`ATTEMPT_COLUMNS`] are read from, as `f`.
+const ATTEMPTS: &str = "fetches f LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
+     LEFT JOIN support_files sf ON sf.sha256 = f.support_sha256";
 
 fn attempt_from_row(r: &rusqlite::Row) -> rusqlite::Result<(FetchAttempt, Option<String>)> {
     let provider: String = r.get(1)?;
@@ -319,6 +336,8 @@ fn attempt_from_row(r: &rusqlite::Row) -> rusqlite::Result<(FetchAttempt, Option
             version: r.get(11)?,
             pack: r.get(12)?,
             release: r.get(13)?,
+            commit: r.get(15)?,
+            support_file: r.get(16)?,
         },
         r.get(14)?,
     ))
@@ -338,7 +357,7 @@ fn latest(
         ""
     };
     let sql = format!(
-        "SELECT {ATTEMPT_COLUMNS} FROM fetches f LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
+        "SELECT {ATTEMPT_COLUMNS} FROM {ATTEMPTS}
          WHERE f.provider = ?1 AND f.system = ?2 AND f.artifact = ?3 {filter} ORDER BY f.id DESC LIMIT 1"
     );
     Ok(c.query_row(
@@ -455,6 +474,72 @@ fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
         f.source_sets.dedup();
     }
     Ok(out)
+}
+
+/// The ListXML DAT Revision MAME's support files are fetched for: the newest revision of a ListXML DAT that a
+/// registered Source Set is bound to, Following or not, by id and SHA-256.
+// The DAT Format is the narrowest sign today that a DAT is a ListXML; the machine model (#245) is to replace it.
+fn support_target(c: &Connection) -> Result<Option<(i64, String)>> {
+    Ok(c.query_row(
+        "SELECT r.id, r.sha256 FROM source_sets s JOIN dat_revisions r ON r.dat_id = s.dat_id
+         WHERE s.unregistered_at IS NULL AND r.deleted_at IS NULL AND r.format = 'listxml'
+         ORDER BY r.header_order DESC, r.id DESC LIMIT 1",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()?)
+}
+
+/// The registered Source Sets bound to a ListXML DAT.
+fn listxml_source_sets(c: &Connection) -> Result<Vec<String>> {
+    let mut stmt = c.prepare(
+        "SELECT s.name FROM source_sets s WHERE s.unregistered_at IS NULL
+           AND EXISTS (SELECT 1 FROM dat_revisions r
+                       WHERE r.dat_id = s.dat_id AND r.deleted_at IS NULL AND r.format = 'listxml')
+         ORDER BY s.name",
+    )?;
+    Ok(stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+/// The requests that fetch MAME's support files, in order: the commit check, then each file.
+fn support_artifacts() -> [FetchArtifact; 4] {
+    [
+        FetchArtifact::SupportCommit,
+        FetchArtifact::Catver,
+        FetchArtifact::Languages,
+        FetchArtifact::Bestgames,
+    ]
+}
+
+/// Whether every support file has been fetched for the ListXML DAT Revision `revision`.
+fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
+    for kind in SupportFileKind::ALL {
+        let fetched: bool = c.query_row(
+            "SELECT EXISTS (SELECT 1 FROM fetches WHERE provider = ?1 AND system = ?2 AND artifact = ?3
+                             AND for_revision_id = ?4 AND outcome IN ('added', 'unchanged'))",
+            params![
+                FetchProvider::Mame.as_str(),
+                SUPPORT_SYSTEM,
+                kind.artifact().as_str(),
+                revision
+            ],
+            |r| r.get(0),
+        )?;
+        if !fetched {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The ListXML DAT Revision the support files are owed for, if they haven't all been fetched for the newest.
+fn support_owed(c: &Connection) -> Result<Option<i64>> {
+    match support_target(c)? {
+        Some((revision, _)) if !support_fetched_for(c, revision)? => Ok(Some(revision)),
+        _ => Ok(None),
+    }
 }
 
 /// The one member of the ZIP `bytes` whose name ends with `ext`, read whole up to `limit` bytes.
@@ -580,14 +665,18 @@ impl Store {
                     .iter()
                     .filter_map(|f| mame_system(&f.dat).map(|s| (s, f)))
                     .collect();
-                if systems.is_empty() {
+                // A Source Set bound to a ListXML has support files to fetch, whether or not anything Follows.
+                let listxml = self.read(support_target)?.is_some();
+                if systems.is_empty() && !listxml {
                     return refuse_or_nothing(no_followed(name, &followed))
                         .map(|_: Option<()>| report);
                 }
                 let mut release = None;
-                release_next =
-                    self.read(|c| next_at(c, provider, "mame", FetchArtifact::Release))?;
-                if release_next.is_none() {
+                if !systems.is_empty() {
+                    release_next =
+                        self.read(|c| next_at(c, provider, "mame", FetchArtifact::Release))?;
+                }
+                if !systems.is_empty() && release_next.is_none() {
                     let url = format!(
                         "{}/repos/mamedev/mame/releases/latest",
                         fetcher.endpoints.github_api
@@ -612,8 +701,9 @@ impl Store {
                         }
                     }
                 }
-                if let Some((last, asset)) =
-                    self.read(|c| latest(c, provider, "mame", FetchArtifact::Release, true))?
+                if let Some((last, asset)) = self
+                    .read(|c| latest(c, provider, "mame", FetchArtifact::Release, true))?
+                    .filter(|_| !systems.is_empty())
                 {
                     release = last.release.zip(asset);
                 }
@@ -663,7 +753,16 @@ impl Store {
                 Some(at) => next = Some(next.map_or(at, |n| n.min(at))),
             }
         }
-        if due.is_empty() && report.attempts.is_empty() {
+        let mut support_due = false;
+        if provider == FetchProvider::Mame && self.read(support_owed)?.is_some() {
+            match self
+                .read(|c| next_at(c, provider, SUPPORT_SYSTEM, FetchArtifact::SupportCommit))?
+            {
+                None => support_due = true,
+                Some(at) => next = Some(next.map_or(at, |n| n.min(at))),
+            }
+        }
+        if due.is_empty() && report.attempts.is_empty() && !support_due {
             let when =
                 next.map_or_else(String::new, |n| format!("; the next may be sent after {n}"));
             return refuse_or_nothing(format!(
@@ -723,7 +822,144 @@ impl Store {
                 break;
             }
         }
+        if provider == FetchProvider::Mame && report.stopped.is_none() {
+            self.fetch_support(fetcher, trigger, actor, &mut report)?;
+        }
         Ok(report)
+    }
+
+    /// Fetches MAME's support files, if they are owed for the newest ListXML DAT Revision and due: the mirror's
+    /// commit, then each file at it. Stops at the first request that fails, keeping the last good files.
+    fn fetch_support(
+        &self,
+        fetcher: &Fetcher,
+        trigger: FetchTrigger,
+        actor: &str,
+        report: &mut FetchReport,
+    ) -> Result<()> {
+        let provider = FetchProvider::Mame;
+        let Some(revision) = self.read(support_owed)? else {
+            return Ok(());
+        };
+        let url = format!(
+            "{}/repos/{SUPPORT_MIRROR}/commits/{SUPPORT_BRANCH}",
+            fetcher.endpoints.github_api
+        );
+        let attempt = self.attempt(
+            fetcher,
+            provider,
+            SUPPORT_SYSTEM,
+            FetchArtifact::SupportCommit,
+            trigger,
+            actor,
+            &url,
+            |s, _, f| s.check_support_commit(f, &url, revision),
+        )?;
+        let Some(attempt) = attempt else {
+            return Ok(());
+        };
+        let commit = attempt.commit.clone();
+        if !push(report, attempt) {
+            return Ok(());
+        }
+        let Some(commit) = commit else {
+            return Ok(());
+        };
+        for kind in SupportFileKind::ALL {
+            let file = kind.file_name();
+            let url = format!(
+                "{}/{SUPPORT_MIRROR}/{commit}/{file}/{file}",
+                fetcher.endpoints.github_raw
+            );
+            let attempt = self.attempt(
+                fetcher,
+                provider,
+                SUPPORT_SYSTEM,
+                kind.artifact(),
+                trigger,
+                actor,
+                &url,
+                |s, _, f| s.keep_fetched_support(kind, f, &commit, revision),
+            )?;
+            // Another fetch reserved this request first.
+            let Some(attempt) = attempt else { continue };
+            if !push(report, attempt) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads the commit the support files' mirror is at, which the GitHub API answers with alone.
+    fn check_support_commit(
+        &self,
+        fetched: Fetched,
+        url: &str,
+        revision: i64,
+    ) -> std::result::Result<Brought, String> {
+        let commit = String::from_utf8_lossy(&fetched.bytes).trim().to_owned();
+        if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("{url}: not a commit"));
+        }
+        let previous = self
+            .read(|c| {
+                latest(
+                    c,
+                    FetchProvider::Mame,
+                    SUPPORT_SYSTEM,
+                    FetchArtifact::SupportCommit,
+                    true,
+                )
+            })
+            .map_err(|e| e.to_string())?;
+        let same = previous.is_some_and(|(a, _)| a.commit.as_deref() == Some(commit.as_str()));
+        Ok(Brought {
+            commit: Some(commit),
+            for_revision: Some(revision),
+            ..Brought::new(if same {
+                FetchOutcome::Unchanged
+            } else {
+                FetchOutcome::Added
+            })
+        })
+    }
+
+    /// Keeps a fetched support file, once its header is found to be the file `kind`'s.
+    fn keep_fetched_support(
+        &self,
+        kind: SupportFileKind,
+        fetched: Fetched,
+        commit: &str,
+        revision: i64,
+    ) -> std::result::Result<Brought, String> {
+        let file = kind.file_name();
+        let (named, _) = crate::support_files::read_header(&fetched.bytes, &fetched.url)?;
+        if named != kind {
+            return Err(format!(
+                "{}: is {}, not {file}",
+                fetched.url,
+                named.file_name()
+            ));
+        }
+        let (record, outcome, _) = self
+            .keep_support_file(
+                &fetched.bytes,
+                file,
+                Some(&fetched.url),
+                SupportFileOrigin::Fetch,
+                Some(commit),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(Brought {
+            commit: Some(commit.to_owned()),
+            support: Some(record.sha256),
+            for_revision: Some(revision),
+            ..Brought::new(if outcome == ImportOutcome::Added {
+                FetchOutcome::Added
+            } else {
+                FetchOutcome::Unchanged
+            })
+        })
     }
 
     /// Reserves a request by recording it, unless one for the same system's artifact was recorded within a day, sends
@@ -761,11 +997,14 @@ impl Store {
             Ok(Some(tx.last_insert_rowid()))
         })?;
         let Some(id) = id else { return Ok(None) };
-        let accept = (artifact == FetchArtifact::Release).then_some("application/vnd.github+json");
-        let limit = if artifact == FetchArtifact::Release {
-            MAX_RELEASE
-        } else {
-            MAX_DOWNLOAD
+        let (accept, limit) = match artifact {
+            FetchArtifact::Release => (Some("application/vnd.github+json"), MAX_RELEASE),
+            // The commit's SHA alone, rather than the commit.
+            FetchArtifact::SupportCommit => (Some("application/vnd.github.sha"), MAX_RELEASE),
+            FetchArtifact::Catver | FetchArtifact::Languages | FetchArtifact::Bestgames => {
+                (None, crate::support_files::SUPPORT_FILE_LIMIT)
+            }
+            _ => (None, MAX_DOWNLOAD),
         };
         let result = fetcher
             .get(provider, url, accept, limit)
@@ -778,7 +1017,8 @@ impl Store {
         let finished = self.write(|tx| {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = ?3, error = ?4, dat_revision_id = ?5,
-                 pack_sha256 = ?6, release = ?7, asset_url = ?8 WHERE id = ?1",
+                 pack_sha256 = ?6, release = ?7, asset_url = ?8, commit_sha = ?9, support_sha256 = ?10,
+                 for_revision_id = ?11 WHERE id = ?1",
                 params![
                     id,
                     now(),
@@ -787,7 +1027,10 @@ impl Store {
                     brought.dat_revision_id,
                     brought.pack,
                     brought.release,
-                    brought.asset_url
+                    brought.asset_url,
+                    brought.commit,
+                    brought.support,
+                    brought.for_revision
                 ],
             )?;
             if let Some(error) = &error {
@@ -804,8 +1047,7 @@ impl Store {
                 });
             }
             let sql = format!(
-                "SELECT {ATTEMPT_COLUMNS} FROM fetches f LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
-                 WHERE f.id = ?1"
+                "SELECT {ATTEMPT_COLUMNS} FROM {ATTEMPTS} WHERE f.id = ?1"
             );
             Ok(Some(tx.query_row(&sql, [id], attempt_from_row)?.0))
         })?;
@@ -1002,14 +1244,17 @@ impl Store {
                         artifacts,
                     });
                 }
-                let release = match provider {
-                    FetchProvider::Mame => Some(artifact_status(
-                        c,
-                        provider,
-                        "mame",
-                        FetchArtifact::Release,
-                    )?),
-                    FetchProvider::Redump => None,
+                let (release, support) = match provider {
+                    FetchProvider::Mame => (
+                        Some(artifact_status(
+                            c,
+                            provider,
+                            "mame",
+                            FetchArtifact::Release,
+                        )?),
+                        support_status(c)?,
+                    ),
+                    FetchProvider::Redump => (None, None),
                 };
                 providers.push(FetchProviderStatus {
                     provider,
@@ -1017,11 +1262,38 @@ impl Store {
                     running: fetcher.is_running(provider),
                     release,
                     systems: out,
+                    support,
                 });
             }
             Ok(FetchStatus { providers })
         })
     }
+}
+
+/// Where fetching MAME's support files stands, while a registered Source Set is bound to a ListXML DAT.
+fn support_status(c: &Connection) -> Result<Option<FetchSupport>> {
+    let Some((revision, listxml)) = support_target(c)? else {
+        return Ok(None);
+    };
+    Ok(Some(FetchSupport {
+        source_sets: listxml_source_sets(c)?,
+        listxml,
+        fetched_for_listxml: support_fetched_for(c, revision)?,
+        artifacts: support_artifacts()
+            .into_iter()
+            .map(|a| artifact_status(c, FetchProvider::Mame, SUPPORT_SYSTEM, a))
+            .collect::<Result<_>>()?,
+    }))
+}
+
+/// Adds `attempt` to `report`, stopping it there if it failed. Returns whether the fetch goes on.
+fn push(report: &mut FetchReport, attempt: FetchAttempt) -> bool {
+    let failed = attempt.outcome == Some(FetchOutcome::Failed);
+    if failed {
+        report.stopped = attempt.error.clone();
+    }
+    report.attempts.push(attempt);
+    !failed
 }
 
 /// Why nothing of `provider` can be fetched: no registered Source Set Follows a DAT of it that Title Select knows.

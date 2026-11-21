@@ -26,3 +26,4 @@ mod romm_additions;
 mod single_copy;
 mod stale;
 mod store;
+mod support_files;

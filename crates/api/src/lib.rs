@@ -17,6 +17,7 @@ pub mod romm;
 pub mod selection;
 pub mod settings;
 pub mod storage;
+pub mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 

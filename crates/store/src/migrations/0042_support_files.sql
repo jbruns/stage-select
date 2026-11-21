@@ -1,0 +1,24 @@
+-- MAME support files (ADR 0012's amendment): progetto-SNAPS's catver.ini, languages.ini and bestgames.ini, each kept
+-- unmodified under `support_files/<sha256>` like a DAT Revision, fetched or dropped in. None is ever deleted: a
+-- Selection records the ones it read.
+-- kind: catver, languages or bestgames, as its header names it.
+-- mame_version: the MAME version its `;; … MAME 0.NNN ;;` header names, such as `0.289`.
+-- commit_sha: the mirror commit it was first fetched at; null for one dropped in.
+CREATE TABLE support_files (
+    id INTEGER PRIMARY KEY,
+    sha256 TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('catver', 'languages', 'bestgames')),
+    file_name TEXT NOT NULL,
+    mame_version TEXT NOT NULL,
+    commit_sha TEXT,
+    origin TEXT NOT NULL CHECK (origin IN ('import', 'fetch')),
+    source_url TEXT,
+    imported_at TEXT NOT NULL
+);
+
+-- A request of the support files' system: the commit it found or fetched at, the support file it brought, and the
+-- ListXML DAT Revision it was sent for. The support files are fetched for a ListXML revision once each file's latest
+-- success was sent for it.
+ALTER TABLE fetches ADD COLUMN commit_sha TEXT;
+ALTER TABLE fetches ADD COLUMN support_sha256 TEXT;
+ALTER TABLE fetches ADD COLUMN for_revision_id INTEGER REFERENCES dat_revisions (id);

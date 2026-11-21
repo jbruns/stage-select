@@ -27,6 +27,11 @@ _Avoid_: Source (alone), group
 One particular edition of a DAT, identified by the SHA-256 of its unmodified file. A newer revision does not replace
 the reference used by an earlier Audit or Selection.
 
+**Support File**:
+One of progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`, which the arcade selector reads of an Arcade
+DAT's machines. Kept like a DAT Revision, by its SHA-256, with the MAME version its header names; fetched under MAME's
+fetching switch or dropped in, never shipped.
+
 **Fixdat**:
 A DAT that Title Select writes listing what a Source Set lacks against a DAT Revision: its Missing Games, and the
 missing ROMs of its Incomplete Games, optionally only those a Selection chose. Title Select never acquires them.

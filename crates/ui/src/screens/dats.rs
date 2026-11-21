@@ -5,6 +5,7 @@ use leptos::html::Form;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
+use title_select_api::support::SupportFileImport;
 use title_select_api::{
     AuditSummary, CuePackImport, CuePackRecord, Dat, DatRevisionRecord, DeletedDatRevision,
     DeletionBlocker, DeletionBlockerKind, ImportOutcome, ImportedDatRevision, SourceSetRecord,
@@ -320,6 +321,7 @@ pub fn DatRevisions() -> impl IntoView {
         Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
     let importing = RwSignal::new(false);
     let importing_cues = RwSignal::new(false);
+    let importing_support = RwSignal::new(false);
     let deleting = RwSignal::new(None::<RevisionItem>);
     let confirming = RwSignal::new(false);
     let ask_delete = Callback::new(move |item: RevisionItem| {
@@ -330,6 +332,9 @@ pub fn DatRevisions() -> impl IntoView {
         ToolAction::page(Glyph::Upload, "Import", move || importing.set(true)),
         ToolAction::page(Glyph::Upload, "Import cue pack", move || {
             importing_cues.set(true)
+        }),
+        ToolAction::page(Glyph::Upload, "Import support file", move || {
+            importing_support.set(true)
         }),
     ];
 
@@ -363,6 +368,9 @@ pub fn DatRevisions() -> impl IntoView {
         </Drawer>
         <Drawer open=importing_cues title="Import a cue pack">
             <CuePackUpload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
+        </Drawer>
+        <Drawer open=importing_support title="Import a MAME support file">
+            <SupportFileUpload />
         </Drawer>
         <Drawer open=confirming title="Delete revision">
             {move || {
@@ -503,6 +511,77 @@ fn sentence(clause: &str) -> String {
     match chars.next() {
         Some(first) => format!("{}{}.", first.to_uppercase(), chars.as_str()),
         None => String::new(),
+    }
+}
+
+/// The form to import catver.ini, languages.ini or bestgames.ini yourself, instead of fetching them from MAME.
+#[component]
+fn SupportFileUpload() -> impl IntoView {
+    let form = NodeRef::<Form>::new();
+    let outcome = RwSignal::new(None::<Result<SupportFileImport, String>>);
+    let busy = RwSignal::new(false);
+    let submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let Some(el) = form.get_untracked() else {
+            return;
+        };
+        let Ok(data) = web_sys::FormData::new_with_form(&el) else {
+            return;
+        };
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            let result = api::post_form::<SupportFileImport>("/support-files", data).await;
+            busy.set(false);
+            if result.is_ok() {
+                el.reset();
+            }
+            outcome.set(Some(result));
+        });
+    };
+    view! {
+        <section aria-label="Import a MAME support file">
+            <p>
+                "Selecting arcade machines reads catver.ini, languages.ini and bestgames.ini from progetto-SNAPS. With fetching from MAME on, the service fetches them for you; import one here to use your own copy. Its header says which file it is and the MAME version it is for."
+            </p>
+            <form class="form" node_ref=form on:submit=submit>
+                <label>
+                    "Source URL"
+                    <input type="url" name="source_url" placeholder="Where the file came from" />
+                </label>
+                <label>
+                    "Support file"
+                    <input type="file" name="file" required accept=".ini" />
+                </label>
+                <button type="submit" class="primary" disabled=busy>
+                    {move || if busy.get() { "Importing…" } else { "Import" }}
+                </button>
+            </form>
+            {move || {
+                outcome
+                    .get()
+                    .map(|outcome| match outcome {
+                        Ok(imported) => {
+                            let f = imported.file;
+                            let what = match imported.outcome {
+                                ImportOutcome::Added => "Added",
+                                ImportOutcome::AlreadyImported => "Already imported:",
+                                ImportOutcome::Restored => "Restored the kept file of",
+                            };
+                            view! {
+                                <p class="done" role="status">
+                                    {format!(
+                                        "{what} {} for MAME {}.",
+                                        f.kind.file_name(),
+                                        f.mame_version,
+                                    )}
+                                </p>
+                            }
+                                .into_any()
+                        }
+                        Err(message) => view! { <Problem message /> }.into_any(),
+                    })
+            }}
+        </section>
     }
 }
 
