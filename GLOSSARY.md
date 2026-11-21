@@ -260,7 +260,7 @@ _Avoid_: Naming scheme
 **Incomplete**:
 A Library Folder whose current Build lacks a selected Game, because its group was unresolved and skipped, had no
 source, failed, or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its group
-left that disc out. Title Select shows why and how many.
+left that disc out; or lacks a Dependency or Disk of a selected Game. Title Select shows why and how many.
 
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
