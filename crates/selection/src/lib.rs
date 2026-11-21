@@ -304,8 +304,8 @@ impl Engine {
                 blocks.push((system.as_str(), arcade));
             } else if arcade::is_arcade_system(system) {
                 problems.push(format!(
-                    "Your {system} settings: your {system} DATs aren't arcade DATs, so arcade settings never apply \
-                     to them. Remove them from {system}."
+                    "Your {system} settings: your {system} DATs aren't arcade DATs, so your arcade settings for \
+                     {system} never apply. Remove them from {system}."
                 ));
             } else {
                 problems.push(format!(

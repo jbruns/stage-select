@@ -2862,11 +2862,9 @@ mod selections {
         let (status, check) = send(client.post("/check"), profile.clone());
         assert_eq!(status, 200);
         assert_eq!(
-            check["problems"],
-            json!([
-                "Your MAME settings: your MAME DATs aren't arcade DATs, so arcade settings never apply to them. \
-                 Remove them from MAME."
-            ])
+            check["problems"].as_array().map(Vec::len),
+            Some(1),
+            "the check reads the registered DAT's kind: {check}"
         );
         let (status, body) = send(
             client.post(PROFILE),

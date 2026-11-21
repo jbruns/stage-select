@@ -894,8 +894,8 @@ fn an_arcade_block_for_mame_is_refused_when_its_dats_are_logiqx_dats() {
         .to_string();
     assert_eq!(
         problem,
-        "Your MAME settings: your MAME DATs aren't arcade DATs, so arcade settings never apply to them. Remove them \
-         from MAME."
+        "Your MAME settings: your MAME DATs aren't arcade DATs, so your arcade settings for MAME never apply. Remove \
+         them from MAME."
     );
     // With no MAME DAT registered yet, or a ListXML among them, the block can apply.
     engine().check(&profile, &[]).unwrap();
