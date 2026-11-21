@@ -603,7 +603,7 @@ struct Scan<'d> {
     unnamed: Vec<Unnamed>,
 }
 
-/// What an Entry tells of each ROM it counts for.
+/// What an Entry tells of each ROM it counts for: its Finding, its Evidence Level, and whether it carries a Header.
 #[derive(Clone, Copy)]
 struct Held {
     finding: Finding,
@@ -611,8 +611,8 @@ struct Held {
     has_header: bool,
 }
 
-/// An Entry in a Game's own ZIP or folder that none of the Game's ROMs is named for, and the Game's ROMs with its
-/// checksums, in DAT order.
+/// An Entry in a Game's own ZIP or folder that none of the Game's ROMs is named for, and those of the Game's ROMs whose
+/// checksums the Entry's payload has, in DAT order.
 struct Unnamed {
     roms: Vec<usize>,
     held: Held,
@@ -648,7 +648,7 @@ impl Scan<'_> {
         // Game's own, an Entry counts only for the ROMs it is named for or, failing that, for one ROM with its
         // checksums that nothing else counts for, settled once every Entry is in ([`Scan::settle`]). A loose
         // file in no Game's counts towards the ROMs its Finding gives.
-        let (container_game, mut counted): (Vec<usize>, Vec<usize>) = match container {
+        let (container_roms, mut counted): (Vec<usize>, Vec<usize>) = match container {
             Some(c) => matching
                 .iter()
                 .copied()
@@ -676,7 +676,7 @@ impl Scan<'_> {
             has_header: header.is_some(),
         };
         // A Matched Entry's payload is the ROMs it is named for.
-        let (by_name, by_checksums): (Vec<usize>, Vec<usize>) = container_game
+        let (by_name, by_checksums): (Vec<usize>, Vec<usize>) = container_roms
             .into_iter()
             .partition(|r| finding == Finding::Matched && payload.contains(r));
         if by_name.is_empty() {
@@ -706,7 +706,8 @@ impl Scan<'_> {
         });
     }
 
-    /// Counts the ROM `r` as `held`.
+    /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one
+    /// that the DAT's emulators need.
     fn count(&mut self, r: usize, held: Held) {
         if held.finding == Finding::Matched
             && !held.has_header
@@ -721,7 +722,8 @@ impl Scan<'_> {
 
     /// Counts each Entry in a Game's own ZIP or folder that none of its ROMs is named for towards the first of those
     /// ROMs with its checksums that nothing has counted for yet, once every other Entry is in, so that one file never
-    /// stands in for several identical ROMs, such as a disc's identical tracks.
+    /// stands in for several identical ROMs, such as a disc's identical tracks. A ROM another Entry counts for only by
+    /// Claim Evidence stays at Claim.
     fn settle(&mut self) {
         for u in std::mem::take(&mut self.unnamed) {
             if let Some(r) = u.roms.into_iter().find(|r| self.covered[*r].is_none()) {

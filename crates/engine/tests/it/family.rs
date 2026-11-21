@@ -183,7 +183,8 @@ fn a_rom_only_in_an_unrelated_games_zip_is_still_available_elsewhere() {
 #[test]
 fn in_a_games_own_zip_one_entry_counts_for_one_of_its_roms_with_the_same_checksums() {
     let f = Fixture::new();
-    // Every DAT, not only MAME's: two identical tracks of one disc, of which only the first is held.
+    // Every DAT, not only MAME's: two identical tracks of one disc, of which only the first is held. The Entry is
+    // named for the first, so it never counts for the second by its checksums.
     let dat = f.dat(&[(
         "Game (USA)",
         vec![
@@ -288,39 +289,21 @@ fn in_a_games_own_zip_one_misnamed_entry_does_not_stand_in_for_two_tracks() {
 }
 
 #[test]
-fn a_misnamed_entry_in_a_clones_zip_counts_for_a_rom_its_parents_zip_does_not_hold() {
+fn a_misnamed_entry_in_a_games_own_zip_counts_for_a_rom_no_other_file_counts_for() {
     let f = Fixture::new();
-    let dat = f.dat_with_clones(&[
-        ("Disc (USA)", None, vec![rom("Disc (USA).bin", b"disc")]),
-        (
-            "Disc (Europe)",
-            Some("Disc (USA)"),
-            vec![
-                rom("Disc (Europe) (Track 1).bin", b"silence"),
-                rom("Disc (Europe) (Track 2).bin", b"silence"),
-            ],
-        ),
-    ]);
-    // A merged set's parent ZIP holds the clone's first track under its name; the clone's ZIP holds a misnamed copy.
-    write_zip(
-        &f.set_path("Disc (USA).zip"),
-        &[
-            ("Disc (USA).bin", b"disc"),
-            ("Disc (Europe) (Track 1).bin", b"silence"),
+    let dat = f.dat(&[(
+        "Disc (USA)",
+        vec![
+            rom("Disc (USA) (Track 1).bin", b"silence"),
+            rom("Disc (USA) (Track 2).bin", b"silence"),
         ],
-    );
-    write_zip(
-        &f.set_path("Disc (Europe).zip"),
-        &[("track.bin", b"silence")],
-    );
+    )]);
+    // A loose file in no Game's folder counts for the first track by its name; the Game's ZIP holds a misnamed copy.
+    std::fs::write(f.set_path("Disc (USA) (Track 1).bin"), b"silence").unwrap();
+    write_zip(&f.set_path("Disc (USA).zip"), &[("track.bin", b"silence")]);
 
     let report = audit(&dat, f.set.path()).unwrap();
 
-    let clone = game(&report, "Disc (Europe)");
-    assert_eq!(
-        clone.status,
-        GameStatus::Complete,
-        "{:?}",
-        clone.missing_roms
-    );
+    let g = game(&report, "Disc (USA)");
+    assert_eq!(g.status, GameStatus::Complete, "{:?}", g.missing_roms);
 }
