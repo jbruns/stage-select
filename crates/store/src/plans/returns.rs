@@ -115,9 +115,9 @@ pub(super) fn returns(
         let Some(why) = why else {
             continue;
         };
-        if let Some(hold) = held.get(release) {
+        if held.contains_key(release) {
             stays.push(format!(
-                "{release} stays placed here: {why}, but its return waits while {release} is left as it is, as {hold}"
+                "{release} stays placed here: {why}, but it goes back only once it is no longer left as it is"
             ));
             continue;
         }

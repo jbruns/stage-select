@@ -1231,8 +1231,10 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             &mut nothing,
         );
     }
-    let (returns, returned) = match (&folder, dat, usable_audit) {
-        (Some(_), _, _) if inputs.choices.remove_all => returns::returns(
+    let returning = folder.is_some()
+        && (inputs.choices.remove_all || (dat.is_some() && usable_audit.is_some()));
+    let (returns, returned) = match returning {
+        true => returns::returns(
             config,
             inputs,
             folder.as_ref(),
@@ -1240,15 +1242,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             &nothing.held,
             &mut placing,
         ),
-        (Some(_), Some(_), Some(_)) => returns::returns(
-            config,
-            inputs,
-            folder.as_ref(),
-            dat,
-            &nothing.held,
-            &mut placing,
-        ),
-        _ => Default::default(),
+        false => Default::default(),
     };
     let removals = match (&folder, dat, usable_audit) {
         (Some(folder), _, _) if inputs.choices.remove_all => {

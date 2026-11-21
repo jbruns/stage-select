@@ -218,6 +218,13 @@ impl Env {
         self.store.set_storage_policy(&policy, "Operator").unwrap();
     }
 
+    /// Turns Single Copy for play libraries `on` or off.
+    fn single_copy(&self, on: bool) {
+        let mut policy = self.store.storage_policy().unwrap();
+        policy.play_libraries.single_copy = on;
+        self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
     fn dir(&self) -> PathBuf {
         self.tmp.path().join("roots/play/discs")
     }
@@ -929,7 +936,7 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
     );
 }
 
-/// Places Duo's discs in the folder under single copy, the source set's folder writable; then imports revision 2,
+/// Places Duo's discs in the folder under Single Copy, the Source Set's folder writable; then imports DAT Revision 2,
 /// which lists no ROMs for Disc 1 and drops Disc 2, and audits. Returns the store, the folder and the files placed.
 fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<String>) {
     let mut env = Env::with(StorageFormat::LooseFolder, duo);
@@ -939,9 +946,7 @@ fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<
         env.tmp.path().join("roots/play").display().to_string(),
     ))
     .unwrap();
-    let mut policy = env.store.storage_policy().unwrap();
-    policy.play_libraries.single_copy = true;
-    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    env.single_copy(true);
     let folder = env.folder();
     let plan = env.built(&folder, env.selection(&DUO));
     assert!(
@@ -972,8 +977,8 @@ fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<
     (env, folder, before)
 }
 
-/// A held release holds its placed files too: Disc 2, no longer selected, waits on the hold rather than going home,
-/// which would leave the release's `.m3u` naming a file no longer there.
+/// A held release holds its Placed Games' files too: Disc 2, no longer selected, waits on the hold rather than going
+/// home, which would leave the release's `.m3u` naming a file no longer there.
 #[test]
 fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
     let (env, folder, before) = duo_placed_then_disc_1_romless_and_disc_2_gone();
@@ -996,7 +1001,7 @@ fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
         plan.content
             .notes
             .iter()
-            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("left as it is")),
+            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("goes back only once")),
         "{:?}",
         plan.content.notes
     );
@@ -1010,13 +1015,11 @@ fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
     assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
 }
 
-/// With single copy off, a held release's placed discs stay placed too: none goes home, nor is kept here as a copy.
+/// With Single Copy off, a held release's placed discs stay placed too: none goes home, nor is kept here as a copy.
 #[test]
 fn a_held_release_stays_placed_when_single_copy_is_turned_off() {
     let (env, folder, before) = duo_placed_then_disc_1_romless_and_disc_2_gone();
-    let mut policy = env.store.storage_policy().unwrap();
-    policy.play_libraries.single_copy = false;
-    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    env.single_copy(false);
     let plan = env.plan(&folder, env.selection(&DUO[..1]));
 
     assert!(
@@ -1028,7 +1031,7 @@ fn a_held_release_stays_placed_when_single_copy_is_turned_off() {
         plan.content
             .notes
             .iter()
-            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("its return waits")),
+            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("goes back only once")),
         "{:?}",
         plan.content.notes
     );
