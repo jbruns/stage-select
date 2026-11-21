@@ -65,9 +65,9 @@ fn located(path: &str) -> Located {
     split_placed(path).map(|(folder, rel)| (folder, base_name_dir(rel).to_owned()))
 }
 
-/// Whether `path` is a file of a Placed Game other than `game`.
-fn placed_elsewhere(i: &Inputs, path: &str, game: &str) -> bool {
-    i.placed_files.get(path).is_some_and(|of| of != game)
+/// Whether `path` is a file of a Placed Game other than `game`, by `placed_files` ([`Inputs::placed_files`]).
+fn placed_elsewhere(placed_files: &HashMap<String, String>, path: &str, game: &str) -> bool {
+    placed_files.get(path).is_some_and(|of| of != game)
 }
 
 /// Why a repair leaves a Placed Game it would have to convert.
@@ -148,11 +148,13 @@ type RomKey = (String, String);
 /// shared through `merge=`. Only a ListXML DAT has a Set Layout; for any other, each Game holds the ROMs it lists and
 /// every ROM is only itself. The layout is the Source Set's, for the files in its folder: a Placed Game is a Library
 /// Folder's self-contained Game, laid out apart ([`Dat::laid_out_apart`]), so no repair strips the BIOS or device ROMs
-/// it runs with, adds its clones' to it, or puts its ROMs in its merged parent's ZIP.
+/// it runs with, adds its clones' to it, or puts its ROMs in its merged parent's ZIP, and it is repacked with no family.
 struct LayoutIndex<'a> {
     dat: &'a Dat,
     layout: Option<SetLayout>,
     laid: Laid,
+    /// Whether each Game, by its index, is placed, so laid out apart.
+    placed: Vec<bool>,
     /// Each ROM's index, by its Game and name.
     index: HashMap<(&'a str, &'a str), usize>,
 }
@@ -162,11 +164,12 @@ impl<'a> LayoutIndex<'a> {
         let layout = storage
             .set_layout
             .filter(|_| dat.format == DatFormat::Listxml);
-        let laid = dat.laid_out_apart(layout, |g| placed.contains_key(&dat.games[g]));
+        let placed: Vec<bool> = dat.games.iter().map(|g| placed.contains_key(g)).collect();
         LayoutIndex {
             dat,
             layout,
-            laid,
+            laid: dat.laid_out_apart(layout, |g| placed[g]),
+            placed,
             index: dat
                 .roms
                 .iter()
@@ -233,10 +236,11 @@ impl<'a> LayoutIndex<'a> {
             .collect()
     }
 
-    /// The parent of Game `game`'s family, or itself for a parent ([`Dat::family_parent`]); none for a Game the DAT
-    /// doesn't list.
+    /// The parent of the family Game `game` is repacked with, or itself for a parent ([`Dat::family_parent`]); none for
+    /// a Placed Game, laid out apart from its family, or a Game the DAT doesn't list.
     fn family_of(&self, game: &str) -> Option<usize> {
-        Some(self.family(self.dat.game_index(game)?))
+        let g = self.dat.game_index(game).filter(|&g| !self.placed[g])?;
+        Some(self.family(g))
     }
 
     /// The parent of the family of Game `g`, by its index, or itself for a parent.
@@ -283,6 +287,8 @@ struct Preserved<'a> {
     dat: &'a HashMap<RomKey, &'a Rom>,
     /// Every file the Audit found holding each ROM.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+    /// The Placed Game each placed file is of ([`Inputs::placed_files`]).
+    placed_files: &'a HashMap<String, String>,
     /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]).
     produced: BTreeSet<usize>,
     layout_index: &'a LayoutIndex<'a>,
@@ -296,6 +302,7 @@ impl<'a> Preserved<'a> {
         proposed: &'a [Proposed],
         dat: &'a HashMap<RomKey, &'a Rom>,
         held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+        placed_files: &'a HashMap<String, String>,
         layout_index: &'a LayoutIndex<'a>,
         owners: &[Vec<usize>],
     ) -> Self {
@@ -303,6 +310,7 @@ impl<'a> Preserved<'a> {
         Preserved {
             dat,
             held_by,
+            placed_files,
             produced: layout_index.roots_of(
                 proposed
                     .iter()
@@ -319,16 +327,19 @@ impl<'a> Preserved<'a> {
         }
     }
 
-    /// The ROMs `file` holds that would have no copy left once it is kept aside: no file that stays holds one, and no
+    /// The ROMs `file` holds that would have no copy left once it is kept aside: no file that stays holds one, but for
+    /// another Placed Game's files, which hold the BIOS and device ROMs it runs with apart from the Source Set; and no
     /// applied item writes its payload, as a ROM of whichever Game, that the DAT pins at least as closely as it.
     fn lost(&self, file: &Usable) -> BTreeSet<RomKey> {
         let mut lost = BTreeSet::new();
         for roms in file.payloads() {
             for rom in &roms {
-                let held = self
-                    .held_by
-                    .get(rom)
-                    .is_some_and(|by| by.iter().any(|p| !self.displaced.contains(p)));
+                let held = self.held_by.get(rom).is_some_and(|by| {
+                    by.iter().any(|p| {
+                        !self.displaced.contains(p)
+                            && !placed_elsewhere(self.placed_files, p, &rom.0)
+                    })
+                });
                 let pinned = |w: &RomKey| {
                     w == rom
                         || (self.dat.get(w).zip(self.dat.get(rom))).is_some_and(|(w, r)| pins(w, r))
@@ -1522,12 +1533,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .map(|g| (g.name.as_str(), g))
         .collect();
     // Where each Game is: where it is placed, or else where every file the Audit found holding a ROM of it is, but for
-    // another Game's Placed files, which hold a copy of each BIOS or device ROM that Game runs with.
+    // another Placed Game's files, which hold a copy of each BIOS or device ROM that Game runs with.
     let mut found_at: HashMap<&str, BTreeSet<Located>> = HashMap::new();
     for ((game, _), paths) in &held_by {
         let at: BTreeSet<Located> = paths
             .iter()
-            .filter(|p| !placed_elsewhere(i, p, game))
+            .filter(|p| !placed_elsewhere(i.placed_files, p, game))
             .map(|p| located(p))
             .collect();
         if !at.is_empty() {
@@ -1576,7 +1587,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     true => placed_path(*folder, name),
                     false => placed_path(*folder, &format!("{dir}/{name}")),
                 };
-                // Its own files, not the BIOS's or devices' own, which hold the ROMs of them it holds too.
+                // Only the files placed as it, not its Dependencies' files, which hold the ROMs of them it holds too.
                 let held: BTreeSet<&str> = roms
                     .iter()
                     .filter_map(|r| held_by.get(&(game.clone(), r.name.clone())))
@@ -1646,7 +1657,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 || kept_conflicts.contains(path)
                 || left_conflicts.contains(path)
                 || located(path) != location
-                || placed_elsewhere(i, path, game)
+                || placed_elsewhere(i.placed_files, path, game)
             {
                 continue;
             }
@@ -2616,7 +2627,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .map(|r| ((i.dat.games[r.game].clone(), r.name.clone()), r))
         .collect();
     loop {
-        let preserved = Preserved::of(&proposed, &dat_roms, &held_by, &layout_index, &owners);
+        let preserved = Preserved::of(
+            &proposed,
+            &dat_roms,
+            &held_by,
+            i.placed_files,
+            &layout_index,
+            &owners,
+        );
         let lost = proposed.iter().position(|p| {
             p.checked
                 && p.item.chosen != RepairChoice::Leave
@@ -2773,7 +2791,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     // What you chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then says:
     // it can be restored from the kept files.
-    let preserved = Preserved::of(&proposed, &dat_roms, &held_by, &layout_index, &owners);
+    let preserved = Preserved::of(
+        &proposed,
+        &dat_roms,
+        &held_by,
+        i.placed_files,
+        &layout_index,
+        &owners,
+    );
     let last: Vec<(usize, Vec<String>)> = proposed
         .iter()
         .enumerate()

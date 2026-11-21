@@ -173,29 +173,43 @@ fn a_set_layout_says_which_roms_each_games_zip_holds_and_no_zip_holds_a_disk() {
 }
 
 #[test]
-fn a_game_stored_apart_is_laid_out_non_merged_and_its_merged_parent_holds_none_of_its_roms() {
+fn a_game_stored_apart_is_laid_out_non_merged_and_no_merged_zip_holds_it_or_is_held_by_it() {
     let dat = family();
+    let blaster = index(&dat, "blaster");
     let blasterj = index(&dat, "blasterj");
     let names = |roms: &Option<Vec<usize>>| -> Option<Vec<&str>> {
-        (roms.as_ref()).map(|roms| roms.iter().map(|&r| dat.roms[r].name.as_str()).collect())
+        roms.as_ref()
+            .map(|roms| roms.iter().map(|&r| dat.roms[r].name.as_str()).collect())
     };
     let whole = dat.laid_out(Some(SetLayout::NonMerged));
     let split = dat.laid_out(Some(SetLayout::Split));
 
     for layout in SetLayout::ALL {
+        // The clone apart: the parent holds only its own ROMs, as split, unless the layout is non-merged.
         let laid = dat.laid_out_apart(Some(layout), |g| g == blasterj);
         assert_eq!(
             names(&laid.roms[blasterj]),
             names(&whole.roms[blasterj]),
             "{layout:?}"
         );
-        // Merged, the parent holds only its own ROMs, as split.
-        let blaster = index(&dat, "blaster");
         let parent = match layout {
             SetLayout::NonMerged => &whole.roms[blaster],
             _ => &split.roms[blaster],
         };
         assert_eq!(names(&laid.roms[blaster]), names(parent), "{layout:?}");
+
+        // The parent apart: its clone has a ZIP of its own, as split, unless the layout is non-merged.
+        let laid = dat.laid_out_apart(Some(layout), |g| g == blaster);
+        assert_eq!(
+            names(&laid.roms[blaster]),
+            names(&whole.roms[blaster]),
+            "{layout:?}"
+        );
+        let clone = match layout {
+            SetLayout::NonMerged => &whole.roms[blasterj],
+            _ => &split.roms[blasterj],
+        };
+        assert_eq!(names(&laid.roms[blasterj]), names(clone), "{layout:?}");
     }
 }
 

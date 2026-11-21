@@ -197,8 +197,13 @@ impl Env {
     /// Writes `game`'s TorrentZip holding `members` in the Library Folder, and records it placed there, as Single Copy
     /// places a self-contained Game.
     fn place(&self, game: &str, members: &[&str]) {
+        write_zip(&self.library().join(format!("{game}.zip")), members);
+        self.placed(game);
+    }
+
+    /// Records `game` placed in the Library Folder, as `<game>.zip`.
+    fn placed(&self, game: &str) {
         let name = format!("{game}.zip");
-        write_zip(&self.library().join(&name), members);
         self.store
             .record_placement(&self.config, "mame", game, self.folder, &[&name])
             .unwrap();
@@ -289,6 +294,17 @@ fn write_zip(path: &Path, members: &[&str]) {
         writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
     }
     writer.finish().unwrap();
+}
+
+/// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
+fn write_plain_zip(path: &Path, members: &[&str]) {
+    let mut zip = zip::ZipWriter::new(std::fs::File::create_new(path).unwrap());
+    for m in members {
+        zip.start_file(*m, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, payload(m)).unwrap();
+    }
+    zip.finish().unwrap();
 }
 
 fn members(path: &Path) -> Vec<String> {
@@ -620,16 +636,17 @@ fn a_placed_game_stays_self_contained_whatever_the_source_sets_layout() {
     };
     let parent_split = || {
         let mut zips = unchanged("blasterj");
-        zips[2].1 = vec!["gfx.u4".into(), "prog.u3".into()];
+        let parent = zips.iter_mut().find(|(zip, _)| zip == "blaster.zip");
+        parent.unwrap().1 = vec!["gfx.u4".into(), "prog.u3".into()];
         zips
     };
     for (layout, placed, set) in [
         (SetLayout::NonMerged, "blaster", unchanged("blaster")),
         (SetLayout::NonMerged, "blasterj", unchanged("blasterj")),
-        // The clone keeps the graphics it shares with its parent: the source set's folder has no other copy.
+        // Split, or merged with no parent's ZIP in the Source Set's folder to go in, the clone keeps the graphics it
+        // shares with its parent: that folder has no other copy.
         (SetLayout::Split, "blaster", unchanged("blaster")),
         (SetLayout::Split, "blasterj", parent_split()),
-        // The clone's ZIP has no merged parent's ZIP in the source set's folder to go in.
         (SetLayout::Merged, "blaster", unchanged("blaster")),
         // The merged parent's ZIP holds none of its placed clone's ROMs.
         (SetLayout::Merged, "blasterj", parent_split()),
@@ -688,12 +705,7 @@ fn a_placed_game_keeps_its_bios_rom_named_its_own_way_when_the_set_layout_turns_
         1,
     ));
     // The BIOS's ZIP needs repacking: it isn't TorrentZip.
-    let mut bios =
-        zip::ZipWriter::new(std::fs::File::create_new(env.set().join("acmebios.zip")).unwrap());
-    bios.start_file("bios.u1", zip::write::SimpleFileOptions::default())
-        .unwrap();
-    std::io::Write::write_all(&mut bios, payload("bios.u1")).unwrap();
-    bios.finish().unwrap();
+    write_plain_zip(&env.set().join("acmebios.zip"), &["bios.u1"]);
     env.zip("acmesnd.zip", &["snd.u2"]);
     env.zip(
         "blasterj.zip",
@@ -735,4 +747,37 @@ fn a_bios_whose_rom_only_a_placed_game_holds_is_missing_from_the_source_sets_fol
         ),
         "{notes:#?}"
     );
+}
+
+#[test]
+fn a_placed_game_is_repaired_apart_from_its_family_in_the_source_sets_folder() {
+    let env = Env::with(listxml(Some("blaster")));
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    // Left by default: it holds a file under its nodump ROM's name.
+    env.zip(
+        "blaster.zip",
+        &["bios.u1", "gfx.u4", "pal.u5", "prog.u3", "snd.u2"],
+    );
+    let own = ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"];
+    // Placed, and needing repacking: it isn't TorrentZip.
+    write_plain_zip(&env.library().join("blasterj.zip"), &own);
+    env.placed("blasterj");
+    env.layout(SetLayout::Split);
+    env.audit();
+
+    let plan = env.plan();
+
+    let item = |game: &str| {
+        (plan.content.items.iter())
+            .find(|i| i.key == format!("game:{game}"))
+            .unwrap_or_else(|| panic!("{game}: {:#?}", plan.content.items))
+    };
+    assert_eq!(item("blaster").chosen, RepairChoice::Leave);
+    let placed = item("blasterj");
+    assert_eq!(placed.chosen, RepairChoice::Apply, "{placed:#?}");
+    env.approve(&plan);
+    let zip = env.library().join("blasterj.zip");
+    assert_eq!(members(&zip), own);
+    assert!(is_torrentzip(&zip));
 }

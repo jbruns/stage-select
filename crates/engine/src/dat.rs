@@ -975,10 +975,14 @@ impl Dat {
         self.laid_out_apart(layout, |_| false)
     }
 
-    /// As [`Dat::laid_out`], with each Game `apart` gives, by its index, stored apart from the others, as a Placed Game
-    /// is in a Library Folder (ADR 0026): under any layout it is laid out non-merged, and a merged parent holds none of
-    /// its ROMs.
-    pub fn laid_out_apart(&self, layout: Option<SetLayout>, apart: impl Fn(usize) -> bool) -> Laid {
+    /// As [`Dat::laid_out`], with each Game for which `stored_apart` holds, by its index, kept apart from the others, as
+    /// a Placed Game is in a Library Folder (ADR 0026): under any layout it is laid out non-merged, a merged parent
+    /// holds none of its ROMs, and a clone of it whose ZIP it would hold merged is laid out split.
+    pub fn laid_out_apart(
+        &self,
+        layout: Option<SetLayout>,
+        stored_apart: impl Fn(usize) -> bool,
+    ) -> Laid {
         let mut roms_of: Vec<Vec<usize>> = vec![Vec::new(); self.games.len()];
         for (r, rom) in self.roms.iter().enumerate() {
             roms_of[rom.game].push(r);
@@ -1039,7 +1043,7 @@ impl Dat {
         }
         let mut roms = Vec::with_capacity(self.games.len());
         for g in 0..self.games.len() {
-            let layout = match apart(g) {
+            let layout = match stored_apart(g) {
                 true => SetLayout::NonMerged,
                 false => layout,
             };
@@ -1051,11 +1055,13 @@ impl Dat {
                 }
                 SetLayout::Split => Some(gather(g, &mut unshared(g))),
                 SetLayout::Merged => match parents[g] {
+                    Some(p) if stored_apart(p) => Some(gather(g, &mut unshared(g))),
                     Some(_) => None,
                     None => {
                         let mut all = unshared(g).chain(
-                            (clones[g].iter())
-                                .filter(|&&c| !apart(c))
+                            clones[g]
+                                .iter()
+                                .filter(|&&c| !stored_apart(c))
                                 .flat_map(|&c| unshared(c)),
                         );
                         Some(gather(g, &mut all))
