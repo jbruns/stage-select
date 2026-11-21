@@ -603,7 +603,7 @@ struct Scan<'d> {
     unnamed: Vec<Unnamed>,
 }
 
-/// What an Entry tells of each ROM it counts for: its Finding, its Evidence Level, and whether it carries a Header.
+/// What an Entry tells of each ROM it counts for.
 #[derive(Clone, Copy)]
 struct Held {
     finding: Finding,

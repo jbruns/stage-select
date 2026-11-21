@@ -289,7 +289,7 @@ fn in_a_games_own_zip_one_misnamed_entry_does_not_stand_in_for_two_tracks() {
 }
 
 #[test]
-fn a_misnamed_entry_in_a_games_own_zip_counts_for_a_rom_no_other_file_counts_for() {
+fn in_a_games_own_zip_a_misnamed_entry_skips_a_rom_a_loose_file_counts_for() {
     let f = Fixture::new();
     let dat = f.dat(&[(
         "Disc (USA)",
