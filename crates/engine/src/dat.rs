@@ -293,6 +293,30 @@ fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
     Ok(out)
 }
 
+/// How many bytes of XML whitespace `bytes` starts with.
+fn space(bytes: &[u8]) -> usize {
+    bytes
+        .iter()
+        .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+        .count()
+}
+
+/// How many bytes of a UTF-8 BOM `bytes` starts with.
+fn bom(bytes: &[u8]) -> usize {
+    if bytes.starts_with(b"\xef\xbb\xbf") {
+        3
+    } else {
+        0
+    }
+}
+
+/// Whether a DAT whose first content opens with `first` can be XML: an XML DAT opens with markup (`<?xml`, a doctype,
+/// a comment, a processing instruction or its root), and anything else, such as ClrMamePro's `clrmamepro (`, is no
+/// XML, whatever its text names later.
+fn opens_markup(first: u8) -> bool {
+    first == b'<'
+}
+
 /// The format a DAT's root element names, or `None` for one this reader doesn't know.
 fn root_format(root: &BytesStart) -> Option<DatFormat> {
     match root.local_name().as_ref() {
@@ -352,6 +376,20 @@ impl Dat {
         };
         let mut stack: Vec<String> = Vec::new();
         let mut root = None;
+        let unknown = || {
+            Error::Dat(format!(
+                "{}: not a Logiqx XML DAT, MAME ListXML or MAME software list",
+                path.display()
+            ))
+        };
+        let content = &bytes[bom(bytes)..];
+        if !content
+            .get(space(content))
+            .copied()
+            .is_some_and(opens_markup)
+        {
+            return Err(unknown());
+        }
         loop {
             let event = reader
                 .read_event_into(&mut buf)
@@ -441,10 +479,7 @@ impl Dat {
             buf.clear();
         }
         let Some(format) = root else {
-            return Err(Error::Dat(format!(
-                "{}: not a Logiqx XML DAT, MAME ListXML or MAME software list",
-                path.display()
-            )));
+            return Err(unknown());
         };
         dat.format = format;
         for claim in [
@@ -462,8 +497,23 @@ impl Dat {
 
     /// The format of the DAT `reader` reads, by its root element as [`Dat::parse`] finds it: the first element at the
     /// top level, however long the prologue before it. `None` when that root is no element this reader knows, when
-    /// there is none, as in a ClrMamePro DAT, or when the XML breaks before it. Only an I/O error is an error.
-    pub fn format_of(reader: impl std::io::BufRead) -> Result<Option<DatFormat>, Error> {
+    /// there is none, when the DAT doesn't open with markup, as a ClrMamePro DAT doesn't, or when the XML breaks
+    /// before it. A DAT that doesn't open with markup is read no further than its first buffer. Only an I/O error is an
+    /// error.
+    pub fn format_of(mut reader: impl std::io::BufRead) -> Result<Option<DatFormat>, Error> {
+        let io = |err: std::io::Error| Error::Dat(err.to_string());
+        let skip = bom(reader.fill_buf().map_err(io)?);
+        reader.consume(skip);
+        loop {
+            let buf = reader.fill_buf().map_err(io)?;
+            let skip = space(buf);
+            match buf.get(skip) {
+                Some(&first) if opens_markup(first) => break,
+                Some(_) => return Ok(None),
+                None if buf.is_empty() => return Ok(None),
+                None => reader.consume(skip),
+            }
+        }
         let mut reader = quick_xml::Reader::from_reader(reader);
         let mut buf = Vec::new();
         loop {
