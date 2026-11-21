@@ -3,13 +3,21 @@
 use std::path::Path;
 
 use title_select_api::DatFormat;
-use title_select_engine::dat::{Dat, DumpStatus};
+use title_select_engine::dat::{Dat, DumpStatus, Signal};
 
 /// The synthetic ListXML of `tests/data/listxml-family.xml`: a BIOS, a device chain, a parent and its clone, and a
 /// mechanical non-clone, with nodump, baddump and optional ROMs and Disks.
 fn family() -> Dat {
     let xml = include_bytes!("../data/listxml-family.xml");
     Dat::parse(xml, Path::new("listxml-family.xml")).unwrap()
+}
+
+/// The signals `dat` carries, in [`Signal::ALL`]'s order.
+fn carried(dat: &Dat) -> Vec<Signal> {
+    Signal::ALL
+        .into_iter()
+        .filter(|s| dat.carries(*s))
+        .collect()
 }
 
 fn index(dat: &Dat, game: &str) -> usize {
@@ -500,6 +508,59 @@ fn a_logiqx_dat_without_machine_fields_gives_default_machines_and_good_roms() {
     );
     assert!(dat.roms.iter().all(|r| r.size == 4 && !r.disk));
     assert_eq!(dat.candidates(4, "0f0f0f0f").collect::<Vec<_>>(), [0]);
+    assert_eq!(carried(&dat), [], "its default machines say nothing");
+}
+
+#[test]
+fn a_listxml_dat_carries_every_signal_even_where_its_machines_leave_them_to_the_dtd() {
+    let xml = br#"<?xml version="1.0"?>
+<mame build="0.289">
+  <machine name="pong">
+    <description>Pong</description>
+    <rom name="pong.bin" size="4" crc="0f0f0f0f"/>
+  </machine>
+</mame>
+"#;
+    let dat = Dat::parse(xml, Path::new("mame.xml")).unwrap();
+    assert_eq!(carried(&dat), Signal::ALL);
+    let pong = &dat.machines[0];
+    assert_eq!(
+        (
+            pong.is_bios,
+            pong.is_device,
+            pong.is_mechanical,
+            pong.runnable
+        ),
+        (false, false, false, true),
+        "the DTD's defaults"
+    );
+    assert!(pong.displays.is_empty(), "known to have no screen");
+}
+
+#[test]
+fn a_logiqx_dat_carries_only_the_signals_some_game_of_it_writes() {
+    let xml = br#"<?xml version="1.0"?>
+<datafile>
+  <header><name>FinalBurn Neo - Arcade Games</name></header>
+  <game name="neogeo" isbios="yes">
+    <description>Neo Geo</description>
+    <rom name="sp-s2.sp1" size="4" crc="9036d879"/>
+  </game>
+  <game name="mslug" romof="neogeo">
+    <description>Metal Slug</description>
+    <year>1996</year>
+    <driver status="good"/>
+    <rom name="201-p1.p1" size="8" crc="08d8daa5"/>
+  </game>
+</datafile>
+"#;
+    let dat = Dat::parse(xml, Path::new("fbneo.dat")).unwrap();
+    assert_eq!(
+        carried(&dat),
+        [Signal::Romof, Signal::Bios, Signal::Year, Signal::Driver]
+    );
+    assert!(!dat.carries(Signal::Runnable) && dat.machines[1].runnable);
+    assert!(!dat.carries(Signal::Displays) && dat.machines[1].displays.is_empty());
 }
 
 #[test]
@@ -553,5 +614,6 @@ fn a_software_list_gives_default_machines_and_no_disks() {
     assert_eq!(dat.games, ["game"]);
     assert_eq!(dat.cloneof, [Some("parent".into())]);
     assert_eq!(dat.machines, [Machine::default()]);
+    assert_eq!(carried(&dat), []);
     assert!(dat.roms.is_empty());
 }

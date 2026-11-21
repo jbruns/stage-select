@@ -609,12 +609,14 @@ title-select fixdat <source set> [--scope coverage|dat | --selection <id>] [--ou
 title-select have-miss <source set> [--selection <id>] [--output <file or folder>]
 ```
 
-Both export what a source set lacks by its latest audit, against that audit's DAT revision, and read nothing else:
-they never fetch or acquire a game. `fixdat` writes a fixdat, a Logiqx XML DAT another tool can use to find what you
-lack. It lists each missing game with all its ROMs, and each incomplete game with only its missing ROMs, in the DAT's
-order, with each ROM's size and exactly the hashes the DAT gives. Its header is named `fixdat_<DAT name>`, and its
-description names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished. When
-the DAT names a header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
+Both export what a source set lacks by its latest audit, against that audit's DAT revision, and read nothing else: they
+never fetch or acquire a game. `fixdat` writes a fixdat, a Logiqx XML DAT another tool can use to find what you lack. It
+lists each missing game with all its ROMs, and each incomplete game with only its missing ROMs, in the DAT's order, with
+each ROM's size and exactly the hashes the DAT gives. A missing MAME disk is listed as a `<disk>` by its name and SHA-1,
+which other tools read; Title Select reads disks only from MAME's ListXML, so a fixdat imported as a DAT lists no disks,
+and a game that lacks only disks is complete against it. Its header is named `fixdat_<DAT name>`, and its description
+names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished. When the DAT names a
+header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
 `have-miss` writes a CSV with one row per game:
 
 | Column                     | What it holds                                                                    |

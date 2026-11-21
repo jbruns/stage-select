@@ -2,7 +2,7 @@
 //! or a MAME software list (`<softwarelist>`, named by its list name, unversioned). A Logiqx or ListXML Game also
 //! gives the machine model the arcade selector and family counting read (ADRs 0025 to 0027), and its Disks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
@@ -63,10 +63,13 @@ impl DumpStatus {
 }
 
 /// What a Game's entry says of the machine it is (ADR 0027). Every field is optional: a ListXML machine fills them
-/// all, a Logiqx game only what it carries, and a software item none. A flag the DAT leaves out takes its DTD's
-/// default, which both DTDs give the same meaning as leaving it out, and an element it leaves out is none or empty.
-/// Whether a DAT carries a signal at all is the DAT's to say, not one machine's: MAME writes `<display>` for every
-/// machine with a screen, and a Logiqx DAT may write none for any.
+/// all, a Logiqx game only what it carries, and a software item none. A flag the entry leaves out takes its DTD's
+/// default, and an element it leaves out is none or empty.
+///
+/// A field says something only where its DAT carries its [`Signal`] ([`Dat::carries`]): otherwise it is its default
+/// and means "not known", not "no". Whether a DAT carries a signal is the DAT's to say, not one machine's: MAME writes
+/// `<display>` for every machine with a screen, so in ListXML no displays means screenless, while a Logiqx DAT that
+/// writes `<display>` for no game says nothing of any screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Machine {
     /// The Game whose ROMs it shares (`romof`): its parent, or its BIOS for a parent.
@@ -93,6 +96,64 @@ pub struct Machine {
     pub has_software_list: bool,
     /// The parts it emulates imperfectly or not at all (`<feature>`), in DAT order.
     pub features: Vec<Feature>,
+}
+
+/// What a DAT may say of its machines, one per field of [`Machine`]. A ListXML DAT carries every one, as its DTD
+/// gives each attribute a default and MAME writes each element wherever it applies; a Logiqx DAT carries those it
+/// writes for at least one Game, its DTD giving the flags the same defaults; a software list carries none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Signal {
+    Romof,
+    Bios,
+    Device,
+    Mechanical,
+    Runnable,
+    SampleOf,
+    SourceFile,
+    DeviceRefs,
+    Samples,
+    Year,
+    Manufacturer,
+    Driver,
+    Displays,
+    Input,
+    SoftwareLists,
+    Features,
+}
+
+impl Signal {
+    pub const ALL: [Signal; 16] = [
+        Signal::Romof,
+        Signal::Bios,
+        Signal::Device,
+        Signal::Mechanical,
+        Signal::Runnable,
+        Signal::SampleOf,
+        Signal::SourceFile,
+        Signal::DeviceRefs,
+        Signal::Samples,
+        Signal::Year,
+        Signal::Manufacturer,
+        Signal::Driver,
+        Signal::Displays,
+        Signal::Input,
+        Signal::SoftwareLists,
+        Signal::Features,
+    ];
+
+    /// The signal of a `<game>` or `<machine>` attribute.
+    fn of_attribute(key: &str) -> Option<Signal> {
+        Some(match key {
+            "romof" => Signal::Romof,
+            "isbios" => Signal::Bios,
+            "isdevice" => Signal::Device,
+            "ismechanical" => Signal::Mechanical,
+            "runnable" => Signal::Runnable,
+            "sampleof" => Signal::SampleOf,
+            "sourcefile" => Signal::SourceFile,
+            _ => return None,
+        })
+    }
 }
 
 /// How well a driver works, as MAME rates it.
@@ -191,6 +252,8 @@ pub struct Dat {
     pub cloneof: Vec<Option<String>>,
     /// What each Game's entry says of its machine, by the Game's index.
     pub machines: Vec<Machine>,
+    /// The signals its machines carry.
+    signals: HashSet<Signal>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -263,6 +326,7 @@ impl Dat {
             descriptions: Vec::new(),
             cloneof: Vec::new(),
             machines: Vec::new(),
+            signals: HashSet::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -284,6 +348,7 @@ impl Dat {
                         "mame" => {
                             dat.name = "MAME".into();
                             dat.version = a.get("build").cloned().unwrap_or_default();
+                            dat.signals.extend(Signal::ALL);
                             Some(DatFormat::Listxml)
                         }
                         "softwarelist" => {
@@ -324,9 +389,11 @@ impl Dat {
                     let machine = dat.machines.last_mut().filter(|_| in_machine);
                     match (stack.last().map(String::as_str), machine) {
                         (Some("year"), Some(machine)) => {
+                            dat.signals.insert(Signal::Year);
                             machine.year.get_or_insert_default().push_str(&text)
                         }
                         (Some("manufacturer"), Some(machine)) => {
+                            dat.signals.insert(Signal::Manufacturer);
                             machine.manufacturer.get_or_insert_default().push_str(&text)
                         }
                         _ => {}
@@ -393,6 +460,12 @@ impl Dat {
         )
     }
 
+    /// Whether its machines carry `signal`: if not, each machine's field for it is its default and says nothing, and a
+    /// filter on it is unavailable (ADR 0027).
+    pub fn carries(&self, signal: Signal) -> bool {
+        self.signals.contains(&signal)
+    }
+
     /// Refuses a DAT whose format gives it no native name, naming the file at `path` and the missing field.
     pub fn check_name(&self, path: &Path) -> Result<(), Error> {
         if !self.name.trim().is_empty() {
@@ -449,6 +522,8 @@ impl Dat {
             (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
                 self.start_game(e)?;
                 let a = attrs(e)?;
+                self.signals
+                    .extend(a.keys().filter_map(|key| Signal::of_attribute(key)));
                 let flag = |key: &str, default: bool| yes(&a, key).unwrap_or(default);
                 self.machines.push(Machine {
                     romof: a.get("romof").cloned(),
@@ -502,6 +577,16 @@ impl Dat {
                 let Some(machine) = self.machines.last_mut() else {
                     return Ok(tag);
                 };
+                self.signals.insert(match tag.as_str() {
+                    "device_ref" => Signal::DeviceRefs,
+                    "sample" => Signal::Samples,
+                    "driver" => Signal::Driver,
+                    "display" => Signal::Displays,
+                    "input" | "control" => Signal::Input,
+                    "softwarelist" => Signal::SoftwareLists,
+                    "feature" => Signal::Features,
+                    _ => unreachable!("matched above"),
+                });
                 let mut a = attrs(e)?;
                 match tag.as_str() {
                     "device_ref" => machine.device_refs.extend(a.remove("name")),
