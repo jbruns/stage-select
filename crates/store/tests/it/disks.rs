@@ -71,14 +71,7 @@ impl Env {
         for dir in ["roots/sets/mame", "in"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[chd]\nchdman = {:?}\n",
-            tmp.path().join("roots/sets").display().to_string(),
-            tmp.path().join("in").display().to_string(),
-            chdman.display().to_string(),
-        ))
-        .unwrap();
+        let config = config(tmp.path(), &chdman);
         let store = Store::open(&tmp.path().join("store")).unwrap();
         store
             .update_settings(
@@ -114,6 +107,11 @@ impl Env {
             .unwrap();
         store.register_ingest_folder(&config, "in").unwrap();
         Env { tmp, store, config }
+    }
+
+    /// Finds chdman at `chdman` from now on, as when you correct its path in your configuration.
+    fn use_chdman(&mut self, chdman: &Path) {
+        self.config = config(self.tmp.path(), chdman);
     }
 
     fn set(&self) -> PathBuf {
@@ -179,6 +177,18 @@ impl Env {
         let latest = &self.store.history("mame").unwrap()[0];
         self.store.report(latest.id).unwrap()
     }
+}
+
+/// The configuration of a store in `tmp`, as [`Env`] says, finding chdman at `chdman`.
+fn config(tmp: &Path, chdman: &Path) -> Config {
+    Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n\
+         [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[chd]\nchdman = {:?}\n",
+        tmp.join("roots/sets").display().to_string(),
+        tmp.join("in").display().to_string(),
+        chdman.display().to_string(),
+    ))
+    .unwrap()
 }
 
 /// Every file under `dir`, as paths relative to it, but a marker.
@@ -531,6 +541,117 @@ fn a_disk_filed_from_an_ingest_folder_replaces_an_older_chd_which_is_kept_aside(
         .collect();
     assert_eq!(kept.len(), 1, "{:?}", files(&env.set()));
     assert!(kept[0].ends_with("blaster.chd.kept"), "{kept:?}");
+}
+
+#[test]
+fn a_games_zip_of_its_roms_and_a_folder_of_its_disk_fill_it_together() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("chds/blaster.chd"), 1, &[]);
+    let rom = format!(
+        r#"    <rom name="prog.u1" size="7" crc="{:08x}"/>"#,
+        crc32fast::hash(b"program")
+    );
+    let env = Env::new(
+        chdman,
+        &[("blaster", "", format!("{rom}\n{}", disk("blaster", &sha1)))],
+    );
+    // The ZIP holds every ROM the game needs; its Disk is no ROM a ZIP holds, but a CHD of its own.
+    write_zip(
+        &env.ingest_dir().join("blaster.zip"),
+        &[("prog.u1", b"program")],
+    );
+    copy_dir(
+        &scratch.path().join("chds"),
+        &env.ingest_dir().join("blaster"),
+    );
+    env.audit(AuditEvidence::Full);
+    env.scan();
+
+    let zip = env.item("blaster.zip");
+    assert_eq!(zip.state, ItemState::Assessed, "{zip:#?}");
+    let matched = zip
+        .assessment
+        .matches
+        .iter()
+        .find(|m| m.game == "blaster")
+        .unwrap_or_else(|| panic!("{zip:#?}"));
+    assert!(matched.complete, "{zip:#?}");
+    assert_eq!(matched.need, Need::Missing);
+    let plan = env.plan();
+    for key in ["game:blaster", "disk:blaster/blaster.chd"] {
+        let item = plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == key)
+            .unwrap_or_else(|| panic!("no item {key} in {:#?}", plan.content.items));
+        assert_eq!(item.kind, RepairKind::Fill, "{item:#?}");
+    }
+
+    let after = env.approve(&plan);
+
+    assert_eq!(files(&env.set()), ["blaster.zip", "blaster/blaster.chd"]);
+    assert_eq!(status(&after, "blaster"), GameStatus::Complete);
+}
+
+#[test]
+fn a_chd_chdman_couldnt_verify_is_verified_at_the_next_scan_once_chdman_is_found() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("blaster/blaster.chd"), 1, &[]);
+    let missing = scratch.path().join("no-chdman");
+    let mut env = Env::new(missing, &[("blaster", "", disk("blaster", &sha1))]);
+    copy_dir(
+        &scratch.path().join("blaster"),
+        &env.ingest_dir().join("blaster"),
+    );
+    env.audit(AuditEvidence::Full);
+    env.scan();
+    let unread = env.item("blaster/blaster.chd");
+    assert_eq!(unread.state, ItemState::Unreadable, "{unread:#?}");
+    assert!(unread.reason.unwrap().contains("chdman"));
+
+    // The CHD is as it was: only the configuration changed.
+    env.use_chdman(&chdman);
+    env.scan();
+
+    let item = env.item("blaster/blaster.chd");
+    assert_eq!(item.state, ItemState::Assessed, "{item:#?}");
+    assert!(matches!(
+        item.assessment.proposal,
+        Some(Proposal::SourceSet {
+            need: Need::Missing,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_disk_chdman_couldnt_verify_is_verified_by_the_next_incremental_audit_once_chdman_is_found() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("blaster/blaster.chd"), 1, &[]);
+    let mut env = Env::new(
+        scratch.path().join("no-chdman"),
+        &[("blaster", "", disk("blaster", &sha1))],
+    );
+    copy_dir(&scratch.path().join("blaster"), &env.set().join("blaster"));
+    let unread = env.audit(AuditEvidence::Full);
+    assert_eq!(
+        entry(&unread, "blaster/blaster.chd").finding,
+        Finding::Unreadable
+    );
+
+    env.use_chdman(&chdman);
+    let after = env.audit(AuditEvidence::Incremental);
+
+    let e = entry(&after, "blaster/blaster.chd");
+    assert_eq!(e.finding, Finding::Matched);
+    let evidence = e.evidence.as_ref().unwrap();
+    assert_eq!(evidence.level, EvidenceLevel::Payload);
+    assert_eq!(evidence.reused, None);
+    assert_eq!(status(&after, "blaster"), GameStatus::Complete);
 }
 
 /// Copies the files of the folder `from` into `to`.

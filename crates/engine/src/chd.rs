@@ -656,6 +656,26 @@ impl Stop {
     }
 }
 
+/// Why `chdman verify` didn't prove a CHD's data hashes to its header's combined SHA-1 (ADR 0026).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unverified {
+    /// chdman read the CHD and said it isn't verified, as when its SHA-1 doesn't match, it is uncompressed, or it is
+    /// damaged: a verdict on the file, which holds while it is unchanged.
+    Refuted(String),
+    /// Nothing was learnt of the CHD, as when chdman isn't there, couldn't start, was stopped, or ended without a
+    /// verdict: it may verify once that is put right, so it is never kept as the file's read.
+    Unchecked(String),
+}
+
+impl Unverified {
+    /// Why it isn't verified, whichever it is.
+    pub fn why(self) -> String {
+        match self {
+            Unverified::Refuted(why) | Unverified::Unchecked(why) => why,
+        }
+    }
+}
+
 /// What chdman says of a CHD whose data or metadata is damaged, as its errors read: its own word that the CHD doesn't
 /// hold what it should, rather than that it couldn't read or write a file.
 const CORRUPT: [&str; 7] = [
@@ -983,19 +1003,23 @@ impl Chdman {
     /// folder its log is written in: chdman decompresses every hunk and hashes them with the checksummed metadata.
     /// It succeeds only when chdman exits 0 and says [`VERIFIED`], since it exits 0 too when a SHA-1 doesn't match,
     /// and for an uncompressed CHD, which it doesn't verify. chdman is never given `-f`, which rewrites the header,
-    /// so the CHD is only read.
+    /// so the CHD is only read. Only an exit 0, or an exit chdman chose saying the CHD is damaged, is a verdict on it.
     pub fn verify_in_place(
         &self,
         dir: &Path,
         input: &Path,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<(), Stop> {
+    ) -> Result<(), Unverified> {
         let args: [&OsStr; 3] = ["verify".as_ref(), "-i".as_ref(), input.as_os_str()];
-        self.run(dir, &args, cancelled)?;
+        match self.run(dir, &args, cancelled) {
+            Ok(()) => {}
+            Err(Stop::Corrupt(why)) => return Err(Unverified::Refuted(why)),
+            Err(stop) => return Err(Unverified::Unchecked(stop.why())),
+        }
         let said = tail(&dir.join("chdman.log"));
         match said.contains(VERIFIED) {
             true => Ok(()),
-            false => Err(Stop::Failed(format!(
+            false => Err(Unverified::Refuted(format!(
                 "chdman verify didn't confirm its SHA-1: {said}"
             ))),
         }

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::common::*;
-use title_select_engine::chd::Chdman;
+use title_select_engine::chd::{Chdman, Unverified};
 use title_select_engine::{
     AuditEvidence, ChdAudit, Entry, EvidenceLevel, Finding, Game, GameStatus, ONE_WORKER_EACH,
     Options, PayloadRead, PayloadReads, Report, Reuse, audit_with,
@@ -409,6 +409,27 @@ fn a_chdman_verify_that_exits_0_without_its_success_line_is_no_payload_evidence(
     let why = disk.reason.as_deref().unwrap();
     assert!(why.contains("didn't confirm its SHA-1"), "{why}");
     assert_eq!(game(&report, "blaster").status, GameStatus::Incomplete);
+}
+
+#[test]
+fn only_chdmans_verdict_on_a_chd_refutes_it_never_a_chdman_that_is_missing_or_crashes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("blaster.chd");
+    write_file(&path, &synthetic_chd(5, &sha(1), None));
+    let header = title_select_engine::chd::header(&std::fs::File::open(&path).unwrap()).unwrap();
+
+    let verify = |program: &Path| chd_audit(program, tmp.path()).verify(&path, &header);
+
+    assert!(matches!(
+        verify(&fake("unconfirmed")),
+        Err(Unverified::Refuted(why)) if why.contains("didn't confirm its SHA-1")
+    ));
+    for program in [fake("crashes"), tmp.path().join("no-chdman")] {
+        assert!(
+            matches!(verify(&program), Err(Unverified::Unchecked(_))),
+            "{program:?}"
+        );
+    }
 }
 
 #[test]

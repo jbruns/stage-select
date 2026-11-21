@@ -253,15 +253,24 @@ enum DiskRead {
     Delta { parent: String },
     /// It can match no Disk, and why: a CHD older than version 5, or no CHD.
     NoDisk { why: String },
-    /// It wasn't verified, and why.
+    /// chdman's verdict is that it isn't verified, and why.
     Unverified { why: String },
+    /// Nothing was learnt of it, as chdman couldn't run, and why: it is read again at the next scan, never kept.
+    Unchecked { why: String },
+}
+
+impl DiskRead {
+    /// Whether it says something of the CHD itself, so that it holds while the CHD is unchanged.
+    fn lasts(&self) -> bool {
+        !matches!(self, DiskRead::Unchecked { .. })
+    }
 }
 
 /// Reads the CHD `file`, at `path`, of a folder of Disks: its header, and `chdman verify` as `disks` runs it.
 fn read_disk(file: &std::fs::File, path: &Path, disks: &ChdAudit) -> DiskRead {
-    use title_select_engine::chd::HeaderRefusal;
+    use title_select_engine::chd::{HeaderRefusal, Unverified};
     match title_select_engine::chd::read_header(file) {
-        Err(HeaderRefusal::Unread(why)) => DiskRead::Unverified { why },
+        Err(HeaderRefusal::Unread(why)) => DiskRead::Unchecked { why },
         Err(refusal) => DiskRead::NoDisk {
             why: refusal.as_disk(),
         },
@@ -269,7 +278,8 @@ fn read_disk(file: &std::fs::File, path: &Path, disks: &ChdAudit) -> DiskRead {
             Some(parent) => DiskRead::Delta { parent },
             None => match disks.verify(path, &header) {
                 Ok(()) => DiskRead::Verified { sha1: header.sha1 },
-                Err(why) => DiskRead::Unverified { why },
+                Err(Unverified::Refuted(why)) => DiskRead::Unverified { why },
+                Err(Unverified::Unchecked(why)) => DiskRead::Unchecked { why },
             },
         },
     }
@@ -672,8 +682,10 @@ struct AuditIndex {
 struct DatIndex {
     dat: Dat,
     /// The names of the ROMs each Game needs, as [`title_select_engine::dat::Rom::needed`] says: neither optional nor
-    /// nodump.
+    /// nodump. A Disk is not one: it is a CHD of its own, which no ZIP or loose file holds (ADR 0026).
     needed: Vec<Vec<String>>,
+    /// The names of the Disks each Game needs, as `needed` has its other ROMs.
+    needed_disks: Vec<Vec<String>>,
     /// Whether it lists Disks, so that a folder named for one of its Games may hold a family's CHDs.
     has_disks: bool,
     extensions: HashSet<String>,
@@ -749,14 +761,19 @@ impl Matcher {
                         continue;
                     };
                     let mut needed = vec![Vec::new(); dat.games.len()];
+                    let mut needed_disks = vec![Vec::new(); dat.games.len()];
                     for rom in dat.roms.iter().filter(|r| r.needed()) {
-                        needed[rom.game].push(rom.name.clone());
+                        match rom.disk {
+                            true => needed_disks[rom.game].push(rom.name.clone()),
+                            false => needed[rom.game].push(rom.name.clone()),
+                        }
                     }
                     let extensions = dat.roms.iter().filter_map(|r| extension(&r.name)).collect();
                     matcher.dats.push(DatIndex {
                         has_disks: dat.has_disks(),
                         dat,
                         needed,
+                        needed_disks,
                         extensions,
                     });
                     parsed.insert(revision.sha256.clone(), matcher.dats.len() - 1);
@@ -878,7 +895,7 @@ impl Matcher {
                 found.push(ItemMatch {
                     source_set: set.name.clone(),
                     dat_revision: set.revision.clone(),
-                    complete: index.needed[game]
+                    complete: index.needed_disks[game]
                         .iter()
                         .all(|n| roms.iter().any(|r| r.rom == *n)),
                     extra: false,
@@ -1079,7 +1096,7 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
         Some(DiskRead::NoDisk { why }) => {
             return Ok(found(ItemState::Unsupported, assessment, Some(why.clone())));
         }
-        Some(DiskRead::Unverified { why }) => {
+        Some(DiskRead::Unverified { why } | DiskRead::Unchecked { why }) => {
             return Ok(found(ItemState::Unreadable, assessment, Some(why.clone())));
         }
         None => match matcher.matches(&probe.payloads, archive) {
@@ -1740,7 +1757,8 @@ impl Store {
                 }
             };
             let mut found = assess(self, matcher, &name, &read)?;
-            if fresh {
+            // A CHD chdman couldn't verify is read again at the next scan, as chdman may be found by then.
+            if fresh && read.disk.as_ref().is_none_or(DiskRead::lasts) {
                 found.read = Some((seen.clone(), read));
             }
             if found.state == existing.item.state

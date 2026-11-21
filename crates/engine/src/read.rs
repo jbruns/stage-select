@@ -709,7 +709,9 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
     read.origin = Origin::Read(read_at);
     let verified = match how.disks {
         Some(disks) => disks.verify(&file.path, &header),
-        None => Err("chdman isn't available to this audit, so its CHD can't be verified".into()),
+        None => Err(crate::chd::Unverified::Unchecked(
+            "chdman isn't available to this audit, so its CHD can't be verified".into(),
+        )),
     };
     how.tally.file_read();
     // The file chdman read by its path is still the one held open, as it was before.
@@ -739,7 +741,7 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
         }
         Err(why) => {
             record_unreadable();
-            read.error = Some(why);
+            read.error = Some(why.why());
         }
     }
     read

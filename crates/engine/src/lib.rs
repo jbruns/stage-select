@@ -128,14 +128,15 @@ pub struct ChdAudit {
 impl ChdAudit {
     /// Verifies the CHD at `path`, whose header is `header`, where it is with `chdman verify` (ADR 0026), in a scratch
     /// folder of its own that is removed once it is done: what makes a Disk Verified.
-    pub fn verify(&self, path: &Path, header: &chd::Header) -> Result<(), String> {
+    pub fn verify(&self, path: &Path, header: &chd::Header) -> Result<(), chd::Unverified> {
+        let unchecked = chd::Unverified::Unchecked;
         static SCRATCH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let chdman = chd::Chdman {
             deadline: self.limits.for_bytes(header.logical_bytes),
             ..self
                 .chdman
                 .clone()
-                .map_err(|why| format!("its CHD can't be verified: {why}"))?
+                .map_err(|why| unchecked(format!("its CHD can't be verified: {why}")))?
         };
         let dir = self.tmp.join(format!(
             "verify-disk-{}-{}",
@@ -144,11 +145,9 @@ impl ChdAudit {
         ));
         let _scratch = read::ChdScratch(dir.clone());
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let input = std::path::absolute(path).map_err(|e| e.to_string())?;
-        chdman
-            .verify_in_place(&dir, &input, &|| false)
-            .map_err(|stop| stop.why())
+        std::fs::create_dir_all(&dir).map_err(|e| unchecked(format!("{}: {e}", dir.display())))?;
+        let input = std::path::absolute(path).map_err(|e| unchecked(e.to_string()))?;
+        chdman.verify_in_place(&dir, &input, &|| false)
     }
 
     /// chdman as [`chd::locate`] finds it without a configuration, with the default limits, its scratch directories in
