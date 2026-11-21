@@ -19,7 +19,7 @@ Single-context: root `GLOSSARY.md` and `docs/adr/`. Before exploring the codebas
 
 ### Build and test
 
-The toolchain is pinned in `rust-toolchain.toml`. CI runs exactly these, so run them before committing:
+The toolchain is pinned in `rust-toolchain.toml`. GitHub CI runs exactly these:
 
 ```sh
 tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar and sha256sum
@@ -32,8 +32,16 @@ cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection
 cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
 ```
 
-Locally, `cargo test --locked` runs the same tests, but its debug fixtures run checks only some of the goldens: run the
-release fixtures command above to check them all. Before writing or changing tests, read `docs/agents/testing.md`.
+Locally, build only what your role needs, through `tools/check`:
+
+| Role | Rule |
+|---|---|
+| Implementers and fixers | Iterate with `tools/check --crate X …`, and run `tools/check` before each push. |
+| Adversarial reviewers | Read code first. Build only to run a reproducer via `tools/check --crate X <test>`. Never run the full suite. |
+| Code-review sub-agents | No builds. |
+| Everyone | GitHub CI is the full gate. Use `tools/check --ci` only when asked. Run `tools/clean-builds` after a merge. |
+
+Before writing or changing tests, or to learn what `tools/check` selects, read `docs/agents/testing.md`.
 
 Tests build their DATs and Source Sets from synthetic fixtures at test time. Never commit ROMs, and never commit a
 real DAT unless its licence permits redistribution.

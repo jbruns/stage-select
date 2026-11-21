@@ -1,0 +1,299 @@
+#!/bin/sh
+# Checks the workspace crates a change touches, so an agent catches problems before GitHub CI, which runs the full
+# suite and gates every merge. See docs/agents/testing.md.
+#
+#   tools/check [--dry-run]                       fmt, clippy and nextest for the crates changed since the merge-base
+#                                                 with origin/main, and every crate that depends on them; the wasm
+#                                                 clippy runs when api or ui is among them, the release fixtures when
+#                                                 selection is
+#   tools/check [--dry-run] --crate X [--crate Y] [--] [ARGS...]
+#                                                 clippy for X and nextest for X, with ARGS as nextest's filter
+#   tools/check [--dry-run] --ci                  exactly the commands GitHub CI runs (AGENTS.md, Build and test)
+#
+# X is a folder under crates/ (engine) or a package name (title-select-engine). --dry-run prints the commands
+# without running them. Builds go to /tmp/ts-target-<worktree folder> unless CARGO_TARGET_DIR is set, and through
+# sccache when it is on PATH and RUSTC_WRAPPER is unset. Needs git, jq, cargo-nextest and the POSIX tools.
+set -eu
+
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo"
+
+fail() {
+    echo "check: $*" >&2
+    exit 1
+}
+
+say() {
+    echo "check: $*"
+}
+
+mode=changed
+dry=
+crates=
+while [ $# -gt 0 ]; do
+    case $1 in
+    --dry-run) dry=1 ;;
+    --ci)
+        [ "$mode" != crate ] || fail "--ci and --crate don't combine"
+        mode=ci
+        ;;
+    --crate)
+        [ $# -ge 2 ] || fail "--crate needs a crate"
+        [ "$mode" != ci ] || fail "--ci and --crate don't combine"
+        mode=crate
+        crates="$crates $2"
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    -*) fail "unknown option $1 (see the top of $0)" ;;
+    *) break ;;
+    esac
+    shift
+done
+# What is left is nextest's filter, for --crate alone.
+[ $# -eq 0 ] || [ "$mode" = crate ] || fail "nextest arguments need --crate"
+
+if ! command -v cargo >/dev/null 2>&1; then
+    PATH="$HOME/.cargo/bin:$PATH"
+    [ -d /opt/homebrew/opt/rustup/bin ] && PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+    export PATH
+    command -v cargo >/dev/null 2>&1 || fail "cargo is not on PATH, in ~/.cargo/bin or in Homebrew's rustup"
+fi
+command -v jq >/dev/null 2>&1 || fail "needs jq, to read cargo metadata"
+
+# One build folder per worktree: agents in different worktrees never wait on one cargo lock, and later rounds in
+# the same worktree build incrementally.
+if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    name=$(basename -- "$(git rev-parse --show-toplevel)" | tr -c 'A-Za-z0-9._\n-' '_')
+    CARGO_TARGET_DIR="/tmp/ts-target-$name"
+    export CARGO_TARGET_DIR
+fi
+say "build folder: $CARGO_TARGET_DIR"
+
+if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then
+    RUSTC_WRAPPER=sccache
+    SCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE:-30G}
+    export RUSTC_WRAPPER SCCACHE_CACHE_SIZE
+    say "sccache: on, cache size $SCCACHE_CACHE_SIZE"
+elif [ -n "${RUSTC_WRAPPER:-}" ]; then
+    say "sccache: RUSTC_WRAPPER is already $RUSTC_WRAPPER"
+else
+    say "sccache: not on PATH, so builds are not shared between build folders"
+fi
+
+# Prints the command, quoting each argument a shell would read otherwise, then runs it unless this is a dry run.
+run() {
+    line=+
+    for arg; do
+        case $arg in
+        *[!A-Za-z0-9_./=:,@+-]*) line="$line '$arg'" ;;
+        *) line="$line $arg" ;;
+        esac
+    done
+    echo "$line"
+    [ -n "$dry" ] && return 0
+    "$@" || fail "failed (exit $?): ${line#+ }"
+}
+
+passed() {
+    if [ -n "$dry" ]; then say "dry run: nothing ran"; else say "passed"; fi
+}
+
+fetch_lists() {
+    run tools/clone-lists/fetch
+    run tools/curated-list/fetch
+}
+
+fixtures_filter="not binary_id(title-select-selection::fixtures)"
+
+wasm_clippy() {
+    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+}
+
+release_fixtures() {
+    run cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+}
+
+if [ "$mode" = ci ]; then
+    say "running exactly what GitHub CI runs"
+    fetch_lists
+    run cargo fmt --check
+    run cargo clippy --all-targets --locked -- -D warnings
+    wasm_clippy
+    run cargo nextest run --profile ci --locked -E "$fixtures_filter"
+    release_fixtures
+    passed
+    exit 0
+fi
+
+# Each workspace crate as "<folder> <package> <path dependency>...", dev-dependencies included: a change to a crate
+# a test links can break that test.
+metadata=$(cargo metadata --format-version 1 --no-deps --locked) || fail "cargo metadata failed"
+graph=$(printf '%s\n' "$metadata" | jq -r '.packages[]
+    | [(.manifest_path | split("/") | .[-2]), .name, (.dependencies[] | select(.path) | .name)] | join(" ")')
+
+package() {
+    printf '%s\n' "$graph" | awk -v x="$1" '$1 == x || $2 == x { print $2; exit }'
+}
+
+# The packages in $1 and every crate that depends on one of them, as " <package>..." with $1 first.
+with_dependents() {
+    have=$1
+    while :; do
+        more=$(printf '%s\n' "$graph" | awk -v have="$have" '
+            BEGIN { n = split(have, h, " "); for (i = 1; i <= n; i++) seen[h[i]] = 1 }
+            !($2 in seen) { for (i = 3; i <= NF; i++) if ($i in seen) { printf " %s", $2; break } }')
+        [ -n "$more" ] || break
+        have="$have$more"
+    done
+    printf '%s\n' "$have"
+}
+
+# Fetches the clone lists and the curated list when the tests of a crate in $1 read them: selection's, and those of
+# every crate that runs a selection.
+lists() {
+    readers=$(with_dependents " title-select-selection")
+    for p in $1; do
+        case "$readers " in
+        *" $p "*)
+            fetch_lists
+            return
+            ;;
+        esac
+    done
+    say "clone lists: not needed, as no crate here runs a selection"
+}
+
+if [ "$mode" = crate ]; then
+    names=
+    pkg_args=
+    for x in $crates; do
+        p=$(package "$x")
+        [ -n "$p" ] || fail "$x is not a workspace crate"
+        names="$names $p"
+        pkg_args="$pkg_args -p $p"
+    done
+    [ $# -gt 0 ] || set -- -E "$fixtures_filter"
+    say "crates:$names"
+    # shellcheck disable=SC2086 # $pkg_args is one "-p <package>" pair per crate
+    run cargo clippy --locked --all-targets $pkg_args -- -D warnings
+    lists "$names"
+    # shellcheck disable=SC2086
+    run cargo nextest run --profile ci --locked $pkg_args "$@"
+    passed
+    exit 0
+fi
+
+base_ref=origin/main
+git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null || base_ref=main
+base=$(git merge-base "$base_ref" HEAD) || fail "no merge-base with $base_ref"
+
+# Committed, staged, unstaged and untracked paths, renames as their old and new paths.
+changes=$({
+    git diff --name-only --no-renames "$base"
+    git ls-files --others --exclude-standard
+} | sort -u)
+
+# The folder under crates/ a path makes changed, "all" for the build's own configuration, or nothing. Paths outside
+# crates/ that a crate compiles in or its tests read count as that crate's.
+folder_of() {
+    case $1 in
+    Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | .config/*) echo all ;;
+    crates/*/*)
+        rest=${1#crates/}
+        echo "${rest%%/*}"
+        ;;
+    third_party/* | tools/clone-lists/* | tools/curated-list/*) echo selection ;;
+    docs/brand-kit/*) echo ui ;;
+    esac
+}
+
+say "changes since $(git rev-parse --short "$base") (the merge-base with $base_ref):"
+seeds=
+outside=0
+while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    f=$(folder_of "$path")
+    if [ -z "$f" ]; then
+        outside=$((outside + 1))
+        continue
+    fi
+    case " $seeds " in
+    *" $f "*) ;;
+    *)
+        seeds="$seeds $f"
+        if [ "$f" = all ]; then echo "  every crate, from $path"; else echo "  $f, from $path"; fi
+        ;;
+    esac
+done <<EOF
+$changes
+EOF
+[ "$outside" -eq 0 ] || echo "  $outside other path(s) that no crate builds or tests, such as docs"
+
+if [ -z "$seeds" ]; then
+    say "no crate is affected, so there is nothing to build"
+    exit 0
+fi
+
+case " $seeds " in
+*" all "*)
+    affected=$(printf '%s\n' "$graph" | awk '{ printf " %s", $2 }')
+    say "the build configuration changed, so every crate is affected"
+    ;;
+*)
+    direct=
+    for f in $seeds; do
+        p=$(package "$f")
+        if [ -n "$p" ]; then
+            direct="$direct $p"
+        else
+            # A removed crate: the crates that depended on it changed their manifests too.
+            say "crates/$f is no longer a workspace crate"
+        fi
+    done
+    [ -n "$direct" ] || {
+        say "no crate is affected, so there is nothing to build"
+        exit 0
+    }
+    affected=$(with_dependents "$direct")
+    say "changed:$direct"
+    [ "$affected" = "$direct" ] || say "and their dependents:${affected#"$direct"}"
+    ;;
+esac
+
+affects() {
+    # shellcheck disable=SC2086 # one package name per word
+    printf '%s\n' $affected | grep -qx "$1"
+}
+
+pkg_args=
+for p in $affected; do pkg_args="$pkg_args -p $p"; done
+wasm=
+if affects title-select-api || affects title-select-ui; then
+    wasm=1
+    say "wasm clippy: yes, the workbench is affected"
+else
+    say "wasm clippy: no, api and ui are unaffected"
+fi
+fixtures=
+if affects title-select-selection; then
+    fixtures=1
+    say "release fixtures: yes, selection is affected"
+else
+    say "release fixtures: no, selection is unaffected"
+fi
+
+# shellcheck disable=SC2086 # $pkg_args is one "-p <package>" pair per crate
+run cargo fmt --check $pkg_args
+# shellcheck disable=SC2086
+run cargo clippy --locked --all-targets $pkg_args -- -D warnings
+[ -z "$wasm" ] || wasm_clippy
+lists "$affected"
+# shellcheck disable=SC2086
+run cargo nextest run --profile ci --locked $pkg_args -E "$fixtures_filter"
+[ -z "$fixtures" ] || release_fixtures
+passed

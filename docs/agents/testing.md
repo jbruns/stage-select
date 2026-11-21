@@ -20,10 +20,41 @@ The debug run leaves out the `fixtures` binary: its goldens are a subset of the 
 release run checks every golden (ADR 0015). `ONLY_DAT=<file name>` narrows the fixtures test to one DAT.
 
 nextest runs no doctests, and there are none. The first doctest brings `cargo test --doc --locked` back: into CI after
-the debug nextest run, and into the Build and test block in `AGENTS.md`.
+the debug nextest run, into the Build and test block in `AGENTS.md`, and into `tools/check`.
 
 The CHD tests need chdman. They skip without it, except where `CI` is set, where a missing chdman is a failure;
 `TITLE_SELECT_CHDMAN` names the binary when it isn't on `PATH`.
+
+## `tools/check`
+
+`tools/check` is how agents build and test locally. `--dry-run` prints its commands without running them.
+
+- **Default:** the crates changed since the merge-base with `origin/main` (committed, staged, unstaged and untracked),
+  and every workspace crate that depends on them, dev-dependencies included. It runs fmt, clippy and the debug nextest
+  run for those crates, both wasm clippy runs when api or ui is among them, and the release fixtures run when selection
+  is. It prints what it chose and why first.
+- **Paths outside `crates/`:** `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/` and `.config/` select
+  every crate. `third_party/` and the clone-list and curated-list fetch scripts select selection, which compiles their
+  pins in and whose tests read the fixtures; `docs/brand-kit/` selects ui, which compiles its tokens in. Anything else,
+  such as docs, selects nothing.
+- **`--crate X [-- ARGS]`:** clippy and nextest for X alone, X a folder under `crates/` or a package name, with ARGS
+  as nextest's filter. Repeat `--crate` for several crates.
+- **`--ci`:** exactly the CI commands above.
+
+It fetches the clone lists and the curated list when the crates it tests include selection or a crate that runs one;
+both fetches do nothing when already current.
+
+Builds go to `/tmp/ts-target-<worktree folder>` unless `CARGO_TARGET_DIR` is set, so agents in different worktrees never
+wait on one cargo lock, and later rounds in one worktree build incrementally. When `sccache` is on `PATH` and
+`RUSTC_WRAPPER` is unset, compiles go through it, with `SCCACHE_CACHE_SIZE` defaulting to `30G`, so the build folders
+share dependency builds. CI uses neither.
+
+The dev and test profiles build line tables only, which `Cargo.toml` explains with how to get full debug info.
+
+`tools/clean-builds` lists the T3 worktrees and `/tmp/ts-*` folders left by finished work: a worktree whose branch's
+PR is merged or closed, or whose commits `origin/main` holds, and a folder whose worktree is gone or done. It keeps
+anything with changes or modified in the last 60 minutes. `--yes` removes what it lists. A clean worktree on a branch
+with no commits and no PR counts as done once idle for an hour: removing it loses no commits.
 
 ## Where integration tests go
 

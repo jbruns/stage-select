@@ -70,3 +70,7 @@ wasm-opt-features = ["-O1", "--enable-bulk-memory", "--enable-nontrapping-float-
 inherits = "release"
 lto = true
 codegen-units = 16
+
+# Line tables (test inherits them) give panics their file and line; CARGO_PROFILE_DEV_DEBUG=true builds full debug info.
+[profile.dev]
+debug = "line-tables-only"
