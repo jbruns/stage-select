@@ -31,8 +31,10 @@ Library that is ready to play.
   prefers space chooses merged or split, and pays with a repack at every Build.
 - **Disks are always merged.** A family's Disks sit loose in a folder named for its parent, `<parent>/<disk>.chd`,
   beside the ZIPs and whatever the ROM layout: that is the only layout CHD sets are distributed in, and no family has
-  two different disks of one name. This is the one exception to a release sharing one format. A software list's Disks
-  sit at `<list>/<software>/<disk>.chd`.
+  two different disks of one name. A Disk a Game shares with its BIOS (`romof`, `merge=`) sits in the BIOS's folder
+  under the BIOS's name for it, as a merged set keeps it there: the furthest ancestor that lists the Disk holds it,
+  and ADR 0025 counts it from there. This is the one exception to a release sharing one format. A software list's
+  Disks sit at `<list>/<software>/<disk>.chd`.
 - **Disks are DAT-exact files**, so a MAME Source Set may hold CHDs, as ADR 0013's amendment allows for any DAT that
   lists compressed images. #228's Evidence rules apply: header SHA-1 as Claim Evidence; `chdman verify`, requiring its
   `Overall SHA1 verification successful!` line and never `-f`, as Payload Evidence; only self-contained CHD v5. A delta

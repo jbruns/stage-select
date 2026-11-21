@@ -56,8 +56,8 @@ const SEVENZ_UNREAD: &str = "7z archives are not opened";
 /// The largest file read as a possible DAT.
 const DAT_LIMIT: u64 = 512 << 20;
 
-/// The `nth` name an item `name` is kept under in the Ingest Folder's kept files: its file's, in no folder, as a CHD of a
-/// folder of Disks is in one.
+/// The `nth` name an item `name` is kept under in the Ingest Folder's kept files: its file's, in no folder, as a CHD of
+/// a folder of Disks is in one.
 pub(super) fn kept_leaf(name: &str, nth: u32) -> String {
     kept_name(name.rsplit('/').next().unwrap_or(name), nth)
 }

@@ -858,8 +858,9 @@ fn fills_disks(dat: &Dat, c: &FillCandidate) -> bool {
 
 /// Proposes filling each Disk the Audit found missing from an Ingest Folder item that holds it, a CHD `chdman verify`
 /// proved when it was assessed (ADR 0026): moved as it is into a family's folder, `<parent>/<disk>.chd`, that of the
-/// furthest of its ancestors that lists it, its parent or its BIOS, under that one's name for it. A file there that holds nothing of it, such as a delta
-/// or an older CHD, is kept aside for it; one the Audit didn't read as it is now leaves it as it is.
+/// furthest of its ancestors that lists it, its parent or its BIOS, under that one's name for it. A file there that
+/// holds nothing of it, such as a delta or an older CHD, is kept aside for it; one the Audit didn't read as it is now
+/// leaves it as it is.
 fn disk_fills<'p>(
     i: &Inputs,
     usable: &BTreeMap<&'p str, Usable>,
@@ -883,26 +884,7 @@ fn disk_fills<'p>(
         if !missing.contains(&(game.as_str(), rom.name.as_str())) || !(i.covers)(game) {
             continue;
         }
-        // Under the name of the furthest of its ancestors that lists it, as its parent or BIOS (ADR 0025), in that
-        // Game's family's folder.
-        let sha1 = rom.sha1.as_deref().unwrap_or_default();
-        let (holder, name) = i
-            .dat
-            .ancestors(rom.game)
-            .into_iter()
-            .rev()
-            .find_map(|a| {
-                i.dat
-                    .disks_with_sha1(sha1)
-                    .iter()
-                    .map(|r| &i.dat.roms[*r])
-                    .find(|d| d.game == a)
-                    .map(|d| (a, d.name.as_str()))
-            })
-            .unwrap_or((rom.game, rom.name.as_str()));
-        let family = i.dat.cloneof[holder]
-            .as_deref()
-            .unwrap_or(&i.dat.games[holder]);
+        let (family, name) = i.dat.disk_home(rom);
         let target = format!("{family}/{name}");
         if !targets.contains_key(&target) {
             order.push(target.clone());

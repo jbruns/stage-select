@@ -502,6 +502,38 @@ fn a_real_chd_whose_header_sha1_its_data_doesnt_hash_to_is_unreadable_in_a_full_
 }
 
 #[test]
+fn a_real_uncompressed_chd_is_unreadable_in_a_full_audit_as_chdman_has_nothing_to_verify() {
+    let Some(chdman) = chdman() else { return };
+    let f = Fixture::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = f.set_path("blaster/blaster.chd");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let raw = tmp.path().join("disk.raw");
+    std::fs::write(&raw, noise(1, 64 * 1024)).unwrap();
+    let out = std::process::Command::new(&chdman)
+        .args(["createraw", "-hs", "4096", "-us", "512", "-c", "none", "-i"])
+        .arg(&raw)
+        .arg("-o")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let sha1 = title_select_engine::chd::header(&std::fs::File::open(&path).unwrap())
+        .unwrap()
+        .sha1;
+    let dat = blaster(&f, &sha1);
+
+    let disks = chd_audit(&chdman, tmp.path());
+    let full = run(&dat, f.set.path(), AuditEvidence::Full, Some(&disks), None);
+
+    let disk = entry(&full, "blaster/blaster.chd");
+    assert_eq!(disk.finding, Finding::Unreadable, "{disk:#?}");
+    let why = disk.reason.as_deref().unwrap();
+    assert!(why.contains("didn't confirm its SHA-1"), "{why}");
+    assert_eq!(game(&full, "blaster").status, GameStatus::Incomplete);
+}
+
+#[test]
 fn a_real_delta_chd_is_unreadable_however_it_is_audited() {
     let Some(chdman) = chdman() else { return };
     let f = Fixture::new();
