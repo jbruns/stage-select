@@ -478,7 +478,7 @@ pub struct ReleaseRow {
     /// For an exclusion, Retool's reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// For a dependency, the winners that need it.
+    /// For a Dependency, the winners that need it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub needed_by: Vec<String>,
     pub rule: Rule,
@@ -487,7 +487,7 @@ pub struct ReleaseRow {
 }
 
 impl Selection {
-    /// Every release, group by group, winners then alternatives then exclusions then dependencies.
+    /// Every release, group by group, winners then alternatives then exclusions then Dependencies.
     pub fn rows(&self) -> Vec<ReleaseRow> {
         let mut rows = Vec::new();
         for group in &self.groups {
@@ -629,7 +629,7 @@ pub struct Dependency {
     pub rule: Rule,
 }
 
-/// The stage of the rule recorded for a dependency.
+/// The stage of the rule recorded for a Dependency.
 pub const DEPENDENCY_STAGE: &str = "dependency";
 
 /// The stage of the rule recorded for a release the Operator's choice decided.

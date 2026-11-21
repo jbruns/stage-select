@@ -25,7 +25,7 @@ pub(crate) use pipeline::run;
 
 /// Reads one of the Operator's `/pattern` lines as Python's `re` would, or says why the engine can't.
 pub(crate) fn user_regex(pattern: &str) -> Result<(), String> {
-    pyre::Re::user(pattern).map(|_| ())
+    UserRegex::new(pattern).map(|_| ())
 }
 
 /// One of the Operator's `/pattern` lines, compiled as Python's `re` reads it without case.

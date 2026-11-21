@@ -199,37 +199,38 @@ pub(crate) type Stop<'a> = &'a dyn Fn() -> Result<(), Error>;
 
 /// Checks the include and exclude lists' patterns.
 pub(crate) fn check(settings: &ArcadeSettings) -> Result<(), Error> {
-    let (_, mut problems) = matchers(&settings.include, "include");
-    problems.extend(matchers(&settings.exclude, "exclude").1);
+    lists(settings).map(|_| ())
+}
+
+/// The include and exclude lists' matchers, or every line of them the selector can't read.
+fn lists(settings: &ArcadeSettings) -> Result<(Vec<Matcher>, Vec<Matcher>), Error> {
+    let (include, mut problems) = matchers(&settings.include, "include");
+    let (exclude, more) = matchers(&settings.exclude, "exclude");
+    problems.extend(more);
     match problems.is_empty() {
-        true => Ok(()),
+        true => Ok((include, exclude)),
         false => Err(Error::Patterns(problems)),
     }
 }
 
 /// Filters `dat`'s machines and elects one per family.
 pub(crate) fn elect(dat: &Dat, settings: &ArcadeSettings, stop: Stop) -> Result<Elected, Error> {
-    let (include, mut problems) = matchers(&settings.include, "include");
-    let (exclude, more) = matchers(&settings.exclude, "exclude");
-    problems.extend(more);
-    if !problems.is_empty() {
-        return Err(Error::Patterns(problems));
-    }
+    let (include, exclude) = lists(settings)?;
     let mut has_disks = vec![false; dat.games.len()];
     for rom in dat.roms.iter().filter(|r| r.disk) {
         has_disks[rom.game] = true;
     }
     let candidates: Vec<Candidate> = (0..dat.games.len())
-        .map(|i| Candidate {
-            name: &dat.games[i],
-            description: dat.descriptions.get(i).map_or("", String::as_str),
-            machine: &dat.machines[i],
-            parent: dat.cloneof[i].as_deref(),
-            described: describe::describe(
-                dat.descriptions.get(i).map_or("", String::as_str),
-                dat.machines[i].manufacturer.as_deref(),
-            ),
-            has_disks: has_disks[i],
+        .map(|i| {
+            let description = dat.descriptions.get(i).map_or("", String::as_str);
+            Candidate {
+                name: &dat.games[i],
+                description,
+                machine: &dat.machines[i],
+                parent: dat.cloneof[i].as_deref(),
+                described: describe::describe(description, dat.machines[i].manufacturer.as_deref()),
+                has_disks: has_disks[i],
+            }
         })
         .collect();
 

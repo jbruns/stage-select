@@ -1318,7 +1318,7 @@ fn GroupPanel(
                         let flag = flags.get(&title).is_some().then(|| {
                             view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> }
                         });
-                        // A dependency is never elected, so it can't be checked either.
+                        // A Dependency is never elected, so it can't be checked either.
                         let excluded = matches!(role, Role::Exclusion | Role::Dependency);
                         view! {
                             <li class="release">
