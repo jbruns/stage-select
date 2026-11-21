@@ -1003,15 +1003,7 @@ fn a_placed_chd_the_audit_couldnt_read_is_set_aside_only_by_your_choice() {
     let mut env = Env::new(Some(&chdman));
     let folder = place_orbit(&mut env, &chdman);
     env.audit(title_select_engine::AuditEvidence::Full);
-    // The source set stays writable; chdman is named where none is.
-    env.config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
-         [chd]\nchdman = {:?}\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-        env.tmp.path().join("roots/play").display().to_string(),
-        env.tmp.path().join("no-chdman").display().to_string(),
-    ))
-    .unwrap();
+    without_chdman(&mut env);
     env.audit(title_select_engine::AuditEvidence::Full);
 
     let plan = env.repair_plan(&[]);
@@ -1039,6 +1031,74 @@ fn a_placed_chd_the_audit_couldnt_read_is_set_aside_only_by_your_choice() {
             .unwrap()
             .iter()
             .all(|p| p.game != CD)
+    );
+}
+
+/// Names chdman where none is, so that a full audit can't read a CHD; the source set stays writable.
+fn without_chdman(env: &mut Env) {
+    env.config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
+         [chd]\nchdman = {:?}\n",
+        env.tmp.path().join("roots/sets").display().to_string(),
+        env.tmp.path().join("roots/play").display().to_string(),
+        env.tmp.path().join("no-chdman").display().to_string(),
+    ))
+    .unwrap();
+}
+
+/// A two-disc release the audit couldn't read is left by default, and choosing to set one disc aside sets every disc
+/// aside: the release is never split.
+#[test]
+fn choosing_to_set_aside_one_disc_the_audit_couldnt_read_sets_its_release_aside() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    let (folder, _) = damaged_saga(&mut env, &chdman, 2);
+    without_chdman(&mut env);
+    env.audit(title_select_engine::AuditEvidence::Full);
+
+    let plan = env.repair_plan(&[]);
+    for game in SAGA {
+        assert_eq!(item_of(&plan, game).chosen, RepairChoice::Leave);
+    }
+
+    let chosen = env.repair_plan(&[(&format!("game:{}", SAGA[1]), RepairChoice::KeepAside)]);
+    for game in SAGA {
+        let item = item_of(&chosen, game);
+        assert_eq!(item.chosen, RepairChoice::KeepAside, "{item:?}");
+    }
+    let done = env.repair(&chosen);
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    assert_eq!(env.set_kept(), saga_released(&folder));
+    assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
+}
+
+/// Choosing to leave one disc of a release set aside by default leaves every disc of it placed, and choosing to set one
+/// aside and leave the other is refused: the release is never split.
+#[test]
+fn choosing_to_leave_one_disc_of_a_release_leaves_every_disc_placed() {
+    let Some(chdman) = chdman() else { return };
+    let mut env = Env::new(Some(&chdman));
+    damaged_saga(&mut env, &chdman, 2);
+
+    let plan = env.repair_plan(&[(&format!("game:{}", SAGA[0]), RepairChoice::Leave)]);
+    for game in SAGA {
+        let item = item_of(&plan, game);
+        assert_eq!(item.chosen, RepairChoice::Leave, "{item:?}");
+    }
+    assert!(plan.content.steps.is_empty(), "{:#?}", plan.content.steps);
+
+    let request = title_select_api::repair::PlanRepair {
+        choices: [
+            (format!("game:{}", SAGA[0]), RepairChoice::Leave),
+            (format!("game:{}", SAGA[1]), RepairChoice::KeepAside),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let refused = env.store.plan_repair(&env.config, SET, &request);
+    assert!(
+        matches!(&refused, Err(title_select_store::Error::Refused(why)) if why.contains("choose the same")),
+        "{refused:?}"
     );
 }
 

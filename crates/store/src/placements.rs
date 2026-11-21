@@ -354,16 +354,23 @@ pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>>
 /// them, the system folder itself included.
 pub(crate) fn laid_beside(c: &Connection, set: i64) -> Result<Vec<(i64, String, String)>> {
     use title_select_api::storage::release_of;
-    let placed = placed_files_of(c, set)?;
-    let mut releases: std::collections::BTreeSet<(i64, String)> = Default::default();
+    let placed: std::collections::HashSet<(i64, String)> = placed_files_of(c, set)?
+        .into_iter()
+        .map(|p| (p.library_folder, p.path))
+        .collect();
+    let mut releases: std::collections::BTreeMap<i64, std::collections::BTreeSet<String>> =
+        Default::default();
     for chd in placed_chds_of(c, set)? {
-        releases.insert((chd.folder, release_of(&chd.game)));
+        releases
+            .entry(chd.folder)
+            .or_default()
+            .insert(release_of(&chd.game));
     }
     let mut found = Vec::new();
     let mut stmt = c.prepare(
         "SELECT target, game FROM built_files WHERE folder_id = ?1 AND chd = 0 ORDER BY target",
     )?;
-    for (folder, release) in releases {
+    for (folder, releases) in releases {
         let built = stmt
             .query_map([folder], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -371,12 +378,9 @@ pub(crate) fn laid_beside(c: &Connection, set: i64) -> Result<Vec<(i64, String, 
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (target, owner) in built {
             // An `.m3u` is built for its release, an SBI file for its disc.
-            if release_of(&owner) == release
-                && !placed
-                    .iter()
-                    .any(|p| p.library_folder == folder && p.path == target)
-            {
-                found.push((folder, target, release.clone()));
+            let release = release_of(&owner);
+            if releases.contains(&release) && !placed.contains(&(folder, target.clone())) {
+                found.push((folder, target, release));
             }
         }
     }

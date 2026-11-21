@@ -103,8 +103,8 @@ struct Released {
     /// The files laid out beside the release's CHDs, set aside with its first disc.
     beside: Vec<String>,
     /// Whether the Audit proved each CHD of the release it found damaged so, by reading what it holds: one chdman
-    /// couldn't extract may be damaged, or chdman missing, stopped or short of space, so it is released only by your
-    /// choice.
+    /// couldn't extract may be damaged, or chdman missing, stopped or short of space, so it is released only by the
+    /// Operator's choice.
     proven: bool,
 }
 
@@ -131,7 +131,7 @@ pub(super) struct Planned {
     pub items: Vec<RepairItem>,
     pub steps: Vec<PlannedStep>,
     pub notes: Vec<String>,
-    /// The items that release a disc of a placed release, by key, unless you chose to leave them.
+    /// The items that release a disc of a placed release, by key, unless the Operator chose to leave them.
     pub released: BTreeSet<String>,
 }
 
@@ -754,7 +754,7 @@ fn releases(
     released
 }
 
-/// What releasing disc `game` of a placed release, as `r` says, means for you.
+/// What releasing disc `game` of a placed release, as `r` says, means for the Operator.
 fn released_note(game: &str, r: &Released) -> String {
     let (chd, release) = (&r.chd, &r.release);
     let found = match r.freed {
@@ -773,15 +773,33 @@ fn released_note(game: &str, r: &Released) -> String {
             "{chd} is the only copy of {game}. It verified, but another disc of {release} didn't, or is gone."
         ),
         Freed::Gone => {
-            format!("{chd}, the only copy of {game}, is gone, so nothing of it is set aside.")
+            format!("{chd}, the only copy of {game}, is gone: there is nothing of it to set aside.")
         }
     };
-    let aside = match r.several {
-        false => "A repair can't fix a CHD in place, so this sets it aside in your source set's kept files, where you \
-                  can delete it once you no longer need it"
-            .to_owned(),
-        true => format!(
-            "A repair can't fix a CHD in place, and a game's discs are never split, so this sets every disc of \
+    // Left by default unless the damage is proven, so what setting aside does is said as the Operator's choice.
+    let (this, then) = match r.proven {
+        true => (
+            "this sets",
+            format!("This repair only sets files aside, so {game} is then missing"),
+        ),
+        false => (
+            "if you choose to, this sets",
+            format!("A repair only sets files aside, so once they are, {game} is missing"),
+        ),
+    };
+    let aside = match (r.several, r.freed) {
+        // A release of one disc whose CHD is gone is released only for the files laid out beside it, and by default.
+        (false, Freed::Gone) => {
+            "This sets the files laid out beside it aside in your source set's kept files, where you can delete \
+             them once you no longer need them"
+                .to_owned()
+        }
+        (false, _) => format!(
+            "A repair can't fix a CHD in place, so {this} it aside in your source set's kept files, where you can \
+             delete it once you no longer need it"
+        ),
+        (true, _) => format!(
+            "A repair can't fix a CHD in place, and a game's discs are never split, so {this} every disc of \
              {release} aside in your source set's kept files, each CHD as it is, with the files laid out beside them, \
              where you can delete them once you no longer need them"
         ),
@@ -795,9 +813,8 @@ fn released_note(game: &str, r: &Released) -> String {
         _ => "",
     };
     format!(
-        "{found} {aside}. This repair only sets files aside, so {game} is then missing: with a good copy of it in an \
-         ingest folder, the next repair after the audit this one queues rebuilds it in your source set, and the next \
-         build places it again.{rescan}"
+        "{found} {aside}. {then}: with a good copy of it in an ingest folder, the next repair after the audit this one \
+         queues rebuilds it in your source set, and the next build places it again.{rescan}"
     )
 }
 
@@ -1899,7 +1916,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     chd,
                     RepairKind::KeepAside,
                     match r.freed {
-                        Freed::Gone => format!("forget {chd}, which is gone; nothing is kept"),
+                        Freed::Gone if r.beside.is_empty() => {
+                            format!("forget {chd}, which is gone; nothing is kept")
+                        }
+                        Freed::Gone => format!(
+                            "forget {chd}, which is gone, and keep the files laid out beside it aside in your \
+                             source set's kept files"
+                        ),
                         _ => format!("keep {chd} aside in your source set's kept files"),
                     },
                 ),
@@ -1961,6 +1984,19 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .collect();
     for n in left {
         leave_release(&mut proposed, n);
+    }
+    // Choosing to set one disc of a placed release aside sets every disc of it aside, as it is never split.
+    let chosen_aside: BTreeSet<String> = proposed
+        .iter()
+        .filter(|p| p.item.chosen != RepairChoice::Leave && i.choices.contains_key(&p.item.key))
+        .filter_map(|p| p.release.as_ref().map(|r| r.release.clone()))
+        .collect();
+    for p in proposed.iter_mut().filter(|p| {
+        p.release
+            .as_ref()
+            .is_some_and(|r| chosen_aside.contains(&r.release))
+    }) {
+        p.item.chosen = RepairChoice::KeepAside;
     }
 
     // An item that would keep aside the last copy of a ROM no repair writes is left, as is, in turn, any item that

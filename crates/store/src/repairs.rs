@@ -478,6 +478,14 @@ fn short_of(free: Result<u64>, needs: u64) -> Option<String> {
     }
 }
 
+/// The space a plan that releases placed CHDs needs in `root`, to set them aside there.
+fn space_to_release(needs: u64, root: &str) -> String {
+    format!(
+        "setting aside the placed CHDs this plan takes out of your play library needs up to {} free in root {root}",
+        bytes(needs)
+    )
+}
+
 fn io_err(e: io::Error) -> Error {
     Error::Io(e.to_string())
 }
@@ -1054,10 +1062,8 @@ impl Store {
         let needs = self.release_needs(config, &planned, &dir, generation + 1)?;
         if let Some(needs) = needs {
             planned.notes.push(format!(
-                "setting aside the placed CHDs this plan takes out of your play library needs up to {} free in root \
-                 {}, and the plan can't be approved without it",
-                bytes(needs),
-                record.root
+                "{}, and the plan can't be approved without it",
+                space_to_release(needs, &record.root)
             ));
         }
         let content = RepairPlanContent {
@@ -1308,10 +1314,9 @@ impl Store {
         content.needs.iter().find_map(|(root, needs)| {
             let short = short_of(self.free_space(config, &content.root, &content.path), *needs)?;
             Some(format!(
-                "setting aside the placed CHDs this plan takes out of your play library needs up to {} free in root \
-                 {root}, and {short}; nothing was changed. Free some space there, or leave them placed, then plan the \
+                "{}, and {short}; nothing was changed. Free some space there, or leave them placed, then plan the \
                  repair again",
-                bytes(*needs)
+                space_to_release(*needs, root)
             ))
         })
     }
