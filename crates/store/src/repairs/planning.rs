@@ -2571,7 +2571,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         nodump_left.push(n);
     }
 
-    // The choices you made in place of the defaults; those for files holding nothing are checked below.
+    // The choices the Operator made in place of the defaults; those for files holding nothing are checked below.
     for (key, choice) in i.choices {
         let Some(found) = proposed.iter_mut().find(|p| p.item.key == *key) else {
             if key.starts_with("file:") {
@@ -2850,34 +2850,30 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
             })
             .collect();
-        // One file at a time, as leaving it may leave a copy that another one need not keep.
-        match last
+        // One file at a time, as a file left keeps its copies, so another may no longer hold the last of one.
+        if let Some((n, lost)) = last
             .iter()
             .find(|(n, _)| !i.choices.contains_key(&proposed[*n].item.key))
         {
-            Some((n, lost)) => {
-                let item = &mut proposed[*n].item;
-                item.default = RepairChoice::Leave;
-                item.chosen = RepairChoice::Leave;
-                item.note = Some(format!(
-                    "left as it is: it holds the last copy in the source set of {}; if you choose to keep it aside, \
-                     you can restore it from the kept files",
-                    lost.join(", ")
-                ));
-            }
-            None => {
-                for (n, lost) in last {
-                    let item = &mut proposed[n].item;
-                    item.default = RepairChoice::Leave;
-                    item.note = Some(format!(
-                        "this keeps aside the last copy in the source set of {}; you can restore it from the kept \
-                         files",
-                        lost.join(", ")
-                    ));
-                }
-                break;
-            }
+            let item = &mut proposed[*n].item;
+            item.default = RepairChoice::Leave;
+            item.chosen = RepairChoice::Leave;
+            item.note = Some(format!(
+                "left as it is: it holds the last copy in the source set of {}; if you choose to keep it aside, you \
+                 can restore it from the kept files",
+                lost.join(", ")
+            ));
+            continue;
         }
+        for (n, lost) in last {
+            let item = &mut proposed[n].item;
+            item.default = RepairChoice::Leave;
+            item.note = Some(format!(
+                "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
+                lost.join(", ")
+            ));
+        }
+        break;
     }
 
     if stays_zip > 0 {
