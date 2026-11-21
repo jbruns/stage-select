@@ -384,8 +384,8 @@ pub struct Game {
     /// Its ROMs whose checksums are of a dump known to be bad (`baddump`), in DAT order. They count as any other ROM.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bad_dumps: Vec<String>,
-    /// Its optional ROMs, in DAT order. One counts when present; one absent is among its missing ROMs, but keeps it
-    /// from no Game Status (ADR 0025).
+    /// Its optional ROMs, in DAT order. One counts when present; one absent is among its missing ROMs, but never lowers
+    /// its Game Status (ADR 0025).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub optional_roms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -481,6 +481,9 @@ mod tests {
             status: GameStatus::Complete,
             missing_roms: vec![],
             claimed_roms: vec![],
+            not_dumped: vec![],
+            bad_dumps: vec![],
+            optional_roms: vec![],
             warnings: vec![],
             available_elsewhere: vec![],
             dependencies,

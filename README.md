@@ -178,8 +178,9 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   to its BIOS, because merged and split sets keep a family's shared files there. In its own and its ancestors' ZIPs
   and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
   MAME looks for it: a clone's ROM that its parent lists under another name counts from the parent's ZIP. Such an
-  entry's `roms` still names only the ROMs its finding gives. A nodump ROM matches no file there either, and an entry
-  under a nodump ROM's name, as `named_rom` would give it, never counts by its checksums for another ROM.
+  entry's `roms` still names only the ROMs its finding gives. A nodump ROM matches no file there either. An entry under
+  the name of a nodump ROM of the game whose ZIP or folder holds it, or of a game in its family, ranked as for
+  `named_rom`, never counts by its checksums for another ROM.
 - `dependencies` lists the BIOSes and devices a game reaches through `romof` and `device_ref`, transitively, in DAT
   order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is
   satisfied. A dependency's status never changes the game's: a machine whose own files are all present is `complete`
@@ -191,6 +192,8 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   ROM it holds.
 - Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
   named for a nodump ROM. A game whose only absent ROMs are optional or have no good dump known is now `complete`.
+  An audit stored before this keeps the statuses it found, and lists none of these, until you audit the source set
+  again.
 - Schema 7 counts a game's ancestors' ZIPs and folders as its own, its BIOS's included, and adds `dependencies`. An
   audit stored before this keeps the statuses it found, and has no `dependencies`, until you audit the source set
   again.

@@ -370,7 +370,10 @@ fn a_nodump_rom_whose_name_is_in_its_parents_zip_never_matches() {
     assert_eq!(pal.finding, title_select_engine::Finding::Mismatched);
     assert!(pal.roms.is_empty());
     let named = pal.named_rom.as_ref().unwrap();
-    assert_eq!((named.game.as_str(), named.name.as_str()), ("blasterj", "pal.u1"));
+    assert_eq!(
+        (named.game.as_str(), named.name.as_str()),
+        ("blasterj", "pal.u1")
+    );
     assert_eq!(pal.reason.as_deref(), Some("no good dump known"));
     let clone = game(&report, "blasterj");
     assert_eq!(clone.status, GameStatus::Complete);
@@ -469,7 +472,8 @@ fn a_clone_whose_only_absent_roms_are_optional_or_nodump_is_complete_from_its_pa
 }
 
 #[test]
-fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_another_descendants() {
+fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_another_descendants()
+ {
     // `blaster.zip` holds `x.u9`, whose bytes match nothing. `blasterb` is on `blaster` by `romof` alone, so
     // `blaster` is its ancestor but not its parent. `rival`, outside the family, lists `x.u9` first of all, and
     // `blasterb` before the others, so DAT order alone would name neither of the nearer ones.
@@ -516,9 +520,37 @@ fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_
         let report = audit(&dat, f.set.path()).unwrap();
 
         let e = entry(&report, "x.u9");
-        assert_eq!(e.finding, title_select_engine::Finding::Mismatched, "case {i}");
+        assert_eq!(
+            e.finding,
+            title_select_engine::Finding::Mismatched,
+            "case {i}"
+        );
         let named = e.named_rom.as_ref().unwrap();
         assert_eq!(named.game, named_game, "case {i}");
         assert_eq!(e.reason.as_deref(), reason, "case {i}");
     }
+}
+
+#[test]
+fn in_a_games_own_zip_a_misnamed_entry_counts_for_a_needed_rom_before_an_optional_one() {
+    let f = Fixture::new();
+    // The optional ROM is listed first, with the needed one's checksums.
+    let dat = write_machines(
+        &f,
+        &[(
+            "blaster",
+            "",
+            vec![
+                rom_with(rom("alt.u2", b"program"), r#"optional="yes""#),
+                rom_xml(&rom("prog.u3", b"program")),
+            ],
+        )],
+    );
+    write_zip(&f.set_path("blaster.zip"), &[("copy.bin", b"program")]);
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let blaster = game(&report, "blaster");
+    assert_eq!(blaster.status, GameStatus::Complete);
+    assert_eq!(blaster.missing_roms, ["alt.u2"]);
 }
