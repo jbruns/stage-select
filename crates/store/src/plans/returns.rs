@@ -45,12 +45,14 @@ struct Found<'a> {
 }
 
 /// The releases placed in the folder that go back to their Source Set's folder, with the paths in the folder of the
-/// placed files they take; and says in `notes` why any that should go back stays.
+/// placed files they take; and says in `notes` why any that should go back stays. A release `held` back stays whole,
+/// placed files and all: its return waits on the hold.
 pub(super) fn returns(
     config: &Config,
     inputs: &Inputs,
     folder: Option<&Folder>,
     dat: Option<&Dat>,
+    held: &BTreeMap<String, String>,
     notes: &mut Vec<String>,
 ) -> (Vec<PlanReturn>, HashSet<String>) {
     let mut out = Vec::new();
@@ -113,6 +115,12 @@ pub(super) fn returns(
         let Some(why) = why else {
             continue;
         };
+        if let Some(hold) = held.get(release) {
+            stays.push(format!(
+                "{release} stays placed here: {why}, but its return waits while {release} is left as it is, as {hold}"
+            ));
+            continue;
+        }
         if !writable {
             stays.push(format!(
                 "{release} stays placed here: root {} doesn't let Title Select write to source set {set}'s folder",

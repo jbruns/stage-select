@@ -929,6 +929,114 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
     );
 }
 
+/// Places Duo's discs in the folder under single copy, the source set's folder writable; then imports revision 2,
+/// which lists no ROMs for Disc 1 and drops Disc 2, and audits. Returns the store, the folder and the files placed.
+fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<String>) {
+    let mut env = Env::with(StorageFormat::LooseFolder, duo);
+    env.config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+        env.tmp.path().join("roots/sets").display().to_string(),
+        env.tmp.path().join("roots/play").display().to_string(),
+    ))
+    .unwrap();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.single_copy = true;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let folder = env.folder();
+    let plan = env.built(&folder, env.selection(&DUO));
+    assert!(
+        plan.content.items.iter().any(|i| i.kind == ItemKind::Place),
+        "{:?}",
+        plan.content.items
+    );
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+    let before = env.files();
+    let mut games: Vec<(&str, Vec<RomSpec>)> = games();
+    games.push((DUO[0], Vec::new()));
+    let dat = write_dat_from(
+        &env.tmp.path().join("in"),
+        "test-2.dat",
+        "2",
+        "Redump",
+        &games,
+    );
+    env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&env.sha256),
+            title_select_engine::AuditEvidence::Full,
+        )
+        .unwrap();
+    (env, folder, before)
+}
+
+/// A held release holds its placed files too: Disc 2, no longer selected, waits on the hold rather than going home,
+/// which would leave the release's `.m3u` naming a file no longer there.
+#[test]
+fn a_placed_disc_no_longer_selected_stays_with_its_held_release() {
+    let (env, folder, before) = duo_placed_then_disc_1_romless_and_disc_2_gone();
+    let plan = env.plan(&folder, env.selection(&DUO[..1]));
+
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Duo (USA) is left as it is")),
+        "{:?}",
+        plan.content.notes
+    );
+    assert!(
+        plan.content.returns.is_empty(),
+        "{:?}",
+        plan.content.returns
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("left as it is")),
+        "{:?}",
+        plan.content.notes
+    );
+    env.build(&plan);
+    assert_eq!(env.files(), before);
+    assert_eq!(
+        read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
+        "Duo (USA) (Disc 1).iso\nDuo (USA) (Disc 2).iso\n"
+    );
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+    assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
+}
+
+/// With single copy off, a held release's placed discs stay placed too: none goes home, nor is kept here as a copy.
+#[test]
+fn a_held_release_stays_placed_when_single_copy_is_turned_off() {
+    let (env, folder, before) = duo_placed_then_disc_1_romless_and_disc_2_gone();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.single_copy = false;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let plan = env.plan(&folder, env.selection(&DUO[..1]));
+
+    assert!(
+        plan.content.returns.is_empty(),
+        "{:?}",
+        plan.content.returns
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Duo (USA) stays placed here") && n.contains("its return waits")),
+        "{:?}",
+        plan.content.notes
+    );
+    env.build(&plan);
+    assert_eq!(env.files(), before);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+}
+
 #[test]
 fn a_disc_left_in_place_with_its_sbi_file_holds_none_of_its_release_back() {
     let mut env = Env::new(StorageFormat::LooseFolder);

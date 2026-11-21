@@ -1232,12 +1232,22 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         );
     }
     let (returns, returned) = match (&folder, dat, usable_audit) {
-        (Some(_), _, _) if inputs.choices.remove_all => {
-            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
-        }
-        (Some(_), Some(_), Some(_)) => {
-            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
-        }
+        (Some(_), _, _) if inputs.choices.remove_all => returns::returns(
+            config,
+            inputs,
+            folder.as_ref(),
+            dat,
+            &nothing.held,
+            &mut placing,
+        ),
+        (Some(_), Some(_), Some(_)) => returns::returns(
+            config,
+            inputs,
+            folder.as_ref(),
+            dat,
+            &nothing.held,
+            &mut placing,
+        ),
         _ => Default::default(),
     };
     let removals = match (&folder, dat, usable_audit) {
