@@ -27,6 +27,10 @@ pub const CUE_MAX: u64 = 1 << 20;
 /// What `chdman verify` says once a CHD's data and checksummed metadata hash to its header's combined SHA-1.
 pub const VERIFIED: &str = "Overall SHA1 verification successful!";
 
+/// What `chdman verify` says, exiting 0, of a CHD it read but didn't verify: that a SHA-1 its header records isn't
+/// its data's, or that it is uncompressed, which it doesn't verify.
+const REFUTED: [&str; 2] = ["SHA1 in header", "No verification to be done"];
+
 /// The bytes of chdman's output kept for an error.
 const LOG_TAIL: u64 = 2048;
 
@@ -1003,7 +1007,8 @@ impl Chdman {
     /// folder its log is written in: chdman decompresses every hunk and hashes them with the checksummed metadata.
     /// It succeeds only when chdman exits 0 and says [`VERIFIED`], since it exits 0 too when a SHA-1 doesn't match,
     /// and for an uncompressed CHD, which it doesn't verify. chdman is never given `-f`, which rewrites the header,
-    /// so the CHD is only read. Only an exit 0, or an exit chdman chose saying the CHD is damaged, is a verdict on it.
+    /// so the CHD is only read. Only an exit 0 saying [`VERIFIED`] or one of [`REFUTED`], or an exit chdman chose
+    /// saying the CHD is damaged, is a verdict on it: a program that exits 0 saying neither read nothing of it.
     pub fn verify_in_place(
         &self,
         dir: &Path,
@@ -1017,11 +1022,16 @@ impl Chdman {
             Err(stop) => return Err(Unverified::Unchecked(stop.why())),
         }
         let said = tail(&dir.join("chdman.log"));
-        match said.contains(VERIFIED) {
-            true => Ok(()),
-            false => Err(Unverified::Refuted(format!(
+        if said.contains(VERIFIED) {
+            Ok(())
+        } else if REFUTED.iter().any(|r| said.contains(r)) {
+            Err(Unverified::Refuted(format!(
                 "chdman verify didn't confirm its SHA-1: {said}"
-            ))),
+            )))
+        } else {
+            Err(Unverified::Unchecked(format!(
+                "chdman verify ended without saying whether its SHA-1 matched: {said}"
+            )))
         }
     }
 }

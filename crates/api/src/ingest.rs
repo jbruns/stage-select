@@ -182,8 +182,8 @@ pub struct ItemMatch {
     /// The ROMs matched, by name, each with the member that matched it, if a ZIP member did.
     pub roms: Vec<MatchedRom>,
     /// Whether every ROM the Game needs is among the payloads: an optional or nodump ROM isn't needed (ADR 0025). A
-    /// Disk is a CHD of its own (ADR 0026): a ZIP or loose file is complete with every other ROM, and a CHD when the
-    /// Game needs no Disk but it.
+    /// Disk is a CHD of its own (ADR 0026): a ZIP or loose file is complete with every ROM but the Game's Disks, and a
+    /// CHD when it is the only Disk the Game needs.
     pub complete: bool,
     /// Whether the item holds payloads that are not the Game's ROMs.
     pub extra: bool,

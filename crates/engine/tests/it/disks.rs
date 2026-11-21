@@ -412,7 +412,8 @@ fn a_chdman_verify_that_exits_0_without_its_success_line_is_no_payload_evidence(
 }
 
 #[test]
-fn only_chdmans_verdict_on_a_chd_refutes_it_never_a_chdman_that_is_missing_or_crashes() {
+fn only_chdmans_verdict_on_a_chd_refutes_it_never_a_chdman_that_is_missing_crashes_or_says_nothing()
+{
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("blaster.chd");
     write_file(&path, &synthetic_chd(5, &sha(1), None));
@@ -424,7 +425,11 @@ fn only_chdmans_verdict_on_a_chd_refutes_it_never_a_chdman_that_is_missing_or_cr
         verify(&fake("unconfirmed")),
         Err(Unverified::Refuted(why)) if why.contains("didn't confirm its SHA-1")
     ));
-    for program in [fake("crashes"), tmp.path().join("no-chdman")] {
+    for program in [
+        fake("crashes"),
+        fake("silent"),
+        tmp.path().join("no-chdman"),
+    ] {
         assert!(
             matches!(verify(&program), Err(Unverified::Unchecked(_))),
             "{program:?}"

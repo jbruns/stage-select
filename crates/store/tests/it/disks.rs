@@ -109,7 +109,7 @@ impl Env {
         Env { tmp, store, config }
     }
 
-    /// Finds chdman at `chdman` from now on, as when you correct its path in your configuration.
+    /// Finds chdman at `chdman` from now on, as when the Operator corrects its path in the configuration.
     fn use_chdman(&mut self, chdman: &Path) {
         self.config = config(self.tmp.path(), chdman);
     }
@@ -556,7 +556,7 @@ fn a_games_zip_of_its_roms_and_a_folder_of_its_disk_fill_it_together() {
         chdman,
         &[("blaster", "", format!("{rom}\n{}", disk("blaster", &sha1)))],
     );
-    // The ZIP holds every ROM the game needs; its Disk is no ROM a ZIP holds, but a CHD of its own.
+    // The ZIP holds every ROM the Game needs but its Disk, which is a CHD of its own.
     write_zip(
         &env.ingest_dir().join("blaster.zip"),
         &[("prog.u1", b"program")],

@@ -253,7 +253,7 @@ enum DiskRead {
     Delta { parent: String },
     /// It can match no Disk, and why: a CHD older than version 5, or no CHD.
     NoDisk { why: String },
-    /// chdman's verdict is that it isn't verified, and why.
+    /// chdman's verdict is that it isn't Verified, and why.
     Unverified { why: String },
     /// Nothing was learnt of it, as chdman couldn't run, and why: it is read again at the next scan, never kept.
     Unchecked { why: String },
