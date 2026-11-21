@@ -884,8 +884,7 @@ fn disk_fills<'p>(
         if !missing.contains(&(game.as_str(), rom.name.as_str())) || !(i.covers)(game) {
             continue;
         }
-        let (family, name) = i.dat.disk_home(rom);
-        let target = format!("{family}/{name}");
+        let target = i.dat.disk_home(rom);
         if !targets.contains_key(&target) {
             order.push(target.clone());
         }

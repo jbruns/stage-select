@@ -1,7 +1,7 @@
 //! Disks (ADR 0026): a ListXML machine's `<disk>`, kept as a CHD in its family's folder, `<parent>/<disk>.chd`, and
-//! matched by the combined SHA-1 its header records. A quick inventory claims it from the header, a full Audit proves it
-//! with `chdman verify`, and an incremental one reuses that while the file is unchanged. A delta CHD is Unreadable, and
-//! an older CHD Unmatched.
+//! matched by the combined SHA-1 its header records. A quick inventory claims it from the header, a full Audit proves
+//! it with `chdman verify`, and an incremental one reuses that while the file is unchanged. A delta CHD is Unreadable,
+//! and an older CHD Unmatched.
 //!
 //! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
 //! missing they are skipped, except in CI, where they fail.

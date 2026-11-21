@@ -1,7 +1,7 @@
 //! A MAME Source Set's Disks (ADR 0026): CHDs in their family's folder, `<parent>/<disk>.chd`. An Audit proves one with
-//! `chdman verify` and an incremental one reuses that; an Ingest Folder's folder named for a Game, holding only CHDs, is
-//! assessed CHD by CHD, each verified before a repair files it into its family's folder; and a repair never sets a Disk
-//! aside, nor writes one into a ZIP.
+//! `chdman verify` and an incremental one reuses that; an Ingest Folder's folder named for a Game, holding only CHDs,
+//! is assessed CHD by CHD, each verified before a repair files it into its family's folder; and a repair never sets a
+//! Disk aside, nor writes one into a ZIP.
 //!
 //! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
 //! missing they are skipped, except in CI, where they fail.
@@ -34,8 +34,8 @@ fn chdman() -> Option<PathBuf> {
     }
 }
 
-/// Makes a CHD of 64 KiB of noise from `seed` at `path` with chdman, with `extra` arguments, such as a parent to make it
-/// a delta CHD against; returns its combined SHA-1.
+/// Makes a CHD of 64 KiB of noise from `seed` at `path` with chdman, with `extra` arguments, such as a parent to make
+/// it a delta CHD against; returns its combined SHA-1.
 fn make_chd(chdman: &Path, path: &Path, seed: u64, extra: &[&std::ffi::OsStr]) -> String {
     let dir = path.parent().unwrap();
     std::fs::create_dir_all(dir).unwrap();
@@ -411,6 +411,8 @@ fn a_chd_in_an_ingest_folder_that_doesnt_verify_or_is_a_delta_stays_put_with_why
     .unwrap();
     std::fs::copy(scratch.path().join("raw.chd"), incoming.join("raw.chd")).unwrap();
     write_file(&env.ingest_dir().join("blasterj/readme.txt"), b"notes");
+    // A hidden file beside the CHDs is passed over: the folder is still a folder of disks.
+    write_file(&incoming.join(".DS_Store"), b"finder");
     env.audit(AuditEvidence::Full);
 
     env.scan();

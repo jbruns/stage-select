@@ -945,9 +945,10 @@ impl Dat {
         self.by_disk_sha1.get(sha1).map_or(&[], Vec::as_slice)
     }
 
-    /// Where a merged CHD set keeps the Disk `disk`'s CHD, as `(<folder>, <file>)`: under the name the furthest of its
+    /// Where a merged CHD set keeps the Disk `disk`'s CHD, `<folder>/<file>`: under the name the furthest of its
     /// Game's ancestors that lists it gives it, its parent or BIOS (ADR 0025), in the folder of that one's family.
-    pub fn disk_home<'d>(&'d self, disk: &'d Rom) -> (&'d str, &'d str) {
+    pub fn disk_home(&self, disk: &Rom) -> String {
+        // A Disk without a SHA-1, a nodump one, is listed by no ancestor: it is its own Game's.
         let sha1 = disk.sha1.as_deref().unwrap_or_default();
         let (holder, name) = self
             .ancestors(disk.game)
@@ -964,7 +965,7 @@ impl Dat {
         let family = self.cloneof[holder]
             .as_deref()
             .unwrap_or(&self.games[holder]);
-        (family, name)
+        format!("{family}/{name}")
     }
 
     /// Whether Game `game` lists a Disk named `name`.

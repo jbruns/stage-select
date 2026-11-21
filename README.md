@@ -193,9 +193,9 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   chdman, a full audit can't prove a disk, and the CHD is unreadable. A CHD whose data doesn't give back its SHA-1, or
   an uncompressed CHD, which holds no SHA-1 of its data to verify, is unreadable with what chdman said. So is a delta
   CHD, which can't be read without its parent CHD: its `reason` names that parent's disk, and you replace it with a
-  self-contained CHD. A CHD of a version before 5 is unmatched, with no evidence and a `reason`: update it with `chdman
-  copy` and audit again. A disk the DAT marks `nodump` is never matched. A `.chd` beside a DAT that lists no disks is
-  read as any other file.
+  self-contained CHD. A CHD of a version before 5 is unmatched, with no evidence and a `reason`: update it with
+  `chdman copy` and audit again. A disk the DAT marks `nodump` is never matched. A `.chd` beside a DAT that lists no
+  disks is read as any other file.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
@@ -1525,9 +1525,9 @@ Each item is one of:
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 A folder named for a MAME game that holds nothing but CHDs is a folder of disks: each CHD in it is an item of its own,
-read as a disk of that game, of its parent or BIOS, or of a game it is the parent or BIOS of, and verified with `chdman
-verify` when it is assessed. A CHD chdman can't verify is unreadable, with what chdman said. A folder named for a MAME
-game that holds anything else is unsupported, and says which file in it isn't a CHD.
+read as a disk of that game, of its parent or BIOS, or of a game it is the parent or BIOS of, and verified with
+`chdman verify` when it is assessed. A CHD chdman can't verify is unreadable, with what chdman said. A folder named for
+a MAME game that holds anything else is unsupported, and says which file in it isn't a CHD.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
 plan, whatever state it shows; an unsupported or dismissed item can still be discarded unread once settled, and
