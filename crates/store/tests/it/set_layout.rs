@@ -1257,9 +1257,9 @@ fn a_repair_of_the_source_sets_folder_never_touches_a_placed_clone_it_shares_wit
 }
 
 /// Neither the plan as it is by default nor one with every item chosen to be applied or kept aside has an item of the
-/// Source Set's folder that reads, writes, renames or keeps aside a placed file. Applied as it is by default, the plan
-/// leaves every placed file as it is and no Game missing a ROM it had: no placed copy stood in for the last one in the
-/// Source Set's folder.
+/// Source Set's folder that reads, writes, renames or keeps aside a placed file. When it applies anything by default,
+/// applying it leaves every placed file as it is and no Game missing a ROM it had: no placed copy stood in for the last
+/// one in the Source Set's folder.
 fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
     let before = env.audit();
     let plan = env.plan();

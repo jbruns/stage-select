@@ -60,10 +60,11 @@ pub(super) struct Inputs<'a> {
 /// its top), for a Placed Game; none for the Source Set's own folder.
 pub(super) type Located = Option<(i64, String)>;
 
-/// Which side of the boundary between the Source Set's own folder and its Placements (ADR 0023) a file or a Game is
-/// on. A repair of the Source Set's folder reads, counts and keeps aside only the files there: a Placed Game's files are
-/// a Library Folder's self-contained Game, touched only by a repair of that Game where it is placed, or by the release
-/// of its placed CHDs, and they never hold a surviving copy of a ROM for the Source Set's folder.
+/// Where a file or a Game is, for a repair: the Source Set's own folder, or one of its Placements (ADR 0023). A repair of
+/// the Source Set's folder reads, counts and keeps aside only the files there: a Placed Game's files are a Library
+/// Folder's self-contained Game, touched only by a repair of that Game where it is placed, or by the release of its
+/// placed CHDs, and they never hold a surviving copy of a ROM for the Source Set's folder. A Library Folder file of no
+/// Placed Game is in neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Scope<'a> {
     /// The Source Set's own folder.
@@ -71,7 +72,7 @@ enum Scope<'a> {
     /// Where the Placed Game it names is placed.
     Placed(&'a str),
     /// A Library Folder file the Audit named that is no Placed Game's file now, such as one of a Game returned home
-    /// since: nothing a repair plans reads, counts or keeps it aside.
+    /// since: no item a repair plans reads it, counts it as a copy or keeps it aside.
     Elsewhere,
 }
 
@@ -85,9 +86,9 @@ impl Scope<'_> {
     }
 
     /// Whether a copy of a ROM in this scope survives for a file in scope `of`: one of its own scope, or of the Source
-    /// Set's folder, which every Placed Game returns home to.
-    fn keeps_for(self, of: Scope) -> bool {
-        self == of || self == Scope::Source
+    /// Set's folder, which every Placed Game returns home to; never one of a Library Folder file of no Placed Game.
+    fn survives_for(self, of: Scope) -> bool {
+        self != Scope::Elsewhere && (self == of || self == Scope::Source)
     }
 }
 
@@ -403,7 +404,7 @@ impl<'a> Preserved<'a> {
     }
 
     /// The ROMs the file at `path` holds that would have no copy left in its scope once it is kept aside
-    /// ([`Scope::keeps_for`]): no file there that stays holds one, and no applied item writes its payload there, as a
+    /// ([`Scope::survives_for`]): no file there that stays holds one, and no applied item writes its payload there, as a
     /// ROM of whichever Game, that the DAT pins at least as closely as it.
     fn lost(&self, path: &str, file: &Usable) -> BTreeSet<RomKey> {
         let scope = self.scopes.file(path);
@@ -412,7 +413,7 @@ impl<'a> Preserved<'a> {
             for rom in &roms {
                 let held = self.held_by.get(rom).is_some_and(|by| {
                     by.iter().any(|p| {
-                        !self.displaced.contains(p) && self.scopes.file(p).keeps_for(scope)
+                        !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
                     })
                 });
                 let pinned = |w: &RomKey| {
@@ -423,7 +424,7 @@ impl<'a> Preserved<'a> {
                     pinned(w)
                         && self.layout_index.root(&w.0, &w.1).is_some_and(|r| {
                             (self.produced.iter())
-                                .any(|(at, roots)| at.keeps_for(scope) && roots.contains(&r))
+                                .any(|(at, roots)| at.survives_for(scope) && roots.contains(&r))
                         })
                 });
                 if !held && !written {
@@ -1259,9 +1260,10 @@ fn disk_fills<'p>(
 
 /// The ROMs each Game's ZIP or folder holds once repaired, by the Game's index, as the Set Layout lays them out (ADR
 /// 0026), and each one's index in the DAT: each it needs, and each other one (ADR 0025) that a file holds where a copy
-/// survives for the Game's scope ([`Scope::keeps_for`]), or an Ingest Folder item or a cue pack holds. One it doesn't need that none holds never keeps the Game from being
-/// repaired. A Game the layout gives no container of its own, a merged clone, has none. A Disk is never one: it stays a
-/// CHD of its own in its family's folder (ADR 0026), filled there by [`disk_fills`].
+/// survives for the Game's scope ([`Scope::survives_for`]), or an Ingest Folder item or a cue pack holds. One it
+/// doesn't need that none holds never keeps the Game from being repaired. A Game the layout gives no container of its
+/// own, a merged clone, has none. A Disk is never one: it stays a CHD of its own in its family's folder (ADR 0026),
+/// filled there by [`disk_fills`].
 fn wanted_roms(
     i: &Inputs,
     layout_index: &LayoutIndex,
@@ -1271,7 +1273,7 @@ fn wanted_roms(
     let mut wanted = vec![Vec::new(); i.dat.games.len()];
     let mut owners = vec![Vec::new(); i.dat.games.len()];
     for (index, laid) in layout_index.laid.roms.iter().enumerate() {
-        // A file holds a ROM for this Game only where a copy there survives for its scope ([`Scope::keeps_for`]).
+        // A file holds a ROM for this Game only where a copy there survives for its scope ([`Scope::survives_for`]).
         let scope = scopes.game(&i.dat.games[index]);
         for &r in laid.iter().flatten().filter(|&&r| !i.dat.roms[r].disk) {
             let rom = &i.dat.roms[r];
@@ -1279,7 +1281,7 @@ fn wanted_roms(
             let game = &i.dat.games[rom.game];
             let held = || {
                 (held_by.get(&(game.clone(), rom.name.clone())))
-                    .is_some_and(|by| by.iter().any(|p| scopes.file(p).keeps_for(scope)))
+                    .is_some_and(|by| by.iter().any(|p| scopes.file(p).survives_for(scope)))
                     || i.candidates.iter().any(|c| {
                         c.matched.game == *game && c.matched.roms.iter().any(|m| m.rom == rom.name)
                     })
