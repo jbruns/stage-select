@@ -1816,15 +1816,29 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 .all(|path| healthy.contains(path.as_str()))
         })
         .collect();
+    // The releases not released here one of whose CHDs is recorded placed and is there, each with one such CHD: no
+    // Game of one is filled, rebuilt or written in the Source Set's folder, whatever the Audit read, since that would
+    // split it. The next repair after a full audit releases it, or leaves it placed.
+    let mut placed_releases: BTreeMap<String, &str> = BTreeMap::new();
+    for path in i
+        .placed_chds
+        .iter()
+        .filter(|path| i.files.contains_key(*path))
+    {
+        if let Some(game) = i.placed_files.get(path)
+            && !released.contains_key(&release_of(game))
+        {
+            let chd = placed_releases.entry(release_of(game)).or_insert(path);
+            *chd = (*chd).min(path.as_str());
+        }
+    }
     let touches_chd: Vec<usize> = proposed
         .iter()
         .enumerate()
         .filter(|(_, p)| {
-            p.item
-                .game
-                .as_deref()
-                .is_some_and(|g| chd_games.contains(g))
-                || p.item.path.as_deref().is_some_and(|t| present.contains(t))
+            p.item.game.as_deref().is_some_and(|g| {
+                chd_games.contains(g) || placed_releases.contains_key(&release_of(g))
+            }) || p.item.path.as_deref().is_some_and(|t| present.contains(t))
                 || p.displaces
                     .iter()
                     .any(|(d, _)| present.contains(d.as_str()))
@@ -1847,15 +1861,31 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .chain(p.displaces.iter().map(|(d, _)| d.as_str()))
                     .find_map(|t| i.placed_files.get(t).map(String::as_str))
             });
-        let why = match game.is_some_and(|g| healthy_games.contains(g)) {
-            true => PLACED_CHD,
-            false => PLACED_CHD_UNVERIFIED,
+        // A Game none of whose CHDs the Audit found, of a release one of whose CHDs is still placed.
+        let sibling = p
+            .item
+            .game
+            .clone()
+            .filter(|_| game.is_none())
+            .and_then(|g| Some((placed_releases.get(&release_of(&g)).copied()?, g)));
+        let note = match sibling {
+            Some((chd, game)) => format!(
+                "left as it is: {chd}, a disc of {}, is still placed as a CHD in a play library folder, and a \
+                 game's discs are never split, so {game} isn't rebuilt in your source set while it is. Run a full \
+                 audit: if a placed CHD of the game doesn't verify or is gone, the next repair sets the game's CHDs \
+                 aside in your source set's kept files, and the repair after the audit rebuilds the game",
+                release_of(&game)
+            ),
+            None => match game.is_some_and(|g| healthy_games.contains(g)) {
+                true => format!("left as it is: {PLACED_CHD}"),
+                false => format!("left as it is: {PLACED_CHD_UNVERIFIED}"),
+            },
         };
         let item = &mut proposed[n].item;
         item.choices = vec![RepairChoice::Leave];
         item.default = RepairChoice::Leave;
         item.chosen = RepairChoice::Leave;
-        item.note = Some(format!("left as it is: {why}"));
+        item.note = Some(note);
         leave_release(&mut proposed, n);
     }
 

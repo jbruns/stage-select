@@ -482,6 +482,21 @@ fn io_err(e: io::Error) -> Error {
     Error::Io(e.to_string())
 }
 
+/// Forgets the placed file `rel` of Library Folder `folder`, kept aside from `name` in `parent`, unless anything is
+/// there again, looked for as the Keep is recorded: a file put back since, as while a stop left the Keep unrecorded,
+/// stays placed for the next Audit and Repair, and the kept copy stays kept.
+fn unplace_kept(
+    tx: &Transaction,
+    parent: &FolderDir,
+    name: &str,
+    (folder, rel): (i64, &str),
+) -> Result<()> {
+    match parent.stat(name).map_err(io_err)? {
+        Some(_) => Ok(()),
+        None => crate::placements::forget_placed(tx, folder, rel),
+    }
+}
+
 fn digest(content: &RepairPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
     Sha256::digest(&bytes)
@@ -3239,7 +3254,7 @@ impl Store {
                 .optional()?;
             // A Placed Game's file kept aside is the Source Set's kept file, no longer placed.
             let unplace = |tx: &Transaction| match split_placed(path) {
-                Some((folder, rel)) => crate::placements::forget_placed(tx, folder, rel),
+                Some(placed) => unplace_kept(tx, parent, name, placed),
                 None => Ok(()),
             };
             if let Some((id, rdev, rino, name)) = recorded {
@@ -3422,7 +3437,7 @@ impl Store {
             return Ok(Ok(None));
         }
         let done = self.write(|tx| {
-            crate::placements::forget_placed(tx, folder, rel)?;
+            unplace_kept(tx, parent, name, (folder, rel))?;
             finish(tx, kept_id)?;
             Ok(kept_id)
         })?;
