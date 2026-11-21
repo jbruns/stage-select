@@ -440,7 +440,7 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
         },
     );
 
-    let checked = engine.check(&profile);
+    let checked = engine.check(&profile, &[]);
     let selected = engine.select(&path, &profile, &support::options());
 
     for refused in [checked.map(|_| ()), selected.map(|_| ())] {
@@ -459,7 +459,7 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
         post_filters: vec!["/^(?!Duo)".into()],
         ..Default::default()
     };
-    engine.check(&profile).unwrap();
+    engine.check(&profile, &[]).unwrap();
     let outcome = engine.run(&path, &profile, &support::options()).unwrap();
     assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
 }
@@ -484,7 +484,7 @@ fn a_deeply_nested_or_unbalanced_regular_expression_is_refused_rather_than_crash
             post_filters: vec![line.to_owned()],
             ..Default::default()
         };
-        let checked = engine.check(&profile);
+        let checked = engine.check(&profile, &[]);
         let selected = engine.select(&path, &profile, &support::options());
         for refused in [checked.map(|_| ()), selected.map(|_| ())] {
             match refused {

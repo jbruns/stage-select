@@ -2013,9 +2013,13 @@ async fn check_profile(
 ) -> ApiResult<Json<ProfileCheck>> {
     let Json(profile) = body?;
     let engine = state.engine()?;
-    let checked = tokio::task::spawn_blocking(move || engine.check(&profile))
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))?;
+    let store = state.store.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        let registered = crate::selections::systems(&store, &engine)?;
+        Ok::<_, ApiError>(engine.check(&profile, &registered))
+    })
+    .await
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
     Ok(Json(ProfileCheck {
         problems: match checked {
             Ok(()) => Vec::new(),
@@ -2102,9 +2106,13 @@ async fn save_profile(
     let (Path(name), Json(save)) = (name?, body?);
     let engine = state.engine()?;
     let profile = save.profile.clone();
-    tokio::task::spawn_blocking(move || engine.check(&profile))
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let registered = crate::selections::systems(&store, &engine)?;
+        engine.check(&profile, &registered).map_err(ApiError::from)
+    })
+    .await
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
     let workers = state.workers();
     let saved = blocking(&state, move |store| {
         store.save_profile(

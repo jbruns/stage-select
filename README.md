@@ -218,8 +218,9 @@ it comes from.
 
 A MAME ListXML is an arcade DAT. Its selection keeps one machine per family, a parent and its clones, and reads your
 `arcade` settings instead of the ones above. Put an `arcade` block at the top level, for every arcade DAT, or in a
-system's settings (`"systems": { "MAME": { "arcade": { … } } }`), where it replaces the top-level block whole. Every
-field is optional, and one you leave out takes the default shown:
+system's settings (`"systems": { "MAME": { "arcade": { … } } }`), where it replaces the top-level block whole. An
+`arcade` block in another system's settings never applies, nor does MAME's while every MAME DAT you registered is a
+Logiqx DAT, so saving refuses it. Every field is optional, and one you leave out takes the default shown:
 
 ```jsonc
 "arcade": {

@@ -18,7 +18,7 @@ use title_select_api::{
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
-use crate::arcade_model::{arcade_systems, use_global_arcade};
+use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcade};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::pending::Pending;
@@ -1215,10 +1215,7 @@ fn SystemSettingsForm(
                 stray_arcade()
                     .then(|| {
                         view! {
-                            <Problem message=format!(
-                                "Only MAME uses arcade settings, so your arcade settings for {0} never apply. Remove them to save.",
-                                s.get_value(),
-                            ) />
+                            <Problem message=stray_arcade_problem(&s.get_value()) />
                             <div class="actions">
                                 <button
                                     type="button"

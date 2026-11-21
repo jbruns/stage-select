@@ -282,8 +282,13 @@ impl Engine {
 
     /// Checks that the engine can read `profile`: every name is known and every override and post filter is
     /// well formed, and so is every `arcade` block. Only `MAME`, the system of every Arcade DAT, may have an `arcade`
-    /// block of its own: another system's would never apply.
-    pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
+    /// block of its own, and only while some DAT `registered` for it is an Arcade DAT or none is registered for it
+    /// (`takes_arcade_settings`): another system's would never apply, nor would one for a Logiqx DAT named MAME.
+    pub fn check(
+        &self,
+        profile: &SelectionProfile,
+        registered: &[title_select_api::SourceSetSystem],
+    ) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
         let mut problems = match patterns::check(profile) {
             Ok(()) => Vec::new(),
@@ -295,13 +300,19 @@ impl Engine {
             let Some(arcade) = &settings.arcade else {
                 continue;
             };
-            match arcade::is_arcade_system(system) {
-                true => blocks.push((system.as_str(), arcade)),
-                false => problems.push(format!(
+            if arcade::takes_arcade_settings(system, registered) {
+                blocks.push((system.as_str(), arcade));
+            } else if arcade::is_arcade_system(system) {
+                problems.push(format!(
+                    "Your {system} settings: your {system} DATs aren't arcade DATs, so arcade settings never apply \
+                     to them. Remove them from {system}."
+                ));
+            } else {
+                problems.push(format!(
                     "Your {system} settings: arcade settings apply only to {}, whose DATs are arcade DATs. Remove \
                      them from {system}.",
                     title_select_api::dat::MAME
-                )),
+                ));
             }
         }
         for (scope, settings) in blocks {

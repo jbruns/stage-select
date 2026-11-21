@@ -2824,6 +2824,58 @@ mod selections {
     }
 
     #[test]
+    fn an_arcade_block_for_mame_is_refused_while_its_only_dat_is_a_logiqx_dat_named_mame() {
+        let env = Env::new();
+        let (_service, client) = ready(&env);
+        let profile = json!({"systems": {"MAME": {"arcade": {"drop_samples": true}}}});
+        let (status, check) = send(client.post("/check"), profile.clone());
+        assert_eq!(status, 200);
+        assert_eq!(
+            check["problems"],
+            json!([]),
+            "no MAME DAT is registered yet"
+        );
+
+        let logiqx = br#"<?xml version="1.0"?>
+<datafile>
+<header>
+<name>MAME</name>
+<version>1</version>
+</header>
+<game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
+        let (status, uploaded) = client.upload("mame.dat", logiqx);
+        assert_eq!(status, 201);
+        std::fs::create_dir_all(env.tmp.path().join("roots/sets/mame")).unwrap();
+        let (status, body) = send(
+            client.post("/source-sets"),
+            json!({"root": "sets", "path": "mame", "dat": uploaded.dat_revision.dat}),
+        );
+        assert_eq!(status, 201, "{body}");
+        let systems: Vec<title_select_api::SourceSetSystem> = client.json("/systems");
+        assert!(
+            systems
+                .iter()
+                .any(|s| s.system.as_deref() == Some("MAME") && !s.arcade),
+            "{systems:?}"
+        );
+
+        let (status, check) = send(client.post("/check"), profile.clone());
+        assert_eq!(status, 200);
+        assert_eq!(
+            check["problems"],
+            json!([
+                "Your MAME settings: your MAME DATs aren't arcade DATs, so arcade settings never apply to them. \
+                 Remove them from MAME."
+            ])
+        );
+        let (status, body) = send(
+            client.post(PROFILE),
+            json!({"profile": profile, "base_version": null}),
+        );
+        assert_eq!(status, 400, "{body}");
+    }
+
+    #[test]
     fn without_clone_lists_selections_are_unavailable_and_audits_still_run() {
         let env = Env::new();
         let service = title_select_server::spawn(Settings {

@@ -31,7 +31,7 @@ use title_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
 pub use support::{SupportFiles, Tier};
 pub use title_select_api::arcade::{
     ArcadeSettings, Category, ElectionStep, Orientation, Range, Variant, is_arcade_system,
-    same_name,
+    same_name, takes_arcade_settings,
 };
 
 use crate::native::UserRegex;

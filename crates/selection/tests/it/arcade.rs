@@ -5,12 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use title_select_api::DatSystem;
 use title_select_api::selection::{
     CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
     SelectionProfile, SystemSettings,
 };
 use title_select_api::support::SupportFileKind;
+use title_select_api::{DatSystem, SourceSetSystem};
 use title_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
 use title_select_selection::{Engine, Outcome};
 
@@ -346,7 +346,7 @@ fn an_invalid_list_pattern_is_refused() {
         .run(&data("arcade.xml"), &profile, &support::options())
         .unwrap_err();
     assert!(error.to_string().contains("/("), "{error}");
-    let checked = engine().check(&profile).unwrap_err().to_string();
+    let checked = engine().check(&profile, &[]).unwrap_err().to_string();
     assert!(
         checked.starts_with("Your global arcade settings: exclude list: /(:"),
         "{checked}"
@@ -420,7 +420,7 @@ fn the_election_runs_your_steps_in_your_order() {
         }),
         ..SelectionProfile::default()
     };
-    let problem = engine().check(&twice).unwrap_err().to_string();
+    let problem = engine().check(&twice, &[]).unwrap_err().to_string();
     assert_eq!(
         problem,
         "Your global arcade settings: election order: Preferred region is listed twice."
@@ -841,7 +841,7 @@ fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
         ..ArcadeSettings::default()
     });
     let engine = engine();
-    engine.check(&profile).unwrap();
+    engine.check(&profile, &[]).unwrap();
     let options = title_select_selection::RunOptions {
         support_files: vec![languages],
         ..support::options()
@@ -865,12 +865,46 @@ fn an_arcade_block_for_a_system_that_isnt_arcade_is_refused() {
             ..SystemSettings::default()
         },
     );
-    let problem = engine().check(&profile).unwrap_err().to_string();
+    let problem = engine().check(&profile, &[]).unwrap_err().to_string();
     assert_eq!(
         problem,
         "Your Nintendo - Game Boy settings: arcade settings apply only to MAME, whose DATs are arcade DATs. Remove \
          them from Nintendo - Game Boy."
     );
+}
+
+#[test]
+fn an_arcade_block_for_mame_is_refused_when_its_dats_are_logiqx_dats() {
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        "MAME".into(),
+        SystemSettings {
+            arcade: Some(ArcadeSettings::default()),
+            ..SystemSettings::default()
+        },
+    );
+    let logiqx = SourceSetSystem {
+        source_set: "mame-logiqx".into(),
+        system: Some("MAME".into()),
+        arcade: false,
+    };
+    let problem = engine()
+        .check(&profile, std::slice::from_ref(&logiqx))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        problem,
+        "Your MAME settings: your MAME DATs aren't arcade DATs, so arcade settings never apply to them. Remove them \
+         from MAME."
+    );
+    // With no MAME DAT registered yet, or a ListXML among them, the block can apply.
+    engine().check(&profile, &[]).unwrap();
+    let listxml = SourceSetSystem {
+        source_set: "mame".into(),
+        arcade: true,
+        ..logiqx.clone()
+    };
+    engine().check(&profile, &[logiqx, listxml]).unwrap();
 }
 
 #[test]

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::arcade::{
     ArcadeSettings, Category, DriverStatus, ElectionStep, Variant, is_arcade_system,
+    takes_arcade_settings,
 };
 use title_select_api::selection::{
     ArcadePins, CategorySource, DEPENDENCY_STAGE, Dependency, Selection, SelectionProfile,
@@ -94,9 +95,9 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
 }
 
 /// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,
-/// `previewed` when its preview is an arcade Selection, and MAME (`is_arcade_system`), the system of every Arcade DAT,
-/// when the Profile has system settings for it. An `arcade` block on any other system never makes it arcade: the
-/// check refuses it.
+/// `previewed` when its preview is an arcade Selection, and MAME, the system of every Arcade DAT, when the Profile has
+/// system settings for it and no DAT registered for it says otherwise (`takes_arcade_settings`): a Logiqx DAT named
+/// MAME keeps its Retool settings. An `arcade` block on any other system never makes it arcade: the check refuses it.
 pub fn arcade_systems(
     registered: &[SourceSetSystem],
     previewed: Option<&str>,
@@ -112,7 +113,7 @@ pub fn arcade_systems(
         profile
             .systems
             .keys()
-            .filter(|s| is_arcade_system(s))
+            .filter(|s| takes_arcade_settings(s, registered))
             .cloned(),
     );
     arcade
@@ -277,6 +278,18 @@ pub fn update_arcade(
     let mut settings = profile.arcade_settings(system);
     f(&mut settings);
     profile.systems.entry(system.to_owned()).or_default().arcade = Some(settings);
+}
+
+/// Why `system`'s own arcade settings, on a tab that holds the Retool ones, never apply.
+pub fn stray_arcade_problem(system: &str) -> String {
+    match is_arcade_system(system) {
+        true => format!(
+            "Your {system} DATs aren't arcade DATs, so your arcade settings for {system} never apply. Remove them to save."
+        ),
+        false => format!(
+            "Only MAME uses arcade settings, so your arcade settings for {system} never apply. Remove them to save."
+        ),
+    }
 }
 
 /// Drops `system`'s own arcade settings, so the global ones, or the defaults, apply.
@@ -557,6 +570,30 @@ mod tests {
         assert_eq!(
             arcade_systems(&[], None, &profile),
             BTreeSet::from(["MAME".to_owned()])
+        );
+    }
+
+    #[test]
+    fn a_logiqx_dat_named_mame_keeps_its_system_settings_editor() {
+        // A Logiqx DAT may name itself MAME; the Retool port selects it, so its tab keeps the Retool settings.
+        let registered = vec![SourceSetSystem {
+            source_set: "mame-logiqx".into(),
+            system: Some("MAME".into()),
+            arcade: false,
+        }];
+        let mut profile = SelectionProfile::default();
+        assert!(arcade_systems(&registered, None, &profile).is_empty());
+        profile.systems.insert(
+            "MAME".into(),
+            SystemSettings {
+                region_order: Some(vec!["Japan".into(), "USA".into()]),
+                ..SystemSettings::default()
+            },
+        );
+        assert!(arcade_systems(&registered, None, &profile).is_empty());
+        assert_eq!(
+            stray_arcade_problem("MAME"),
+            "Your MAME DATs aren't arcade DATs, so your arcade settings for MAME never apply. Remove them to save."
         );
     }
 }

@@ -223,6 +223,17 @@ pub fn is_arcade_system(system: &str) -> bool {
     system == crate::dat::MAME
 }
 
+/// Whether `system`'s own `arcade` block can apply, by the kind of each registered DAT for it in `registered`: it is
+/// MAME (`is_arcade_system`), and some DAT registered for it is an Arcade DAT, or none is registered for it yet. A
+/// Logiqx DAT may name itself MAME too, and the Retool port selects it under the Retool settings.
+pub fn takes_arcade_settings(system: &str, registered: &[crate::SourceSetSystem]) -> bool {
+    let mut dats = registered
+        .iter()
+        .filter(|s| s.system.as_deref() == Some(system))
+        .peekable();
+    is_arcade_system(system) && (dats.peek().is_none() || dats.any(|s| s.arcade))
+}
+
 /// Whether two region or language names are the same: trimmed, and ignoring ASCII case, as languages.ini may spell a
 /// language other than the Operator does.
 pub fn same_name(a: &str, b: &str) -> bool {
