@@ -217,6 +217,18 @@ pub const LANGUAGES: &[&str] = &[
     "Chinese",
 ];
 
+/// Whether `system` is the one an Arcade DAT's machines are filed under, MAME, the only system an `arcade` block of
+/// its own can apply to.
+pub fn is_arcade_system(system: &str) -> bool {
+    system == crate::dat::MAME
+}
+
+/// Whether two region or language names are the same: trimmed, and ignoring ASCII case, as languages.ini may spell a
+/// language other than the Operator does.
+pub fn same_name(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
+}
+
 /// The control types ListXML names, which the controls filters take.
 pub const CONTROL_TYPES: &[&str] = &[
     "joy",
@@ -337,11 +349,10 @@ impl ArcadeSettings {
                 problems.push(format!("region order: {name} is listed twice"));
             }
         }
-        let mut seen = BTreeSet::new();
-        for name in &self.language_order {
+        for (i, name) in self.language_order.iter().enumerate() {
             if name.trim().is_empty() {
                 problems.push("language order: a language has no name".to_owned());
-            } else if !seen.insert(name.trim().to_ascii_lowercase()) {
+            } else if self.language_order[..i].iter().any(|n| same_name(n, name)) {
                 problems.push(format!("language order: {name} is listed twice"));
             }
         }

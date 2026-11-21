@@ -3,8 +3,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::arcade::{ArcadeSettings, Category, DriverStatus, ElectionStep, Variant};
-use title_select_api::dat::MAME;
+use title_select_api::arcade::{
+    ArcadeSettings, Category, DriverStatus, ElectionStep, Variant, is_arcade_system,
+};
 use title_select_api::selection::{
     ArcadePins, CategorySource, DEPENDENCY_STAGE, Dependency, Selection, SelectionProfile,
 };
@@ -60,21 +61,19 @@ pub fn filter_label(filter: &str) -> &str {
 /// What an arcade Selection's pins say you should know, one sentence each: where categories came from when catver
 /// didn't decide them all, and the filters that dropped nothing because there was nothing to read.
 pub fn notices(pins: &ArcadePins) -> Vec<String> {
+    const SIGNALS: &str = "its driver's folder, software lists and controls";
     let mut out = Vec::new();
     match (pins.category, pins.category_fallbacks) {
-        (Some(CategorySource::ListxmlHeuristic), _) => out.push(
-            "No catver.ini was read, so categories come from what the ListXML says about each machine: its driver's \
-             folder, software lists and controls. It can miss quiz, mature and most tabletop machines."
-                .to_owned(),
-        ),
-        (Some(CategorySource::Catver), 1) => out.push(
-            "catver.ini doesn't list 1 machine, so its category comes from what the ListXML says about it: its \
-             driver's folder, software lists and controls."
-                .to_owned(),
-        ),
+        (Some(CategorySource::ListxmlHeuristic), _) => out.push(format!(
+            "No catver.ini was read, so categories come from what the ListXML says about each machine: {SIGNALS}. \
+             It can miss quiz, mature and most tabletop machines."
+        )),
+        (Some(CategorySource::Catver), 1) => out.push(format!(
+            "catver.ini doesn't list 1 machine, so its category comes from what the ListXML says about it: {SIGNALS}."
+        )),
         (Some(CategorySource::Catver), n) if n > 1 => out.push(format!(
             "catver.ini doesn't list {n} machines, so their categories come from what the ListXML says about each: \
-             its driver's folder, software lists and controls."
+             {SIGNALS}."
         )),
         _ => {}
     }
@@ -96,7 +95,7 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
 
 /// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,
 /// `previewed` when its preview is an arcade Selection, and MAME, the system of every Arcade DAT, when the Profile
-/// has settings for it. An `arcade` block on any other system never makes it arcade: the check refuses it.
+/// has settings for it (`is_arcade_system`). An `arcade` block on any other system never makes it arcade: the check refuses it.
 pub fn arcade_systems(
     registered: &[SourceSetSystem],
     previewed: Option<&str>,
@@ -108,9 +107,13 @@ pub fn arcade_systems(
         .filter_map(|s| s.system.clone())
         .collect();
     arcade.extend(previewed.map(str::to_owned));
-    if profile.systems.contains_key(MAME) {
-        arcade.insert(MAME.to_owned());
-    }
+    arcade.extend(
+        profile
+            .systems
+            .keys()
+            .filter(|s| is_arcade_system(s))
+            .cloned(),
+    );
     arcade
 }
 

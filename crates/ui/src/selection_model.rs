@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::GameStatus;
+use title_select_api::arcade::same_name;
 use title_select_api::selection::{
     ChoiceStatus, Exclusion, ReleaseRow, Role, Rule, Selection, SelectionGroup, SelectionOptions,
     SelectionProfile, SystemSettings,
@@ -699,11 +700,11 @@ pub fn move_item(list: &mut Vec<String>, from: usize, to: usize) {
     list.insert(to, item);
 }
 
-/// Adds `typed`, trimmed, to the end of an ordered list, unless it is blank or the list has it already in any ASCII
-/// case; whether it was added.
+/// Adds `typed`, trimmed, to the end of an ordered list, unless it is blank or the list has it already by
+/// [`same_name`]; whether it was added.
 pub fn add_item(list: &mut Vec<String>, typed: &str) -> bool {
     let typed = typed.trim();
-    if typed.is_empty() || list.iter().any(|i| i.eq_ignore_ascii_case(typed)) {
+    if typed.is_empty() || list.iter().any(|i| same_name(i, typed)) {
         return false;
     }
     list.push(typed.to_owned());

@@ -295,7 +295,7 @@ impl Engine {
             let Some(arcade) = &settings.arcade else {
                 continue;
             };
-            match system.as_str() == title_select_api::dat::MAME {
+            match arcade::is_arcade_system(system) {
                 true => blocks.push((system.as_str(), arcade)),
                 false => problems.push(format!(
                     "Your {system} settings: arcade settings apply only to {}, whose DATs are arcade DATs. Remove \

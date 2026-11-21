@@ -7,6 +7,7 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
+use title_select_api::arcade::same_name;
 use title_select_api::selection::{
     Category, Compilations, SelectionOptions, SelectionProfile, SystemSettings,
 };
@@ -17,6 +18,7 @@ use title_select_api::{
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
+use crate::arcade_model::{arcade_systems, use_global_arcade};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::pending::Pending;
@@ -519,14 +521,12 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
         })
     });
     // The systems of Arcade DATs, whose tabs hold the arcade settings in place of the Retool ones.
-    let arcade_systems = Memo::new(move |_| {
+    let arcade = Memo::new(move |_| {
         let previewed = preview.with(|p| match p {
             Some(Ok(p)) if p.selection.pins.arcade.is_some() => Some(p.selection.system.clone()),
             _ => None,
         });
-        registered.with(|r| {
-            profile.with(|p| crate::arcade_model::arcade_systems(r, previewed.as_deref(), p))
-        })
+        registered.with(|r| profile.with(|p| arcade_systems(r, previewed.as_deref(), p)))
     });
     let tab = RwSignal::new(None::<String>);
     // A system's tab previews against its source set.
@@ -659,7 +659,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                 (None, Some(vocabulary)) => {
                     view! { <GlobalSettings profile vocabulary=Arc::new(vocabulary) /> }.into_any()
                 }
-                (Some(system), Some(_)) if arcade_systems.with(|a| a.contains(&system)) => {
+                (Some(system), Some(_)) if arcade.with(|a| a.contains(&system)) => {
                     view! { <ArcadeSettingsForm profile system /> }.into_any()
                 }
                 (Some(system), Some(vocabulary)) => {
@@ -1217,7 +1217,7 @@ fn SystemSettingsForm(
                         view! {
                             <p class="problem" role="alert">
                                 {format!(
-                                    "This profile has arcade settings for {}, but its DATs aren't arcade DATs, so they never apply. Remove them to save.",
+                                    "This selection profile has arcade settings for {}, but its DATs aren't arcade DATs, so they never apply. Remove them to save.",
                                     s.get_value(),
                                 )}
                             </p>
@@ -1225,7 +1225,7 @@ fn SystemSettingsForm(
                                 <button
                                     type="button"
                                     on:click=move |_| {
-                                        profile.update(|p| crate::arcade_model::use_global_arcade(p, &s.get_value()))
+                                        profile.update(|p| use_global_arcade(p, &s.get_value()))
                                     }
                                 >
                                     "Remove arcade settings"
@@ -1651,7 +1651,7 @@ pub(crate) fn OrderedList(
         options
             .get_value()
             .into_iter()
-            .filter(|o| !chosen.contains(o))
+            .filter(|o| !chosen.iter().any(|c| same_name(c, o)))
             .collect::<Vec<_>>()
     };
     view! {

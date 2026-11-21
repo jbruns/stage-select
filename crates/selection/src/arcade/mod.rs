@@ -30,7 +30,8 @@ use title_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
 
 pub use support::{SupportFiles, Tier};
 pub use title_select_api::arcade::{
-    ArcadeSettings, Category, ElectionStep, Orientation, Range, Variant,
+    ArcadeSettings, Category, ElectionStep, Orientation, Range, Variant, is_arcade_system,
+    same_name,
 };
 
 use crate::native::UserRegex;
@@ -716,7 +717,7 @@ const CURATED_STEP: Step = Step {
 };
 
 /// How a candidate ranks in an order: its place, then after every listed name, then, saying none, `unnamed`. Names
-/// match ignoring ASCII case, as languages.ini may spell a language other than you do.
+/// match by [`same_name`].
 fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
     if names.is_empty() {
         return unnamed;
@@ -726,7 +727,7 @@ fn rank(names: &[String], order: &[String], unnamed: i64) -> i64 {
         .map(|n| {
             order
                 .iter()
-                .position(|o| o.trim().eq_ignore_ascii_case(n))
+                .position(|o| same_name(o, n))
                 .unwrap_or(order.len()) as i64
         })
         .min()
