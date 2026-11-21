@@ -70,9 +70,20 @@ enum Scope<'a> {
     Source,
     /// Where the Placed Game it names is placed.
     Placed(&'a str),
+    /// A Library Folder file the Audit named that is no Placed Game's file now, such as one of a Game returned home
+    /// since: nothing a repair plans reads, counts or keeps it aside.
+    Elsewhere,
 }
 
 impl Scope<'_> {
+    /// The scope of a path that is no Placed Game's file: the Source Set's folder, unless it is in a Library Folder.
+    fn of_unplaced(path: &str) -> Self {
+        match split_placed(path) {
+            Some(_) => Scope::Elsewhere,
+            None => Scope::Source,
+        }
+    }
+
     /// Whether a copy of a ROM in this scope survives for a file in scope `of`: one of its own scope, or of the Source
     /// Set's folder, which every Placed Game returns home to.
     fn keeps_for(self, of: Scope) -> bool {
@@ -84,14 +95,16 @@ impl Scope<'_> {
 struct Scopes<'a> {
     /// Every file the Audit found or the walk sees now, by its path.
     files: HashMap<&'a str, Scope<'a>>,
+    /// Where each Placed Game is ([`Inputs::placed`]).
     placed: &'a HashMap<String, Located>,
 }
 
 impl<'a> Scopes<'a> {
+    /// The scope of every file the Audit found or the walk sees now, and of the Games `i` places.
     fn of(i: &Inputs<'a>) -> Self {
         let scope = |path: &'a str| match i.placed_files.get(path) {
             Some(game) => Scope::Placed(game.as_str()),
-            None => Scope::Source,
+            None => Scope::of_unplaced(path),
         };
         let paths = (i.files.keys().map(String::as_str))
             .chain(i.report.entries.iter().map(|e| e.path.as_str()));
@@ -101,9 +114,10 @@ impl<'a> Scopes<'a> {
         }
     }
 
-    /// The scope of the file at `path`: where the Placed Game it is a file of is placed, or else the Source Set's folder.
+    /// The scope of the file at `path`: where the Placed Game it is a file of is placed, or else the Source Set's folder,
+    /// or for a Library Folder path of no Placed Game, neither.
     fn file(&self, path: &str) -> Scope<'a> {
-        self.files.get(path).copied().unwrap_or(Scope::Source)
+        (self.files.get(path).copied()).unwrap_or_else(|| Scope::of_unplaced(path))
     }
 
     /// The scope of Game `game`: where it is placed, when the Audit found a file of it there, or else the Source Set's
@@ -344,6 +358,7 @@ struct Preserved<'a> {
     dat: &'a HashMap<RomKey, &'a Rom>,
     /// Every file the Audit found holding each ROM.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+    /// The scope of each file ([`Scope`]), which decides where a copy survives for it.
     scopes: &'a Scopes<'a>,
     /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]), by the scope it writes
     /// them in: its Game's.
@@ -1243,24 +1258,28 @@ fn disk_fills<'p>(
 }
 
 /// The ROMs each Game's ZIP or folder holds once repaired, by the Game's index, as the Set Layout lays them out (ADR
-/// 0026), and each one's index in the DAT: each it needs, and each other one (ADR 0025) that a file of the Source Set,
-/// an Ingest Folder item or a cue pack holds. One it doesn't need that none holds never keeps the Game from being
+/// 0026), and each one's index in the DAT: each it needs, and each other one (ADR 0025) that a file holds where a copy
+/// survives for the Game's scope ([`Scope::keeps_for`]), or an Ingest Folder item or a cue pack holds. One it doesn't need that none holds never keeps the Game from being
 /// repaired. A Game the layout gives no container of its own, a merged clone, has none. A Disk is never one: it stays a
 /// CHD of its own in its family's folder (ADR 0026), filled there by [`disk_fills`].
 fn wanted_roms(
     i: &Inputs,
     layout_index: &LayoutIndex,
+    scopes: &Scopes,
     held_by: &HashMap<RomKey, BTreeSet<&str>>,
 ) -> (Vec<Vec<ExpectedRom>>, Vec<Vec<usize>>) {
     let mut wanted = vec![Vec::new(); i.dat.games.len()];
     let mut owners = vec![Vec::new(); i.dat.games.len()];
     for (index, laid) in layout_index.laid.roms.iter().enumerate() {
+        // A file holds a ROM for this Game only where a copy there survives for its scope ([`Scope::keeps_for`]).
+        let scope = scopes.game(&i.dat.games[index]);
         for &r in laid.iter().flatten().filter(|&&r| !i.dat.roms[r].disk) {
             let rom = &i.dat.roms[r];
             let expected = i.dat.expected(rom);
             let game = &i.dat.games[rom.game];
             let held = || {
-                held_by.contains_key(&(game.clone(), rom.name.clone()))
+                (held_by.get(&(game.clone(), rom.name.clone())))
+                    .is_some_and(|by| by.iter().any(|p| scopes.file(p).keeps_for(scope)))
                     || i.candidates.iter().any(|c| {
                         c.matched.game == *game && c.matched.roms.iter().any(|m| m.rom == rom.name)
                     })
@@ -1577,7 +1596,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             i.dat.games[game]
         ));
     }
-    let (wanted, owners) = wanted_roms(i, &layout_index, &held_by);
+    let (wanted, owners) = wanted_roms(i, &layout_index, &scopes, &held_by);
     let placements = placements_of(i, &layout_index, &wanted);
     // The Game each file a repair puts a Game in is, by its path: under a Set Layout, a file another Game is put in is
     // never kept aside as a copy this Game was written from, as that Game's own item rewrites it or leaves it.

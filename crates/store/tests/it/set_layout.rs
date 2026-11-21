@@ -36,12 +36,17 @@ fn payload(name: &str) -> &'static [u8] {
     }
 }
 
-fn rom(name: &str, merge: Option<&str>) -> String {
-    let p = payload(name);
-    let sha1: String = <sha1::Sha1 as sha1::Digest>::digest(p)
+/// The SHA-1 of `bytes`, as a DAT gives it.
+fn sha1_hex(bytes: &[u8]) -> String {
+    <sha1::Sha1 as sha1::Digest>::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
-        .collect();
+        .collect()
+}
+
+fn rom(name: &str, merge: Option<&str>) -> String {
+    let p = payload(name);
+    let sha1 = sha1_hex(p);
     let merge = merge
         .map(|m| format!(r#" merge="{m}""#))
         .unwrap_or_default();
@@ -227,7 +232,7 @@ impl Env {
         self.store.set_storage_policy(&policy, "Operator").unwrap();
     }
 
-    /// Turns Single Copy for play libraries `on` or off.
+    /// Turns Single Copy for Play Libraries `on` or off.
     fn single_copy(&self, on: bool) {
         let mut policy = self.store.storage_policy().unwrap();
         policy.play_libraries.single_copy = on;
@@ -235,7 +240,7 @@ impl Env {
     }
 
     /// Registers the Ingest Folder `in`, which settles at once, holding a TorrentZip `zip` of `members`, and scans it
-    /// until that is assessed.
+    /// twice: the first scan sees the item settle, and the second assesses it.
     fn ingest(&self, zip: &str, members: &[&str]) {
         write_zip(&self.tmp.path().join("in").join(zip), members);
         self.store
@@ -783,7 +788,6 @@ fn a_bios_whose_rom_only_a_placed_game_holds_is_missing_from_the_source_sets_fol
     let env = Env::new();
     env.zip("acmesnd.zip", &["snd.u2"]);
     env.place("blaster", &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]);
-    env.audit();
 
     let report = env.audit();
     assert_eq!(
@@ -1102,12 +1106,6 @@ fn a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_dev
 
 #[test]
 fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
-    let sha1 = |p: &[u8]| -> String {
-        <sha1::Sha1 as sha1::Digest>::digest(p)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
-    };
     // The clone's graphics are the parent's by `merge=`, alike as the DAT gives them, the parent's by their CRC and the
     // clone's by their SHA-1; but the bytes each DAT line pins differ, so a file of the clone's is no copy of the
     // parent's.
@@ -1125,7 +1123,7 @@ fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
                 &rom("gfxj.u4", Some("gfx.u4")),
                 &format!(
                     r#"<rom name="gfxj.u4" merge="gfx.u4" size="8" sha1="{}"/>"#,
-                    sha1(b"graphicz")
+                    sha1_hex(b"graphicz")
                 ),
                 1,
             ),
@@ -1259,8 +1257,11 @@ fn a_repair_of_the_source_sets_folder_never_touches_a_placed_clone_it_shares_wit
 }
 
 /// Neither the plan as it is by default nor one with every item chosen to be applied or kept aside has an item of the
-/// Source Set's folder that reads, writes, renames or keeps aside a placed file.
+/// Source Set's folder that reads, writes, renames or keeps aside a placed file. Applied as it is by default, the plan
+/// leaves every placed file as it is and no Game missing a ROM it had: no placed copy stood in for the last one in the
+/// Source Set's folder.
 fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
+    let before = env.audit();
     let plan = env.plan();
     no_placed_file_in_a_source_set_folder_repair(&plan, at);
     let choices = (plan.content.items.iter())
@@ -1283,6 +1284,44 @@ fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
         )
         .unwrap();
     no_placed_file_in_a_source_set_folder_repair(&chosen, &format!("{at}, every item chosen"));
+    if plan
+        .content
+        .items
+        .iter()
+        .all(|i| i.chosen == RepairChoice::Leave)
+    {
+        return;
+    }
+    let placed: Vec<(PathBuf, Vec<u8>)> = walkdir::WalkDir::new(env.library())
+        .into_iter()
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| (e.path().to_owned(), std::fs::read(e.path()).unwrap()))
+        .collect();
+    let after = env.approve(&plan);
+    for (path, bytes) in &placed {
+        assert_eq!(
+            &std::fs::read(path).unwrap(),
+            bytes,
+            "{at}: {}",
+            path.display()
+        );
+    }
+    for game in &before.games {
+        let now = (after.games.iter().find(|g| g.name == game.name))
+            .unwrap_or_else(|| panic!("{at}: no {}", game.name));
+        let lost: Vec<&String> = (now.missing_roms.iter())
+            .filter(|r| !game.missing_roms.contains(r))
+            .collect();
+        assert!(
+            lost.is_empty()
+                && (now.status != GameStatus::Missing || game.status == GameStatus::Missing),
+            "{at}: {} lost {lost:?}, now {:?}\n{:#?}",
+            game.name,
+            now.status,
+            plan.content.items
+        );
+    }
 }
 
 /// No step of an item of a Game in the Source Set's folder, or of a file there, names a placed file: it reads, writes,
