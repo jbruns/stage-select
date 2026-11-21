@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<!-- A synthetic MAME ListXML: a BIOS, a device chain to a ROM-less device, a parent and clone sharing ROMs and a Disk
+     by merge=, a non-clone sharing a Disk with its BIOS, and nodump, baddump and optional ROMs. Its names and
+     checksums are invented. -->
+<!DOCTYPE mame [
+<!ELEMENT mame (machine+)>
+]>
+<mame build="0.289 (mame0289)" debug="no" mameconfig="10">
+  <machine name="arcbios" sourcefile="acme/arcade.cpp" isbios="yes">
+    <description>Acme Arcade BIOS</description>
+    <year>1994</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="bios.u1" size="16" crc="b1050001" sha1="b105000000000000000000000000000000000001" region="bios" offset="0"/>
+    <disk name="arcbios-hdd" sha1="d15c000000000000000000000000000000000001" region="ide:0:hdd" index="0" writable="no"/>
+    <device_ref name="acmesnd"/>
+  </machine>
+  <machine name="acmesnd" sourcefile="acme/acmesnd.cpp" isdevice="yes" runnable="no">
+    <description>Acme Sound Board</description>
+    <rom name="snd.u2" size="8" crc="50a00002" sha1="50a0000000000000000000000000000000000002" region="audio" offset="0"/>
+    <device_ref name="z80"/>
+  </machine>
+  <machine name="z80" sourcefile="devices/cpu/z80/z80.cpp" isdevice="yes" runnable="no">
+    <description>Zilog Z80</description>
+  </machine>
+  <machine name="blaster" sourcefile="acme/blaster.cpp" romof="arcbios" sampleof="blaster">
+    <description>Blaster (World)</description>
+    <year>1995</year>
+    <manufacturer>Acme &amp; Sons</manufacturer>
+    <rom name="bios.u1" merge="bios.u1" size="16" crc="b1050001" sha1="b105000000000000000000000000000000000001" region="bios" offset="0"/>
+    <rom name="prog.u3" size="32" crc="9a000003" sha1="9a00000000000000000000000000000000000003" region="maincpu" offset="0"/>
+    <rom name="gfx.u4" size="32" crc="6f000004" sha1="6f00000000000000000000000000000000000004" status="baddump" region="gfx" offset="0"/>
+    <rom name="pal.u5" size="260" status="nodump" region="plds" offset="0"/>
+    <rom name="snd.u6" size="8" crc="5d000006" sha1="5d00000000000000000000000000000000000006" optional="yes" region="audio" offset="0"/>
+    <disk name="blaster" sha1="d15c000000000000000000000000000000000002" region="ide:0:hdd" index="0" writable="no"/>
+    <device_ref name="acmesnd"/>
+    <device_ref name="z80"/>
+    <sample name="laser"/>
+    <sample name="boom"/>
+    <chip type="cpu" tag="maincpu" name="Zilog Z80" clock="4000000"/>
+    <display tag="screen" type="raster" rotate="0" width="320" height="224" refresh="60.000000"/>
+    <sound channels="1"/>
+    <input players="2" coins="2" service="yes">
+      <control type="joy" player="1" buttons="2" ways="8"/>
+      <control type="joy" player="2" buttons="2" ways="8"/>
+      <control type="dial" player="1"/>
+    </input>
+    <driver status="good" emulation="good" savestate="supported"/>
+    <feature type="sound" status="imperfect"/>
+    <feature type="protection" overall="unemulated"/>
+    <softwarelist tag="cart" name="blaster_cart" status="original"/>
+  </machine>
+  <machine name="blasterj" sourcefile="acme/blaster.cpp" cloneof="blaster" romof="blaster" sampleof="blaster">
+    <description>Blaster (Japan)</description>
+    <year>1995</year>
+    <manufacturer>Acme</manufacturer>
+    <rom name="bios.u1" merge="bios.u1" size="16" crc="b1050001" sha1="b105000000000000000000000000000000000001" region="bios" offset="0"/>
+    <rom name="progj.u3" size="32" crc="9a0000a3" sha1="9a000000000000000000000000000000000000a3" region="maincpu" offset="0"/>
+    <rom name="gfx.u4" merge="gfx.u4" size="32" crc="6f000004" sha1="6f00000000000000000000000000000000000004" status="baddump" region="gfx" offset="0"/>
+    <disk name="blaster" merge="blaster" sha1="d15c000000000000000000000000000000000002" region="ide:0:hdd" index="0" writable="no"/>
+    <disk name="blasterj-alt" status="nodump" region="ide:1:hdd" index="1" writable="no" optional="yes"/>
+    <device_ref name="acmesnd"/>
+    <device_ref name="z80"/>
+    <display tag="screen" type="vector" rotate="90" width="224" height="320" refresh="60.000000"/>
+    <input players="1" coins="1">
+      <control type="joy" player="1" buttons="1" ways="4"/>
+    </input>
+    <driver status="imperfect" emulation="imperfect" savestate="unsupported"/>
+  </machine>
+  <machine name="crane" sourcefile="acme/crane.cpp" romof="arcbios" ismechanical="yes">
+    <description>Crane Game</description>
+    <year>199?</year>
+    <rom name="bios.u1" merge="bios.u1" size="16" crc="b1050001" sha1="b105000000000000000000000000000000000001" region="bios" offset="0"/>
+    <rom name="crane.u7" size="16" crc="c4000007" sha1="c400000000000000000000000000000000000007" region="maincpu" offset="0"/>
+    <disk name="arcbios-hdd" sha1="d15c000000000000000000000000000000000001" region="ide:0:hdd" index="0" writable="no"/>
+    <input players="1" coins="1"/>
+    <driver status="preliminary" emulation="preliminary" savestate="unsupported"/>
+  </machine>
+</mame>

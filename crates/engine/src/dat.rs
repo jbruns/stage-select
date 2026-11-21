@@ -1,5 +1,6 @@
 //! Reading a DAT into a DAT Revision: Logiqx XML, MAME's ListXML (`<mame>`, named `MAME` and versioned by its build),
-//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned).
+//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned). A Logiqx or ListXML Game also
+//! gives the machine model the arcade selector and family counting read (ADRs 0025 to 0027), and its Disks.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,11 +15,145 @@ use crate::Error;
 pub struct Rom {
     pub game: usize,
     pub name: String,
+    /// Its size in bytes; 0 for a Disk, which a DAT gives no size.
     pub size: u64,
     pub crc: Option<String>,
     pub md5: Option<String>,
     pub sha1: Option<String>,
     pub sha256: Option<String>,
+    /// The name of the ROM it shares with the Game it is `romof` (`merge=`), as that Game lists it.
+    pub merge: Option<String>,
+    pub status: DumpStatus,
+    /// Whether the Game may run without it (`optional="yes"`).
+    pub optional: bool,
+    /// Whether it is a Disk (`<disk>`): a CHD named `<disk>.chd`, listed by SHA-1 alone and with no size, which only
+    /// its name finds.
+    pub disk: bool,
+}
+
+/// Whether a ROM's dump is known good, as a DAT's `status` says; good when it says nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DumpStatus {
+    /// `good`, or Logiqx's `verified`.
+    Good,
+    /// `baddump`: its checksums are of a dump known to be bad.
+    BadDump,
+    /// `nodump`: no good dump is known, and its checksums are left out.
+    NoDump,
+}
+
+impl DumpStatus {
+    fn parse(text: Option<&str>) -> DumpStatus {
+        match text {
+            Some("baddump") => DumpStatus::BadDump,
+            Some("nodump") => DumpStatus::NoDump,
+            _ => DumpStatus::Good,
+        }
+    }
+}
+
+/// What a Game's entry says of the machine it is (ADR 0027). Every field is optional: a ListXML machine fills them
+/// all, a Logiqx game only what it carries, and a software item none. A flag the DAT leaves out takes its DTD's
+/// default, so whether a DAT carries a signal at all is its format's to say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Machine {
+    /// The Game whose ROMs it shares (`romof`): its parent, or its BIOS for a parent.
+    pub romof: Option<String>,
+    pub is_bios: bool,
+    pub is_device: bool,
+    pub is_mechanical: bool,
+    pub runnable: bool,
+    /// The Game whose samples it uses (`sampleof`).
+    pub sample_of: Option<String>,
+    /// The driver source it is defined in (`sourcefile`), such as `atari/pong.cpp`.
+    pub source_file: Option<String>,
+    /// The devices it names (`<device_ref>`), in DAT order.
+    pub device_refs: Vec<String>,
+    /// The samples it plays (`<sample>`), in DAT order.
+    pub samples: Vec<String>,
+    pub year: Option<String>,
+    pub manufacturer: Option<String>,
+    pub driver: Option<Driver>,
+    /// Its screens (`<display>`), in DAT order; none for a screenless machine.
+    pub displays: Vec<Display>,
+    pub input: Option<Input>,
+    /// Whether it names a software list (`<softwarelist>`).
+    pub has_software_list: bool,
+    /// The parts it emulates imperfectly or not at all (`<feature>`), in DAT order.
+    pub features: Vec<Feature>,
+}
+
+/// How well a driver works, as MAME rates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DriverStatus {
+    Preliminary,
+    Imperfect,
+    Good,
+}
+
+impl DriverStatus {
+    fn parse(text: &str) -> Option<DriverStatus> {
+        match text {
+            "good" => Some(DriverStatus::Good),
+            "imperfect" => Some(DriverStatus::Imperfect),
+            "preliminary" => Some(DriverStatus::Preliminary),
+            _ => None,
+        }
+    }
+}
+
+/// A machine's `<driver>`: its overall `status` and its `emulation`'s; none for a value MAME doesn't write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Driver {
+    pub status: Option<DriverStatus>,
+    pub emulation: Option<DriverStatus>,
+}
+
+/// A machine's screen: its `type`, such as `raster`, `vector`, `lcd` or `svg`, and its rotation in degrees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Display {
+    pub kind: Option<String>,
+    pub rotate: Option<u16>,
+}
+
+/// A machine's `<input>`: how many players and coin slots, and each `<control>`'s type, such as `joy` or `dial`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Input {
+    pub players: Option<u32>,
+    pub coins: Option<u32>,
+    pub controls: Vec<String>,
+}
+
+/// A part a machine emulates imperfectly or not at all: its `type`, such as `sound` or `protection`, and the
+/// `status` or `overall` MAME gives it, such as `imperfect` or `unemulated`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Feature {
+    pub kind: String,
+    pub status: Option<String>,
+    pub overall: Option<String>,
+}
+
+impl Default for Machine {
+    fn default() -> Self {
+        Machine {
+            romof: None,
+            is_bios: false,
+            is_device: false,
+            is_mechanical: false,
+            runnable: true,
+            sample_of: None,
+            source_file: None,
+            device_refs: Vec::new(),
+            samples: Vec::new(),
+            year: None,
+            manufacturer: None,
+            driver: None,
+            displays: Vec::new(),
+            input: None,
+            has_software_list: false,
+            features: Vec::new(),
+        }
+    }
 }
 
 pub struct Dat {
@@ -42,6 +177,8 @@ pub struct Dat {
     pub descriptions: Vec<String>,
     /// The parent each Game is a clone of (`cloneof`), by the Game's index; none for a parent or a DAT without them.
     pub cloneof: Vec<Option<String>>,
+    /// What each Game's entry says of its machine, by the Game's index.
+    pub machines: Vec<Machine>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -99,6 +236,7 @@ impl Dat {
             games: Vec::new(),
             descriptions: Vec::new(),
             cloneof: Vec::new(),
+            machines: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -153,12 +291,22 @@ impl Dat {
                     let in_header = root == Some(DatFormat::Logiqx)
                         && stack.len() >= 2
                         && stack[stack.len() - 2] == "header";
-                    let in_game = stack.len() >= 2
-                        && matches!(
-                            stack[stack.len() - 2].as_str(),
-                            "game" | "machine" | "software"
-                        );
+                    let parent = stack.len().checked_sub(2).map(|i| stack[i].as_str());
+                    let in_game = matches!(parent, Some("game" | "machine" | "software"));
+                    let in_machine = root != Some(DatFormat::SoftwareList)
+                        && matches!(parent, Some("game" | "machine"));
+                    let machine = dat.machines.last_mut().filter(|_| in_machine);
                     match stack.last().map(String::as_str) {
+                        Some("year") if in_machine => {
+                            if let Some(machine) = machine {
+                                machine.year.get_or_insert_default().push_str(&text);
+                            }
+                        }
+                        Some("manufacturer") if in_machine => {
+                            if let Some(machine) = machine {
+                                machine.manufacturer.get_or_insert_default().push_str(&text);
+                            }
+                        }
                         Some("description") if in_game => {
                             if let Some(description) = dat.descriptions.last_mut() {
                                 description.push_str(&text);
@@ -274,9 +422,30 @@ impl Dat {
         let tag = e.local_name().as_ref().to_string();
         match (root, tag.as_str()) {
             (Some(DatFormat::Logiqx | DatFormat::Listxml), "game" | "machine") => {
-                self.start_game(e)?
+                self.start_game(e)?;
+                let a = attrs(e)?;
+                let flag = |key: &str, default: bool| {
+                    a.get(key).map_or(default, |v| match v.as_str() {
+                        "yes" => true,
+                        "no" => false,
+                        _ => default,
+                    })
+                };
+                self.machines.push(Machine {
+                    romof: a.get("romof").cloned(),
+                    is_bios: flag("isbios", false),
+                    is_device: flag("isdevice", false),
+                    is_mechanical: flag("ismechanical", false),
+                    runnable: flag("runnable", true),
+                    sample_of: a.get("sampleof").cloned(),
+                    source_file: a.get("sourcefile").cloned(),
+                    ..Machine::default()
+                });
             }
-            (Some(DatFormat::SoftwareList), "software") => self.start_game(e)?,
+            (Some(DatFormat::SoftwareList), "software") => {
+                self.start_game(e)?;
+                self.machines.push(Machine::default());
+            }
             // A software list's unnamed ROM has no file of its own: it reads on in the file of the named ROM before
             // it. As MAME's rom_file_size measures that file, one that continues or skips reads on from where the
             // last read ended, and one that reloads reads again from the start; the file is as large as the
@@ -304,6 +473,60 @@ impl Dat {
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
+            (Some(DatFormat::Logiqx | DatFormat::Listxml), "disk") => self.add_disk(e)?,
+            (
+                Some(DatFormat::Logiqx | DatFormat::Listxml),
+                "device_ref" | "sample" | "driver" | "display" | "input" | "control"
+                | "softwarelist" | "feature",
+            ) => {
+                let Some(machine) = self.machines.last_mut() else {
+                    return Ok(tag);
+                };
+                let mut a = attrs(e)?;
+                fn number<T: std::str::FromStr>(
+                    a: &HashMap<String, String>,
+                    key: &str,
+                ) -> Option<T> {
+                    a.get(key).and_then(|v| v.parse().ok())
+                }
+                match tag.as_str() {
+                    "device_ref" => machine.device_refs.extend(a.remove("name")),
+                    "sample" => machine.samples.extend(a.remove("name")),
+                    "driver" => {
+                        let status = |key: &str| a.get(key).and_then(|v| DriverStatus::parse(v));
+                        machine.driver = Some(Driver {
+                            status: status("status"),
+                            emulation: status("emulation"),
+                        });
+                    }
+                    "display" => machine.displays.push(Display {
+                        kind: a.remove("type"),
+                        rotate: number(&a, "rotate"),
+                    }),
+                    "input" => {
+                        machine.input = Some(Input {
+                            players: number(&a, "players"),
+                            coins: number(&a, "coins"),
+                            controls: Vec::new(),
+                        })
+                    }
+                    "control" => machine
+                        .input
+                        .get_or_insert_default()
+                        .controls
+                        .extend(a.remove("type")),
+                    "softwarelist" => machine.has_software_list = true,
+                    _ => {
+                        if let Some(kind) = a.remove("type") {
+                            machine.features.push(Feature {
+                                kind,
+                                status: a.remove("status"),
+                                overall: a.remove("overall"),
+                            });
+                        }
+                    }
+                }
+            }
             (Some(DatFormat::Logiqx), "clrmamepro") if self.games.is_empty() => {
                 if let Some(rule) = attrs(e)?.remove("header") {
                     self.header_rule = Some(rule);
@@ -350,6 +573,10 @@ impl Dat {
             md5: lower("md5"),
             sha1: lower("sha1"),
             sha256: lower("sha256"),
+            merge: a.get("merge").cloned(),
+            status: DumpStatus::parse(a.get("status").map(String::as_str)),
+            optional: a.get("optional").is_some_and(|v| v == "yes"),
+            disk: false,
         };
         let idx = self.roms.len();
         self.extent = Some((rom.size, rom.size));
@@ -366,6 +593,40 @@ impl Dat {
                 .or_default()
                 .push(idx),
         }
+        self.roms.push(rom);
+        Ok(())
+    }
+
+    /// Adds a `<disk>` as a Disk of the last Game: a ROM named for its CHD, which a DAT gives no size.
+    fn add_disk(&mut self, e: &BytesStart) -> Result<(), Error> {
+        let a = attrs(e)?;
+        let game = self
+            .games
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| Error::Dat("a disk is outside any game".into()))?;
+        let chd = |name: &String| format!("{name}.chd");
+        let name = chd(a
+            .get("name")
+            .ok_or_else(|| Error::Dat("a disk has no name".into()))?);
+        let rom = Rom {
+            game,
+            name,
+            size: 0,
+            crc: None,
+            md5: None,
+            sha1: a.get("sha1").map(|v| v.to_ascii_lowercase()),
+            sha256: None,
+            merge: a.get("merge").map(chd),
+            status: DumpStatus::parse(a.get("status").map(String::as_str)),
+            optional: a.get("optional").is_some_and(|v| v == "yes"),
+            disk: true,
+        };
+        self.extent = None;
+        self.by_name
+            .entry(rom.name.clone())
+            .or_default()
+            .push(self.roms.len());
         self.roms.push(rom);
         Ok(())
     }

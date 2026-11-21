@@ -350,3 +350,34 @@ fn have_miss_lists_the_missing_roms_available_in_another_games_zip() {
          Game B (Europe) (Track 2).bin\r\n"
     );
 }
+
+#[test]
+fn the_fixdat_lists_a_missing_disk_as_a_disk_by_its_sha1_with_no_size() {
+    let f = Fixture::new();
+    let dat_path = f.dat_dir.path().join("listxml-family.xml");
+    write_file(&dat_path, include_bytes!("../data/listxml-family.xml"));
+    let report = audit(&dat_path, f.set.path()).unwrap();
+    let dat = Dat::read(&dat_path).unwrap();
+    let lacking = Lacking {
+        dat: &dat,
+        report: &report,
+        audit: 7,
+        scope: None,
+    };
+    let xml = lacking.fixdat();
+    assert!(
+        xml.contains(r#"<disk name="blaster" sha1="d15c000000000000000000000000000000000002"/>"#),
+        "{xml}"
+    );
+    assert!(!xml.contains("blaster.chd"), "{xml}");
+
+    let fixdat = parse(&xml);
+    let disks = |dat: &Dat| -> Vec<(String, String, Option<String>)> {
+        dat.roms
+            .iter()
+            .filter(|r| r.disk)
+            .map(|r| (dat.games[r.game].clone(), r.name.clone(), r.sha1.clone()))
+            .collect()
+    };
+    assert_eq!(disks(&fixdat), disks(&dat));
+}

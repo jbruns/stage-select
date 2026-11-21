@@ -132,6 +132,14 @@ impl Lacking<'_> {
             put(Event::Text(BytesText::new(description)));
             put(Event::End(BytesEnd::new("description")));
             for rom in roms {
+                // A Disk is written as the DAT lists it: by the CHD's name less `.chd` and its SHA-1, with no size.
+                if rom.disk {
+                    let name = rom.name.strip_suffix(".chd").unwrap_or(&rom.name);
+                    let mut attrs = vec![("name", name)];
+                    attrs.extend(rom.sha1.as_deref().map(|sha1| ("sha1", sha1)));
+                    put(Event::Empty(BytesStart::new("disk").with_attributes(attrs)));
+                    continue;
+                }
                 let size = rom.size.to_string();
                 let mut attrs = vec![("name", rom.name.as_str()), ("size", size.as_str())];
                 for (key, hash) in [
