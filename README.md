@@ -1310,8 +1310,9 @@ copies it only when it fits, and otherwise leaves it placed. If the service stop
 mounts, after the copy and before it can prove the original safe to delete, you may find the copy in your kept files and
 the CHD still placed: nothing is lost, the copy is never deleted to leave one, and the next repair after an audit sets
 the placed CHD aside again. Don't change a play library folder by hand while a repair is queued or running: a CHD you
-put back then can leave a game with one disc placed and another in your source set, which the next full audit shows and
-no repair puts right. A CHD the last audit didn't read as it is now, such as one a quick inventory read only the header
+put back then can leave a game with one disc placed and another in your source set, which the next full audit shows. No
+repair writes to that game while the CHD is placed. To put it right, move that CHD out of the play library folder while
+no repair is queued, run a full audit, scan the ingest folder that holds a good copy of its disc, and then repair. A CHD the last audit didn't read as it is now, such as one a quick inventory read only the header
 of, is never taken out: the plan leaves it placed and asks you to run a full audit first. One the audit read but chdman
 couldn't extract may be damaged, but chdman missing or stopped, or too little free space, does the same, so the plan
 offers to take it out and leaves it placed unless you choose to.
