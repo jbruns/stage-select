@@ -70,7 +70,7 @@ pub fn status(item: &IngestItem) -> Option<IngestStatus> {
         ItemState::Gone => return None,
         ItemState::Assessed => match &item.assessment.proposal {
             Some(Proposal::SourceSet { .. }) => IngestStatus::MatchesSourceSet,
-            Some(Proposal::DatImport | Proposal::SupportFileImport) => IngestStatus::DatFile,
+            Some(Proposal::DatImport | Proposal::SupportFileImport) => IngestStatus::ImportFile,
             Some(Proposal::Addition { .. }) | None => IngestStatus::NoDatMatch,
         },
     })
@@ -298,7 +298,7 @@ pub fn offered(status: IngestStatus) -> &'static [Decision] {
         IngestStatus::MatchesSourceSet => &[Decision::Dismiss],
         IngestStatus::Duplicate => &[Decision::Discard, Decision::Dismiss],
         IngestStatus::NoDatMatch => &[Decision::Add, Decision::Discard, Decision::Dismiss],
-        IngestStatus::DatFile => &[Decision::Import, Decision::Dismiss],
+        IngestStatus::ImportFile => &[Decision::Import, Decision::Dismiss],
         IngestStatus::Unreadable => &[Decision::Discard, Decision::Dismiss],
         IngestStatus::Dismissed => &[Decision::Discard],
         IngestStatus::Arriving | IngestStatus::Moving | IngestStatus::Done => &[],
@@ -366,7 +366,7 @@ pub fn slug(status: IngestStatus) -> &'static str {
         IngestStatus::MatchesSourceSet => "source-set",
         IngestStatus::Duplicate => "duplicate",
         IngestStatus::NoDatMatch => "no-dat-match",
-        IngestStatus::DatFile => "dat",
+        IngestStatus::ImportFile => "dat",
         IngestStatus::Unreadable => "unreadable",
         IngestStatus::Dismissed => "dismissed",
         IngestStatus::Moving => "moving",
@@ -534,7 +534,7 @@ mod tests {
         let cases = [
             (fill(1), Some(IngestStatus::MatchesSourceSet)),
             (homebrew(2, None), Some(IngestStatus::NoDatMatch)),
-            (dat(3, None, false), Some(IngestStatus::DatFile)),
+            (dat(3, None, false), Some(IngestStatus::ImportFile)),
             (duplicate(4), Some(IngestStatus::Duplicate)),
             (
                 item(5, "x.7z", "unsupported", serde_json::json!({})),
@@ -720,7 +720,7 @@ mod tests {
         };
         let choices = Choices::default();
         let new = support(false);
-        assert_eq!(status(&new), Some(IngestStatus::DatFile));
+        assert_eq!(status(&new), Some(IngestStatus::ImportFile));
         assert!(applies(Decision::Import, &new, &choices));
         assert!(!applies(Decision::Add, &new, &choices));
         let held = support(true);

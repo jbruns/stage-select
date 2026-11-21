@@ -463,7 +463,8 @@ impl ItemRow {
                 }) => format!("Addition for {system}"),
                 _ => "Addition; choose its system".into(),
             },
-            IngestStatus::DatFile => match (&item.assessment.dat, &item.assessment.support_file) {
+            IngestStatus::ImportFile => match (&item.assessment.dat, &item.assessment.support_file)
+            {
                 (Some(d), _) => format!("Import DAT {} {}", d.name, d.version),
                 (None, Some(f)) => format!("Import {} {}", f.kind.file_name(), f.mame_version),
                 (None, None) => "Import it".into(),

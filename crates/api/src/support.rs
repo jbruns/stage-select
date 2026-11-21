@@ -85,7 +85,7 @@ pub struct SupportFileRecord {
     pub file: String,
     /// The MAME version its `;; … MAME 0.NNN ;;` header names, such as `0.289`.
     pub mame_version: String,
-    /// The mirror commit it was first fetched at; absent for one you dropped in.
+    /// The mirror commit it was first fetched at; absent for one the Operator dropped in.
     pub commit: Option<String>,
     pub origin: SupportFileOrigin,
     pub source_url: Option<String>,

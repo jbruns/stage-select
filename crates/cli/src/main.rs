@@ -750,11 +750,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let (revision, outcome) = open_store(store)?
                 .import_dat(&file, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
-            let what = match outcome {
-                ImportOutcome::Added => "imported",
-                ImportOutcome::AlreadyImported => "already imported",
-                ImportOutcome::Restored => "already imported; its file is restored",
-            };
+            let what = imported(outcome);
             println!(
                 "{}: DAT revision {} (version {}) {what}",
                 revision.dat, revision.sha256, revision.version
@@ -793,11 +789,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let (pack, outcome) = open_store(store)?
                 .import_cue_pack(&file, &dat, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
-            let what = match outcome {
-                ImportOutcome::Added => "imported",
-                ImportOutcome::AlreadyImported => "already imported",
-                ImportOutcome::Restored => "already imported; its file is restored",
-            };
+            let what = imported(outcome);
             println!(
                 "{}: cue pack {} ({}) {what}",
                 pack.dat,
@@ -847,11 +839,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let (kept, outcome) = open_store(store)?
                 .import_support_file(&bytes, &name, source_url.as_deref())
                 .map_err(|e| e.to_string())?;
-            let what = match outcome {
-                ImportOutcome::Added => "imported",
-                ImportOutcome::AlreadyImported => "already imported",
-                ImportOutcome::Restored => "already imported; its file is restored",
-            };
+            let what = imported(outcome);
             println!(
                 "{} for MAME {}: support file {} {what}",
                 kept.kind.file_name(),
@@ -1259,6 +1247,15 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
+    }
+}
+
+/// What importing a DAT revision, cue pack or support file did, as the end of its line.
+fn imported(outcome: ImportOutcome) -> &'static str {
+    match outcome {
+        ImportOutcome::Added => "imported",
+        ImportOutcome::AlreadyImported => "already imported",
+        ImportOutcome::Restored => "already imported; its file is restored",
     }
 }
 
