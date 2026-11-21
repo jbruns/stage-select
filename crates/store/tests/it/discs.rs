@@ -765,9 +765,8 @@ fn a_cue_that_now_has_nothing_to_build_stays_with_its_track_and_in_its_releases_
 }
 
 /// Builds Duo as ISOs, then audits it with the images of the discs numbered `absent` optional and gone from the source
-/// set, and
-/// stores the system's games as `storage` says; returns the store, the folder, the Selection and the files the first
-/// build wrote.
+/// set, and stores the system's games as `storage` says; returns the store, the folder, the Selection and the files
+/// the first build wrote.
 fn duo_built_then(
     absent: &[usize],
     storage: SystemStorage,

@@ -1796,19 +1796,23 @@ fn plan_items(
                 && !targets.contains(target)
                 && found(scan, target)
         });
+        let Some((from, _)) = earlier else {
+            continue;
+        };
         let whole = inputs
             .built
             .iter()
             .filter(|(_, b)| release_of(&b.game) == release)
             .all(|(target, _)| found(scan, target));
-        if let Some((from, _)) = earlier.filter(|_| whole) {
+        if whole {
             nothing.held.entry(release.clone()).or_insert_with(|| {
                 let why = format!(
                     "{title} has nothing to build at {at}, and {from}, built for it before, is still there"
                 );
                 notes.push(format!(
-                    "{release} is left as it is: {why}. Nothing of it is written, moved or kept aside until an audit \
-                     finds a ROM of {title}, or you move {from} out of the folder to build {release} without it"
+                    "{release} is left as it is: {why}. Nothing of {release} is written, moved or kept aside until an \
+                     audit finds a ROM of {title}, or you move {from} out of the folder to build {release} without \
+                     {title}"
                 ));
                 why
             });
