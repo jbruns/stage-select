@@ -776,6 +776,11 @@ fn a_placed_game_is_repaired_apart_from_its_family_in_the_source_sets_folder() {
     assert_eq!(item("blaster").chosen, RepairChoice::Leave);
     let placed = item("blasterj");
     assert_eq!(placed.chosen, RepairChoice::Apply, "{placed:#?}");
+    assert!(
+        placed.summary.ends_with("as a non-merged set"),
+        "{}",
+        placed.summary
+    );
     env.approve(&plan);
     let zip = env.library().join("blasterj.zip");
     assert_eq!(members(&zip), own);
