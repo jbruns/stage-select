@@ -59,3 +59,11 @@ difference between a usable default and a noisy one; its files carry no licence.
 - The About page credits progetto-SNAPS and the curated list's author, as it credits Retool.
 - FinalBurn Neo is a follow-up: its DAT Provider, telling its devices from BIOSes, and how far its shortnames match
   catver's.
+
+## Amendment (2026-11-20): software lists are out of M6
+
+MAME's software lists are console and computer media. For consoles, No-Intro and Redump already cover what the
+Operator keeps; computers aren't a use case yet. So M6 adds nothing for software lists: no Selection, no Build, no
+Library Folder layout. A software list stays importable and auditable as it was before M6. Selection and Build refuse a
+software-list Source Set, saying why and pointing to No-Intro or Redump DATs, rather than sending it to the Retool
+port, which can't read its names. The "everything present" Selection above is withdrawn.
