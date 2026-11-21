@@ -283,17 +283,10 @@ pub struct RepairPlanContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
     /// The most free space the plan needs in each Root it writes in to release placed CHDs (ADR 0023), by the Root's
-    /// name: each CHD, and each file laid out beside it, set aside where no rename is proven to take it, and each disc
-    /// it fills, every file counted at the most it can take. It is refused before it runs unless each Root has that
-    /// free. Empty when it releases none.
+    /// name: each CHD, and each file laid out beside it, set aside where no rename is proven to take it. It is refused
+    /// before it runs unless each Root has that free. Empty when it releases none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub needs: BTreeMap<String, u64>,
-    /// The placed releases the plan releases (ADR 0023), by release, each with the paths the plan found for it: every
-    /// CHD recorded placed, gone ones included, and every file laid out beside them. Nothing is written for a Game of
-    /// the release while any of those paths holds a file, whatever is recorded of it by then. Empty when it releases
-    /// none.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub releases: BTreeMap<String, Vec<String>>,
 }
 
 /// What a repair of one item did.

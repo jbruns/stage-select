@@ -26,7 +26,7 @@ const BLOCK: u64 = 64 * 1024;
 
 /// The most a TorrentZip of `roms` can take: their bytes, what deflate adds to bytes it can't compress, and each
 /// member's headers.
-pub(crate) fn zip_bound(roms: &[ExpectedRom]) -> u64 {
+fn zip_bound(roms: &[ExpectedRom]) -> u64 {
     roms.iter()
         .map(|r| r.size + r.size / 1000 + 256 + 2 * r.name.len() as u64)
         .sum::<u64>()
