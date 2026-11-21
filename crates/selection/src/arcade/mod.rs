@@ -460,8 +460,30 @@ pub(crate) fn elect(
             && settings.rates()
             && let Some((bestgames, version)) = support.bestgames()
         {
+            // A family the rating filter would drop has machines left only because the include list names them.
+            let kept_by_include = || {
+                let names: Vec<&str> = left.iter().map(|c| c.name).collect();
+                format!("your include list keeps {}", names.join(", "))
+            };
             let message = match bestgames.get(family) {
+                Some(tier)
+                    if let Some(minimum) = settings.minimum_rating
+                        && tier.min < minimum =>
+                {
+                    format!(
+                        "{}, below {minimum}, but {}",
+                        rated(tier, version),
+                        kept_by_include()
+                    )
+                }
                 Some(tier) => rated(tier, version),
+                None if settings.drop_unrated => {
+                    format!(
+                        "{}, which you drop, but {}",
+                        unrated(version),
+                        kept_by_include()
+                    )
+                }
                 None => format!(
                     "{}, and kept, as you keep unrated families",
                     unrated(version)

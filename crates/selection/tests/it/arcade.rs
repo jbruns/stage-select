@@ -725,6 +725,36 @@ fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_t
     assert!(winners(&unrated.selection).contains("racera"));
 }
 
+#[test]
+fn the_include_list_keeps_a_family_the_rating_filter_would_drop_and_the_trace_says_so() {
+    let outcome = run_supported(
+        &engine(),
+        &["bestgames"],
+        &ArcadeSettings {
+            minimum_rating: Some(70),
+            drop_unrated: true,
+            include: vec!["|mystery".into(), "|racera".into()],
+            ..ArcadeSettings::default()
+        },
+    );
+    assert!(winners(&outcome.selection).is_superset(&set(&["mystery", "racera"])));
+    let rating_line = |family: &str| {
+        outcome
+            .trace
+            .lines()
+            .find(|l| {
+                l.contains(r#""type":"rating""#) && l.contains(&format!(r#""group":"{family}""#))
+            })
+            .unwrap_or_else(|| panic!("no rating line for {family}: {}", outcome.trace))
+    };
+    assert!(rating_line("mystery").contains(
+        "unrated by progetto-SNAPS, MAME 0.280, which you drop, but your include list keeps mystery"
+    ));
+    assert!(rating_line("racer").contains(
+        "rated 40–50 (Decent) by progetto-SNAPS, MAME 0.280, below 70, but your include list keeps racera"
+    ));
+}
+
 /// A curated list at the pinned commit, naming `names`.
 fn curated_list(names: &[&str]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
