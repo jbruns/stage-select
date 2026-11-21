@@ -478,13 +478,23 @@ fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
     Ok(out)
 }
 
-/// The newest revision of each ListXML DAT that a registered Source Set is bound to, Following or not, by id and
-/// SHA-256, in import order. MAME's Support Files are fetched for each.
+/// A ListXML DAT Revision the Support Files are fetched for.
+#[derive(Clone)]
+struct ListxmlTarget {
+    id: i64,
+    sha256: String,
+    /// Its import_seq, read with the rest: a revision deleted and imported again takes a new one, which a fetch
+    /// chosen for it before mustn't record.
+    import_seq: i64,
+}
+
+/// The newest revision of each ListXML DAT that a registered Source Set is bound to, Following or not, in import
+/// order. MAME's Support Files are fetched for each.
 // The DAT Format is the narrowest sign today that a DAT is a ListXML; the machine model (#245) is to replace it.
 // header_order is numbered within one DAT, so each DAT's newest is found on its own.
-fn support_targets(c: &Connection) -> Result<Vec<(i64, String)>> {
+fn support_targets(c: &Connection) -> Result<Vec<ListxmlTarget>> {
     let mut stmt = c.prepare(
-        "SELECT r.id, r.sha256 FROM dat_revisions r
+        "SELECT r.id, r.sha256, r.import_seq FROM dat_revisions r
          WHERE r.id = (SELECT n.id FROM dat_revisions n
                        WHERE n.dat_id = r.dat_id AND n.deleted_at IS NULL AND n.format = 'listxml'
                        ORDER BY n.header_order DESC, n.id DESC LIMIT 1)
@@ -492,7 +502,13 @@ fn support_targets(c: &Connection) -> Result<Vec<(i64, String)>> {
          ORDER BY r.import_seq, r.id",
     )?;
     Ok(stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map([], |r| {
+            Ok(ListxmlTarget {
+                id: r.get(0)?,
+                sha256: r.get(1)?,
+                import_seq: r.get(2)?,
+            })
+        })?
         .collect::<rusqlite::Result<_>>()?)
 }
 
@@ -519,22 +535,22 @@ fn support_artifacts() -> [FetchArtifact; 4] {
     ]
 }
 
-/// Whether every Support File has been fetched since the ListXML DAT Revision `revision` was imported: for it, or
-/// for a revision imported at or after it, which a fetch is sent for only once it is imported.
+/// Whether every Support File has been fetched since the ListXML DAT Revision imported at `import_seq` was imported:
+/// for it, or for a revision imported at or after it, which a fetch is sent for only once it is imported.
 // Each fetch keeps the import_seq its revision had when the fetch chose it: a revision deleted and imported again
 // takes a new one, which its earlier or in-flight fetches must not take with them.
-fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
+fn support_fetched_for(c: &Connection, import_seq: i64) -> Result<bool> {
     for kind in SupportFileKind::ALL {
         let fetched: bool = c.query_row(
             "SELECT EXISTS (SELECT 1 FROM fetches f
                             WHERE f.provider = ?1 AND f.system = ?2 AND f.artifact = ?3
                               AND f.outcome IN ('added', 'unchanged')
-                              AND f.for_import_seq >= (SELECT import_seq FROM dat_revisions WHERE id = ?4))",
+                              AND f.for_import_seq >= ?4)",
             params![
                 FetchProvider::Mame.as_str(),
                 SUPPORT_SYSTEM,
                 kind.artifact().as_str(),
-                revision
+                import_seq
             ],
             |r| r.get(0),
         )?;
@@ -545,17 +561,17 @@ fn support_fetched_for(c: &Connection, revision: i64) -> Result<bool> {
     Ok(true)
 }
 
-/// The ListXML DAT Revision the Support Files are owed for, by id and SHA-256: the last imported of the targets they
-/// haven't all been fetched for, so that a fetch for it serves every other target too.
-fn support_owed(c: &Connection) -> Result<Option<(i64, String)>> {
+/// The ListXML DAT Revision the Support Files are owed for: the last imported of the targets they haven't all been
+/// fetched for, so that a fetch for it serves every other target too.
+fn support_owed(c: &Connection) -> Result<Option<ListxmlTarget>> {
     owed_among(c, &support_targets(c)?)
 }
 
 /// As [`support_owed`], among `targets`, in import order.
-fn owed_among(c: &Connection, targets: &[(i64, String)]) -> Result<Option<(i64, String)>> {
+fn owed_among(c: &Connection, targets: &[ListxmlTarget]) -> Result<Option<ListxmlTarget>> {
     let mut owed = None;
     for target in targets {
-        if !support_fetched_for(c, target.0)? {
+        if !support_fetched_for(c, target.import_seq)? {
             owed = Some(target.clone());
         }
     }
@@ -866,22 +882,11 @@ impl Store {
         report: &mut FetchReport,
     ) -> Result<()> {
         let provider = FetchProvider::Mame;
-        // The revision's import_seq is read as it is chosen, in the same read: deleted and imported again while the
-        // requests are in flight, it takes a new one, which these requests mustn't record.
-        let owed = self.read(|c| {
-            let Some((revision, _)) = support_owed(c)? else {
-                return Ok(None);
-            };
-            let seq: i64 = c.query_row(
-                "SELECT import_seq FROM dat_revisions WHERE id = ?1",
-                [revision],
-                |r| r.get(0),
-            )?;
-            Ok(Some((revision, seq)))
-        })?;
-        let Some(target) = owed else {
+        // The import_seq comes with the revision, from the query that chose it, and every request records it.
+        let Some(owed) = self.read(support_owed)? else {
             return Ok(());
         };
+        let target = (owed.id, owed.import_seq);
         if self.read(support_next_at)?.is_some() {
             return Ok(());
         }
@@ -1323,7 +1328,10 @@ impl Store {
 fn support_status(c: &Connection) -> Result<Option<FetchSupport>> {
     let mut targets = support_targets(c)?;
     let owed = owed_among(c, &targets)?;
-    let Some((_, listxml)) = owed.clone().or_else(|| targets.pop()) else {
+    let Some(ListxmlTarget {
+        sha256: listxml, ..
+    }) = owed.clone().or_else(|| targets.pop())
+    else {
         return Ok(None);
     };
     let next_at = match owed {
