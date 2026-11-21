@@ -339,13 +339,12 @@ impl ArcadeSettings {
         }
         // Regions come from descriptions alone, so the selector reads only those it knows; languages.ini can name
         // any language, so a language needs only a name.
-        let mut seen = BTreeSet::new();
-        for name in &self.region_order {
-            if !REGIONS.contains(&name.as_str()) {
+        for (i, name) in self.region_order.iter().enumerate() {
+            if !REGIONS.iter().any(|r| same_name(r, name)) {
                 problems.push(format!(
                     "region order: {name} is not a region the arcade selection reads"
                 ));
-            } else if !seen.insert(name) {
+            } else if self.region_order[..i].iter().any(|n| same_name(n, name)) {
                 problems.push(format!("region order: {name} is listed twice"));
             }
         }
@@ -382,11 +381,10 @@ mod tests {
     }
 
     #[test]
-    fn problems_name_each_step_or_name_the_selector_cant_read_and_any_language_is_read() {
+    fn problems_name_each_step_or_name_the_selector_cant_read() {
         let settings = ArcadeSettings {
             election: vec![ElectionStep::Region, ElectionStep::Region],
-            region_order: vec!["World".into(), "Atlantis".into(), "World".into()],
-            language_order: vec!["Russian".into(), " ".into(), "russian".into()],
+            region_order: vec!["World".into(), "Atlantis".into(), "world".into()],
             forbid_controls: ["telepathy".to_owned()].into(),
             ..ArcadeSettings::default()
         };
@@ -395,10 +393,23 @@ mod tests {
             [
                 "election order: Preferred region is listed twice",
                 "region order: Atlantis is not a region the arcade selection reads",
-                "region order: World is listed twice",
+                "region order: world is listed twice",
+                "forbidden controls: telepathy is not a control type ListXML names",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_language_needs_only_a_name() {
+        let settings = ArcadeSettings {
+            language_order: vec!["Russian".into(), " ".into(), "russian".into()],
+            ..ArcadeSettings::default()
+        };
+        assert_eq!(
+            settings.problems(),
+            [
                 "language order: a language has no name",
                 "language order: russian is listed twice",
-                "forbidden controls: telepathy is not a control type ListXML names",
             ]
         );
     }

@@ -94,8 +94,9 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
 }
 
 /// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,
-/// `previewed` when its preview is an arcade Selection, and MAME, the system of every Arcade DAT, when the Profile
-/// has settings for it (`is_arcade_system`). An `arcade` block on any other system never makes it arcade: the check refuses it.
+/// `previewed` when its preview is an arcade Selection, and MAME (`is_arcade_system`), the system of every Arcade DAT,
+/// when the Profile has system settings for it. An `arcade` block on any other system never makes it arcade: the
+/// check refuses it.
 pub fn arcade_systems(
     registered: &[SourceSetSystem],
     previewed: Option<&str>,

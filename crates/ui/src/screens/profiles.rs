@@ -1191,7 +1191,7 @@ fn SystemSettingsForm(
     let global_default = move |f: fn(&SelectionProfile) -> &Vec<String>, order: Vec<String>| {
         Signal::derive(move || profile.with(|p| f(p).is_empty().then(|| order.clone())))
     };
-    // Arcade settings on a system that isn't an arcade DAT's never apply, and the check refuses them.
+    // Arcade settings on a system whose DATs aren't Arcade DATs never apply, and the check refuses them.
     let stray_arcade = move || {
         profile.with(|p| {
             p.systems
@@ -1215,12 +1215,10 @@ fn SystemSettingsForm(
                 stray_arcade()
                     .then(|| {
                         view! {
-                            <p class="problem" role="alert">
-                                {format!(
-                                    "This selection profile has arcade settings for {}, but its DATs aren't arcade DATs, so they never apply. Remove them to save.",
-                                    s.get_value(),
-                                )}
-                            </p>
+                            <Problem message=format!(
+                                "Only MAME uses arcade settings, so your arcade settings for {0} never apply. Remove them to save.",
+                                s.get_value(),
+                            ) />
                             <div class="actions">
                                 <button
                                     type="button"
