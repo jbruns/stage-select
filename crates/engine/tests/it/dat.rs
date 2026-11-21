@@ -125,6 +125,21 @@ fn a_logiqx_game_whose_entry_doesnt_say_it_is_a_bios_is_no_dependency() {
 }
 
 #[test]
+fn a_romof_or_device_ref_cycle_reaches_each_game_once() {
+    let xml = br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="a" romof="b" isbios="yes"><description>A</description><device_ref name="c"/></machine>
+  <machine name="b" romof="a" isbios="yes"><description>B</description></machine>
+  <machine name="c" isdevice="yes"><description>C</description><device_ref name="c"/><device_ref name="a"/></machine>
+</mame>
+"#;
+    let dat = Dat::parse(xml, Path::new("mame.xml")).unwrap();
+
+    assert_eq!(dat.ancestors(0), [0, 1]);
+    assert_eq!(dat.dependencies(0), [1, 2]);
+}
+
+#[test]
 fn mame_listxml_is_the_mame_dat_versioned_by_its_build() {
     let xml = br#"<?xml version="1.0"?>
 <!DOCTYPE mame [

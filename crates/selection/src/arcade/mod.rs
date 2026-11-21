@@ -969,7 +969,7 @@ pub(crate) fn list_dependencies(
     let mut needed: BTreeMap<(&str, usize), BTreeSet<String>> = BTreeMap::new();
     for group in &selection.groups {
         for winner in &group.winners {
-            let Some(game) = dat.game(&winner.title) else {
+            let Some(game) = dat.game_index(&winner.title) else {
                 continue;
             };
             for dependency in dat.dependencies(game) {

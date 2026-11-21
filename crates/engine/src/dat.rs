@@ -263,7 +263,7 @@ pub struct Dat {
     pub machines: Vec<Machine>,
     pub roms: Vec<Rom>,
     /// Each Game's index, by its name; the last Game of a name the DAT repeats.
-    by_game: HashMap<String, usize>,
+    game_by_name: HashMap<String, usize>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
     /// ROMs the DAT lists without a CRC, which the size-and-CRC index cannot find.
@@ -370,7 +370,7 @@ impl Dat {
             cloneof: Vec::new(),
             machines: Vec::new(),
             roms: Vec::new(),
-            by_game: HashMap::new(),
+            game_by_name: HashMap::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
             by_size_without_crc: HashMap::new(),
@@ -720,7 +720,7 @@ impl Dat {
         let name = a
             .get("name")
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
-        self.by_game.insert(name.clone(), self.games.len());
+        self.game_by_name.insert(name.clone(), self.games.len());
         self.games.push(name.clone());
         self.descriptions.push(String::new());
         self.cloneof.push(a.get("cloneof").cloned());
@@ -871,8 +871,8 @@ impl Dat {
     }
 
     /// The index of the Game named `name`.
-    pub fn game(&self, name: &str) -> Option<usize> {
-        self.by_game.get(name).copied()
+    pub fn game_index(&self, name: &str) -> Option<usize> {
+        self.game_by_name.get(name).copied()
     }
 
     /// The Games whose ZIPs and folders count as Game `game`'s own (ADR 0025): itself, its `cloneof` parent, and each
@@ -916,7 +916,7 @@ impl Dat {
         let mut i = 0;
         while let Some(&g) = reached.get(i) {
             for name in next(g) {
-                if let Some(n) = self.game(name)
+                if let Some(n) = self.game_index(name)
                     && seen.insert(n)
                 {
                     reached.push(n);

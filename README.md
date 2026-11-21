@@ -167,9 +167,9 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
   file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not.
 - A game's ancestors' ZIPs and folders count as its own: its parent's (`cloneof`), and each one up its `romof` chain
-  to its BIOS, because merged and split sets keep a family's shared files there. In them, an entry counts towards a
-  ROM by its name or, failing that, by its checksums under another name, as MAME looks for it: a clone's ROM that its
-  parent lists under another name counts from the parent's ZIP. Such an entry's `roms` still names only the ROMs its
+  to its BIOS, because merged and split sets keep a family's shared files there. In its own and its ancestors' ZIPs
+  and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
+  MAME looks for it: a clone's ROM that its parent lists under another name counts from the parent's ZIP. Such an entry's `roms` still names only the ROMs its
   finding gives.
 - `dependencies` lists the BIOSes and devices a game reaches through `romof` and `device_ref`, transitively, in DAT
   order, each with the status the same audit found for it. A dependency that is `complete` or `nothing_to_check` is

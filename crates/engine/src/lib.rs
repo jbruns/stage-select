@@ -691,7 +691,7 @@ impl Scan<'_> {
         });
         zip.into_iter()
             .chain(parts)
-            .find_map(|name| self.dat.game(name))
+            .find_map(|name| self.dat.game_index(name))
     }
 
     fn games(&self) -> Vec<Game> {

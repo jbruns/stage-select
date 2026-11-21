@@ -179,3 +179,28 @@ fn a_rom_only_in_an_unrelated_games_zip_is_still_available_elsewhere() {
     );
     assert!(rival.dependencies.is_empty());
 }
+
+#[test]
+fn in_a_games_own_zip_an_entry_counts_for_each_of_its_roms_with_the_same_checksums_under_another_name()
+ {
+    let f = Fixture::new();
+    // Every DAT, not only MAME's: two identical tracks of one disc, as MAME would look for the second by its hashes.
+    let dat = f.dat(&[(
+        "Game (USA)",
+        vec![
+            rom("Game (USA) (Track 1).bin", b"silence"),
+            rom("Game (USA) (Track 2).bin", b"silence"),
+        ],
+    )]);
+    write_zip(
+        &f.set_path("Game (USA).zip"),
+        &[("Game (USA) (Track 1).bin", b"silence")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let g = game(&report, "Game (USA)");
+    assert_eq!(g.status, GameStatus::Complete);
+    // The Entry itself is unchanged: its Finding and `roms` give only the ROM it is named for.
+    assert_eq!(report.entries[0].roms.len(), 1);
+}
