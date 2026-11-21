@@ -294,7 +294,7 @@ fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
 }
 
 /// How many bytes of XML whitespace `bytes` starts with.
-fn space(bytes: &[u8]) -> usize {
+fn space_len(bytes: &[u8]) -> usize {
     bytes
         .iter()
         .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
@@ -302,7 +302,7 @@ fn space(bytes: &[u8]) -> usize {
 }
 
 /// How many bytes of a UTF-8 BOM `bytes` starts with.
-fn bom(bytes: &[u8]) -> usize {
+fn bom_len(bytes: &[u8]) -> usize {
     if bytes.starts_with(b"\xef\xbb\xbf") {
         3
     } else {
@@ -382,9 +382,9 @@ impl Dat {
                 path.display()
             ))
         };
-        let content = &bytes[bom(bytes)..];
+        let content = &bytes[bom_len(bytes)..];
         if !content
-            .get(space(content))
+            .get(space_len(content))
             .copied()
             .is_some_and(opens_markup)
         {
@@ -502,11 +502,11 @@ impl Dat {
     /// error.
     pub fn format_of(mut reader: impl std::io::BufRead) -> Result<Option<DatFormat>, Error> {
         let io = |err: std::io::Error| Error::Dat(err.to_string());
-        let skip = bom(reader.fill_buf().map_err(io)?);
+        let skip = bom_len(reader.fill_buf().map_err(io)?);
         reader.consume(skip);
         loop {
             let buf = reader.fill_buf().map_err(io)?;
-            let skip = space(buf);
+            let skip = space_len(buf);
             match buf.get(skip) {
                 Some(&first) if opens_markup(first) => break,
                 Some(_) => return Ok(None),
