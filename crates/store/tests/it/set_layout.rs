@@ -352,6 +352,16 @@ fn write_zip(path: &Path, members: &[&str]) {
     writer.finish().unwrap();
 }
 
+/// Writes the TorrentZip `path`, holding `member` with `bytes`, whatever ROM its name gives.
+fn write_zip_of(path: &Path, member: &str, bytes: &[u8]) {
+    let file = std::fs::File::create_new(path).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    writer
+        .add(member, bytes.len() as u64, &mut &bytes[..])
+        .unwrap();
+    writer.finish().unwrap();
+}
+
 /// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
 fn write_plain_zip(path: &Path, members: &[&str]) {
     let mut zip = zip::ZipWriter::new(std::fs::File::create_new(path).unwrap());
@@ -1222,10 +1232,7 @@ fn a_file_holding_the_bytes_only_a_merge_aliass_line_pins_is_no_spare_copy() {
     env.stored(SetLayout::Split);
     // Under split the clone's ZIP holds none of its graphics, which the parent's ZIP holds as the layout gives them:
     // this holds the only copy of the bytes the clone's line pins.
-    let file = std::fs::File::create_new(env.set().join("spare.zip")).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    writer.add("gfxj.u4", 8, &mut &b"graphicz"[..]).unwrap();
-    writer.finish().unwrap();
+    write_zip_of(&env.set().join("spare.zip"), "gfxj.u4", b"graphicz");
     env.layout(SetLayout::Split);
     env.audit();
 
@@ -1249,10 +1256,7 @@ fn a_conflicting_entry_you_choose_to_keep_aside_with_the_last_copy_of_a_rom_says
     let env = Env::with(listxml_aliased(false));
     // The member is named for the device's ROM, but holds the parent's program, which no other file of the Source
     // Set's folder holds.
-    let file = std::fs::File::create_new(env.set().join("acmevga.zip")).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    writer.add("vga.bin", 7, &mut &b"program"[..]).unwrap();
-    writer.finish().unwrap();
+    write_zip_of(&env.set().join("acmevga.zip"), "vga.bin", b"program");
     env.audit();
     let conflict = (env.plan().content.items.into_iter())
         .find(|i| i.kind == RepairKind::Conflict)
@@ -1497,7 +1501,14 @@ fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
         return;
     }
     let placed = contents(&env.library());
+    let held = rom_payloads(env);
     let after = env.approve(&plan);
+    let lost = lost_since(&held, env);
+    assert!(
+        lost.is_empty(),
+        "{at}: lost {lost:?}\n{:#?}",
+        plan.content.items
+    );
     for (path, bytes) in &placed {
         assert_eq!(
             &std::fs::read(path).unwrap(),
@@ -1609,10 +1620,7 @@ fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(
     let env = Env::with(listxml_aliased(optional));
     let at = format!("{layout:?}, optional {optional}");
     // The member is named for the device's ROM, but holds the parent's program.
-    let file = std::fs::File::create_new(env.set().join("acmevga.zip")).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    writer.add("vga.bin", 7, &mut &b"program"[..]).unwrap();
-    writer.finish().unwrap();
+    write_zip_of(&env.set().join("acmevga.zip"), "vga.bin", b"program");
     env.zip("acmevgax.zip", &["vgax.bin"]);
     env.place("blaster", &["gfx.u4", "prog.u3"]);
     env.layout(layout);
@@ -1639,16 +1647,13 @@ fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(
 }
 
 /// Every ROM payload a file holds before `plan` is applied as it is by default, in the Source Set's folder or where a
-/// Game is placed, some file there still holds after, outside the kept files: no copy is only kept aside.
+/// Game is placed, some file there still holds after, outside the Kept Files: no copy is only kept aside.
 fn applying_by_default_loses_no_payload(env: &Env, plan: &RepairPlan, at: &str) {
     let before = rom_payloads(env);
     if (plan.content.items.iter()).any(|i| i.chosen != RepairChoice::Leave) {
         env.approve(plan);
     }
-    let after = rom_payloads(env);
-    let lost: Vec<String> = (before.difference(&after))
-        .map(|p| String::from_utf8_lossy(p).into_owned())
-        .collect();
+    let lost = lost_since(&before, env);
     assert!(
         lost.is_empty(),
         "{at}: lost {lost:?}\n{:#?}",
@@ -1656,8 +1661,15 @@ fn applying_by_default_loses_no_payload(env: &Env, plan: &RepairPlan, at: &str) 
     );
 }
 
+/// Each of the ROM payloads `held` that no file holds now, outside the Kept Files ([`rom_payloads`]).
+fn lost_since(held: &std::collections::BTreeSet<Vec<u8>>, env: &Env) -> Vec<String> {
+    (held.difference(&rom_payloads(env)))
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect()
+}
+
 /// Each payload of a ROM that a file in the Source Set's folder or the Library Folder holds, as a member of a ZIP or as
-/// a loose file, leaving out the kept files.
+/// a loose file, leaving out the Kept Files.
 fn rom_payloads(env: &Env) -> std::collections::BTreeSet<Vec<u8>> {
     const ROMS: [&str; 9] = [
         "bios.u1",
@@ -1705,32 +1717,60 @@ fn rom_payloads(env: &Env) -> std::collections::BTreeSet<Vec<u8>> {
 fn applying_a_default_plan_in_any_layout_never_leaves_a_rom_payload_only_in_the_kept_files() {
     for stored in SetLayout::ALL {
         for layout in SetLayout::ALL {
-            for (n, (zip, _)) in family(stored).into_iter().enumerate() {
+            for (zip, _) in family(stored) {
                 for placed in [None, Some("blaster"), Some("blasterj")] {
-                    let at = format!(
-                        "stored {stored:?}, repaired {layout:?}, no {zip}, {placed:?} placed"
-                    );
-                    let env = Env::new();
-                    for (m, (zip, members)) in family(stored).into_iter().enumerate() {
+                    for fill in [false, true] {
                         let game = zip.trim_end_matches(".zip");
-                        if m != n && Some(game) != placed {
-                            env.zip(zip, &members);
+                        // Only a Game of the Source Set's folder, never a device, is filled.
+                        if !fill || (!game.starts_with("acme") && placed != Some(game)) {
+                            applying_a_default_plan_loses_no_payload_under(
+                                stored, layout, zip, placed, fill,
+                            );
                         }
                     }
-                    if let Some(game) = placed {
-                        let own = (family(SetLayout::NonMerged).into_iter())
-                            .find(|(zip, _)| *zip == format!("{game}.zip"))
-                            .map(|(_, members)| members)
-                            .unwrap();
-                        env.place(game, &own);
-                    }
-                    env.zip("copies.zip", &["bios.u1", "gfx.u4", "snd.u2"]);
-                    env.layout(layout);
-                    env.audit();
-                    let plan = env.plan();
-                    applying_by_default_loses_no_payload(&env, &plan, &at);
                 }
             }
         }
     }
+}
+
+/// The family is stored as `stored` keeps it without `missing`, with `placed` placed self-contained and a ZIP of copies
+/// of shared ROMs; with `fill`, an Ingest Folder item holds the ROMs the missing Game lists, never its device's. The
+/// layout turns `layout`, and the plan as it is by default is applied.
+fn applying_a_default_plan_loses_no_payload_under(
+    stored: SetLayout,
+    layout: SetLayout,
+    missing: &str,
+    placed: Option<&str>,
+    fill: bool,
+) {
+    let at = format!(
+        "stored {stored:?}, repaired {layout:?}, no {missing}, {placed:?} placed, fill {fill}"
+    );
+    let env = Env::new();
+    let non_merged = |game: &str| {
+        (family(SetLayout::NonMerged).into_iter())
+            .find(|(zip, _)| *zip == format!("{game}.zip"))
+            .map(|(_, members)| members)
+            .unwrap()
+    };
+    for (zip, members) in family(stored) {
+        if zip != missing && Some(zip.trim_end_matches(".zip")) != placed {
+            env.zip(zip, &members);
+        }
+    }
+    if let Some(game) = placed {
+        env.place(game, &non_merged(game));
+    }
+    env.zip("copies.zip", &["bios.u1", "gfx.u4", "snd.u2"]);
+    env.layout(layout);
+    env.audit();
+    if fill {
+        let own: Vec<&str> = (non_merged(missing.trim_end_matches(".zip")).into_iter())
+            .filter(|m| *m != "snd.u2")
+            .collect();
+        env.ingest(missing, &own);
+    }
+    let plan = env.plan();
+    applying_by_default_loses_no_payload(&env, &plan, &at);
 }
