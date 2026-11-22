@@ -442,13 +442,13 @@ impl<'a> Preserved<'a> {
         lost
     }
 
-    /// Whether a file that stays, where a copy survives for the file at `path` ([`Scope::survives_for`]), holds a copy
-    /// of `rom`, as a ROM of whichever Game, under whichever name.
+    /// Whether a file other than `path` that stays, where a copy survives for the file at `path`
+    /// ([`Scope::survives_for`]), holds a copy of `rom`, as a ROM of whichever Game, under whichever name.
     fn stays_beside(&self, path: &str, rom: &RomKey) -> bool {
         let scope = self.scopes.file(path);
         self.dat.get(rom).is_some_and(|r| {
             self.held.any_where(&Sums::of(r), |p| {
-                !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
+                p != path && !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
             })
         })
     }
@@ -680,7 +680,12 @@ impl<T: Copy> Copies<T> {
 
     /// Whether a copy of `rom` is where `at` accepts ([`Copies::all_where`]).
     fn any_where(&self, rom: &Sums, at: impl Fn(T) -> bool) -> bool {
-        self.all_where(rom).into_iter().any(at)
+        let Some(first) = rom.keys().into_iter().next() else {
+            return false;
+        };
+        (self.by_key.get(&first).into_iter().flatten())
+            .map(|&n| &self.copies[n])
+            .any(|(sums, here)| sums.pins(rom) && at(*here))
     }
 
     /// Where each copy of `rom` is. A ROM the DAT gives no checksum for has none: no bytes are known to be it.
@@ -3061,8 +3066,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .filter(|u| !preserved.stays_beside(&u.path, &u.rom))
         .map(|u| u.item)
         .collect();
-    // Every Keep of a repair item waits for its cover, as the last-copy loop leaves one that can't; a file kept aside on
-    // its own is kept after every write but a conversion's, which never needs waiting for.
+    // Every Keep of a Repair item waits for its cover, as the loop that leaves an item keeping aside a last copy leaves
+    // one that can't ([`WAITS_ON_LATER`]); a file kept aside on its own is kept after every write but a conversion's,
+    // which never needs waiting for.
     if let Some(item) = ungated.first() {
         return Err(Error::Refused(format!(
             "{item} would keep a file aside before the copy it relies on is written; plan again"
@@ -3350,6 +3356,8 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, Vec<Ungated
         let RepairStep::Keep { path, needs, .. } = &s.step else {
             continue;
         };
+        // A release's Keeps come first, by its own rules, and a conversion's after its own writes.
+        let waits = !apart.contains(s.item.as_str());
         let publishes = |b: u32| {
             (published.iter())
                 .filter(move |(of, _)| *of == b)
@@ -3368,7 +3376,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, Vec<Ungated
                 .collect();
             // Another item's write that only comes later can't be waited for, unless a file that stays holds a copy,
             // such as one a Rename moves ([`Preserved::stays_beside`]).
-            if !own && !others.is_empty() && !others.iter().any(|b| before(*b)) {
+            if waits && !own && !others.is_empty() && !others.iter().any(|b| before(*b)) {
                 ungated.push(Ungated {
                     item: s.item.clone(),
                     path: path.clone(),
