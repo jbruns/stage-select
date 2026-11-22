@@ -19,7 +19,7 @@ use title_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorag
 use title_select_api::{JobKind, JobState};
 use title_select_engine::GameStatus;
 use title_select_engine::build::verify;
-use title_select_engine::torrentzip::{self, Writer};
+use title_select_engine::torrentzip;
 use title_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
@@ -140,7 +140,7 @@ impl Env {
     /// order; Yars: only a Conflicting file, named as Combat's ROM. Missing has no source.
     fn write_sources(&self) {
         let dir = self.set_dir();
-        torrentzip_file(&dir.join("Pong (USA).zip"), &[("Pong (USA).a26", b"pong")]);
+        write_torrentzip(&dir.join("Pong (USA).zip"), &[("Pong (USA).a26", b"pong")]);
         write_file(&dir.join("Pong (USA).a26"), b"pong");
         write_stored_zip(
             &dir.join("Combat (USA).zip"),
@@ -292,16 +292,6 @@ fn add(path: &str) -> AddLibraryFolder {
         source_set: SET.into(),
         profile: PROFILE.into(),
     }
-}
-
-fn torrentzip_file(path: &Path, members: &[(&str, &[u8])]) {
-    let mut writer = Writer::new(std::fs::File::create(path).unwrap()).unwrap();
-    for (name, payload) in members {
-        writer
-            .add(name, payload.len() as u64, &mut &payload[..])
-            .unwrap();
-    }
-    writer.finish().unwrap();
 }
 
 fn validate(path: &Path) -> Vec<torrentzip::Member> {
@@ -3575,12 +3565,12 @@ fn a_check_reads_only_changed_files_reports_drift_and_never_writes_to_the_folder
     write_stored_zip(&dir.join("Yars (USA).zip"), &[("Yars (USA).a26", b"yarz")]);
     // Drift of every kind.
     write_file(&dir.join("notes.txt"), b"mine");
-    torrentzip_file(&dir.join("pong copy.zip"), &[("Pong (USA).a26", b"pong")]);
-    torrentzip_file(
+    write_torrentzip(&dir.join("pong copy.zip"), &[("Pong (USA).a26", b"pong")]);
+    write_torrentzip(
         &dir.join("Ōkami (Japan).zip"),
         &[("Ōkami (Japan).a26", b"cafe")],
     );
-    torrentzip_file(
+    write_torrentzip(
         &dir.join("Missing (USA).zip"),
         &[("Missing (USA).a26", b"missing")],
     );
@@ -4268,7 +4258,7 @@ fn items(env: &Env, folder: &LibraryFolder) -> Vec<title_select_api::build::Buil
 }
 
 fn missing_zip(path: &Path) {
-    torrentzip_file(path, &[("Missing (USA).a26", b"missing")]);
+    write_torrentzip(path, &[("Missing (USA).a26", b"missing")]);
 }
 
 #[test]
@@ -4436,7 +4426,7 @@ fn a_file_holding_a_selected_game_is_adopted_under_its_name_and_never_over_anyth
         missing_zip(&dir.join(name));
         let bytes = std::fs::read(dir.join(name)).unwrap();
         // An unselected game's file is never adopted.
-        torrentzip_file(
+        write_torrentzip(
             &dir.join("Ōkami (Japan).zip"),
             &[("Ōkami (Japan).a26", b"cafe")],
         );

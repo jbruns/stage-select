@@ -21,8 +21,8 @@ use title_select_api::selection::{
 };
 use title_select_api::storage::{SetLayout, SystemStorage};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_engine::torrentzip;
 use title_select_store::{Fault, Store, Workers};
+use title_select_test_fixtures::{mame_rom_xml, write_torrentzip};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -41,24 +41,8 @@ fn payload(name: &str) -> &'static [u8] {
     }
 }
 
-fn sha1_hex(bytes: &[u8]) -> String {
-    <sha1::Sha1 as sha1::Digest>::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 fn rom(name: &str, merge: Option<&str>) -> String {
-    let p = payload(name);
-    let merge = merge
-        .map(|m| format!(r#" merge="{m}""#))
-        .unwrap_or_default();
-    format!(
-        r#"<rom name="{name}"{merge} size="{}" crc="{:08x}" sha1="{}"/>"#,
-        p.len(),
-        crc32fast::hash(p),
-        sha1_hex(p)
-    )
+    mame_rom_xml(name, merge, payload(name))
 }
 
 /// A BIOS; a sound device; a parent on the BIOS that names the device; and its clone, which shares the BIOS's ROM and
@@ -362,15 +346,7 @@ impl Env {
 
 /// Writes the TorrentZip `path`, holding `members`.
 fn write_zip(path: &Path, members: &[&str]) {
-    let mut members = members.to_vec();
-    members.sort_by(|a, b| torrentzip::compare_names(a, b));
-    let file = std::fs::File::create_new(path).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    for m in members {
-        let p = payload(m);
-        writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
-    }
-    writer.finish().unwrap();
+    write_torrentzip(path, &payloads(members));
 }
 
 /// The members of the ZIP at `path`, sorted.
@@ -882,13 +858,12 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
 
 /// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
 fn write_plain_zip(path: &Path, members: &[&str]) {
-    let mut zip = zip::ZipWriter::new(std::fs::File::create_new(path).unwrap());
-    for m in members {
-        zip.start_file(*m, zip::write::SimpleFileOptions::default())
-            .unwrap();
-        std::io::Write::write_all(&mut zip, payload(m)).unwrap();
-    }
-    zip.finish().unwrap();
+    title_select_test_fixtures::write_zip(path, &payloads(members));
+}
+
+/// `members` with their payloads.
+fn payloads<'a>(members: &[&'a str]) -> Vec<(&'a str, &'static [u8])> {
+    members.iter().map(|m| (*m, payload(m))).collect()
 }
 
 /// Plans `selection` again and expects its Game's ZIP to need nothing: every ROM of it, its Dependencies' too, has a

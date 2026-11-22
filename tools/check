@@ -130,27 +130,42 @@ if [ "$mode" = ci ]; then
     exit 0
 fi
 
-# Each workspace crate as "<folder> <package> <path dependency>...", dev-dependencies included: a change to a crate
-# a test links can break that test.
+# Each workspace crate as "<folder> <package> <path dependency>...", a dev-dependency as "dev:<package>": a change to
+# a crate a test links can break that test.
 metadata=$(cargo metadata --format-version 1 --no-deps --locked) || fail "cargo metadata failed"
 graph=$(printf '%s\n' "$metadata" | jq -r '.packages[]
-    | [(.manifest_path | split("/") | .[-2]), .name, (.dependencies[] | select(.path) | .name)] | join(" ")')
+    | [(.manifest_path | split("/") | .[-2]), .name,
+       (.dependencies[] | select(.path) | (if .kind == "dev" then "dev:" else "" end) + .name)] | join(" ")')
 
 package() {
     printf '%s\n' "$graph" | awk -v x="$1" '$1 == x || $2 == x { print $2; exit }'
 }
 
-# The packages in $1 and every crate that depends on one of them, as " <package>..." with $1 first.
+# The crates in $1 that aren't, as " <package>...", that depend on one of the packages in $1: through a dev-dependency
+# too when $2 is "dev".
+dependents_of() {
+    printf '%s\n' "$graph" | awk -v have="$1" -v dev="$2" '
+        BEGIN { n = split(have, h, " "); for (i = 1; i <= n; i++) seen[h[i]] = 1 }
+        !($2 in seen) {
+            for (i = 3; i <= NF; i++) {
+                d = $i
+                if (d ~ /^dev:/) { if (dev != "dev") continue; d = substr(d, 5) }
+                if (d in seen) { printf " %s", $2; break }
+            }
+        }'
+}
+
+# The packages in $1 and every crate that depends on one of them, as " <package>..." with $1 first. A dev-dependency
+# changes only its dependent's tests, so it counts once, at the end, and a crate depending on that dependent is left
+# out: a change to the test fixtures tests the crates whose tests use them, not every crate depending on the engine.
 with_dependents() {
     have=$1
     while :; do
-        more=$(printf '%s\n' "$graph" | awk -v have="$have" '
-            BEGIN { n = split(have, h, " "); for (i = 1; i <= n; i++) seen[h[i]] = 1 }
-            !($2 in seen) { for (i = 3; i <= NF; i++) if ($i in seen) { printf " %s", $2; break } }')
+        more=$(dependents_of "$have" lib)
         [ -n "$more" ] || break
         have="$have$more"
     done
-    printf '%s\n' "$have"
+    printf '%s%s\n' "$have" "$(dependents_of "$have" dev)"
 }
 
 # Fetches the clone lists and the curated list when the tests of a crate in $1 read them: selection's, and those of

@@ -833,7 +833,7 @@ fn a_repair_never_moves_a_file_under_a_nodump_roms_name_to_the_game_it_matches_b
     let env = Env::new();
     let revision = import_alpha_and_beta_sharing_a_nodump_roms_name(&env);
     // Beta's TorrentZip holds only its `pal.u1`, with the bytes of Alpha's: exactly Alpha, under Beta's name.
-    crate::single_copy::torrentzip(
+    write_torrentzip(
         &env.set().join("Beta (USA).zip"),
         &[("pal.u1", b"pal-good")],
     );
@@ -2681,45 +2681,20 @@ fn a_game_filled_from_ingest_never_displaces_a_conflicting_entry_you_left() {
     );
 }
 
-/// Writes the TorrentZip of the single ROM `name` holding `payload` to `path`.
-fn write_torrentzip(path: &Path, name: &str, payload: &[u8]) {
-    let loose = path.with_extension("loose");
-    write_file(&loose, payload);
-    let rom = title_select_api::build::ExpectedRom {
-        name: name.into(),
-        size: payload.len() as u64,
-        crc: None,
-        md5: None,
-        sha1: None,
-        sha256: None,
-        header: None,
-    };
-    let dest = std::fs::File::create_new(path).unwrap();
-    let source = title_select_engine::build::Source {
-        path: &loose,
-        member: None,
-    };
-    title_select_engine::build::repack(
-        &dest,
-        &[(&rom, source)],
-        &Default::default(),
-        &Default::default(),
-    )
-    .unwrap();
-    std::fs::remove_file(&loose).unwrap();
-}
-
 #[test]
 fn a_file_swapped_after_its_audit_is_left_alone_even_once_an_interrupted_audit_read_it() {
     let env = Env::new();
-    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    write_torrentzip(&env.set().join("Wrong.zip"), &[("Pong (USA).a26", b"pong")]);
     env.audit(AuditEvidence::Full);
     assert_eq!(
         item(&env.plan(), "game:Pong (USA)").kind,
         RepairKind::Rename
     );
     std::fs::remove_file(env.set().join("Wrong.zip")).unwrap();
-    write_torrentzip(&env.set().join("Wrong.zip"), "Combat (USA).a26", b"combat");
+    write_torrentzip(
+        &env.set().join("Wrong.zip"),
+        &[("Combat (USA).a26", b"combat")],
+    );
     // An Audit that reads the swapped file, and stops before it finishes.
     let job = env
         .store
@@ -2812,7 +2787,7 @@ fn a_file_moved_in_place_of_one_being_kept_aside_is_recorded_kept_under_its_own_
 #[test]
 fn a_file_moved_in_place_of_one_being_renamed_is_put_back_under_its_old_name() {
     let env = Env::new();
-    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    write_torrentzip(&env.set().join("Wrong.zip"), &[("Pong (USA).a26", b"pong")]);
     env.audit(AuditEvidence::Full);
     let plan = env.plan();
     assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Rename);
@@ -2899,7 +2874,7 @@ fn a_file_moved_in_place_of_an_ingest_original_being_kept_is_recorded_kept_under
 fn a_repair_uses_the_stamps_its_own_audit_read_even_when_an_overlapping_audit_read_the_file_since()
 {
     let env = Env::new();
-    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    write_torrentzip(&env.set().join("Wrong.zip"), &[("Pong (USA).a26", b"pong")]);
     let job = env
         .store
         .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
@@ -2909,7 +2884,10 @@ fn a_repair_uses_the_stamps_its_own_audit_read_even_when_an_overlapping_audit_re
     let progress = |p: title_select_engine::Progress| {
         if p.files_done == 1 {
             std::fs::remove_file(env.set().join("Wrong.zip")).unwrap();
-            write_torrentzip(&env.set().join("Wrong.zip"), "Combat (USA).a26", b"combat");
+            write_torrentzip(
+                &env.set().join("Wrong.zip"),
+                &[("Combat (USA).a26", b"combat")],
+            );
             env.audit(AuditEvidence::Full);
         }
     };
@@ -2976,7 +2954,7 @@ fn a_file_moved_in_place_of_a_published_fill_ends_the_fill_and_leaves_the_ingest
 #[test]
 fn a_repair_planned_from_an_incremental_audit_trusts_the_reads_that_audit_reused() {
     let env = Env::new();
-    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    write_torrentzip(&env.set().join("Wrong.zip"), &[("Pong (USA).a26", b"pong")]);
     env.audit(AuditEvidence::Full);
     env.audit(AuditEvidence::Incremental);
     assert_eq!(env.latest_report().evidence, AuditEvidence::Incremental);

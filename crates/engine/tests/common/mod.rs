@@ -1,72 +1,29 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use sha1::Digest;
-
-/// A ROM as a DAT lists it: the checksums are computed from `payload` at test time.
-pub struct RomSpec {
-    pub name: &'static str,
-    pub payload: Vec<u8>,
-    pub sha256: bool,
-    pub crc: bool,
-}
-
-pub fn rom(name: &'static str, payload: &[u8]) -> RomSpec {
-    RomSpec {
-        name,
-        payload: payload.to_vec(),
-        sha256: true,
-        crc: true,
-    }
-}
+pub use title_select_test_fixtures::*;
 
 pub fn rom_without_sha256(name: &'static str, payload: &[u8]) -> RomSpec {
     RomSpec {
-        name,
-        payload: payload.to_vec(),
         sha256: false,
-        crc: true,
+        ..rom(name, payload)
     }
 }
 
 /// A ROM listed with SHA-1 only, as some DATs do for ROMs whose CRC is unknown.
 pub fn rom_without_crc(name: &'static str, payload: &[u8]) -> RomSpec {
     RomSpec {
-        name,
-        payload: payload.to_vec(),
         sha256: false,
         crc: false,
+        ..rom(name, payload)
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The `<rom>` element a DAT lists `r` with.
-pub fn rom_xml(r: &RomSpec) -> String {
-    let p = &r.payload;
-    let mut checksums = String::new();
-    if r.crc {
-        checksums += &format!(
-            r#" crc="{:08x}" md5="{}""#,
-            crc32fast::hash(p),
-            hex(&md5::Md5::digest(p))
-        );
-    }
-    checksums += &format!(r#" sha1="{}""#, hex(&sha1::Sha1::digest(p)));
-    if r.sha256 {
-        checksums += &format!(r#" sha256="{}""#, hex(&sha2::Sha256::digest(p)));
-    }
-    format!(r#"<rom name="{}" size="{}"{checksums}/>"#, r.name, p.len())
 }
 
 /// Writes a No-Intro style Logiqx DAT with the given Games and returns its path.
 pub fn write_dat(dir: &Path, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
-    write_dat_version(dir, "test.dat", "20260101-000000", games)
+    write_dat_as(dir, &Dat::default(), games)
 }
 
 /// Writes a No-Intro revision of the `Test - System` DAT, with its header `version`, to `dir/file`.
@@ -88,7 +45,13 @@ pub fn write_dat_from(
     provider: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
-    write_dat_full(dir, file, version, provider, None, games)
+    let dat = Dat {
+        file,
+        version,
+        provider,
+        ..Dat::default()
+    };
+    write_dat_as(dir, &dat, games)
 }
 
 /// Writes a No-Intro DAT whose header names the Header Rule `rule` (`<clrmamepro header="…"/>`), as No-Intro's
@@ -104,129 +67,35 @@ pub fn write_dat_with_header_from(
     provider: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
-    write_dat_full(
-        dir,
-        "test.dat",
-        "20260101-000000",
+    let dat = Dat {
         provider,
-        Some(rule),
-        games,
-    )
+        header_rule: Some(rule),
+        ..Dat::default()
+    };
+    write_dat_as(dir, &dat, games)
 }
 
 /// Writes a DAT whose Games may each name a parent (`cloneof`), as MAME and No-Intro's parent/clone DATs do.
 pub fn write_dat_with_clones(dir: &Path, games: &[(&str, Option<&str>, Vec<RomSpec>)]) -> PathBuf {
-    write_dat_xml(dir, "test.dat", "20260101-000000", "No-Intro", None, games)
+    let games: Vec<_> = games
+        .iter()
+        .map(|(game, parent, roms)| (*game, *parent, roms.as_slice()))
+        .collect();
+    write_logiqx(dir, &Dat::default(), &games)
 }
 
-fn write_dat_full(
-    dir: &Path,
-    file: &str,
-    version: &str,
-    provider: &str,
-    rule: Option<&str>,
-    games: &[(&str, Vec<RomSpec>)],
-) -> PathBuf {
-    let games: Vec<(&str, Option<&str>, &[RomSpec])> = games
+/// Writes `dat` with `games`, none a clone, and returns its path.
+pub fn write_dat_as(dir: &Path, dat: &Dat, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
+    let games: Vec<_> = games
         .iter()
         .map(|(game, roms)| (*game, None, roms.as_slice()))
         .collect();
-    write_dat_xml(dir, file, version, provider, rule, &games)
-}
-
-fn write_dat_xml<R: AsRef<[RomSpec]>>(
-    dir: &Path,
-    file: &str,
-    version: &str,
-    provider: &str,
-    rule: Option<&str>,
-    games: &[(&str, Option<&str>, R)],
-) -> PathBuf {
-    let clrmamepro = rule
-        .map(|r| format!("    <clrmamepro header=\"{r}\"/>\n"))
-        .unwrap_or_default();
-    let homepage = match provider {
-        "No-Intro" => "    <homepage>No-Intro</homepage>\n",
-        "Redump" => "    <homepage>redump.org</homepage>\n",
-        _ => "",
-    };
-    let mut xml = format!(
-        r#"<?xml version="1.0"?>
-<datafile>
-  <header>
-    <name>Test - System</name>
-    <version>{version}</version>
-{homepage}{clrmamepro}  </header>
-"#
-    );
-    for (game, parent, roms) in games {
-        let cloneof = parent
-            .map(|p| format!(" cloneof=\"{p}\""))
-            .unwrap_or_default();
-        xml.push_str(&format!("  <game name=\"{game}\"{cloneof}>\n"));
-        for r in roms.as_ref() {
-            xml.push_str(&format!("    {}\n", rom_xml(r)));
-        }
-        xml.push_str("  </game>\n");
-    }
-    xml.push_str("</datafile>\n");
-    let path = dir.join(file);
-    fs::write(&path, xml).unwrap();
-    path
-}
-
-/// A ListXML machine: what its tag says beside its name, as written (such as `cloneof="p" romof="p"` or
-/// `isdevice="yes"`), its ROMs, and the devices it names (`<device_ref>`).
-pub struct MachineSpec {
-    pub name: &'static str,
-    pub attrs: &'static str,
-    pub roms: Vec<RomSpec>,
-    pub devices: &'static [&'static str],
-}
-
-/// Writes a MAME ListXML of `machines` to `dir/mame.xml` and returns its path.
-pub fn write_listxml(dir: &Path, machines: &[MachineSpec]) -> PathBuf {
-    let mut xml = String::from("<?xml version=\"1.0\"?>\n<mame build=\"0.289 (mame0289)\">\n");
-    for m in machines {
-        xml.push_str(&format!("  <machine name=\"{}\" {}>\n", m.name, m.attrs));
-        xml.push_str(&format!("    <description>{}</description>\n", m.name));
-        for r in &m.roms {
-            xml.push_str(&format!("    {}\n", rom_xml(r)));
-        }
-        for d in m.devices {
-            xml.push_str(&format!("    <device_ref name=\"{d}\"/>\n"));
-        }
-        xml.push_str("  </machine>\n");
-    }
-    xml.push_str("</mame>\n");
-    let path = dir.join("mame.xml");
-    fs::write(&path, xml).unwrap();
-    path
+    write_logiqx(dir, dat, &games)
 }
 
 pub fn write_file(path: &Path, payload: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, payload).unwrap();
-}
-
-pub fn write_zip(path: &Path, members: &[(&str, &[u8])]) {
-    write_zip_with(path, members, zip::CompressionMethod::Deflated);
-}
-
-/// Members stored uncompressed, so a test can find and alter their bytes in the archive.
-pub fn write_stored_zip(path: &Path, members: &[(&str, &[u8])]) {
-    write_zip_with(path, members, zip::CompressionMethod::Stored);
-}
-
-fn write_zip_with(path: &Path, members: &[(&str, &[u8])], method: zip::CompressionMethod) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-    let options = zip::write::SimpleFileOptions::default().compression_method(method);
-    for (name, payload) in members {
-        zip.start_file(*name, options).unwrap();
-        zip.write_all(payload).unwrap();
-    }
-    zip.finish().unwrap();
 }
 
 /// Two temp dirs: one for the DAT, one for the Source Set.

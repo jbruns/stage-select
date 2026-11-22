@@ -102,15 +102,8 @@ fn run(
 
 /// Writes a ListXML of `machines`, each `(name, attributes, body)`, to `dir/mame.xml`.
 fn listxml(dir: &Path, machines: &[(&str, &str, &str)]) -> PathBuf {
-    let mut xml = String::from("<?xml version=\"1.0\"?>\n<mame build=\"0.289 (mame0289)\">\n");
-    for (name, attrs, body) in machines {
-        xml += &format!(
-            "  <machine name=\"{name}\" {attrs}>\n    <description>{name}</description>\n{body}\n  </machine>\n"
-        );
-    }
-    xml += "</mame>\n";
     let path = dir.join("mame.xml");
-    std::fs::write(&path, xml).unwrap();
+    std::fs::write(&path, title_select_test_fixtures::listxml(machines)).unwrap();
     path
 }
 

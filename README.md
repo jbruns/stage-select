@@ -2635,7 +2635,8 @@ go workspace: `crates/api` (the API's and the report's types), `crates/engine` (
 `crates/ui` (the workbench). The workbench's filtering, sorting, derived states and Job event handling are plain Rust,
 tested on the host with `cargo test`; `cargo clippy --package title-select-ui --target wasm32-unknown-unknown` checks
 it as the browser runs it. `crates/selection` is the Selection engine, a port of
-Retool, and derives the Selection from its trace.
+Retool, and derives the Selection from its trace. `crates/test-fixtures` writes the ZIPs, TorrentZips, DATs and
+ListXMLs the tests read; the crates take it only as a dev-dependency, and it never ships.
 
 ### chdman
 

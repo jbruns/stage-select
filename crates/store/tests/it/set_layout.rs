@@ -11,8 +11,8 @@ use title_select_api::selection::SelectionProfile;
 use title_select_api::storage::{SetLayout, StorageFormat, SystemStorage, split_placed};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
 use title_select_engine::build::is_torrentzip;
-use title_select_engine::torrentzip;
 use title_select_store::{Store, Workers};
+use title_select_test_fixtures::{mame_rom_xml, write_torrentzip};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -60,16 +60,7 @@ fn sha1_hex(bytes: &[u8]) -> String {
 }
 
 fn rom(name: &str, merge: Option<&str>) -> String {
-    let p = payload(name);
-    let sha1 = sha1_hex(p);
-    let merge = merge
-        .map(|m| format!(r#" merge="{m}""#))
-        .unwrap_or_default();
-    format!(
-        r#"<rom name="{name}"{merge} size="{}" crc="{:08x}" sha1="{sha1}"/>"#,
-        p.len(),
-        crc32fast::hash(p)
-    )
+    mame_rom_xml(name, merge, payload(name))
 }
 
 /// A BIOS; a sound device; a parent on the BIOS that names the device; and its clone, which shares the BIOS's ROM and
@@ -349,36 +340,22 @@ impl Env {
 
 /// Writes the TorrentZip `path`, holding `members`.
 fn write_zip(path: &Path, members: &[&str]) {
-    let mut members = members.to_vec();
-    members.sort_by(|a, b| torrentzip::compare_names(a, b));
-    let file = std::fs::File::create_new(path).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    for m in members {
-        let p = payload(m);
-        writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
-    }
-    writer.finish().unwrap();
+    write_torrentzip(path, &payloads(members));
 }
 
 /// Writes the TorrentZip `path`, holding `member` with `bytes`, whatever ROM its name gives.
 fn write_zip_of(path: &Path, member: &str, bytes: &[u8]) {
-    let file = std::fs::File::create_new(path).unwrap();
-    let mut writer = torrentzip::Writer::new(file).unwrap();
-    writer
-        .add(member, bytes.len() as u64, &mut &bytes[..])
-        .unwrap();
-    writer.finish().unwrap();
+    write_torrentzip(path, &[(member, bytes)]);
 }
 
 /// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
 fn write_plain_zip(path: &Path, members: &[&str]) {
-    let mut zip = zip::ZipWriter::new(std::fs::File::create_new(path).unwrap());
-    for m in members {
-        zip.start_file(*m, zip::write::SimpleFileOptions::default())
-            .unwrap();
-        std::io::Write::write_all(&mut zip, payload(m)).unwrap();
-    }
-    zip.finish().unwrap();
+    title_select_test_fixtures::write_zip(path, &payloads(members));
+}
+
+/// `members` with their payloads.
+fn payloads<'a>(members: &[&'a str]) -> Vec<(&'a str, &'static [u8])> {
+    members.iter().map(|m| (*m, payload(m))).collect()
 }
 
 /// Every file under `dir`, with its bytes, in order of path.
