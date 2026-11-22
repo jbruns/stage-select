@@ -102,6 +102,23 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap()
 }
 
+/// The error canonicalizing `path` gives, as the store words it: the path, then the error.
+fn canonicalize_error(path: &Path) -> String {
+    format!("{}: {}", path.display(), path.canonicalize().unwrap_err())
+}
+
+/// The refusal for a component of a Library Folder's path that can't be opened as a folder without following a
+/// symlink: the error opening `path` as the store opens each component.
+fn not_a_plain_folder(path: &Path) -> String {
+    use rustix::fs::{CWD, Mode, OFlags, openat};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let e = std::io::Error::from(openat(CWD, path, flags, Mode::empty()).unwrap_err());
+    format!(
+        "{}: {e} (no part of a library folder's path inside its root may be a symlink)",
+        path.display()
+    )
+}
+
 #[test]
 fn a_source_set_path_is_refused_unless_it_names_a_folder_that_resolves_inside_its_root() {
     let env = Env::new();
@@ -147,11 +164,9 @@ fn a_source_set_path_is_refused_unless_it_names_a_folder_that_resolves_inside_it
     ] {
         assert_eq!(env.add_set(rel), Err(why.to_owned()), "{rel:?}");
     }
-    let absent = env.sets().join("absent");
-    let why = env.add_set("absent").unwrap_err();
-    assert!(
-        why.starts_with(&format!("{}: ", absent.display())) && why.contains("os error"),
-        "{why}"
+    assert_eq!(
+        env.add_set("absent"),
+        Err(canonicalize_error(&env.sets().join("absent")))
     );
     assert_eq!(
         env.add_set("file"),
@@ -185,12 +200,13 @@ fn a_source_set_in_a_root_whose_folder_is_gone_is_refused_naming_the_root() {
     let env = Env::new();
     std::fs::remove_dir_all(env.sets()).unwrap();
 
-    let why = env.add_set(SET).unwrap_err();
-
-    assert!(
-        why.starts_with(&format!("root sets ({}): ", env.sets().display()))
-            && why.contains("os error"),
-        "{why}"
+    assert_eq!(
+        env.add_set(SET),
+        Err(format!(
+            "root sets ({}): {}",
+            env.sets().display(),
+            env.sets().canonicalize().unwrap_err()
+        ))
     );
 }
 
@@ -278,16 +294,151 @@ fn a_library_folder_path_through_a_symlink_is_checked_where_it_leads_and_then_re
     }
     // A symlink that stays inside the Root, or leads out of it, passes that check, and is then refused as a symlink.
     for rel in ["alias", "alias/new", "escape", "escape/new"] {
-        let link = rel.split('/').next().unwrap();
-        let why = env.add_folder(rel).unwrap_err();
-        assert!(
-            why.starts_with(&format!("{}: ", env.play().join(link).display()))
-                && why.ends_with(
-                    " (no part of a library folder's path inside its root may be a symlink)"
-                ),
-            "{rel}: {why}"
-        );
+        let link = env.play().join(rel.split('/').next().unwrap());
+        assert_eq!(env.add_folder(rel), Err(not_a_plain_folder(&link)), "{rel}");
     }
     assert!(env.store.library_folders().unwrap().is_empty());
     assert_eq!(std::fs::read_dir(env.outside()).unwrap().count(), 0);
+}
+
+#[test]
+fn a_library_folder_path_through_a_file_is_refused_when_its_folders_are_opened() {
+    let env = Env::new();
+    env.add_set(SET).unwrap();
+    std::fs::write(env.play().join("file"), b"").unwrap();
+
+    for rel in ["file", "file/new"] {
+        assert_eq!(
+            env.add_folder(rel),
+            Err(not_a_plain_folder(&env.play().join("file"))),
+            "{rel}"
+        );
+    }
+    assert!(env.store.library_folders().unwrap().is_empty());
+}
+
+#[test]
+fn a_library_folder_in_a_root_whose_folder_is_gone_is_refused_naming_the_root() {
+    let env = Env::new();
+    env.add_set(SET).unwrap();
+    std::fs::remove_dir_all(env.play()).unwrap();
+
+    assert_eq!(
+        env.add_folder("new"),
+        Err(format!(
+            "root play ({}): {}",
+            env.play().display(),
+            env.play().canonicalize().unwrap_err()
+        ))
+    );
+}
+
+#[test]
+fn a_library_folder_path_that_cannot_be_resolved_past_a_file_is_checked_as_written() {
+    let env = Env::new();
+    env.add_set(SET).unwrap();
+    std::fs::write(env.sets().join(SET).join("f"), b"").unwrap();
+    std::os::unix::fs::symlink(env.sets().join(SET), env.play().join("into-set")).unwrap();
+
+    // Resolved through the file, the path is in the Source Set's folder.
+    let set = canonical(&env.sets().join(SET));
+    assert_eq!(
+        env.add_folder("into-set/f"),
+        Err(format!(
+            "into-set/f in root play would overlap a source set at {}",
+            set.display()
+        ))
+    );
+    // Past the file, resolving fails with an error other than "not found": the path is then joined to the Root as
+    // written, not through the symlink, and overlaps nothing; opening its folders refuses the symlink.
+    assert!(
+        env.play()
+            .join("into-set/f/new")
+            .canonicalize()
+            .is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound)
+    );
+    assert_eq!(
+        env.add_folder("into-set/f/new"),
+        Err(not_a_plain_folder(&env.play().join("into-set")))
+    );
+}
+
+#[test]
+fn the_first_failing_check_of_a_source_set_path_is_the_one_reported() {
+    let env = Env::new();
+    std::fs::write(env.outside().join("file"), b"").unwrap();
+    std::os::unix::fs::symlink(env.outside().join("file"), env.sets().join("escape-file")).unwrap();
+    std::os::unix::fs::symlink(env.outside().join("gone"), env.sets().join("dangling")).unwrap();
+
+    // Resolving outside the Root before not being a folder; not existing before resolving outside.
+    assert_eq!(
+        env.add_set("escape-file"),
+        Err("escape-file: resolves outside root sets".to_owned())
+    );
+    assert_eq!(
+        env.add_set("dangling"),
+        Err(canonicalize_error(&env.sets().join("dangling")))
+    );
+    // The path itself before its Root's folder.
+    std::fs::remove_dir_all(env.sets()).unwrap();
+    assert_eq!(
+        env.add_set("../x"),
+        Err("../x: a source set's path must not contain `..`".to_owned())
+    );
+    // The Root before the path.
+    crate::reregister(&env.store, RootSpec::new("sets", env.sets()).writable());
+    assert_eq!(
+        env.add_set("../x"),
+        Err(
+            "root sets is writable, and only library folders go in a writable root; add the source set from a \
+             read-only root"
+                .to_owned()
+        )
+    );
+}
+
+#[test]
+fn the_first_failing_check_of_a_library_folder_path_is_the_one_reported() {
+    let env = Env::new();
+    env.add_set(SET).unwrap();
+    assert_eq!(env.add_folder("a"), Ok("a".to_owned()));
+    let id = env.store.library_folders().unwrap()[0].id;
+
+    // A path already registered, before overlapping the folder registered there.
+    assert_eq!(
+        env.add_folder("./a/"),
+        Err(format!("library folder {id} already uses a in root play"))
+    );
+    // The path before the Source Set it is bound to.
+    let refused = env.store.add_library_folder(&AddLibraryFolder {
+        root: "play".into(),
+        path: Some("../x".into()),
+        template: None,
+        source_set: "nope".into(),
+        profile: "Mine".into(),
+    });
+    assert_eq!(
+        refused.map_err(refusal),
+        Err("../x: a library folder's path must not contain `..`".to_owned())
+    );
+    // The Root before the path.
+    let refused = env.store.add_library_folder(&AddLibraryFolder {
+        root: "sets".into(),
+        path: Some("../x".into()),
+        template: None,
+        source_set: SET.into(),
+        profile: "Mine".into(),
+    });
+    assert_eq!(
+        refused.map_err(refusal),
+        Err(
+            "root sets is read-only; a library folder needs a root with writable = true".to_owned()
+        )
+    );
+    // The path before its Root's folder.
+    std::fs::remove_dir_all(env.play()).unwrap();
+    assert_eq!(
+        env.add_folder("../x"),
+        Err("../x: a library folder's path must not contain `..`".to_owned())
+    );
 }
