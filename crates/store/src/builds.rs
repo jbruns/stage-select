@@ -2513,10 +2513,30 @@ impl Store {
             }
             units.push(vec![w]);
         }
-        // A release placed goes in place after every file written fresh, and only once the other files of its Games
-        // are in place: a Game's Disk is copied and verified before its ZIP is placed. And so every file the plan reads
-        // from the Source Set is read before a release placed consumes it.
-        units.sort_by_key(|u| u[0].item.kind == ItemKind::Place);
+        // A release placed goes in place right after the files written fresh beside it, and only once they are in
+        // place: a Game's Disk is copied and verified before its ZIP is placed, and a cancel doesn't come between them.
+        // No other release reads a file a release placed consumes (the plan places none another reads).
+        let mut first: HashMap<String, usize> = HashMap::new();
+        for (i, u) in units.iter().enumerate() {
+            if u[0].item.addition.is_none() {
+                first
+                    .entry(title_select_api::storage::release_of(&u[0].item.game))
+                    .or_insert(i);
+            }
+        }
+        let mut keyed: Vec<((usize, bool), Vec<&Work>)> = units
+            .into_iter()
+            .enumerate()
+            .map(|(i, u)| {
+                let at = match u[0].item.addition {
+                    None => first[&title_select_api::storage::release_of(&u[0].item.game)],
+                    Some(_) => i,
+                };
+                ((at, u[0].item.kind == ItemKind::Place), u)
+            })
+            .collect();
+        keyed.sort_by_key(|(k, _)| *k);
+        let units: Vec<Vec<&Work>> = keyed.into_iter().map(|(_, u)| u).collect();
         /// A file of a unit, written and verified in the staging directory.
         struct Ready<'w, 'a> {
             w: &'w Work<'a>,
@@ -2542,11 +2562,18 @@ impl Store {
             to: &chd_work.to,
             from: &chd_work.from,
         };
+        // The release whose files written fresh were last put in place: its files placed follow them, even once you
+        // cancel.
+        let mut beside: Option<String> = None;
         for unit in &units {
             if cancelled {
                 break;
             }
-            if self.cancel_requested(job)? {
+            let release = title_select_api::storage::release_of(&unit[0].item.game);
+            let follows = unit[0].item.kind == ItemKind::Place && beside.as_ref() == Some(&release);
+            beside = (unit[0].item.kind != ItemKind::Place && unit[0].item.addition.is_none())
+                .then(|| release.clone());
+            if !follows && self.cancel_requested(job)? {
                 cancelled = true;
                 break;
             }
@@ -2554,7 +2581,6 @@ impl Store {
             if let Some(set) = &placing
                 && unit[0].item.kind == ItemKind::Place
             {
-                let release = title_select_api::storage::release_of(&unit[0].item.game);
                 let mut culprit = None;
                 for w in work.iter().filter(|w| {
                     w.item.kind != ItemKind::Place
@@ -2570,7 +2596,9 @@ impl Store {
                     self.fail_unit(
                         &placer,
                         unit,
-                        &format!("{culprit} of the same game failed, so it was not put in place"),
+                        &format!(
+                            "{culprit}, a file of the same game, wasn't put in place, so neither is this one"
+                        ),
                     )?;
                 } else {
                     self.place_unit(

@@ -22,7 +22,7 @@ use title_select_api::storage::{SetLayout, SystemStorage};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
 use title_select_engine::torrentzip;
 use title_select_store::config::Config;
-use title_select_store::{Store, Workers};
+use title_select_store::{Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -810,8 +810,8 @@ fn single_copy_places_no_zip_whose_disk_fails_to_verify() {
     assert_eq!(
         zip.error.as_deref(),
         Some(
-            "blaster/blaster.chd of the same game failed, so it was not put in place; blaster stays in source set \
-             mame as it was"
+            "blaster/blaster.chd, a file of the same game, wasn't put in place, so neither is this one; blaster \
+             stays in source set mame as it was"
         )
     );
     // The game's ZIP stays in the source set, and nothing of it is in the folder.
@@ -862,4 +862,48 @@ fn a_placed_parent_going_home_is_read_first_by_its_clone() {
         members(&env.set().join("blaster.zip")),
         ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]
     );
+}
+
+#[test]
+fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
+    let Some(env) = with_disk() else { return };
+    env.single_copy();
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    // You cancel once the disk is put in place, before its game's ZIP is.
+    let (at, published) = std::sync::mpsc::channel::<()>();
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let (at, wait) = (std::sync::Mutex::new(at), std::sync::Mutex::new(wait));
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::AfterPublish(_)) {
+                at.lock().unwrap().send(()).unwrap();
+                wait.lock().unwrap().recv().unwrap();
+            }
+        })));
+    std::thread::scope(|scope| {
+        let run = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None).unwrap());
+        published
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap();
+        env.store.cancel_job(job.id).unwrap();
+        go.send(()).unwrap();
+        run.join().unwrap();
+    });
+    env.store.hook_faults(None);
+
+    assert_eq!(
+        env.built_item(&job, "blaster.zip").state,
+        ItemState::Applied
+    );
+    assert_eq!(
+        files(&env.library()),
+        ["blaster.zip", "blaster/blaster.chd"]
+    );
+    assert!(!env.set().join("blaster.zip").exists());
 }
