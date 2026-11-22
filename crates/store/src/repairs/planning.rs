@@ -320,7 +320,7 @@ struct Usable<'a> {
     unreadable: bool,
 }
 
-/// The ROMs each payload of `entries` is: each Entry's that holds a matched payload.
+/// For each Entry of `entries` whose payload the Audit matched, the ROMs that payload is.
 fn payloads<'e>(entries: &'e [&Entry]) -> impl Iterator<Item = Vec<RomKey>> + 'e {
     entries
         .iter()
@@ -354,8 +354,8 @@ fn copies_in<'a>(
     copies
 }
 
-/// Every ROM an applied item of `proposed` writes, exactly as its steps write it ([`writes_of`]), by the scope it writes
-/// it in: its Game's.
+/// Every ROM an applied item of `proposed` writes, exactly as its steps write it ([`writes_of`]), by the scope it
+/// writes it in: its Game's.
 fn produced_by<'a>(i: &Inputs, proposed: &[Proposed], scopes: &Scopes<'a>) -> Copies<Scope<'a>> {
     let mut produced = Copies::new();
     for p in proposed
@@ -568,14 +568,13 @@ struct Sums {
     sha256: Option<String>,
 }
 
-/// One checksum of a [`Sums`], or its size, by which [`Copies`] finds a copy.
+/// One checksum of a [`Sums`], by which [`Copies`] finds a copy.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Sum {
     Crc(String),
     Md5(String),
     Sha1(String),
     Sha256(String),
-    Size(u64),
 }
 
 impl Sums {
@@ -609,9 +608,9 @@ impl Sums {
         })
     }
 
-    /// Every checksum it gives, then its size: never empty.
+    /// Every checksum it gives.
     fn keys(&self) -> Vec<Sum> {
-        let mut sums: Vec<Sum> = [
+        [
             self.crc.clone().map(Sum::Crc),
             self.md5.clone().map(Sum::Md5),
             self.sha1.clone().map(Sum::Sha1),
@@ -619,9 +618,7 @@ impl Sums {
         ]
         .into_iter()
         .flatten()
-        .collect();
-        sums.push(Sum::Size(self.size));
-        sums
+        .collect()
     }
 
     /// Whether bytes that are these are also `rom`, as the DAT pins it: the same size, with every checksum `rom` gives
@@ -639,7 +636,7 @@ impl Sums {
 /// Copies of payloads, each with where it is, found by their checksums ([`Sums`]).
 struct Copies<T> {
     copies: Vec<(Sums, T)>,
-    /// Each copy, by its index, under each checksum it gives and its size.
+    /// Each copy, by its index, under each checksum it gives.
     by_key: HashMap<Sum, Vec<usize>>,
 }
 
@@ -662,14 +659,15 @@ impl<T: Copy> Copies<T> {
     /// to be it.
     fn any_where(&self, rom: &Sums, at: impl Fn(T) -> bool) -> bool {
         // A copy of it gives every checksum it gives, the first among them included.
-        let first = rom.keys().swap_remove(0);
-        !matches!(first, Sum::Size(_))
-            && (self.by_key.get(&first)).is_some_and(|copies| {
-                copies.iter().any(|&n| {
-                    let (sums, here) = &self.copies[n];
-                    sums.pins(rom) && at(*here)
-                })
+        let Some(first) = rom.keys().into_iter().next() else {
+            return false;
+        };
+        (self.by_key.get(&first)).is_some_and(|copies| {
+            copies.iter().any(|&n| {
+                let (sums, here) = &self.copies[n];
+                sums.pins(rom) && at(*here)
             })
+        })
     }
 }
 
@@ -1569,8 +1567,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .map(|(path, file)| (*path, file.entries.as_slice())),
         &dat_roms,
     );
-    // Every payload the Audit found, by its checksums, in a file as read then: where a Game's scope may still hold a
-    // ROM under whichever name, which refuses a fill that would set it aside.
+    // Every payload the Audit found, by its checksums, in a file as read then: what a file may still hold under whichever
+    // name, which refuses a fill that would set it aside.
     let found = copies_in(
         by_path
             .iter()
@@ -2431,8 +2429,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         // Each unused item holding every ROM the Game needs, with each ROM of `roms` it doesn't hold, and whether a file
-        // of the Game's scope holds its payload, under whichever name. One lacking a ROM held there never fills it, so
-        // that the ROM is never set aside with the file it is in; of the others, the one lacking fewest fills it.
+        // the fill keeps aside holds its payload, under whichever name. One lacking a ROM held there never fills it, so
+        // that the ROM is never set aside with the file it is in; of the others, the one lacking fewest fills it. A
+        // copy elsewhere stays, and [`Preserved`] counts only what the fill writes.
         let fillers: Vec<(usize, Vec<(&str, bool)>)> = i
             .candidates
             .iter()
@@ -2449,7 +2448,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     .filter(|rom| c.matched.rom(&rom.name).is_none())
                     .map(|rom| {
                         let held =
-                            found.any_where(&Sums::of_expected(rom), |p| scopes.file(p) == scope);
+                            found.any_where(&Sums::of_expected(rom), |p| attributable.contains(&p));
                         (rom.name.as_str(), held)
                     })
                     .collect();
@@ -2871,8 +2870,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of payloads that a
     // Game's own file there holds once repaired, under whichever name: one of a Game left as it is, as it is in place,
     // or one an applied item writes there, exactly as it writes it ([`produced_by`]). A Placed Game's files are of
-    // another scope: they never make a file of the Source Set's folder a spare copy, and are never one themselves, as a placed
-    // file holding a ROM leaves its Library Folder only when its Game returns home or is repaired there.
+    // another scope: they never make a file of the Source Set's folder a spare copy, and are never one themselves, as a
+    // placed file holding a ROM leaves its Library Folder only when its Game returns home or is repaired there.
     let whole = copies_in(
         (stays_whole.iter())
             .filter(|path| scopes.file(path) == Scope::Source)
@@ -3107,12 +3106,22 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     let (turns, together): (Vec<&Proposed>, Vec<&Proposed>) = applied
         .iter()
         .partition(|p| !p.converts.is_empty() && alone(p));
+    // What each applied item writes ([`writes_of`]), by its key: its Builds, Renames and Fills, each placed below.
+    let (mut builds_by, mut renames_by, mut fills_by) =
+        (HashMap::new(), HashMap::new(), HashMap::new());
+    for p in &applied {
+        let key = p.item.key.as_str();
+        let writes = writes_of(i, p);
+        builds_by.insert(key, writes.builds);
+        renames_by.insert(key, writes.renames);
+        fills_by.insert(key, writes.fills);
+    }
     let mut steps = Vec::new();
     let mut names: BTreeSet<String> = BTreeSet::new();
     released_steps(i, &applied, &mut names, &mut steps);
     let mut builds: Vec<(&str, u32, String)> = Vec::new();
     for p in &together {
-        for (target, step) in writes_of(i, p).builds {
+        for (target, step) in builds_by.remove(p.item.key.as_str()).unwrap_or_default() {
             builds.push((&p.item.key, steps.len() as u32, target));
             steps.push(step);
         }
@@ -3152,7 +3161,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     }
     steps.extend(keeps);
     for p in &together {
-        steps.extend(writes_of(i, p).renames);
+        steps.extend(renames_by.remove(p.item.key.as_str()).unwrap_or_default());
     }
     for (item, build, target) in &builds {
         steps.push(PlannedStep {
@@ -3164,7 +3173,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         });
     }
     for p in &together {
-        steps.extend(writes_of(i, p).fills);
+        steps.extend(fills_by.remove(p.item.key.as_str()).unwrap_or_default());
     }
     let mut originals: Vec<PlannedStep> = Vec::new();
     for p in &together {
@@ -3198,11 +3207,19 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         // What you approved keeping aside from the new files' names goes first; the new files are in place before
         // any original is moved, so a destination still taken leaves the originals where they are.
         let mut built = Vec::new();
-        for (target, step) in writes_of(i, p).builds {
+        for (target, step) in builds_by.remove(p.item.key.as_str()).unwrap_or_default() {
             built.push((steps.len() as u32, target));
             steps.push(step);
         }
         assert!(!built.is_empty(), "a conversion builds");
+        // It only builds, so it writes exactly what [`produced_by`] counts for it.
+        assert!(
+            renames_by
+                .get(p.item.key.as_str())
+                .is_none_or(Vec::is_empty)
+                && fills_by.get(p.item.key.as_str()).is_none_or(Vec::is_empty),
+            "a conversion only builds"
+        );
         let mut occupants = Vec::new();
         keeps_of(
             i,
@@ -3392,6 +3409,7 @@ fn released_steps(
 
 /// The steps that put what item `p` writes in place, as [`steps_of`] orders them: each file it builds, with its Build
 /// step; its Renames; and its Fills.
+#[derive(Default)]
 struct Writes {
     builds: Vec<(String, PlannedStep)>,
     renames: Vec<PlannedStep>,
@@ -3442,11 +3460,7 @@ fn writes_of(i: &Inputs, p: &Proposed) -> Writes {
             loose,
         },
     };
-    let mut writes = Writes {
-        builds: Vec::new(),
-        renames: Vec::new(),
-        fills: Vec::new(),
-    };
+    let mut writes = Writes::default();
     match &p.proposal {
         Some(Proposal::Build { roms }) => {
             let (target, loose) = p.target.clone().expect("a game's target");

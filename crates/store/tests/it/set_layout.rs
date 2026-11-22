@@ -1,7 +1,7 @@
 //! Set Layouts of MAME Source Sets (ADR 0026): a Repair repacks a family towards the layout the Storage Policy gives,
 //! filling from sibling ZIPs, and keeps a ZIP aside only once every copy written from it is verified.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use title_select_api::build::AddLibraryFolder;
@@ -19,7 +19,20 @@ const WORKERS: Workers = Workers {
     hashers: 1,
 };
 
-/// A ROM's payload, by its name.
+/// Every ROM name [`payload`] gives a payload for, but the nodump ROM's.
+const ROMS: [&str; 9] = [
+    "bios.u1",
+    "snd.u2",
+    "prog.u3",
+    "gfx.u4",
+    "gfxj.u4",
+    "progj.u3",
+    "extra.u6",
+    "gamebios.u1",
+    "vga.bin",
+];
+
+/// A ROM's payload, by its name: every name of [`ROMS`], and the nodump ROM's.
 fn payload(name: &str) -> &'static [u8] {
     match name {
         "bios.u1" => b"bios",
@@ -1206,7 +1219,7 @@ fn a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_dev
 }
 
 #[test]
-fn a_file_holding_the_bytes_only_a_merge_aliass_line_pins_is_no_spare_copy() {
+fn a_file_holding_other_bytes_than_its_merge_parents_rom_is_no_spare_copy() {
     // The clone's graphics are the parent's by `merge=`, alike as the DAT gives them, the parent's by their CRC and the
     // clone's by their SHA-1; but the bytes each DAT line pins differ, so a file of the clone's is no copy of the
     // parent's.
@@ -1579,7 +1592,8 @@ fn listxml_aliased(optional: bool) -> String {
         r#"<?xml version="1.0"?>
 <mame build="0.289 (mame0289)">
   <machine name="acmevga" isdevice="yes" runnable="no"><description>Acme VGA</description>{vga}</machine>
-  <machine name="acmevgax" isdevice="yes" runnable="no" romof="acmevga"><description>Acme VGA X</description>{vgax}</machine>
+  <machine name="acmevgax" isdevice="yes" runnable="no" romof="acmevga">
+    <description>Acme VGA X</description>{vgax}</machine>
   <machine name="blaster"><description>Blaster</description>{prog}{gfx}</machine>
   <machine name="blasterj" cloneof="blaster" romof="blaster"><description>Blaster (Japan)</description>{progj}{gfxj}
     <device_ref name="acmevga"/></machine>
@@ -1610,7 +1624,8 @@ fn an_ingest_fill_never_counts_an_optional_dependency_rom_it_doesnt_write_in_any
 /// The parent is placed, so its missing clone is laid out non-merged; the clone needs the first graphics device, whose
 /// ZIP holds a conflicting member and is left by default; the second device's ZIP holds the Source Set's only usable
 /// copy of the device's ROM, under its own name; and an Ingest Folder holds the clone's own ROMs, without the device's.
-/// With `optional`, the device's ROM is optional, and the clone wants it as an Ingest Folder holds the device whole too.
+/// With `optional`, the device's ROM is optional, and the clone wants it as an Ingest Folder holds the device whole
+/// too.
 /// A fill of the clone writes only the clone's own ROMs, so applying the plan as it is by default leaves the device's
 /// ROM in the Source Set's folder.
 fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(
@@ -1662,7 +1677,7 @@ fn applying_by_default_loses_no_payload(env: &Env, plan: &RepairPlan, at: &str) 
 }
 
 /// Each of the ROM payloads `held` that no file holds now, outside the Kept Files ([`rom_payloads`]).
-fn lost_since(held: &std::collections::BTreeSet<Vec<u8>>, env: &Env) -> Vec<String> {
+fn lost_since(held: &BTreeSet<Vec<u8>>, env: &Env) -> Vec<String> {
     (held.difference(&rom_payloads(env)))
         .map(|p| String::from_utf8_lossy(p).into_owned())
         .collect()
@@ -1670,20 +1685,9 @@ fn lost_since(held: &std::collections::BTreeSet<Vec<u8>>, env: &Env) -> Vec<Stri
 
 /// Each payload of a ROM that a file in the Source Set's folder or the Library Folder holds, as a member of a ZIP or as
 /// a loose file, leaving out the Kept Files.
-fn rom_payloads(env: &Env) -> std::collections::BTreeSet<Vec<u8>> {
-    const ROMS: [&str; 9] = [
-        "bios.u1",
-        "snd.u2",
-        "prog.u3",
-        "gfx.u4",
-        "progj.u3",
-        "extra.u6",
-        "vga.bin",
-        "gamebios.u1",
-        "gfxj.u4",
-    ];
+fn rom_payloads(env: &Env) -> BTreeSet<Vec<u8>> {
     let known: Vec<&[u8]> = ROMS.iter().map(|r| payload(r)).collect();
-    let mut held = std::collections::BTreeSet::new();
+    let mut held = BTreeSet::new();
     for dir in [env.set(), env.library()] {
         for e in walkdir::WalkDir::new(&dir).min_depth(1) {
             let e = e.unwrap();
