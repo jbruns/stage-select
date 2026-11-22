@@ -1625,9 +1625,8 @@ fn an_ingest_fill_never_counts_an_optional_dependency_rom_it_doesnt_write_in_any
 /// ZIP holds a conflicting member and is left by default; the second device's ZIP holds the Source Set's only usable
 /// copy of the device's ROM, under its own name; and an Ingest Folder holds the clone's own ROMs, without the device's.
 /// With `optional`, the device's ROM is optional, and the clone wants it as an Ingest Folder holds the device whole
-/// too.
-/// A fill of the clone writes only the clone's own ROMs, so applying the plan as it is by default leaves the device's
-/// ROM in the Source Set's folder.
+/// too. A fill of the clone writes only the clone's own ROMs, so applying the plan as it is by default leaves the
+/// device's ROM in the Source Set's folder.
 fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(
     layout: SetLayout,
     optional: bool,

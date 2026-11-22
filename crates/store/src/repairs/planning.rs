@@ -1567,8 +1567,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .map(|(path, file)| (*path, file.entries.as_slice())),
         &dat_roms,
     );
-    // Every payload the Audit found, by its checksums, in a file as read then: what a file may still hold under whichever
-    // name, which refuses a fill that would set it aside.
+    // Every payload the Audit found, by its checksums, in a file as read then: what a file may still hold under
+    // whichever name, which refuses a fill that would set it aside.
     let found = copies_in(
         by_path
             .iter()
