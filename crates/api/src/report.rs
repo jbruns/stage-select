@@ -1,12 +1,13 @@
-//! The `schema: 10` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `title-select.audit/1` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-/// The report shape this version writes.
-pub const SCHEMA: u32 = 10;
+/// The report shape this version writes: its name, then its version, which goes up with each breaking change
+/// (ADR 0028).
+pub const SCHEMA: &str = "title-select.audit/1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -455,8 +456,8 @@ pub struct Dependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
-    /// Version of this report's shape.
-    pub schema: u32,
+    /// This report's shape, [`SCHEMA`].
+    pub schema: String,
     pub dat_revision: DatRevision,
     pub source_set: String,
     /// How the Audit got its Entries' checksums. A report from before this was recorded read every payload.

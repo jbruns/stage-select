@@ -643,7 +643,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         }
     }
     Ok(Report {
-        schema: SCHEMA,
+        schema: SCHEMA.to_owned(),
         dat_revision: DatRevision {
             sha256: dat.sha256.clone(),
             name: dat.name.clone(),

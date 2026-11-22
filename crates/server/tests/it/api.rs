@@ -398,6 +398,24 @@ fn the_workbench_is_served_beside_the_api_without_hiding_its_errors() {
 }
 
 #[test]
+fn the_api_is_served_only_under_its_versioned_prefix_and_metrics_outside_it() {
+    let env = Env::new();
+    let service = env.start();
+    let versioned = Client::new(&service);
+    let unversioned = Client {
+        base: service.url().to_string(),
+        ..Client::new(&service)
+    };
+
+    for path in ["/health", "/source-sets", "/jobs", "/settings"] {
+        assert_eq!(status_of(versioned.get(path).call()), 200, "/api/v1{path}");
+        assert_eq!(status_of(unversioned.get(path).call()), 404, "{path}");
+    }
+    assert_eq!(status_of(unversioned.get("/metrics").call()), 200);
+    assert_eq!(status_of(versioned.get("/metrics").call()), 404);
+}
+
+#[test]
 fn a_missing_or_wrong_token_is_rejected_and_the_correct_one_accepted() {
     let env = Env::new();
     let service = env.start();
