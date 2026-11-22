@@ -858,17 +858,16 @@ fn a_placed_game_is_repaired_where_it_is_placed_apart_from_its_family() {
 
 #[test]
 fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_where_it_is_placed() {
-    for stale in [Stale::Changed, Stale::Gone] {
-        a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(stale);
+    for since in [Since::Changed, Since::Gone] {
+        a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(since);
     }
 }
 
 /// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds, and audited;
-/// then its ZIP changes
-/// as `stale` says, and an Ingest Folder holds it whole. The Audit's word for the placed ZIP is stale, so it never
-/// decides how the Game is stored where it is placed: nothing is written into the Library Folder, as a fill there might
-/// store it otherwise.
-fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(stale: Stale) {
+/// then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. What the Audit read of the placed
+/// ZIP no longer holds, so it never decides how the Game is stored where it is placed: nothing is written into the
+/// Library Folder, as a fill there might store it otherwise.
+fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(since: Since) {
     let env = Env::with(listxml_shared());
     env.zip("acmebios.zip", &["bios.u1"]);
     env.zip("acmesnd.zip", &["snd.u2"]);
@@ -878,38 +877,35 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(stal
         statuses(&env.audit()).get("blasterb"),
         Some(&GameStatus::Incomplete)
     );
-    let zip = env.library().join("blasterb.zip");
-    match stale {
-        Stale::Changed => std::fs::write(&zip, b"not a zip any more").unwrap(),
-        Stale::Gone => std::fs::remove_file(&zip).unwrap(),
-    }
+    since.befall(&env.library().join("blasterb.zip"));
     env.ingest("blasterb.zip", &["bios.u1", "gfx.u4", "prog.u3"]);
     let before = contents(&env.library());
 
     let plan = env.plan();
 
-    let items = &plan.content.items;
     assert!(
         plan.content.notes.iter().any(|n| n
-            == "blasterb is left as it is where it is placed: .title-select/placed/1/blasterb.zip is not as the audit \
-                read it; audit again to repair it"),
-        "{stale:?}: {:#?}",
+            == "blasterb is left as it is: the audit found a ROM of it in .title-select/placed/1/blasterb.zip, which \
+                is left as it is"),
+        "{since:?}: {:#?}",
         plan.content.notes
     );
-    assert!(
-        (items.iter())
-            .filter(|i| i.game.as_deref() == Some("blasterb"))
-            .all(|i| i.chosen == RepairChoice::Leave),
-        "{stale:?}: {items:#?}"
-    );
-    if items.iter().any(|i| i.chosen != RepairChoice::Leave) {
-        env.approve(&plan);
+    applying_by_default_leaves(&env, &env.library(), &before, &plan, &format!("{since:?}"));
+}
+
+/// Applying `plan` as it is by default, when it applies anything, leaves every file under `dir` as it was `before`.
+fn applying_by_default_leaves(
+    env: &Env,
+    dir: &Path,
+    before: &[(PathBuf, Vec<u8>)],
+    plan: &RepairPlan,
+    at: &str,
+) {
+    if (plan.content.items.iter()).any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(plan);
     }
     // Not `assert_eq!`, which would print every file's bytes.
-    assert!(
-        contents(&env.library()) == before,
-        "{stale:?}: {items:#?}"
-    );
+    assert!(contents(dir) == before, "{at}: {:#?}", plan.content.items);
 }
 
 /// The BIOS and device of [`listxml`]; a parent on them with a ROM of its own, `extra.u6`; and its clone, which shares
@@ -1239,38 +1235,49 @@ fn listxml_same_name() -> String {
 }
 
 #[test]
-fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout() {
+fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout()
+{
     for stored in SetLayout::ALL {
         for layout in SetLayout::ALL {
-            for stale in [Stale::Changed, Stale::Gone] {
+            for since in [Since::Changed, Since::Gone] {
                 a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
-                    stored, layout, stale,
+                    stored, layout, since,
                 );
             }
         }
     }
 }
 
-/// What became of the parent's ZIP since the Audit read it.
+/// What becomes of a ZIP after the Audit reads it.
 #[derive(Debug, Clone, Copy)]
-enum Stale {
+enum Since {
     /// Replaced by a corrupt file.
     Changed,
     /// Deleted.
     Gone,
 }
 
-/// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP
-/// changes as `stale` says, and the layout turns to `layout`. The Audit's word for the parent's ZIP is stale, so it
-/// holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's folder as it
-/// is, as no ZIP of the family can be repacked without the parent's ROMs.
+impl Since {
+    /// Does it to the ZIP at `path`.
+    fn befall(self, path: &Path) {
+        match self {
+            Since::Changed => std::fs::write(path, b"not a zip any more").unwrap(),
+            Since::Gone => std::fs::remove_file(path).unwrap(),
+        }
+    }
+}
+
+/// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP goes
+/// or changes as `since` says, and the layout turns to `layout`. What the Audit read of the parent's ZIP no longer
+/// holds, so it holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's
+/// folder as it is, as no ZIP of the family can be repacked without the parent's ROMs.
 fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
     stored: SetLayout,
     layout: SetLayout,
-    stale: Stale,
+    since: Since,
 ) {
     let env = Env::with(listxml_same_name());
-    let at = format!("stored {stored:?}, repaired {layout:?}, {stale:?}");
+    let at = format!("stored {stored:?}, repaired {layout:?}, {since:?}");
     match stored {
         SetLayout::NonMerged => {
             env.zip("blaster.zip", &["gfx.u4", "prog.u3"]);
@@ -1284,16 +1291,12 @@ fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_
     }
     env.layout(layout);
     verified(&env.audit());
-    let parent = env.set().join("blaster.zip");
-    let note = match stale {
-        Stale::Changed => {
-            std::fs::write(&parent, b"not a zip any more").unwrap();
+    since.befall(&env.set().join("blaster.zip"));
+    let note = match since {
+        Since::Changed => {
             "blaster.zip changed since the audit read it, so it is left as it is; audit again to repair it"
         }
-        Stale::Gone => {
-            std::fs::remove_file(&parent).unwrap();
-            "blaster.zip is gone since the audit; audit again to repair what it held"
-        }
+        Since::Gone => "blaster.zip is gone since the audit; audit again to repair what it held",
     };
     let before = contents(&env.set());
 
@@ -1304,20 +1307,7 @@ fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_
         "{at}: {:#?}",
         plan.content.notes
     );
-    if plan
-        .content
-        .items
-        .iter()
-        .any(|i| i.chosen != RepairChoice::Leave)
-    {
-        env.approve(&plan);
-    }
-    // Not `assert_eq!`, which would print every file's bytes.
-    assert!(
-        contents(&env.set()) == before,
-        "{at}: {:#?}",
-        plan.content.items
-    );
+    applying_by_default_leaves(&env, &env.set(), &before, &plan, &at);
 }
 
 #[test]

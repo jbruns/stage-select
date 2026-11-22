@@ -1450,6 +1450,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             held_by.entry(rom).or_default().insert(*path);
         }
     }
+    // The files the Audit read that aren't usable now, which leave every Game the Audit found a ROM of in them.
+    let unusable: Vec<(&str, &Vec<&Entry>)> = (by_path.iter())
+        .filter(|(path, _)| !usable.contains_key(*path))
+        .map(|(path, entries)| (*path, entries))
+        .collect();
     for path in i.files.keys() {
         if !by_path.contains_key(path.as_str()) {
             notes.push(format!(
@@ -1631,6 +1636,19 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         // Where the Game is, and the scope of the files its item reads and keeps aside: where it is placed, or else
         // the Source Set's folder, whatever copies of its ROMs another Placed Game holds.
         let scope = scopes.game(game);
+        // A file of its scope that held a ROM of it but isn't usable now leaves it: what the Game holds there, and so
+        // what its ZIP or folder holds and how it is stored, is for the next Audit to tell.
+        if let Some((path, _)) = unusable.iter().find(|(path, entries)| {
+            scopes.file(path) == scope
+                && entries.iter().any(|e| {
+                    e.roms.iter().any(|r| r.game == *game) || (0..roms.len()).any(|n| holds(e, n))
+                })
+        }) {
+            notes.push(format!(
+                "{game} is left as it is: the audit found a ROM of it in {path}, which is left as it is"
+            ));
+            continue;
+        }
         let location: Located = i.placed.get(game).cloned().flatten();
         // A Placed Game stays stored as it is placed, under the names the DAT gives: a TorrentZip, its one ROM loose,
         // or its ROMs loose together, in the folder of the Library Folder it is in.
@@ -1638,17 +1656,6 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let (placed, why_zip) = match &location {
             None => (placed, why_zip),
             Some((folder, dir)) => {
-                // How it is stored there is what its files are, so a file of its placement the Audit's word for is
-                // stale leaves it, as the next Audit tells how it is stored.
-                if let Some(stale) = (by_path.keys())
-                    .find(|path| scopes.file(path) == scope && !usable.contains_key(*path))
-                {
-                    notes.push(format!(
-                        "{game} is left as it is where it is placed: {stale} is not as the audit read it; audit \
-                         again to repair it"
-                    ));
-                    continue;
-                }
                 let at = |name: &str| match dir.is_empty() {
                     true => placed_path(*folder, name),
                     false => placed_path(*folder, &format!("{dir}/{name}")),
