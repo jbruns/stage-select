@@ -473,6 +473,18 @@ fn read_profile(path: &Path) -> Result<SelectionProfile, String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The shape of the selection `select` prints: its name, then its version, which goes up with each breaking change
+/// (ADR 0028). The audit report carries its own, [`title_select_api::SCHEMA`].
+const SELECTION_SCHEMA: &str = "title-select.selection/1";
+
+/// A JSON output with its `schema` first.
+#[derive(serde::Serialize)]
+struct Versioned<'a, T> {
+    schema: &'static str,
+    #[serde(flatten)]
+    body: &'a T,
+}
+
 fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Result<(), String> {
     let mut json = serde_json::to_vec_pretty(report).map_err(|e| e.to_string())?;
     json.push(b'\n');
@@ -730,7 +742,13 @@ fn run(cli: Cli) -> Result<(), String> {
             for warning in &outcome.warnings {
                 eprintln!("title-select: selection engine warning: {warning}");
             }
-            write_report(&outcome.selection, output)
+            write_report(
+                &Versioned {
+                    schema: SELECTION_SCHEMA,
+                    body: &outcome.selection,
+                },
+                output,
+            )
         }
         Command::Calibrate { server } => {
             let (job, measured, now) = client::calibrate(&server, cli.token_file.as_deref())?;

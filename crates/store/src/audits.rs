@@ -826,7 +826,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         game_rows.push(game_from_row(row)?);
     }
     Ok(Report {
-        schema: SCHEMA,
+        schema: SCHEMA.to_owned(),
         dat_revision,
         source_set,
         evidence,
@@ -1137,7 +1137,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 10` report of a stored Audit, generated from its rows.
+    /// The `title-select.audit/1` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

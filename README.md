@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 10,                      // version of this report's shape
+  "schema": "title-select.audit/1",  // this report's shape and its version; see "API"
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -205,21 +205,6 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
-- Schema 10 adds `disks` to a game and to a CHD's entry, and `parent_sha1` to a delta CHD's. An audit stored before
-  this names no disks until you audit the source set again.
-- Schema 9 reads a MAME ListXML's disks from CHDs, and gives an unmatched entry a `reason` when it is a CHD that can
-  match no disk. An audit stored before this keeps what it found until you audit the source set again.
-- Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
-  named for a nodump ROM. A game whose only absent ROMs are optional or have no good dump known is now `complete`.
-  An audit stored before this keeps the statuses it found, and lists none of these, until you audit the source set
-  again.
-- Schema 7 counts a game's ancestors' ZIPs and folders as its own, its BIOS's included, and adds `dependencies`. An
-  audit stored before this keeps the statuses it found, and has no `dependencies`, until you audit the source set
-  again.
-- Schema 6 adds the game status `nothing_to_check`, and its count in `summary.games`, which every report gives.
-- Schema 5 counts a game's status only from its own files and adds `available_elsewhere`; schema 4 counted every
-  entry wherever it was. An audit stored before this keeps the statuses it found, and has no `available_elsewhere`,
-  until you audit the source set again.
 
 ## Selection
 
@@ -329,6 +314,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 
 ```jsonc
 {
+  "schema": "title-select.selection/1", // this output's shape and its version; see "API"
   "pins": {                          // what the selection was made with
     "title_select_version": "0.7.0", "clone_list_commit": "cdeb391e…", "trace_schema": 1
   },
@@ -1803,6 +1789,27 @@ folders, and its versions stay for the selections that used them. Restore it to 
 
 Every body is JSON, and every error is `{"error": "...", "job": <id, when one is named>}`.
 
+Every API path is under `/api/v1`, `/api/v1/health` included. Only `/metrics` sits outside it, where scrapers expect
+it. Any other path under `/api` answers `404`.
+
+Every JSON output of the command line carries a top-level `schema`, `"title-select.<name>/<version>"`, that names its
+shape and the version of it:
+
+| Output                                             | `schema`                   |
+|----------------------------------------------------|----------------------------|
+| `title-select audit`, in every form, and `GET /api/v1/audits/{id}/report` | `title-select.audit/1`     |
+| `title-select select`                              | `title-select.selection/1` |
+
+The other commands print text, or a DAT or CSV export, not JSON.
+
+What these versions promise you:
+
+- A path, field, flag or environment variable is deprecated, with a warning, for at least one minor release before
+  it is removed. Each release's notes list what it deprecates and what it removes.
+- A change that would break what you read or send gets a new version instead: a new path prefix, such as `/api/v2`,
+  or a new `schema`, such as `title-select.audit/2`. Adding a field isn't such a change, so read what you need and
+  ignore fields you don't know.
+
 | Method and path                                    | What                                                         |
 |----------------------------------------------------|--------------------------------------------------------------|
 | `GET /api/v1/health`                               | `{"status": "ok"}`, unauthenticated                          |
@@ -1838,7 +1845,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 10` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `title-select.audit/1` report                        |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
