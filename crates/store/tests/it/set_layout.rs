@@ -864,9 +864,9 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_where_it_i
 }
 
 /// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds, and audited;
-/// then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. What the Audit read of the placed
-/// ZIP no longer holds, so it never decides how the Game is stored where it is placed: nothing is written into the
-/// Library Folder, as a fill there might store it otherwise.
+/// then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. The Game is stored where it is
+/// placed as the Audit found it, a TorrentZip, so the fill finds that ZIP in the way: nothing is written into the
+/// Library Folder, where its ROMs would otherwise be written loose.
 fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(since: Since) {
     let env = Env::with(listxml_shared());
     env.zip("acmebios.zip", &["bios.u1"]);
@@ -883,12 +883,19 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(sinc
 
     let plan = env.plan();
 
+    let items = &plan.content.items;
     assert!(
         plan.content.notes.iter().any(|n| n
-            == "blasterb is left as it is: the audit found a ROM of it in .title-select/placed/1/blasterb.zip, which \
-                is left as it is"),
+            == "blasterb is left as it is: .title-select/placed/1/blasterb.zip is in the way, and the audit did \
+                not read it as it is now"),
         "{since:?}: {:#?}",
         plan.content.notes
+    );
+    assert!(
+        (items.iter())
+            .filter(|i| i.game.as_deref() == Some("blasterb"))
+            .all(|i| i.chosen == RepairChoice::Leave),
+        "{since:?}: {items:#?}"
     );
     applying_by_default_leaves(&env, &env.library(), &before, &plan, &format!("{since:?}"));
 }
