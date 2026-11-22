@@ -1389,7 +1389,7 @@ impl Status for StepStatus {
                 Glyph::CircleDashed,
                 Tone::Neutral,
                 "Waiting",
-                "This step needs an earlier one first.",
+                "You need to take an earlier step first.",
             ),
             StepStatus::Skipped => look(
                 Glyph::CircleMinus,

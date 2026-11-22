@@ -98,6 +98,12 @@ impl JobBook {
         }
     }
 
+    /// Takes in a Job a request returned, such as the Audit a POST queued, by the same rule as a `state` event, so
+    /// the book holds it before the stream's event for it arrives, and that event, once it does, changes nothing.
+    pub fn accept(&mut self, job: Job) -> Applied {
+        self.apply(JobEvent::State(Box::new(job)))
+    }
+
     /// Replaces the book with these Jobs, keeping the progress of any Running Job whose version is unchanged.
     pub fn replace(&mut self, jobs: Vec<Job>) {
         let mut previous = std::mem::take(&mut self.jobs);
@@ -215,6 +221,22 @@ mod tests {
 
     fn state(id: i64, s: JobState, version: u64) -> JobEvent {
         JobEvent::State(Box::new(job(id, s, version)))
+    }
+
+    #[test]
+    fn a_job_a_request_returned_counts_before_its_delayed_event_which_then_changes_nothing() {
+        let mut book = JobBook::default();
+        assert_eq!(book.accept(job(5, JobState::Queued, 1)), Applied::Changed);
+        assert_eq!(
+            crate::source_set_model::running(book.newest_first().iter().map(|l| &l.job)),
+            ["Atari 2600"]
+        );
+        // The stream's event for the same version arrives late.
+        assert_eq!(book.apply(state(5, JobState::Queued, 1)), Applied::Ignored);
+        assert_eq!(book.apply(state(5, JobState::Running, 2)), Applied::Changed);
+        // A response that comes back after the stream has moved on doesn't move the job back.
+        assert_eq!(book.accept(job(5, JobState::Queued, 1)), Applied::Ignored);
+        assert_eq!(book.get(5).map(|l| l.job.state), Some(JobState::Running));
     }
 
     fn progress(id: i64, version: u64, files_done: usize) -> JobEvent {

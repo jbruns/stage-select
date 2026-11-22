@@ -280,12 +280,17 @@ fn AuditSets(names: Signal<Vec<String>>) -> impl IntoView {
         live.book
             .with(|b| running(b.newest_first().iter().map(|l| &l.job)))
     });
-    let audit = Action::new_local(|name: &String| {
+    let audit = Action::new_local(move |name: &String| {
         let name = name.clone();
         async move {
-            queue_audit(&name)
-                .await
-                .map(|job| format!("Queued audit job #{} for {name}.", job.id))
+            let job = queue_audit(&name).await?;
+            let message = format!("Queued audit job #{} for {name}.", job.id);
+            // The stream's event for the job may come after this response: until it does, the book wouldn't know the
+            // source set is busy, and the button would come back on.
+            live.book.update(|b| {
+                b.accept(job);
+            });
+            Ok(message)
         }
     });
     view! {
