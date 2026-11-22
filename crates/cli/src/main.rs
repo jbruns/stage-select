@@ -162,7 +162,8 @@ enum Command {
         #[arg(long, env = title_select_server::IDENTITY_HEADER.1)]
         identity_header: Option<String>,
         /// The proxies whose identity header the service trusts, as comma-separated CIDRs such as
-        /// `172.16.0.0/12, ::1/128`. Needs `--identity-header`.
+        /// `10.89.0.2/32`. Any peer inside them can claim any identity, so list only your proxy's own address.
+        /// Needs `--identity-header`.
         #[arg(long, env = title_select_server::TRUSTED_PROXIES.1, value_delimiter = ',')]
         trusted_proxies: Vec<String>,
         /// For development: the identity every request with no other credential is taken as. Only allowed when

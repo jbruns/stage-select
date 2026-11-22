@@ -842,8 +842,9 @@ authenticate you:
 
 - `--identity-header` (`TITLE_SELECT_IDENTITY_HEADER`) with `--trusted-proxies` (`TITLE_SELECT_TRUSTED_PROXIES`):
   your authenticating reverse proxy sets the header, such as `Remote-User`, to your identity. The header is trusted
-  only from a peer inside one of the CIDRs, given comma-separated, such as `10.0.0.0/8, ::1/128`, and a request
-  carrying it from any other peer is rejected. Each needs the other, and the header must be a valid header name. The
+  only from a peer inside one of the CIDRs, given comma-separated, such as `10.89.0.2/32, ::1/128`, and a request
+  carrying it from any other peer is rejected. Any peer inside them can claim any identity, so list your proxy's own
+  address alone; see "Image". Each needs the other, and the header must be a valid header name. The
   identity is recorded as the actor of each job the request starts.
 - The operator token: a file named by `TITLE_SELECT_OPERATOR_TOKEN_FILE` (or `--token-file`) holds a secret, sent as
   `Authorization: Bearer <token>`. The Service keeps only its SHA-256 and compares in constant time. Jobs it starts
@@ -2074,7 +2075,6 @@ service"), and register your roots in the workbench once it runs:
 ```sh
 docker run --read-only -p 8080:8080 -v title-select-store:/store \
   -v /path/to/token:/run/operator-token:ro -e TITLE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
-  -e TITLE_SELECT_IDENTITY_HEADER=Remote-User -e TITLE_SELECT_TRUSTED_PROXIES=172.16.0.0/12 \
   -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/title-select:sha-<commit>
 ```
 
@@ -2089,8 +2089,6 @@ services:
       - "8080:8080"
     environment:
       TITLE_SELECT_OPERATOR_TOKEN_FILE: /run/operator-token
-      TITLE_SELECT_IDENTITY_HEADER: Remote-User       # set by your authenticating reverse proxy
-      TITLE_SELECT_TRUSTED_PROXIES: 172.16.0.0/12      # where that proxy reaches the service from
     volumes:
       - title-select-store:/store
       - /path/to/token:/run/operator-token:ro
@@ -2098,6 +2096,43 @@ services:
 volumes:
   title-select-store:
 ```
+
+Both sign you in with your operator token alone. To sign in through an authenticating reverse proxy instead, give the
+service the header the proxy names you in, and trust it only from the proxy's own address. Every peer inside
+`TITLE_SELECT_TRUSTED_PROXIES` can claim any identity, so list the proxy alone, never a whole network such as Docker's
+bridge range, and keep the service off networks other containers share. Here the proxy and the service share a
+network of their own, the proxy has a fixed address on it, and only the proxy publishes a port:
+
+```yaml
+services:
+  proxy:
+    # your authenticating reverse proxy, forwarding to http://title-select:8080 with the Remote-User header
+    ports:
+      - "443:443"
+    networks:
+      title-select:
+        ipv4_address: 10.89.0.2
+  title-select:
+    image: ghcr.io/jbruns/title-select:sha-<commit>
+    read_only: true
+    environment:
+      TITLE_SELECT_IDENTITY_HEADER: Remote-User
+      TITLE_SELECT_TRUSTED_PROXIES: 10.89.0.2/32     # the proxy alone
+    volumes:
+      - title-select-store:/store
+      - /data/source-sets:/data/source-sets:ro
+    networks:
+      - title-select
+networks:
+  title-select:
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+volumes:
+  title-select-store:
+```
+
+Your proxy must also remove any `Remote-User` header a client sends before it sets its own.
 
 The container's mounts bound what Title Select can reach: the workbench can register any folder the container can
 see as a root, so mount read-only what it must never write.
