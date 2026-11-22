@@ -51,7 +51,7 @@ const SET_LAYOUT_SUMMARY: &str =
 
 const SET_LAYOUT_NOTE: &str = "Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay as a merged CHD set, in a folder named for the family's parent, whatever the layout. A build copies a non-merged ZIP as it is into your play library, and repacks a split or merged family into each selected game's own ZIP, with its disks copied into a folder named for it. It applies to arcade DATs, MAME's ListXML, not to software lists.";
 
-/// The set layout's one-line summary, with how each layout keeps a family, and what a repair and a build do with it,
+/// The Set Layout's one-line summary, with how each layout keeps a family, and what a Repair and a Build do with it,
 /// folded beneath.
 #[component]
 fn SetLayoutHelp() -> impl IntoView {

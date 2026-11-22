@@ -91,7 +91,7 @@ ICONS = [
     # Stale source sets: checking for changes, and a newer DAT revision of a followed DAT.
     "scan-search",
     "file-clock",
-    # A support file for a newer MAME than the DAT revision.
+    # A Support File for a newer MAME than the DAT Revision.
     "file-up",
     # The header's mark while Jobs run unthrottled.
     "gauge",

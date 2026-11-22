@@ -848,7 +848,7 @@ fn dependencies_view(game: &Game, games: &AuditGames) -> Option<AnyView> {
     )
 }
 
-/// A Game's Disks, each with the CHD that holds it and its evidence, or, when absent, any CHD named for it that
+/// A Game's Disks, each with the CHD that holds it and its Evidence, or, when absent, any CHD named for it that
 /// matched no Disk, such as a delta CHD.
 fn disks_view(disks: Vec<GameDisk>) -> Option<AnyView> {
     if disks.is_empty() {
