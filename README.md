@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 9,                       // version of this report's shape
+  "schema": 10,                      // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -196,11 +196,17 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   self-contained CHD. A CHD of a version before 5 is unmatched, with no evidence and a `reason`: update it with
   `chdman copy` and audit again. A disk the DAT marks `nodump` is never matched. A `.chd` beside a DAT that lists no
   disks is read as any other file.
+- A game's `disks` names its disks, `<disk>.chd`, in DAT order, nodump and optional ones included. A CHD's entry lists
+  in `disks` each disk it counts for, `{"game", "name"}`: a disk counts by one CHD, the first with the strongest
+  evidence, which may be its parent's under another name, so a CHD's `disks` can name more than its `roms`, or fewer. A
+  delta CHD's entry gives its parent's SHA-1 in `parent_sha1`.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
+- Schema 10 adds `disks` to a game and to a CHD's entry, and `parent_sha1` to a delta CHD's. An audit stored before
+  this names no disks until you audit the source set again.
 - Schema 9 reads a MAME ListXML's disks from CHDs, and gives an unmatched entry a `reason` when it is a CHD that can
   match no disk. An audit stored before this keeps what it found until you audit the source set again.
 - Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
@@ -1832,7 +1838,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 9` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 10` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -2290,7 +2296,7 @@ Its screens:
   its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
   filter is on, and lists the filters you turned on that had nothing to read. Its facts list each support file it
   read, with its MAME version and SHA-256, marked **Older version** when it is for an older MAME than the ListXML, whose
-  newer machines it then lacks, or **Not read**; and, with the curated list on, its commit and how many names on it
+  newer machines it then lacks, **Newer version** when it is for a newer one, **Same version**, or **Not read**; and, with the curated list on, its commit and how many names on it
   the DAT revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
   dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
   what you have of it and the games that need it.

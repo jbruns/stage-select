@@ -872,7 +872,9 @@ fn disks_view(disks: Vec<GameDisk>) -> Option<AnyView> {
                     .into_any()
                 }
                 None => view! {
-                    " " <StatusBadge status=GameStatus::Missing />
+                    {d.needed.then(|| view! { " " <StatusBadge status=GameStatus::Missing /> })}
+                    {(!d.notes.is_empty())
+                        .then(|| view! { ": " <span class="note">{d.notes.join("; ")}</span> })}
                     {d.unusable
                         .into_iter()
                         .map(|entry| {

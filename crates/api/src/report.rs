@@ -1,4 +1,4 @@
-//! The `schema: 9` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 10` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 9;
+pub const SCHEMA: u32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -344,8 +344,8 @@ pub struct RomRef {
 /// The reason a Mismatched Entry named for a nodump ROM gives: no file can match that ROM (ADR 0025).
 pub const NOT_DUMPED: &str = "no good dump known";
 
-/// How the reason an Unreadable Entry gives starts when it is a delta CHD, which can't be read without its parent CHD
-/// (ADR 0026).
+/// How the reason an Unreadable delta CHD gives starts: it can't be read without its parent CHD (ADR 0026). Its
+/// [`Entry::parent_sha1`] says so structurally.
 pub const DELTA_CHD: &str = "it is a delta CHD";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -369,6 +369,14 @@ pub struct Entry {
     /// [`NOT_DUMPED`] for one named for a nodump ROM; or why an Unmatched one, a CHD read as a Disk, can match none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// For a CHD, the Disks it counts present for their own Games (ADR 0026), in DAT order: by name, or in an
+    /// ancestor's folder by SHA-1 under another name. Each Disk counts by one CHD alone, the first with the strongest
+    /// Evidence Level, so this may be fewer than `roms`, or more.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disks: Vec<RomRef>,
+    /// For an Unreadable delta CHD, the combined SHA-1 of the parent CHD it can't be read without (ADR 0026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_sha1: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -401,6 +409,10 @@ pub struct Game {
     /// Status, in DAT order (ADR 0025). None of them changes this Game's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<Dependency>,
+    /// Its Disks' names (ADR 0026), `<disk>.chd`, in DAT order, nodump and optional ones included. The CHD that
+    /// counts for each present one lists it in its [`Entry::disks`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disks: Vec<String>,
 }
 
 /// The Games of `games` an Audit found any of their own files of, among `entries`: each with a ROM that an Entry holds
@@ -491,6 +503,7 @@ mod tests {
             warnings: vec![],
             available_elsewhere: vec![],
             dependencies,
+            disks: vec![],
         };
         let with = game(vec![
             Dependency {

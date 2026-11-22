@@ -1,5 +1,5 @@
-//! The source set registration form's pure logic: the path a Path Template proposes for a DAT, and the live preview
-//! of the folder the registration would use.
+//! The source set registration form's pure logic: the path a Path Template proposes for a DAT, the live preview
+//! of the folder the registration would use, and whether the DAT takes a Coverage.
 
 use title_select_api::Dat;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
@@ -30,6 +30,27 @@ pub fn preview(root_path: &str, path: &str) -> Result<String, String> {
     Ok(format!("{}/{rel}", root_path.trim_end_matches('/')))
 }
 
+/// Why a Source Set of the chosen `dat` takes no Coverage, as [`crate::source_set_model::no_coverage`] says from its
+/// revisions' DAT Formats; `None` while none is chosen.
+pub fn no_coverage(dat: Option<&Dat>) -> Option<&'static str> {
+    let dat = dat?;
+    crate::source_set_model::no_coverage(
+        std::iter::once(dat.format).chain(dat.revisions.iter().map(|r| r.format)),
+    )
+}
+
+/// The Coverage the form registers for `dat`: none for a DAT that takes none, whatever the editor held, else the
+/// editor's `drafted` one.
+pub fn coverage_for(
+    dat: Option<&Dat>,
+    drafted: Result<Option<Vec<String>>, String>,
+) -> Result<Option<Vec<String>>, String> {
+    match no_coverage(dat) {
+        Some(_) => Ok(None),
+        None => drafted,
+    }
+}
+
 fn sentence(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
@@ -48,6 +69,7 @@ fn sentence(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 
     fn dat(provider: &str, name: &str) -> Dat {
         Dat {
@@ -57,6 +79,26 @@ mod tests {
             name: name.into(),
             revisions: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_mame_listxml_is_registered_with_no_coverage_whatever_the_draft_says() {
+        let mut mame = dat("MAME", "MAME");
+        mame.format = title_select_api::DatFormat::Listxml;
+        let europe = Ok(Some(vec!["Europe".to_owned()]));
+
+        assert_eq!(no_coverage(Some(&mame)), Some(ARCADE_COVERAGE_REFUSAL));
+        assert_eq!(coverage_for(Some(&mame), europe.clone()), Ok(None));
+        // A draft you can't fix is no reason to refuse it either.
+        assert_eq!(
+            coverage_for(Some(&mame), Err("Choose a region.".into())),
+            Ok(None)
+        );
+
+        let atari = dat("No-Intro", "Atari - Atari 2600");
+        assert_eq!(no_coverage(Some(&atari)), None);
+        assert_eq!(coverage_for(Some(&atari), europe.clone()), europe);
+        assert_eq!(no_coverage(None), None);
     }
 
     #[test]

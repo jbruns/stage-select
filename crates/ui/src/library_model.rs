@@ -3,8 +3,7 @@
 
 use title_select_api::build::{LibraryFolder, Stale};
 use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
-use title_select_api::storage::is_mame_system;
-use title_select_api::{Job, JobKind, SelectionRecord};
+use title_select_api::{Job, JobKind, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
@@ -137,12 +136,14 @@ pub fn stale_label(stale: &Stale) -> String {
     }
 }
 
-/// Why a library folder of `system`, its DAT as `<provider>/<name>`, has no coverage to inherit: a MAME folder's
-/// source set covers every Game (ADR 0027). `None` for any other. By system, as a folder carries no DAT Format: only a
-/// ListXML's Source Set can be built into a folder (a software list's refuses), so its MAME system means a ListXML, as
-/// [`crate::source_set_model::no_coverage`] tells it by format.
-pub fn no_coverage(system: &str) -> Option<&'static str> {
-    is_mame_system(system).then_some(ARCADE_COVERAGE_REFUSAL)
+/// Why a library folder bound to `source_set` has no coverage to inherit: an Arcade DAT's Source Set covers every Game
+/// (ADR 0027), as `systems` (the service's `/systems`) says of it. `None` for any other, a MAME Logiqx DAT's included,
+/// and for a Source Set `systems` doesn't list.
+pub fn no_coverage(systems: &[SourceSetSystem], source_set: &str) -> Option<&'static str> {
+    systems
+        .iter()
+        .any(|s| s.source_set == source_set && s.arcade)
+        .then_some(ARCADE_COVERAGE_REFUSAL)
 }
 
 /// What a MAME library folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
@@ -619,9 +620,23 @@ mod tests {
     }
 
     #[test]
-    fn a_mame_folder_inherits_no_coverage_and_says_why() {
-        assert_eq!(no_coverage("MAME/MAME"), Some(ARCADE_COVERAGE_REFUSAL));
-        assert_eq!(no_coverage("No-Intro/Atari - Atari 2600"), None);
+    fn a_folder_of_an_arcade_source_set_inherits_no_coverage_and_says_why() {
+        let systems = [
+            SourceSetSystem {
+                source_set: "mame".into(),
+                system: Some("MAME/MAME".into()),
+                arcade: true,
+            },
+            // A MAME Logiqx DAT is no Arcade DAT: its source set takes a coverage.
+            SourceSetSystem {
+                source_set: "mame-logiqx".into(),
+                system: Some("MAME/MAME".into()),
+                arcade: false,
+            },
+        ];
+        assert_eq!(no_coverage(&systems, "mame"), Some(ARCADE_COVERAGE_REFUSAL));
+        assert_eq!(no_coverage(&systems, "mame-logiqx"), None);
+        assert_eq!(no_coverage(&systems, "atari"), None);
     }
 
     #[test]

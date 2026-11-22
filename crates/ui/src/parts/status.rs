@@ -1007,6 +1007,7 @@ impl Status for DatFileStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SupportFileStatus {
     Older,
+    Newer,
     NotRead,
     Current,
 }
@@ -1014,6 +1015,7 @@ pub enum SupportFileStatus {
 impl Status for SupportFileStatus {
     const ALL: &'static [Self] = &[
         SupportFileStatus::Older,
+        SupportFileStatus::Newer,
         SupportFileStatus::NotRead,
         SupportFileStatus::Current,
     ];
@@ -1025,6 +1027,12 @@ impl Status for SupportFileStatus {
                 Tone::Review,
                 "Older version",
                 "It is for an older MAME than the DAT revision, so machines newer than it are read as if it were absent.",
+            ),
+            SupportFileStatus::Newer => look(
+                Glyph::FileUp,
+                Tone::Neutral,
+                "Newer version",
+                "It is for a newer MAME than the DAT revision, so it may name machines the DAT revision lacks, which match nothing.",
             ),
             SupportFileStatus::NotRead => look(
                 Glyph::FileX,

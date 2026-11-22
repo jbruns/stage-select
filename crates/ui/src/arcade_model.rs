@@ -1,6 +1,7 @@
 //! The arcade Selection's pure logic (ADR 0027): its stages in plain words, its Dependencies summed up in one line, and
 //! the Profile editor's `arcade` block for a system.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::arcade::{
@@ -10,9 +11,9 @@ use title_select_api::arcade::{
 use title_select_api::dat::MAME;
 use title_select_api::selection::{
     ArcadePins, CategorySource, CuratedPin, DEPENDENCY_STAGE, Dependency, Selection,
-    SelectionProfile,
+    SelectionProfile, SupportFilePin,
 };
-use title_select_api::support::SupportFileKind;
+use title_select_api::support::{SupportFileKind, version_number};
 use title_select_api::{GameStatus, SourceSetSystem};
 
 use crate::parts::status::SupportFileStatus;
@@ -100,7 +101,7 @@ pub fn notices(pins: &ArcadePins) -> Vec<String> {
 }
 
 /// One kind of Support File as an arcade Selection read it: the file, its MAME version and SHA-256 when it was read,
-/// and whether it is for an older MAME than the ListXML.
+/// and whether it is for an older, newer or the same MAME as the ListXML.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportFileLine {
     pub file: &'static str,
@@ -119,14 +120,27 @@ pub fn support_files(pins: &ArcadePins) -> Vec<SupportFileLine> {
                 file: kind.file_name(),
                 status: match read {
                     None => SupportFileStatus::NotRead,
-                    Some(f) if f.drift => SupportFileStatus::Older,
-                    Some(_) => SupportFileStatus::Current,
+                    Some(f) => version_status(f, &pins.build),
                 },
                 mame_version: read.map(|f| format!("MAME {}", f.mame_version)),
                 sha256: read.map(|f| f.sha256.clone()),
             }
         })
         .collect()
+}
+
+/// How a Support File's MAME version compares with the ListXML's `build`; as the selector's drift says when either
+/// can't be read as a version.
+fn version_status(file: &SupportFilePin, build: &str) -> SupportFileStatus {
+    match (version_number(&file.mame_version), version_number(build)) {
+        (Some(file), Some(build)) => match file.cmp(&build) {
+            Ordering::Less => SupportFileStatus::Older,
+            Ordering::Equal => SupportFileStatus::Current,
+            Ordering::Greater => SupportFileStatus::Newer,
+        },
+        _ if file.drift => SupportFileStatus::Older,
+        _ => SupportFileStatus::Current,
+    }
 }
 
 /// What the curated list did, when it was on: its commit, and the shortnames it names that the DAT revision lacks.
@@ -381,7 +395,7 @@ pub fn reset_arcade(profile: &mut SelectionProfile, system: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::{Rule, SelectionGroup, SupportFilePin, SystemSettings};
+    use title_select_api::selection::{Rule, SelectionGroup, SystemSettings};
 
     fn dependency(title: &str, needed_by: &[&str]) -> Dependency {
         Dependency {
@@ -698,6 +712,26 @@ mod tests {
             stray_arcade_problem("MAME"),
             "Your MAME DATs aren't arcade DATs, so your arcade settings for MAME never apply. Remove them to save."
         );
+    }
+
+    #[test]
+    fn a_support_file_for_a_newer_mame_than_the_listxml_says_so_never_same_version() {
+        let pins = ArcadePins {
+            build: "0.289 (mame0289)".into(),
+            category: Some(CategorySource::Catver),
+            unavailable: Vec::new(),
+            category_fallbacks: 0,
+            support_files: vec![SupportFilePin {
+                kind: SupportFileKind::Catver,
+                sha256: "c".repeat(64),
+                mame_version: "0.290".into(),
+                drift: false,
+            }],
+            curated: None,
+        };
+        let catver = &support_files(&pins)[0];
+        assert_eq!(catver.status, SupportFileStatus::Newer);
+        assert_eq!(catver.mame_version.as_deref(), Some("MAME 0.290"));
     }
 
     #[test]

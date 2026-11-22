@@ -310,16 +310,16 @@ fn warning_columns(prefix: &str) -> String {
         .join(", ")
 }
 
-pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused, header_bytes";
+pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused, header_bytes, disks, parent_sha1";
 
 /// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
-const ENTRY_SEQ: usize = 12;
+const ENTRY_SEQ: usize = 14;
 
 const GAME_COLUMNS: &str = "name, status, missing_roms, claimed_roms, warnings, available_elsewhere, dependencies, \
-                            not_dumped, bad_dumps, optional_roms";
+                            not_dumped, bad_dumps, optional_roms, disks";
 
 /// The `seq` column's index, when selected after [`GAME_COLUMNS`].
-const GAME_SEQ: usize = 10;
+const GAME_SEQ: usize = 11;
 
 pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
     let text: String = row.get(i)?;
@@ -507,11 +507,13 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
     let mut entry = tx.prepare(
         "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
-                                    evidence_level, algorithms, reason, read_at, reused, header_bytes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                    evidence_level, algorithms, reason, read_at, reused, header_bytes,
+                                    disks, parent_sha1)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
     )?;
     for (seq, e) in report.entries.iter().enumerate() {
         let roms = serde_json::to_string(&e.roms).map_err(corrupt)?;
+        let disks = serde_json::to_string(&e.disks).map_err(corrupt)?;
         entry.execute(params![
             id,
             seq as i64,
@@ -533,12 +535,15 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
                 .as_ref()
                 .and_then(|ev| ev.header)
                 .map(|h| h.bytes as i64),
+            disks,
+            e.parent_sha1,
         ])?;
     }
     let mut game = tx.prepare(
         "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings,
-                                  available_elsewhere, dependencies, not_dumped, bad_dumps, optional_roms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                  available_elsewhere, dependencies, not_dumped, bad_dumps, optional_roms,
+                                  disks)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let json = |roms: &[String]| serde_json::to_string(roms).map_err(corrupt);
@@ -558,6 +563,7 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             json(&g.not_dumped)?,
             json(&g.bad_dumps)?,
             json(&g.optional_roms)?,
+            json(&g.disks)?,
         ])?;
     }
     drop((entry, game));
@@ -719,6 +725,8 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
         },
         evidence,
         reason: row.get(8)?,
+        disks: serde_json::from_str(&row.get::<_, String>(12)?).map_err(corrupt)?,
+        parent_sha1: row.get(13)?,
     })
 }
 
@@ -744,6 +752,7 @@ fn game_from_row(row: &Row) -> Result<Game> {
         not_dumped: roms(7)?,
         bad_dumps: roms(8)?,
         optional_roms: roms(9)?,
+        disks: roms(10)?,
     })
 }
 
@@ -1128,7 +1137,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 9` report of a stored Audit, generated from its rows.
+    /// The `schema: 10` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

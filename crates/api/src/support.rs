@@ -102,6 +102,12 @@ pub struct SupportFileImport {
 /// How far into a file its header is looked for: progetto-SNAPS's comes after a short `[FOLDER_SETTINGS]` section.
 const HEADER_WITHIN: usize = 4096;
 
+/// A MAME version, such as `0.289` or the `0.289 (mame0289)` a ListXML's build names, as numbers to compare.
+pub fn version_number(version: &str) -> Option<(u32, u32)> {
+    let (major, minor) = version.split_whitespace().next()?.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
 /// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
 /// version it is for. `file` names it in an error.
 pub fn read_header(
@@ -138,4 +144,15 @@ pub fn read_header(
         })
         .ok_or_else(|| format!("{file}: its header names no MAME version, such as MAME 0.289"))?;
     Ok((kind, version.to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_number;
+
+    #[test]
+    fn versions_compare_as_numbers() {
+        assert!(version_number("0.99") < version_number("0.289 (mame0289)"));
+        assert_eq!(version_number("mame0289"), None);
+    }
 }

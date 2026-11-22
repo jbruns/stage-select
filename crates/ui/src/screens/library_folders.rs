@@ -19,7 +19,7 @@ use title_select_api::build::{
 };
 use title_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
-    SelectionRecord, SourceSetRecord, StartSelection,
+    SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelection,
 };
 
 use crate::api;
@@ -612,6 +612,22 @@ impl ListRow for FolderRow {
 }
 
 /// What the folder is bound to and where it stands.
+/// The coverage a library folder inherits from `source_set`, or, for an arcade source set, why it has none.
+#[component]
+fn FolderCoverage(source_set: String) -> impl IntoView {
+    let systems = LocalResource::new(|| api::get::<Vec<SourceSetSystem>>("/systems"));
+    move || match systems.get() {
+        None => "Loading…".into_any(),
+        Some(Ok(systems)) => match no_coverage(&systems, &source_set) {
+            Some(why) => why.into_any(),
+            None => view! { <InheritedCoverage name=source_set.clone() /> }.into_any(),
+        },
+        Some(Err(problem)) => {
+            format!("Couldn't load its source set's coverage: {problem}").into_any()
+        }
+    }
+}
+
 fn folder_facts(f: &LibraryFolder) -> AnyView {
     let writable = if f.writable {
         ", writable"
@@ -635,10 +651,7 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Coverage"</dt>
             <dd>
-                {match no_coverage(&f.system) {
-                    Some(why) => why.into_any(),
-                    None => view! { <InheritedCoverage name=f.source_set.clone() /> }.into_any(),
-                }}
+                <FolderCoverage source_set=f.source_set.clone() />
             </dd>
             <dt>"Root"</dt>
             <dd>

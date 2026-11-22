@@ -599,6 +599,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         holders: Holders::new(&dat),
         covered: vec![None; dat.roms.len()],
         elsewhere: vec![BTreeSet::new(); dat.roms.len()],
+        chd: vec![None; dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
         entries: Vec::new(),
         unnamed: Vec::new(),
@@ -672,6 +673,8 @@ struct Scan<'d> {
     covered: Vec<Option<EvidenceLevel>>,
     /// For each ROM, the other Games whose ZIP or folder holds an Entry whose payload is that ROM's (ADR 0017).
     elsewhere: Vec<BTreeSet<usize>>,
+    /// For each Disk, the index in `entries` of the CHD [`Scan::count`] counted it present by.
+    chd: Vec<Option<usize>>,
     /// Each Game a Matched Entry without the Header its emulators need counts towards.
     header_missing: Vec<bool>,
     entries: Vec<Entry>,
@@ -686,6 +689,8 @@ struct Held {
     finding: Finding,
     level: EvidenceLevel,
     has_header: bool,
+    /// The Entry's index in [`Scan::entries`].
+    entry: usize,
 }
 
 /// An Entry in a Game's own ZIP or folder that none of the Game's ROMs is named for, and those of the Game's ROMs whose
@@ -705,13 +710,19 @@ impl Scan<'_> {
             named_rom: None,
             evidence: None,
             reason: Some(reason),
+            disks: Vec::new(),
+            parent_sha1: None,
         });
     }
 
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
         match known {
             Known::Delta(parent) => {
-                return self.unreadable(path, member, needs_parent(self.dat, parent));
+                self.unreadable(path, member, needs_parent(self.dat, parent));
+                if let Some(entry) = self.entries.last_mut() {
+                    entry.parent_sha1 = Some(parent.clone());
+                }
+                return;
             }
             Known::NoDisk(why) => {
                 self.entries.push(Entry {
@@ -723,6 +734,8 @@ impl Scan<'_> {
                     // No checksum of it was compared: it holds none a Disk is listed by.
                     evidence: None,
                     reason: Some(why.clone()),
+                    disks: Vec::new(),
+                    parent_sha1: None,
                 });
                 return;
             }
@@ -786,6 +799,7 @@ impl Scan<'_> {
             finding,
             level,
             has_header: header.is_some(),
+            entry: self.entries.len(),
         };
         let (by_name, by_checksums): (Vec<usize>, Vec<usize>) =
             container_roms.into_iter().partition(named_for);
@@ -813,6 +827,9 @@ impl Scan<'_> {
             roms: payload.iter().map(|r| rom_ref(self.dat, *r)).collect(),
             named_rom: named.map(|r| rom_ref(self.dat, r)),
             reason,
+            // Filled once every Entry is in ([`Scan::settle`]).
+            disks: Vec::new(),
+            parent_sha1: None,
         });
     }
 
@@ -826,6 +843,10 @@ impl Scan<'_> {
             self.header_missing[self.dat.roms[r].game] = true;
         }
         if self.covered[r] != Some(EvidenceLevel::Payload) {
+            // A Disk names the CHD it counts for, the first with the strongest Evidence Level.
+            if self.dat.roms[r].disk && self.covered[r] != Some(held.level) {
+                self.chd[r] = Some(held.entry);
+            }
             self.covered[r] = Some(held.level);
         }
     }
@@ -834,12 +855,17 @@ impl Scan<'_> {
     /// ROMs with its checksums that nothing has counted for yet, once every other Entry is in, so that one file never
     /// stands in for several identical ROMs, such as a disc's identical tracks. A needed ROM comes before an optional
     /// one, which never lowers the Game Status (ADR 0025). A ROM another Entry counts for only by Claim Evidence stays
-    /// at Claim.
+    /// at Claim. Then names, in each CHD's Entry, the Disks it counts for.
     fn settle(&mut self) {
         for mut u in std::mem::take(&mut self.unnamed) {
             u.roms.sort_by_key(|r| !self.dat.roms[*r].needed());
             if let Some(r) = u.roms.into_iter().find(|r| self.covered[*r].is_none()) {
                 self.count(r, u.held);
+            }
+        }
+        for (r, e) in self.chd.iter().enumerate() {
+            if let Some(e) = e {
+                self.entries[*e].disks.push(rom_ref(self.dat, r));
             }
         }
     }
@@ -913,6 +939,7 @@ impl Scan<'_> {
                     available_elsewhere,
                     // Filled below, once every Game's status is known.
                     dependencies: Vec::new(),
+                    disks: names_of(|r| r.disk),
                 }
             })
             .collect();
