@@ -856,6 +856,62 @@ fn a_placed_game_is_repaired_where_it_is_placed_apart_from_its_family() {
     assert!(is_torrentzip(&zip));
 }
 
+#[test]
+fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_where_it_is_placed() {
+    for stale in [Stale::Changed, Stale::Gone] {
+        a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(stale);
+    }
+}
+
+/// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds, and audited;
+/// then its ZIP changes
+/// as `stale` says, and an Ingest Folder holds it whole. The Audit's word for the placed ZIP is stale, so it never
+/// decides how the Game is stored where it is placed: nothing is written into the Library Folder, as a fill there might
+/// store it otherwise.
+fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(stale: Stale) {
+    let env = Env::with(listxml_shared());
+    env.zip("acmebios.zip", &["bios.u1"]);
+    env.zip("acmesnd.zip", &["snd.u2"]);
+    env.zip("blaster.zip", &["bios.u1", "extra.u6", "gfx.u4"]);
+    env.place("blasterb", &["bios.u1", "gfx.u4"]);
+    assert_eq!(
+        statuses(&env.audit()).get("blasterb"),
+        Some(&GameStatus::Incomplete)
+    );
+    let zip = env.library().join("blasterb.zip");
+    match stale {
+        Stale::Changed => std::fs::write(&zip, b"not a zip any more").unwrap(),
+        Stale::Gone => std::fs::remove_file(&zip).unwrap(),
+    }
+    env.ingest("blasterb.zip", &["bios.u1", "gfx.u4", "prog.u3"]);
+    let before = contents(&env.library());
+
+    let plan = env.plan();
+
+    let items = &plan.content.items;
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "blasterb is left as it is where it is placed: .title-select/placed/1/blasterb.zip is not as the audit \
+                read it; audit again to repair it"),
+        "{stale:?}: {:#?}",
+        plan.content.notes
+    );
+    assert!(
+        (items.iter())
+            .filter(|i| i.game.as_deref() == Some("blasterb"))
+            .all(|i| i.chosen == RepairChoice::Leave),
+        "{stale:?}: {items:#?}"
+    );
+    if items.iter().any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(&plan);
+    }
+    // Not `assert_eq!`, which would print every file's bytes.
+    assert!(
+        contents(&env.library()) == before,
+        "{stale:?}: {items:#?}"
+    );
+}
+
 /// The BIOS and device of [`listxml`]; a parent on them with a ROM of its own, `extra.u6`; and its clone, which shares
 /// every ROM of the parent and may run without `extra.u6`.
 fn listxml_optional() -> String {
@@ -1183,11 +1239,11 @@ fn listxml_same_name() -> String {
 }
 
 #[test]
-fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout() {
+fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout() {
     for stored in SetLayout::ALL {
         for layout in SetLayout::ALL {
             for stale in [Stale::Changed, Stale::Gone] {
-                a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
+                a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
                     stored, layout, stale,
                 );
             }
@@ -1208,7 +1264,7 @@ enum Stale {
 /// changes as `stale` says, and the layout turns to `layout`. The Audit's word for the parent's ZIP is stale, so it
 /// holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's folder as it
 /// is, as no ZIP of the family can be repacked without the parent's ROMs.
-fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
+fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
     stored: SetLayout,
     layout: SetLayout,
     stale: Stale,

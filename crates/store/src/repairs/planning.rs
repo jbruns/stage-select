@@ -357,7 +357,7 @@ impl Usable<'_> {
 struct Preserved<'a> {
     /// Every ROM of the DAT, by its Game and name.
     dat: &'a HashMap<RomKey, &'a Rom>,
-    /// Every usable file holding each ROM: one gone, changed or read only by its claim since the Audit holds none.
+    /// Every usable file holding each ROM: one gone or changed since the Audit, or read only by its claim, holds none.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
     /// The scope of each file ([`Scope`]), which decides where a copy survives for it.
     scopes: &'a Scopes<'a>,
@@ -1441,9 +1441,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             },
         );
     }
-    // Every usable file holding each ROM, whether or not a repair may change it. A file gone, changed or read only by
-    // its claim since the Audit holds no ROM the plan may count on: never a copy that survives, makes a ROM wanted,
-    // or shapes where a Game is placed.
+    // Every usable file holding each ROM, whether or not a repair may change it. A file gone or changed since the
+    // Audit, or read only by its claim, holds no ROM the plan may count on: never a copy that survives, or one that
+    // makes a ROM wanted.
     let mut held_by: HashMap<RomKey, BTreeSet<&str>> = HashMap::new();
     for (path, file) in &usable {
         for rom in file.payloads().flatten() {
@@ -1638,6 +1638,17 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let (placed, why_zip) = match &location {
             None => (placed, why_zip),
             Some((folder, dir)) => {
+                // How it is stored there is what its files are, so a file of its placement the Audit's word for is
+                // stale leaves it, as the next Audit tells how it is stored.
+                if let Some(stale) = (by_path.keys())
+                    .find(|path| scopes.file(path) == scope && !usable.contains_key(*path))
+                {
+                    notes.push(format!(
+                        "{game} is left as it is where it is placed: {stale} is not as the audit read it; audit \
+                         again to repair it"
+                    ));
+                    continue;
+                }
                 let at = |name: &str| match dir.is_empty() {
                     true => placed_path(*folder, name),
                     false => placed_path(*folder, &format!("{dir}/{name}")),
