@@ -22,10 +22,11 @@ use crate::app::{Loading, Problem};
 use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
+use crate::parts::help::Help;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::overlay::Tooltip;
-use crate::parts::status::{GameFlag, GroupStatus, Status, StatusIcon, Tone};
+use crate::parts::status::{GameFlag, GroupStatus, Status, StatusBadge, StatusIcon, Tone};
 use crate::parts::url_state::use_list_query;
 use crate::placement_model::FlagsNow;
 use crate::screens::PlanABuild;
@@ -821,6 +822,38 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                     None => crate::coverage_model::made_under(r.pins.coverage()),
                 }}
             </dd>
+            {r.pins.arcade.clone().map(|pins| view! {
+                <dt>"Support files"</dt>
+                <dd>
+                    <ul class="plain">
+                        {arcade_model::support_files(&pins)
+                            .into_iter()
+                            .map(|f| view! {
+                                <li>
+                                    <code>{f.file}</code>
+                                    " "
+                                    <StatusBadge status=f.status />
+                                    {f.mame_version.map(|v| format!(" {v}"))}
+                                    {f.sha256.map(|sha| view! { " · SHA-256 " <code class="path">{sha}</code> })}
+                                </li>
+                            })
+                            .collect_view()}
+                    </ul>
+                </dd>
+                {pins.curated.map(|curated| view! {
+                    <dt>"Curated list"</dt>
+                    <dd>
+                        {arcade_model::curated_line(&curated)}
+                        {(!curated.unmatched.is_empty()).then(|| view! {
+                            <Help summary="The names it lacks">
+                                <ul class="plain">
+                                    {curated.unmatched.into_iter().map(|n| view! { <li><code>{n}</code></li> }).collect_view()}
+                                </ul>
+                            </Help>
+                        })}
+                    </dd>
+                })}
+            })}
             <dt>"System"</dt>
             <dd>
                 {r.system.clone()} " · "

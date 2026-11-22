@@ -135,6 +135,28 @@ pub fn stale_label(stale: &Stale) -> String {
     }
 }
 
+/// What a MAME library folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
+/// (mame0289)`.
+pub fn built_for(build: &str) -> String {
+    format!("MAME {}", build.split_whitespace().next().unwrap_or(build))
+}
+
+/// Which emulators run a MAME library folder (ADR 0026).
+pub const BUILT_FOR_NOTE: &str = "Only an emulator of that MAME version runs what this folder holds, such as \
+RetroArch's current mame core or standalone MAME.";
+
+/// Why RomM needs a MAME library folder's disk folders left out, before the setting's name.
+pub const ROMM_TWICE: &str = "RomM takes every folder in a platform for a game of its own, so without this it shows \
+each game with disks twice: once for its ZIP, and once for its disk folder, which doesn't run. Add these names to";
+
+/// After the setting's name: what to do then, and that RomM's list holds for every platform.
+pub const ROMM_EVERYWHERE: &str = "in your RomM configuration, then scan the platform again. RomM keeps that setting \
+as one list for every platform, so it leaves out a folder of these names on every platform, not only this one. Title \
+Select doesn't change RomM's configuration for you.";
+
+/// The upstream request for RomM to take exclusions per platform.
+pub const ROMM_PER_PLATFORM: &str = "https://github.com/rommapp/romm/issues/5696";
+
 /// What to merge into RomM's `config.yml` so that it leaves out `folders`, a MAME library folder's disk folders, which
 /// it would otherwise list as games of their own: each under `exclude.roms.multi_file.names`, quoted.
 pub fn romm_exclusions(folders: &[String]) -> String {
@@ -582,6 +604,30 @@ mod tests {
         assert_eq!(
             romm_exclusions(&folders),
             "exclude:\n  roms:\n    multi_file:\n      names:\n        - 'blaster'\n        - 'it''s'\n"
+        );
+    }
+
+    #[test]
+    fn a_mame_folder_says_which_mame_version_runs_it() {
+        assert_eq!(built_for("0.289 (mame0289)"), "MAME 0.289");
+        assert_eq!(built_for("0.289"), "MAME 0.289");
+        for said in [
+            "Only an emulator of that MAME version",
+            "RetroArch's current mame core",
+            "standalone MAME",
+        ] {
+            assert!(BUILT_FOR_NOTE.contains(said), "{said}");
+        }
+    }
+
+    #[test]
+    fn the_romm_exclusions_say_what_happens_without_them_and_that_they_apply_everywhere() {
+        assert!(ROMM_TWICE.contains("each game with disks twice"));
+        assert!(ROMM_EVERYWHERE.contains("one list for every platform"));
+        assert!(ROMM_EVERYWHERE.contains("on every platform, not only this one"));
+        assert_eq!(
+            ROMM_PER_PLATFORM,
+            "https://github.com/rommapp/romm/issues/5696"
         );
     }
 }

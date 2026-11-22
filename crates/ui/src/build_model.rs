@@ -805,6 +805,20 @@ mod tests {
     }
 
     #[test]
+    fn a_mame_folder_lacking_a_dependency_is_incomplete_for_that_reason() {
+        let counts = IncompleteCounts {
+            missing_dependency: 2,
+            missing_disc: 1,
+            ..IncompleteCounts::default()
+        };
+
+        assert_eq!(
+            incomplete_counts(&counts),
+            "1 missing disc, 2 missing dependency"
+        );
+    }
+
+    #[test]
     fn choosing_for_conflicts_keeps_the_other_choices() {
         let choices = PlanChoices {
             resolved_only: true,

@@ -7,11 +7,13 @@
 //! - `plan`: `PlanReview`, the plan review's counts by kind, rows reading current → proposed and choices set in bulk,
 //!   over `plan_model`.
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
+//! - `help`: `Help`, a one-line summary with longer help folded beneath it.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
 //! - `theme`: the light and dark themes and `ThemeToggle`.
 //! - `url_state`: a list's filter, sort, selected row and tab in the query string.
 //! - `layout`: `SplitView`, `DetailPane` and `Tabs` over nested routes.
 
+pub mod help;
 pub mod icon;
 pub mod layers;
 pub mod layout;

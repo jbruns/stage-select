@@ -31,10 +31,12 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    FolderTab, Pick, Replan, Replans, drifted, fresh, live_status, pick, romm_exclusions,
-    selection_under_way, stale_label,
+    BUILT_FOR_NOTE, FolderTab, Pick, ROMM_EVERYWHERE, ROMM_PER_PLATFORM, ROMM_TWICE, Replan,
+    Replans, built_for, drifted, fresh, live_status, pick, romm_exclusions, selection_under_way,
+    stale_label,
 };
 use crate::model::{age, earlier, when};
+use crate::parts::help::Help;
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
@@ -642,9 +644,12 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Current build"</dt>
             <dd>{current_build(&f.build)}</dd>
-            {f.built_for.clone().map(|version| view! {
+            {f.built_for.as_deref().map(|build| view! {
                 <dt>"Built for"</dt>
-                <dd>{format!("MAME {version}. Only that version of MAME runs what this folder holds.")}</dd>
+                <dd>
+                    {built_for(build)}
+                    <p class="note small">{BUILT_FOR_NOTE}</p>
+                </dd>
             })}
             <dt>"Last checked"</dt>
             <dd>{checked}</dd>
@@ -1208,17 +1213,17 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
                     n => format!("{n} folders: each holds the CHDs of the game it is named for. MAME finds them there."),
                 }}
             </p>
-            <details>
-                <summary>"Using RomM? Leave these folders out"</summary>
+            <Help summary="Using RomM? Leave these folders out">
                 <p>
-                    "RomM lists every folder in a play library as a game of its own, so without this it shows each "
-                    "disk folder as a game that doesn't run. Add these names to "
-                    <code>"exclude.roms.multi_file.names"</code>
-                    " in your RomM configuration, then scan the platform again. Title Select doesn't change RomM's "
-                    "configuration for you."
+                    {ROMM_TWICE} " " <code>"exclude.roms.multi_file.names"</code> " " {ROMM_EVERYWHERE}
                 </p>
                 <pre>{exclusions}</pre>
-            </details>
+                <p>
+                    "RomM may take a list for each platform later: "
+                    <a href=ROMM_PER_PLATFORM>"rommapp/romm#5696"</a>
+                    "."
+                </p>
+            </Help>
         </section>
     }
 }

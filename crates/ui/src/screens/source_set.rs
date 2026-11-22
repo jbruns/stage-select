@@ -50,7 +50,7 @@ use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
 };
 use crate::source_set_model::{
-    self as model, ExportScope, Happened, MissingExport, Moment, PageTab,
+    self as model, ExportScope, Happened, MissingExport, Moment, PageTab, no_coverage,
 };
 
 /// What following a DAT does, for the toggle's tooltip.
@@ -424,26 +424,44 @@ fn Overview(
     });
     let coverage = set.coverage.clone();
     let (glyph, kind) = coverage::glyph(coverage.as_deref(), unavailable);
+    let coverage_section = match no_coverage(revisions.iter().map(|r| r.format)) {
+        // A MAME source set covers every game, and offers no control to change that.
+        Some(why) => view! {
+            <section aria-labelledby="coverage-title">
+                <h2 id="coverage-title">"Coverage"</h2>
+                <p>
+                    <Icon glyph label="Every game" />
+                    " "
+                    {why}
+                </p>
+            </section>
+        }
+        .into_any(),
+        None => view! {
+            <section aria-labelledby="coverage-title">
+                <h2 id="coverage-title">"Coverage"</h2>
+                <p>
+                    <Icon glyph label=kind />
+                    " "
+                    {match coverage.as_deref() {
+                        None => regions_line(None),
+                        Some(regions) => format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
+                    }}
+                </p>
+                <div class="actions">
+                    <button type="button" on:click=move |_| editing.set(true)>
+                        "Edit coverage"
+                    </button>
+                </div>
+            </section>
+        }
+        .into_any(),
+    };
     view! {
         {stale_lines(&set)}
         {headline}
         <SingleCopy name=set.name.clone() present />
-        <section aria-labelledby="coverage-title">
-            <h2 id="coverage-title">"Coverage"</h2>
-            <p>
-                <Icon glyph label=kind />
-                " "
-                {match coverage.as_deref() {
-                    None => regions_line(None),
-                    Some(regions) => format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
-                }}
-            </p>
-            <div class="actions">
-                <button type="button" on:click=move |_| editing.set(true)>
-                    "Edit coverage"
-                </button>
-            </div>
-        </section>
+        {coverage_section}
         <section aria-labelledby="about-title">
             <h2 id="about-title">"About it"</h2>
             <dl class="facts">

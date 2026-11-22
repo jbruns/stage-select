@@ -344,6 +344,10 @@ pub struct RomRef {
 /// The reason a Mismatched Entry named for a nodump ROM gives: no file can match that ROM (ADR 0025).
 pub const NOT_DUMPED: &str = "no good dump known";
 
+/// How the reason an Unreadable Entry gives starts when it is a delta CHD, which can't be read without its parent CHD
+/// (ADR 0026).
+pub const DELTA_CHD: &str = "it is a delta CHD";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     /// Path relative to the Source Set's root.

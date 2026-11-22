@@ -14,6 +14,7 @@ use title_select_api::{Dat, DatFormat};
 
 use crate::api;
 use crate::app::{Loading, Problem};
+use crate::parts::help::Help;
 
 const SCOPES: [(StorageScope, &str); 2] = [
     (StorageScope::SourceSets, "Source sets"),
@@ -39,14 +40,27 @@ const DAMAGED_PLACED_NOTE: &str = "Because the CHD is your only copy, a damaged 
 fn PlaceConvertedNote() -> impl IntoView {
     view! {
         <p class="note small">{PLACE_CONVERTED_NOTE}</p>
-        <details class="note small">
-            <summary>"If a placed CHD is damaged"</summary>
+        <Help summary="If a placed CHD is damaged">
             <p>{DAMAGED_PLACED_NOTE}</p>
-        </details>
+        </Help>
     }
 }
 
-const SET_LAYOUT_NOTE: &str = "The set layout says where a MAME source set keeps the ROMs a family shares. Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay in a folder named for the family's parent whatever the layout. A build copies a non-merged ZIP as it is into your play library, and repacks a split or merged family into each selected game's own ZIP, with its disks copied into a folder named for it. It applies to arcade DATs, MAME's ListXML, not to software lists.";
+const SET_LAYOUT_SUMMARY: &str =
+    "Where a MAME source set keeps the ROMs a family shares. Non-merged is the default.";
+
+const SET_LAYOUT_NOTE: &str = "Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay as a merged CHD set, in a folder named for the family's parent, whatever the layout. A build copies a non-merged ZIP as it is into your play library, and repacks a split or merged family into each selected game's own ZIP, with its disks copied into a folder named for it. It applies to arcade DATs, MAME's ListXML, not to software lists.";
+
+/// The set layout's one-line summary, with how each layout keeps a family, and what a repair and a build do with it,
+/// folded beneath.
+#[component]
+fn SetLayoutHelp() -> impl IntoView {
+    view! {
+        <Help summary=SET_LAYOUT_SUMMARY>
+            <p>{SET_LAYOUT_NOTE}</p>
+        </Help>
+    }
+}
 
 fn set_layout_label(layout: SetLayout) -> &'static str {
     match layout {
@@ -326,7 +340,7 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                                 .map(|&l| view! { <option value=l.as_str()>{set_layout_label(l)}</option> })
                                                 .collect_view()}
                                         </select>
-                                        <p class="note small">{SET_LAYOUT_NOTE}</p>
+                                        <SetLayoutHelp/>
                                     }
                                 })}
                             {(scope == StorageScope::PlayLibraries).then(|| view! { <GlobalSingleCopy policy /> })}
@@ -591,7 +605,7 @@ fn SystemSetLayout(policy: RwSignal<StoragePolicy>, system: String) -> impl Into
                 .map(|&l| view! { <option value=l.as_str()>{set_layout_label(l)}</option> })
                 .collect_view()}
         </select>
-        <p class="note small">{SET_LAYOUT_NOTE}</p>
+        <SetLayoutHelp/>
     }
 }
 
@@ -729,10 +743,16 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
 mod tests {
     use super::*;
 
-    /// The set layout note names each layout as you choose it, and says when a repair sets a ZIP aside.
+    /// The set layout help keeps one line in view and names each layout as you choose it, says when a repair sets a ZIP
+    /// aside, and calls disks a merged CHD set, beneath it.
     #[test]
-    fn the_set_layout_note_names_each_layout_and_when_a_zip_is_set_aside() {
+    fn the_set_layout_help_names_each_layout_and_when_a_zip_is_set_aside() {
+        assert!(
+            SET_LAYOUT_SUMMARY.len() <= 100,
+            "one line: {SET_LAYOUT_SUMMARY}"
+        );
         for said in [
+            "merged CHD set",
             "Non-merged, the default",
             "Split keeps",
             "Merged keeps",

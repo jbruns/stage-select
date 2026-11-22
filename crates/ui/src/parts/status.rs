@@ -1003,6 +1003,45 @@ impl Status for DatFileStatus {
     }
 }
 
+/// A MAME Support File an arcade Selection read, against its ListXML's MAME version: drift, never a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SupportFileStatus {
+    Older,
+    NotRead,
+    Current,
+}
+
+impl Status for SupportFileStatus {
+    const ALL: &'static [Self] = &[
+        SupportFileStatus::Older,
+        SupportFileStatus::NotRead,
+        SupportFileStatus::Current,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            SupportFileStatus::Older => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Older version",
+                "It is for an older MAME than the DAT revision, so machines newer than it are read as if it were absent.",
+            ),
+            SupportFileStatus::NotRead => look(
+                Glyph::FileX,
+                Tone::Neutral,
+                "Not read",
+                "No file of this kind was read, so the selection did without it.",
+            ),
+            SupportFileStatus::Current => look(
+                Glyph::FileCheck,
+                Tone::Good,
+                "Same version",
+                "It is for the MAME version of the DAT revision.",
+            ),
+        }
+    }
+}
+
 /// Where fetching one system's DATs and packs from a DAT provider stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FetchState {
@@ -1328,6 +1367,7 @@ mod tests {
             ("RomM comparisons", vocabulary::<RommFlag>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
+            ("support files", vocabulary::<SupportFileStatus>()),
             ("selection groups", vocabulary::<GroupStatus>()),
             ("calibration", vocabulary::<CalibrationStatus>()),
         ]

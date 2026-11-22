@@ -941,11 +941,11 @@ pub fn needs_parent(dat: &Dat, parent: &str) -> String {
     });
     match named {
         Some(named) => format!(
-            "it is a delta CHD, which can't be read without its parent CHD, {named} (SHA-1 {parent}); replace it \
+            "{DELTA_CHD}, which can't be read without its parent CHD, {named} (SHA-1 {parent}); replace it \
              with a self-contained CHD"
         ),
         None => format!(
-            "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}, which no disk of the \
+            "{DELTA_CHD}, which can't be read without its parent CHD, SHA-1 {parent}, which no disk of the \
              DAT is; replace it with a self-contained CHD"
         ),
     }
