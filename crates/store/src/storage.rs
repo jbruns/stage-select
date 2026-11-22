@@ -2,9 +2,10 @@
 //! CHD, and whether a conversion deletes each original once its converted file is verified.
 
 use rusqlite::{Connection, OptionalExtension, params};
+use title_select_api::DatFormat;
 use title_select_api::storage::{
-    DiscLayout, ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
-    is_disc_system,
+    DiscLayout, ScopePolicy, SetLayout, Storage, StorageFormat, StoragePolicy, StorageScope,
+    SystemStorage, is_disc_system, is_mame_system,
 };
 
 use crate::{Error, Result, Store, now};
@@ -13,8 +14,8 @@ const SCOPES: [StorageScope; 2] = [StorageScope::SourceSets, StorageScope::PlayL
 
 fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
     let mut stmt = c.prepare(
-        "SELECT system, format, delete_originals, layout, sbi, single_copy, place_converted FROM storage_policy
-         WHERE scope = ?1 ORDER BY system",
+        "SELECT system, format, delete_originals, layout, sbi, single_copy, place_converted, set_layout
+         FROM storage_policy WHERE scope = ?1 ORDER BY system",
     )?;
     let rows = stmt
         .query_map([scope.as_str()], |r| {
@@ -26,19 +27,24 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
                 r.get::<_, Option<bool>>(4)?,
                 r.get::<_, Option<bool>>(5)?,
                 r.get::<_, Option<bool>>(6)?,
+                r.get::<_, Option<String>>(7)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut policy = ScopePolicy::default();
-    for (system, format, delete_originals, layout, sbi, single_copy, place_converted) in rows {
+    for (system, format, delete_originals, layout, sbi, single_copy, place_converted, set_layout) in
+        rows
+    {
         let format = format.as_deref().and_then(StorageFormat::parse);
         let layout = layout.as_deref().and_then(DiscLayout::parse);
+        let set_layout = set_layout.as_deref().and_then(SetLayout::parse);
         if system.is_empty() {
             policy.format = format.unwrap_or_default();
             policy.delete_originals = delete_originals.unwrap_or(false);
             policy.layout = layout.unwrap_or_default();
             policy.single_copy = single_copy.unwrap_or(false);
             policy.place_converted = place_converted.unwrap_or(false);
+            policy.set_layout = set_layout.unwrap_or_default();
         } else {
             policy.systems.insert(
                 system,
@@ -49,6 +55,7 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
                     sbi,
                     single_copy,
                     place_converted,
+                    set_layout,
                 },
             );
         }
@@ -67,7 +74,7 @@ pub(crate) fn policy(c: &Connection, scope: StorageScope, system: &str) -> Resul
 /// one saved before its provider's first DAT was imported keeps the spelling it was given until then. Two overrides
 /// that become one system merge, the more cautious winning: an override that keeps originals over one that follows
 /// the default, and that over one that deletes them; the format of the one already under the kept spelling, else the
-/// first by name, unless it sets none; and so the layout and SBI choice.
+/// first by name, unless it sets none; and so the layout, SBI choice and set layout.
 pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
     // A migration before the disc layout's respells too, before its columns exist.
     let laid: bool = c.query_row(
@@ -83,6 +90,11 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
     )?;
     let converted: bool = c.query_row(
         "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'place_converted'",
+        [],
+        |r| r.get(0),
+    )?;
+    let set_laid: bool = c.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'set_layout'",
         [],
         |r| r.get(0),
     )?;
@@ -157,6 +169,14 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
                         params![scope, canonical, system],
                     )?;
                 }
+                if set_laid {
+                    c.execute(
+                        "UPDATE storage_policy SET set_layout = coalesce(set_layout, (
+                             SELECT set_layout FROM storage_policy WHERE scope = ?1 AND system = ?3))
+                         WHERE scope = ?1 AND system = ?2",
+                        params![scope, canonical, system],
+                    )?;
+                }
                 if converted {
                     // Placing converted games leaves them with no copy in their source set's format: as with single
                     // copy, off over following the default over on.
@@ -211,6 +231,24 @@ fn check(policy: &StoragePolicy) -> Result<()> {
         return Err(Error::Refused(
             "source sets have no disc layout and no SBI files: set them for play libraries".into(),
         ));
+    }
+    if play.set_layout != SetLayout::default()
+        || play.systems.values().any(|s| s.set_layout.is_some())
+    {
+        return Err(Error::Refused(
+            "play libraries have no set layout: each game in a play library holds everything it needs. Set it for \
+             source sets"
+                .into(),
+        ));
+    }
+    if let Some((system, _)) = sources
+        .systems
+        .iter()
+        .find(|(system, s)| s.set_layout.is_some() && !is_mame_system(system))
+    {
+        return Err(Error::Refused(format!(
+            "{system} is not a MAME system, so its source sets have no set layout"
+        )));
     }
     if let Some((system, _)) = play
         .systems
@@ -310,8 +348,8 @@ impl Store {
                 let own = policy.scope(scope);
                 tx.execute(
                     "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, single_copy,
-                                                 place_converted, updated_by, updated_at)
-                     VALUES (?1, '', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                                 place_converted, set_layout, updated_by, updated_at)
+                     VALUES (?1, '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![
                         scope.as_str(),
                         own.format.as_str(),
@@ -319,6 +357,7 @@ impl Store {
                         (scope == StorageScope::PlayLibraries).then(|| own.layout.as_str()),
                         (scope == StorageScope::PlayLibraries).then_some(own.single_copy),
                         (scope == StorageScope::PlayLibraries).then_some(own.place_converted),
+                        (scope == StorageScope::SourceSets).then(|| own.set_layout.as_str()),
                         actor,
                         at
                     ],
@@ -332,10 +371,22 @@ impl Store {
                         )));
                     }
                     let system = &canonical;
+                    if scope == StorageScope::SourceSets
+                        && s.set_layout.is_some()
+                        && let Some((provider, name)) = system.split_once('/')
+                        && let Some(dat) = crate::dats::find_dat(tx, provider, name)?
+                        && crate::dats::dat_format(tx, dat)? == Some(DatFormat::SoftwareList)
+                    {
+                        return Err(Error::Refused(format!(
+                            "{system} is a software list, so its source sets have no set layout: it applies to \
+                             arcade DATs"
+                        )));
+                    }
                     tx.execute(
                         "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, sbi,
-                                                     single_copy, place_converted, updated_by, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                                                     single_copy, place_converted, set_layout, updated_by,
+                                                     updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                         params![
                             scope.as_str(),
                             system,
@@ -345,6 +396,7 @@ impl Store {
                             s.sbi,
                             s.single_copy,
                             s.place_converted,
+                            s.set_layout.map(SetLayout::as_str),
                             actor,
                             at
                         ],
@@ -464,5 +516,62 @@ mod tests {
             },
         );
         assert!(store.set_storage_policy(&cartridges, "Operator").is_err());
+    }
+
+    #[test]
+    fn a_mame_systems_source_sets_keep_their_set_layout_and_nothing_else_takes_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let mame = "MAME/MAME";
+        let mut policy = StoragePolicy::default();
+        policy.source_sets.set_layout = SetLayout::Split;
+        policy.source_sets.systems.insert(
+            mame.into(),
+            SystemStorage {
+                set_layout: Some(SetLayout::Merged),
+                ..SystemStorage::default()
+            },
+        );
+        assert_eq!(
+            store.set_storage_policy(&policy, "Operator").unwrap(),
+            policy
+        );
+        let layout = |system: &str| {
+            store
+                .read(|c| policy_of(c, StorageScope::SourceSets, system))
+                .unwrap()
+                .set_layout
+        };
+        assert_eq!(layout(mame), Some(SetLayout::Merged));
+        assert_eq!(layout("MAME/MAME Second"), Some(SetLayout::Split));
+        assert_eq!(layout("No-Intro/Atari"), None);
+
+        let mut on_play = StoragePolicy::default();
+        on_play.play_libraries.set_layout = SetLayout::Merged;
+        assert!(store.set_storage_policy(&on_play, "Operator").is_err());
+        let mut not_mame = StoragePolicy::default();
+        not_mame.source_sets.systems.insert(
+            "No-Intro/Atari".into(),
+            SystemStorage {
+                set_layout: Some(SetLayout::Split),
+                ..SystemStorage::default()
+            },
+        );
+        assert!(store.set_storage_policy(&not_mame, "Operator").is_err());
+
+        let list =
+            r#"<?xml version="1.0"?><softwarelist name="nes" description="NES"></softwarelist>"#;
+        store
+            .import_dat_bytes(list.as_bytes(), "nes.xml", None)
+            .unwrap();
+        let mut on_list = StoragePolicy::default();
+        on_list.source_sets.systems.insert(
+            "MAME/nes".into(),
+            SystemStorage {
+                set_layout: Some(SetLayout::Split),
+                ..SystemStorage::default()
+            },
+        );
+        assert!(store.set_storage_policy(&on_list, "Operator").is_err());
     }
 }

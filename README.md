@@ -1210,6 +1210,30 @@ files, and the plan's outcome says why. Only a game whose ROMs are the same, by 
 converted; a game whose ROMs changed is replaced, and its old file is kept, never deleted. A conversion the service stopped during ends, when it next starts, with the original either deleted, when
 that was proven before the stop, or kept; a file found by its path alone is never deleted.
 
+A MAME system's source sets have a set layout too, which says where a family's shared ROMs live, set globally for
+source sets and for each system whose DAT is an arcade DAT, MAME's ListXML. Software lists don't take it.
+
+- **Non-merged**, the default: each game's ZIP holds everything it needs to run, its own ROMs, the ROMs it shares with
+  its parent and BIOS, and the ROMs of every device it names through `device_ref`. It takes the most space, and every
+  ZIP can be copied alone. A BIOS's or device's own ZIP holds its own ROMs.
+- **Split**: a game's ZIP holds only the ROMs it shares with no ancestor, those the DAT lists without a `merge=` that
+  names a ROM of its `romof` game. A clone's shared ROMs stay in its parent's ZIP, and BIOS and device ROMs in theirs.
+- **Merged**: a parent's ZIP holds what split gives it and each of its clones' own ROMs, and a clone has no ZIP of its
+  own.
+
+An audit accepts any layout and counts a game's files as above, so a family audits to the same statuses whichever way it
+is stored, and a layout other than yours is no discrepancy. The next repair proposes repacking each family into your
+layout, every item on by default: it writes each ZIP from the family's ZIPs, filling a ROM a ZIP lacks from a sibling
+ZIP that holds it, and a ZIP another game is written into is read but never set aside by this game's item. A ZIP the
+layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is written and
+verified; if one of them fails, it stays. By default a repack only builds, renames, fills and converts: a file left
+holding only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to
+keep it aside, and the item says so. A family is repacked whole: leaving one game of it as it is leaves the family's
+other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists for it wins, a game's own
+before its dependencies' and a parent's before its clones', the plan's notes say which ROM was left out, and the file
+that holds it stays where it is. Disks are never moved by the set layout: they stay in a folder named for the family's
+parent.
+
 ### Library folders and builds
 
 A library folder is a folder in a writable root that Title Select builds selections into, for your front end to play
@@ -1564,8 +1588,8 @@ game's ROMs before it renames it. Each item has a choice you can change, then pl
 approving approves the plan as it was made, so it waits while you have changes you haven't planned with:
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
-- a game not stored as the storage policy says, `<game>.zip`, its one ROM loose, or a `<game>/` loose folder, is
-  repacked or converted to it, a loose game's tracks moved into its folder by a rename, the tracks a ZIP holds
+- a game not stored as the storage policy says, `<game>.zip`, its one ROM loose, or a `<game>/` loose folder, or,
+  for a MAME source set, whose ZIP doesn't hold what your set layout says, is repacked or converted to it, a loose game's tracks moved into its folder by a rename, the tracks a ZIP holds
   written out together in one read of it:
   always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
   original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
@@ -1588,7 +1612,10 @@ approving approves the plan as it was made, so it waits while you have changes y
   audit matched stays where it is: a repair never keeps it aside, and never packs a CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
-- unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
+- unmatched entries and extra members of a game's ZIP are kept aside by default;
+- a file holding only copies of ROMs that another file holds, or that the repair writes, is left where it is by
+  default. You can choose to keep it aside: it's kept aside only once every file the repair reads from it, or writes
+  with a copy of what it holds, is written and verified, and if one of them fails, it stays.
 
 When the source set has a coverage, a repair fills only the games in it: a game outside it is renamed, repacked and
 converted like any other, but nothing fills it, and the plan's notes say so. The plan records the coverage it was
@@ -1758,7 +1785,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions`             | its versions, newest first                                   |
 | `POST /api/v1/profiles/{name}/versions`            | save: `{"profile", "base_version"?, "queue"?}`; creates it   |
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
-| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?}`; only a disc system's play libraries take `layout` and `sbi` |
+| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, `set_layout` `non_merged` (the default, left out), `split` or `merged`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?, "set_layout"?}`; only a disc system's play libraries take `layout` and `sbi`, and only a MAME system's source sets `set_layout` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
 | `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured", "locked_by"}`, its `source` one of `config`, `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
 | `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace` and `ceilings`, `{"host": {…}, "roots": {"NAME": {…}}}`, every ceiling of yours at once: one left out or `null` is cleared, and one the configuration file sets is refused; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
@@ -2199,8 +2226,8 @@ Its screens:
   what you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
-  play libraries put SBI files beside its discs, whether play libraries keep each game once under single copy and
-  place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
+  play libraries put SBI files beside its discs, a MAME system's set layout for its source sets, whether play
+  libraries keep each game once under single copy and place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
   **Roots** lists the roots in the service's configuration file, read-only: each one's path, whether it's writable

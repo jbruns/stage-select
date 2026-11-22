@@ -735,8 +735,16 @@ fn committed_items(steps: &[StepRow]) -> std::collections::HashSet<String> {
                 committed.insert(step.item.as_str());
                 committed.extend(affects.iter().map(String::as_str));
                 for need in needs {
-                    if let Some(build) = steps.iter().find(|b| b.seq == *need) {
-                        committed.insert(build.item.as_str());
+                    // Another item's Fill, Rename or Publish it waits for is skipped on a cancel, and the Keep with it.
+                    if let Some(needed) = steps.iter().find(|b| b.seq == *need)
+                        && !matches!(
+                            needed.step,
+                            RepairStep::Fill { .. }
+                                | RepairStep::Rename { .. }
+                                | RepairStep::Publish { .. }
+                        )
+                    {
+                        committed.insert(needed.item.as_str());
                     }
                 }
             }
@@ -2312,6 +2320,18 @@ impl Store {
                             RepairStep::Keep { path: beside, .. } => format!(
                                 "{path} was left as it is, since {beside} could not be set aside with it"
                             ),
+                            // A file of another item, written with a copy of what this one holds.
+                            RepairStep::Build { target, .. }
+                            | RepairStep::Publish { target, .. }
+                            | RepairStep::Fill { target, .. }
+                            | RepairStep::Rename { to: target, .. }
+                                if needed.item != step.item =>
+                            {
+                                format!(
+                                    "{path} was left as it is, since {target}, which would hold a copy of \
+                                     what it holds, was not written"
+                                )
+                            }
                             _ => format!(
                                 "{path} was left as it is, since its game's new file was not written"
                             ),

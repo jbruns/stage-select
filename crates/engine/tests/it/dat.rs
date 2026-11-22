@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use title_select_api::DatFormat;
-use title_select_engine::dat::{Dat, DumpStatus, Signal};
+use title_select_engine::dat::{Dat, DumpStatus, SetLayout, Signal};
 
 /// The synthetic ListXML of `tests/data/listxml-family.xml`: a BIOS, a device chain, a parent and its clone, and a
 /// mechanical non-clone, with nodump, baddump and optional ROMs and Disks.
@@ -107,6 +107,141 @@ fn a_games_ancestors_are_its_parent_and_its_romof_chain_and_its_dependencies_its
     assert_eq!(dependencies("crane"), ["arcbios", "acmesnd", "z80"]);
     assert_eq!(dependencies("arcbios"), ["acmesnd", "z80"]);
     assert_eq!(dependencies("z80"), Vec::<&str>::new());
+}
+
+#[test]
+fn a_set_layout_says_which_roms_each_games_zip_holds_and_no_zip_holds_a_disk() {
+    let dat = family();
+    let laid = |layout| -> Vec<(&str, Option<Vec<&str>>)> {
+        let laid = dat.laid_out(Some(layout));
+        assert!(laid.left_out.is_empty());
+        dat.games
+            .iter()
+            .zip(laid.roms)
+            .map(|(g, roms)| {
+                let names = roms.map(|roms| {
+                    roms.into_iter()
+                        .map(|r| dat.roms[r].name.as_str())
+                        .collect()
+                });
+                (g.as_str(), names)
+            })
+            .collect()
+    };
+    let some = |roms: &[&'static str]| Some(roms.to_vec());
+
+    // Non-merged: each ZIP holds its Dependencies' ROMs too, the BIOS's once and the devices' through device_ref.
+    assert_eq!(
+        laid(SetLayout::NonMerged),
+        [
+            ("arcbios", some(&["bios.u1", "snd.u2"])),
+            ("acmesnd", some(&["snd.u2"])),
+            ("z80", some(&[])),
+            (
+                "blaster",
+                some(&["bios.u1", "prog.u3", "gfx.u4", "pal.u5", "snd.u6", "snd.u2"])
+            ),
+            (
+                "blasterj",
+                some(&["bios.u1", "progj.u3", "gfx.u4", "snd.u2"])
+            ),
+            ("crane", some(&["bios.u1", "crane.u7", "snd.u2"])),
+        ]
+    );
+    // Split: what a Game shares by merge= stays with the Game it shares it with.
+    let split = [
+        ("arcbios", some(&["bios.u1"])),
+        ("acmesnd", some(&["snd.u2"])),
+        ("z80", some(&[])),
+        ("blaster", some(&["prog.u3", "gfx.u4", "pal.u5", "snd.u6"])),
+        ("blasterj", some(&["progj.u3"])),
+        ("crane", some(&["crane.u7"])),
+    ];
+    assert_eq!(laid(SetLayout::Split), split);
+    // Merged: the parent's ZIP holds its clone's own ROMs, and the clone has none.
+    let mut merged = split.clone();
+    merged[3].1 = some(&["prog.u3", "gfx.u4", "pal.u5", "snd.u6", "progj.u3"]);
+    merged[4].1 = None;
+    assert_eq!(laid(SetLayout::Merged), merged);
+
+    // With no layout, each Game holds every ROM it lists, its Disks included.
+    let listed = dat.laid_out(None).roms;
+    assert_eq!(
+        listed[index(&dat, "blasterj")].as_ref().map(Vec::len),
+        Some(5)
+    );
+}
+
+#[test]
+fn a_game_stored_apart_and_its_clones_are_laid_out_non_merged_and_no_merged_zip_holds_it() {
+    let dat = family();
+    let blaster = index(&dat, "blaster");
+    let blasterj = index(&dat, "blasterj");
+    let names = |roms: &Option<Vec<usize>>| -> Option<Vec<&str>> {
+        roms.as_ref()
+            .map(|roms| roms.iter().map(|&r| dat.roms[r].name.as_str()).collect())
+    };
+    let whole = dat.laid_out(Some(SetLayout::NonMerged));
+    let split = dat.laid_out(Some(SetLayout::Split));
+
+    for layout in SetLayout::ALL {
+        // The clone apart: the parent holds only its own ROMs, as split, unless the layout is non-merged.
+        let laid = dat.laid_out_apart(Some(layout), |g| g == blasterj);
+        assert_eq!(
+            names(&laid.roms[blasterj]),
+            names(&whole.roms[blasterj]),
+            "{layout:?}"
+        );
+        let parent = match layout {
+            SetLayout::NonMerged => &whole.roms[blaster],
+            _ => &split.roms[blaster],
+        };
+        assert_eq!(names(&laid.roms[blaster]), names(parent), "{layout:?}");
+
+        // The parent apart: its clone is laid out non-merged too, with no parent beside it.
+        let laid = dat.laid_out_apart(Some(layout), |g| g == blaster);
+        for g in [blaster, blasterj] {
+            assert_eq!(names(&laid.roms[g]), names(&whole.roms[g]), "{layout:?}");
+            assert!(laid.apart[g], "{layout:?}");
+        }
+    }
+}
+
+#[test]
+fn a_zip_holds_one_rom_of_a_name_and_says_which_it_left_out() {
+    let xml = br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="snd" isdevice="yes" runnable="no"><description>Sound</description>
+    <rom name="a.u1" size="4" crc="00000002"/></machine>
+  <machine name="game"><description>Game</description>
+    <rom name="a.u1" size="4" crc="00000001"/><device_ref name="snd"/></machine>
+</mame>
+"#;
+    let dat = Dat::parse(xml, Path::new("mame.xml")).unwrap();
+
+    let laid = dat.laid_out(Some(SetLayout::NonMerged));
+
+    assert_eq!(laid.roms[1], Some(vec![1]));
+    assert_eq!(laid.left_out, [(1, 0)]);
+}
+
+#[test]
+fn a_zip_holds_a_dumped_rom_over_a_nodump_one_of_its_name() {
+    let xml = br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="snd" isdevice="yes" runnable="no"><description>Sound</description>
+    <rom name="a.u1" size="4" crc="00000002"/></machine>
+  <machine name="game"><description>Game</description>
+    <rom name="a.u1" size="4" status="nodump"/><device_ref name="snd"/></machine>
+</mame>
+"#;
+    let dat = Dat::parse(xml, Path::new("mame.xml")).unwrap();
+
+    let laid = dat.laid_out(Some(SetLayout::NonMerged));
+
+    // The game's ZIP holds the device's a.u1, ROM 0, in place of its own nodump one.
+    assert_eq!(laid.roms[1], Some(vec![0]));
+    assert_eq!(laid.left_out, []);
 }
 
 #[test]
