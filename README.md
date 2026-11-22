@@ -1120,7 +1120,9 @@ and why. Any game can be stored as a loose folder, a single `.iso` as well as a 
 its name or a ROM's name isn't a plain file name, is the name of the folder Title Select keeps its own work in
 (`.title-select`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
 stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
-disc layout says; any other system's play libraries store TorrentZip or loose.
+disc layout says; any other system's play libraries store TorrentZip or loose. A MAME system's source sets keep every
+game as a TorrentZip, whatever format you give source sets, as MAME reads each game from a ZIP: a repair never stores
+one loose, and its plan says how many stay TorrentZip.
 
 A disc system's play libraries lay out its discs as their disc layout says, set globally for play libraries and for
 each system. The default is the ES-DE layout:
@@ -1446,7 +1448,9 @@ split or merged ZIP holds more than one game's ROMs, so under those set layouts 
 and the plan says why; the storage policy says single copy has no effect for the system. A game whose ZIP doesn't
 yet hold every ROM it needs, before a repair has repacked it, is copied too, and so is one whose ZIP another game in
 the plan is written from, such as the only ZIP holding a device's ROM: the ZIP stays in the source set for that game. A
-game's disks are always copied, never placed, as one family's disk folder may serve several games.
+game's disks are always copied, never placed, as one family's disk folder may serve several games. A placed game goes
+back to your source set as the ZIP it is, its BIOS's and devices' ROMs inside, with the audit's evidence for each of
+them carried over.
 
 Renames need one mount. A deployment that binds the source set and the library folder as two separate mounts, such
 as two volumes of one container, sees two filesystems even when they share a disk, so its games are copied, read

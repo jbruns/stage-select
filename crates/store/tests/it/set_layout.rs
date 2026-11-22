@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use title_select_api::build::AddLibraryFolder;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::selection::SelectionProfile;
-use title_select_api::storage::{SetLayout, SystemStorage, split_placed};
+use title_select_api::storage::{SetLayout, StorageFormat, SystemStorage, split_placed};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_engine::torrentzip;
@@ -587,6 +587,27 @@ fn a_non_merged_family_as_its_layout_keeps_it_needs_no_repair() {
         "{:#?}",
         env.plan().content.items
     );
+}
+
+#[test]
+fn a_non_merged_family_stays_zips_whatever_format_the_storage_policy_gives_source_sets() {
+    let env = Env::new();
+    env.stored(SetLayout::NonMerged);
+    for format in [StorageFormat::Loose, StorageFormat::LooseFolder] {
+        let mut policy = env.store.storage_policy().unwrap();
+        policy.source_sets.format = format;
+        env.store.set_storage_policy(&policy, "Operator").unwrap();
+        env.audit();
+
+        let plan = env.plan();
+        assert!(plan.content.items.is_empty(), "{:#?}", plan.content.items);
+        assert_eq!(
+            plan.content.notes,
+            [
+                "4 MAME games stay TorrentZip, whatever format you give source sets: MAME reads each game from a ZIP"
+            ]
+        );
+    }
 }
 
 #[test]

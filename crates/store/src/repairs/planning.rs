@@ -10,8 +10,8 @@ use title_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep, SeenFile,
 };
 use title_select_api::storage::{
-    MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, is_reserved_name,
-    placed_path, placement_writing, release_of, split_placed,
+    MAME_STAYS_ZIP, MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat,
+    is_reserved_name, placed_path, placement_writing, release_of, split_placed,
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, NOT_DUMPED, Report};
 use title_select_engine::dat::{Dat, DumpStatus, Laid, Rom, SetLayout};
@@ -1715,7 +1715,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
     }
 
-    let mut stays_zip = 0;
+    let (mut stays_zip, mut mame_zip) = (0, 0);
     let mut used_candidates: BTreeSet<i64> = BTreeSet::new();
     // A file holding a Disk stays where it is, whatever else a repair does: it is never kept aside as holding nothing a
     // Game needs, since no repair writes a Disk anywhere else (ADR 0026).
@@ -1823,6 +1823,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         };
         match why_zip {
             Some(MULTI_ROM_STAYS_ZIP) => stays_zip += 1,
+            Some(MAME_STAYS_ZIP) => mame_zip += 1,
             Some(why) => notes.push(format!("{game}: {why}")),
             None => {}
         }
@@ -2281,8 +2282,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             let as_folder: Vec<String> = {
                 let listed = layout_index.listed(index);
                 let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
+                // Recognised whatever the Set Layout, which would store the Game as a ZIP.
                 let folder_storage = Storage {
                     format: StorageFormat::LooseFolder,
+                    set_layout: None,
                     ..i.storage
                 };
                 match placement_writing(folder_storage, game, &listed, &names).0 {
@@ -3058,6 +3061,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             "{stays_zip} game{} with more than one ROM stay{} TorrentZip: only a game with one ROM can be stored loose",
             if stays_zip == 1 { "" } else { "s" },
             if stays_zip == 1 { "s" } else { "" },
+        ));
+    }
+    if mame_zip > 0 {
+        notes.push(format!(
+            "{mame_zip} MAME game{} stay{} TorrentZip, whatever format you give source sets: MAME reads each game \
+             from a ZIP",
+            if mame_zip == 1 { "" } else { "s" },
+            if mame_zip == 1 { "s" } else { "" },
         ));
     }
     let (steps, ungated) = steps_of(i, &proposed);

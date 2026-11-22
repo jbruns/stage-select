@@ -799,36 +799,154 @@ pub(crate) fn moved_entries(
     Ok(())
 }
 
-/// A placed file whose Entries [`rewritten_entries`] writes: its path as an Audit names it, and the ROMs of `game` it
-/// holds, as members of an archive or, `loose`, as the file itself.
+/// A placed file whose Entries [`rewritten_entries`] writes: its path as an Audit names it, the ROMs of `game` it
+/// holds, as members of an archive or, `loose`, as the file itself, and for each ROM the Source Set's Entry it was
+/// written from.
 pub(crate) struct Rewritten<'a> {
     pub path: &'a str,
     pub game: &'a str,
     pub roms: &'a [title_select_api::build::ExpectedRom],
+    pub sources: &'a [title_select_api::build::PlanSource],
     pub loose: bool,
+}
+
+/// An Entry a file written from other files' Entries gets: one for each ROM it holds, with the ROMs the Entry it was
+/// written from matched, whichever Games list them, and that Entry's Evidence. A self-contained ZIP of an Arcade
+/// DAT's Game holds its parent's, BIOS's and devices' ROMs too (ADR 0026), which its Audit found under those Games.
+pub(crate) struct Carried {
+    path: String,
+    member: Option<String>,
+    roms: Vec<title_select_api::report::RomRef>,
+    evidence: title_select_api::report::Evidence,
+}
+
+/// Audit `audit`'s Entries of the file at `path`, in order.
+fn entries_at(
+    c: &Connection,
+    audit: i64,
+    path: &str,
+) -> Result<Vec<title_select_api::report::Entry>> {
+    let mut stmt = c.prepare(&format!(
+        "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
+        crate::audits::ENTRY_COLUMNS
+    ))?;
+    let mut rows = stmt.query(params![audit, path])?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        out.push(crate::audits::entry_from_row(row)?);
+    }
+    Ok(out)
+}
+
+/// The Entry the file at `path` gets for its ROM `rom`, as a member unless `loose`, carried from the matched Entry of
+/// `was` at `source` and `member`; none when `was` has no such Entry with Evidence.
+fn carry(
+    was: &[title_select_api::report::Entry],
+    (source, member): (&str, Option<&str>),
+    path: &str,
+    rom: &str,
+    loose: bool,
+) -> Option<Carried> {
+    let e = was.iter().find(|e| {
+        e.path == source
+            && e.member.as_deref() == member
+            && e.finding == title_select_api::report::Finding::Matched
+            && !e.roms.is_empty()
+    })?;
+    Some(Carried {
+        path: path.to_owned(),
+        member: (!loose).then(|| rom.to_owned()),
+        roms: e.roms.clone(),
+        evidence: e.evidence.clone()?,
+    })
+}
+
+/// Writes `carried` into Audit `audit`, after its last Entry.
+fn insert_carried(tx: &Transaction, audit: i64, carried: &[Carried]) -> Result<()> {
+    use title_select_api::report::Finding;
+    let next: i64 = tx.query_row(
+        "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
+        [audit],
+        |r| r.get(0),
+    )?;
+    for (seq, c) in (next..).zip(carried) {
+        let roms = serde_json::to_string(&c.roms).map_err(|e| Error::Io(e.to_string()))?;
+        tx.execute(
+            "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
+                                        evidence_level, algorithms, reason, read_at, reused, header_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, ?7, ?8, NULL, ?9, 0, ?10)",
+            params![
+                audit,
+                seq,
+                c.path,
+                c.member,
+                Finding::Matched.as_str(),
+                roms,
+                c.evidence.level.as_str(),
+                c.evidence.algorithms.join(","),
+                c.evidence.read_at.map(|at| at.to_string()),
+                c.evidence.header.map(|h| h.bytes as i64)
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// The Entries Audit `audit` gets for the files `to`, written from its files `from` ([`rewritten_entries`]); or why
+/// one ROM's Entry can't be carried over.
+pub(crate) fn rewritten(
+    c: &Connection,
+    audit: i64,
+    from: &[&str],
+    to: &[Rewritten],
+) -> Result<std::result::Result<Vec<Carried>, String>> {
+    let mut was = Vec::new();
+    for path in from {
+        was.extend(entries_at(c, audit, path)?);
+    }
+    let mut out = Vec::new();
+    for t in to {
+        for (k, rom) in t.roms.iter().enumerate() {
+            let carried = t
+                .sources
+                .get(k)
+                .filter(|s| s.rom == rom.name)
+                .and_then(|s| {
+                    carry(
+                        &was,
+                        (&s.path, s.member.as_deref()),
+                        t.path,
+                        &rom.name,
+                        t.loose,
+                    )
+                });
+            match carried {
+                Some(carried) => out.push(carried),
+                None => {
+                    return Ok(Err(format!(
+                        "{}: the audit has no evidence for {} to carry over",
+                        t.game, rom.name
+                    )));
+                }
+            }
+        }
+    }
+    Ok(Ok(out))
 }
 
 /// Records, in Source Set `set`'s Audit `audit`, that its Game `game`'s files `from` were converted into, or are
 /// stood in for by, its Placed Game's file `to`, holding `roms` loose or as a TorrentZip and checked to hold exactly
-/// them: each ROM's Entry is now of `to`, with the Evidence its payload was matched by, and the payload reads of
-/// `from` are forgotten, so that an Incremental Audit reads `to`.
+/// them: each ROM's Entry is now of `to`, with the ROMs and the Evidence of the Entry it was written from, and the
+/// payload reads of `from` are forgotten, so that an Incremental Audit reads `to`. A ROM whose Entry can't be carried
+/// over fails it, changing nothing: [`rewritten`] says so before anything is placed.
 pub(crate) fn rewritten_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
     from: &[&str],
     to: &[Rewritten],
 ) -> Result<()> {
-    use title_select_api::report::{Finding, RomRef};
-    let mut was = Vec::new();
+    let carried = rewritten(tx, audit, from, to)?.map_err(Error::Io)?;
     for path in from {
-        let mut stmt = tx.prepare(&format!(
-            "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
-            crate::audits::ENTRY_COLUMNS
-        ))?;
-        let mut rows = stmt.query(params![audit, path])?;
-        while let Some(row) = rows.next()? {
-            was.push(crate::audits::entry_from_row(row)?);
-        }
         tx.execute(
             "DELETE FROM audit_entries WHERE audit_id = ?1 AND path = ?2",
             params![audit, path],
@@ -838,133 +956,77 @@ pub(crate) fn rewritten_entries(
             params![set, path],
         )?;
     }
-    let mut next: i64 = tx.query_row(
-        "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
-        [audit],
-        |r| r.get(0),
-    )?;
-    for t in to {
-        let game = t.game;
-        for rom in t.roms {
-            let evidence = was
-                .iter()
-                .find(|e| e.roms.iter().any(|r| r.game == game && r.name == rom.name))
-                .and_then(|e| e.evidence.clone())
-                .ok_or_else(|| {
-                    Error::Io(format!(
-                        "{game}: the audit has no evidence for {} to carry over",
-                        rom.name
-                    ))
-                })?;
-            let roms = serde_json::to_string(&[RomRef {
-                game: game.to_owned(),
-                name: rom.name.clone(),
-            }])
-            .map_err(|e| Error::Io(e.to_string()))?;
-            tx.execute(
-                "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
-                                            evidence_level, algorithms, reason, read_at, reused, header_bytes)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, ?7, ?8, NULL, ?9, 0, ?10)",
-                params![
-                    audit,
-                    next,
-                    t.path,
-                    (!t.loose).then_some(rom.name.as_str()),
-                    Finding::Matched.as_str(),
-                    roms,
-                    evidence.level.as_str(),
-                    evidence.algorithms.join(","),
-                    evidence.read_at.map(|at| at.to_string()),
-                    evidence.header.map(|h| h.bytes as i64)
-                ],
-            )?;
-            next += 1;
+    insert_carried(tx, audit, &carried)
+}
+
+/// The Entries Audit `audit` gets for each file the return `r` writes home from the ROMs of the release placed in
+/// Library Folder `folder` ([`returned_entries`]); or why one ROM's Entry can't be carried home.
+pub(crate) fn returned(
+    c: &Connection,
+    audit: i64,
+    folder: i64,
+    r: &title_select_api::build::PlanReturn,
+) -> Result<std::result::Result<Vec<Carried>, String>> {
+    use title_select_api::storage::placed_path;
+    let mut was = Vec::new();
+    for p in &r.placed {
+        was.extend(entries_at(c, audit, &placed_path(folder, &p.path))?);
+    }
+    let mut out = Vec::new();
+    for f in r.files.iter().filter(|f| f.from.is_none()) {
+        for (k, rom) in f.roms.iter().enumerate() {
+            let carried = f
+                .sources
+                .get(k)
+                .filter(|s| s.rom == rom.name)
+                .and_then(|s| {
+                    let source = placed_path(folder, &s.path);
+                    carry(
+                        &was,
+                        (&source, s.member.as_deref()),
+                        &f.path,
+                        &rom.name,
+                        f.loose,
+                    )
+                });
+            match carried {
+                Some(carried) => out.push(carried),
+                None => {
+                    return Ok(Err(format!(
+                        "{}: the latest audit has no evidence for {} to carry home",
+                        f.game, rom.name
+                    )));
+                }
+            }
         }
     }
-    Ok(())
+    Ok(Ok(out))
 }
 
 /// Records, in Source Set `set`'s Audit `audit`, that the release `r` placed in Library Folder `folder` is back in the
 /// Source Set's folder as its files: each file put home whole takes the Entries of the placed file it is, with their
-/// Evidence; each written from the ROMs gets an Entry for each ROM, with the Evidence its payload was matched by, where
-/// the Audit has it. Every other Entry, and every payload read, of the placed files is forgotten, so that an
-/// Incremental Audit reads the files home.
+/// Evidence; each written from the ROMs gets an Entry for each ROM, with the ROMs and the Evidence of the placed Entry
+/// it was written from. Every other Entry, and every payload read, of the placed files is forgotten, so that an
+/// Incremental Audit reads the files home. A ROM whose Entry can't be carried home fails it, changing nothing:
+/// [`returned`] says so before anything is written.
 pub(crate) fn returned_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
     folder: i64,
     r: &title_select_api::build::PlanReturn,
 ) -> Result<()> {
-    use title_select_api::report::{Finding, RomRef};
     use title_select_api::storage::placed_path;
-    let from: Vec<String> = r
-        .placed
-        .iter()
-        .map(|p| placed_path(folder, &p.path))
-        .collect();
-    let mut was = Vec::new();
-    for path in &from {
-        let mut stmt = tx.prepare(&format!(
-            "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
-            crate::audits::ENTRY_COLUMNS
-        ))?;
-        let mut rows = stmt.query(params![audit, path])?;
-        while let Some(row) = rows.next()? {
-            was.push(crate::audits::entry_from_row(row)?);
-        }
-    }
-    let mut next: i64 = tx.query_row(
-        "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
-        [audit],
-        |r| r.get(0),
-    )?;
+    let carried = returned(tx, audit, folder, r)?.map_err(Error::Io)?;
     for f in &r.files {
         if let Some(whole) = &f.from {
             tx.execute(
                 "UPDATE audit_entries SET path = ?3 WHERE audit_id = ?1 AND path = ?2",
                 params![audit, placed_path(folder, whole), f.path],
             )?;
-            continue;
-        }
-        for rom in &f.roms {
-            let Some(evidence) = was
-                .iter()
-                .find(|e| {
-                    e.finding == Finding::Matched
-                        && e.roms
-                            .iter()
-                            .any(|r| r.game == f.game && r.name == rom.name)
-                })
-                .and_then(|e| e.evidence.clone())
-            else {
-                continue;
-            };
-            let roms = serde_json::to_string(&[RomRef {
-                game: f.game.clone(),
-                name: rom.name.clone(),
-            }])
-            .map_err(|e| Error::Io(e.to_string()))?;
-            tx.execute(
-                "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
-                                            evidence_level, algorithms, reason, read_at, reused, header_bytes)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, ?7, ?8, NULL, ?9, 0, ?10)",
-                params![
-                    audit,
-                    next,
-                    f.path,
-                    (!f.loose).then_some(rom.name.as_str()),
-                    Finding::Matched.as_str(),
-                    roms,
-                    evidence.level.as_str(),
-                    evidence.algorithms.join(","),
-                    evidence.read_at.map(|at| at.to_string()),
-                    evidence.header.map(|h| h.bytes as i64)
-                ],
-            )?;
-            next += 1;
         }
     }
-    for path in &from {
+    for p in &r.placed {
+        let path = placed_path(folder, &p.path);
         tx.execute(
             "DELETE FROM audit_entries WHERE audit_id = ?1 AND path = ?2",
             params![audit, path],
@@ -974,7 +1036,7 @@ pub(crate) fn returned_entries(
             params![set, path],
         )?;
     }
-    Ok(())
+    insert_carried(tx, audit, &carried)
 }
 
 /// Flags Game `game` of Source Set `set` as needing review, raised by Build `build`, its placed file `path` as Audits

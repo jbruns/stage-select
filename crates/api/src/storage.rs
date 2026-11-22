@@ -381,6 +381,10 @@ fn is_plain_name(name: &str) -> bool {
 pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Title Select keeps its own work under, \
      so it can't be stored loose, and it stays TorrentZip";
 
+/// Why a Game of a MAME system's Source Set is stored as TorrentZip where the policy says loose or loose folder.
+pub const MAME_STAYS_ZIP: &str =
+    "it is a MAME game, which MAME reads from a ZIP, so it stays TorrentZip";
+
 /// Why a Game is stored as TorrentZip where the policy says loose folder.
 pub const NOT_FOLDER_NAMES: &str = "its name or a ROM's name is not a plain file name, so it can't be stored as a \
      loose folder, and it stays TorrentZip";
@@ -724,8 +728,19 @@ impl Placement {
 /// The one decision of how a Repair stores Game `game`, with ROM names `roms`, in a Source Set under `storage`, with
 /// the note saying why a Game is not stored as the policy says. A loose folder holds any Game whose name and ROM
 /// names are plain file names, each ROM once; every other Game stays TorrentZip, so a Game's ROMs are never split
-/// across formats.
+/// across formats. A MAME system's Source Set keeps every Game as TorrentZip, whatever the format.
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
+    // A MAME system's Source Set, the one kind with a Set Layout, keeps each Game as a ZIP (ADR 0026).
+    if storage.set_layout.is_some() {
+        let loose = matches!(
+            storage.format,
+            StorageFormat::Loose | StorageFormat::LooseFolder
+        );
+        return (
+            Placement::TorrentZip(format!("{game}.zip")),
+            loose.then_some(MAME_STAYS_ZIP),
+        );
+    }
     if storage.format == StorageFormat::LooseFolder {
         let distinct: std::collections::BTreeSet<String> =
             roms.iter().map(|r| crate::build::name_key(r)).collect();
@@ -783,6 +798,26 @@ pub fn placement_writing(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mame_source_set_keeps_every_game_as_a_zip_whatever_the_format() {
+        for format in [StorageFormat::Loose, StorageFormat::LooseFolder] {
+            let mame = Storage {
+                format,
+                set_layout: Some(SetLayout::NonMerged),
+                ..Storage::default()
+            };
+            for roms in [&["prog.u3"][..], &["bios.u1", "prog.u3"]] {
+                assert_eq!(
+                    placement(mame, "blaster", roms),
+                    (
+                        Placement::TorrentZip("blaster.zip".into()),
+                        Some(MAME_STAYS_ZIP)
+                    )
+                );
+            }
+        }
+    }
 
     #[test]
     fn a_game_is_stored_by_every_rom_it_lists_and_holds_only_those_written() {

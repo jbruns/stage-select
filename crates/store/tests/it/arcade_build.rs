@@ -907,3 +907,111 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
     );
     assert!(!env.set().join("blaster.zip").exists());
 }
+
+/// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
+fn write_plain_zip(path: &Path, members: &[&str]) {
+    let mut zip = zip::ZipWriter::new(std::fs::File::create_new(path).unwrap());
+    for m in members {
+        zip.start_file(*m, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, payload(m)).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+/// Plans `selection` again and expects its Game's ZIP to need nothing: every ROM of it, its Dependencies' too, has a
+/// source the Audit names.
+fn in_place_with_every_rom(env: &Env, selection: i64) {
+    let again = env.plan(selection);
+    let blaster = item(&again, "blaster.zip");
+    assert_eq!(blaster.kind, ItemKind::Unchanged, "{blaster:#?}");
+}
+
+#[test]
+fn single_copy_places_a_built_self_contained_zip_with_its_dependencies_evidence() {
+    let env = Env::new(SetLayout::NonMerged);
+    env.audit();
+    let selection = env.select(&["blaster"]);
+    env.build(&env.plan(selection));
+    env.single_copy();
+
+    let plan = env.plan(selection);
+    let placing = item(&plan, "blaster.zip");
+    assert_eq!(placing.kind, ItemKind::Place);
+    assert_eq!(
+        placing.place.as_ref().map(|p| p.how),
+        Some(title_select_api::build::PlaceHow::Built)
+    );
+    let ended = env.build(&plan);
+
+    let placed = env.built_item(&ended, "blaster.zip");
+    assert_eq!(placed.state, ItemState::Applied, "{placed:?}");
+    assert!(!env.set().join("blaster.zip").exists());
+    in_place_with_every_rom(&env, selection);
+}
+
+#[test]
+fn single_copy_converts_an_ordinary_zip_with_its_dependencies_evidence() {
+    let env = Env::with(listxml(None), None);
+    env.layout(SetLayout::NonMerged);
+    env.single_copy();
+    // The game's own ZIP is the only one to hold its BIOS's and device's ROMs.
+    write_plain_zip(
+        &env.set().join("blaster.zip"),
+        &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"],
+    );
+    env.audit();
+    let selection = env.select(&["blaster"]);
+
+    let plan = env.plan(selection);
+    let placing = item(&plan, "blaster.zip");
+    assert_eq!(
+        placing.place.as_ref().map(|p| p.how),
+        Some(title_select_api::build::PlaceHow::Convert),
+        "{placing:#?} {:#?}",
+        plan.content.notes
+    );
+    let ended = env.build(&plan);
+
+    let placed = env.built_item(&ended, "blaster.zip");
+    assert_eq!(placed.state, ItemState::Applied, "{placed:?}");
+    assert!(!env.set().join("blaster.zip").exists());
+    assert_eq!(
+        members(&env.library().join("blaster.zip")),
+        ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]
+    );
+    in_place_with_every_rom(&env, selection);
+}
+
+#[test]
+fn a_placed_zip_goes_home_as_that_zip_whatever_format_the_storage_policy_gives_source_sets() {
+    let env = Env::new(SetLayout::NonMerged);
+    env.single_copy();
+    env.audit();
+    env.build(&env.plan(env.select(&["blaster"])));
+    assert!(!env.set().join("blaster.zip").exists());
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = title_select_api::storage::StorageFormat::LooseFolder;
+    policy.play_libraries.single_copy = false;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+
+    let plan = env.plan(env.select(&["blasterj"]));
+    assert_eq!(plan.content.returns.len(), 1, "{:#?}", plan.content.returns);
+    let back: Vec<&str> = plan.content.returns[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(back, ["blaster.zip"]);
+    env.build(&plan);
+
+    assert_eq!(
+        members(&env.set().join("blaster.zip")),
+        ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]
+    );
+    assert!(!env.set().join("blaster").exists());
+    // Every ROM of the ZIP home, its device's too, has a source the Audit names.
+    let again = env.plan(env.select(&["blaster"]));
+    let blaster = item(&again, "blaster.zip");
+    assert_eq!(blaster.kind, ItemKind::Copy, "{blaster:#?}");
+}

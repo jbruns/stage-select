@@ -4,7 +4,8 @@
 //! folder no longer holds the Source Set's Placed Games, or when you remove every built file. It goes back in the
 //! format the Source Set's Storage Policy says: renamed when each placed file is a file of that format on the same
 //! filesystem, otherwise written there, from its placed files, and verified against the DAT: a CHD's tracks extracted
-//! from it, and a CD's cue sheet kept in the store. A Game still selected in the folder keeps its file there, as a built
+//! from it, and a CD's cue sheet kept in the store. A MAME system's Source Set keeps ZIPs (ADR 0026): its placed
+//! self-contained ZIP goes home as that ZIP, whatever format the policy gives other Source Sets. A Game still selected in the folder keeps its file there, as a built
 //! copy.
 
 use std::collections::{BTreeMap, HashSet};
@@ -294,6 +295,7 @@ fn one<'a>(
     let mut games: Vec<&str> = found.iter().map(|f| f.placed.game.as_str()).collect();
     games.sort_unstable();
     games.dedup();
+    let mame = inputs.set_storage.set_layout.is_some();
     let mut files = Vec::new();
     for game in games {
         let of_game: Vec<&Found> = found.iter().filter(|f| f.placed.game == game).collect();
@@ -327,13 +329,14 @@ fn one<'a>(
                 }
                 Err(e) => return Err(format!("{path} can't be checked ({e})")),
             }
-            // The placed file that is this file whole: a TorrentZip of the same ROMs, or the same loose ROM.
+            // The placed file that is this file whole: a TorrentZip of the same ROMs, or the same loose ROM; for a MAME
+            // system's Source Set, which keeps ZIPs as they are, any ZIP of them, as the self-contained ZIP it placed.
             let from = of_game
                 .iter()
                 .find(|f| {
                     !f.built.chd
                         && f.built.loose == loose
-                        && (loose || f.built.torrentzip)
+                        && (loose || f.built.torrentzip || mame)
                         && same_roms(&f.built.roms, &roms)
                 })
                 .map(|f| f.placed.path.clone());
