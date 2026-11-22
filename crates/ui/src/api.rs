@@ -100,6 +100,15 @@ pub async fn post_until<B: Serialize, T: DeserializeOwned>(
         .map_err(|e| e.to_string())
 }
 
+/// Like `post`, for a request the Service answers with no body.
+pub async fn post_empty<B: Serialize>(path: &str, body: &B) -> Result<(), String> {
+    let request = Request::post(&url(path))
+        .json(body)
+        .map_err(|e| e.to_string())?;
+    let response = request.send().await.map_err(failed)?;
+    checked(response).await.map(drop)
+}
+
 pub async fn patch<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T, String> {
     let request = Request::patch(&url(path))
         .json(body)

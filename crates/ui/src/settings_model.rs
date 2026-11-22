@@ -7,9 +7,9 @@ use std::collections::BTreeMap;
 use title_select_api::paths::PathTemplate;
 use title_select_api::romm::{RommCheck, RommPlatform, RommUpdate, TESTED_RELEASES};
 use title_select_api::settings::{
-    Ceiling, CeilingSource, CeilingsUpdate, ChdTimeouts, FetchSettings, IngestCadence, JobsView,
-    NotifyEvent, NotifyUpdate, Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate,
-    SettingsView, SourceSetChecks,
+    ArchiveLimits, Ceiling, CeilingSource, CeilingsUpdate, ChdTimeouts, FetchSettings,
+    IngestCadence, JobsView, NotifyEvent, NotifyUpdate, Pace, PathTemplates, Retention,
+    SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
 };
 
 use crate::parts::status::Tone;
@@ -21,11 +21,13 @@ pub struct CadenceDraft {
     pub scan_every_minutes: String,
 }
 
-/// One Ceiling the workbench shows: three of the Host's, and three of each Root's.
+/// One Ceiling the workbench shows: four of the Host's, and three of each Root's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CeilingField {
     Concurrent,
     Hashers,
+    /// The readers of each Root that sets none of its own.
+    HostReaders,
     ArchiveWorkers,
     Readers,
     ReadMibPerS,
@@ -33,9 +35,10 @@ pub enum CeilingField {
 }
 
 impl CeilingField {
-    pub const HOST: [CeilingField; 3] = [
+    pub const HOST: [CeilingField; 4] = [
         CeilingField::Concurrent,
         CeilingField::Hashers,
+        CeilingField::HostReaders,
         CeilingField::ArchiveWorkers,
     ];
     pub const ROOT: [CeilingField; 3] = [
@@ -49,6 +52,7 @@ impl CeilingField {
         match self {
             CeilingField::Concurrent => "Jobs at once",
             CeilingField::Hashers => "Hash workers",
+            CeilingField::HostReaders => "Readers on each root without its own",
             CeilingField::ArchiveWorkers => "7z archive workers",
             CeilingField::Readers => "Readers",
             CeilingField::ReadMibPerS => "Reads, MiB/s",
@@ -79,6 +83,7 @@ pub fn ceiling<'a>(jobs: &'a JobsView, (root, field): &CeilingKey) -> Option<&'a
         None => match field {
             CeilingField::Concurrent => Some(&jobs.host.concurrent),
             CeilingField::Hashers => Some(&jobs.host.hashers),
+            CeilingField::HostReaders => Some(&jobs.host.readers),
             CeilingField::ArchiveWorkers => Some(&jobs.host.archive_workers),
             _ => None,
         },
@@ -131,7 +136,6 @@ pub fn ceiling_curve(
 /// Where a Ceiling's value comes from, as its source column says it.
 pub fn source_label(source: Option<CeilingSource>) -> &'static str {
     match source {
-        Some(CeilingSource::Config) => "configuration file",
         Some(CeilingSource::Yours) => "yours",
         Some(CeilingSource::Calibration) => "calibration",
         Some(CeilingSource::Cpus) => "CPU count",
@@ -140,20 +144,14 @@ pub fn source_label(source: Option<CeilingSource>) -> &'static str {
     }
 }
 
-/// Why a locked Ceiling can't be changed here.
-pub fn locked_reason(key: &str) -> String {
-    format!(
-        "Your configuration file sets this ({key}). Change it in the file, then restart the service."
-    )
-}
-
 /// Every Operations setting as typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Draft {
     pub pace: Pace,
-    /// Your own value of each Ceiling as typed, empty for none: one the configuration file sets is kept but never
-    /// sent.
+    /// Your own value of each Ceiling as typed, empty for none.
     pub ceilings: BTreeMap<CeilingKey, String>,
+    /// The largest 7z dictionary an archive may declare, in MiB.
+    pub max_dictionary_mib: String,
     pub audits_keep: String,
     pub selections_keep: String,
     pub source_set_template: String,
@@ -209,6 +207,7 @@ impl Draft {
                     (key, yours.map(|v| v.to_string()).unwrap_or_default())
                 })
                 .collect(),
+            max_dictionary_mib: saved.archive.max_dictionary_mib.to_string(),
             audits_keep: saved.retention.audits_keep.to_string(),
             selections_keep: saved.retention.selections_keep.to_string(),
             source_set_template: saved.path_templates.source_set.as_str().to_owned(),
@@ -257,7 +256,7 @@ impl Draft {
     /// Clears your value of every Ceiling a calibration measured, so that the measurement applies.
     pub fn use_measured(&mut self, jobs: &JobsView) {
         for (key, text) in &mut self.ceilings {
-            if ceiling(jobs, key).is_some_and(|c| !c.locked() && c.measured.is_some()) {
+            if ceiling(jobs, key).is_some_and(|c| c.measured.is_some()) {
                 text.clear();
             }
         }
@@ -266,19 +265,18 @@ impl Draft {
     /// Clears your value of every Ceiling, so that each falls back to the calibration or the CPU count.
     pub fn reset_ceilings(&mut self, jobs: &JobsView) {
         for (key, text) in &mut self.ceilings {
-            if ceiling(jobs, key).is_some_and(|c| !c.locked()) {
+            if ceiling(jobs, key).is_some() {
                 text.clear();
             }
         }
     }
 
-    /// Your Ceilings as `PATCH /settings` takes them, all of them, when any differs from those saved. One the
-    /// configuration file sets is left out.
+    /// Your Ceilings as `PATCH /settings` takes them, all of them, when any differs from those saved.
     fn ceilings_update(&self, jobs: &JobsView) -> Result<Option<CeilingsUpdate>, String> {
         let mut update = CeilingsUpdate::default();
         let mut changed = false;
         for (key, text) in &self.ceilings {
-            let Some(saved) = ceiling(jobs, key).filter(|c| !c.locked()) else {
+            let Some(saved) = ceiling(jobs, key) else {
                 continue;
             };
             let value: Option<u64> = match text.trim() {
@@ -291,6 +289,7 @@ impl Draft {
             match key {
                 (None, CeilingField::Concurrent) => update.host.concurrent = value,
                 (None, CeilingField::Hashers) => update.host.hashers = value,
+                (None, CeilingField::HostReaders) => update.host.readers = value,
                 (None, CeilingField::ArchiveWorkers) => update.host.archive_workers = value,
                 (Some(root), field) => {
                     let r = update.roots.entry(root.clone()).or_default();
@@ -310,6 +309,9 @@ impl Draft {
     /// The change that saves this draft over `saved`: only the sections that differ. A field that isn't a whole
     /// number, or a template that doesn't parse, refuses the save and says which.
     pub fn update(&self, saved: &SettingsView) -> Result<SettingsUpdate, String> {
+        let archive = ArchiveLimits {
+            max_dictionary_mib: whole("The largest 7z dictionary", &self.max_dictionary_mib)?,
+        };
         let retention = Retention {
             audits_keep: whole("Audits kept", &self.audits_keep)?,
             selections_keep: whole("Selections kept", &self.selections_keep)?,
@@ -371,6 +373,7 @@ impl Draft {
         Ok(SettingsUpdate {
             pace: (self.pace != saved.jobs.pace).then_some(self.pace),
             ceilings: self.ceilings_update(&saved.jobs)?,
+            archive: (archive != saved.archive).then_some(archive),
             retention: (retention != saved.retention).then_some(retention),
             path_templates: (path_templates != saved.path_templates).then_some(path_templates),
             source_sets: (source_sets != saved.source_sets).then_some(source_sets),
@@ -381,6 +384,37 @@ impl Draft {
             romm: romm_changed.then_some(romm),
         })
     }
+}
+
+/// The most a 7z's header may take while it is read, beside its dictionary.
+const HEADER_MIB: u64 = 24;
+
+/// What decoding 7z archives may cost in memory with `draft`'s largest dictionary: about the archive workers Ceiling
+/// times it and the header's room, with the workers you typed or else those in `jobs`. None while either isn't a
+/// whole number.
+pub fn archive_memory(jobs: &JobsView, draft: &Draft) -> Option<String> {
+    let mib: u64 = draft.max_dictionary_mib.trim().parse().ok()?;
+    let workers: u64 = match draft
+        .ceilings
+        .get(&(None, CeilingField::ArchiveWorkers))
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+    {
+        Some(typed) => typed.parse().ok()?,
+        None => jobs.host.archive_workers.ceiling?,
+    };
+    let total = workers.saturating_mul(mib.saturating_add(HEADER_MIB));
+    let amount = if total >= 1024 && total.is_multiple_of(1024) {
+        format!("{} GiB", total / 1024)
+    } else if total >= 1024 {
+        format!("{:.1} GiB", total as f64 / 1024.0)
+    } else {
+        format!("{total} MiB")
+    };
+    let noun = if workers == 1 { "worker" } else { "workers" };
+    Some(format!(
+        "Up to about {amount} of memory: {workers} archive {noun} × ({mib} MiB + {HEADER_MIB} MiB for its header)."
+    ))
 }
 
 fn ceiling_name((root, field): &CeilingKey) -> String {
@@ -510,7 +544,6 @@ mod tests {
             source: Some(source),
             yours: (source == CeilingSource::Yours).then_some(ceiling),
             measured: None,
-            locked_by: None,
         }
     }
 
@@ -521,7 +554,6 @@ mod tests {
             source: None,
             yours: None,
             measured: None,
-            locked_by: None,
         }
     }
 
@@ -530,14 +562,12 @@ mod tests {
             jobs: JobsView {
                 pace: Pace::Default,
                 host: HostCeilings {
-                    concurrent: Ceiling {
-                        locked_by: Some("[jobs] concurrent".into()),
-                        ..of(4, CeilingSource::Config)
-                    },
+                    concurrent: of(4, CeilingSource::Cpus),
                     hashers: Ceiling {
                         measured: Some(6),
                         ..of(12, CeilingSource::Yours)
                     },
+                    readers: none(),
                     archive_workers: of(2, CeilingSource::Default),
                 },
                 roots: vec![RootCeilings {
@@ -554,6 +584,7 @@ mod tests {
                     observed_write_mib_per_s: Some(95),
                 }],
             },
+            archive: ArchiveLimits::default(),
             retention: Retention::default(),
             path_templates: PathTemplates::default(),
             source_sets: SourceSetChecks::default(),
@@ -623,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn your_ceilings_are_sent_all_together_when_one_changes_but_never_one_the_file_locks() {
+    fn your_ceilings_are_sent_all_together_when_one_changes() {
         let saved = saved();
         let mut draft = Draft::of(&saved);
         assert_eq!(draft.ceilings[&(None, CeilingField::Hashers)], "12");
@@ -633,7 +664,7 @@ mod tests {
         );
         draft
             .ceilings
-            .insert((None, CeilingField::Concurrent), "9".into());
+            .insert((None, CeilingField::HostReaders), "9".into());
         let update = draft.update(&saved).unwrap();
         assert_eq!(update.pace, None);
         assert_eq!(
@@ -641,6 +672,7 @@ mod tests {
             Some(CeilingsUpdate {
                 host: HostCeilingsUpdate {
                     hashers: Some(12.into()),
+                    readers: Some(9.into()),
                     ..Default::default()
                 },
                 roots: [(
@@ -652,7 +684,7 @@ mod tests {
                 )]
                 .into(),
             }),
-            "every one of yours, and none the configuration file sets"
+            "every one of yours"
         );
 
         draft
@@ -661,6 +693,37 @@ mod tests {
         assert_eq!(
             draft.update(&saved),
             Err("sets: Readers: enter a whole number.".into())
+        );
+    }
+
+    #[test]
+    fn the_largest_dictionary_shows_what_it_may_cost_with_the_archive_workers_you_typed() {
+        let saved = saved();
+        let mut draft = Draft::of(&saved);
+        assert_eq!(
+            archive_memory(&saved.jobs, &draft).as_deref(),
+            Some(
+                "Up to about 304 MiB of memory: 2 archive workers × (128 MiB + 24 MiB for its header)."
+            )
+        );
+        draft
+            .ceilings
+            .insert((None, CeilingField::ArchiveWorkers), "8".into());
+        draft.max_dictionary_mib = "1024".into();
+        assert_eq!(
+            archive_memory(&saved.jobs, &draft).as_deref(),
+            Some(
+                "Up to about 8.2 GiB of memory: 8 archive workers × (1024 MiB + 24 MiB for its header)."
+            )
+        );
+        draft.max_dictionary_mib = "lots".into();
+        assert_eq!(archive_memory(&saved.jobs, &draft), None);
+        draft.max_dictionary_mib = "1024".into();
+        assert_eq!(
+            draft.update(&saved).unwrap().archive,
+            Some(ArchiveLimits {
+                max_dictionary_mib: 1024
+            })
         );
     }
 
@@ -707,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn using_measured_values_and_resetting_clear_yours_but_leave_the_file_alone() {
+    fn using_measured_values_clears_yours_that_were_measured_and_resetting_clears_all_of_yours() {
         let saved = saved();
         let mut draft = Draft::of(&saved);
         draft
@@ -733,7 +796,7 @@ mod tests {
         draft.reset_ceilings(&saved.jobs);
         assert!(
             draft.ceilings.values().all(String::is_empty),
-            "the locked one was never typed: {:?}",
+            "{:?}",
             draft.ceilings
         );
         assert_eq!(
