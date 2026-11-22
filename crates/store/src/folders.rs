@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 use std::io::{ErrorKind, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use title_select_api::DatFormat;
@@ -13,9 +13,10 @@ use title_select_api::build::{
     UnfinishedBuild,
 };
 use title_select_api::discs;
-use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
+use title_select_api::paths::{PathTemplate, TokenValues};
 
 use super::audits::recorded_content_sha256;
+use super::beneath::{resolve_beneath, resolved};
 use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity, parent_made};
@@ -735,19 +736,8 @@ pub(super) fn check_library_path(
             root_name
         )));
     }
-    let rel = relative_path(rel)
-        .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
-    if !Path::new(&rel)
-        .components()
-        .all(|c| matches!(c, Component::Normal(_)))
-    {
-        return Err(Error::Refused(format!(
-            "{rel}: a library folder's path must be relative to its root"
-        )));
-    }
-    let canonical_root = root.path.canonicalize().map_err(|e| {
-        Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
-    })?;
+    let beneath = resolve_beneath(root, rel, "a library folder's path")?;
+    let rel = &beneath.rel;
     let clash: Option<i64> = c
         .query_row(
             "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
@@ -763,10 +753,7 @@ pub(super) fn check_library_path(
     }
     // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
     // Select reads or writes.
-    let would_be = resolved(&canonical_root, &rel).unwrap_or_else(|| {
-        rel.split('/')
-            .fold(canonical_root.clone(), |p, part| p.join(part))
-    });
+    let would_be = beneath.would_be();
     if let Some((what, other)) = overlapping(c, roots, &would_be, Registering::LibraryFolder)? {
         return Err(Error::Refused(format!(
             "{rel} in root {} would overlap {what} at {}",
@@ -774,7 +761,7 @@ pub(super) fn check_library_path(
             other.display()
         )));
     }
-    Ok(rel)
+    Ok(beneath.rel)
 }
 
 /// What is being registered, which overlaps nothing else Title Select reads or writes.
@@ -835,28 +822,6 @@ pub(super) fn overlapping(
         }
     }
     Ok(None)
-}
-
-/// `rel` under `base`, through whatever of it exists: its longest existing ancestor resolved, with the rest, each a
-/// plain name, joined on. `None` when a part is not a plain name, or an existing part can't be resolved.
-pub(super) fn resolved(base: &Path, rel: &str) -> Option<PathBuf> {
-    let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
-    if parts.iter().any(|part| matches!(*part, "." | "..")) {
-        return None;
-    }
-    for exists in (0..=parts.len()).rev() {
-        let path = parts[..exists]
-            .iter()
-            .fold(base.to_path_buf(), |p, part| p.join(part));
-        match path.canonicalize() {
-            Ok(found) => {
-                return Some(parts[exists..].iter().fold(found, |p, part| p.join(part)));
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return None,
-        }
-    }
-    None
 }
 
 impl Store {
