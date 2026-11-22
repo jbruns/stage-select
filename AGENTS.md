@@ -49,7 +49,7 @@ real DAT unless its licence permits redistribution.
 ### Testing against live data
 
 Test against local copies and synthetic fixtures. You may read the Host, but touch live data on it only at a milestone
-acceptance agreed with the Operator. The next one is the end of M4.
+acceptance agreed with the Operator. The next one is the end of M7 (#271).
 
 ### Read-only by default
 

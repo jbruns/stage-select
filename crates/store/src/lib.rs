@@ -43,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use rusqlite::config::DbConfig;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
@@ -478,10 +479,20 @@ impl Store {
     }
 
     fn open_with(dir: &Path, migrations: &[&str]) -> Result<Store> {
+        migrations::check_header(&dir.join(DATABASE))?;
         let dats = dir.join(DATS);
         std::fs::create_dir_all(&dats).map_err(|e| io_error(&dats, e))?;
         let lock = lock(dir)?;
         let mut writer = Connection::open(dir.join(DATABASE))?;
+        // The header is the database file's: one whose WAL was never checkpointed holds its schema in the WAL, so the
+        // stamp is checked again through the connection, before anything writes. Reading may have made the WAL's
+        // sidecars by now, but a refusal leaves the database file as it was: closing doesn't checkpoint the WAL.
+        let version: i64 = writer.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        let id: i32 = writer.pragma_query_value(None, "application_id", |r| r.get(0))?;
+        if let Err(refused) = migrations::check_stamp(version, id) {
+            writer.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
+            return Err(refused);
+        }
         configure(&writer)?;
         let mode: String = writer.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         if !mode.eq_ignore_ascii_case("wal") {
@@ -511,11 +522,8 @@ impl Store {
             romm_syncs_waiting: std::sync::Arc::default(),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
-        // A store opened by a test of an earlier migration has no settings.
-        if migrations.len() >= migrations::SETTINGS {
-            let pace = store.settings()?.pace;
-            *store.pace.write().unwrap_or_else(|e| e.into_inner()) = pace;
-        }
+        let pace = store.settings()?.pace;
+        *store.pace.write().unwrap_or_else(|e| e.into_inner()) = pace;
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
         store.discard_unfinished_audits()?;
@@ -780,864 +788,132 @@ mod tests {
 
     const DAT: &str = "<datafile><header><name>Test</name><version>1</version></header></datafile>";
 
-    #[test]
-    fn the_selections_migration_keeps_existing_jobs_as_audits_and_one_active_job_of_each_kind() {
-        let dir = tempfile::tempdir().unwrap();
-        let before = &migrations::MIGRATIONS[..2];
-        let store = Store::open_with(dir.path(), before).unwrap();
-        // The rows a store at schema 2 holds, written as that schema's code wrote them.
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
-                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at)
-                         SELECT 'queued', s.id, r.id, 'Operator', 1, 1, 'then' FROM source_sets s, dat_revisions r;",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
+    fn stamp(dir: &Path) -> (String, String) {
+        let conn = Connection::open(dir.join(DATABASE)).unwrap();
+        (
+            pragma(&conn, "user_version"),
+            pragma(&conn, "application_id"),
+        )
+    }
 
-        let store = Store::open(dir.path()).unwrap();
-
-        let jobs = store.jobs(10).unwrap();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].kind, title_select_api::JobKind::Audit);
-        assert_eq!((jobs[0].profile.clone(), jobs[0].selection), (None, None));
-        let insert = |kind: &str, profile: &str| {
-            store.write(|tx| {
-                tx.execute_batch(&format!(
-                    "INSERT INTO jobs (state, kind, profile_version_id, source_set_id, dat_revision_id, actor,
-                                       readers, hashers, created_at)
-                         SELECT 'queued', '{kind}', {profile}, source_set_id, dat_revision_id, 'Operator', 1, 1,
-                                'now' FROM jobs LIMIT 1;"
-                ))?;
-                Ok(())
-            })
-        };
-        assert!(insert("audit", "NULL").is_err(), "a second active audit");
-        assert!(
-            insert("selection", "NULL").is_err(),
-            "a selection with no profile version"
-        );
-        store
-            .save_profile(
-                "Mine",
-                &Default::default(),
-                None,
-                "Operator",
-                &[],
-                Workers {
-                    readers: 1,
-                    hashers: 1,
-                },
-            )
-            .unwrap();
-        insert("selection", "(SELECT id FROM profile_versions)").unwrap();
-        assert!(insert("selection", "(SELECT id FROM profile_versions)").is_err());
+    fn baseline() -> (String, String) {
+        (
+            format!("Integer({})", migrations::MIGRATIONS.len()),
+            format!("Integer({})", migrations::APPLICATION_ID),
+        )
     }
 
     #[test]
-    fn the_builds_migration_rebuilds_jobs_keeping_their_references_and_gives_the_store_an_id() {
+    fn a_missing_store_starts_fresh_at_the_baseline_and_stamped() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..3]).unwrap();
-        // A Selection Job and the Selection that refers back to it, as schema 3's code wrote them.
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
-                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
-                     INSERT INTO profile_versions (profile_id, version, json, sha256, saved_at, saved_by)
-                         SELECT id, 1, '{}', 'def', 'then', 'Operator' FROM profiles;
-                     INSERT INTO jobs (state, kind, profile_version_id, source_set_id, dat_revision_id, actor,
-                                       readers, hashers, created_at)
-                         SELECT 'succeeded', 'selection', v.id, s.id, r.id, 'Operator', 1, 1, 'then'
-                         FROM profile_versions v, source_sets s, dat_revisions r;
-                     INSERT INTO selections (source_set_id, dat_revision_id, profile_version_id, job_id, system,
-                                             system_settings, pins, summary, coverage_drift, stale_choices,
-                                             created_at)
-                         SELECT source_set_id, dat_revision_id, profile_version_id, id, 'Test', 0, '{}', '{}',
-                                '{}', '{}', 'then' FROM jobs;
-                     UPDATE jobs SET selection_id = (SELECT id FROM selections);",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
+        let path = dir.path().join("store");
 
-        let store = Store::open(dir.path()).unwrap();
+        drop(Store::open(&path).unwrap());
 
-        let jobs = store.jobs(10).unwrap();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].kind, title_select_api::JobKind::Selection);
-        assert_eq!(jobs[0].selection, Some(1));
-        assert_eq!((jobs[0].library_folder, jobs[0].plan), (None, None));
-        let id = store.read(folders::store_id).unwrap();
-        assert_eq!(id.len(), 32);
-        let build_without_a_folder = store.write(|tx| {
-            tx.execute_batch(
-                "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers,
-                                   created_at)
-                     SELECT 'queued', 'build', source_set_id, dat_revision_id, 'Operator', 1, 1, 'now'
-                     FROM jobs LIMIT 1;",
-            )?;
-            Ok(())
-        });
-        assert!(build_without_a_folder.is_err());
-        let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
-        assert_eq!(foreign_keys, "Integer(1)");
+        assert_eq!(stamp(&path), baseline());
+        assert_eq!(migrations::MIGRATIONS.len(), 1);
     }
 
     #[test]
-    fn the_ingest_migration_rebuilds_jobs_keeping_every_column_of_every_job() {
+    fn an_empty_database_file_starts_fresh() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..7]).unwrap();
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
-                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
-                                       finished_at, error)
-                         SELECT 'failed', s.id, r.id, 'Operator', 2, 3, 'then', 'later', 'it stopped'
-                         FROM source_sets s, dat_revisions r;
-                     INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at)
-                         SELECT 'succeeded', s.id, r.id, 'Operator', 1, 1, 'then'
-                         FROM source_sets s, dat_revisions r;",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..8]).unwrap();
-        store
-            .write(|tx| {
-                tx.execute("UPDATE jobs SET evidence = 'incremental' WHERE id = 2", [])?;
-                Ok(())
-            })
-            .unwrap();
-        let rows =
-            |c: &Connection, columns: &[String]| -> Result<Vec<Vec<rusqlite::types::Value>>> {
-                let mut stmt = c.prepare(&format!(
-                    "SELECT {} FROM jobs ORDER BY id",
-                    columns.join(", ")
-                ))?;
-                Ok(stmt
-                    .query_map([], |r| (0..columns.len()).map(|i| r.get(i)).collect())?
-                    .collect::<rusqlite::Result<Vec<_>>>()?)
-            };
-        let columns: Vec<String> = store
-            .read(|c| {
-                let mut stmt = c.prepare("SELECT name FROM pragma_table_info('jobs')")?;
-                Ok(stmt
-                    .query_map([], |r| r.get(0))?
-                    .collect::<rusqlite::Result<Vec<_>>>()?)
-            })
-            .unwrap();
-        assert!(columns.contains(&"evidence".to_owned()));
-        let before = store.read(|c| rows(c, &columns)).unwrap();
-        drop(store);
+        std::fs::write(dir.path().join(DATABASE), b"").unwrap();
 
-        let store = Store::open(dir.path()).unwrap();
+        drop(Store::open(dir.path()).unwrap());
 
-        // A later migration renamed managed_folder_id.
-        let columns: Vec<String> = columns
-            .iter()
-            .map(|c| c.replace("managed_folder_id", "library_folder_id"))
-            .collect();
-        assert_eq!(store.read(|c| rows(c, &columns)).unwrap(), before);
-        let jobs = store.jobs(10).unwrap();
-        assert_eq!(
-            jobs.iter().map(|j| j.evidence).collect::<Vec<_>>(),
-            [
-                Some(title_select_api::AuditEvidence::Incremental),
-                Some(title_select_api::AuditEvidence::Full)
-            ]
-        );
-        let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
-        assert_eq!(foreign_keys, "Integer(1)");
+        assert_eq!(stamp(dir.path()), baseline());
     }
 
-    #[test]
-    fn the_library_folders_migration_renames_managed_folders_and_operator_additions_keeping_every_row()
-     {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..12]).unwrap();
-        // A Managed Folder with a Build Job, a Check Job, the citation of its current Build and an ingest item
-        // assessed as a candidate Operator Addition, as schema 12's code wrote them.
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    r#"INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
-                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
-                     INSERT INTO profile_versions (profile_id, version, json, sha256, saved_at, saved_by)
-                         SELECT id, 1, '{}', 'def', 'then', 'Operator' FROM profiles;
-                     INSERT INTO jobs (state, kind, profile_version_id, source_set_id, dat_revision_id, actor,
-                                       readers, hashers, created_at)
-                         SELECT 'succeeded', 'selection', v.id, s.id, r.id, 'Operator', 1, 1, 'then'
-                         FROM profile_versions v, source_sets s, dat_revisions r;
-                     INSERT INTO selections (source_set_id, dat_revision_id, profile_version_id, job_id, system,
-                                             system_settings, pins, summary, coverage_drift, stale_choices,
-                                             created_at)
-                         SELECT source_set_id, dat_revision_id, profile_version_id, id, 'Test', 0, '{}', '{}',
-                                '{}', '{}', 'then' FROM jobs;
-                     INSERT INTO managed_folders (root, path, source_set_id, profile_id, generation, created_at)
-                         SELECT 'play', 'atari2600', s.id, p.id, 3, 'then' FROM source_sets s, profiles p;
-                     INSERT INTO managed_folders (root, path, source_set_id, profile_id, created_at)
-                         SELECT 'play', 'nes', s.id, p.id, 'later' FROM source_sets s, profiles p;
-                     INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, managed_folder_id, actor,
-                                       readers, hashers, created_at)
-                         SELECT 'queued', 'check', s.id, r.id, 2, 'Operator', 1, 1, 'now'
-                         FROM source_sets s, dat_revisions r;
-                     INSERT INTO selection_citations (selection_id, cited_by)
-                         SELECT id, 'managed-folder:1' FROM selections;
-                     INSERT INTO selection_citations (selection_id, cited_by)
-                         SELECT id, 'build-job:7' FROM selections;
-                     INSERT INTO ingest_folders (root, created_at) VALUES ('ingest', 'then');
-                     INSERT INTO ingest_items (folder_id, name, state, dev, ino, size, mtime_ns, ctime_ns,
-                                               stable_since, assessment, first_seen_at, changed_at)
-                         SELECT id, 'mystery.bin', 'assessed', 1, 2, 3, '4', '5', 'then',
-                                '{"proposal":{"kind":"operator_addition","system":"Atari 2600"},"matches":[]}',
-                                'then', 'then'
-                         FROM ingest_folders;
-                     INSERT INTO ingest_items (folder_id, name, state, dev, ino, size, mtime_ns, ctime_ns,
-                                               stable_since, assessment, first_seen_at, changed_at)
-                         SELECT id, 'game.dat', 'assessed', 1, 3, 3, '4', '5', 'then',
-                                '{"proposal":{"kind":"dat_import"}}', 'then', 'then'
-                         FROM ingest_folders;"#,
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
-
-        let store = Store::open(dir.path()).unwrap();
-
-        let rows = |sql: &str| -> Vec<Vec<rusqlite::types::Value>> {
-            store
-                .read(|c| {
-                    let mut stmt = c.prepare(sql)?;
-                    let n = stmt.column_count();
-                    Ok(stmt
-                        .query_map([], |r| (0..n).map(|i| r.get(i)).collect())?
-                        .collect::<rusqlite::Result<Vec<_>>>()?)
-                })
-                .unwrap()
-        };
-        use rusqlite::types::Value::{Integer, Null, Text};
-        let text = |s: &str| Text(s.to_owned());
-        assert_eq!(
-            rows("SELECT id, root, path, source_set_id, profile_id, generation, current_build_id, created_at
-                  FROM library_folders ORDER BY id"),
-            [
-                vec![
-                    Integer(1),
-                    text("play"),
-                    text("atari2600"),
-                    Integer(1),
-                    Integer(1),
-                    Integer(3),
-                    Null,
-                    text("then")
-                ],
-                vec![
-                    Integer(2),
-                    text("play"),
-                    text("nes"),
-                    Integer(1),
-                    Integer(1),
-                    Integer(0),
-                    Null,
-                    text("later")
-                ],
-            ]
-        );
-        assert_eq!(
-            rows("SELECT id, kind, library_folder_id FROM jobs ORDER BY id"),
-            [
-                vec![Integer(1), text("selection"), Null],
-                vec![Integer(2), text("check"), Integer(2)],
-            ]
-        );
-        assert_eq!(
-            rows("SELECT cited_by FROM selection_citations ORDER BY cited_by"),
-            [vec![text("build-job:7")], vec![text("library-folder:1")]]
-        );
-        assert_eq!(
-            rows(
-                "SELECT json_extract(assessment, '$.proposal.kind'),
-                        json_extract(assessment, '$.proposal.system'),
-                        json_extract(assessment, '$.matches')
-                 FROM ingest_items ORDER BY id"
-            ),
-            [
-                vec![text("addition"), text("Atari 2600"), text("[]")],
-                vec![text("dat_import"), Null, Null],
-            ]
-        );
-        assert_eq!(
-            rows(
-                "SELECT name FROM sqlite_schema
-                 WHERE sql LIKE '%managed%folder%' OR sql LIKE '%operator%addition%'"
-            ),
-            Vec::<Vec<rusqlite::types::Value>>::new()
-        );
-        // The one active Build or Check per folder, and a Check needing its folder, still hold.
-        let check = |folder: &str| {
-            store.write(|tx| {
-                tx.execute_batch(&format!(
-                    "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, library_folder_id, actor,
-                                       readers, hashers, created_at)
-                         SELECT 'queued', 'check', source_set_id, dat_revision_id, {folder}, 'Operator', 1, 1, 'now'
-                         FROM jobs LIMIT 1;"
-                ))?;
-                Ok(())
-            })
-        };
-        assert!(check("2").is_err());
-        assert!(check("NULL").is_err());
-        check("1").unwrap();
-        assert!(
-            store
-                .read(|c| Ok(c.prepare("SELECT 1 FROM managed_folders").is_err()))
-                .unwrap()
-        );
-        let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
-        assert_eq!(foreign_keys, "Integer(1)");
+    /// Makes a database in `dir` as a release from before the baseline left it: a schema, no stamp.
+    fn pre_baseline(dir: &Path, wal: bool) -> Connection {
+        let conn = Connection::open(dir.join(DATABASE)).unwrap();
+        if wal {
+            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
+                .unwrap();
+            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        }
+        conn.execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); PRAGMA user_version = 49;",
+        )
+        .unwrap();
+        conn
     }
 
-    /// Placing converted games came with schema 40: a store from before keeps each Placed Game's file as it was, none
-    /// of them a CHD, and each system's Storage Policy as it was, placing no converted game, and collecting garbage
-    /// keeps working over the columns it gained.
-    #[test]
-    fn a_store_from_before_placing_converted_games_keeps_its_placements_and_policy() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..39]).unwrap();
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
-                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
-                         SELECT 'play', 'discs', s.id, p.id, 'then' FROM source_sets s, profiles p;
-                     INSERT INTO placed_games (source_set_id, game, folder_id, placed_at)
-                         SELECT s.id, 'Orbit (USA)', f.id, 'then' FROM library_folders f, source_sets s;
-                     INSERT INTO placed_files (folder_id, path, source_set_id, game, size, mtime_ns, dev, ino, ctime_ns)
-                         SELECT f.id, 'Orbit (USA)/Orbit (USA).cue', s.id, 'Orbit (USA)', 1, 2, 3, 4, 5
-                         FROM library_folders f, source_sets s;
-                     INSERT INTO storage_policy (scope, system, single_copy, updated_by, updated_at)
-                         VALUES ('play_libraries', 'Redump/Test', 1, 'Operator', 'then');",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
-
-        let store = Store::open(dir.path()).unwrap();
-        let placed = store.placed_files("Set").unwrap();
-        assert_eq!(placed.len(), 1, "{placed:?}");
-        assert!(!placed[0].chd, "{placed:?}");
-        let policy = store.storage_policy().unwrap();
-        let system = &policy.play_libraries.systems["Redump/Test"];
-        assert_eq!(
-            (system.single_copy, system.place_converted),
-            (Some(true), None)
-        );
-        assert!(!policy.play_libraries.place_converted);
-        store.collect_garbage().unwrap();
-    }
-
-    #[test]
-    fn the_lifecycle_migration_keeps_every_registration_and_frees_the_names_of_unregistered_ones() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..16]).unwrap();
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
-                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
-                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
-                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
-                         SELECT 'play', 'atari', s.id, p.id, 'then' FROM source_sets s, profiles p;
-                     INSERT INTO additions_sets (dat_id, root, path, created_at)
-                         SELECT id, 'additions', 'Test', 'then' FROM dats;
-                     INSERT INTO ingest_folders (root, created_at) VALUES ('in', 'then');
-                     INSERT INTO jobs (state, kind, source_set_id, actor, readers, hashers, created_at)
-                         SELECT 'succeeded', 'audit', id, 'Operator', 1, 1, 'then' FROM source_sets;",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
-
-        let store = Store::open(dir.path()).unwrap();
-        let count = |sql: &str| store.read(|c| Ok(c.query_row(sql, [], |r| r.get::<_, i64>(0))?));
-        for table in [
-            "source_sets",
-            "library_folders",
-            "additions_sets",
-            "ingest_folders",
-        ] {
-            assert_eq!(
-                count(&format!(
-                    "SELECT count(*) FROM {table} WHERE unregistered_at IS NULL"
-                ))
-                .unwrap(),
-                1,
-                "{table}"
+    fn assert_pre_baseline_refused(opened: Result<Store>) {
+        let Err(Error::Refused(message)) = opened else {
+            panic!(
+                "expected a refusal, got {opened:?}",
+                opened = opened.map(|_| ())
             );
-        }
-        let again = |sql: &str| store.write(|tx| Ok(tx.execute_batch(sql)?));
-        let twins = "INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                         SELECT 'Set', 'sets', 'Set', id, 'now' FROM dats;
-                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
-                         SELECT 'play', 'atari', 2, id, 'now' FROM profiles;
-                     INSERT INTO additions_sets (dat_id, root, path, created_at)
-                         SELECT id, 'additions', 'Test', 'now' FROM dats;
-                     INSERT INTO ingest_folders (root, created_at) VALUES ('in', 'now');";
-        assert!(again(twins).is_err(), "a registered name stays unique");
-        again(
-            "UPDATE source_sets SET unregistered_at = 'now'; UPDATE library_folders SET unregistered_at = 'now';
-             UPDATE additions_sets SET unregistered_at = 'now'; UPDATE ingest_folders SET unregistered_at = 'now';",
-        )
-        .unwrap();
-        again(twins).unwrap();
+        };
         assert_eq!(
-            count("SELECT count(*) FROM jobs WHERE source_set_id = 1").unwrap(),
-            1
-        );
-        assert_eq!(
-            count("SELECT count(*) FROM profiles WHERE retired_at IS NULL").unwrap(),
-            1
+            message,
+            "This store was made by an earlier release of Title Select and can't be opened. Start a new store."
         );
     }
 
-    #[test]
-    fn the_fetch_migration_orders_existing_revisions_by_their_headers() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..18]).unwrap();
-        let dated = |version: &str, date: &str| {
-            format!(
-                "<?xml version=\"1.0\"?><datafile><header><name>Test</name><version>{version}</version>\
-                 <date>{date}</date></header></datafile>"
-            )
-        };
-        // Imported as version 2, then 1; then two of version 3, the later dated first; then one whose file is gone.
-        let revisions = [
-            ("a", "2", Some(dated("2", ""))),
-            ("b", "1", Some(dated("1", ""))),
-            ("c", "3", Some(dated("3", "2024-02-01"))),
-            ("d", "3", Some(dated("3", "2024-01-01"))),
-            ("e", "0.5", None),
-        ];
-        store
-            .write(|tx| {
-                tx.execute("INSERT INTO dats (provider, name) VALUES ('Test', 'Test')", [])?;
-                for (sha, version, xml) in &revisions {
-                    tx.execute(
-                        "INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at, blob_dropped_at)
-                         VALUES (1, ?1, ?2, 'x.dat', 'then', ?3)",
-                        rusqlite::params![sha, version, xml.is_none().then_some("then")],
-                    )?;
-                }
-                Ok(())
-            })
-            .unwrap();
-        for (sha, _, xml) in &revisions {
-            if let Some(xml) = xml {
-                std::fs::write(dir.path().join(DATS).join(sha), xml).unwrap();
-            }
-        }
-        drop(store);
-
-        let store = Store::open(dir.path()).unwrap();
-        let order: Vec<String> = store
-            .read(|c| {
-                let mut stmt =
-                    c.prepare("SELECT sha256 FROM dat_revisions ORDER BY header_order")?;
-                Ok(stmt
-                    .query_map([], |r| r.get(0))?
-                    .collect::<rusqlite::Result<Vec<String>>>()?)
-            })
-            .unwrap();
-        assert_eq!(order, ["e", "b", "a", "d", "c"]);
-    }
-
-    #[test]
-    fn the_fetch_migration_keeps_one_spelling_of_each_provider_merging_dats_imported_under_two() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..18]).unwrap();
-        store
-            .write(|tx| {
-                tx.execute_batch(
-                    "INSERT INTO dats (id, provider, name) VALUES
-                         (1, 'Redump', 'PSX'), (2, 'redump', 'PSX'), (3, 'REDUMP', 'PS2'), (4, 'Other', 'PSX');
-                     INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at) VALUES
-                         (1, 1, 'a', '1', 'x.dat', 'then'), (2, 2, 'b', '2', 'x.dat', 'then'),
-                         (3, 3, 'c', '1', 'x.dat', 'then'), (4, 4, 'd', '1', 'x.dat', 'then');
-                     INSERT INTO source_sets (id, name, root, path, dat_id, added_at, follow) VALUES
-                         (1, 'one', 'r', 'one', 1, 'then', 1), (2, 'two', 'r', 'two', 2, 'then', 1);
-                     INSERT INTO additions_sets (id, dat_id, root, path, created_at) VALUES
-                         (1, 2, 'w', 'early', '2024-01-01'), (2, 1, 'w', 'late', '2024-02-01');
-                     INSERT INTO cue_packs (sha256, dat, file_name, origin, cues, imported_at)
-                         VALUES ('p', 'redump/PSX', 'p.zip', 'import', 1, 'then');
-                     INSERT INTO storage_policy (scope, system, format) VALUES
-                         ('source_sets', 'Redump/PSX', 'loose'), ('source_sets', 'redump/PSX', 'torrent_zip'),
-                         ('source_sets', 'redump/PS2', 'loose');",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        drop(store);
-
-        let store = Store::open(dir.path()).unwrap();
-        let rows = |sql: &str| -> Vec<String> {
-            store
-                .read(|c| {
-                    let mut stmt = c.prepare(sql)?;
-                    Ok(stmt
-                        .query_map([], |r| r.get(0))?
-                        .collect::<rusqlite::Result<Vec<String>>>()?)
-                })
-                .unwrap()
-        };
-        assert_eq!(
-            rows("SELECT provider || '/' || name FROM dats ORDER BY id"),
-            ["Redump/PSX", "Redump/PS2", "Other/PSX"]
-        );
-        let revisions: Vec<(String, String)> = store
-            .dat_revisions()
+    fn names(dir: &Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(dir)
             .unwrap()
-            .into_iter()
-            .map(|r| (r.dat, r.sha256))
-            .collect();
-        let psx = |sha: &str| ("Redump/PSX".to_owned(), sha.to_owned());
-        assert_eq!(
-            revisions,
-            [
-                psx("a"),
-                psx("b"),
-                ("Redump/PS2".to_owned(), "c".to_owned()),
-                ("Other/PSX".to_owned(), "d".to_owned())
-            ]
-        );
-        assert_eq!(
-            rows(
-                "SELECT d.provider || '/' || d.name FROM source_sets s JOIN dats d ON d.id = s.dat_id ORDER BY s.id"
-            ),
-            ["Redump/PSX", "Redump/PSX"]
-        );
-        // Two additions sets now of one DAT: the earlier made stays registered.
-        assert_eq!(
-            rows("SELECT path FROM additions_sets WHERE dat_id = 1 AND unregistered_at IS NULL"),
-            ["early"]
-        );
-        assert_eq!(
-            rows(
-                "SELECT path FROM additions_sets WHERE dat_id = 1 AND unregistered_at IS NOT NULL"
-            ),
-            ["late"]
-        );
-        assert_eq!(rows("SELECT dat FROM cue_packs"), ["Redump/PSX"]);
-        // Two policies now of one DAT merge: the format of the one written under its kept spelling stays.
-        assert_eq!(
-            rows(
-                "SELECT system || '=' || format FROM storage_policy WHERE system <> '' ORDER BY system"
-            ),
-            ["Redump/PS2=loose", "Redump/PSX=loose"]
-        );
+            .map(|e| e.unwrap().file_name())
+            .collect()
     }
 
     #[test]
-    fn the_shadow_migration_drops_the_shadow_runs_and_keeps_every_selection() {
+    fn a_store_from_before_the_baseline_is_refused_and_left_untouched() {
+        for wal in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            // Closing the last connection checkpoints a WAL and deletes its sidecars.
+            drop(pre_baseline(dir.path(), wal));
+            let path = dir.path().join(DATABASE);
+            let before = std::fs::read(&path).unwrap();
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+
+            assert_pre_baseline_refused(Store::open(dir.path()));
+
+            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_from_before_the_baseline_in_a_read_only_directory_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..22]).unwrap());
-        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
-        conn.execute_batch(
-            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
-             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
-                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
-             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
-             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
-             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
-                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');",
-        )
-        .unwrap();
-        for (id, shadow) in [(1, Some(r#"{"primary":"bundled"}"#)), (2, None)] {
-            conn.execute(
-                "INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system,
-                     system_settings, pins, summary, coverage_drift, stale_choices, created_at, shadow)
-                 VALUES (?1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then', ?2)",
-                rusqlite::params![id, shadow],
-            )
-            .unwrap();
+        drop(pre_baseline(dir.path(), true));
+        let mode = |m| std::fs::Permissions::from_mode(m);
+        std::fs::set_permissions(dir.path(), mode(0o555)).unwrap();
+
+        let opened = Store::open(dir.path());
+
+        std::fs::set_permissions(dir.path(), mode(0o755)).unwrap();
+        assert_pre_baseline_refused(opened);
+        assert_eq!(names(dir.path()), [DATABASE]);
+    }
+
+    /// A WAL never checkpointed leaves the database file's header from before its schema; what opening it reads
+    /// through the WAL is refused all the same, before anything is written to the database file.
+    #[test]
+    fn a_store_from_before_the_baseline_with_its_schema_only_in_the_wal_is_refused() {
+        let made = tempfile::tempdir().unwrap();
+        let conn = pre_baseline(made.path(), true);
+        let dir = tempfile::tempdir().unwrap();
+        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
+            std::fs::copy(made.path().join(&name), dir.path().join(&name)).unwrap();
         }
         drop(conn);
+        let path = dir.path().join(DATABASE);
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(&before[60..64], &[0, 0, 0, 0]);
 
-        let store = Store::open(dir.path()).unwrap();
-        let (ids, columns) = store
-            .read(|c| {
-                let mut stmt = c.prepare("SELECT id FROM selections ORDER BY id")?;
-                let ids = stmt
-                    .query_map([], |r| r.get(0))?
-                    .collect::<rusqlite::Result<Vec<i64>>>()?;
-                let mut stmt = c.prepare("SELECT name FROM pragma_table_info('selections')")?;
-                let columns = stmt
-                    .query_map([], |r| r.get(0))?
-                    .collect::<rusqlite::Result<Vec<String>>>()?;
-                Ok((ids, columns))
-            })
-            .unwrap();
-        assert_eq!(ids, [1, 2]);
-        assert!(!columns.contains(&"shadow".to_owned()), "{columns:?}");
-    }
+        let wal = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
 
-    #[test]
-    fn the_single_copy_migration_keeps_every_build_item_and_built_file_so_a_stopped_build_still_recovers()
-     {
-        let dir = tempfile::tempdir().unwrap();
-        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..37]).unwrap());
-        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
-        conn.execute_batch(
-            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
-             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
-                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
-             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
-             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
-             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
-                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');
-             INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system, system_settings,
-                                     pins, summary, coverage_drift, stale_choices, created_at)
-                 VALUES (1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then');
-             INSERT INTO audits (id, source_set_id, dat_revision_id, status, source_set_path, started_at)
-                 VALUES (1, 1, 1, 'finished', 'p', 'then');
-             INSERT INTO library_folders (id, root, path, source_set_id, profile_id, created_at)
-                 VALUES (1, 'play', 'atari', 1, 1, 'then');
-             INSERT INTO plans (id, folder_id, selection_id, generation, content, digest, changes, created_at)
-                 VALUES (1, 1, 1, 0, '{}', 'c', '[]', 'then');
-             INSERT INTO jobs (id, kind, source_set_id, dat_revision_id, library_folder_id, plan_id, state, actor,
-                               readers, hashers, created_at)
-                 VALUES (1, 'build', 1, 1, 1, 1, 'running', 'you', 1, 1, 'then');
-             INSERT INTO builds (id, folder_id, plan_id, job_id, selection_id, audit_id, dat_revision_id, state,
-                                 generation, started_at)
-                 VALUES (1, 1, 1, 1, 1, 1, 1, 'running', 1, 'then');
-             INSERT INTO build_items (build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin,
-                                      chd_sha1, chd_raw_sha1, mtime_ns, unit)
-                 VALUES (1, 0, 'Pong.zip', 'Pong', 'repack', 'publishing', NULL, 'd', 4, 7, 8, 'o', 'e', 'f', 9,
-                         'Pong');
-             INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id,
-                                      dat_revision_id, roms, sources, size, mtime_ns, sha256, torrentzip, loose, chd,
-                                      chd_sha1, chd_raw_sha1)
-                 VALUES (1, 'Combat.zip', 'Combat', 'copy', 1, 1, 1, 1, '[]', '[]', 6, 5, 'g', 1, 0, 0, NULL, NULL);
-             INSERT INTO repair_plans (id, source_set_id, audit_id, content, digest, created_at, readers, hashers)
-                 VALUES (1, 1, 1, '{}', 'h', 'then', 1, 1);
-             INSERT INTO source_kept (id, source_set_id, plan_id, generation, name, kept_name, reason, sha256, size,
-                                      mtime_ns, dev, ino, state, kept_at, kept_ctime_ns)
-                 VALUES (5, 1, 1, 2, 'Old.zip', 'Old.zip.kept', 'why', 'i', 3, '11', 12, 13, 'kept', 'then', '14');",
-        )
-        .unwrap();
-        drop(conn);
+        assert_pre_baseline_refused(Store::open(dir.path()));
 
-        let store = Store::open(dir.path()).unwrap();
-        let (item, built) = store
-            .read(|c| {
-                let item = c.query_row(
-                    "SELECT target, kind, state, sha256, size, dev, ino, origin, chd_sha1, chd_raw_sha1, mtime_ns,
-                            unit, place_state, copy_staged
-                     FROM build_items",
-                    [],
-                    |r| {
-                        (0..14)
-                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
-                            .collect::<rusqlite::Result<Vec<_>>>()
-                    },
-                )?;
-                let built = c.query_row(
-                    "SELECT target, kind, sha256, size, mtime_ns FROM built_files",
-                    [],
-                    |r| {
-                        (0..5)
-                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
-                            .collect::<rusqlite::Result<Vec<_>>>()
-                    },
-                )?;
-                Ok((item, built))
-            })
-            .unwrap();
-        use rusqlite::types::Value::{Integer, Null, Text};
-        let text = |s: &str| Text(s.into());
-        // Still publishing, as a stop left it, so recovery settles it as before; and no placement begun.
-        assert_eq!(
-            item,
-            [
-                text("Pong.zip"),
-                text("repack"),
-                text("publishing"),
-                text("d"),
-                Integer(4),
-                Integer(7),
-                Integer(8),
-                text("o"),
-                text("e"),
-                text("f"),
-                Integer(9),
-                text("Pong"),
-                Null,
-                Null
-            ]
-        );
-        assert_eq!(
-            built,
-            [
-                text("Combat.zip"),
-                text("copy"),
-                text("g"),
-                Integer(6),
-                Integer(5)
-            ]
-        );
-        // A file a repair kept stays kept by it, with its id and every column, so its deletion can still be planned.
-        let kept = store
-            .read(|c| {
-                Ok(c.query_row(
-                    "SELECT id, plan_id, build_id, generation, name, kept_name, reason, sha256, size, mtime_ns, dev,
-                            ino, state, kept_at, kept_ctime_ns
-                     FROM source_kept",
-                    [],
-                    |r| {
-                        (0..15)
-                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
-                            .collect::<rusqlite::Result<Vec<_>>>()
-                    },
-                )?)
-            })
-            .unwrap();
-        assert_eq!(
-            kept,
-            [
-                Integer(5),
-                Integer(1),
-                Null,
-                Integer(2),
-                text("Old.zip"),
-                text("Old.zip.kept"),
-                text("why"),
-                text("i"),
-                Integer(3),
-                text("11"),
-                Integer(12),
-                Integer(13),
-                text("kept"),
-                text("then"),
-                text("14")
-            ]
-        );
-    }
-
-    #[test]
-    fn the_returns_migration_keeps_every_build_item_so_a_stopped_placing_build_still_recovers() {
-        let dir = tempfile::tempdir().unwrap();
-        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..38]).unwrap());
-        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
-        conn.execute_batch(
-            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
-             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
-                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
-             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
-             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
-             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
-                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');
-             INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system, system_settings,
-                                     pins, summary, coverage_drift, stale_choices, created_at)
-                 VALUES (1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then');
-             INSERT INTO audits (id, source_set_id, dat_revision_id, status, source_set_path, started_at)
-                 VALUES (1, 1, 1, 'finished', 'p', 'then');
-             INSERT INTO library_folders (id, root, path, source_set_id, profile_id, created_at)
-                 VALUES (1, 'play', 'atari', 1, 1, 'then');
-             INSERT INTO plans (id, folder_id, selection_id, generation, content, digest, changes, created_at)
-                 VALUES (1, 1, 1, 0, '{}', 'c', '[]', 'then');
-             INSERT INTO jobs (id, kind, source_set_id, dat_revision_id, library_folder_id, plan_id, state, actor,
-                               readers, hashers, created_at)
-                 VALUES (1, 'build', 1, 1, 1, 1, 'running', 'you', 1, 1, 'then');
-             INSERT INTO builds (id, folder_id, plan_id, job_id, selection_id, audit_id, dat_revision_id, state,
-                                 generation, started_at)
-                 VALUES (1, 1, 1, 1, 1, 1, 1, 'running', 1, 'then');
-             INSERT INTO build_items (build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin,
-                                      chd_sha1, chd_raw_sha1, mtime_ns, unit, place_state, copy_staged, copy_dev,
-                                      copy_ino, copy_sha256, place_chain)
-                 VALUES (1, 0, 'Pong.zip', 'Pong', 'place', 'pending', 'why', 'd', 4, 7, 8, 'o', 'e', 'f', 9,
-                         'Pong', 'copying', 'Pong.zip.staged', 10, 11, 'g', '[1]');",
-        )
-        .unwrap();
-        drop(conn);
-
-        let store = Store::open(dir.path()).unwrap();
-        let item = store
-            .read(|c| {
-                Ok(c.query_row(
-                    "SELECT build_id, seq, target, game, kind, state, error, sha256, size, dev, ino, origin, kept_id,
-                            chd_sha1, chd_raw_sha1, mtime_ns, unit, place_state, copy_staged, copy_dev, copy_ino,
-                            copy_sha256, place_chain, return_state
-                     FROM build_items",
-                    [],
-                    |r| {
-                        (0..24)
-                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
-                            .collect::<rusqlite::Result<Vec<_>>>()
-                    },
-                )?)
-            })
-            .unwrap();
-        use rusqlite::types::Value::{Integer, Null, Text};
-        let text = |s: &str| Text(s.into());
-        // Still copying, as a stop left it, so recovery rolls its placement back as before; and no return begun.
-        assert_eq!(
-            item,
-            [
-                Integer(1),
-                Integer(0),
-                text("Pong.zip"),
-                text("Pong"),
-                text("place"),
-                text("pending"),
-                text("why"),
-                text("d"),
-                Integer(4),
-                Integer(7),
-                Integer(8),
-                text("o"),
-                Null,
-                text("e"),
-                text("f"),
-                Integer(9),
-                text("Pong"),
-                text("copying"),
-                text("Pong.zip.staged"),
-                Integer(10),
-                Integer(11),
-                text("g"),
-                text("[1]"),
-                Null
-            ]
-        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let after = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
+        assert_eq!(after, wal);
     }
 
     #[test]
