@@ -2,8 +2,8 @@
 
 use leptos::prelude::*;
 
-/// Help that keeps `summary`, one line, in view, and folds `children`, the longer explanation, beneath it until you
-/// open it.
+/// Help that keeps `summary`, one line, in view, and folds `children`, the longer explanation, beneath it until the
+/// Operator opens it.
 #[component]
 pub fn Help(#[prop(into)] summary: String, children: Children) -> impl IntoView {
     view! {

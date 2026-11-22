@@ -702,11 +702,11 @@ struct Unnamed {
 
 impl Scan<'_> {
     fn unreadable(&mut self, path: String, member: Option<String>, reason: String) {
-        self.unreadable_chd(path, member, reason, None);
+        self.unreadable_with_parent(path, member, reason, None);
     }
 
     /// Records an Unreadable Entry; `parent_sha1` for a delta CHD, the combined SHA-1 of the parent it needs.
-    fn unreadable_chd(
+    fn unreadable_with_parent(
         &mut self,
         path: String,
         member: Option<String>,
@@ -730,7 +730,8 @@ impl Scan<'_> {
         match known {
             Known::Delta(parent) => {
                 let reason = needs_parent(self.dat, parent);
-                return self.unreadable_chd(path, member, reason, Some(parent.clone()));
+                self.unreadable_with_parent(path, member, reason, Some(parent.clone()));
+                return;
             }
             Known::NoDisk(why) => {
                 self.entries.push(Entry {

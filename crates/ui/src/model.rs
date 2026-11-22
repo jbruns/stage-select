@@ -1722,7 +1722,7 @@ mod tests {
                 "A delta CHD: it needs its parent CHD to be read, so replace it with a self-contained CHD."
             )
         );
-        // A ROM in a ZIP is no disk, and says nothing of disks.
+        // A ROM in a ZIP is no Disk, and says nothing of Disks.
         let rom = entry(
             "Pong (USA).zip",
             Finding::Matched,

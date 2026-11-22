@@ -2283,23 +2283,24 @@ Its screens:
   profile (`?profile=`) you pick a source set, and from a source set (`?source_set=`) you pick a profile. It is
   listed on its profile, not on its source set, until a library folder uses it.
 - **Selection** lists its game groups on the left, each chosen, unresolved, your choice, a choice to review, or
-  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against
-  the same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top shows how many groups have each status; select a count to
-  list only those groups, and "Apply to all" confirms every unresolved pick at once. Opening a group shows, on the
-  right, its candidate releases with the rule that decided each, where you check the releases you want, confirm an
-  unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
-  until you save them as the next version of the profile, which makes a new selection. A link to a group
-  (`?group=`) opens it. Its facts name the coverage it was made under, and a release outside that coverage shows as
-  excluded, "Outside its source set's coverage". The selection names the library folders that use it; one no library folder uses is a
-  what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
-  into a library folder bound to its source set and selection profile. An arcade selection's groups are families, and
-  its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
-  filter is on, and lists the filters you turned on that had nothing to read. Its facts list each support file it
-  read, with its MAME version and SHA-256, marked **Older version** when it is for an older MAME than the ListXML, whose
-  newer machines it then lacks, **Newer version** when it is for a newer one, **Same version**, or **Not read**; and,
-  with the curated list on, its commit and how many names on it the DAT revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
-  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
-  what you have of it and the games that need it.
+  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against the
+  same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top
+  shows how many groups have each status; select a count to list only those groups, and "Apply to all" confirms every
+  unresolved pick at once. Opening a group shows, on the right, its candidate releases with the rule that decided each,
+  where you check the releases you want, confirm an unresolved pick, include an excluded release, or reset the group to
+  the default choices; your choices are staged until you save them as the next version of the profile, which makes a new
+  selection. A link to a group (`?group=`) opens it. Its facts name the coverage it was made under, and a release
+  outside that coverage shows as excluded, "Outside its source set's coverage". The selection names the library folders
+  that use it; one no library folder uses is a what-if. "Create library folder from this" makes a library folder from
+  it, and "Plan a build" plans building it into a library folder bound to its source set and selection profile. An
+  arcade selection's groups are families, and its rules' stages read in plain words, such as "Parent over clone". It
+  says where categories came from, when your category filter is on, and lists the filters you turned on that had nothing
+  to read. Its facts list each support file it read, with its MAME version and SHA-256, marked **Older version** when it
+  is for an older MAME than the ListXML, whose newer machines it then lacks, **Newer version** when it is for a newer
+  one, **Same version**, or **Not read**; and, with the curated list on, its commit and how many names on it the DAT
+  revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
+  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with what
+  you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
   play libraries put SBI files beside its discs, a MAME system's set layout for its source sets (a line saying what
@@ -2312,30 +2313,28 @@ Its screens:
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
-- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete,
-  stale, current or never built, in that precedence. Stale means its source set's latest audit found something other than the audit
-  its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
-  changed"), or the folder was rebound to another; the folder says which. Each row can be
-  checked, or have a build planned of the newest selection of its source set and profile against the source set's
-  latest verified DAT revision, made first when there is none. **New library folder** (`/libraries/new`, or
-  `/libraries/new?source_set=<name>` or `?selection=<id>` from a source set or a selection) picks a saved selection
-  profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
-  plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
-  **Overview**, its facts, with the coverage it has from its source set and a link to edit it there (for a MAME
-  folder, why it has none, the MAME version it was built for and which emulators run it, its disk folders, and, under
-  **Using RomM?**, the RomM exclusions ready to copy), what it lacks, naming the dependency a game lacks, and the files built into it,
-  each file placed there now marked **Only copy**, or **Not known** while that's being read or can't be;
-  **Selection**, the selection it was built
+- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
+  current or never built, in that precedence. Stale means its source set's latest audit found something other than the
+  audit its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
+  changed"), or the folder was rebound to another; the folder says which. Each row can be checked, or have a build
+  planned of the newest selection of its source set and profile against the source set's latest verified DAT revision,
+  made first when there is none. **New library folder** (`/libraries/new`, or `/libraries/new?source_set=<name>` or
+  `?selection=<id>` from a source set or a selection) picks a saved selection profile and a writable root, proposes the
+  path from the path template as for a source set, creates the folder and plans its first build. A folder's page
+  (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs: **Overview**, its facts, with the coverage
+  it has from its source set and a link to edit it there (for a MAME folder, why it has none, the MAME version it was
+  built for and which emulators run it, its disk folders, and, under **Using RomM?**, the RomM exclusions ready to
+  copy), what it lacks, naming the dependency a game lacks, and the files built into it, each file placed there now
+  marked **Only copy**, or **Not known** while that's being read or can't be; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
-  blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs,
-  its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
-  **Builds**; **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept
-  files**, by generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers
-  to build resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict
-  you can keep aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built
-  here, kept files to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry
-  added as an addition asks for its system, name and parent game. Each build shows every file it wrote or failed to
-  write.
+  blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs, its
+  choices, the built files no longer selected, approval and the build live, with a way to cancel it; **Builds**;
+  **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept files**, by
+  generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers to build
+  resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can keep
+  aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built here, kept files
+  to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an addition
+  asks for its system, name and parent game. Each build shows every file it wrote or failed to write.
 - **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was
   last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with how often
   the folder is scanned), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or

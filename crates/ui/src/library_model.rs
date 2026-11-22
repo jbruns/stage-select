@@ -136,7 +136,7 @@ pub fn stale_label(stale: &Stale) -> String {
     }
 }
 
-/// Why a library folder bound to `source_set` has no coverage to inherit: an Arcade DAT's Source Set covers every Game
+/// Why a Library Folder bound to `source_set` has no Coverage to inherit: an Arcade DAT's Source Set covers every Game
 /// (ADR 0027), as `systems` (the service's `/systems`) says of it. `None` for any other, a MAME Logiqx DAT's included,
 /// and for a Source Set `systems` doesn't list.
 pub fn no_coverage(systems: &[SourceSetSystem], source_set: &str) -> Option<&'static str> {
@@ -146,18 +146,18 @@ pub fn no_coverage(systems: &[SourceSetSystem], source_set: &str) -> Option<&'st
         .then_some(ARCADE_COVERAGE_REFUSAL)
 }
 
-/// What a MAME library folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
+/// What a MAME Library Folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
 /// (mame0289)`.
 pub fn built_for(build: &str) -> String {
     format!("MAME {}", build.split_whitespace().next().unwrap_or(build))
 }
 
-/// Which emulators run a MAME library folder (ADR 0026).
+/// Which emulators run a MAME Library Folder (ADR 0026).
 pub const BUILT_FOR_NOTE: &str = "Only an emulator of that MAME version runs what this folder holds, such as \
 RetroArch's current MAME core or standalone MAME.";
 
 /// The sentence on RomM's exclusions up to the setting's name, `exclude.roms.multi_file.names`: why RomM needs a MAME
-/// library folder's disk folders left out.
+/// Library Folder's Disk folders left out.
 pub const ROMM_BEFORE_SETTING: &str = "RomM takes every folder in a platform for a game of its own, so without this it shows \
 each game with disks twice: once for its ZIP, and once for its disk folder, which doesn't run. Add these names to";
 
