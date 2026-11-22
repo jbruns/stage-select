@@ -4,17 +4,18 @@
 //! folder no longer holds the Source Set's Placed Games, or when you remove every built file. It goes back in the
 //! format the Source Set's Storage Policy says: renamed when each placed file is a file of that format on the same
 //! filesystem, otherwise written there, from its placed files, and verified against the DAT: a CHD's tracks extracted
-//! from it, and a CD's cue sheet kept in the store. A MAME system's Source Set keeps ZIPs (ADR 0026): its placed
-//! self-contained ZIP goes home as that ZIP, whatever format the policy gives other Source Sets. A Game still selected in the folder keeps its file there, as a built
-//! copy.
+//! from it, and a CD's cue sheet kept in the store. An Arcade DAT's Source Set keeps ZIPs (ADR 0026): its placed
+//! self-contained ZIP goes home as that ZIP, whatever format the policy gives other Source Sets. A Game still selected
+//! in the folder keeps its file there, as a built copy.
 
 use std::collections::{BTreeMap, HashSet};
 
+use title_select_api::DatFormat;
 use title_select_api::build::{
     ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, ReturnFile, ReturnHow,
     ReturnPlaced,
 };
-use title_select_api::storage::{Placement, placement_writing, release_of};
+use title_select_api::storage::{Placement, Storage, placement_writing, release_of};
 use title_select_engine::dat::Dat;
 
 use super::{Built, Folder, Inputs, roms_of, same_roms};
@@ -295,7 +296,13 @@ fn one<'a>(
     let mut games: Vec<&str> = found.iter().map(|f| f.placed.game.as_str()).collect();
     games.sort_unstable();
     games.dedup();
-    let mame = inputs.set_storage.set_layout.is_some();
+    // Only an Arcade DAT's Source Set keeps ZIPs by its Set Layout; a software list's follows the policy's format.
+    let storage = Storage {
+        set_layout: (inputs.set_storage.set_layout)
+            .filter(|_| inputs.revision.format == DatFormat::Listxml),
+        ..inputs.set_storage
+    };
+    let mame = storage.set_layout.is_some();
     let mut files = Vec::new();
     for game in games {
         let of_game: Vec<&Found> = found.iter().filter(|f| f.placed.game == game).collect();
@@ -308,7 +315,7 @@ fn one<'a>(
         // home; by those built alone when the DAT, or the Game in it, is gone.
         let listed = dat.map(|dat| roms_of(dat, game)).unwrap_or_default();
         let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
-        let (laid, _) = placement_writing(inputs.set_storage, game, &listed, &names);
+        let (laid, _) = placement_writing(storage, game, &listed, &names);
         let outputs: Vec<(String, bool, Vec<ExpectedRom>)> = match laid {
             Placement::TorrentZip(name) => vec![(name, false, roms.clone())],
             Placement::Loose(name) => vec![(name, true, roms.clone())],
@@ -330,7 +337,7 @@ fn one<'a>(
                 Err(e) => return Err(format!("{path} can't be checked ({e})")),
             }
             // The placed file that is this file whole: a TorrentZip of the same ROMs, or the same loose ROM; for a MAME
-            // system's Source Set, which keeps ZIPs as they are, any ZIP of them, as the self-contained ZIP it placed.
+            // Arcade DAT's Source Set, which keeps ZIPs as they are, any ZIP of them, as the self-contained ZIP it placed.
             let from = of_game
                 .iter()
                 .find(|f| {

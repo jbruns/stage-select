@@ -1120,7 +1120,7 @@ and why. Any game can be stored as a loose folder, a single `.iso` as well as a 
 its name or a ROM's name isn't a plain file name, is the name of the folder Title Select keeps its own work in
 (`.title-select`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
 stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
-disc layout says; any other system's play libraries store TorrentZip or loose. A MAME system's source sets keep every
+disc layout says; any other system's play libraries store TorrentZip or loose. A MAME ListXML's source sets keep every
 game as a TorrentZip, whatever format you give source sets, as MAME reads each game from a ZIP: a repair never stores
 one loose, and its plan says how many stay TorrentZip.
 

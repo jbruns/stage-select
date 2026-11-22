@@ -838,27 +838,38 @@ fn entries_at(
     Ok(out)
 }
 
-/// The Entry the file at `path` gets for its ROM `rom`, as a member unless `loose`, carried from the matched Entry of
-/// `was` at `source` and `member`; none when `was` has no such Entry with Evidence.
-fn carry(
+/// The Entries the file at `path` gets, one for each of its ROMs `roms`, as a member unless `loose`: each carried from
+/// the matched Entry of `was` that its source in `sources` names, at the path `at` gives the source's; or the first ROM
+/// with no such Entry, or none with Evidence.
+fn carry<'r>(
     was: &[title_select_api::report::Entry],
-    (source, member): (&str, Option<&str>),
-    path: &str,
-    rom: &str,
-    loose: bool,
-) -> Option<Carried> {
-    let e = was.iter().find(|e| {
-        e.path == source
-            && e.member.as_deref() == member
-            && e.finding == title_select_api::report::Finding::Matched
-            && !e.roms.is_empty()
-    })?;
-    Some(Carried {
-        path: path.to_owned(),
-        member: (!loose).then(|| rom.to_owned()),
-        roms: e.roms.clone(),
-        evidence: e.evidence.clone()?,
-    })
+    (path, loose): (&str, bool),
+    roms: &'r [title_select_api::build::ExpectedRom],
+    sources: &[title_select_api::build::PlanSource],
+    at: impl Fn(&str) -> String,
+) -> std::result::Result<Vec<Carried>, &'r str> {
+    let mut out = Vec::new();
+    for rom in roms {
+        let entry = sources.iter().find(|s| s.rom == rom.name).and_then(|s| {
+            let source = at(&s.path);
+            was.iter().find(|e| {
+                e.path == source
+                    && e.member == s.member
+                    && e.finding == title_select_api::report::Finding::Matched
+                    && !e.roms.is_empty()
+            })
+        });
+        let Some((e, evidence)) = entry.and_then(|e| Some((e, e.evidence.clone()?))) else {
+            return Err(&rom.name);
+        };
+        out.push(Carried {
+            path: path.to_owned(),
+            member: (!loose).then(|| rom.name.clone()),
+            roms: e.roms.clone(),
+            evidence,
+        });
+    }
+    Ok(out)
 }
 
 /// Writes `carried` into Audit `audit`, after its last Entry.
@@ -906,28 +917,13 @@ pub(crate) fn rewritten(
     }
     let mut out = Vec::new();
     for t in to {
-        for (k, rom) in t.roms.iter().enumerate() {
-            let carried = t
-                .sources
-                .get(k)
-                .filter(|s| s.rom == rom.name)
-                .and_then(|s| {
-                    carry(
-                        &was,
-                        (&s.path, s.member.as_deref()),
-                        t.path,
-                        &rom.name,
-                        t.loose,
-                    )
-                });
-            match carried {
-                Some(carried) => out.push(carried),
-                None => {
-                    return Ok(Err(format!(
-                        "{}: the audit has no evidence for {} to carry over",
-                        t.game, rom.name
-                    )));
-                }
+        match carry(&was, (t.path, t.loose), t.roms, t.sources, str::to_owned) {
+            Ok(carried) => out.extend(carried),
+            Err(rom) => {
+                return Ok(Err(format!(
+                    "{}: the audit has no evidence for {rom} to carry over",
+                    t.game
+                )));
             }
         }
     }
@@ -974,29 +970,15 @@ pub(crate) fn returned(
     }
     let mut out = Vec::new();
     for f in r.files.iter().filter(|f| f.from.is_none()) {
-        for (k, rom) in f.roms.iter().enumerate() {
-            let carried = f
-                .sources
-                .get(k)
-                .filter(|s| s.rom == rom.name)
-                .and_then(|s| {
-                    let source = placed_path(folder, &s.path);
-                    carry(
-                        &was,
-                        (&source, s.member.as_deref()),
-                        &f.path,
-                        &rom.name,
-                        f.loose,
-                    )
-                });
-            match carried {
-                Some(carried) => out.push(carried),
-                None => {
-                    return Ok(Err(format!(
-                        "{}: the latest audit has no evidence for {} to carry home",
-                        f.game, rom.name
-                    )));
-                }
+        let at = |path: &str| placed_path(folder, path);
+        match carry(&was, (&f.path, f.loose), &f.roms, &f.sources, at) {
+            Ok(carried) => out.extend(carried),
+            Err(rom) => {
+                return Ok(Err(format!(
+                    "{}: the latest audit has no evidence for {rom} to carry home; audit the source set, then plan \
+                     again",
+                    f.game
+                )));
             }
         }
     }

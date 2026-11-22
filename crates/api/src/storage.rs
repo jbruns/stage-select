@@ -381,7 +381,7 @@ fn is_plain_name(name: &str) -> bool {
 pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Title Select keeps its own work under, \
      so it can't be stored loose, and it stays TorrentZip";
 
-/// Why a Game of a MAME system's Source Set is stored as TorrentZip where the policy says loose or loose folder.
+/// Why a Game of an Arcade DAT's Source Set is stored as TorrentZip where the policy says loose or loose folder.
 pub const MAME_STAYS_ZIP: &str =
     "it is a MAME game, which MAME reads from a ZIP, so it stays TorrentZip";
 
@@ -728,9 +728,10 @@ impl Placement {
 /// The one decision of how a Repair stores Game `game`, with ROM names `roms`, in a Source Set under `storage`, with
 /// the note saying why a Game is not stored as the policy says. A loose folder holds any Game whose name and ROM
 /// names are plain file names, each ROM once; every other Game stays TorrentZip, so a Game's ROMs are never split
-/// across formats. A MAME system's Source Set keeps every Game as TorrentZip, whatever the format.
+/// across formats. A Source Set with a Set Layout, an Arcade DAT's, keeps every Game as TorrentZip, whatever the format.
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
-    // A MAME system's Source Set, the one kind with a Set Layout, keeps each Game as a ZIP (ADR 0026).
+    // A Source Set with a Set Layout, an Arcade DAT's, keeps each Game as a ZIP (ADR 0026). A caller leaves a software
+    // list's Set Layout out, as no Repair lays one out by it.
     if storage.set_layout.is_some() {
         let loose = matches!(
             storage.format,

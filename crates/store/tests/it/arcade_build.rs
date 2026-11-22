@@ -921,7 +921,7 @@ fn write_plain_zip(path: &Path, members: &[&str]) {
 
 /// Plans `selection` again and expects its Game's ZIP to need nothing: every ROM of it, its Dependencies' too, has a
 /// source the Audit names.
-fn in_place_with_every_rom(env: &Env, selection: i64) {
+fn assert_needs_nothing_again(env: &Env, selection: i64) {
     let again = env.plan(selection);
     let blaster = item(&again, "blaster.zip");
     assert_eq!(blaster.kind, ItemKind::Unchanged, "{blaster:#?}");
@@ -947,7 +947,7 @@ fn single_copy_places_a_built_self_contained_zip_with_its_dependencies_evidence(
     let placed = env.built_item(&ended, "blaster.zip");
     assert_eq!(placed.state, ItemState::Applied, "{placed:?}");
     assert!(!env.set().join("blaster.zip").exists());
-    in_place_with_every_rom(&env, selection);
+    assert_needs_nothing_again(&env, selection);
 }
 
 #[test]
@@ -980,7 +980,7 @@ fn single_copy_converts_an_ordinary_zip_with_its_dependencies_evidence() {
         members(&env.library().join("blaster.zip")),
         ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]
     );
-    in_place_with_every_rom(&env, selection);
+    assert_needs_nothing_again(&env, selection);
 }
 
 #[test]

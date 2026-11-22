@@ -19,20 +19,30 @@ const PROFILE: &str = "Mine";
 
 /// A store with a read-only Root `sets` holding the folder `mame` and a writable Root `play` for Library Folders.
 struct Env {
-    _tmp: tempfile::TempDir,
+    tmp: tempfile::TempDir,
     store: Store,
     config: Config,
 }
 
 impl Env {
     fn new() -> Env {
+        Env::with("")
+    }
+
+    /// As [`Env::new`], but `sets` lets repairs write the folder `mame`.
+    fn writable() -> Env {
+        Env::with("writable_paths = [\"mame\"]\n")
+    }
+
+    /// With `sets` taking `options` too.
+    fn with(options: &str) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("sets");
         let play = tmp.path().join("play");
         std::fs::create_dir_all(sets.join("mame")).unwrap();
         std::fs::create_dir_all(&play).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+            "[roots.sets]\npath = {:?}\n{options}\n[roots.play]\npath = {:?}\nwritable = true\n",
             sets.display().to_string(),
             play.display().to_string()
         ))
@@ -48,11 +58,7 @@ impl Env {
                 WORKERS,
             )
             .unwrap();
-        Env {
-            _tmp: tmp,
-            store,
-            config,
-        }
+        Env { tmp, store, config }
     }
 
     /// Imports `dat` and registers the Source Set `mame` for it.
@@ -116,6 +122,44 @@ fn a_software_list_is_audited_but_never_selected_or_built() {
         .enqueue_selection("mame", None, PROFILE, None, "Operator", WORKERS);
     assert_eq!(refused(selection), SOFTWARE_LIST_REFUSAL);
     assert_eq!(refused(env.folder()), SOFTWARE_LIST_REFUSAL);
+}
+
+#[test]
+fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_source_sets() {
+    let env = Env::writable();
+    env.add(SOFTWARE_LIST.as_bytes());
+    let zip = std::fs::File::create_new(env.tmp.path().join("sets/mame/game.zip")).unwrap();
+    let mut writer = title_select_engine::torrentzip::Writer::new(zip).unwrap();
+    writer.add("game.bin", 4, &mut &b"test"[..]).unwrap();
+    writer.finish().unwrap();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = title_select_api::storage::StorageFormat::Loose;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    env.store
+        .audit_source_set(&env.config, "mame", None, AuditEvidence::Full)
+        .unwrap();
+
+    let plan = env
+        .store
+        .plan_repair(
+            &env.config,
+            "mame",
+            &title_select_api::repair::PlanRepair::default(),
+        )
+        .unwrap();
+    let kinds: Vec<_> = plan
+        .content
+        .items
+        .iter()
+        .map(|i| (i.kind, i.summary.as_str()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [(
+            title_select_api::repair::RepairKind::Convert,
+            "convert game.zip to game.bin, stored loose"
+        )]
+    );
 }
 
 #[test]
