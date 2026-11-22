@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use title_select_api::JobState;
 use title_select_api::ingest::Proposal;
 use title_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
+use title_select_api::roots::{RootKind, RootSpec, VoidedPlanKind};
 use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
@@ -23,7 +24,7 @@ struct Cli {
     /// The store directory: the database and the DAT blobs.
     #[arg(long, global = true, env = "TITLE_SELECT_STORE")]
     store: Option<PathBuf>,
-    /// The configuration file (`title-select.toml`) that declares your roots.
+    /// The configuration file (`title-select.toml`): how the service authenticates you, and the chdman to run.
     #[arg(long, global = true, env = "TITLE_SELECT_CONFIG")]
     config: Option<PathBuf>,
     /// The file holding your operator token: the service accepts it, and `audit --server` and `calibrate` send it.
@@ -133,7 +134,7 @@ enum Command {
         #[command(subcommand)]
         command: AdditionsCommand,
     },
-    /// See what is registered in a root.
+    /// Register, edit, unregister and list your roots: the folders Title Select reads, and writes to where you let it.
     Root {
         #[command(subcommand)]
         command: RootCommand,
@@ -284,7 +285,7 @@ enum SetCommand {
     /// Register a folder in a root as a source set, bound to a DAT. With no path, the path template proposes
     /// one from the DAT: by default `{provider}/{dat}`, such as `No-Intro/Atari - Atari 2600`.
     Add {
-        /// The root's name in the configuration.
+        /// The root's name.
         root: String,
         /// The source set's folder, relative to the root. Leave it out to use the path the template proposes.
         path: Option<String>,
@@ -357,8 +358,132 @@ enum AdditionsCommand {
 
 #[derive(Subcommand)]
 enum RootCommand {
-    /// Show what is registered in a root: each registration that holds it in your configuration.
+    /// List your roots: each one's path, kind, where Title Select may write to it, and your ceilings for it.
+    List,
+    /// Register a folder as a root. Refused unless the folder exists, and unless Title Select can write to it when
+    /// you make the root writable. There can be only one root of kind `additions`.
+    Register {
+        /// Its name, fixed once registered: what you register in the root refers to it by name.
+        name: String,
+        /// The folder's absolute path.
+        path: PathBuf,
+        #[command(flatten)]
+        options: RootOptions,
+    },
+    /// Change a root's path, kind, writability or ceilings; its name can't change. What you leave out keeps its
+    /// value. A path or writability change waits for the jobs running on the root. Making the root less writable
+    /// voids the approved plans that write where it no longer may, and lists them.
+    Edit {
+        name: String,
+        /// The folder's new absolute path.
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[command(flatten)]
+        options: RootOptions,
+    },
+    /// Unregister a root; no file is touched. Refused while anything is registered in it.
+    Unregister { name: String },
+    /// Show what is registered in a root.
     Holds { name: String },
+}
+
+/// What `root register` and `root edit` set.
+#[derive(clap::Args)]
+struct RootOptions {
+    /// `general` for source sets or play library folders, `ingest` for an ingest folder, or `additions` for the
+    /// additions sets. An ingest or additions root is writable.
+    #[arg(long, value_parser = |s: &str| s.parse::<RootKind>())]
+    kind: Option<RootKind>,
+    /// Let Title Select write anywhere in the root: builds into its play library folders.
+    #[arg(long, conflicts_with = "read_only")]
+    writable: bool,
+    /// Let Title Select write nowhere in the root but its writable paths.
+    #[arg(long)]
+    read_only: bool,
+    /// In a read-only root, a source set's path, relative to the root, that a repair may write to. Repeat it for
+    /// each; any you give replace those the root had.
+    #[arg(long = "writable-path", value_name = "PATH", conflicts_with = "no_writable_paths")]
+    writable_paths: Vec<String>,
+    /// Remove every writable path.
+    #[arg(long)]
+    no_writable_paths: bool,
+    /// Payload readers across every job reading the root, or `default` for the calibration's or the CPU count.
+    #[arg(long, value_name = "N|default", value_parser = parse_ceiling)]
+    readers: Option<CeilingArg>,
+    /// The MiB per second every job may read from the root, or `default`.
+    #[arg(long, value_name = "N|default", value_parser = parse_ceiling)]
+    read_mib_per_s: Option<CeilingArg>,
+    /// The MiB per second every job may write to the root, or `default`.
+    #[arg(long, value_name = "N|default", value_parser = parse_ceiling)]
+    write_mib_per_s: Option<CeilingArg>,
+}
+
+impl RootOptions {
+    /// `spec` with these options applied.
+    fn apply(self, mut spec: RootSpec) -> RootSpec {
+        if let Some(kind) = self.kind {
+            spec = spec.of_kind(kind);
+        }
+        if self.writable {
+            spec.writable = true;
+        }
+        if self.read_only {
+            spec.writable = false;
+        }
+        if self.no_writable_paths {
+            spec.writable_paths.clear();
+        }
+        if !self.writable_paths.is_empty() {
+            spec.writable_paths = self.writable_paths;
+        }
+        for (ceiling, given) in [
+            (&mut spec.readers, self.readers),
+            (&mut spec.read_mib_per_s, self.read_mib_per_s),
+            (&mut spec.write_mib_per_s, self.write_mib_per_s),
+        ] {
+            if let Some(CeilingArg(given)) = given {
+                *ceiling = given;
+            }
+        }
+        spec
+    }
+}
+
+/// A ceiling you give: a whole number, or none of your own for `default`.
+#[derive(Clone, Copy)]
+struct CeilingArg(Option<u64>);
+
+fn parse_ceiling(s: &str) -> Result<CeilingArg, String> {
+    match s {
+        "default" => Ok(CeilingArg(None)),
+        _ => s
+            .parse()
+            .map(|n| CeilingArg(Some(n)))
+            .map_err(|_| "expected a whole number or `default`".to_owned()),
+    }
+}
+
+/// Who `root register`, `edit` and `unregister` record as having made the change.
+const ACTOR: &str = "command line";
+
+/// One root as `root list` prints it.
+fn root_line(root: &title_select_api::Root) -> String {
+    let writes = match (root.writable, root.writable_paths.as_slice()) {
+        (true, _) => "writable".to_owned(),
+        (false, []) => "read-only".to_owned(),
+        (false, paths) => format!("read-only but for {}", paths.join(", ")),
+    };
+    let mut line = format!("{}\t{}\t{}\t{writes}", root.name, root.path, root.kind.as_str());
+    for (what, value) in [
+        ("readers", root.readers.map(|v| v.to_string())),
+        ("reads", root.read_mib_per_s.map(|v| format!("{v} MiB/s"))),
+        ("writes", root.write_mib_per_s.map(|v| format!("{v} MiB/s"))),
+    ] {
+        if let Some(value) = value {
+            line.push_str(&format!("\t{what} {value}"));
+        }
+    }
+    line
 }
 
 #[derive(Subcommand)]
@@ -397,7 +522,7 @@ enum IngestCommand {
     /// Register an ingest root as an ingest folder of this store, writing its marker. Title Select scans and
     /// changes an ingest folder only once it is registered.
     Register {
-        /// The root's name in the configuration; it must have `kind = "ingest"`.
+        /// The root's name; it must be of kind `ingest`.
         root: String,
     },
     /// Show what holds an ingest folder registered.
@@ -454,16 +579,10 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
     Ok(store)
 }
 
-/// The configuration file, or no roots when none is given.
+/// The configuration file, or the defaults when none is given.
 fn load_config(path: Option<&Path>) -> Result<Config, String> {
     match path {
-        Some(path) => {
-            let config = Config::load(path).map_err(|e| e.to_string())?;
-            for warning in &config.warnings {
-                eprintln!("title-select: {warning}");
-            }
-            Ok(config)
-        }
+        Some(path) => Config::load(path).map_err(|e| e.to_string()),
         None => Ok(Config::default()),
     }
 }
@@ -665,9 +784,8 @@ fn run(cli: Cli) -> Result<(), String> {
             output,
             ..
         } => {
-            let config = load_config(config)?;
             let audit = open_store(store)?
-                .audit_source_set(&config, &set, revision.as_deref(), evidence)
+                .audit_source_set(&set, revision.as_deref(), evidence)
                 .map_err(|e| e.to_string())?;
             eprintln!("{}", payloads_line(&audit.report));
             write_report(&audit.report, output)
@@ -907,7 +1025,6 @@ fn run(cli: Cli) -> Result<(), String> {
                     clone_lists,
                 },
         } => {
-            let config = load_config(config)?;
             let store = open_store(store)?;
             let coverage = coverage(coverage_regions, coverage_presets, clone_lists.as_deref())?;
             let path = match path {
@@ -917,7 +1034,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     .map_err(|e| e.to_string())?,
             };
             let set = store
-                .add_source_set_covering(&config, &root, &path, &dat, coverage.as_deref())
+                .add_source_set_covering(&root, &path, &dat, coverage.as_deref())
                 .map_err(|e| e.to_string())?;
             let covering = match set.coverage {
                 Some(_) => format!("; {}", covers(set.coverage.as_deref())),
@@ -952,9 +1069,8 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Ingest {
             command: IngestCommand::Register { root },
         } => {
-            let config = load_config(config)?;
             let folder = open_store(store)?
-                .register_ingest_folder(&config, &root)
+                .register_ingest_folder(&root)
                 .map_err(|e| e.to_string())?;
             println!(
                 "{}: registered as an ingest folder at {}",
@@ -965,9 +1081,8 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Ingest {
             command: IngestCommand::Scan { root },
         } => {
-            let config = load_config(config)?;
             let job = open_store(store)?
-                .scan_ingest_folder(&config, &root, "the Operator")
+                .scan_ingest_folder(&root, "the Operator")
                 .map_err(|e| e.to_string())?;
             match job.error {
                 Some(error) if job.state != JobState::Succeeded => {
@@ -1024,10 +1139,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Set {
             command: SetCommand::Unregister { name },
         } => {
-            let config = load_config(config)?;
             print_unregistration(
                 open_store(store)?
-                    .unregister_source_set(&config, &name)
+                    .unregister_source_set(&name)
                     .map_err(|e| e.to_string())?,
             );
             Ok(())
@@ -1045,10 +1159,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Ingest {
             command: IngestCommand::Unregister { root },
         } => {
-            let config = load_config(config)?;
             print_unregistration(
                 open_store(store)?
-                    .unregister_ingest_folder(&config, &root)
+                    .unregister_ingest_folder(&root)
                     .map_err(|e| e.to_string())?,
             );
             Ok(())
@@ -1066,10 +1179,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Library {
             command: LibraryCommand::Unregister { id },
         } => {
-            let config = load_config(config)?;
             print_unregistration(
                 open_store(store)?
-                    .unregister_library_folder(&config, id)
+                    .unregister_library_folder(id)
                     .map_err(|e| e.to_string())?,
             );
             Ok(())
@@ -1087,10 +1199,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Additions {
             command: AdditionsCommand::Unregister { system },
         } => {
-            let config = load_config(config)?;
             print_unregistration(
                 open_store(store)?
-                    .unregister_additions_set(&config, &system)
+                    .unregister_additions_set(&system)
                     .map_err(|e| e.to_string())?,
             );
             Ok(())
@@ -1098,18 +1209,89 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Root {
             command: RootCommand::Holds { name },
         } => {
-            let config = load_config(config)?;
             let holds = open_store(store)?
-                .root_holds(&config, &name)
+                .root_holds(&name)
                 .map_err(|e| e.to_string())?;
             if holds.holds.is_empty() {
                 println!(
-                    "nothing is registered in {name}; you can remove it from your configuration"
+                    "nothing is registered in {name}; you can unregister it with `title-select root unregister {name}`"
                 );
             }
             for hold in holds.holds {
                 println!("{hold}");
             }
+            Ok(())
+        }
+        Command::Root {
+            command: RootCommand::List,
+        } => {
+            let roots = open_store(store)?.roots_view();
+            if roots.is_empty() {
+                println!("no roots are registered; register one with `title-select root register`");
+            }
+            for root in roots {
+                println!("{}", root_line(&root));
+            }
+            Ok(())
+        }
+        Command::Root {
+            command:
+                RootCommand::Register {
+                    name,
+                    path,
+                    options,
+                },
+        } => {
+            let spec = options.apply(RootSpec::new(&name, path));
+            let root = open_store(store)?
+                .register_root(&spec, ACTOR)
+                .map_err(|e| e.to_string())?;
+            println!("registered {}", root_line(&root.view()));
+            Ok(())
+        }
+        Command::Root {
+            command: RootCommand::Edit {
+                name,
+                path,
+                options,
+            },
+        } => {
+            let store = open_store(store)?;
+            let mut spec = store
+                .roots_view()
+                .iter()
+                .find(|r| r.name == name)
+                .map(RootSpec::from)
+                .ok_or_else(|| format!("there is no root {name}"))?;
+            if let Some(path) = path {
+                spec.path = path.display().to_string();
+            }
+            let spec = options.apply(spec);
+            let edited = store
+                .edit_root(&name, &spec, ACTOR)
+                .map_err(|e| e.to_string())?;
+            println!("edited {}", root_line(&edited.root));
+            for voided in edited.voided {
+                println!(
+                    "voided {} plan {} (job {}): it wrote to {}, where {name} no longer lets Title Select write",
+                    match voided.kind {
+                        VoidedPlanKind::Build => "build",
+                        VoidedPlanKind::Repair => "repair",
+                    },
+                    voided.plan,
+                    voided.job,
+                    voided.writes_to
+                );
+            }
+            Ok(())
+        }
+        Command::Root {
+            command: RootCommand::Unregister { name },
+        } => {
+            open_store(store)?
+                .unregister_root(&name, ACTOR)
+                .map_err(|e| e.to_string())?;
+            println!("{name}: unregistered; no file was touched");
             Ok(())
         }
         Command::Profile {

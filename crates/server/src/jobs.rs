@@ -1,4 +1,4 @@
-//! Runs queued Jobs on blocking threads, at most as many at once as the pace allows of `[jobs] concurrent`, and
+//! Runs queued Jobs on blocking threads, at most as many at once as the pace allows of the concurrent Ceiling, and
 //! broadcasts their progress and states.
 
 use std::collections::HashMap;
