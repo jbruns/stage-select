@@ -1854,7 +1854,7 @@ details.dependencies > summary {
   margin: 0 0 var(--space-2);
 }
 
-.step-state {
+.step h2 .status {
   font-size: var(--type-meta);
   font-weight: 400;
 }

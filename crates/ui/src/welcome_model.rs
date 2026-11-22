@@ -5,6 +5,8 @@
 use title_select_api::roots::RootKind;
 use title_select_api::{Root, SourceSetSummary};
 
+use crate::registration::holds_source_sets;
+
 /// A first-run step, in the order you take them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
@@ -75,10 +77,7 @@ impl Facts {
     pub fn of(roots: &[Root], dats: usize, sets: &[SourceSetSummary], libraries: usize) -> Facts {
         Facts {
             roots: roots.len(),
-            read_only_roots: roots
-                .iter()
-                .filter(|r| r.kind == RootKind::General && !r.writable)
-                .count(),
+            read_only_roots: roots.iter().filter(|r| holds_source_sets(r)).count(),
             writable_roots: roots
                 .iter()
                 .filter(|r| r.writable && r.kind != RootKind::Ingest)
@@ -115,6 +114,29 @@ impl Facts {
             Step::Library => None,
         };
         waiting.map_or(State::Ready, State::Waiting)
+    }
+}
+
+/// What the page shows of its loads of what the store holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadState {
+    /// A load is under way and none has worked yet.
+    pub pending: bool,
+    /// Why the latest load failed, once no load is under way; the page offers to try again.
+    pub problem: Option<String>,
+    /// Whether the steps show: from the first load that worked, kept through a reload that fails.
+    pub steps: bool,
+}
+
+impl LoadState {
+    /// `in_flight` while the latest load asked for hasn't come back; `latest_error` is the error of the latest that
+    /// did, if it failed.
+    pub fn of(in_flight: bool, loaded_once: bool, latest_error: Option<&str>) -> LoadState {
+        LoadState {
+            pending: in_flight && !loaded_once,
+            problem: latest_error.filter(|_| !in_flight).map(str::to_owned),
+            steps: loaded_once,
+        }
     }
 }
 
@@ -218,6 +240,31 @@ mod tests {
             .state(Step::Audit),
             State::Done
         );
+    }
+
+    #[test]
+    fn a_first_load_that_fails_shows_its_problem_instead_of_loading_for_ever() {
+        let state = |pending, problem: Option<&str>, steps| LoadState {
+            pending,
+            problem: problem.map(str::to_owned),
+            steps,
+        };
+        assert_eq!(LoadState::of(true, false, None), state(true, None, false));
+        assert_eq!(
+            LoadState::of(false, false, Some("HTTP 500")),
+            state(false, Some("HTTP 500"), false)
+        );
+        // Trying again: the old problem gives way to the load under way.
+        assert_eq!(
+            LoadState::of(true, false, Some("HTTP 500")),
+            state(true, None, false)
+        );
+        // A reload that fails keeps the steps, under its problem, and one under way doesn't dim them.
+        assert_eq!(
+            LoadState::of(false, true, Some("HTTP 500")),
+            state(false, Some("HTTP 500"), true)
+        );
+        assert_eq!(LoadState::of(true, true, None), state(false, None, true));
     }
 
     #[test]

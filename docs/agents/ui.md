@@ -61,7 +61,8 @@ nothing is fetched at runtime. The licence ships at `/licences/lucide.txt` and i
 `parts::status` maps every status to a `Look { glyph, tone, label, hint }`. Colour and shape both differ, so no state
 is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `SourceSetStatus`, `LibraryStatus`,
 `PlanKind` (repair plans, `From<RepairKind>`), `BuildKind` (build plans, builds and cleanups, `From<ItemKind>`),
-`IngestStatus`, `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files).
+`IngestStatus`, `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files), `StepStatus`
+(a first-run step).
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.

@@ -11,14 +11,15 @@ use title_select_api::{Dat, Root, SourceSetSummary};
 
 use crate::api;
 use crate::events::use_live;
-use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::overlay::Drawer;
-use crate::parts::pending::Pending;
+use crate::parts::pending::{ActionPending, Pending};
+use crate::parts::status::{StatusBadge, StepStatus};
 use crate::roots_model::RootDraft;
 use crate::screens::dats::Upload;
 use crate::screens::roots::RootForm;
-use crate::screens::source_sets::{Register, new_library_href, set_href, start_audit};
-use crate::welcome_model::{Facts, State, Step, root_name};
+use crate::screens::source_sets::{Register, new_library_href, queue_audit, set_href};
+use crate::source_set_model::running;
+use crate::welcome_model::{Facts, LoadState, State, Step, root_name};
 
 /// The home screen: the first-run steps while there are no Roots, else the Source Sets.
 #[component]
@@ -66,19 +67,31 @@ async fn held() -> Result<Held, String> {
 pub fn Welcome() -> impl IntoView {
     let live = use_live();
     let refresh = RwSignal::new(0u64);
+    // Each load is tagged with the request that asked for it, so the page knows whether the latest has come back.
+    let asked = Memo::new(move |_| live.settled.get() + refresh.get());
     let loaded = LocalResource::new(move || {
-        live.settled.track();
-        refresh.track();
-        held()
+        let at = asked.get();
+        async move { (at, held().await) }
     });
     // The last load that worked, so a reload doesn't close the forms open in the steps.
     let last = RwSignal::new(None::<Held>);
     Effect::new(move || {
-        if let Some(Ok(held)) = loaded.get() {
+        if let Some((_, Ok(held))) = loaded.get() {
             last.set(Some(held));
         }
     });
-    let problem = Signal::derive(move || loaded.get().and_then(Result::err));
+    let load = Memo::new(move |_| {
+        loaded.with(|latest| {
+            let in_flight = latest.as_ref().is_none_or(|(at, _)| *at != asked.get());
+            let worked = matches!(latest, Some((_, Ok(_))));
+            let error = latest.as_ref().and_then(|(_, r)| r.as_ref().err());
+            LoadState::of(
+                in_flight,
+                worked || last.with(Option::is_some),
+                error.map(String::as_str),
+            )
+        })
+    });
     let changed = Callback::new(move |_: ()| refresh.update(|n| *n += 1));
     let skipped = RwSignal::new(Vec::<Step>::new());
     view! {
@@ -87,13 +100,24 @@ pub fn Welcome() -> impl IntoView {
             "Title Select reads only the folders you register. These steps take you from here to your first audit. \
              You can skip any step, and take it later from the screen it names."
         </p>
-        <Pending pending=Signal::derive(move || last.with(Option::is_none)) status="Loading what you've set up…" problem>
-            <ol class="steps">
-                {Step::ALL
-                    .into_iter()
-                    .map(|step| view! { <StepPanel step last skipped changed /> })
-                    .collect_view()}
-            </ol>
+        <Pending
+            pending=Signal::derive(move || load.with(|l| l.pending))
+            status="Loading what you've set up…"
+            problem=Signal::derive(move || load.with(|l| l.problem.clone()))
+        >
+            <Show when=move || load.with(|l| l.problem.is_some())>
+                <p>
+                    <button type="button" on:click=move |_| changed.run(())>"Try again"</button>
+                </p>
+            </Show>
+            <Show when=move || load.with(|l| l.steps)>
+                <ol class="steps">
+                    {Step::ALL
+                        .into_iter()
+                        .map(|step| view! { <StepPanel step last skipped changed /> })
+                        .collect_view()}
+                </ol>
+            </Show>
         </Pending>
         <p>
             <A href="/source-sets">"Go to your source sets"</A>
@@ -117,26 +141,7 @@ fn StepPanel(
         })
     });
     let is_skipped = Memo::new(move |_| skipped.with(|s| s.contains(&step)));
-    let (glyph, tone, label) = (
-        move || match (state.get(), is_skipped.get()) {
-            (State::Done, _) => Glyph::CircleCheck,
-            (_, true) => Glyph::CircleMinus,
-            (State::Ready, _) => Glyph::ArrowRight,
-            (State::Waiting(_), _) => Glyph::CircleDashed,
-        },
-        move || match (state.get(), is_skipped.get()) {
-            (State::Done, _) => "tone-good",
-            (_, true) => "tone-neutral",
-            (State::Ready, _) => "tone-active",
-            (State::Waiting(_), _) => "tone-neutral",
-        },
-        move || match (state.get(), is_skipped.get()) {
-            (State::Done, _) => "Done",
-            (_, true) => "Skipped",
-            (State::Ready, _) => "Next",
-            (State::Waiting(_), _) => "Waiting",
-        },
-    );
+    let status = move || StepStatus::of(state.get(), is_skipped.get());
     let skip = move |_| skipped.update(|s| s.push(step));
     let unskip = move |_| skipped.update(|s| s.retain(|&t| t != step));
     let heading = format!(
@@ -150,14 +155,7 @@ fn StepPanel(
                 <h2 id=heading>
                     {step.title()}
                     " "
-                    {move || {
-                        let glyph = glyph();
-                        view! {
-                            <span class=format!("step-state {}", tone())>
-                                <LabelledIcon glyph label=Signal::derive(move || label().to_string()) />
-                            </span>
-                        }
-                    }}
+                    {move || view! { <StatusBadge status=status() /> }}
                 </h2>
                 <p>{explanation(step)}</p>
                 {move || match (state.get(), is_skipped.get()) {
@@ -204,7 +202,8 @@ fn explanation(step: Step) -> &'static str {
         Step::Root => {
             "A root is a folder Title Select may work in. Register a read-only root for the folders that hold your \
              games, and a writable root for the library folders it builds. It reads nothing until you register a \
-             root, and never writes to a read-only one."
+             root, and writes only where you let it: in a writable root, and in the paths of a read-only root you let \
+             repairs write to."
         }
         Step::Dat => {
             "A DAT lists every file a set of games should have; an audit checks your files against it. Import a DAT \
@@ -227,7 +226,7 @@ fn explanation(step: Step) -> &'static str {
 /// A step you can take now: its form, or a link to the screen that takes it.
 #[component]
 fn Ready(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl IntoView {
-    let names = move || {
+    let names = Signal::derive(move || {
         last.with(|h| {
             h.as_ref()
                 .map(|h| {
@@ -238,7 +237,7 @@ fn Ready(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> imp
                 })
                 .unwrap_or_default()
         })
-    };
+    });
     match step {
         Step::Root => view! { <RegisterRoot changed /> }.into_any(),
         Step::Dat => view! {
@@ -249,46 +248,12 @@ fn Ready(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> imp
         }
         .into_any(),
         Step::SourceSet => view! { <RegisterSet changed /> }.into_any(),
-        Step::Audit => {
-            let said = RwSignal::new(None::<String>);
-            view! {
-                <div class="actions">
-                    {move || {
-                        names()
-                            .into_iter()
-                            .map(|name| {
-                                let audit = name.clone();
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="primary"
-                                        on:click=move |_| start_audit(audit.clone(), said)
-                                    >
-                                        {format!("Audit {name}")}
-                                    </button>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                </div>
-                {move || {
-                    said.get()
-                        .map(|message| {
-                            view! {
-                                <p class="done" role="status">
-                                    {message}
-                                    " This step is done once the audit finishes. You can follow it under Activity."
-                                </p>
-                            }
-                        })
-                }}
-            }
-            .into_any()
-        }
+        Step::Audit => view! { <AuditSets names /> }.into_any(),
         Step::Library => view! {
             <ul>
                 {move || {
-                    names()
+                    names
+                        .get()
                         .into_iter()
                         .map(|name| {
                             view! {
@@ -304,6 +269,68 @@ fn Ready(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> imp
             </ul>
         }
         .into_any(),
+    }
+}
+
+/// A button to audit each Source Set, off while its request is under way or a job runs on the Source Set.
+#[component]
+fn AuditSets(names: Signal<Vec<String>>) -> impl IntoView {
+    let live = use_live();
+    let busy = Memo::new(move |_| {
+        live.book
+            .with(|b| running(b.newest_first().iter().map(|l| &l.job)))
+    });
+    let audit = Action::new_local(|name: &String| {
+        let name = name.clone();
+        async move {
+            queue_audit(&name)
+                .await
+                .map(|job| format!("Queued audit job #{} for {name}.", job.id))
+        }
+    });
+    view! {
+        <ActionPending action=audit status="Queuing the audit…">
+            <div class="actions">
+                {move || {
+                    names
+                        .get()
+                        .into_iter()
+                        .map(|name| {
+                            let label = format!("Audit {name}");
+                            let running = name.clone();
+                            view! {
+                                <button
+                                    type="button"
+                                    class="primary"
+                                    disabled=move || {
+                                        audit.pending().get() || busy.with(|b| b.contains(&running))
+                                    }
+                                    on:click=move |_| {
+                                        audit.dispatch(name.clone());
+                                    }
+                                >
+                                    {label}
+                                </button>
+                            }
+                        })
+                        .collect_view()
+                }}
+            </div>
+            {move || {
+                audit
+                    .value()
+                    .get()
+                    .and_then(Result::ok)
+                    .map(|message| {
+                        view! {
+                            <p class="done" role="status">
+                                {message}
+                                " This step is done once the audit finishes. You can follow it under Activity."
+                            </p>
+                        }
+                    })
+            }}
+        </ActionPending>
     }
 }
 

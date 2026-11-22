@@ -1,8 +1,9 @@
 //! The Source Set registration form's pure logic: the path a Path Template proposes for a DAT, the live preview
-//! of the folder the registration would use, and whether the DAT takes a Coverage.
+//! of the folder the registration would use, whether the DAT takes a Coverage, and the Roots it may go in.
 
-use title_select_api::Dat;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
+use title_select_api::roots::RootKind;
+use title_select_api::{Dat, Root};
 
 /// The path `template` proposes for `dat`, or why it proposes none, as a sentence for the form.
 pub fn propose(template: &str, dat: &Dat) -> Result<String, String> {
@@ -66,10 +67,49 @@ fn sentence(text: &str) -> String {
     }
 }
 
+/// Whether a Source Set may be registered in `root`: only a read-only general Root holds them.
+pub fn holds_source_sets(root: &Root) -> bool {
+    root.kind == RootKind::General && !root.writable
+}
+
+/// The Roots the form offers for a Source Set, in the order given: the first is its default.
+pub fn set_roots(roots: Vec<Root>) -> Vec<Root> {
+    roots.into_iter().filter(holds_source_sets).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+
+    fn root(name: &str, kind: RootKind, writable: bool) -> Root {
+        Root {
+            name: name.into(),
+            path: format!("/mnt/{name}"),
+            kind,
+            writable,
+            writable_paths: Vec::new(),
+            readers: None,
+            read_mib_per_s: None,
+            write_mib_per_s: None,
+            updated_by: "Operator token".into(),
+            updated_at: "2026-11-22T10:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn a_source_set_is_offered_only_the_read_only_general_roots_and_defaults_to_the_first() {
+        let roots = vec![
+            root("play", RootKind::General, true),
+            root("in", RootKind::Ingest, true),
+            root("additions", RootKind::Additions, true),
+            root("games", RootKind::General, false),
+            root("more", RootKind::General, false),
+        ];
+        let offered: Vec<String> = set_roots(roots).into_iter().map(|r| r.name).collect();
+        assert_eq!(offered, ["games", "more"]);
+        assert!(set_roots(vec![root("play", RootKind::General, true)]).is_empty());
+    }
 
     fn dat(provider: &str, name: &str) -> Dat {
         Dat {

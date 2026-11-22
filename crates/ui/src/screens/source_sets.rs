@@ -51,18 +51,23 @@ pub fn new_library_href(name: &str) -> String {
 
 /// Queues an incremental audit of `name` against its default DAT revision, and says how that went in `said`.
 pub fn start_audit(name: String, said: RwSignal<Option<String>>) {
-    let request = StartAudit {
-        source_set: name.clone(),
-        revision: None,
-        evidence: AuditEvidence::Incremental,
-    };
     leptos::task::spawn_local(async move {
-        let message = match api::post::<_, Job>("/audits", &request).await {
+        let message = match queue_audit(&name).await {
             Ok(job) => format!("Queued audit job #{} for {name}.", job.id),
             Err(problem) => format!("Couldn't audit {name}: {problem}"),
         };
         said.set(Some(message));
     });
+}
+
+/// Queues an incremental Audit of `name` against its default DAT Revision.
+pub async fn queue_audit(name: &str) -> Result<Job, String> {
+    let request = StartAudit {
+        source_set: name.to_owned(),
+        revision: None,
+        evidence: AuditEvidence::Incremental,
+    };
+    api::post("/audits", &request).await
 }
 
 /// Queues a check of `name` for files changed since its latest audit, and says how that went in `said`.
@@ -617,7 +622,11 @@ pub fn SourceSets() -> impl IntoView {
 /// The form to register a Source Set; `on_added` gets its name.
 #[component]
 pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
-    let roots = LocalResource::new(|| api::get::<Vec<Root>>("/roots"));
+    let roots = LocalResource::new(|| async {
+        api::get::<Vec<Root>>("/roots")
+            .await
+            .map(registration::set_roots)
+    });
     let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
     let defaults = LocalResource::new(|| api::get::<PathTemplateDefaults>("/path-templates"));
     let root = RwSignal::new(String::new());
@@ -756,6 +765,20 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                         }}
                     </select>
                 </label>
+                {move || {
+                    roots
+                        .get()
+                        .and_then(Result::ok)
+                        .filter(Vec::is_empty)
+                        .map(|_| {
+                            view! {
+                                <p class="note">
+                                    "A source set goes only in a read-only root, and you have none. Register one \
+                                     under Settings, then Roots."
+                                </p>
+                            }
+                        })
+                }}
                 <label>
                     "DAT"
                     <select required prop:value=dat on:change=move |ev| dat.set(event_target_value(&ev))>
