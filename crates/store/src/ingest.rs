@@ -921,8 +921,9 @@ impl Matcher {
         match dat {
             Some(dat) => title_select_engine::needs_parent(dat, parent),
             None => format!(
-                "it is a delta CHD, which can't be read without its parent CHD, SHA-1 {parent}; replace it with a \
-                 self-contained CHD"
+                "{}, which can't be read without its parent CHD, SHA-1 {parent}; replace it with a self-contained \
+                 CHD",
+                title_select_api::report::DELTA_CHD
             ),
         }
     }

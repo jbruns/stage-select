@@ -238,6 +238,8 @@ fn a_nodump_disk_is_never_matched_and_a_game_is_complete_without_it() {
     assert_eq!(g.status, GameStatus::Complete);
     assert_eq!(g.missing_roms, ["blaster.chd"]);
     assert_eq!(g.not_dumped, ["blaster.chd"]);
+    assert_eq!(g.disks, ["blaster.chd"]);
+    assert!(entry(&report, "blaster/blaster.chd").disks.is_empty());
 }
 
 #[test]
@@ -283,6 +285,31 @@ fn a_clones_disks_in_its_parents_folder_count_for_it_by_name_and_by_sha1_under_a
     assert_eq!(
         entry(&report, "blaster/blasterj.chd").finding,
         Finding::Matched
+    );
+    // Each CHD names the Disks it counts for, the parent's under another name included.
+    assert_eq!(
+        clone.disks,
+        ["blaster.chd", "blasterj.chd", "blasterj-alt.chd"]
+    );
+    let disks = |path: &str| -> Vec<(String, String)> {
+        entry(&report, path)
+            .disks
+            .iter()
+            .map(|r| (r.game.clone(), r.name.clone()))
+            .collect()
+    };
+    let disk = |game: &str, name: &str| (game.to_owned(), name.to_owned());
+    assert_eq!(
+        disks("blaster/blaster.chd"),
+        [
+            disk("blaster", "blaster.chd"),
+            disk("blasterj", "blaster.chd"),
+            disk("blasterj", "blasterj-alt.chd"),
+        ]
+    );
+    assert_eq!(
+        disks("blaster/blasterj.chd"),
+        [disk("blasterj", "blasterj.chd")]
     );
 }
 
@@ -348,6 +375,7 @@ fn a_delta_chd_is_unreadable_and_names_the_parent_chd_it_needs() {
         assert!(why.contains("delta CHD"), "{why}");
         assert!(why.contains("blaster.chd of blaster"), "{why}");
         assert!(why.contains(&sha(1)), "{why}");
+        assert_eq!(delta.parent_sha1.as_deref(), Some(sha(1).as_str()));
         assert_eq!(game(&report, "blasterj").status, GameStatus::Missing);
     }
 }

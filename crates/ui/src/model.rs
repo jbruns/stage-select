@@ -10,6 +10,7 @@ use title_select_api::{
     NamedHeaderRule, Reuse,
 };
 
+use crate::arcade_model::Needs;
 use crate::parts::status::{Placement, Status};
 
 /// The glossary's name for a Finding.
@@ -42,6 +43,15 @@ pub fn games_of_status_label(status: GameStatus) -> String {
     }
 }
 
+/// Why a Game's Dependencies don't change its Game Status.
+pub const DEPENDENCIES_NOTE: &str = "The BIOS and devices it needs to run, each with its own game status. None of them \
+changes this game's status: a play library lacking one is incomplete.";
+
+/// What Nothing to Check means for a Game, and why it is counted apart.
+pub const NOTHING_TO_CHECK_NOTE: &str = "It lists no ROM you need that a file can match, such as a device with no ROMs, \
+so there is nothing to check. It is counted apart from complete, incomplete and missing games, and satisfies any game \
+that needs it.";
+
 /// A Game Status, saying when it rests, for some ROM, on Claim Evidence alone.
 pub fn status_text(status: GameStatus, claimed: bool) -> String {
     if claimed {
@@ -63,31 +73,166 @@ pub fn unneeded(game: &Game, rom: &str) -> bool {
     named(&game.not_dumped) || named(&game.optional_roms)
 }
 
-/// A Game's absent ROMs, each saying when it has no good dump known or is optional, which keeps the Game from no Game
-/// Status, and each Available Elsewhere one naming the Games whose ZIP or folder holds it.
+/// A Game's absent ROMs, each saying when it is not dumped (no good dump known) or optional, which keeps the Game from
+/// no Game Status, or a known bad dump, and each Available Elsewhere one naming the Games whose ZIP or folder holds it.
 pub fn absent_roms(game: &Game) -> Vec<String> {
     game.missing_roms
         .iter()
         .map(|rom| {
-            let elsewhere = game.available_elsewhere.iter().find(|a| &a.rom == rom);
-            let notes: Vec<String> = [
-                game.not_dumped
-                    .contains(rom)
-                    .then(|| "no good dump known, so no file can match it".to_owned()),
-                game.optional_roms
-                    .contains(rom)
-                    .then(|| "optional".to_owned()),
-                elsewhere.map(|a| format!("available in {}", a.games.join(" or "))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
+            let notes = absent_notes(game, rom);
             match notes.is_empty() {
                 true => rom.clone(),
                 false => format!("{rom}: {}", notes.join("; ")),
             }
         })
         .collect()
+}
+
+/// What a Game's absent ROM or Disk `rom` is, as [`absent_roms`] says of it.
+fn absent_notes(game: &Game, rom: &str) -> Vec<String> {
+    let has = |roms: &[String]| roms.iter().any(|r| r == rom);
+    let elsewhere = game.available_elsewhere.iter().find(|a| a.rom == rom);
+    [
+        has(&game.not_dumped)
+            .then(|| "not dumped: no good dump known, so no file can match it".to_owned()),
+        has(&game.optional_roms).then(|| "optional".to_owned()),
+        has(&game.bad_dumps).then(|| "known bad dump".to_owned()),
+        elsewhere.map(|a| format!("available in {}", a.games.join(" or "))),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// A Game's Dependencies summed up in one line, "Needs 2 dependencies: 1 missing, 1 complete", with how many rest on
+/// claim evidence alone, as `claimed` says of each; nothing when it has none (ADR 0025).
+pub fn dependency_line(game: &Game, claimed: impl Fn(&str) -> bool) -> Option<String> {
+    let mut needs = Needs::default();
+    for d in &game.dependencies {
+        needs.add(Some(d.status), claimed(&d.game));
+    }
+    needs.summary().map(|line| format!("Needs {line}"))
+}
+
+/// Whether `entry` is a CHD matched as a Disk: a `.chd` file whose Evidence rests on its SHA-1 alone, as only a Disk's
+/// does.
+pub fn is_disk(entry: &Entry) -> bool {
+    entry.member.is_none()
+        && names_disk(&entry.path)
+        && entry
+            .evidence
+            .as_ref()
+            .is_some_and(|e| e.algorithms.len() == 1 && e.algorithms[0] == "sha1")
+}
+
+/// Whether `entry` is a delta CHD, Unreadable because it can't be read without its parent CHD.
+pub fn is_delta_chd(entry: &Entry) -> bool {
+    entry.finding == Finding::Unreadable && entry.parent_sha1.is_some()
+}
+
+/// What a Disk's CHD rests on, or that a delta CHD needs its parent; nothing for any other Entry.
+pub fn disk_text(entry: &Entry) -> Option<String> {
+    if is_delta_chd(entry) {
+        return Some(
+            "A delta CHD: it needs its parent CHD to be read, so replace it with a self-contained CHD.".into(),
+        );
+    }
+    if !is_disk(entry) {
+        return None;
+    }
+    Some(match entry.evidence.as_ref()?.level {
+        EvidenceLevel::Payload => {
+            "A disk's CHD: chdman verify proved its data hashes to the SHA-1 its header records.".into()
+        }
+        EvidenceLevel::Claim => {
+            "A disk's CHD, claimed by the SHA-1 its header records: a full audit proves it with chdman verify."
+                .into()
+        }
+    })
+}
+
+/// Whether a file name may be a Disk's: a ListXML lists each Disk as `<disk>.chd`.
+fn names_disk(name: &str) -> bool {
+    name.ends_with(".chd")
+}
+
+/// The file name an Entry's path ends in.
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// One Disk of a Game, as an Audit found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameDisk {
+    /// Its name in the DAT, `<disk>.chd`.
+    pub name: String,
+    /// The CHD the Audit counted present for it.
+    pub held: Option<Entry>,
+    /// For an absent Disk, the CHDs named for it that the Audit could match to no Disk, such as a delta CHD. By name
+    /// only: a CHD the Audit can't read names no Game.
+    pub unusable: Vec<Entry>,
+    /// Whether its Game needs it: absent, it is missing only when it isn't nodump or optional (ADR 0025).
+    pub needed: bool,
+    /// For an absent Disk, what it is, as [`absent_roms`] says of an absent ROM.
+    pub notes: Vec<String>,
+}
+
+/// An Audit's CHDs, by the Disks they count for, and those it matched to no Disk, by file name.
+#[derive(Debug, Clone, Default)]
+pub struct Disks {
+    /// By Game, then Disk name.
+    held: HashMap<String, HashMap<String, Entry>>,
+    unusable: HashMap<String, Vec<Entry>>,
+}
+
+impl Disks {
+    pub fn of(entries: &[EntryRow]) -> Disks {
+        let mut disks = Disks::default();
+        for row in entries {
+            let entry = &row.entry;
+            for disk in &entry.disks {
+                disks
+                    .held
+                    .entry(disk.game.clone())
+                    .or_default()
+                    .insert(disk.name.clone(), entry.clone());
+            }
+            if entry.member.is_none() && entry.roms.is_empty() && names_disk(&entry.path) {
+                disks
+                    .unusable
+                    .entry(file_name(&entry.path).to_owned())
+                    .or_default()
+                    .push(entry.clone());
+            }
+        }
+        disks
+    }
+
+    /// `game`'s Disks, in DAT order: each with the CHD the Audit counted for it, or, absent, with what it is and the
+    /// CHDs named for it that match no Disk.
+    pub fn of_game(&self, game: &Game) -> Vec<GameDisk> {
+        let held = self.held.get(&game.name);
+        game.disks
+            .iter()
+            .map(|name| {
+                let held = held.and_then(|h| h.get(name)).cloned();
+                let absent = held.is_none();
+                GameDisk {
+                    name: name.clone(),
+                    unusable: match absent {
+                        true => self.unusable.get(name).cloned().unwrap_or_default(),
+                        false => Vec::new(),
+                    },
+                    needed: !unneeded(game, name),
+                    notes: match absent {
+                        true => absent_notes(game, name),
+                        false => Vec::new(),
+                    },
+                    held,
+                }
+            })
+            .collect()
+    }
 }
 
 /// The states the glossary derives from an Entry's Finding and Evidence.
@@ -479,6 +624,8 @@ pub struct AuditGames {
     placed: HashMap<String, i64>,
     /// The Games the Audit found any of their own files of.
     found: HashSet<String>,
+    /// The Audit's CHDs, for each Game's Disks.
+    disks: Disks,
 }
 
 /// The Games of `games` the Audit found any of their own files of, among `entries`, as
@@ -514,6 +661,7 @@ impl AuditGames {
             search,
             placed: HashMap::new(),
             found: HashSet::new(),
+            disks: Disks::default(),
         }
     }
 
@@ -525,6 +673,23 @@ impl AuditGames {
     /// The Games, with `found`, those the Audit found any of their own files of, as [`games_found`] gives them.
     pub fn with_found(self, found: HashSet<String>) -> AuditGames {
         AuditGames { found, ..self }
+    }
+
+    /// The Games, with the Audit's CHDs for their Disks.
+    pub fn with_disks(self, disks: Disks) -> AuditGames {
+        AuditGames { disks, ..self }
+    }
+
+    /// Game `i`'s Disks, as [`Disks::of_game`] gives them.
+    pub fn disks(&self, i: usize) -> Vec<GameDisk> {
+        self.disks.of_game(&self.rows[i].game)
+    }
+
+    /// Whether the Game named `name` rests, for some ROM, on Claim Evidence alone.
+    pub fn claimed(&self, name: &str) -> bool {
+        self.rows
+            .iter()
+            .any(|r| r.game.name == name && !r.game.claimed_roms.is_empty())
     }
 
     /// The Library Folder the Audit found Game `i` placed in, if it was placed.
@@ -720,6 +885,7 @@ pub fn is_plain_text(content_type: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use std::borrow::Cow;
+    use title_select_api::report::{DELTA_CHD, Dependency};
     use title_select_api::{AvailableElsewhere, Evidence, RomRef};
 
     #[test]
@@ -786,6 +952,8 @@ mod tests {
                 header: None,
             }),
             reason: (finding == Finding::Unreadable).then(|| "permission denied".into()),
+            disks: vec![],
+            parent_sha1: None,
         }
     }
 
@@ -818,6 +986,7 @@ mod tests {
                 not_dumped: vec![],
                 bad_dumps: vec![],
                 optional_roms: vec![],
+                disks: vec![],
             },
         }
     }
@@ -831,6 +1000,29 @@ mod tests {
         assert_eq!(
             game_status_text(&game("Combat (USA)", GameStatus::Complete).game),
             "Complete"
+        );
+    }
+
+    #[test]
+    fn nothing_to_check_says_it_is_counted_apart_and_satisfies_what_needs_it() {
+        for said in [
+            "nothing to check",
+            "counted apart from complete, incomplete and missing games",
+            "satisfies any game that needs it",
+        ] {
+            assert!(NOTHING_TO_CHECK_NOTE.contains(said), "{said}");
+        }
+        // The summary counts them under their own label, beside the other statuses.
+        let labels: Vec<String> = GameStatus::ALL
+            .iter()
+            .map(|s| games_of_status_label(*s))
+            .collect();
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|l| l.contains("nothing to check"))
+                .count(),
+            1
         );
     }
 
@@ -862,18 +1054,25 @@ mod tests {
     }
 
     #[test]
-    fn an_absent_rom_says_when_it_has_no_good_dump_known_or_is_optional() {
+    fn an_absent_rom_says_when_it_is_not_dumped_a_known_bad_dump_or_optional() {
         let mut game = game("pacman", GameStatus::Complete).game;
-        game.missing_roms = vec!["pal.u1".into(), "snd.u2".into(), "both.u3".into()];
+        game.missing_roms = vec![
+            "pal.u1".into(),
+            "snd.u2".into(),
+            "both.u3".into(),
+            "bad.u4".into(),
+        ];
         game.not_dumped = vec!["pal.u1".into(), "both.u3".into()];
         game.optional_roms = vec!["snd.u2".into(), "both.u3".into()];
+        game.bad_dumps = vec!["bad.u4".into()];
 
         assert_eq!(
             absent_roms(&game),
             [
-                "pal.u1: no good dump known, so no file can match it",
+                "pal.u1: not dumped: no good dump known, so no file can match it",
                 "snd.u2: optional",
-                "both.u3: no good dump known, so no file can match it; optional"
+                "both.u3: not dumped: no good dump known, so no file can match it; optional",
+                "bad.u4: known bad dump"
             ]
         );
         assert!(unneeded(&game, "pal.u1") && unneeded(&game, "snd.u2"));
@@ -1436,5 +1635,228 @@ mod tests {
         assert!(is_plain_text(Some("text/plain")));
         assert!(!is_plain_text(Some("text/html")));
         assert!(!is_plain_text(None));
+    }
+
+    /// A CHD at `path` that counts for the Disks `disks`, each `(game, name)`, and matches the first.
+    fn disk(path: &str, disks: &[(&str, &str)], level: EvidenceLevel) -> Entry {
+        let refs: Vec<RomRef> = disks
+            .iter()
+            .map(|(game, name)| RomRef {
+                game: (*game).into(),
+                name: (*name).into(),
+            })
+            .collect();
+        Entry {
+            path: path.into(),
+            member: None,
+            finding: Finding::Matched,
+            roms: refs[..1].to_vec(),
+            disks: refs,
+            parent_sha1: None,
+            named_rom: None,
+            evidence: Some(Evidence {
+                level,
+                algorithms: vec![Cow::Borrowed("sha1")],
+                read_at: None,
+                reused: None,
+                header: None,
+            }),
+            reason: None,
+        }
+    }
+
+    fn delta(path: &str) -> Entry {
+        Entry {
+            path: path.into(),
+            member: None,
+            finding: Finding::Unreadable,
+            roms: vec![],
+            named_rom: None,
+            evidence: None,
+            reason: Some(format!(
+                "{DELTA_CHD}, which can't be read without its parent CHD, kinst.chd of kinst (SHA-1 81a4); \
+                 replace it with a self-contained CHD"
+            )),
+            disks: vec![],
+            parent_sha1: Some("81a4".into()),
+        }
+    }
+
+    #[test]
+    fn a_disk_says_what_its_evidence_rests_on_and_a_delta_chd_that_it_needs_its_parent() {
+        let proved = disk(
+            "kinst/kinst.chd",
+            &[("kinst", "kinst.chd")],
+            EvidenceLevel::Payload,
+        );
+        let claimed = disk(
+            "kinst/kinst.chd",
+            &[("kinst", "kinst.chd")],
+            EvidenceLevel::Claim,
+        );
+        assert!(is_disk(&proved) && is_disk(&claimed));
+        assert_eq!(
+            disk_text(&proved).as_deref(),
+            Some(
+                "A disk's CHD: chdman verify proved its data hashes to the SHA-1 its header records."
+            )
+        );
+        assert_eq!(
+            disk_text(&claimed).as_deref(),
+            Some(
+                "A disk's CHD, claimed by the SHA-1 its header records: a full audit proves it with chdman verify."
+            )
+        );
+        let delta = delta("kinst/kinst2.chd");
+        assert!(is_delta_chd(&delta) && !is_disk(&delta));
+        // An Unreadable CHD is a delta CHD by its parent's SHA-1, whatever its reason says.
+        let mut unsure = delta.clone();
+        unsure.reason = Some("permission denied".into());
+        assert!(is_delta_chd(&unsure));
+        unsure.parent_sha1 = None;
+        unsure.reason = delta.reason.clone();
+        assert!(!is_delta_chd(&unsure));
+        assert_eq!(
+            disk_text(&delta).as_deref(),
+            Some(
+                "A delta CHD: it needs its parent CHD to be read, so replace it with a self-contained CHD."
+            )
+        );
+        // A ROM in a ZIP is no Disk, and says nothing of Disks.
+        let rom = entry(
+            "Pong (USA).zip",
+            Finding::Matched,
+            &["Pong (USA)"],
+            &["size", "sha1"],
+        );
+        assert!(!is_disk(&rom) && !is_delta_chd(&rom));
+        assert_eq!(disk_text(&rom), None);
+    }
+
+    #[test]
+    fn a_games_disks_are_those_the_audit_counted_for_it_and_those_absent_with_any_chd_named_for_them()
+     {
+        // blaster/blaster.chd counts for the parent's Disk, and for its clone's under its own name and another.
+        let entries = rows(vec![
+            disk(
+                "blaster/blaster.chd",
+                &[
+                    ("blaster", "blaster.chd"),
+                    ("blasterj", "blaster.chd"),
+                    ("blasterj", "blasterj-alt.chd"),
+                ],
+                EvidenceLevel::Payload,
+            ),
+            disk(
+                "blaster/blasterj.chd",
+                &[("blasterj", "blasterj.chd")],
+                EvidenceLevel::Claim,
+            ),
+            delta("kinst/kinst2.chd"),
+            entry(
+                "kinst.zip",
+                Finding::Matched,
+                &["kinst"],
+                &["size", "crc32"],
+            ),
+        ]);
+        let disks = Disks::of(&entries);
+        let mut clone = game("blasterj", GameStatus::Complete).game;
+        clone.disks = vec![
+            "blaster.chd".into(),
+            "blasterj.chd".into(),
+            "blasterj-alt.chd".into(),
+        ];
+        let of_clone = disks.of_game(&clone);
+        let held: Vec<(&str, Option<&str>)> = of_clone
+            .iter()
+            .map(|d| (d.name.as_str(), d.held.as_ref().map(|e| e.path.as_str())))
+            .collect();
+        assert_eq!(
+            held,
+            [
+                ("blaster.chd", Some("blaster/blaster.chd")),
+                ("blasterj.chd", Some("blaster/blasterj.chd")),
+                ("blasterj-alt.chd", Some("blaster/blaster.chd")),
+            ]
+        );
+
+        let mut kinst2 = game("kinst2", GameStatus::Incomplete).game;
+        kinst2.disks = vec!["kinst2.chd".into()];
+        kinst2.missing_roms = vec!["kinst2.chd".into(), "u98.l2".into()];
+        let absent = disks.of_game(&kinst2);
+        assert_eq!(absent.len(), 1, "only a Disk the DAT lists is a Disk");
+        assert_eq!(absent[0].name, "kinst2.chd");
+        assert!(absent[0].held.is_none() && absent[0].needed);
+        assert!(absent[0].notes.is_empty());
+        assert_eq!(
+            absent[0]
+                .unusable
+                .iter()
+                .map(|e| e.path.as_str())
+                .collect::<Vec<_>>(),
+            ["kinst/kinst2.chd"]
+        );
+        assert!(
+            disks
+                .of_game(&game("Pong (USA)", GameStatus::Complete).game)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_absent_disk_says_when_it_is_not_dumped_optional_or_a_known_bad_dump_and_only_a_needed_one_is_missing()
+     {
+        let mut blaster = game("blaster", GameStatus::Complete).game;
+        blaster.disks = vec!["nodump.chd".into(), "extra.chd".into(), "bad.chd".into()];
+        blaster.missing_roms = blaster.disks.clone();
+        blaster.not_dumped = vec!["nodump.chd".into()];
+        blaster.optional_roms = vec!["extra.chd".into()];
+        blaster.bad_dumps = vec!["bad.chd".into()];
+
+        let disks = Disks::default().of_game(&blaster);
+        let seen: Vec<(String, bool, Vec<String>)> = disks
+            .into_iter()
+            .map(|d| (d.name, d.needed, d.notes))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (
+                    "nodump.chd".into(),
+                    false,
+                    vec!["not dumped: no good dump known, so no file can match it".into()]
+                ),
+                ("extra.chd".into(), false, vec!["optional".into()]),
+                ("bad.chd".into(), true, vec!["known bad dump".into()]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_games_dependencies_sum_up_in_one_line() {
+        let mut blaster = game("blaster", GameStatus::Complete).game;
+        assert_eq!(dependency_line(&blaster, |_| false), None);
+        blaster.dependencies = vec![
+            Dependency {
+                game: "acmesnd".into(),
+                status: GameStatus::Missing,
+            },
+            Dependency {
+                game: "z80".into(),
+                status: GameStatus::NothingToCheck,
+            },
+        ];
+        assert_eq!(
+            dependency_line(&blaster, |_| false).as_deref(),
+            Some("Needs 2 dependencies: 1 missing, 1 nothing to check")
+        );
+        blaster.dependencies[0].status = GameStatus::Complete;
+        assert_eq!(
+            dependency_line(&blaster, |g| g == "acmesnd").as_deref(),
+            Some(
+                "Needs 2 dependencies, all satisfied: 1 complete, 1 nothing to check (1 on claim evidence only)"
+            )
+        );
     }
 }

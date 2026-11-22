@@ -155,12 +155,6 @@ fn sections(text: &str) -> Vec<(&str, &str)> {
     out
 }
 
-/// A MAME version, such as `0.289` or the `0.289 (mame0289)` a ListXML's build names, as numbers to compare.
-pub fn version_number(version: &str) -> Option<(u32, u32)> {
-    let (major, minor) = version.split_whitespace().next()?.split_once('.')?;
-    Some((major.parse().ok()?, minor.parse().ok()?))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,12 +165,6 @@ mod tests {
         assert_eq!((tier.min, tier.max), (90, 100));
         assert_eq!(tier.describe(), "90–100 (Best Games)");
         assert_eq!(Tier::parse("English"), None);
-    }
-
-    #[test]
-    fn versions_compare_as_numbers() {
-        assert!(version_number("0.99") < version_number("0.289 (mame0289)"));
-        assert_eq!(version_number("mame0289"), None);
     }
 
     #[test]

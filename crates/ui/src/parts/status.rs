@@ -1003,6 +1003,61 @@ impl Status for DatFileStatus {
     }
 }
 
+/// A MAME Support File an arcade Selection read, against its ListXML's MAME version: drift, never a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SupportFileStatus {
+    Older,
+    Newer,
+    NotRead,
+    Uncompared,
+    Current,
+}
+
+impl Status for SupportFileStatus {
+    const ALL: &'static [Self] = &[
+        SupportFileStatus::Older,
+        SupportFileStatus::Newer,
+        SupportFileStatus::NotRead,
+        SupportFileStatus::Uncompared,
+        SupportFileStatus::Current,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            SupportFileStatus::Older => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Older version",
+                "It is for an older MAME than the DAT revision, so machines newer than it are read as if it were absent.",
+            ),
+            SupportFileStatus::Newer => look(
+                Glyph::FileUp,
+                Tone::Neutral,
+                "Newer version",
+                "It is for a newer MAME than the DAT revision, so it may name machines the DAT revision lacks, which match nothing.",
+            ),
+            SupportFileStatus::NotRead => look(
+                Glyph::FileX,
+                Tone::Neutral,
+                "Not read",
+                "No file of this kind was read, so the selection did without it.",
+            ),
+            SupportFileStatus::Uncompared => look(
+                Glyph::CircleQuestionMark,
+                Tone::Neutral,
+                "Version not compared",
+                "The DAT revision names no MAME version that can be read, so this file can't be compared with it.",
+            ),
+            SupportFileStatus::Current => look(
+                Glyph::FileCheck,
+                Tone::Good,
+                "Same version",
+                "It is for the MAME version of the DAT revision.",
+            ),
+        }
+    }
+}
+
 /// Where fetching one system's DATs and packs from a DAT provider stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FetchState {
@@ -1328,6 +1383,7 @@ mod tests {
             ("RomM comparisons", vocabulary::<RommFlag>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("fetching", vocabulary::<FetchState>()),
+            ("support files", vocabulary::<SupportFileStatus>()),
             ("selection groups", vocabulary::<GroupStatus>()),
             ("calibration", vocabulary::<CalibrationStatus>()),
         ]

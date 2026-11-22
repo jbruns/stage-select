@@ -643,6 +643,19 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
     let path = Memo::new(move |_| {
         registration::chosen_path(typed.get().as_deref(), &proposal.get()).unwrap_or_default()
     });
+    let chosen_dat = Memo::new(move |_| {
+        let dat = dat.get();
+        dats.get()
+            .and_then(Result::ok)
+            .and_then(|dats| dats.into_iter().find(|d| d.dat == dat))
+    });
+    // A MAME ListXML's Source Set covers every Game: the editor is hidden, and starts over at every Game.
+    let refused = Memo::new(move |_| registration::no_coverage(chosen_dat.get().as_ref()));
+    Effect::new(move || {
+        if refused.get().is_some() {
+            draft.set(Draft::every());
+        }
+    });
     let preview = move || {
         let root_path = roots
             .get()
@@ -668,13 +681,15 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             ));
             return;
         }
-        let coverage = match order.with_untracked(|o| draft.with_untracked(|d| d.coverage(o))) {
-            Ok(coverage) => coverage,
-            Err(message) => {
-                problem.set(Some(message));
-                return;
-            }
-        };
+        let drafted = order.with_untracked(|o| draft.with_untracked(|d| d.coverage(o)));
+        let coverage =
+            match registration::coverage_for(chosen_dat.get_untracked().as_ref(), drafted) {
+                Ok(coverage) => coverage,
+                Err(message) => {
+                    problem.set(Some(message));
+                    return;
+                }
+            };
         let request = AddSourceSet {
             root: root.get_untracked(),
             path: Some(chosen),
@@ -773,7 +788,10 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
                         on:input=move |ev| typed.set(Some(event_target_value(&ev)))
                     />
                 </label>
-                <CoverageEditor draft order />
+                {move || match refused.get() {
+                    Some(why) => view! { <p class="note">{why}</p> }.into_any(),
+                    None => view! { <CoverageEditor draft order /> }.into_any(),
+                }}
                 {move || {
                     (typed.get().is_some() && proposal.get().is_ok())
                         .then(|| {

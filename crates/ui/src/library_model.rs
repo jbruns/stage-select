@@ -2,7 +2,8 @@
 //! the page's tabs, and the words for why a folder is stale.
 
 use title_select_api::build::{LibraryFolder, Stale};
-use title_select_api::{Job, JobKind, SelectionRecord};
+use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+use title_select_api::{Job, JobKind, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
@@ -134,6 +135,39 @@ pub fn stale_label(stale: &Stale) -> String {
         ),
     }
 }
+
+/// Why a Library Folder bound to `source_set` has no Coverage to inherit: an Arcade DAT's Source Set covers every Game
+/// (ADR 0027), as `systems` (the service's `/systems`) says of it. `None` for any other, a MAME Logiqx DAT's included,
+/// and for a Source Set `systems` doesn't list.
+pub fn no_coverage(systems: &[SourceSetSystem], source_set: &str) -> Option<&'static str> {
+    systems
+        .iter()
+        .any(|s| s.source_set == source_set && s.arcade)
+        .then_some(ARCADE_COVERAGE_REFUSAL)
+}
+
+/// What a MAME Library Folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
+/// (mame0289)`.
+pub fn built_for(build: &str) -> String {
+    format!("MAME {}", build.split_whitespace().next().unwrap_or(build))
+}
+
+/// Which emulators run a MAME Library Folder (ADR 0026).
+pub const BUILT_FOR_NOTE: &str = "Only an emulator of that MAME version runs what this folder holds, such as \
+RetroArch's current MAME core or standalone MAME.";
+
+/// The sentence on RomM's exclusions up to the setting's name, `exclude.roms.multi_file.names`: why RomM needs a MAME
+/// Library Folder's Disk folders left out.
+pub const ROMM_BEFORE_SETTING: &str = "RomM takes every folder in a platform for a game of its own, so without this it shows \
+each game with disks twice: once for its ZIP, and once for its disk folder, which doesn't run. Add these names to";
+
+/// The rest of that sentence after the setting's name: what to do then, and that RomM's list holds for every platform.
+pub const ROMM_AFTER_SETTING: &str = "in your RomM configuration, then scan the platform again. RomM keeps that setting \
+as one list for every platform, so it leaves out a folder of these names on every platform, not only this one. Title \
+Select doesn't change RomM's configuration for you.";
+
+/// The upstream request for RomM to take exclusions per platform.
+pub const ROMM_PER_PLATFORM: &str = "https://github.com/rommapp/romm/issues/5696";
 
 /// What to merge into RomM's `config.yml` so that it leaves out `folders`, a MAME library folder's disk folders, which
 /// it would otherwise list as games of their own: each under `exclude.roms.multi_file.names`, quoted.
@@ -583,5 +617,45 @@ mod tests {
             romm_exclusions(&folders),
             "exclude:\n  roms:\n    multi_file:\n      names:\n        - 'blaster'\n        - 'it''s'\n"
         );
+    }
+
+    #[test]
+    fn a_folder_of_an_arcade_source_set_inherits_no_coverage_and_says_why() {
+        let systems = [
+            SourceSetSystem {
+                source_set: "mame".into(),
+                system: Some("MAME/MAME".into()),
+                arcade: true,
+            },
+            // A MAME Logiqx DAT is no Arcade DAT: its Source Set takes a Coverage.
+            SourceSetSystem {
+                source_set: "mame-logiqx".into(),
+                system: Some("MAME/MAME".into()),
+                arcade: false,
+            },
+        ];
+        assert_eq!(no_coverage(&systems, "mame"), Some(ARCADE_COVERAGE_REFUSAL));
+        assert_eq!(no_coverage(&systems, "mame-logiqx"), None);
+        assert_eq!(no_coverage(&systems, "atari"), None);
+    }
+
+    #[test]
+    fn a_mame_folder_says_which_mame_version_runs_it() {
+        assert_eq!(built_for("0.289 (mame0289)"), "MAME 0.289");
+        assert_eq!(built_for("0.289"), "MAME 0.289");
+        for said in [
+            "Only an emulator of that MAME version",
+            "RetroArch's current MAME core",
+            "standalone MAME",
+        ] {
+            assert!(BUILT_FOR_NOTE.contains(said), "{said}");
+        }
+    }
+
+    #[test]
+    fn the_romm_exclusions_say_what_happens_without_them_and_that_they_apply_everywhere() {
+        assert!(ROMM_BEFORE_SETTING.contains("each game with disks twice"));
+        assert!(ROMM_AFTER_SETTING.contains("one list for every platform"));
+        assert!(ROMM_AFTER_SETTING.contains("on every platform, not only this one"));
     }
 }

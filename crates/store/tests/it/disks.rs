@@ -748,3 +748,60 @@ fn copy_dir(from: &Path, to: &Path) {
         std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
     }
 }
+
+#[test]
+fn a_stored_audit_keeps_which_chd_counts_for_each_disk_and_a_delta_chds_parent() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let parent = scratch.path().join("blaster.chd");
+    let parent_sha1 = make_chd(&chdman, &parent, 1, &[]);
+    let delta_sha1 = make_chd(
+        &chdman,
+        &scratch.path().join("blasterj.chd"),
+        2,
+        &["-op".as_ref(), parent.as_os_str()],
+    );
+    let env = Env::new(
+        chdman,
+        &[
+            ("blaster", "", disk("blaster", &parent_sha1)),
+            (
+                "blasterj",
+                r#"cloneof="blaster" romof="blaster""#,
+                format!(
+                    "{}\n{}",
+                    disk("blasterj", &delta_sha1),
+                    disk("blasterj-alt", &parent_sha1)
+                ),
+            ),
+        ],
+    );
+    std::fs::create_dir_all(env.set().join("blaster")).unwrap();
+    for chd in ["blaster.chd", "blasterj.chd"] {
+        std::fs::copy(
+            scratch.path().join(chd),
+            env.set().join("blaster").join(chd),
+        )
+        .unwrap();
+    }
+
+    env.audit(AuditEvidence::Quick);
+    let latest = &env.store.history("mame").unwrap()[0];
+    let stored = env.store.report(latest.id).unwrap();
+
+    let held = entry(&stored, "blaster/blaster.chd");
+    let counted: Vec<(&str, &str)> = held
+        .disks
+        .iter()
+        .map(|r| (r.game.as_str(), r.name.as_str()))
+        .collect();
+    assert_eq!(
+        counted,
+        [("blaster", "blaster.chd"), ("blasterj", "blasterj-alt.chd")]
+    );
+    let delta = entry(&stored, "blaster/blasterj.chd");
+    assert_eq!(delta.parent_sha1.as_deref(), Some(parent_sha1.as_str()));
+    assert!(delta.disks.is_empty());
+    let clone = stored.games.iter().find(|g| g.name == "blasterj").unwrap();
+    assert_eq!(clone.disks, ["blasterj.chd", "blasterj-alt.chd"]);
+}

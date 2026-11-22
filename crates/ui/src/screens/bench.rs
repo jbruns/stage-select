@@ -141,6 +141,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     not_dumped: vec![],
                     bad_dumps: vec![],
                     optional_roms: vec![],
+                    disks: vec![],
                 },
             }
         })
@@ -192,6 +193,8 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     }),
                     reason: (finding == Finding::Unreadable)
                         .then(|| "synthetic read error".to_string()),
+                    disks: vec![],
+                    parent_sha1: None,
                 },
             }
         })

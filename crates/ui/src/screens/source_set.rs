@@ -50,7 +50,7 @@ use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
 };
 use crate::source_set_model::{
-    self as model, ExportScope, Happened, MissingExport, Moment, PageTab,
+    self as model, ExportScope, Happened, MissingExport, Moment, PageTab, no_coverage,
 };
 
 /// What following a DAT does, for the toggle's tooltip.
@@ -177,6 +177,13 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         })
     });
     let ready = Memo::new(move |_| good.with(Option::is_some));
+    let takes_coverage = Memo::new(move |_| {
+        good.with(|g| {
+            g.as_ref().is_some_and(|(_, revisions)| {
+                no_coverage(revisions.iter().map(|r| r.format)).is_none()
+            })
+        })
+    });
     let said = RwSignal::new(None::<String>);
     let editing = RwSignal::new(query.read_untracked().get("edit").as_deref() == Some("coverage"));
     let coverage =
@@ -310,7 +317,12 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             })
             }).into_any())
         }}
-        <CoverageDrawer name=name.get_value() open=editing coverage refresh said />
+        // A MAME Source Set takes no Coverage, so not even a link opens the editor for it.
+        {move || {
+            takes_coverage
+                .get()
+                .then(|| view! { <CoverageDrawer name=name.get_value() open=editing coverage refresh said /> })
+        }}
     }
 }
 
@@ -424,6 +436,16 @@ fn Overview(
     });
     let coverage = set.coverage.clone();
     let (glyph, kind) = coverage::glyph(coverage.as_deref(), unavailable);
+    // A MAME Source Set covers every Game, and offers no control to change that.
+    let refused = no_coverage(revisions.iter().map(|r| r.format));
+    let (kind, line) = match (refused, coverage.as_deref()) {
+        (Some(why), _) => ("Every game", why.to_owned()),
+        (None, None) => (kind, regions_line(None)),
+        (None, Some(regions)) => (
+            kind,
+            format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
+        ),
+    };
     view! {
         {stale_lines(&set)}
         {headline}
@@ -433,16 +455,15 @@ fn Overview(
             <p>
                 <Icon glyph label=kind />
                 " "
-                {match coverage.as_deref() {
-                    None => regions_line(None),
-                    Some(regions) => format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
-                }}
+                {line}
             </p>
-            <div class="actions">
-                <button type="button" on:click=move |_| editing.set(true)>
-                    "Edit coverage"
-                </button>
-            </div>
+            {refused.is_none().then(|| view! {
+                <div class="actions">
+                    <button type="button" on:click=move |_| editing.set(true)>
+                        "Edit coverage"
+                    </button>
+                </div>
+            })}
         </section>
         <section aria-labelledby="about-title">
             <h2 id="about-title">"About it"</h2>

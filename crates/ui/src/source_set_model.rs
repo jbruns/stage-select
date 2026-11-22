@@ -4,13 +4,23 @@
 use title_select_api::build::{BuildState, BuildSummary};
 use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
+use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use title_select_api::{
-    AuditEvidence, AuditSummary, Finding, FollowedRevision, JobKind, JobState, OpenRepair,
-    SourceSetStale, SourceSetSummary, StatWalk,
+    AuditEvidence, AuditSummary, DatFormat, Finding, FollowedRevision, JobKind, JobState,
+    OpenRepair, SourceSetStale, SourceSetSummary, StatWalk,
 };
 
 use crate::model::needs_review_from_counts;
 use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
+
+/// Why a Source Set takes no Coverage, from the DAT Formats of its DAT's revisions: a MAME ListXML's covers every Game,
+/// as the arcade Selection decides what a Play Library keeps (ADR 0027). `None` for any other.
+pub fn no_coverage(formats: impl IntoIterator<Item = DatFormat>) -> Option<&'static str> {
+    formats
+        .into_iter()
+        .any(|f| f == DatFormat::Listxml)
+        .then_some(ARCADE_COVERAGE_REFUSAL)
+}
 
 /// What is true of a source set: `running` when a job is queued or running for it. With a coverage, its latest
 /// audit's entries count only as `covered_entries` says.
@@ -854,5 +864,21 @@ mod tests {
         );
         assert_eq!(ExportScope::default_for(false), ExportScope::Dat);
         assert_eq!(ExportScope::parse("9"), ExportScope::Selection(9));
+    }
+
+    #[test]
+    fn a_mame_listxml_source_set_takes_no_coverage_and_says_why_in_one_line() {
+        let why = no_coverage([DatFormat::Listxml]).unwrap();
+        assert!(
+            why.starts_with("MAME source sets have no coverage"),
+            "{why}"
+        );
+        assert!(
+            !why.contains('\n') && why.matches(". ").count() == 0,
+            "{why}"
+        );
+        assert_eq!(no_coverage([DatFormat::Logiqx]), None);
+        assert_eq!(no_coverage([DatFormat::SoftwareList]), None);
+        assert_eq!(no_coverage([]), None);
     }
 }

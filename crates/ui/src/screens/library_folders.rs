@@ -19,7 +19,7 @@ use title_select_api::build::{
 };
 use title_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
-    SelectionRecord, SourceSetRecord, StartSelection,
+    SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelection,
 };
 
 use crate::api;
@@ -31,10 +31,12 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    FolderTab, Pick, Replan, Replans, drifted, fresh, live_status, pick, romm_exclusions,
+    BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
+    Replan, Replans, built_for, drifted, fresh, live_status, no_coverage, pick, romm_exclusions,
     selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
+use crate::parts::help::Help;
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
@@ -609,6 +611,22 @@ impl ListRow for FolderRow {
     }
 }
 
+/// The Coverage a Library Folder inherits from `source_set`, or, for an Arcade DAT's Source Set, why it has none.
+#[component]
+fn FolderCoverage(source_set: String) -> impl IntoView {
+    let systems = LocalResource::new(|| api::get::<Vec<SourceSetSystem>>("/systems"));
+    move || match systems.get() {
+        None => "Loading…".into_any(),
+        Some(Ok(systems)) => match no_coverage(&systems, &source_set) {
+            Some(why) => why.into_any(),
+            None => view! { <InheritedCoverage name=source_set.clone() /> }.into_any(),
+        },
+        Some(Err(problem)) => {
+            format!("Couldn't load its source set's coverage: {problem}").into_any()
+        }
+    }
+}
+
 /// What the folder is bound to and where it stands.
 fn folder_facts(f: &LibraryFolder) -> AnyView {
     let writable = if f.writable {
@@ -633,7 +651,7 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Coverage"</dt>
             <dd>
-                <InheritedCoverage name=f.source_set.clone() />
+                <FolderCoverage source_set=f.source_set.clone() />
             </dd>
             <dt>"Root"</dt>
             <dd>
@@ -642,9 +660,12 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Current build"</dt>
             <dd>{current_build(&f.build)}</dd>
-            {f.built_for.clone().map(|version| view! {
+            {f.built_for.as_deref().map(|build| view! {
                 <dt>"Built for"</dt>
-                <dd>{format!("MAME {version}. Only that version of MAME runs what this folder holds.")}</dd>
+                <dd>
+                    {built_for(build)}
+                    <p class="note small">{BUILT_FOR_NOTE}</p>
+                </dd>
             })}
             <dt>"Last checked"</dt>
             <dd>{checked}</dd>
@@ -1208,17 +1229,17 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
                     n => format!("{n} folders: each holds the CHDs of the game it is named for. MAME finds them there."),
                 }}
             </p>
-            <details>
-                <summary>"Using RomM? Leave these folders out"</summary>
+            <Help summary="Using RomM? Leave these folders out">
                 <p>
-                    "RomM lists every folder in a play library as a game of its own, so without this it shows each "
-                    "disk folder as a game that doesn't run. Add these names to "
-                    <code>"exclude.roms.multi_file.names"</code>
-                    " in your RomM configuration, then scan the platform again. Title Select doesn't change RomM's "
-                    "configuration for you."
+                    {ROMM_BEFORE_SETTING} " " <code>"exclude.roms.multi_file.names"</code> " " {ROMM_AFTER_SETTING}
                 </p>
                 <pre>{exclusions}</pre>
-            </details>
+                <p>
+                    "RomM may take a list for each platform later: "
+                    <a href=ROMM_PER_PLATFORM>"rommapp/romm#5696"</a>
+                    "."
+                </p>
+            </Help>
         </section>
     }
 }

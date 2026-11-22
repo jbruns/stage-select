@@ -25,7 +25,7 @@ use title_select_api::selection::{
     Alternative, ArcadePins, CategorySource, CuratedPin, DEPENDENCY_STAGE, Dependency, Exclusion,
     Rule, Selection, SelectionGroup, Winner,
 };
-use title_select_api::support::SupportFileKind;
+use title_select_api::support::{SupportFileKind, version_number};
 use title_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
 
 pub use support::{SupportFiles, Tier};
@@ -290,10 +290,10 @@ pub(crate) fn elect(
             Some(CategorySource::ListxmlHeuristic)
         }
     };
-    let build = support::version_number(&dat.version);
+    let build = version_number(&dat.version);
     let mut support_pins = support.pins.clone();
     for pin in &mut support_pins {
-        pin.drift = support::version_number(&pin.mame_version) < build;
+        pin.drift = version_number(&pin.mame_version) < build;
         if pin.drift {
             trace.push(json!({
                 "type": "drift",

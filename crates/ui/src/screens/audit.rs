@@ -10,8 +10,8 @@ use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
 use title_select_api::build::LibraryFolder;
 use title_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, HeaderRule, Job, Placements,
-    StartAudit,
+    ALGORITHMS, AuditEvidence, AuditSummary, EvidenceLevel, Finding, Game, GameStatus, HeaderRule,
+    Job, Placements, StartAudit,
 };
 use wasm_bindgen::JsCast;
 
@@ -19,14 +19,16 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{
-    AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
-    StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
+    AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn, EntryFilter,
+    GameColumn, GameDisk, GameFilter, NOTHING_TO_CHECK_NOTE, Sort, StatusFilter, absent_roms,
+    audit_evidence_label, dependency_line, disk_text, entry_name, evidence_text, finding_label,
     game_status_label, game_status_text, games_found, games_of_status_label, header_rule_text,
     header_text, needs_review_from_counts, parse_ndjson, payload_read_text, unneeded,
     warning_counts, warning_text, when,
 };
+use crate::parts::help::Help;
 use crate::parts::pending::Pending;
-use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
+use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusIcon};
 use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
@@ -47,13 +49,15 @@ pub async fn load(id: i64) -> Result<Loaded, String> {
     let games = api::games(id).await?;
     let placed = game_placements(&rows);
     let found = games_found(&rows, &games);
+    let disks = Disks::of(&rows);
     let entries = AuditEntries::new(rows, &games);
     Ok(Loaded {
         entries: Arc::new(entries),
         games: Arc::new(
             AuditGames::new(games)
                 .with_placements(placed)
-                .with_found(found),
+                .with_found(found)
+                .with_disks(disks),
         ),
     })
 }
@@ -803,6 +807,13 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
                         </dd>
                     }
                 })}
+            {disk_text(&entry)
+                .map(|disk| {
+                    view! {
+                        <dt>"Disk"</dt>
+                        <dd>{disk}</dd>
+                    }
+                })}
             {entry
                 .reason
                 .clone()
@@ -815,6 +826,80 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
         </dl>
     }
     .into_any()
+}
+
+/// A Game's Dependencies in one line, which opens to list each with its own Game Status; nothing when it has none.
+fn dependencies_view(game: &Game, games: &AuditGames) -> Option<AnyView> {
+    let line = dependency_line(game, |name| games.claimed(name))?;
+    let each = game
+        .dependencies
+        .iter()
+        .map(|d| view! { <li>{d.game.clone()} " " <StatusBadge status=d.status /></li> })
+        .collect_view();
+    Some(
+        view! {
+            <h4>"Dependencies"</h4>
+            <Help summary=format!("{line}.")>
+                <p>{DEPENDENCIES_NOTE}</p>
+                <ul class="plain">{each}</ul>
+            </Help>
+        }
+        .into_any(),
+    )
+}
+
+/// A Game's Disks, each with the CHD that holds it and its Evidence, or, when absent, any CHD named for it that
+/// matched no Disk, such as a delta CHD.
+fn disks_view(disks: Vec<GameDisk>) -> Option<AnyView> {
+    if disks.is_empty() {
+        return None;
+    }
+    let each = disks
+        .into_iter()
+        .map(|d| {
+            let found = match d.held {
+                Some(entry) => {
+                    let payload = entry
+                        .evidence
+                        .as_ref()
+                        .is_some_and(|e| e.level == EvidenceLevel::Payload);
+                    view! {
+                        " "
+                        <StatusBadge status=FindingStatus::of(entry.finding, payload) />
+                        " " <code class="path">{entry.path.clone()}</code>
+                        <p class="note small">{disk_text(&entry)}</p>
+                    }
+                    .into_any()
+                }
+                None => view! {
+                    {d.needed.then(|| view! { " " <StatusBadge status=GameStatus::Missing /> })}
+                    {(!d.notes.is_empty())
+                        .then(|| view! { ": " <span class="note">{d.notes.join("; ")}</span> })}
+                    {d.unusable
+                        .into_iter()
+                        .map(|entry| {
+                            let why = disk_text(&entry).or(entry.reason.clone());
+                            view! {
+                                <p class="note small">
+                                    "A CHD named for it, " <code class="path">{entry.path.clone()}</code>
+                                    ", matches no disk. " {why}
+                                </p>
+                            }
+                        })
+                        .collect_view()}
+                }
+                .into_any(),
+            };
+            view! { <li><code>{d.name}</code> {found}</li> }
+        })
+        .collect_view();
+    Some(
+        view! {
+            <h4>"Disks"</h4>
+            <ul class="plain">{each}</ul>
+        }
+        .into_any(),
+    )
 }
 
 /// A Game Status in an Audit's Game Statuses table.
@@ -1009,7 +1094,7 @@ pub fn GamesPanel(
         let claimed = (!game.claimed_roms.is_empty()).then(|| {
             view! {
                 <h4>"Present only on claim evidence"</h4>
-                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
+                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory, or disks' SHA-1s from their CHD headers, without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
                 <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
             }
         });
@@ -1032,12 +1117,19 @@ pub fn GamesPanel(
                 </ul>
             }
         });
+        let nothing_to_check = (game.status == GameStatus::NothingToCheck)
+            .then(|| view! { <p class="note">{NOTHING_TO_CHECK_NOTE}</p> });
+        let dependencies = dependencies_view(&game, &games);
+        let disks = disks_view(games.disks(i));
         Some(view! {
             <h3>{game.name.clone()}</h3>
             <p>{format!("Game status: {}", game_status_text(&game))}</p>
+            {nothing_to_check}
             {flag}
             {placement}
             {warnings}
+            {dependencies}
+            {disks}
             {absent}
             {bad_dumps}
             {claimed}

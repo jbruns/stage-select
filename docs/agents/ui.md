@@ -9,7 +9,7 @@ copy rules and the shared parts in `crates/ui/src/parts/` that every screen buil
 - **A table cell is terse.** It holds an icon, a number, a name, or a status of three words or fewer. Never a reason.
 - **Reasons live in the detail pane.** Why a row has its status, what a plan item will do, what went wrong.
 - **Prose is the last resort.** Write it only where no icon, status or number conveys the meaning clearly. Longer
-  help goes in a collapsible `<details>`.
+  help goes in `Help`, a collapsible `<details>` whose one-line summary stays in view.
 - **Every icon is named.** It has a tooltip and an `aria-label`: use `Icon`, `IconButton`, `StatusIcon` or
   `StatusBadge`, which require the label. `LabelledIcon` is the one exception: its visible label names it.
 - **Every tooltip is reachable from the keyboard.** A standalone `Icon` is a tab stop. Inside a link or button, draw
@@ -34,6 +34,7 @@ pure logic there too.
 | A status with its words (detail pane)  | `StatusBadge { status }`                               | `status`    |
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
+| Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
 | A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped?, shown? }`      | `overlay`   |
@@ -60,7 +61,7 @@ nothing is fetched at runtime. The licence ships at `/licences/lucide.txt` and i
 `parts::status` maps every status to a `Look { glyph, tone, label, hint }`. Colour and shape both differ, so no state
 is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `SourceSetStatus`, `LibraryStatus`,
 `PlanKind` (repair plans, `From<RepairKind>`), `BuildKind` (build plans, builds and cleanups, `From<ItemKind>`),
-`IngestStatus`, `JobState`, `DatFileStatus`.
+`IngestStatus`, `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files).
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.

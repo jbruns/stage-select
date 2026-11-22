@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 9,                       // version of this report's shape
+  "schema": 10,                      // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -196,11 +196,17 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   self-contained CHD. A CHD of a version before 5 is unmatched, with no evidence and a `reason`: update it with
   `chdman copy` and audit again. A disk the DAT marks `nodump` is never matched. A `.chd` beside a DAT that lists no
   disks is read as any other file.
+- A game's `disks` names its disks, `<disk>.chd`, in DAT order, nodump and optional ones included. A CHD's entry lists
+  in `disks` each disk it counts for, `{"game", "name"}`: a disk counts by one CHD, the first with the strongest
+  evidence, which may be its parent's under another name, so a CHD's `disks` can name more than its `roms`, or fewer. A
+  delta CHD's entry gives its parent's SHA-1 in `parent_sha1`.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
   game. The entries themselves don't change: such an entry's `roms` still names each
   ROM it holds.
+- Schema 10 adds `disks` to a game and to a CHD's entry, and `parent_sha1` to a delta CHD's. An audit stored before
+  this names no disks until you audit the source set again.
 - Schema 9 reads a MAME ListXML's disks from CHDs, and gives an unmatched entry a `reason` when it is a CHD that can
   match no disk. An audit stored before this keeps what it found until you audit the source set again.
 - Schema 8 adds `not_dumped`, `bad_dumps` and `optional_roms` to a game, and the `reason` of a mismatched entry
@@ -987,7 +993,10 @@ clears both:
 ### Coverage
 
 A source set's coverage is the regions of its DAT's games you mean to keep, such as only the Europe discs of a large
-Redump set. It is optional: a source set without one covers every game, and nothing below applies to it.
+Redump set. It is optional: a source set without one covers every game, and nothing below applies to it. A MAME
+ListXML's source sets have no coverage: regions don't describe arcade machines, and the arcade selection's filters
+decide which machines your play library keeps. Setting one is refused, and the workbench offers no coverage control
+for them, saying why.
 
 A game is covered when any of its regions is, so a Europe coverage covers `Game (USA, Europe)`. A game's regions come
 from the tags in its name, read as selection reads them; a `(United Kingdom)` tag counts as `UK`. A World game is
@@ -1036,6 +1045,31 @@ a coverage works without them.
 You set a coverage when you register a source set, or later: in the workbench, where a preview says how many missing
 games your coverage counts now and after saving, and which library folders would become stale (see "Workbench"); with
 `set add` and `set coverage` (see "Commands"); or through the API (see "API").
+
+### MAME source sets
+
+A source set bound to MAME's ListXML (the DAT named `MAME`) holds arcade machines. It works as any other source set,
+with these differences, each described where it applies:
+
+- **Set layout.** Its ZIPs are kept non-merged (the default), split or merged, as the storage policy's set layout
+  says; an audit accepts any of them, and a repair repacks towards yours (see "Storage policy").
+- **Disks.** A machine's disks are CHDs, kept as a merged CHD set, in a folder named for the family's parent,
+  `<parent>/<disk>.chd`, whatever the set layout. A full audit proves each with chdman (see "Report"). A delta CHD,
+  which needs its parent CHD to be read, is unreadable: replace it with a self-contained CHD.
+- **Dependencies.** A machine's BIOS and devices are games of their own, each with its game status. A machine's own
+  status never depends on them; its audit names them, and a play library lacking one is incomplete (see "Report" and
+  "MAME library folders").
+- **Not dumped, bad dumps and optional ROMs.** A ROM with no good dump known matches no file and doesn't count; a
+  known bad dump counts like any other; an optional ROM need not be present. A machine with nothing a file can match,
+  such as a device with no ROMs, is **nothing to check**, counted apart from complete, incomplete and missing games.
+- **No coverage**, as above.
+- **Selection.** Its selection is an arcade selection, which reads the MAME support files `catver.ini`,
+  `languages.ini` and `bestgames.ini` when you have them (see "Selection"). With fetching from MAME on, under
+  Settings, then Operations, the service fetches them for you (see "Fetching DATs").
+- **Play libraries.** A library folder of it holds each selected machine ready to play, for one MAME version (see
+  "MAME library folders"). RomM needs its disk folders left out (see "Using with RomM").
+
+A MAME software list is a source set you can audit, but not select from or build.
 
 ### Fetching DATs
 
@@ -1804,7 +1838,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 9` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 10` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -2187,7 +2221,9 @@ Its screens:
   it, says how many of its games each library folder holds as their only copy, linking to it, names the library
   folder that holds its placed games, lets you choose it when several are built from it, and lists the games a build
   flagged as needing review, with why. Its header checks it for changes and follows its DAT. **Games** and
-  **Entries** show the latest audit's game statuses and entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
+  **Entries** show the latest audit's game statuses and entries, as the audit screen does. A MAME ListXML's source set
+  shows no **Edit coverage**: its **Coverage** section says in one line why it has none. **Libraries** lists its
+  library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
   what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
@@ -2214,7 +2250,12 @@ Its screens:
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
   heuristic), the size of the header matching left out, and the ROMs it matches. Selecting a game shows its warnings,
   such as "may not play: most NES emulators need the iNES header", and its absent ROMs, each one inside another
-  game's ZIP or folder marked "available in <other game>". Each game's placement shows beside its status: in your
+  game's ZIP or folder marked "available in <other game>"; one not dumped, optional or a known bad dump is marked so.
+  A MAME machine's detail sums up its dependencies in one line, "Needs 2 dependencies: 1 missing, 1 complete", which
+  opens to list each with its game status, and lists its disks, each with its CHD, its evidence (proved by chdman, or
+  claimed by its header's SHA-1), or, when absent, any CHD named for it that matches no disk, such as a delta CHD,
+  which needs its parent. Selecting a CHD's entry says the same. A game with nothing to check says what that means,
+  and the summary counts such games apart. Each game's placement shows beside its status: in your
   source set, or placed in a library folder as its only copy, which its detail links to. A game a build flagged as
   needing review is marked beside its status, in its game statuses and its entries, and its detail says why, as the
   game's flag now rather than this audit's. While the flags are read, first or again after a job, the tables say so; if they can't be read, the tables say that, and keep marking the games last read as flagged. A
@@ -2242,23 +2283,28 @@ Its screens:
   profile (`?profile=`) you pick a source set, and from a source set (`?source_set=`) you pick a profile. It is
   listed on its profile, not on its source set, until a library folder uses it.
 - **Selection** lists its game groups on the left, each chosen, unresolved, your choice, a choice to review, or
-  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against
-  the same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top shows how many groups have each status; select a count to
-  list only those groups, and "Apply to all" confirms every unresolved pick at once. Opening a group shows, on the
-  right, its candidate releases with the rule that decided each, where you check the releases you want, confirm an
-  unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
-  until you save them as the next version of the profile, which makes a new selection. A link to a group
-  (`?group=`) opens it. Its facts name the coverage it was made under, and a release outside that coverage shows as
-  excluded, "Outside its source set's coverage". The selection names the library folders that use it; one no library folder uses is a
-  what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
-  into a library folder bound to its source set and selection profile. An arcade selection's groups are families, and
-  its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
-  filter is on, and lists the filters you turned on that had nothing to read. Its dependencies sum up in one line, "Your selected games need 3
-  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
-  what you have of it and the games that need it.
+  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against the
+  same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top
+  shows how many groups have each status; select a count to list only those groups, and "Apply to all" confirms every
+  unresolved pick at once. Opening a group shows, on the right, its candidate releases with the rule that decided each,
+  where you check the releases you want, confirm an unresolved pick, include an excluded release, or reset the group to
+  the default choices; your choices are staged until you save them as the next version of the profile, which makes a new
+  selection. A link to a group (`?group=`) opens it. Its facts name the coverage it was made under, and a release
+  outside that coverage shows as excluded, "Outside its source set's coverage". The selection names the library folders
+  that use it; one no library folder uses is a what-if. "Create library folder from this" makes a library folder from
+  it, and "Plan a build" plans building it into a library folder bound to its source set and selection profile. An
+  arcade selection's groups are families, and its rules' stages read in plain words, such as "Parent over clone". It
+  says where categories came from, when your category filter is on, and lists the filters you turned on that had nothing
+  to read. Its facts list each support file it read, with its MAME version and SHA-256, marked **Older version** when it
+  is for an older MAME than the ListXML, whose newer machines it then lacks, **Newer version** when it is for a newer
+  one, **Same version**, or **Not read**; and, with the curated list on, its commit and how many names on it the DAT
+  revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
+  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with what
+  you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
-  play libraries put SBI files beside its discs, a MAME system's set layout for its source sets, whether play
+  play libraries put SBI files beside its discs, a MAME system's set layout for its source sets (a line saying what
+  it is, which opens to explain each layout), whether play
   libraries keep each game once under single copy and place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
@@ -2267,27 +2313,28 @@ Its screens:
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
-- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete,
-  stale, current or never built, in that precedence. Stale means its source set's latest audit found something other than the audit
-  its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
-  changed"), or the folder was rebound to another; the folder says which. Each row can be
-  checked, or have a build planned of the newest selection of its source set and profile against the source set's
-  latest verified DAT revision, made first when there is none. **New library folder** (`/libraries/new`, or
-  `/libraries/new?source_set=<name>` or `?selection=<id>` from a source set or a selection) picks a saved selection
-  profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
-  plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
-  **Overview**, its facts, with the coverage it has from its source set and a link to edit it there, what it lacks
-  and the files built into it, each file placed there now marked **Only copy**, or **Not known** while that's being read or can't be; **Selection**, the selection it was built
+- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
+  current or never built, in that precedence. Stale means its source set's latest audit found something other than the
+  audit its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
+  changed"), or the folder was rebound to another; the folder says which. Each row can be checked, or have a build
+  planned of the newest selection of its source set and profile against the source set's latest verified DAT revision,
+  made first when there is none. **New library folder** (`/libraries/new`, or `/libraries/new?source_set=<name>` or
+  `?selection=<id>` from a source set or a selection) picks a saved selection profile and a writable root, proposes the
+  path from the path template as for a source set, creates the folder and plans its first build. A folder's page
+  (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs: **Overview**, its facts, with the coverage
+  it has from its source set and a link to edit it there (for a MAME folder, why it has none, the MAME version it was
+  built for and which emulators run it, its disk folders, and, under **Using RomM?**, the RomM exclusions ready to
+  copy), what it lacks, naming the dependency a game lacks, and the files built into it, each file placed there now
+  marked **Only copy**, or **Not known** while that's being read or can't be; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
-  blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs,
-  its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
-  **Builds**; **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept
-  files**, by generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers
-  to build resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict
-  you can keep aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built
-  here, kept files to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry
-  added as an addition asks for its system, name and parent game. Each build shows every file it wrote or failed to
-  write.
+  blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs, its
+  choices, the built files no longer selected, approval and the build live, with a way to cancel it; **Builds**;
+  **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept files**, by
+  generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers to build
+  resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can keep
+  aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built here, kept files
+  to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an addition
+  asks for its system, name and parent game. Each build shows every file it wrote or failed to write.
 - **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was
   last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with how often
   the folder is scanned), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or
@@ -2434,9 +2481,12 @@ change files Title Select built:
 
 **Arcade.** RomM 5.5 splits arcade into separate platforms, such as `mame`, `fbneo` and `fba`. When you upgrade RomM,
 check that each arcade library folder's name is still the platform you want. RomM takes every folder in a platform for
-a game of its own, so it lists each disk folder of a MAME library folder, `<game>/`, as a game that doesn't run. The
-library folder's page lists its disk folders, ready to add to `exclude.roms.multi_file.names` in RomM's `config.yml`;
-Title Select doesn't write RomM's configuration for you:
+a game of its own, so without a workaround it shows each MAME game with disks twice: once for its ZIP, and once for its
+disk folder, `<game>/`, which doesn't run. The library folder's page lists its disk folders, ready to copy into
+`exclude.roms.multi_file.names` in RomM's `config.yml`; Title Select doesn't write RomM's configuration for you. That
+setting is one list for every platform, so RomM leaves out a folder of these names on every platform, not only arcade.
+A list for each platform is an open request upstream,
+[rommapp/romm#5696](https://github.com/rommapp/romm/issues/5696).
 
 ```yaml
 exclude:

@@ -72,6 +72,7 @@ pub enum Glyph {
     ArrowRight,
     ScanSearch,
     FileClock,
+    FileUp,
     Gauge,
     Globe,
     MapPinned,
@@ -79,7 +80,7 @@ pub enum Glyph {
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 72] = [
+    pub const ALL: [Glyph; 73] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -148,6 +149,7 @@ impl Glyph {
         Glyph::ArrowRight,
         Glyph::ScanSearch,
         Glyph::FileClock,
+        Glyph::FileUp,
         Glyph::Gauge,
         Glyph::Globe,
         Glyph::MapPinned,
@@ -337,6 +339,9 @@ impl Glyph {
             Glyph::FileClock => {
                 "<path d='M16 22h2a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v2.85' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M8 14v2.2l1.6 1' /><circle cx='8' cy='16' r='6' />"
             }
+            Glyph::FileUp => {
+                "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M12 12v6' /><path d='m15 15-3-3-3 3' />"
+            }
             Glyph::Gauge => "<path d='m12 14 4-4' /><path d='M3.34 19a10 10 0 1 1 17.32 0' />",
             Glyph::Globe => {
                 "<circle cx='12' cy='12' r='10' /><path d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' /><path d='M2 12h20' />"
@@ -421,6 +426,7 @@ impl Glyph {
             Glyph::ArrowRight => "arrow-right",
             Glyph::ScanSearch => "scan-search",
             Glyph::FileClock => "file-clock",
+            Glyph::FileUp => "file-up",
             Glyph::Gauge => "gauge",
             Glyph::Globe => "globe",
             Glyph::MapPinned => "map-pinned",
