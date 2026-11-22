@@ -813,14 +813,7 @@ fn placements_of(
     layout_index: &LayoutIndex,
     wanted: &[Vec<ExpectedRom>],
 ) -> Vec<Option<(Placement, Option<&'static str>)>> {
-    // Only an Arcade DAT's Source Set keeps ZIPs by its Set Layout; a software list's follows the policy's format.
-    let storage = Storage {
-        set_layout: i
-            .storage
-            .set_layout
-            .filter(|_| i.dat.format == DatFormat::Listxml),
-        ..i.storage
-    };
+    let storage = i.storage.of_dat(i.dat.format);
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
             let roms = &wanted[index];

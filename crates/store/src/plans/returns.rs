@@ -10,12 +10,11 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use title_select_api::DatFormat;
 use title_select_api::build::{
     ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, ReturnFile, ReturnHow,
     ReturnPlaced,
 };
-use title_select_api::storage::{Placement, Storage, placement_writing, release_of};
+use title_select_api::storage::{Placement, placement_writing, release_of};
 use title_select_engine::dat::Dat;
 
 use super::{Built, Folder, Inputs, roms_of, same_roms};
@@ -296,12 +295,7 @@ fn one<'a>(
     let mut games: Vec<&str> = found.iter().map(|f| f.placed.game.as_str()).collect();
     games.sort_unstable();
     games.dedup();
-    // Only an Arcade DAT's Source Set keeps ZIPs by its Set Layout; a software list's follows the policy's format.
-    let storage = Storage {
-        set_layout: (inputs.set_storage.set_layout)
-            .filter(|_| inputs.revision.format == DatFormat::Listxml),
-        ..inputs.set_storage
-    };
+    let storage = inputs.set_storage.of_dat(inputs.revision.format);
     let mame = storage.set_layout.is_some();
     let mut files = Vec::new();
     for game in games {
@@ -336,8 +330,8 @@ fn one<'a>(
                 }
                 Err(e) => return Err(format!("{path} can't be checked ({e})")),
             }
-            // The placed file that is this file whole: a TorrentZip of the same ROMs, or the same loose ROM; for a MAME
-            // Arcade DAT's Source Set, which keeps ZIPs as they are, any ZIP of them, as the self-contained ZIP it placed.
+            // The placed file that is this file whole: a TorrentZip of the same ROMs, or the same loose ROM; for an
+            // Arcade DAT's Source Set, which keeps ZIPs as they are, any ZIP of them, as the self-contained ZIP placed.
             let from = of_game
                 .iter()
                 .find(|f| {

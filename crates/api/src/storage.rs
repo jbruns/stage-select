@@ -328,6 +328,19 @@ pub struct Storage {
     pub set_layout: Option<SetLayout>,
 }
 
+impl Storage {
+    /// As it applies to a Source Set of a DAT in `format`: only an Arcade DAT's, a ListXML's, is laid out by its Set
+    /// Layout and keeps ZIPs; a software list's follows the format, as no Repair lays one out by it (ADR 0027).
+    pub fn of_dat(self, format: crate::DatFormat) -> Storage {
+        Storage {
+            set_layout: self
+                .set_layout
+                .filter(|_| format == crate::DatFormat::Listxml),
+            ..self
+        }
+    }
+}
+
 /// Whether `storage` is the default, TorrentZip with originals kept, which a plan leaves out of its JSON.
 pub fn is_default(storage: &Storage) -> bool {
     *storage == Storage::default()
@@ -728,10 +741,10 @@ impl Placement {
 /// The one decision of how a Repair stores Game `game`, with ROM names `roms`, in a Source Set under `storage`, with
 /// the note saying why a Game is not stored as the policy says. A loose folder holds any Game whose name and ROM
 /// names are plain file names, each ROM once; every other Game stays TorrentZip, so a Game's ROMs are never split
-/// across formats. A Source Set with a Set Layout, an Arcade DAT's, keeps every Game as TorrentZip, whatever the format.
+/// across formats. A Source Set with a Set Layout ([`Storage::of_dat`]) keeps every Game as TorrentZip, whatever the
+/// format.
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
-    // A Source Set with a Set Layout, an Arcade DAT's, keeps each Game as a ZIP (ADR 0026). A caller leaves a software
-    // list's Set Layout out, as no Repair lays one out by it.
+    // A Source Set with a Set Layout, an Arcade DAT's ([`Storage::of_dat`]), keeps each Game as a ZIP (ADR 0026).
     if storage.set_layout.is_some() {
         let loose = matches!(
             storage.format,
