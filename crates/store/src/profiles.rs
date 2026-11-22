@@ -295,3 +295,22 @@ impl Store {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::canonical;
+
+    #[test]
+    fn a_profile_digest_is_the_sha256_of_its_canonical_json() {
+        let profile = serde_json::from_str(r#"{"region_order":["USA","Europe"]}"#).unwrap();
+        let (sha, json) = canonical(&profile);
+        assert_eq!(
+            json,
+            r#"{"region_order":["USA","Europe"],"language_order":[],"localization_order":[],"video_order":[],"exclude":[],"options":{"prefer_retroachievements":false,"prefer_oldest":false,"prefer_regions":false,"prefer_licensed":false,"prefer_modern_rips":false,"filter_languages":false,"disable_1g1r":false,"compilations":"default"},"overrides":{"exclude":[],"include":[]},"post_filters":[],"systems":{}}"#
+        );
+        assert_eq!(
+            sha,
+            "d61f048eff06bc3271c08ee718de11f0f6d9273ed8f2457615f50587c706a93e"
+        );
+    }
+}

@@ -210,12 +210,17 @@ fn fingerprint(c: &Connection, inputs: &Inputs, found: Option<&Folder>) -> Resul
     for line in kept {
         lines.insert(line?);
     }
+    Ok(hash_lines(&lines))
+}
+
+/// The SHA-256 of `lines` in order, each ended by a newline.
+fn hash_lines(lines: &BTreeSet<String>) -> String {
     let mut hash = Sha256::new();
-    for line in &lines {
+    for line in lines {
         hash.update(line.as_bytes());
         hash.update(b"\n");
     }
-    Ok(title_select_engine::hex(&hash.finalize()))
+    title_select_engine::hex(&hash.finalize())
 }
 
 /// The names in the folder a cleanup may put an entry at, and those it claims as it is planned.
@@ -914,5 +919,25 @@ impl Store {
             };
             insert_plan(tx, &planned, check)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BTreeSet, hash_lines};
+
+    #[test]
+    fn a_fingerprint_is_the_sha256_of_its_sorted_lines_each_ended_by_a_newline() {
+        let lines: BTreeSet<String> = [
+            "kept\t3\t1\ta.zip.kept\t1:2:3:4:false",
+            "entry\ta.zip\t1:2:3:4:true",
+            "acknowledged\tnotes.txt",
+        ]
+        .map(String::from)
+        .into();
+        assert_eq!(
+            hash_lines(&lines),
+            "ced72606415fad5fdeb53c2e8ae4afe4db4a8c38be24e8a9c463e9cc711afa97"
+        );
     }
 }

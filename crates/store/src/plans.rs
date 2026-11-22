@@ -3251,4 +3251,15 @@ mod digest_tests {
             "2fdd832e813acc66d5552d86218c38bce39e261cc2f85bdaa20782df04f4b33d"
         );
     }
+
+    #[test]
+    fn a_cleanup_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"folder":1,"generation":2,"selection":3,"audit":null,"dat_revision":"abc","items":[],"blockers":[],"cleanup":{"build":5,"choices":{"restore":[7]},"entries":[],"fingerprint":"f"}}"#;
+        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "c7098d417e48e7893bb8cf53fb00402f4d86467d67d283904ef39b96ae0e2168"
+        );
+    }
 }
