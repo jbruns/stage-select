@@ -5,6 +5,7 @@
 //!
 //! The CHD test finds chdman as the store does; where it is missing it is skipped, except in CI, where it fails.
 
+use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -19,7 +20,6 @@ use title_select_api::selection::{
     SelectionSummary, Winner,
 };
 use title_select_api::storage::{DiscLayout, StorageFormat, SystemStorage};
-use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
 
 const SET: &str = "Test - System";
@@ -140,7 +140,6 @@ fn chdman() -> Option<PathBuf> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
     sha256: String,
 }
 
@@ -167,13 +166,14 @@ impl Env {
         std::fs::create_dir_all(sets.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("roots/play")).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
-            sets.display().to_string(),
-            tmp.path().join("roots/play").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", &sets),
+                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+            ],
+        );
         let dat = match rule {
             Some(rule) => {
                 write_dat_with_header_from(&tmp.path().join("in"), rule, "Redump", &all())
@@ -181,7 +181,7 @@ impl Env {
             None => write_dat_from(&tmp.path().join("in"), "test.dat", "1", "Redump", &all()),
         };
         let (revision, _) = store.import_dat(&dat, None).unwrap();
-        store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
+        store.add_source_set("sets", SET, SYSTEM).unwrap();
         store
             .save_profile(
                 PROFILE,
@@ -196,12 +196,11 @@ impl Env {
             write_loose_folder(&sets.join(SET), game, &roms);
         }
         store
-            .audit_source_set(&config, SET, None, title_select_engine::AuditEvidence::Full)
+            .audit_source_set(SET, None, title_select_engine::AuditEvidence::Full)
             .unwrap();
         let env = Env {
             tmp,
             store,
-            config,
             sha256: revision.sha256,
         };
         env.set(SystemStorage {
@@ -231,9 +230,7 @@ impl Env {
 
     fn folder(&self) -> LibraryFolder {
         self.store
-            .add_library_folder(
-                &self.config,
-                &AddLibraryFolder {
+            .add_library_folder(&AddLibraryFolder {
                     root: "play".into(),
                     path: Some("discs".into()),
                     template: None,
@@ -269,7 +266,7 @@ impl Env {
 
     fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
         self.store
-            .plan_build(&self.config, folder.id, selection)
+            .plan_build(folder.id, selection)
             .unwrap()
     }
 
@@ -277,11 +274,11 @@ impl Env {
     fn run(&self, plan: &Plan) -> title_select_api::Job {
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
         self.store
-            .run_build_job(&self.config, job.id, None)
+            .run_build_job(job.id, None)
             .unwrap()
     }
 
@@ -301,7 +298,7 @@ impl Env {
         use std::sync::{Mutex, mpsc};
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
         let (reached, reached_rx) = mpsc::channel();
@@ -316,7 +313,7 @@ impl Env {
                 }
             })));
         let ended = std::thread::scope(|scope| {
-            let running = scope.spawn(|| self.store.run_build_job(&self.config, job.id, None));
+            let running = scope.spawn(|| self.store.run_build_job(job.id, None));
             reached_rx
                 .recv_timeout(std::time::Duration::from_secs(120))
                 .expect("the build reached the fault");
@@ -331,12 +328,12 @@ impl Env {
     fn build(&self, plan: &Plan) {
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
         let ended = self
             .store
-            .run_build_job(&self.config, job.id, None)
+            .run_build_job(job.id, None)
             .unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         let build = self.store.build_of_job(ended.id).unwrap().unwrap();
@@ -362,7 +359,7 @@ impl Env {
         self.store.claim_job().unwrap().unwrap();
         let done = self
             .store
-            .run_check_job(&self.config, job.id, None)
+            .run_check_job(job.id, None)
             .unwrap();
         assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
         self.store.latest_check(folder.id).unwrap().unwrap()
@@ -574,9 +571,7 @@ fn audit_with_absent_optional(env: &mut Env, roms: &[(&str, &str)]) {
     std::fs::write(&dat, xml).unwrap();
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(
-            &env.config,
-            SET,
+        .audit_source_set(SET,
             Some(&env.sha256),
             title_select_engine::AuditEvidence::Full,
         )
@@ -601,7 +596,7 @@ fn a_release_whose_disc_lists_only_an_absent_optional_rom_lists_its_other_discs_
         read(&env, "Duo (USA).m3u/Duo (USA).m3u"),
         "Duo (USA) (Disc 1).iso\n"
     );
-    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
 }
 
@@ -648,7 +643,7 @@ fn a_release_none_of_whose_discs_has_anything_to_build_has_no_m3u() {
 
     assert!(plan.content.items.is_empty(), "{:?}", plan.content.items);
     assert!(env.files().is_empty(), "{:?}", env.files());
-    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
 }
 
@@ -741,7 +736,7 @@ fn a_disc_with_nothing_to_build_has_no_sbi_file_and_holds_none_of_its_release_ba
         ]
     );
     assert_eq!(read(&env, M3U), "Saga (USA) (Disc 2).cue\n");
-    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
 }
 
@@ -940,12 +935,10 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
 /// which lists no ROMs for Disc 1 and drops Disc 2, and audits. Returns the store, the folder and the files placed.
 fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<String>) {
     let mut env = Env::with(StorageFormat::LooseFolder, duo);
-    env.config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-        env.tmp.path().join("roots/play").display().to_string(),
-    ))
-    .unwrap();
+    crate::reregister(
+        &env.store,
+        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
+    );
     env.single_copy(true);
     let folder = env.folder();
     let plan = env.built(&folder, env.selection(&DUO));
@@ -967,9 +960,7 @@ fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<
     );
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(
-            &env.config,
-            SET,
+        .audit_source_set(SET,
             Some(&env.sha256),
             title_select_engine::AuditEvidence::Full,
         )
@@ -1310,7 +1301,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     let plan = env.plan(&folder, selection);
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
     // Killed once the first of Saga's files is renamed into place, before the rest of its release is.
@@ -1336,7 +1327,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
             }
         })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store.run_build_job(&env.config, job.id, None)
+        env.store.run_build_job(job.id, None)
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err(), "{ran:?}");
@@ -1345,7 +1336,6 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     let Env {
         tmp,
         store,
-        config,
         sha256,
     } = env;
     let path = store.dir().to_path_buf();
@@ -1360,7 +1350,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
             seen.lock().unwrap().push(seq);
         }
     })));
-    let blocked = store.recover_builds(&config).unwrap();
+    let blocked = store.recover_builds().unwrap();
     store.hook_faults(None);
     assert!(blocked.is_empty(), "{blocked:?}");
     let killed = killed.load(std::sync::atomic::Ordering::SeqCst);
@@ -1372,7 +1362,6 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     let env = Env {
         tmp,
         store,
-        config,
         sha256,
     };
     let saga: Vec<&str> = ES_DE_LOOSE
@@ -1529,7 +1518,7 @@ fn a_plan_whose_sbi_pack_changed_before_you_run_it_is_stale() {
 
     let approved = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(approved, Err(title_select_store::Error::Conflict(_))),
         "{approved:?}"
@@ -1838,7 +1827,7 @@ fn killed_and_recovered(
 ) -> Env {
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
     env.store
@@ -1848,7 +1837,7 @@ fn killed_and_recovered(
             }
         })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store.run_build_job(&env.config, job.id, None)
+        env.store.run_build_job(job.id, None)
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err(), "{ran:?}");
@@ -1856,19 +1845,17 @@ fn killed_and_recovered(
     let Env {
         tmp,
         store,
-        config,
         sha256,
     } = env;
     let path = store.dir().to_path_buf();
     drop(store);
     let store = Store::open(&path).unwrap();
     store.recover_jobs(WORKERS).unwrap();
-    let blocked = store.recover_builds(&config).unwrap();
+    let blocked = store.recover_builds().unwrap();
     assert!(blocked.is_empty(), "{blocked:?}");
     Env {
         tmp,
         store,
-        config,
         sha256,
     }
 }
@@ -2020,9 +2007,7 @@ fn switching_to_flat_leaves_a_cue_folder_you_made_and_its_release_as_they_are() 
 fn laid_out_by_hand(env: &Env) -> (LibraryFolder, i64) {
     let model = env
         .store
-        .add_library_folder(
-            &env.config,
-            &AddLibraryFolder {
+        .add_library_folder(&AddLibraryFolder {
                 root: "play".into(),
                 path: Some("model".into()),
                 template: None,
@@ -2076,7 +2061,7 @@ fn adopt(env: &Env, folder: &LibraryFolder, names: &[String]) -> title_select_ap
     };
     let plan = env
         .store
-        .plan_cleanup(&env.config, folder.id, &request)
+        .plan_cleanup(folder.id, &request)
         .unwrap();
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     env.run(&plan)
@@ -2254,9 +2239,7 @@ fn a_hand_edited_m3u_is_never_adopted_and_never_overwritten() {
     assert!(m3u.conflict, "{m3u:?}");
     let refused = env
         .store
-        .plan_cleanup(
-            &env.config,
-            folder.id,
+        .plan_cleanup(folder.id,
             &PlanCleanup {
                 entries: [(M3U.to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()
@@ -2308,7 +2291,7 @@ fn a_plan_adopts_a_loose_es_de_tree_you_laid_out_with_its_m3u_and_its_folders() 
     request.choices.adopt = ES_DE_LOOSE.iter().map(|t| t.to_string()).collect();
     let plan = env
         .store
-        .plan_build_with(&env.config, folder.id, &request)
+        .plan_build_with(folder.id, &request)
         .unwrap();
     assert!(
         plan.content
@@ -2376,9 +2359,7 @@ fn an_sbi_file_other_than_the_one_a_build_places_is_never_adopted_and_never_over
     assert_ne!(found.kind, DriftKind::Selected, "{found:?}");
     let refused = env
         .store
-        .plan_cleanup(
-            &env.config,
-            folder.id,
+        .plan_cleanup(folder.id,
             &PlanCleanup {
                 entries: [(sbi.to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()
@@ -2540,7 +2521,7 @@ fn adopting_a_chd_counts_it_read_from_the_librarys_root_and_its_cue_sheet_from_t
     };
     let plan = env
         .store
-        .plan_cleanup(&env.config, folder.id, &request)
+        .plan_cleanup(folder.id, &request)
         .unwrap();
     let m = env.store.meter();
     let (sets, play, total) = (m.root("sets"), m.root("play"), m.total());
@@ -2584,9 +2565,7 @@ fn a_chd_whose_cue_sheet_the_source_set_no_longer_holds_is_not_adopted() {
     .unwrap();
     let refused = env
         .store
-        .plan_cleanup(
-            &env.config,
-            folder.id,
+        .plan_cleanup(folder.id,
             &PlanCleanup {
                 entries: [("Orbit (USA).chd".to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()

@@ -1,6 +1,7 @@
 //! Fetching newer DAT Revisions for Following Source Sets (ADR 0012), against a fake DAT Provider on a local port.
 //! No test sends a request anywhere else.
 
+use title_select_api::roots::RootSpec;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -14,7 +15,6 @@ use title_select_api::settings::{FetchSettings, SettingsUpdate};
 use title_select_api::support::{SupportFileKind, SupportFileOrigin};
 use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
 use title_select_engine::cap::Clock;
-use title_select_store::config::Config;
 use title_select_store::fetch::{
     Allowed, Endpoints, FetchClock, FetchError, Fetcher, Http, MIN_GAP,
 };
@@ -338,7 +338,6 @@ impl FetchClock for Paced {
 struct Env {
     _tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
     fake: FakeProvider,
     pace: Arc<Paced>,
     fetcher: Fetcher,
@@ -357,16 +356,15 @@ impl Env {
     fn new(fetch: FetchSettings) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("sets/PSX")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            tmp.path().join("sets").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("sets")),
+            ],
+        );
         store
-            .update_settings(
-                &config,
-                &SettingsUpdate {
+            .update_settings(&SettingsUpdate {
                     fetch: Some(fetch),
                     ..SettingsUpdate::default()
                 },
@@ -379,7 +377,6 @@ impl Env {
         let env = Env {
             _tmp: tmp,
             store,
-            config,
             fake,
             pace,
             fetcher,
@@ -395,10 +392,10 @@ impl Env {
             .import_dat_bytes(&redump_dat_xml(dat, "1"), "v1.dat", None)
             .unwrap();
         self.store
-            .add_source_set(&self.config, "sets", name, &format!("Redump/{dat}"))
+            .add_source_set("sets", name, &format!("Redump/{dat}"))
             .unwrap();
         self.store
-            .audit_source_set(&self.config, name, None, AuditEvidence::Incremental)
+            .audit_source_set(name, None, AuditEvidence::Incremental)
             .unwrap();
         self.store.set_follow(name, true).unwrap();
     }
@@ -763,7 +760,7 @@ fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
         other => panic!("{other:?}"),
     }
     env.store.set_follow("PSX", true).unwrap();
-    env.store.unregister_source_set(&env.config, "PSX").unwrap();
+    env.store.unregister_source_set("PSX").unwrap();
     assert!(
         env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
             .is_err()
@@ -782,10 +779,10 @@ fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
     let env = Env::new(REDUMP);
     std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "PSX2", "Redump/Sony - PlayStation")
+        .add_source_set("sets", "PSX2", "Redump/Sony - PlayStation")
         .unwrap();
     env.store.set_follow("PSX2", true).unwrap();
-    env.store.unregister_source_set(&env.config, "PSX").unwrap();
+    env.store.unregister_source_set("PSX").unwrap();
     env.serve_psx("2");
 
     let report = env
@@ -802,10 +799,10 @@ fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_request
     other.push(b'\n');
     env.store.import_dat_bytes(&other, "v1.dat", None).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "PSX2", "redump/Sony - PlayStation")
+        .add_source_set("sets", "PSX2", "redump/Sony - PlayStation")
         .unwrap();
     env.store
-        .audit_source_set(&env.config, "PSX2", None, AuditEvidence::Incremental)
+        .audit_source_set("PSX2", None, AuditEvidence::Incremental)
         .unwrap();
     env.store.set_follow("PSX2", true).unwrap();
     env.serve_psx("2");
@@ -858,7 +855,7 @@ fn a_deleted_redump_revision_fetched_again_is_added_not_unchanged() {
         .fetch(FetchProvider::Redump, FetchTrigger::Manual)
         .unwrap();
     let fetched = first.attempts[0].dat_revision.clone().unwrap();
-    env.store.unregister_source_set(&env.config, "PSX").unwrap();
+    env.store.unregister_source_set("PSX").unwrap();
     env.store.delete_dat_revision(&fetched).unwrap();
     env.follow("PSX again", "Sony - PlayStation");
 
@@ -1060,10 +1057,10 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/Arcade")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Arcade", "MAME/MAME")
+        .add_source_set("sets", "Arcade", "MAME/MAME")
         .unwrap();
     env.store
-        .audit_source_set(&env.config, "Arcade", None, AuditEvidence::Incremental)
+        .audit_source_set("Arcade", None, AuditEvidence::Incremental)
         .unwrap();
     env.store.set_follow("Arcade", true).unwrap();
     env.store
@@ -1071,10 +1068,10 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/NES")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "NES", "MAME/nes")
+        .add_source_set("sets", "NES", "MAME/nes")
         .unwrap();
     env.store
-        .audit_source_set(&env.config, "NES", None, AuditEvidence::Incremental)
+        .audit_source_set("NES", None, AuditEvidence::Incremental)
         .unwrap();
     env.store.set_follow("NES", true).unwrap();
     env.serve_mame("mame0270");
@@ -1141,7 +1138,7 @@ fn a_deleted_software_list_revision_is_fetched_again_for_the_release_it_came_fro
         std::fs::create_dir_all(env._tmp.path().join("sets").join(set)).unwrap();
     }
     env.store
-        .add_source_set(&env.config, "sets", "NES", "MAME/nes")
+        .add_source_set("sets", "NES", "MAME/nes")
         .unwrap();
     env.store.set_follow("NES", true).unwrap();
     env.serve_mame("mame0270");
@@ -1149,10 +1146,10 @@ fn a_deleted_software_list_revision_is_fetched_again_for_the_release_it_came_fro
         .fetch(FetchProvider::Mame, FetchTrigger::Manual)
         .unwrap();
     let fetched = first.attempts[1].dat_revision.clone().unwrap();
-    env.store.unregister_source_set(&env.config, "NES").unwrap();
+    env.store.unregister_source_set("NES").unwrap();
     env.store.delete_dat_revision(&fetched).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "NES again", "MAME/nes")
+        .add_source_set("sets", "NES again", "MAME/nes")
         .unwrap();
     env.store.set_follow("NES again", true).unwrap();
 
@@ -1193,7 +1190,7 @@ fn a_mame_release_asset_outside_the_official_release_downloads_is_refused() {
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/Arcade")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Arcade", "MAME/MAME")
+        .add_source_set("sets", "Arcade", "MAME/MAME")
         .unwrap();
     env.store.set_follow("Arcade", true).unwrap();
     let release = r#"{"tag_name":"mame0270","assets":[{"name":"mame0270lx.zip",
@@ -1240,7 +1237,7 @@ impl Env {
         if self.store.source_set("Arcade").is_err() {
             std::fs::create_dir_all(self._tmp.path().join("sets/Arcade")).unwrap();
             self.store
-                .add_source_set(&self.config, "sets", "Arcade", "MAME/MAME")
+                .add_source_set("sets", "Arcade", "MAME/MAME")
                 .unwrap();
         }
     }
@@ -1485,7 +1482,7 @@ fn add_second_listxml(env: &Env, build: &str) -> String {
     .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/Second")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Second", "MAME/MAME Second")
+        .add_source_set("sets", "Second", "MAME/MAME Second")
         .unwrap();
     second.sha256
 }
@@ -1530,7 +1527,7 @@ fn an_older_listxml_imported_again_does_not_count_its_old_fetch_for_a_newer_one(
         .unwrap()
         .sha256;
     env.store
-        .unregister_source_set(&env.config, "Arcade")
+        .unregister_source_set("Arcade")
         .unwrap();
     env.store.delete_dat_revision(&old).unwrap();
 
@@ -1571,7 +1568,7 @@ fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
         // While catver.ini is in flight: 0.290 arrives, then 0.289 is imported again after it.
         seen.wait();
         env.store
-            .unregister_source_set(&env.config, "Arcade")
+            .unregister_source_set("Arcade")
             .unwrap();
         env.store.delete_dat_revision(&old).unwrap();
         env.add_arcade("mame0290");
@@ -1617,7 +1614,7 @@ fn a_listxml_deleted_while_its_commit_check_is_in_flight_is_fetched_for_and_its_
         // While the commit check is in flight: 0.289 is deleted and 0.290 imported in its place.
         seen.wait();
         env.store
-            .unregister_source_set(&env.config, "Arcade")
+            .unregister_source_set("Arcade")
             .unwrap();
         env.store.delete_dat_revision(&old).unwrap();
         env.add_arcade("mame0290");

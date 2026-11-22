@@ -38,7 +38,6 @@ use title_select_engine::meter::Tally;
 use super::place::SetDirs;
 use super::{ChdWork, Failure, remove_layout_dir, set_item, stage_by_fd, still_sha256};
 use crate::carry::Held;
-use crate::config::Config;
 use crate::folder_dir::{
     FolderDir, Identity, create_staged, ctime_ns, file_stat, parent_made, parent_of,
     remove_emptied, staged_name,
@@ -61,7 +60,7 @@ pub(super) struct Returning<'a> {
     pub set_name: &'a str,
     /// The Library Folder, opened to write to.
     pub dir: &'a FolderDir,
-    pub config: &'a Config,
+    pub roots: &'a crate::roots::Roots,
     /// Where what is written and read back in the Source Set's Root is counted, and what is read in the Library
     /// Folder's.
     pub to: &'a Tally,
@@ -711,7 +710,7 @@ impl Store {
         chain: &[Identity],
         path: &str,
     ) -> Result<std::result::Result<(), String>> {
-        let dir = match open_repairable(self, p.config, p.set, MarkerRule::Required)? {
+        let dir = match open_repairable(self, p.roots, p.set, MarkerRule::Required)? {
             Ok(dir) => dir,
             Err(why) => {
                 return Ok(Err(format!(
@@ -1362,12 +1361,12 @@ impl Store {
     /// Source Set's folder. `Err` says why one is left outstanding.
     pub(super) fn recover_returning(
         &self,
-        config: &Config,
         build: i64,
         plan: i64,
         folder: &crate::folders::FolderRow,
         store: String,
     ) -> Result<std::result::Result<(), String>> {
+        let roots = &*self.roots();
         let open: Vec<(i64, String, String)> = self.read(|c| {
             let rows = c
                 .prepare(
@@ -1383,7 +1382,7 @@ impl Store {
         if open.is_empty() {
             return Ok(Ok(()));
         }
-        let dir = match open_writable_folder(config, &folder.root, &folder.path) {
+        let dir = match open_writable_folder(roots, &folder.root, &folder.path) {
             Ok(dir) => dir,
             Err(why) => return Ok(Err(why)),
         };
@@ -1400,7 +1399,7 @@ impl Store {
         }) {
             return Ok(Err(why));
         }
-        let set_dirs = match self.open_placing(config, folder.source_set_id)? {
+        let set_dirs = match self.open_placing(folder.source_set_id)? {
             Ok(dirs) => dirs,
             Err(why) => {
                 return Ok(Err(format!(
@@ -1418,7 +1417,7 @@ impl Store {
             set: folder.source_set_id,
             set_name: &folder.source_set,
             dir: &dir,
-            config,
+            roots,
             to: &tally,
             from: &tally,
             chd: None,

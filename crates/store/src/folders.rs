@@ -24,7 +24,6 @@ use super::profiles::active_profile_id;
 use super::selections::{read_selection, record_by_id};
 use super::sets::{coverage_from_row, resolve, same_coverage, set_by_id, set_by_name};
 use super::{Error, Result, Store, io_error, now};
-use crate::config::Config;
 use rustix::fs::FileType;
 
 /// A Library Folder's row and what its bindings name.
@@ -181,7 +180,7 @@ pub(super) fn builds_where(
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFolder> {
+fn record(c: &Connection, roots: &crate::roots::Roots, row: FolderRow) -> Result<LibraryFolder> {
     let build = match row.current_build {
         Some(id) => Some(build_by_id(c, id)?),
         None => None,
@@ -211,7 +210,7 @@ fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFold
         .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(LibraryFolder {
         id: row.id,
-        writable: config.root(&row.root).is_some_and(|r| r.writable),
+        writable: roots.root(&row.root).is_some_and(|r| r.writable),
         root: row.root,
         path: row.path,
         system: row.system,
@@ -508,11 +507,11 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
 /// Opens the Library Folder `rel` in the Root `root`, no component of `rel` followed if it is a symlink. The error
 /// is a sentence for a plan's blocker.
 pub(super) fn open_folder(
-    config: &Config,
+    roots: &crate::roots::Roots,
     root: &str,
     rel: &str,
 ) -> std::result::Result<FolderDir, String> {
-    let root_config = config
+    let root_config = roots
         .root(root)
         .ok_or_else(|| format!("no root named {root} is configured any more"))?;
     FolderDir::open(&root_config.path, rel).map_err(|e| {
@@ -523,17 +522,17 @@ pub(super) fn open_folder(
 /// Opens the Library Folder `rel` in the Root `root` as [`open_folder`] does, for a change: refused unless the
 /// Root is configured `writable = true` now.
 pub(super) fn open_writable_folder(
-    config: &Config,
+    roots: &crate::roots::Roots,
     root: &str,
     rel: &str,
 ) -> std::result::Result<FolderDir, String> {
-    if !config.root(root).is_some_and(|r| r.writable) {
+    if !roots.root(root).is_some_and(|r| r.writable) {
         return Err(format!(
             "root {root} is not writable now; declare it with writable = true, then restart the service. Nothing \
              in the folder was changed"
         ));
     }
-    open_folder(config, root, rel)
+    open_folder(roots, root, rel)
 }
 
 /// The temp file a marker is written to before it is renamed over the marker.
@@ -717,11 +716,11 @@ fn overlaps(a: &Path, b: &Path) -> bool {
 /// destination of a move under way. Returns it normalized.
 pub(super) fn check_library_path(
     c: &Connection,
-    config: &Config,
+    roots: &crate::roots::Roots,
     root_name: &str,
     rel: &str,
 ) -> Result<String> {
-    let root = config
+    let root = roots
         .root(root_name)
         .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
     if !root.writable {
@@ -768,7 +767,7 @@ pub(super) fn check_library_path(
         rel.split('/')
             .fold(canonical_root.clone(), |p, part| p.join(part))
     });
-    if let Some((what, other)) = overlapping(c, config, &would_be, Registering::LibraryFolder)? {
+    if let Some((what, other)) = overlapping(c, roots, &would_be, Registering::LibraryFolder)? {
         return Err(Error::Refused(format!(
             "{rel} in root {} would overlap {what} at {}",
             root_name,
@@ -793,7 +792,7 @@ pub(super) enum Registering {
 /// `registering` may not: what it is, and where.
 pub(super) fn overlapping(
     c: &Connection,
-    config: &Config,
+    roots: &crate::roots::Roots,
     would_be: &Path,
     registering: Registering,
 ) -> Result<Option<(String, PathBuf)>> {
@@ -822,14 +821,13 @@ pub(super) fn overlapping(
             },
         )?
         .collect::<Result<Vec<_>, _>>()?;
-    let ingest = config
-        .roots
-        .iter()
-        .filter(|(_, r)| r.is_ingest() && registering != Registering::IngestFolder)
-        .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
+    let ingest = roots
+        .ingest()
+        .filter(|_| registering != Registering::IngestFolder)
+        .map(|r| (r.name.clone(), String::new(), "an ingest folder".to_owned()));
     for (root, path, what) in others.into_iter().chain(ingest) {
         // A destination being moved to may not exist yet.
-        let Some(other) = config.root(&root).and_then(|r| resolved(&r.path, &path)) else {
+        let Some(other) = roots.root(&root).and_then(|r| resolved(&r.path, &path)) else {
             continue;
         };
         if overlaps(would_be, &other) {
@@ -885,11 +883,11 @@ impl Store {
     /// writes. Returns it normalized.
     pub(super) fn check_library_path(
         &self,
-        config: &Config,
         root_name: &str,
         rel: &str,
     ) -> Result<String> {
-        self.read(|c| check_library_path(c, config, root_name, rel))
+        let roots = &*self.roots();
+        self.read(|c| check_library_path(c, roots, root_name, rel))
     }
 
     /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
@@ -897,9 +895,9 @@ impl Store {
     /// its marker is written before the registration commits.
     pub fn add_library_folder(
         &self,
-        config: &Config,
         add: &AddLibraryFolder,
     ) -> Result<LibraryFolder> {
+        let roots = &*self.roots();
         let rel = match (&add.path, &add.template) {
             (Some(_), Some(_)) => {
                 return Err(Error::Refused("give a path or a template, not both".into()));
@@ -912,8 +910,8 @@ impl Store {
         // Held from the check of its path until it is recorded, so that nothing registered or reserved meanwhile
         // overlaps the folders it creates.
         let _lifecycle = self.lifecycle_lock();
-        let rel = self.check_library_path(config, &add.root, &rel)?;
-        let root = config.root(&add.root).expect("a checked root");
+        let rel = self.check_library_path(&add.root, &rel)?;
+        let root = roots.root(&add.root).expect("a checked root");
         self.read(|c| {
             let set = set_by_name(c, &add.source_set)?;
             crate::dats::check_selectable(c, set.dat_id)?;
@@ -925,7 +923,7 @@ impl Store {
         self.write(|tx| {
             // Again where it is recorded, so that nothing registered or reserved since is overlapped, and it is bound
             // only to a Source Set still registered and a Profile not Retired.
-            check_library_path(tx, config, &add.root, &rel)?;
+            check_library_path(tx, roots, &add.root, &rel)?;
             let set = set_by_name(tx, &add.source_set)?;
             let profile = active_profile_id(tx, &add.profile)?;
             let store = store_id(tx)?;
@@ -945,7 +943,7 @@ impl Store {
                 // A folder whose registration stopped is not registered, so nothing is ever removed from it.
                 &mut |_| Ok(()),
             )?;
-            record(tx, config, folder_by_id(tx, id)?)
+            record(tx, roots, folder_by_id(tx, id)?)
         })
     }
 
@@ -953,10 +951,10 @@ impl Store {
     /// Build Job is Queued or Running for it, and rebinding it to another Source Set while it holds Placed Games.
     pub fn change_library_folder(
         &self,
-        config: &Config,
         id: i64,
         change: &ChangeLibraryFolder,
     ) -> Result<LibraryFolder> {
+        let roots = &*self.roots();
         self.write(|tx| {
             let folder = folder_by_id(tx, id)?;
             folder.check_registered()?;
@@ -997,12 +995,13 @@ impl Store {
                     params![id, profile],
                 )?;
             }
-            record(tx, config, folder_by_id(tx, id)?)
+            record(tx, roots, folder_by_id(tx, id)?)
         })
     }
 
     /// Every Library Folder, by root and path.
-    pub fn library_folders(&self, config: &Config) -> Result<Vec<LibraryFolder>> {
+    pub fn library_folders(&self,) -> Result<Vec<LibraryFolder>> {
+        let roots = &*self.roots();
         self.read(|c| {
             let mut stmt = c.prepare(&format!(
                 "{FOLDER_QUERY} WHERE f.unregistered_at IS NULL ORDER BY f.root, f.path"
@@ -1010,12 +1009,13 @@ impl Store {
             let rows = stmt
                 .query_map([], folder_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
-            rows.into_iter().map(|row| record(c, config, row)).collect()
+            rows.into_iter().map(|row| record(c, roots, row)).collect()
         })
     }
 
-    pub fn library_folder(&self, config: &Config, id: i64) -> Result<LibraryFolder> {
-        self.read(|c| record(c, config, folder_by_id(c, id)?))
+    pub fn library_folder(&self, id: i64) -> Result<LibraryFolder> {
+        let roots = &*self.roots();
+        self.read(|c| record(c, roots, folder_by_id(c, id)?))
     }
 
     /// The registered Library Folders of the Source Set `source_set` that would be Stale for a Coverage change if its
@@ -1024,10 +1024,10 @@ impl Store {
     /// among them.
     pub fn folders_stale_under(
         &self,
-        config: &Config,
         source_set: &str,
         coverage: Option<&[String]>,
     ) -> Result<Vec<LibraryFolder>> {
+        let roots = &*self.roots();
         self.read(|c| {
             let set = set_by_name(c, source_set)?;
             let mut stmt = c.prepare(&format!(
@@ -1049,7 +1049,7 @@ impl Store {
                     |r| Ok((r.get(0)?, coverage_from_row(r, 1)?)),
                 )?;
                 if built_set == set.id && !same_coverage(built.as_deref(), coverage) {
-                    stale.push(record(c, config, row)?);
+                    stale.push(record(c, roots, row)?);
                 }
             }
             Ok(stale)
@@ -1075,11 +1075,11 @@ impl Store {
     /// A Source Set's folder, opened through its Root without following a symlink below it; or why it cannot be.
     pub(super) fn set_folder_dir(
         &self,
-        config: &Config,
         set_id: i64,
     ) -> Result<std::result::Result<FolderDir, String>> {
+        let roots = &*self.roots();
         let set = self.read(|c| set_by_id(c, set_id))?;
-        let Some(root) = config.root(&set.record.root) else {
+        let Some(root) = roots.root(&set.record.root) else {
             return Ok(Err(format!(
                 "there is no root {} in the configuration",
                 set.record.root
@@ -1089,9 +1089,10 @@ impl Store {
     }
 
     /// The configured path of a Source Set's folder.
-    pub(super) fn set_folder(&self, config: &Config, set_id: i64) -> Result<(PathBuf, PathBuf)> {
+    pub(super) fn set_folder(&self, set_id: i64) -> Result<(PathBuf, PathBuf)> {
+        let roots = &*self.roots();
         let set = self.read(|c| set_by_id(c, set_id))?;
-        let resolved = resolve(config, &set.record.root, &set.record.path)?;
+        let resolved = resolve(roots, &set.record.root, &set.record.path)?;
         Ok((resolved.path, resolved.canonical_root))
     }
 }

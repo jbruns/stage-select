@@ -1,56 +1,19 @@
-//! The Operator's configuration: `title-select.toml` (ADR 0006). It holds only what bootstraps the Service and bounds
-//! what it may do: Roots, auth, chdman, Job ceilings and archive limits. Operational settings live in the store
-//! ([`crate::settings`]), edited in the workbench.
+//! The Operator's configuration: `title-select.toml` (ADR 0006). It holds only what bootstraps the Service until
+//! #266 moves it to the environment: auth and chdman. Roots, Ceilings and archive limits live in the store
+//! ([`crate::roots`], [`crate::settings`]), edited in the workbench, the CLI or the API.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ipnet::IpNet;
 use serde::Deserialize;
-use title_select_api::paths::relative_path;
-use title_select_api::settings::{MAX_ARCHIVE_WORKERS, MAX_MIB_PER_S, MAX_WORKERS};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Named Roots: the folders Title Select may read.
-    #[serde(default)]
-    pub roots: BTreeMap<String, Root>,
     #[serde(default)]
     pub auth: Auth,
     #[serde(default)]
-    pub jobs: Jobs,
-    #[serde(default)]
     pub chd: Chd,
-    #[serde(default)]
-    pub ingest: Ingest,
-    /// What the file sets that was changed to be used, to say at startup.
-    #[serde(skip)]
-    pub warnings: Vec<String>,
-}
-
-/// How archives arriving in an Ingest Folder are read: how many 7z archives decode at once across every Job, and
-/// the largest dictionary one may declare. Decoding takes up to about `archive_workers` x `max_dictionary_mib` of
-/// memory above the rest of the Service. `archive_workers` is a Host Ceiling (ADR 0022): set here, it locks it.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Ingest {
-    pub archive_workers: Option<usize>,
-    pub max_dictionary_mib: u32,
-}
-
-impl Ingest {
-    /// The largest dictionary limit: 4 GiB, the most an LZMA2 header can declare.
-    pub const MAX_DICTIONARY_MIB: u32 = 4096;
-}
-
-impl Default for Ingest {
-    fn default() -> Self {
-        Ingest {
-            archive_workers: None,
-            max_dictionary_mib: 128,
-        }
-    }
 }
 
 /// How a Build makes a CHD.
@@ -59,57 +22,6 @@ impl Default for Ingest {
 pub struct Chd {
     /// The chdman to run. When absent, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
     pub chdman: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Root {
-    pub path: PathBuf,
-    /// Whether Title Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set
-    /// in it. A Source Set is registered only in a read-only Root.
-    #[serde(default)]
-    pub writable: bool,
-    /// For a read-only Root: the paths, relative to it, of the Source Sets in it that a repair may write to.
-    #[serde(default)]
-    pub writable_paths: Vec<String>,
-    /// What the Root is for: `ingest` makes it an Ingest Folder, which must be writable and holds no Source Set or
-    /// Library Folder.
-    #[serde(default)]
-    pub kind: RootKind,
-    /// The Root's Ceilings (ADR 0022), each locking its own when set: payload readers across every Job, and the
-    /// bytes per second every Job may read from it and write to it, in MiB.
-    pub readers: Option<u64>,
-    pub read_mib_per_s: Option<u64>,
-    pub write_mib_per_s: Option<u64>,
-}
-
-/// The Root that holds the Additions Sets, one folder per system.
-pub const ADDITIONS_ROOT: &str = "additions";
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RootKind {
-    #[default]
-    General,
-    /// An Ingest Folder: where new files arrive, assessed, and moved out only by plans you approve.
-    Ingest,
-}
-
-impl Root {
-    pub fn is_ingest(&self) -> bool {
-        self.kind == RootKind::Ingest
-    }
-
-    /// Whether Title Select may write to the folder `rel` of this Root: the Root is writable, or lists `rel` among
-    /// its `writable_paths`.
-    pub fn may_write(&self, rel: &str) -> bool {
-        self.writable
-            || relative_path(rel).is_ok_and(|rel| {
-                self.writable_paths
-                    .iter()
-                    .any(|p| relative_path(p).is_ok_and(|p| p == rel))
-            })
-    }
 }
 
 /// How the Service knows a request comes from the Operator. The Operator token, read from the file named by
@@ -125,30 +37,6 @@ pub struct Auth {
     /// An identity given to every request with no other credential, for development. Only allowed while the
     /// Service listens on a loopback address.
     pub dev_identity: Option<String>,
-}
-
-/// The Host's Ceilings (ADR 0022), each locking its own when set: Jobs running at once, and hash workers across
-/// every Job. `readers` is every Root's reader Ceiling, where the Root sets none of its own.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Jobs {
-    pub concurrent: Option<usize>,
-    pub readers: Option<usize>,
-    pub hashers: Option<usize>,
-}
-
-impl Default for Config {
-    /// No Roots, no auth, Job ceilings from the CPUs, chdman found as usual and the default archive limits.
-    fn default() -> Self {
-        Config {
-            roots: BTreeMap::new(),
-            auth: Auth::default(),
-            jobs: Jobs::default(),
-            chd: Chd::default(),
-            ingest: Ingest::default(),
-            warnings: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -189,34 +77,7 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, Error> {
-        let mut config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
-        let jobs = &mut config.jobs;
-        // These once had no upper bound: one above it is lowered to it rather than refused.
-        for (key, value) in [
-            ("jobs.concurrent", &mut jobs.concurrent),
-            ("jobs.readers", &mut jobs.readers),
-            ("jobs.hashers", &mut jobs.hashers),
-        ] {
-            if let Some(v) = value.filter(|&v| v as u64 > MAX_WORKERS) {
-                *value = Some(MAX_WORKERS as usize);
-                config.warnings.push(format!(
-                    "Your configuration file sets {key} to {v}, more than the most it can be, {MAX_WORKERS}: \
-                     {MAX_WORKERS} is used. Lower it in the file to stop this warning."
-                ));
-            }
-            in_range(key, value.map(|v| v as u64), MAX_WORKERS)?;
-        }
-        in_range(
-            "ingest.archive_workers",
-            config.ingest.archive_workers.map(|v| v as u64),
-            MAX_ARCHIVE_WORKERS,
-        )?;
-        if !(1..=Ingest::MAX_DICTIONARY_MIB).contains(&config.ingest.max_dictionary_mib) {
-            return Err(Error(format!(
-                "ingest.max_dictionary_mib must be between 1 and {}",
-                Ingest::MAX_DICTIONARY_MIB
-            )));
-        }
+        let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
         let auth = &config.auth;
         match (&auth.identity_header, auth.trusted_proxies.is_empty()) {
             (Some(header), false) if is_header_name(header) => {}
@@ -244,62 +105,7 @@ impl Config {
         {
             return Err(Error("auth.dev_identity is empty".into()));
         }
-        for (name, root) in &config.roots {
-            if name.is_empty() {
-                return Err(Error("a root has an empty name".into()));
-            }
-            in_range(&format!("roots.{name}.readers"), root.readers, MAX_WORKERS)?;
-            in_range(
-                &format!("roots.{name}.read_mib_per_s"),
-                root.read_mib_per_s,
-                MAX_MIB_PER_S,
-            )?;
-            in_range(
-                &format!("roots.{name}.write_mib_per_s"),
-                root.write_mib_per_s,
-                MAX_MIB_PER_S,
-            )?;
-            if root.is_ingest() && !root.writable {
-                return Err(Error(format!(
-                    "roots.{name} is an ingest folder, which needs writable = true"
-                )));
-            }
-            if !root.writable_paths.is_empty() && (root.writable || root.is_ingest()) {
-                return Err(Error(format!(
-                    "roots.{name}.writable_paths is only for a read-only root; this one is writable already"
-                )));
-            }
-            for path in &root.writable_paths {
-                if let Err(e) = relative_path(path) {
-                    return Err(Error(format!(
-                        "roots.{name}.writable_paths: {path:?}: a source set's path {e}"
-                    )));
-                }
-            }
-            if name == ADDITIONS_ROOT
-                && (!root.writable || root.is_ingest() || !root.writable_paths.is_empty())
-            {
-                return Err(Error(format!(
-                    "roots.{name} holds the additions sets, which needs writable = true, no kind and no \
-                     writable_paths"
-                )));
-            }
-        }
         Ok(config)
-    }
-
-    pub fn root(&self, name: &str) -> Option<&Root> {
-        self.roots.get(name)
-    }
-}
-
-/// Refuses a ceiling set outside 1 to `max`.
-fn in_range(key: &str, value: Option<u64>, max: u64) -> Result<(), Error> {
-    match value {
-        Some(v) if !(1..=max).contains(&v) => {
-            Err(Error(format!("{key} must be between 1 and {max}")))
-        }
-        _ => Ok(()),
     }
 }
 
@@ -316,54 +122,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ingest_archive_limits_default_to_two_workers_and_128_mib_and_refuse_nonsense() {
-        let ingest = Config::default().ingest;
-        assert_eq!(
-            (ingest.archive_workers, ingest.max_dictionary_mib),
-            (None, 128)
-        );
-        let set =
-            Config::parse("[ingest]\narchive_workers = 4\nmax_dictionary_mib = 1536").unwrap();
-        assert_eq!(
-            (set.ingest.archive_workers, set.ingest.max_dictionary_mib),
-            (Some(4), 1536)
-        );
-        for (bad, why) in [
-            (
-                "archive_workers = 0",
-                "ingest.archive_workers must be between 1 and 64",
-            ),
-            (
-                "archive_workers = 1000",
-                "ingest.archive_workers must be between 1 and 64",
-            ),
-            (
-                "max_dictionary_mib = 0",
-                "ingest.max_dictionary_mib must be between 1 and 4096",
-            ),
-            (
-                "max_dictionary_mib = 1000000",
-                "ingest.max_dictionary_mib must be between 1 and 4096",
-            ),
-        ] {
-            let err = Config::parse(&format!("[ingest]\n{bad}"))
-                .unwrap_err()
-                .to_string();
-            assert!(err.contains(why), "{bad}: {err}");
-        }
-        for bad in [
-            "archive_workers = -1",
-            "max_dictionary_mib = \"lots\"",
-            "workers = 2",
-        ] {
-            assert!(Config::parse(&format!("[ingest]\n{bad}")).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
     fn a_config_that_does_not_parse_is_named_by_line_and_reason_never_quoted() {
         let err =
-            Config::parse("[jobs]\nconcurrent = 2\n\n[auth]\ndev_identity = \"secret-token\n")
+            Config::parse("[chd]\nchdman = \"/bin/x\"\n\n[auth]\ndev_identity = \"secret-token\n")
                 .unwrap_err()
                 .to_string();
         assert!(err.contains("line 5, column 29, `dev_identity`: "), "{err}");
@@ -378,86 +139,11 @@ mod tests {
     }
 
     #[test]
-    fn ceilings_are_read_from_the_file_and_unsupported_values_are_refused() {
-        let set = Config::parse(
-            "[jobs]\nconcurrent = 2\nhashers = 6\nreaders = 3\n\n\
-             [roots.sets]\npath = \"/sets\"\nreaders = 4\nread_mib_per_s = 200\nwrite_mib_per_s = 90",
-        )
-        .unwrap();
-        assert_eq!(
-            (set.jobs.concurrent, set.jobs.hashers, set.jobs.readers),
-            (Some(2), Some(6), Some(3))
-        );
-        let sets = &set.roots["sets"];
-        assert_eq!(
-            (sets.readers, sets.read_mib_per_s, sets.write_mib_per_s),
-            (Some(4), Some(200), Some(90))
-        );
-        // The Host's Ceilings once had no upper bound, so a file setting one above it still starts, at the bound.
-        let above = Config::parse("[jobs]\nhashers = 5000\nconcurrent = 3").unwrap();
-        assert_eq!(
-            (above.jobs.hashers, above.jobs.concurrent),
-            (Some(1024), Some(3))
-        );
-        assert_eq!(
-            above.warnings,
-            [
-                "Your configuration file sets jobs.hashers to 5000, more than the most it can be, 1024: 1024 is used. \
-              Lower it in the file to stop this warning."
-            ]
-        );
-        let unset = Config::default();
-        assert_eq!(
-            (
-                unset.jobs.concurrent,
-                unset.jobs.hashers,
-                unset.jobs.readers
-            ),
-            (None, None, None)
-        );
-        for (text, why) in [
-            (
-                "[jobs]\nconcurrent = 0",
-                "jobs.concurrent must be between 1 and 1024",
-            ),
-            (
-                "[jobs]\nreaders = 0",
-                "jobs.readers must be between 1 and 1024",
-            ),
-            (
-                "[jobs]\nhashers = 0",
-                "jobs.hashers must be between 1 and 1024",
-            ),
-            (
-                "[roots.sets]\npath = \"/sets\"\nreaders = 0",
-                "roots.sets.readers must be between 1 and 1024",
-            ),
-            (
-                "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = 0",
-                "roots.sets.read_mib_per_s must be between 1 and 1048576",
-            ),
-            (
-                "[roots.sets]\npath = \"/sets\"\nwrite_mib_per_s = 2000000",
-                "roots.sets.write_mib_per_s must be between 1 and 1048576",
-            ),
-        ] {
-            let err = Config::parse(text).unwrap_err().to_string();
-            assert!(err.contains(why), "{text}: {err}");
-        }
+    fn settings_kept_in_the_store_are_not_read_from_the_file() {
         for text in [
-            "[jobs]\nhashers = -1",
-            "[jobs]\nconcurrent = 1.5",
-            "[jobs]\nreaders = \"lots\"",
-            "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = -5",
-            "[roots.sets]\npath = \"/sets\"\nwrite_mib_per_s = 2.5",
-        ] {
-            assert!(Config::parse(text).is_err(), "{text}");
-        }
-    }
-
-    #[test]
-    fn settings_edited_in_the_workbench_are_not_read_from_the_file() {
-        for text in [
+            "[roots.sets]\npath = \"/sets\"",
+            "[jobs]\nconcurrent = 2",
+            "[ingest]\nmax_dictionary_mib = 64",
             "[jobs]\npace = \"gentle\"",
             "[audits]\nkeep = 3",
             "[selections]\nkeep = 3",
@@ -468,44 +154,6 @@ mod tests {
             "[chd]\ntimeout_seconds = 5",
             "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nsettle_secs = 5",
             "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 5",
-        ] {
-            assert!(Config::parse(text).is_err(), "{text}");
-        }
-    }
-
-    #[test]
-    fn an_ingest_root_is_writable() {
-        let config =
-            Config::parse("[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"")
-                .unwrap();
-        assert!(config.root("in").unwrap().is_ingest());
-
-        for text in [
-            "[roots.in]\npath = \"/in\"\nkind = \"ingest\"",
-            "[roots.in]\npath = \"/in\"\nkind = \"other\"",
-        ] {
-            assert!(Config::parse(text).is_err(), "{text}");
-        }
-    }
-
-    #[test]
-    fn writable_paths_let_a_read_only_root_write_only_those_folders() {
-        let config = Config::parse(
-            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"No-Intro/Atari 2600\", \"Other/\"]",
-        )
-        .unwrap();
-        let root = config.root("sets").unwrap();
-        assert!(!root.writable);
-        assert!(root.may_write("No-Intro/Atari 2600"));
-        assert!(root.may_write("Other"));
-        assert!(!root.may_write("No-Intro"));
-        assert!(!root.may_write("No-Intro/Atari 2600/sub"));
-
-        for text in [
-            "[roots.sets]\npath = \"/sets\"\nwritable = true\nwritable_paths = [\"a\"]",
-            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"../a\"]",
-            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"/a\"]",
-            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nwritable_paths = [\"a\"]",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
         }

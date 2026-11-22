@@ -16,7 +16,7 @@ use title_select_api::lifecycle::{
 use super::folder_dir::{FolderDir, Identity};
 use super::folders::{MARKER_LIMIT, folder_by_id, open_folder, store_id};
 use super::{Error, Result, Store, now};
-use crate::config::{ADDITIONS_ROOT, Config};
+
 
 /// The table each kind is registered in.
 fn table(kind: RegistrationKind) -> &'static str {
@@ -479,8 +479,9 @@ impl Store {
 
     /// What holds the Root `name` in the configuration: each registration still registered in it. A Root lives in
     /// the configuration only, so once nothing holds it you remove it there.
-    pub fn root_holds(&self, config: &Config, name: &str) -> Result<Holds> {
-        if config.root(name).is_none() {
+    pub fn root_holds(&self, name: &str) -> Result<Holds> {
+        let roots = &*self.roots();
+        if roots.root(name).is_none() {
             return Err(Error::NotFound(format!(
                 "there is no root {name} in the configuration"
             )));
@@ -516,37 +517,35 @@ impl Store {
     }
 
     /// Unregisters Source Set `name`, touching no game file.
-    pub fn unregister_source_set(&self, config: &Config, name: &str) -> Result<Unregistration> {
+    pub fn unregister_source_set(&self, name: &str) -> Result<Unregistration> {
         let id = self.source_set_id(name)?;
-        self.unregister(config, RegistrationKind::SourceSet, id)
+        self.unregister(RegistrationKind::SourceSet, id)
     }
 
     /// Unregisters Library Folder `id`. Its built files are left in place, as files Title Select no longer manages.
-    pub fn unregister_library_folder(&self, config: &Config, id: i64) -> Result<Unregistration> {
+    pub fn unregister_library_folder(&self, id: i64) -> Result<Unregistration> {
         self.read(|c| Self::registered_library_folder(c, id))?;
-        self.unregister(config, RegistrationKind::LibraryFolder, id)
+        self.unregister(RegistrationKind::LibraryFolder, id)
     }
 
     /// Unregisters the Additions Set of `system`. Its additions are left in its folder, as files Title Select no
     /// longer manages.
     pub fn unregister_additions_set(
         &self,
-        config: &Config,
         system: &str,
     ) -> Result<Unregistration> {
         let id = self.read(|c| Self::additions_set_id(c, system))?;
-        self.unregister(config, RegistrationKind::AdditionsSet, id)
+        self.unregister(RegistrationKind::AdditionsSet, id)
     }
 
     /// Unregisters the Ingest Folder of Root `root`. What is in it is left as it is.
-    pub fn unregister_ingest_folder(&self, config: &Config, root: &str) -> Result<Unregistration> {
+    pub fn unregister_ingest_folder(&self, root: &str) -> Result<Unregistration> {
         let id = self.read(|c| Self::ingest_folder_id(c, root))?;
-        self.unregister(config, RegistrationKind::IngestFolder, id)
+        self.unregister(RegistrationKind::IngestFolder, id)
     }
 
     pub(crate) fn unregister(
         &self,
-        config: &Config,
         kind: RegistrationKind,
         id: i64,
     ) -> Result<Unregistration> {
@@ -554,7 +553,7 @@ impl Store {
         let at = self.write(|tx| unregister_in(tx, kind, id))?;
         let reg = self.read(|c| registration(c, kind, id))?;
         let mut notes = Vec::new();
-        if let Some(note) = self.settle_marker_in(config, kind, id)? {
+        if let Some(note) = self.settle_marker_in(kind, id)? {
             notes.push(note);
         }
         if kind == RegistrationKind::IngestFolder {
@@ -584,21 +583,20 @@ impl Store {
     /// marker lets you delete. Returns a note when the marker stays, or could not be removed.
     pub(crate) fn settle_marker(
         &self,
-        config: &Config,
         kind: RegistrationKind,
         id: i64,
     ) -> Result<Option<String>> {
         let _lifecycle = self.lifecycle_lock();
-        self.settle_marker_in(config, kind, id)
+        self.settle_marker_in(kind, id)
     }
 
     /// As [`Store::settle_marker`], with the lifecycle lock already held.
     fn settle_marker_in(
         &self,
-        config: &Config,
         kind: RegistrationKind,
         id: i64,
     ) -> Result<Option<String>> {
+        let roots = &*self.roots();
         let (reg, kept, store) = self.read(|c| {
             Ok((
                 registration(c, kind, id)?,
@@ -615,14 +613,11 @@ impl Store {
             )));
         }
         let dir = match kind {
-            RegistrationKind::SourceSet => match config.root(&reg.root) {
+            RegistrationKind::SourceSet => match roots.root(&reg.root) {
                 Some(root) => FolderDir::open(&root.path, &reg.path).map_err(|e| e.to_string()),
-                None => Err(format!(
-                    "there is no root {} in the configuration",
-                    reg.root
-                )),
+                None => Err(format!("there is no root {} now", reg.root)),
             },
-            RegistrationKind::LibraryFolder => open_folder(config, &reg.root, &reg.path),
+            RegistrationKind::LibraryFolder => open_folder(roots, &reg.root, &reg.path),
             RegistrationKind::AdditionsSet => {
                 let created: bool = self.read(|c| {
                     Ok(c.query_row(
@@ -634,10 +629,9 @@ impl Store {
                 if !created {
                     return Ok(None);
                 }
-                debug_assert_eq!(reg.root, ADDITIONS_ROOT);
-                self.open_additions(config, id)?
+                self.open_additions(id)?
             }
-            RegistrationKind::IngestFolder => crate::ingest::open_ingest(config, &reg.root),
+            RegistrationKind::IngestFolder => crate::ingest::open_ingest(roots, &reg.root),
         };
         let removed = dir.and_then(|dir| remove_own_marker(&dir, &store, kind, id));
         Ok(removed.err())

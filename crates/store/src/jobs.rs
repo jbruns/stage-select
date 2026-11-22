@@ -5,7 +5,6 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use super::audits::{check_blob_present, choose_revision, delete_audits};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use title_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
 use title_select_engine::meter::Meter;
 use title_select_engine::{AuditEvidence, Progress};
@@ -310,7 +309,6 @@ impl Store {
     /// pruning or retention failed after the Job Succeeded.
     pub fn run_audit_job(
         &self,
-        config: &Config,
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
@@ -354,7 +352,7 @@ impl Store {
             return Err(Error::Refused(format!("job {id} is {state}, not running")));
         }
         let outcome = self
-            .begin_job_audit(config, &row)
+            .begin_job_audit(&row)
             .and_then(|running| self.complete_audit(running, progress));
         if let Err(err) = &outcome {
             // A failure before the Audit's row existed leaves the Job Running; one after has Failed it already.

@@ -12,7 +12,6 @@ use title_select_api::storage::is_reserved_name;
 use title_select_engine::meter::Tally;
 
 use crate::builds::sha256_of;
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::{folder_by_id, open_folder};
 use crate::sets::{Resolved, resolve, set_by_id, set_by_name};
@@ -438,9 +437,9 @@ impl Store {
     /// paths of the Placed Games' files in it.
     pub(crate) fn placed_folders(
         &self,
-        config: &Config,
         set: i64,
     ) -> Result<Vec<(i64, Resolved, Vec<String>)>> {
+        let roots = &*self.roots();
         let files = self.read(|c| placed_files_of(c, set))?;
         let mut folders: Vec<(i64, Resolved, Vec<String>)> = Vec::new();
         for file in files {
@@ -448,7 +447,7 @@ impl Store {
                 Some((folder, _, paths)) if *folder == file.library_folder => paths.push(file.path),
                 _ => {
                     let row = self.read(|c| folder_by_id(c, file.library_folder))?;
-                    let resolved = resolve(config, &row.root, &row.path)?;
+                    let resolved = resolve(roots, &row.root, &row.path)?;
                     folders.push((file.library_folder, resolved, vec![file.path]));
                 }
             }
@@ -534,12 +533,12 @@ impl Store {
     #[doc(hidden)]
     pub fn record_placement(
         &self,
-        config: &Config,
         name: &str,
         game: &str,
         folder: i64,
         paths: &[&str],
     ) -> Result<()> {
+        let roots = &*self.roots();
         let (set, row) = self.read(|c| Ok((set_by_name(c, name)?, folder_by_id(c, folder)?)))?;
         row.check_registered()?;
         if paths.is_empty() {
@@ -547,7 +546,7 @@ impl Store {
                 "{game}: a placed game has at least one file"
             )));
         }
-        let dir = open_folder(config, &row.root, &row.path).map_err(Error::Refused)?;
+        let dir = open_folder(roots, &row.root, &row.path).map_err(Error::Refused)?;
         let mut files = Vec::new();
         for path in paths {
             let rel = relative_path(path).map_err(|e| Error::Refused(format!("{path}: {e}")))?;

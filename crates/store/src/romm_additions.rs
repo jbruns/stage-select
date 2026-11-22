@@ -12,7 +12,6 @@ use serde::Deserialize;
 use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome};
 use title_select_api::{Job, JobKind};
 
-use crate::config::Config;
 use crate::fetch::Method;
 use crate::romm::{Romm, RommClient, RommError, ScanStop, ScanTiming};
 use crate::{Result, Store, now};
@@ -485,7 +484,8 @@ fn sync(
 impl Store {
     /// Each Addition built into a registered Library Folder that maps to a RomM platform, by the RomM `romm`, with
     /// the SHA-1 of its one ROM, by name.
-    fn built_additions(&self, config: &Config, romm: &Romm) -> Result<Vec<Built>> {
+    fn built_additions(&self, romm: &Romm) -> Result<Vec<Built>> {
+        let roots = &*self.roots();
         let rows: Vec<(i64, String, Option<String>, String, String)> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT DISTINCT a.id, a.name, json_extract(a.rom, '$.sha1'), f.root, f.path
@@ -501,7 +501,7 @@ impl Store {
         })?;
         let mut built = BTreeMap::new();
         for (id, name, sha1, root, path) in rows {
-            if romm.platform(config, &root, &path).fs_slug().is_some() {
+            if romm.platform(roots, &root, &path).fs_slug().is_some() {
                 built.insert(
                     id,
                     Built {
@@ -549,7 +549,6 @@ impl Store {
     /// each request, and stops once RomM is turned off, its address or root changes, or `stop`.
     pub fn sync_romm_additions(
         store: &Weak<Store>,
-        config: &Config,
         job: i64,
         timing: &ScanTiming,
         stop: &ScanStop,
@@ -576,7 +575,7 @@ impl Store {
             if !owed || !romm.is_on() {
                 return Ok(None);
             }
-            let built = store.built_additions(config, &romm)?;
+            let built = store.built_additions(&romm)?;
             (romm, built)
         };
         let mut result = RommAdditions {

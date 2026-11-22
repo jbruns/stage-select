@@ -1,11 +1,11 @@
 //! Stale Source Sets: what a stat walk finds against the latest Audit, and what a newer DAT Revision does to a
 //! Source Set that Follows its DAT, from synthetic DATs and Source Sets.
 
+use title_select_api::roots::RootSpec;
 use std::path::PathBuf;
 
 use crate::common::*;
 use title_select_api::{AuditEvidence, JobKind, JobState, SourceSetStale};
-use title_select_store::config::Config;
 use title_select_store::{Error, Store};
 
 fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
@@ -19,7 +19,6 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -28,17 +27,18 @@ impl Env {
         for dir in ["sets/Alpha", "sets/Beta", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            tmp.path().join("sets").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let env = Env { tmp, store, config };
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("sets")),
+            ],
+        );
+        let env = Env { tmp, store };
         env.import("1", &games());
         for set in ["Alpha", "Beta"] {
             env.store
-                .add_source_set(&env.config, "sets", set, "No-Intro/Test - System")
+                .add_source_set("sets", set, "No-Intro/Test - System")
                 .unwrap();
             write_file(&env.set(set).join("Pong (USA).a26"), b"pong");
             write_zip(
@@ -65,7 +65,7 @@ impl Env {
 
     fn audit(&self, name: &str, evidence: AuditEvidence) {
         self.store
-            .audit_source_set(&self.config, name, None, evidence)
+            .audit_source_set(name, None, evidence)
             .unwrap();
     }
 
@@ -75,7 +75,7 @@ impl Env {
         assert_eq!(job.kind, JobKind::StatWalk);
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job.id);
-        self.store.run_stat_walk_job(&self.config, job.id).unwrap()
+        self.store.run_stat_walk_job(job.id).unwrap()
     }
 
     fn stale(&self, name: &str) -> Vec<SourceSetStale> {
@@ -243,9 +243,7 @@ fn a_newer_revision_makes_only_the_source_sets_that_follow_their_dat_stale() {
     let revision = env.store.source_set("Alpha").unwrap();
     assert!(revision.follow);
     env.store
-        .audit_source_set(
-            &env.config,
-            "Alpha",
+        .audit_source_set("Alpha",
             Some(&newest_sha(&env)),
             AuditEvidence::Incremental,
         )
@@ -464,9 +462,7 @@ fn each_newer_revision_that_made_a_followed_source_set_stale_stays_in_its_histor
         .unwrap()
         .sha256;
     env.store
-        .audit_source_set(
-            &env.config,
-            "Alpha",
+        .audit_source_set("Alpha",
             Some(&three),
             AuditEvidence::Incremental,
         )
@@ -618,7 +614,7 @@ fn each_time_a_source_set_goes_stale_is_reported_once_as_it_is_committed() {
             .unwrap()
             .sha256;
         env.store
-            .audit_source_set(&env.config, "Alpha", Some(&sha), AuditEvidence::Incremental)
+            .audit_source_set("Alpha", Some(&sha), AuditEvidence::Incremental)
             .unwrap();
     };
     audit_against("2");

@@ -13,13 +13,13 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use title_select_api::settings::{
-    CeilingOverrides, ChdTimeouts, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS,
+    ArchiveLimits, ChdTimeouts, HostOverrides, MAX_DICTIONARY_MIB, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS,
     MAX_CHECK_EVERY_MINUTES, MAX_KEPT, MAX_SCAN_EVERY_MINUTES, MAX_SETTLE_SECS, NotifyEvent,
     NotifyUpdate, NotifyView, Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate,
     SettingsView, SourceSetChecks,
 };
 
-use crate::config::Config;
+use crate::roots::Roots;
 use crate::romm::Romm;
 use crate::{Error, Result, Store, now};
 
@@ -140,8 +140,9 @@ pub struct Settings {
     pub ingest_folders: BTreeMap<String, IngestCadence>,
     pub notify: Notify,
     pub romm: Romm,
-    /// The Ceilings you set in the workbench.
-    pub ceilings: CeilingOverrides,
+    /// The Host's Ceilings you set. Each Root's are kept with it.
+    pub ceilings: HostOverrides,
+    pub archive: ArchiveLimits,
 }
 
 impl Settings {
@@ -159,8 +160,8 @@ impl Settings {
     }
 
     /// What the API returns: every setting but the secrets, with the Ceilings in force, `jobs`, and the cadence of
-    /// every Ingest Folder `config` names.
-    pub fn view(&self, config: &Config, jobs: JobsView) -> SettingsView {
+    /// every Ingest Folder in `roots`.
+    pub fn view(&self, roots: &Roots, jobs: JobsView) -> SettingsView {
         SettingsView {
             jobs,
             retention: self.retention,
@@ -168,14 +169,13 @@ impl Settings {
             source_sets: self.source_sets,
             fetch: self.fetch,
             chd: self.chd,
-            ingest_folders: config
-                .roots
-                .iter()
-                .filter(|(_, root)| root.is_ingest())
-                .map(|(name, _)| (name.clone(), self.ingest(name)))
+            ingest_folders: roots
+                .ingest()
+                .map(|root| (root.name.clone(), self.ingest(&root.name)))
                 .collect(),
             notify: self.notify.view(),
             romm: self.romm.view(),
+            archive: self.archive,
         }
     }
 }
@@ -190,6 +190,7 @@ const INGEST_FOLDERS: &str = "ingest_folders";
 const NOTIFY: &str = "notify";
 const ROMM: &str = "romm";
 const CEILINGS: &str = "ceilings";
+const ARCHIVE: &str = "archive";
 
 fn parse<T: serde::de::DeserializeOwned>(section: &str, value: &str) -> Result<T> {
     serde_json::from_str(value)
@@ -215,6 +216,7 @@ pub(crate) fn load(c: &Connection) -> Result<Settings> {
             NOTIFY => settings.notify = parse(&section, &value)?,
             ROMM => settings.romm = parse(&section, &value)?,
             CEILINGS => settings.ceilings = parse(&section, &value)?,
+            ARCHIVE => settings.archive = parse(&section, &value)?,
             _ => {}
         }
     }
@@ -242,11 +244,11 @@ impl Store {
         self.read(load)
     }
 
-    /// Every operational setting, as the API returns it, with the Ceilings in force under `config`, worked out
-    /// afresh so that the write throughput past Jobs reached is up to date.
-    pub fn settings_view(&self, config: &Config) -> Result<SettingsView> {
-        let jobs = self.refresh_ceilings(config)?;
-        Ok(self.settings()?.view(config, jobs))
+    /// Every operational setting, as the API returns it, with the Ceilings in force, worked out afresh so that the
+    /// write throughput past Jobs reached is up to date.
+    pub fn settings_view(&self) -> Result<SettingsView> {
+        let jobs = self.refresh_ceilings()?;
+        Ok(self.settings()?.view(&self.roots(), jobs))
     }
 
     /// The pace running Jobs follow now.
@@ -254,15 +256,11 @@ impl Store {
         *self.pace.read().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Replaces each section `update` gives, as `actor`, checking it against `config`, and returns the settings
-    /// now. Nothing is changed unless every section given is accepted.
-    pub fn update_settings(
-        &self,
-        config: &Config,
-        update: &SettingsUpdate,
-        actor: &str,
-    ) -> Result<Settings> {
-        self.update_settings_and_publish(config, update, actor, |_| {})
+    /// Replaces each section `update` gives, as `actor`, checking it against the Roots, and returns the settings
+    /// now. Nothing is changed unless every section given is accepted. The Ceilings of each Root `update` names are
+    /// kept with it.
+    pub fn update_settings(&self, update: &SettingsUpdate, actor: &str) -> Result<Settings> {
+        self.update_settings_and_publish(update, actor, |_| {})
     }
 
     /// As [`Store::update_settings`], then `publish`es the settings now to whatever applies them, such as the
@@ -270,14 +268,11 @@ impl Store {
     /// publishes its settings after a later one's.
     pub fn update_settings_and_publish(
         &self,
-        config: &Config,
         update: &SettingsUpdate,
         actor: &str,
         publish: impl FnOnce(&Settings),
     ) -> Result<Settings> {
-        Ok(self
-            .update_settings_and_release(config, update, actor, publish)?
-            .0)
+        Ok(self.update_settings_and_release(update, actor, publish)?.0)
     }
 
     /// As [`Store::update_settings_and_publish`], and says whether the update left RomM's "Additions" collection to
@@ -285,21 +280,23 @@ impl Store {
     /// for [`Store::delete_released_romm_collection`], which is never part of saving.
     pub fn update_settings_and_release(
         &self,
-        config: &Config,
         update: &SettingsUpdate,
         actor: &str,
         publish: impl FnOnce(&Settings),
     ) -> Result<(Settings, bool)> {
-        check(config, update)?;
-        let ceilings = update
-            .ceilings
-            .as_ref()
-            .map(|c| crate::ceilings::checked(config, c))
-            .transpose()?;
+        // The lifecycle lock keeps a Root from being registered, edited or unregistered meanwhile.
+        let _lifecycle = update.ceilings.as_ref().map(|_| self.lifecycle_lock());
         let _one_at_a_time = self
             .settings_update
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let roots = self.roots();
+        check(&roots, update)?;
+        let ceilings = update
+            .ceilings
+            .as_ref()
+            .map(|c| crate::ceilings::checked(&roots, c))
+            .transpose()?;
         let (settings, release) = self.write(|tx| {
             let mut settings = load(tx)?;
             let was = settings.romm.clone();
@@ -308,7 +305,7 @@ impl Store {
                 put(tx, NOTIFY, &settings.notify, actor)?;
             }
             if let Some(romm) = &update.romm {
-                settings.romm = settings.romm.updated(config, romm)?;
+                settings.romm = settings.romm.updated(&roots, romm)?;
                 put(tx, ROMM, &settings.romm, actor)?;
             }
             if let Some(pace) = update.pace {
@@ -340,16 +337,28 @@ impl Store {
                 put(tx, INGEST_FOLDERS, &settings.ingest_folders, actor)?;
             }
             if let Some(ceilings) = &ceilings {
-                settings.ceilings = ceilings.clone();
-                put(tx, CEILINGS, ceilings, actor)?;
+                settings.ceilings = ceilings.host.clone();
+                put(tx, CEILINGS, &ceilings.host, actor)?;
+                Store::set_root_ceilings(tx, &ceilings.roots, actor)?;
+            }
+            if let Some(archive) = update.archive {
+                settings.archive = archive;
+                put(tx, ARCHIVE, &archive, actor)?;
             }
             let release = crate::romm_additions::release(tx, &was, &settings.romm)?;
             Ok((settings, release))
         })?;
         *self.pace.write().unwrap_or_else(|e| e.into_inner()) = settings.pace;
+        self.max_dictionary_mib.store(
+            settings.archive.max_dictionary_mib,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        if ceilings.is_some() {
+            self.reload_roots()?;
+        }
         if update.pace.is_some() || ceilings.is_some() {
             // Running Jobs take the new pools' sizes at their workers' next file.
-            self.refresh_ceilings(config)?;
+            self.refresh_ceilings()?;
         }
         publish(&settings);
         Ok((settings, release))
@@ -357,7 +366,7 @@ impl Store {
 }
 
 /// Refuses an update whose values are out of range, before anything is changed.
-fn check(config: &Config, update: &SettingsUpdate) -> Result<()> {
+fn check(roots: &Roots, update: &SettingsUpdate) -> Result<()> {
     let refuse = |why: String| Err(Error::Refused(why));
     if let Some(retention) = &update.retention {
         for (what, keep) in [
@@ -391,11 +400,18 @@ fn check(config: &Config, update: &SettingsUpdate) -> Result<()> {
             ));
         }
     }
+    if let Some(archive) = &update.archive
+        && !(1..=MAX_DICTIONARY_MIB).contains(&archive.max_dictionary_mib)
+    {
+        return refuse(format!(
+            "Set the largest 7z dictionary to a whole number of MiB from 1 to {MAX_DICTIONARY_MIB}."
+        ));
+    }
     if let Some(folders) = &update.ingest_folders {
         for (name, cadence) in folders {
-            if !config.root(name).is_some_and(|r| r.is_ingest()) {
+            if !roots.root(name).is_some_and(|r| r.is_ingest()) {
                 return Err(Error::Refused(format!(
-                    "{name} is not an ingest folder in your configuration."
+                    "{name} is not a registered ingest folder."
                 )));
             }
             if cadence.settle_secs > MAX_SETTLE_SECS {
@@ -429,24 +445,34 @@ mod tests {
         (dir, store)
     }
 
-    fn ingest_config() -> Config {
-        Config::parse(
-            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\n\n[roots.sets]\npath = \"/sets\"",
-        )
-        .unwrap()
+    /// Registers each Root `specs` gives, in its own new folder under `dir`: a name, and whether it is an ingest
+    /// folder or else writable.
+    fn register(store: &Store, dir: &std::path::Path, specs: &[(&str, Option<bool>)]) {
+        use title_select_api::roots::{RootKind, RootSpec};
+        for (name, how) in specs {
+            let path = dir.join("roots").join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            let spec = match how {
+                Some(true) => RootSpec::new(name, &path).of_kind(RootKind::Ingest),
+                Some(false) => RootSpec::new(name, &path).writable(),
+                None => RootSpec::new(name, &path),
+            };
+            store.register_root(&spec, "test").unwrap();
+        }
     }
+
+    const INGEST: &[(&str, Option<bool>)] = &[("in", Some(true)), ("sets", None)];
+    const ROMM: &[(&str, Option<bool>)] = &[("library", Some(false)), ("in", Some(true))];
 
     #[test]
     fn each_section_given_is_kept_across_a_restart_and_the_rest_keep_their_defaults() {
         let dir = tempfile::tempdir().unwrap();
-        let config = ingest_config();
         {
             let store = Store::open(dir.path()).unwrap();
             assert_eq!(store.settings().unwrap(), Settings::default());
+            register(&store, dir.path(), INGEST);
             store
-                .update_settings(
-                    &config,
-                    &SettingsUpdate {
+                .update_settings(&SettingsUpdate {
                         pace: Some(Pace::Gentle),
                         retention: Some(Retention {
                             audits_keep: 3,
@@ -478,7 +504,7 @@ mod tests {
         assert_eq!(settings.ingest("in").settle_secs, 5);
         assert_eq!(settings.chd, ChdTimeouts::default());
         assert_eq!(settings.path_templates, PathTemplates::default());
-        let view = store.settings_view(&config).unwrap();
+        let view = store.settings_view().unwrap();
         assert_eq!(view.ingest_folders.keys().collect::<Vec<_>>(), ["in"]);
         let hashers = &view.jobs.host.hashers;
         assert_eq!(view.jobs.pace, Pace::Gentle);
@@ -490,8 +516,8 @@ mod tests {
 
     #[test]
     fn nonsense_is_refused_and_changes_nothing() {
-        let (_dir, store) = store();
-        let config = ingest_config();
+        let (dir, store) = store();
+        register(&store, dir.path(), INGEST);
         let cadence = |scan| {
             BTreeMap::from([(
                 "in".to_owned(),
@@ -567,8 +593,20 @@ mod tests {
                 }),
                 ..SettingsUpdate::default()
             },
+            SettingsUpdate {
+                archive: Some(ArchiveLimits {
+                    max_dictionary_mib: 0,
+                }),
+                ..SettingsUpdate::default()
+            },
+            SettingsUpdate {
+                archive: Some(ArchiveLimits {
+                    max_dictionary_mib: MAX_DICTIONARY_MIB + 1,
+                }),
+                ..SettingsUpdate::default()
+            },
         ] {
-            let refused = store.update_settings(&config, &bad, "Operator");
+            let refused = store.update_settings(&bad, "Operator");
             assert!(
                 matches!(refused, Err(Error::Refused(_))),
                 "{bad:?}: {refused:?}"
@@ -581,11 +619,10 @@ mod tests {
                 scan_every_minutes: Some(MAX_SCAN_EVERY_MINUTES),
             },
         )]);
-        let (_dir2, other) = self::store();
+        let (dir2, other) = self::store();
+        register(&other, dir2.path(), INGEST);
         other
-            .update_settings(
-                &config,
-                &SettingsUpdate {
+            .update_settings(&SettingsUpdate {
                     ingest_folders: Some(longest),
                     ..SettingsUpdate::default()
                 },
@@ -599,12 +636,11 @@ mod tests {
     #[test]
     fn concurrent_updates_publish_in_the_order_they_commit() {
         let (_dir, store) = store();
-        let config = Config::default();
         let published = std::sync::Mutex::new(None::<bool>);
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         std::thread::scope(|scope| {
             for i in 0..8 {
-                let (store, config, published) = (&store, &config, &published);
+                let (store, published) = (&store, &published);
                 scope.spawn(move || {
                     for j in 0..25 {
                         let update = if (i + j) % 2 == 0 {
@@ -613,7 +649,7 @@ mod tests {
                             notify(SecretUpdate::Clear, SecretUpdate::Clear)
                         };
                         store
-                            .update_settings_and_publish(config, &update, "Operator", |now| {
+                            .update_settings_and_publish(&update, "Operator", |now| {
                                 // Widens the window between commit and publication.
                                 std::thread::sleep(std::time::Duration::from_micros(200));
                                 assert_eq!(
@@ -650,21 +686,16 @@ mod tests {
     #[test]
     fn the_webhook_needs_its_secret_and_keeps_both_unless_told_otherwise() {
         let (_dir, store) = store();
-        let config = Config::default();
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         assert!(
             store
-                .update_settings(
-                    &config,
-                    &notify(set("https://hooks.example/x"), SecretUpdate::Keep),
+                .update_settings(&notify(set("https://hooks.example/x"), SecretUpdate::Keep),
                     "Operator"
                 )
                 .is_err()
         );
         let on = store
-            .update_settings(
-                &config,
-                &notify(set("https://hooks.example/x"), set(" s3cret \n")),
+            .update_settings(&notify(set("https://hooks.example/x"), set(" s3cret \n")),
                 "Operator",
             )
             .unwrap()
@@ -678,9 +709,7 @@ mod tests {
         );
         assert_eq!(on.workbench_url.as_deref(), Some("https://ts.example"));
         let kept = store
-            .update_settings(
-                &config,
-                &notify(SecretUpdate::Keep, SecretUpdate::Keep),
+            .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Keep),
                 "Operator",
             )
             .unwrap()
@@ -688,17 +717,13 @@ mod tests {
         assert_eq!(kept, on);
         assert!(
             store
-                .update_settings(
-                    &config,
-                    &notify(SecretUpdate::Keep, SecretUpdate::Clear),
+                .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Clear),
                     "Operator"
                 )
                 .is_err()
         );
         let off = store
-            .update_settings(
-                &config,
-                &notify(SecretUpdate::Clear, SecretUpdate::Clear),
+            .update_settings(&notify(SecretUpdate::Clear, SecretUpdate::Clear),
                 "Operator",
             )
             .unwrap()
@@ -720,7 +745,6 @@ mod tests {
         ] {
             let err = store
                 .update_settings(
-                    &Config::default(),
                     &notify(SecretUpdate::Set(url.into()), SecretUpdate::Set("s".into())),
                     "Operator",
                 )
@@ -730,14 +754,6 @@ mod tests {
             assert!(!err.contains("secret-token"), "{err}");
             assert!(!err.contains("hooks."), "{err}");
         }
-    }
-
-    fn romm_config() -> Config {
-        Config::parse(
-            "[roots.library]\npath = \"/library\"\nwritable = true\n\n\
-             [roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"",
-        )
-        .unwrap()
     }
 
     fn romm(
@@ -759,18 +775,16 @@ mod tests {
 
     #[test]
     fn romm_is_off_by_default_and_its_token_is_set_replaced_and_cleared_but_never_shown() {
-        let (_dir, store) = store();
-        let config = romm_config();
+        let (dir, store) = store();
+        register(&store, dir.path(), ROMM);
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         assert_eq!(
-            store.settings_view(&config).unwrap().romm,
+            store.settings_view().unwrap().romm,
             RommView::default()
         );
 
         let on = store
-            .update_settings(
-                &config,
-                &romm(
+            .update_settings(&romm(
                     true,
                     Some(" https://romm.example/ "),
                     set(" rmm_first-token \n"),
@@ -781,7 +795,7 @@ mod tests {
             .unwrap();
         assert_eq!(on.romm.token.as_deref(), Some("rmm_first-token"));
         assert_eq!(
-            on.view(&config, store.ceilings(&config).unwrap()).romm,
+            on.view(&store.roots(), store.ceilings().unwrap()).romm,
             RommView {
                 enabled: true,
                 base_url: Some("https://romm.example".into()),
@@ -791,9 +805,7 @@ mod tests {
         );
 
         let kept = store
-            .update_settings(
-                &config,
-                &romm(
+            .update_settings(&romm(
                     false,
                     Some("https://romm.example"),
                     SecretUpdate::Keep,
@@ -806,9 +818,7 @@ mod tests {
         assert!(!kept.romm.enabled, "turning RomM off keeps its connection");
 
         let replaced = store
-            .update_settings(
-                &config,
-                &romm(
+            .update_settings(&romm(
                     true,
                     Some("https://romm.example"),
                     set("rmm_second-token"),
@@ -819,15 +829,13 @@ mod tests {
             .unwrap();
         assert_eq!(replaced.romm.token.as_deref(), Some("rmm_second-token"));
         let shown =
-            serde_json::to_string(&replaced.view(&config, store.ceilings(&config).unwrap()))
+            serde_json::to_string(&replaced.view(&store.roots(), store.ceilings().unwrap()))
                 .unwrap();
         assert!(!shown.contains("rmm_"), "{shown}");
         assert!(!format!("{replaced:?}").contains("rmm_"));
 
         let cleared = store
-            .update_settings(
-                &config,
-                &romm(
+            .update_settings(&romm(
                     false,
                     Some("https://romm.example"),
                     SecretUpdate::Clear,
@@ -839,7 +847,7 @@ mod tests {
         assert_eq!(cleared.romm.token, None);
         assert!(
             !cleared
-                .view(&config, store.ceilings(&config).unwrap())
+                .view(&store.roots(), store.ceilings().unwrap())
                 .romm
                 .token_set
         );
@@ -848,8 +856,8 @@ mod tests {
 
     #[test]
     fn an_incomplete_or_unsafe_romm_connection_is_refused_and_changes_nothing() {
-        let (_dir, store) = store();
-        let config = romm_config();
+        let (dir, store) = store();
+        register(&store, dir.path(), ROMM);
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         let url = Some("https://romm.example");
         for (bad, why) in [
@@ -875,7 +883,7 @@ mod tests {
                 "query",
             ),
         ] {
-            let refused = store.update_settings(&config, &bad, "Operator");
+            let refused = store.update_settings(&bad, "Operator");
             match refused {
                 Err(Error::Refused(message)) => assert!(message.contains(why), "{why}: {message}"),
                 other => panic!("{bad:?}: {other:?}"),
@@ -884,9 +892,7 @@ mod tests {
         assert_eq!(store.settings().unwrap(), Settings::default());
 
         store
-            .update_settings(
-                &config,
-                &romm(true, url, set("rmm_t"), Some("library")),
+            .update_settings(&romm(true, url, set("rmm_t"), Some("library")),
                 "Operator",
             )
             .unwrap();
@@ -905,16 +911,14 @@ mod tests {
                 "token",
             ),
         ] {
-            let refused = store.update_settings(&config, &bad, "Operator");
+            let refused = store.update_settings(&bad, "Operator");
             match refused {
                 Err(Error::Refused(message)) => assert!(message.contains(why), "{why}: {message}"),
                 other => panic!("{bad:?}: {other:?}"),
             }
         }
         let moved = store
-            .update_settings(
-                &config,
-                &romm(
+            .update_settings(&romm(
                     true,
                     Some("https://elsewhere.example"),
                     set("rmm_u"),

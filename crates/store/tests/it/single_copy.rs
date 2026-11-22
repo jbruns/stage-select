@@ -1,6 +1,7 @@
 //! Single Copy (ADR 0023): Builds that place a Source Set's Games in the Library Folder holding them, by a rename, a
 //! copy or a conversion, and recovery from a stop at each step, from synthetic DATs, Source Sets and files.
 
+use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,6 @@ use title_select_api::selection::{
 use title_select_api::storage::{StorageFormat, placed_path};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, JobKind, JobState, Report};
 use title_select_engine::torrentzip::Writer;
-use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
 pub(crate) const SET: &str = "Alpha";
@@ -39,7 +39,6 @@ pub(crate) fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 pub(crate) struct Env {
     pub(crate) tmp: tempfile::TempDir,
     pub(crate) store: Store,
-    pub(crate) config: Config,
     pub(crate) folder: LibraryFolder,
     pub(crate) sha256: String,
 }
@@ -55,13 +54,14 @@ impl Env {
         for dir in ["roots/sets/Alpha", "roots/play", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"Alpha\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
-            tmp.path().join("roots/sets").display().to_string(),
-            tmp.path().join("roots/play").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+            ],
+        );
         let dat = write_dat_from(
             &tmp.path().join("dats"),
             "alpha.dat",
@@ -71,7 +71,7 @@ impl Env {
         );
         let sha256 = store.import_dat(&dat, None).unwrap().0.sha256;
         store
-            .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
         store
             .save_profile(
@@ -83,11 +83,10 @@ impl Env {
                 WORKERS,
             )
             .unwrap();
-        let folder = add_folder(&store, &config, "atari");
+        let folder = add_folder(&store, "atari");
         Env {
             tmp,
             store,
-            config,
             folder,
             sha256,
         }
@@ -103,7 +102,7 @@ impl Env {
 
     pub(crate) fn audit(&self, evidence: AuditEvidence) -> Report {
         self.store
-            .audit_source_set(&self.config, SET, None, evidence)
+            .audit_source_set(SET, None, evidence)
             .unwrap()
             .report
     }
@@ -162,7 +161,7 @@ impl Env {
 
     pub(crate) fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
         self.store
-            .plan_build(&self.config, folder.id, selection)
+            .plan_build(folder.id, selection)
             .unwrap()
     }
 
@@ -170,11 +169,11 @@ impl Env {
     pub(crate) fn build(&self, plan: &Plan) -> title_select_api::Job {
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
         self.store
-            .run_build_job(&self.config, job.id, None)
+            .run_build_job(job.id, None)
             .unwrap()
     }
 
@@ -186,7 +185,7 @@ impl Env {
     ) {
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
         self.store
@@ -196,7 +195,7 @@ impl Env {
                 }
             })));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.store.run_build_job(&self.config, job.id, None)
+            self.store.run_build_job(job.id, None)
         }));
         self.store.hook_faults(None);
         assert!(ran.is_err(), "{ran:?}");
@@ -208,7 +207,6 @@ impl Env {
         let Env {
             tmp,
             store,
-            config,
             folder,
             sha256,
         } = self;
@@ -216,13 +214,12 @@ impl Env {
         drop(store);
         let store = Store::open(&path).unwrap();
         store.recover_jobs(WORKERS).unwrap();
-        let blocked = store.recover_builds(&config).unwrap();
-        store.recover_kept_deletions(&config).unwrap();
+        let blocked = store.recover_builds().unwrap();
+        store.recover_kept_deletions().unwrap();
         (
             Env {
                 tmp,
                 store,
-                config,
                 folder,
                 sha256,
             },
@@ -249,11 +246,9 @@ impl Env {
     }
 }
 
-pub(crate) fn add_folder(store: &Store, config: &Config, path: &str) -> LibraryFolder {
+pub(crate) fn add_folder(store: &Store, path: &str) -> LibraryFolder {
     store
-        .add_library_folder(
-            config,
-            &AddLibraryFolder {
+        .add_library_folder(&AddLibraryFolder {
                 root: "play".into(),
                 path: Some(path.into()),
                 template: None,
@@ -684,7 +679,7 @@ fn a_plan_is_refused_once_the_storage_policy_changed_since_it_was_made() {
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     let refused = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("changed")),
         "{refused:?}"
@@ -699,7 +694,7 @@ fn with_several_folders_bound_and_none_chosen_to_hold_its_games_a_build_places_n
     pong_zip(&env);
     env.audit(AuditEvidence::Full);
     env.single_copy(StorageFormat::TorrentZip);
-    let other = add_folder(&env.store, &env.config, "atari-too");
+    let other = add_folder(&env.store, "atari-too");
     let selection = env.select(&["Pong (USA)"]);
 
     let plan = env.plan(&env.folder, selection);
@@ -810,7 +805,7 @@ fn a_source_set_is_locked_while_a_build_placing_its_games_is_queued() {
     let selection = env.select(&["Pong (USA)"]);
     let plan = env.plan(&env.folder, selection);
     env.store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     assert!(matches!(
@@ -820,11 +815,11 @@ fn a_source_set_is_locked_while_a_build_placing_its_games_is_queued() {
     ));
     let repair = env
         .store
-        .plan_repair(&env.config, SET, &Default::default())
+        .plan_repair(SET, &Default::default())
         .unwrap();
     assert!(matches!(
         env.store
-            .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS),
+            .approve_repair(repair.id, &repair.digest, "Operator", WORKERS),
         Err(Error::Conflict(_))
     ));
 }
@@ -1094,7 +1089,7 @@ fn a_repair_planned_before_a_build_placed_its_games_is_refused() {
     let selection = env.select(&["Pong (USA)"]);
     let repair = env
         .store
-        .plan_repair(&env.config, SET, &Default::default())
+        .plan_repair(SET, &Default::default())
         .unwrap();
     assert_eq!(
         env.build(&env.plan(&env.folder, selection)).state,
@@ -1103,7 +1098,7 @@ fn a_repair_planned_before_a_build_placed_its_games_is_refused() {
 
     let refused =
         env.store
-            .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS);
+            .approve_repair(repair.id, &repair.digest, "Operator", WORKERS);
     assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
 }
 
@@ -1163,20 +1158,20 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
     // A repair keeps the file no game needs aside, then audits the source set again.
     let repair = env
         .store
-        .plan_repair(&env.config, SET, &Default::default())
+        .plan_repair(SET, &Default::default())
         .unwrap();
     let approved = env
         .store
-        .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
+        .approve_repair(repair.id, &repair.digest, "Operator", WORKERS)
         .unwrap();
     let job = approved.job.unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
-    let ended = env.store.run_repair_job(&env.config, job, None).unwrap();
+    let ended = env.store.run_repair_job(job, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     env.store.fulfil_repair_audits().unwrap();
     let audit = env.store.repair_plan(repair.id).unwrap().audit_job.unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, audit);
-    env.store.run_audit_job(&env.config, audit, None).unwrap();
+    env.store.run_audit_job(audit, None).unwrap();
     let kept = env.store.source_kept_files(SET).unwrap();
     assert_eq!(kept.len(), 1);
 
@@ -1185,22 +1180,18 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
     let plan = env.plan(&env.folder, selection);
     assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
     env.store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let deletion = env
         .store
-        .plan_source_kept_deletion(
-            &env.config,
-            SET,
+        .plan_source_kept_deletion(SET,
             &title_select_api::build::PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
             },
         )
         .unwrap();
-    let refused = env.store.approve_source_kept_deletion(
-        &env.config,
-        deletion.id,
+    let refused = env.store.approve_source_kept_deletion(deletion.id,
         &deletion.digest,
         "Operator",
     );
@@ -1432,7 +1423,7 @@ fn a_placed_file_missing_or_changed_is_reported_and_never_written_over() {
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     let incomplete = folder.incomplete.unwrap();
     assert_eq!(incomplete.conflict, 1, "{incomplete:?}");
@@ -1454,7 +1445,7 @@ fn a_placed_file_missing_or_changed_is_reported_and_never_written_over() {
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     let incomplete = folder.incomplete.unwrap();
     assert_eq!(incomplete.blocked, 1, "{incomplete:?}");
@@ -1470,11 +1461,11 @@ fn a_source_set_stays_locked_while_a_placing_build_is_queued_whatever_folder_hol
     let plan = env.plan(&env.folder, selection);
     assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
     env.store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     // A second folder leaves none chosen to hold the games, and choosing it is refused while the build is queued.
-    let second = add_folder(&env.store, &env.config, "atari2");
+    let second = add_folder(&env.store, "atari2");
     let refused = env.store.set_holding_folder(SET, Some(second.id));
     assert!(
         matches!(&refused, Err(e) if e.to_string().contains("places the source set's games")),
@@ -1525,16 +1516,16 @@ fn an_original_rewritten_before_it_is_set_aside_goes_to_the_source_sets_kept_fil
 fn run_repair(env: &Env, repair: &title_select_api::repair::RepairPlan) {
     let approved = env
         .store
-        .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
+        .approve_repair(repair.id, &repair.digest, "Operator", WORKERS)
         .unwrap();
     let job = approved.job.unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
-    let ended = env.store.run_repair_job(&env.config, job, None).unwrap();
+    let ended = env.store.run_repair_job(job, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     env.store.fulfil_repair_audits().unwrap();
     let audit = env.store.repair_plan(repair.id).unwrap().audit_job.unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, audit);
-    env.store.run_audit_job(&env.config, audit, None).unwrap();
+    env.store.run_audit_job(audit, None).unwrap();
 }
 
 #[test]
@@ -1569,7 +1560,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     env.audit(AuditEvidence::Full);
     let repair = env
         .store
-        .plan_repair(&env.config, SET, &Default::default())
+        .plan_repair(SET, &Default::default())
         .unwrap();
     run_repair(&env, &repair);
     assert!(env.store.placed_files(SET).unwrap().is_empty());
@@ -1581,7 +1572,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
 
     // Forgetting the folder forgets its builds; the file its build kept is the source set's, and stays as it was.
     env.store
-        .unregister_library_folder(&env.config, env.folder.id)
+        .unregister_library_folder(env.folder.id)
         .unwrap();
     env.store
         .forget(RegistrationKind::LibraryFolder, env.folder.id)
@@ -1591,9 +1582,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     // Both are deleted when you approve it.
     let deletion = env
         .store
-        .plan_source_kept_deletion(
-            &env.config,
-            SET,
+        .plan_source_kept_deletion(SET,
             &title_select_api::build::PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -1602,7 +1591,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
         .unwrap();
     assert_eq!(deletion.content.files.len(), 2, "{deletion:?}");
     env.store
-        .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
         .unwrap();
     assert!(env.store.source_kept_files(SET).unwrap().is_empty());
     assert!(
@@ -1615,6 +1604,6 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
 
     // Then the source set is forgotten, its kept files' rows with it.
     let set = kept[0].source_set;
-    env.store.unregister_source_set(&env.config, SET).unwrap();
+    env.store.unregister_source_set(SET).unwrap();
     env.store.forget(RegistrationKind::SourceSet, set).unwrap();
 }

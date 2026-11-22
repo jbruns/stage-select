@@ -1,13 +1,13 @@
 //! MAME Source Sets and the arcade selector (ADR 0027): a software list is audited but never selected or built, a
 //! ListXML Source Set takes no Coverage, and a Selection and an Audit keep their Dependencies.
 
+use title_select_api::roots::RootSpec;
 use title_select_api::build::{AddLibraryFolder, LibraryFolder};
 use title_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, Dependency, Role, Rule, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
 use title_select_engine::{AuditEvidence, GameStatus};
-use title_select_store::config::Config;
 use title_select_store::{Error, Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -21,33 +21,33 @@ const PROFILE: &str = "Mine";
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
     fn new() -> Env {
-        Env::with("")
+        Env::with(&[])
     }
 
     /// As [`Env::new`], but `sets` lets repairs write the folder `mame`.
     fn writable() -> Env {
-        Env::with("writable_paths = [\"mame\"]\n")
+        Env::with(&["mame"])
     }
 
-    /// With `sets` taking `options` too.
-    fn with(options: &str) -> Env {
+    /// With `sets` writable in `writable_paths`.
+    fn with(writable_paths: &[&str]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("sets");
         let play = tmp.path().join("play");
         std::fs::create_dir_all(sets.join("mame")).unwrap();
         std::fs::create_dir_all(&play).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n{options}\n[roots.play]\npath = {:?}\nwritable = true\n",
-            sets.display().to_string(),
-            play.display().to_string()
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", &sets).writing(writable_paths),
+                RootSpec::new("play", &play).writable(),
+            ],
+        );
         store
             .save_profile(
                 PROFILE,
@@ -58,22 +58,20 @@ impl Env {
                 WORKERS,
             )
             .unwrap();
-        Env { tmp, store, config }
+        Env { tmp, store }
     }
 
     /// Imports `dat` and registers the Source Set `mame` for it.
     fn add(&self, dat: &[u8]) -> String {
         let (revision, _) = self.store.import_dat_bytes(dat, "mame.xml", None).unwrap();
         self.store
-            .add_source_set(&self.config, "sets", "mame", &revision.dat)
+            .add_source_set("sets", "mame", &revision.dat)
             .unwrap();
         revision.sha256
     }
 
     fn folder(&self) -> Result<LibraryFolder, Error> {
-        self.store.add_library_folder(
-            &self.config,
-            &AddLibraryFolder {
+        self.store.add_library_folder(&AddLibraryFolder {
                 root: "play".into(),
                 path: Some("mame".into()),
                 template: None,
@@ -115,7 +113,7 @@ fn a_software_list_is_audited_but_never_selected_or_built() {
     env.add(SOFTWARE_LIST.as_bytes());
 
     env.store
-        .audit_source_set(&env.config, "mame", None, AuditEvidence::Incremental)
+        .audit_source_set("mame", None, AuditEvidence::Incremental)
         .unwrap();
     let selection = env
         .store
@@ -136,14 +134,12 @@ fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_sourc
     policy.source_sets.format = title_select_api::storage::StorageFormat::Loose;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     env.store
-        .audit_source_set(&env.config, "mame", None, AuditEvidence::Full)
+        .audit_source_set("mame", None, AuditEvidence::Full)
         .unwrap();
 
     let plan = env
         .store
-        .plan_repair(
-            &env.config,
-            "mame",
+        .plan_repair("mame",
             &title_select_api::repair::PlanRepair::default(),
         )
         .unwrap();
@@ -169,7 +165,7 @@ fn a_stored_audit_keeps_each_games_dependencies_with_their_game_statuses() {
 
     let audit = env
         .store
-        .audit_source_set(&env.config, "mame", None, AuditEvidence::Full)
+        .audit_source_set("mame", None, AuditEvidence::Full)
         .unwrap();
 
     let (games, _) = env.store.games(audit.id, None, 10, None).unwrap();
@@ -198,11 +194,11 @@ fn a_listxml_source_set_takes_no_coverage() {
     let usa = ["USA".to_owned()];
     let added =
         env.store
-            .add_source_set_covering(&env.config, "sets", "mame", &revision.dat, Some(&usa));
+            .add_source_set_covering("sets", "mame", &revision.dat, Some(&usa));
     assert_eq!(refused(added), ARCADE_COVERAGE_REFUSAL);
 
     env.store
-        .add_source_set(&env.config, "sets", "mame", &revision.dat)
+        .add_source_set("sets", "mame", &revision.dat)
         .unwrap();
     assert_eq!(
         refused(env.store.set_coverage("mame", Some(&usa))),

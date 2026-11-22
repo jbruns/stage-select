@@ -259,7 +259,7 @@ fn a_game_still_selected_and_stored_loose_here_is_converted_home_and_kept_as_an_
 #[test]
 fn naming_another_holding_folder_returns_the_games_home_then_the_new_folder_places_them() {
     let env = Env::new();
-    let second = add_folder(&env.store, &env.config, "atari-2");
+    let second = add_folder(&env.store, "atari-2");
     env.store
         .set_holding_folder(SET, Some(env.folder.id))
         .unwrap();
@@ -331,7 +331,7 @@ fn a_return_that_wont_fit_in_the_source_sets_root_is_refused_before_it_runs() {
     );
     assert!(
         env.store
-            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .is_err()
     );
     assert_eq!(env.files(), before);
@@ -346,11 +346,11 @@ fn a_return_that_wont_fit_in_the_source_sets_root_is_refused_before_it_runs() {
     );
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.pretend_free_space(Some(1000));
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
-    let ran = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    let ran = env.store.run_build_job(job.id, None).unwrap();
     assert_eq!(ran.state, JobState::Failed, "{ran:?}");
     assert!(
         ran.error
@@ -368,7 +368,7 @@ fn once_every_placed_game_is_home_the_folder_and_the_source_set_can_be_unregiste
     place_pong(&env, StorageFormat::TorrentZip);
     assert!(
         env.store
-            .unregister_library_folder(&env.config, env.folder.id)
+            .unregister_library_folder(env.folder.id)
             .is_err()
     );
     let selection = env.select(&["Combat (USA)"]);
@@ -376,9 +376,9 @@ fn once_every_placed_game_is_home_the_folder_and_the_source_set_can_be_unregiste
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
 
     env.store
-        .unregister_library_folder(&env.config, env.folder.id)
+        .unregister_library_folder(env.folder.id)
         .unwrap();
-    env.store.unregister_source_set(&env.config, SET).unwrap();
+    env.store.unregister_source_set(SET).unwrap();
 }
 
 #[test]
@@ -390,7 +390,7 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
         &[("Combat (USA).a26", b"combat")],
     );
     env.audit(AuditEvidence::Full);
-    let second = add_folder(&env.store, &env.config, "atari-2");
+    let second = add_folder(&env.store, "atari-2");
     env.store.set_holding_folder(SET, Some(second.id)).unwrap();
     let selection = env.select(&["Combat (USA)"]);
     let plan = env.plan(&env.folder, selection);
@@ -399,12 +399,12 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
     let placing = env.plan(&second, selection);
     assert_eq!(item(&placing, "Combat (USA)").kind, ItemKind::Place);
     env.store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     let audit = env
         .store
-        .audit_source_set(&env.config, SET, None, AuditEvidence::Full);
+        .audit_source_set(SET, None, AuditEvidence::Full);
     assert!(
         matches!(&audit, Err(title_select_store::Error::Conflict(why)) if why.contains("returns them")),
         "{:?}",
@@ -416,9 +416,7 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
         "{holding:?}"
     );
     // That plan waits for the return queued: it can't be approved while it is.
-    let approved = env.store.approve_plan(
-        &env.config,
-        placing.id,
+    let approved = env.store.approve_plan(placing.id,
         &placing.digest,
         "Operator",
         WORKERS,
@@ -794,7 +792,7 @@ fn a_rollback_that_cant_put_the_placed_file_back_leaves_the_return_outstanding_u
     let again = env.plan(&env.folder, selection);
     let refused = env
         .store
-        .approve_plan(&env.config, again.id, &again.digest, "Operator", WORKERS);
+        .approve_plan(again.id, &again.digest, "Operator", WORKERS);
     assert!(refused.is_err(), "{refused:?}");
 
     std::fs::remove_file(&placed).unwrap();
@@ -1147,7 +1145,6 @@ fn restart_stopping(
     let Env {
         tmp,
         store,
-        config,
         folder,
         sha256,
     } = env;
@@ -1161,14 +1158,13 @@ fn restart_stopping(
     })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         store.recover_jobs(WORKERS).unwrap();
-        store.recover_builds(&config).unwrap();
+        store.recover_builds().unwrap();
     }));
     assert!(ran.is_err(), "recovery never reached the stop");
     store.hook_faults(None);
     Env {
         tmp,
         store,
-        config,
         folder,
         sha256,
     }
@@ -1297,7 +1293,7 @@ fn a_game_placed_with_more_roms_than_its_dat_now_lists_goes_home_as_torrentzip()
     std::fs::write(&dat, xml).unwrap();
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(&env.config, SET, Some(&env.sha256), AuditEvidence::Full)
+        .audit_source_set(SET, Some(&env.sha256), AuditEvidence::Full)
         .unwrap();
     let mut policy = env.store.storage_policy().unwrap();
     policy.source_sets.format = StorageFormat::Loose;
@@ -1354,7 +1350,7 @@ fn place_manual_then_list_no_roms() -> Env {
     std::fs::write(&dat, xml).unwrap();
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(&env.config, SET, Some(&env.sha256), AuditEvidence::Full)
+        .audit_source_set(SET, Some(&env.sha256), AuditEvidence::Full)
         .unwrap();
     env
 }

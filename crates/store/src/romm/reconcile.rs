@@ -23,7 +23,6 @@ use title_select_api::romm::{
 use unicode_normalization::UnicodeNormalization;
 
 use super::{RommClient, RommError, ScanStop, ScanTiming, Task};
-use crate::config::Config;
 use crate::plans::Built;
 use crate::{Error, Result, Store, now};
 
@@ -321,7 +320,6 @@ impl Store {
     /// reads RomM's settings as they are then.
     pub fn reconcile_romm(
         store: &Weak<Store>,
-        config: &Config,
         folder: i64,
         job: Option<i64>,
         page: usize,
@@ -338,8 +336,9 @@ impl Store {
                 return Ok(None);
             }
             let (root, path) = store.folder_place(folder)?;
-            let platform = romm.platform(config, &root, &path);
-            let (Some(fs_slug), Some(root)) = (platform.fs_slug(), config.root(&root)) else {
+            let roots = store.roots();
+            let platform = romm.platform(&roots, &root, &path);
+            let (Some(fs_slug), Some(root)) = (platform.fs_slug(), roots.root(&root)) else {
                 return Ok(None);
             };
             (romm, fs_slug.to_owned(), root.path.join(&path))
@@ -421,7 +420,7 @@ impl Store {
                 (reconciliation.counts, reconciliation.rows) = compare(&dir, &built, &roms);
             }
         }
-        let recorded = store.record_romm_reconciliation(config, &reconciliation, &was)?;
+        let recorded = store.record_romm_reconciliation(&reconciliation, &was)?;
         Ok(recorded.then_some(reconciliation))
     }
 
@@ -429,7 +428,6 @@ impl Store {
     /// finished (see [`Store::reconcile_romm`]). Any other Job, or scan, leads to none.
     pub fn reconcile_romm_scan(
         store: &Weak<Store>,
-        config: &Config,
         job: &title_select_api::Job,
         timing: &ScanTiming,
         stop: &ScanStop,
@@ -440,7 +438,7 @@ impl Store {
             .is_some_and(|s| s.outcome == RommScanOutcome::Finished);
         match job.library_folder {
             Some(folder) if finished => {
-                Store::reconcile_romm(store, config, folder, Some(job.id), PAGE, timing, stop)
+                Store::reconcile_romm(store, folder, Some(job.id), PAGE, timing, stop)
             }
             _ => Ok(None),
         }
@@ -463,10 +461,10 @@ impl Store {
     /// kept. Settings updates wait while it checks and records, so none commits between the two.
     fn record_romm_reconciliation(
         &self,
-        config: &Config,
         r: &RommReconciliation,
         was: &super::Romm,
     ) -> Result<bool> {
+        let roots = &*self.roots();
         let _settings = self
             .settings_update
             .lock()
@@ -476,7 +474,7 @@ impl Store {
         if !now.is_on()
             || now.base_url != was.base_url
             || now.root != was.root
-            || now.platform(config, &root, &path).fs_slug() != Some(r.fs_slug.as_str())
+            || now.platform(roots, &root, &path).fs_slug() != Some(r.fs_slug.as_str())
         {
             return Ok(false);
         }
@@ -554,10 +552,10 @@ impl Store {
     /// as its ROM ids may then name other ROMs; a request RomM refuses or doesn't answer is refused saying why.
     pub fn request_romm_rescan(
         &self,
-        config: &Config,
         folder: i64,
         rom_id: i64,
     ) -> Result<RommRescan> {
+        let roots = &*self.roots();
         let romm = self.settings()?.romm;
         if !romm.is_on() {
             return Err(Error::Refused(
@@ -580,7 +578,7 @@ impl Store {
         };
         let (root, path) = self.folder_place(folder)?;
         if romm.base_url.as_deref() != Some(base_url)
-            || romm.platform(config, &root, &path).fs_slug() != Some(fs_slug)
+            || romm.platform(roots, &root, &path).fs_slug() != Some(fs_slug)
         {
             return Err(Error::Refused(
                 "RomM's address or this library folder's RomM platform changed since the latest comparison, so its \

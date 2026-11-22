@@ -6,6 +6,7 @@
 //! The tests with Disks make their CHDs with chdman, found as the store finds it. Where it is missing they are skipped,
 //! except in CI, where they fail.
 
+use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -21,7 +22,6 @@ use title_select_api::selection::{
 use title_select_api::storage::{SetLayout, SystemStorage};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
 use title_select_engine::torrentzip;
-use title_select_store::config::Config;
 use title_select_store::{Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -157,7 +157,6 @@ fn make_chd(chdman: &Path, path: &Path) -> String {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
     folder: LibraryFolder,
     sha256: String,
 }
@@ -176,21 +175,20 @@ impl Env {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("sets/mame")).unwrap();
         std::fs::create_dir_all(tmp.path().join("play")).unwrap();
-        let chd = chdman
-            .map(|p| format!("\n[chd]\nchdman = {:?}\n", p.display().to_string()))
-            .unwrap_or_default();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n{chd}",
-            tmp.path().join("sets").display().to_string(),
-            tmp.path().join("play").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store.use_chdman(chdman.map(Path::to_path_buf));
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("sets")).writing(&["mame"]),
+                RootSpec::new("play", tmp.path().join("play")).writable(),
+            ],
+        );
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
         store
-            .add_source_set(&config, "sets", "mame", &revision.dat)
+            .add_source_set("sets", "mame", &revision.dat)
             .unwrap();
         store
             .save_profile(
@@ -203,9 +201,7 @@ impl Env {
             )
             .unwrap();
         let folder = store
-            .add_library_folder(
-                &config,
-                &AddLibraryFolder {
+            .add_library_folder(&AddLibraryFolder {
                     root: "play".into(),
                     path: Some("arcade".into()),
                     template: None,
@@ -217,7 +213,6 @@ impl Env {
         Env {
             tmp,
             store,
-            config,
             folder,
             sha256: revision.sha256,
         }
@@ -260,7 +255,7 @@ impl Env {
 
     fn audit(&self) {
         self.store
-            .audit_source_set(&self.config, "mame", None, AuditEvidence::Full)
+            .audit_source_set("mame", None, AuditEvidence::Full)
             .unwrap();
     }
 
@@ -325,7 +320,7 @@ impl Env {
 
     fn plan(&self, selection: i64) -> Plan {
         self.store
-            .plan_build(&self.config, self.folder.id, selection)
+            .plan_build(self.folder.id, selection)
             .unwrap()
     }
 
@@ -338,7 +333,7 @@ impl Env {
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
         let done = self
             .store
-            .run_check_job(&self.config, job.id, None)
+            .run_check_job(job.id, None)
             .unwrap();
         assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
         self.store.latest_check(self.folder.id).unwrap().unwrap()
@@ -353,12 +348,12 @@ impl Env {
         );
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
         let ended = self
             .store
-            .run_build_job(&self.config, job.id, None)
+            .run_build_job(job.id, None)
             .unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         ended
@@ -470,7 +465,7 @@ fn a_library_folder_lacking_a_selected_games_device_is_incomplete_for_that_depen
 
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     let counts = folder.incomplete.expect("the folder lacks the device");
     assert_eq!(
@@ -530,7 +525,7 @@ fn a_clone_winners_disk_is_copied_into_a_folder_of_its_own_and_built_for_the_lis
     );
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     assert_eq!(folder.incomplete, None);
     assert_eq!(folder.built_for.as_deref(), Some("0.289 (mame0289)"));
@@ -670,7 +665,7 @@ fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
     assert!(files(&env.library()).is_empty());
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     let counts = folder.incomplete.expect("the folder lacks the game");
     // Its ZIP and its Disk.
@@ -758,7 +753,7 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
 
     let folder = env
         .store
-        .library_folder(&env.config, env.folder.id)
+        .library_folder(env.folder.id)
         .unwrap();
     // A Game's files go in place together, so its ZIP waits on its Disk.
     let counts = folder.incomplete.expect("the folder lacks the disk");
@@ -872,7 +867,7 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
     let plan = env.plan(env.select(&["blaster"]));
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
     // The Operator cancels once the disk is put in place, before its game's ZIP is.
@@ -887,7 +882,7 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
             }
         })));
     std::thread::scope(|scope| {
-        let run = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None).unwrap());
+        let run = scope.spawn(|| env.store.run_build_job(job.id, None).unwrap());
         published
             .recv_timeout(std::time::Duration::from_secs(30))
             .unwrap();

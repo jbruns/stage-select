@@ -1,6 +1,7 @@
 //! The RomM client, its connection test and the scan a Build requests, against a stub RomM on a local port that
 //! answers as RomM 5.4.1 does (research 0136). No test sends a request to a real RomM.
 
+use title_select_api::roots::RootSpec;
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -314,7 +315,6 @@ mod scans {
     use title_select_api::settings::{SecretUpdate, SettingsUpdate};
     use title_select_api::storage::SystemStorage;
     use title_select_api::{Job, JobKind, JobState};
-    use title_select_store::config::Config;
     use title_select_store::romm::{ScanStop, ScanTiming};
     use title_select_store::{Store, Workers};
 
@@ -338,7 +338,6 @@ mod scans {
     struct Env {
         _tmp: tempfile::TempDir,
         store: Arc<Store>,
-        config: Config,
         sha256: String,
     }
 
@@ -377,13 +376,14 @@ mod scans {
             std::fs::create_dir_all(sets.join(SET)).unwrap();
             std::fs::create_dir_all(&play).unwrap();
             std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-            let config = Config::parse(&format!(
-                "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
-                sets.display().to_string(),
-                play.display().to_string(),
-            ))
-            .unwrap();
             let store = Store::open(&tmp.path().join("store")).unwrap();
+            crate::register(
+                &store,
+                &[
+                    RootSpec::new("sets", &sets),
+                    RootSpec::new("play", play).writable(),
+                ],
+            );
             let dat = match header {
                 Some((rule, _)) => {
                     write_dat_with_header_from(&tmp.path().join("in"), rule, provider, &games)
@@ -398,7 +398,7 @@ mod scans {
             };
             let (revision, _) = store.import_dat(&dat, None).unwrap();
             let system = format!("{provider}/{SET}");
-            store.add_source_set(&config, "sets", SET, &system).unwrap();
+            store.add_source_set("sets", SET, &system).unwrap();
             if let Some(storage) = storage {
                 let mut policy = store.storage_policy().unwrap();
                 policy.play_libraries.systems.insert(system, storage);
@@ -425,9 +425,7 @@ mod scans {
                 }
             }
             store
-                .audit_source_set(
-                    &config,
-                    SET,
+                .audit_source_set(SET,
                     None,
                     title_select_engine::AuditEvidence::Incremental,
                 )
@@ -435,7 +433,6 @@ mod scans {
             Env {
                 _tmp: tmp,
                 store: Arc::new(store),
-                config,
                 sha256: revision.sha256,
             }
         }
@@ -447,9 +444,7 @@ mod scans {
 
         fn romm_with(&self, enabled: bool, url: &str, token: SecretUpdate, root: &str) {
             self.store
-                .update_settings(
-                    &self.config,
-                    &SettingsUpdate {
+                .update_settings(&SettingsUpdate {
                         romm: Some(RommUpdate {
                             enabled,
                             base_url: Some(url.into()),
@@ -465,9 +460,7 @@ mod scans {
 
         fn folder(&self, path: &str) -> LibraryFolder {
             self.store
-                .add_library_folder(
-                    &self.config,
-                    &AddLibraryFolder {
+                .add_library_folder(&AddLibraryFolder {
                         root: "play".into(),
                         path: Some(path.into()),
                         template: None,
@@ -498,16 +491,16 @@ mod scans {
                 .unwrap();
             let plan = self
                 .store
-                .plan_build(&self.config, folder.id, selection)
+                .plan_build(folder.id, selection)
                 .unwrap();
             let job = self
                 .store
-                .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
             let job = self
                 .store
-                .run_build_job(&self.config, job.id, None)
+                .run_build_job(job.id, None)
                 .unwrap();
             assert_eq!(job.state, JobState::Succeeded, "{job:?}");
             job
@@ -517,16 +510,16 @@ mod scans {
         fn cleanup(&self, folder: &LibraryFolder, request: PlanCleanup) -> Job {
             let plan = self
                 .store
-                .plan_cleanup(&self.config, folder.id, &request)
+                .plan_cleanup(folder.id, &request)
                 .unwrap();
             assert!(plan.approvable(), "{:?}", plan.content.blockers);
             let job = self
                 .store
-                .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
             self.store
-                .run_build_job(&self.config, job.id, None)
+                .run_build_job(job.id, None)
                 .unwrap()
         }
 
@@ -544,7 +537,6 @@ mod scans {
             let mut seen = vec![];
             let ended = Store::request_romm_scan(
                 &Arc::downgrade(&self.store),
-                &self.config,
                 job.id,
                 timing,
                 stop,
@@ -754,7 +746,6 @@ mod scans {
         let none = |env: &Env, job: &Job| {
             let ended = Store::request_romm_scan(
                 &Arc::downgrade(&env.store),
-                &env.config,
                 job.id,
                 &FAST,
                 &ScanStop::default(),
@@ -791,7 +782,7 @@ mod scans {
         env.store.claim_job().unwrap().unwrap();
         let audit = env
             .store
-            .run_audit_job(&env.config, audit.id, None)
+            .run_audit_job(audit.id, None)
             .unwrap();
         assert_eq!(audit.kind, JobKind::Audit);
         none(&env, &audit);
@@ -837,7 +828,6 @@ mod scans {
                 let mut first = true;
                 Store::request_romm_scan(
                     &Arc::downgrade(&env.store),
-                    &env.config,
                     job.id,
                     &timing,
                     &ScanStop::default(),
@@ -1076,14 +1066,12 @@ mod scans {
         let Env {
             _tmp: tmp,
             store,
-            config,
             ..
         } = env;
         let weak = Arc::downgrade(&store);
         let scanning = std::thread::spawn(move || {
             Store::request_romm_scan(
                 &weak,
-                &config,
                 job.id,
                 &timing,
                 &ScanStop::default(),
@@ -1290,7 +1278,6 @@ mod scans {
         fn reconcile(env: &Env, folder: &LibraryFolder, page: usize) -> Option<RommReconciliation> {
             Store::reconcile_romm(
                 &Arc::downgrade(&env.store),
-                &env.config,
                 folder.id,
                 None,
                 page,
@@ -1709,7 +1696,6 @@ mod scans {
 
             let ended = Store::reconcile_romm(
                 &Arc::downgrade(&env.store),
-                &env.config,
                 folder.id,
                 None,
                 1,
@@ -1819,7 +1805,7 @@ mod scans {
                 env.romm(true, url, root);
                 let refused = env
                     .store
-                    .request_romm_rescan(&env.config, folder.id, 2)
+                    .request_romm_rescan(folder.id, 2)
                     .unwrap_err();
                 let title_select_store::Error::Refused(why) = &refused else {
                     panic!("{name}: {refused}");
@@ -1828,7 +1814,7 @@ mod scans {
             }
             env.romm(true, &romm.url, "play");
             env.store
-                .request_romm_rescan(&env.config, folder.id, 2)
+                .request_romm_rescan(folder.id, 2)
                 .unwrap();
 
             let posts = |r: &StubRomm| r.seen().iter().filter(|s| s.method == "POST").count();
@@ -1890,11 +1876,11 @@ mod scans {
 
             let unmatched = env
                 .store
-                .request_romm_rescan(&env.config, folder.id, 2)
+                .request_romm_rescan(folder.id, 2)
                 .unwrap();
             let update = env
                 .store
-                .request_romm_rescan(&env.config, folder.id, 4)
+                .request_romm_rescan(folder.id, 4)
                 .unwrap();
 
             assert_eq!(
@@ -1918,7 +1904,7 @@ mod scans {
 
             let not_flagged = env
                 .store
-                .request_romm_rescan(&env.config, folder.id, 99)
+                .request_romm_rescan(folder.id, 99)
                 .unwrap_err();
             assert!(
                 matches!(not_flagged, title_select_store::Error::Refused(_)),
@@ -1927,7 +1913,7 @@ mod scans {
             env.romm(false, &romm.url, "play");
             let off = env
                 .store
-                .request_romm_rescan(&env.config, folder.id, 2)
+                .request_romm_rescan(folder.id, 2)
                 .unwrap_err();
             assert!(
                 matches!(off, title_select_store::Error::Refused(_)),

@@ -15,7 +15,6 @@ use title_select_api::repair::{
 
 use super::{MarkerRule, open_repairable, repair_active};
 use crate::additions::{additions_kept_reserved, set_of_system, source_kept_reserved};
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::kept::{
     DELETING, Scope, Unlinked, open_area_deleting, open_retention, reads_as_reviewed, review_kept,
@@ -299,12 +298,11 @@ impl Store {
     /// Addition is still being added from.
     pub fn plan_source_kept_deletion(
         &self,
-        config: &Config,
         name: &str,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
         let set = self.read(|c| Ok(set_by_name(c, name)?.id))?;
-        self.plan_kept_deletion_of(config, Owner::Source, set, name, request)
+        self.plan_kept_deletion_of(Owner::Source, set, name, request)
     }
 
     pub fn source_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
@@ -317,12 +315,11 @@ impl Store {
     /// still being added from a file it picks, and when its kept files changed since the plan.
     pub fn approve_source_kept_deletion(
         &self,
-        config: &Config,
         id: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(config, Owner::Source, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Source, id, digest_reviewed, actor)
     }
 
     /// The kept files of Source Set `set`, registered or not, newest generation first.
@@ -333,12 +330,11 @@ impl Store {
     /// Plans deleting kept files of Source Set `set`, registered or not, as [`Store::plan_source_kept_deletion`].
     pub fn plan_source_kept_deletion_by_id(
         &self,
-        config: &Config,
         set: i64,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
         let name = self.read(|c| Ok(crate::sets::set_by_id(c, set)?.record.name))?;
-        self.plan_kept_deletion_of(config, Owner::Source, set, &name, request)
+        self.plan_kept_deletion_of(Owner::Source, set, &name, request)
     }
 
     /// The kept files of the Additions Set of `system`, newest generation first: the files of retired additions.
@@ -350,12 +346,11 @@ impl Store {
     /// file kept with no hash recorded, or one whose addition is being restored, is never picked.
     pub fn plan_additions_kept_deletion(
         &self,
-        config: &Config,
         system: &str,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
         let set = self.read(|c| Ok(set_of_system(c, system)?.id))?;
-        self.plan_kept_deletion_of(config, Owner::Additions, set, system, request)
+        self.plan_kept_deletion_of(Owner::Additions, set, system, request)
     }
 
     pub fn additions_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
@@ -366,12 +361,11 @@ impl Store {
     /// Source Set.
     pub fn approve_additions_kept_deletion(
         &self,
-        config: &Config,
         id: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(config, Owner::Additions, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Additions, id, digest_reviewed, actor)
     }
 
     /// The kept files of Additions Set `set`, registered or not, newest generation first.
@@ -383,30 +377,28 @@ impl Store {
     /// [`Store::plan_additions_kept_deletion`].
     pub fn plan_additions_kept_deletion_by_id(
         &self,
-        config: &Config,
         set: i64,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
         let system = self.read(|c| Ok(crate::additions::set_by_id(c, set)?.system))?;
-        self.plan_kept_deletion_of(config, Owner::Additions, set, &system, request)
+        self.plan_kept_deletion_of(Owner::Additions, set, &system, request)
     }
 
     /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
     fn open_owner(
         &self,
-        config: &Config,
         owner: Owner,
         set: i64,
     ) -> Result<std::result::Result<FolderDir, String>> {
+        let roots = &*self.roots();
         match owner {
-            Owner::Source => open_repairable(self, config, set, MarkerRule::Required),
-            Owner::Additions => self.open_additions(config, set),
+            Owner::Source => open_repairable(self, roots, set, MarkerRule::Required),
+            Owner::Additions => self.open_additions(set),
         }
     }
 
     fn plan_kept_deletion_of(
         &self,
-        config: &Config,
         owner: Owner,
         set: i64,
         name: &str,
@@ -442,7 +434,7 @@ impl Store {
             Ok(free)
         })?;
         let dir = self
-            .open_owner(config, owner, set)?
+            .open_owner(owner, set)?
             .map_err(Error::Refused)?;
         let (mut files, mut reviewed) = (Vec::new(), Vec::new());
         for file in picked {
@@ -484,7 +476,6 @@ impl Store {
 
     fn approve_kept_deletion_of(
         &self,
-        config: &Config,
         owner: Owner,
         id: i64,
         digest_reviewed: &str,
@@ -503,7 +494,7 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
-        self.open_owner(config, owner, set)?
+        self.open_owner(owner, set)?
             .map_err(Error::Refused)?;
         self.write(|tx| {
             if let Some(busy) = owner.busy(tx, set)? {
@@ -541,20 +532,20 @@ impl Store {
             }
             Ok(())
         })?;
-        if let Err(why) = self.carry_out_kept_deletion(config, owner, id)? {
+        if let Err(why) = self.carry_out_kept_deletion(owner, id)? {
             return Err(Error::Refused(why));
         }
         let kind = match owner {
             Owner::Source => RegistrationKind::SourceSet,
             Owner::Additions => RegistrationKind::AdditionsSet,
         };
-        self.settle_marker(config, kind, set)?;
+        self.settle_marker(kind, set)?;
         self.read(|c| deletion_by_id(c, owner, id))
     }
 
     /// Finishes each approved deletion of kept files of a Source Set or an Additions Set that a stop interrupted.
     /// Returns each left unfinished, with why.
-    pub fn recover_source_kept_deletions(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+    pub fn recover_source_kept_deletions(&self,) -> Result<Vec<(i64, String)>> {
         let mut left = Vec::new();
         for owner in [Owner::Source, Owner::Additions] {
             let unfinished: Vec<i64> = self.read(|c| {
@@ -566,7 +557,7 @@ impl Store {
                     .collect::<rusqlite::Result<Vec<_>>>()?)
             })?;
             for id in unfinished {
-                if let Err(why) = self.carry_out_kept_deletion(config, owner, id)? {
+                if let Err(why) = self.carry_out_kept_deletion(owner, id)? {
                     left.push((id, why));
                 }
             }
@@ -578,7 +569,6 @@ impl Store {
     /// it was left unfinished.
     fn carry_out_kept_deletion(
         &self,
-        config: &Config,
         owner: Owner,
         id: i64,
     ) -> Result<std::result::Result<(), String>> {
@@ -594,7 +584,7 @@ impl Store {
             })?;
             Ok(Err(why))
         };
-        let dir = match self.open_owner(config, owner, set)? {
+        let dir = match self.open_owner(owner, set)? {
             Ok(dir) => dir,
             Err(why) => return unfinished(why),
         };
