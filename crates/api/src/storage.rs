@@ -151,6 +151,12 @@ impl SetLayout {
         SetLayout::ALL.into_iter().find(|l| l.as_str() == s)
     }
 
+    /// Whether each Game's ZIP holds that Game alone: only non-merged. A split or merged ZIP holds more than one Game's
+    /// ROMs, so Single Copy places nothing from it.
+    pub fn is_self_contained(self) -> bool {
+        self == SetLayout::NonMerged
+    }
+
     /// Whether it is the default, non-merged.
     pub fn is_default(&self) -> bool {
         *self == SetLayout::default()

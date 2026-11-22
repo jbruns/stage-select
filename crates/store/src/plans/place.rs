@@ -12,7 +12,7 @@ use title_select_api::build::{
     FileIdentity, FileOutcome, ItemKind, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, PlanSource,
 };
 use title_select_api::report::{EvidenceLevel, Finding};
-use title_select_api::storage::{SetLayout, release_of, split_placed};
+use title_select_api::storage::{release_of, split_placed};
 
 use super::{Folder, Inputs, Sources};
 use crate::config::Config;
@@ -90,7 +90,7 @@ pub(super) fn place(
     let layout = inputs
         .set_storage
         .set_layout
-        .filter(|l| *l != SetLayout::NonMerged);
+        .filter(|l| !l.is_self_contained());
     if let (true, Some(layout)) = (arcade, layout) {
         notes.push(format!(
             "single copy is on, but source set {set} uses the {} set layout, so each of its ZIPs holds more than one \

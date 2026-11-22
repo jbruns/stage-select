@@ -637,10 +637,10 @@ fn single_copy_unavailable(policy: &StoragePolicy, system: &str) -> Option<Strin
     let layout = policy
         .of(StorageScope::SourceSets, system)
         .set_layout
-        .filter(|l| *l != SetLayout::NonMerged)?;
+        .filter(|l| !l.is_self_contained())?;
     Some(format!(
-        "Unavailable for this system: its source sets use the {} set layout, whose ZIPs each hold more than one \
-         game's ROMs, so every game is copied. Choose non-merged for its source sets to place its games.",
+        "Single copy has no effect for this system: its source sets use the {} set layout, whose ZIPs each hold more \
+         than one game's ROMs, so every game is copied. Choose non-merged for its source sets to place its games.",
         layout.label()
     ))
 }
@@ -694,8 +694,13 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
             <option value="off">"Off: copy each game"</option>
             <option value="on">"On: place each game as its only copy"</option>
         </select>
-        {move || policy.with(|p| single_copy_unavailable(p, &s.get_value())).map(|why| view! { <p class="note small">{why}</p> })}
-        <p class="note small">{SINGLE_COPY_NOTE}</p>
+        <p class="note small">
+            {move || {
+                policy
+                    .with(|p| single_copy_unavailable(p, &s.get_value()))
+                    .unwrap_or_else(|| SINGLE_COPY_NOTE.to_string())
+            }}
+        </p>
         {is_disc_system(&s.get_value())
             .then(|| {
                 view! {
@@ -755,9 +760,9 @@ mod tests {
         }
     }
 
-    /// A MAME system's single copy is unavailable, with why, while its source sets aren't non-merged.
+    /// A MAME system's single copy has no effect, and says why, while its source sets aren't non-merged.
     #[test]
-    fn single_copy_is_unavailable_for_mame_unless_its_source_sets_are_non_merged() {
+    fn single_copy_has_no_effect_for_mame_unless_its_source_sets_are_non_merged() {
         let mut policy = StoragePolicy::default();
         assert_eq!(single_copy_unavailable(&policy, "MAME/MAME"), None);
         policy.source_sets.set_layout = SetLayout::Merged;

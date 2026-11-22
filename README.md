@@ -1442,9 +1442,9 @@ How a game moves depends on where the folders are:
 
 For a MAME ListXML, single copy places a game only from a non-merged source set, where its ZIP is the game's own: a
 split or merged ZIP holds more than one game's ROMs, so under those set layouts nothing is placed, each game is copied,
-and the plan says why; the storage policy shows single copy as unavailable for the system. A game whose ZIP doesn't
-yet hold every ROM it needs, before a repair has repacked it, is copied too. A game's disks are always copied, never placed, as one family's disk folder may serve several
-games.
+and the plan says why; the storage policy says single copy has no effect for the system. A game whose ZIP doesn't
+yet hold every ROM it needs, before a repair has repacked it, is copied too. A game's disks are always copied, never
+placed, as one family's disk folder may serve several games.
 
 Renames need one mount. A deployment that binds the source set and the library folder as two separate mounts, such
 as two volumes of one container, sees two filesystems even when they share a disk, so its games are copied, read

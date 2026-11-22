@@ -1810,14 +1810,14 @@ fn plan_items(
                 let claimed = missing.iter().any(|rom| sources.only_claimed(game, rom));
                 // A ROM a Dependency lists, a device's, or a BIOS's the Game shares by `merge=`, is the Dependency's:
                 // a Game that lacks no other lacks those Dependencies (ADR 0025).
-                let dependencies: Vec<&str> = games
-                    .get(game)
-                    .filter(|_| arcade)
-                    .map(|&g| dat.dependencies(g))
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|d| dat.games[d].as_str())
-                    .collect();
+                let dependencies: Vec<&str> = match games.get(game) {
+                    Some(&g) if arcade => dat
+                        .dependencies(g)
+                        .into_iter()
+                        .map(|d| dat.games[d].as_str())
+                        .collect(),
+                    _ => Vec::new(),
+                };
                 let mut needs: BTreeMap<String, Vec<&str>> = BTreeMap::new();
                 for rom in &missing {
                     let keys = sources.keys_of(game, rom);

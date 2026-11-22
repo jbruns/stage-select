@@ -620,6 +620,13 @@ fn single_copy_places_no_game_whose_zip_isnt_yet_self_contained() {
     env.audit();
     let plan = env.plan(env.select(&["blaster"]));
     assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Repack);
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "1 game's files are copied rather than placed: its ZIP in the source set doesn't yet hold every ROM it \
+                needs, so it is written from other games' ZIPs too, which stay there"),
+        "{:#?}",
+        plan.content.notes
+    );
     env.build(&plan);
     assert_eq!(
         files(&env.set()),
