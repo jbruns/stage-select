@@ -2,8 +2,8 @@
 //! Coverage are never filled or listed as wanted, but present ones are still renamed and repacked. From a synthetic
 //! DAT, Source Set and Ingest Folder; regions are read from Game names by the Selection engine.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::ingest::{ItemState, Need, Proposal};
@@ -100,7 +100,8 @@ impl Env {
             store.set_regions(move |game| regions.of(game));
         }
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -173,16 +174,12 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            self.store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            self.store.run_ingest_scan_job(job.id).unwrap();
         }
     }
 
     fn plan(&self) -> RepairPlan {
-        self.store
-            .plan_repair(SET, &PlanRepair::default())
-            .unwrap()
+        self.store.plan_repair(SET, &PlanRepair::default()).unwrap()
     }
 
     fn fixdat_games(&self, scope: Option<FixdatScope>) -> (Vec<String>, String) {
@@ -418,11 +415,8 @@ fn a_repair_plan_made_under_another_coverage_is_refused_on_approval() {
     let cleared = env.plan();
     env.store.set_coverage(SET, None).unwrap();
     assert!(matches!(
-        env.store.approve_repair(cleared.id,
-            &cleared.digest,
-            "Operator",
-            WORKERS
-        ),
+        env.store
+            .approve_repair(cleared.id, &cleared.digest, "Operator", WORKERS),
         Err(Error::Conflict(_))
     ));
 }
@@ -531,8 +525,7 @@ fn without_regions_to_read_ingest_leaves_a_covered_sets_matches_unresolved_and_s
     ));
     env.audit();
     assert!(matches!(
-        env.store
-            .plan_repair(SET, &PlanRepair::default()),
+        env.store.plan_repair(SET, &PlanRepair::default()),
         Err(Error::RegionsUnavailable(_))
     ));
 }

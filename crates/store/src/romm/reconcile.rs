@@ -550,11 +550,7 @@ impl Store {
     /// unidentified ROM is scanned for a match (`unmatched`), any other is scanned again whole (`update`). Refused
     /// while RomM is off, and once RomM's address or the folder's platform is no longer the one the comparison read,
     /// as its ROM ids may then name other ROMs; a request RomM refuses or doesn't answer is refused saying why.
-    pub fn request_romm_rescan(
-        &self,
-        folder: i64,
-        rom_id: i64,
-    ) -> Result<RommRescan> {
+    pub fn request_romm_rescan(&self, folder: i64, rom_id: i64) -> Result<RommRescan> {
         let roots = &*self.roots();
         let romm = self.settings()?.romm;
         if !romm.is_on() {

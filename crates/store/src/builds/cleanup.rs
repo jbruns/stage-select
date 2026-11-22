@@ -451,14 +451,15 @@ impl Run<'_> {
         let job = self.store.meter.job(self.job);
         let work = super::ChdWork {
             store: self.store,
-            chdman: self.store.chdman().map(|program| {
-                title_select_engine::chd::Chdman {
+            chdman: self
+                .store
+                .chdman()
+                .map(|program| title_select_engine::chd::Chdman {
                     program,
                     threads,
                     deadline: limits.base,
                     tally: job.tally(None),
-                }
-            }),
+                }),
             // The CHD cleaned up is read from the Library Folder it is in.
             to: self.to.clone(),
             // Its cue sheet is extracted from the Source Set.
@@ -1106,11 +1107,9 @@ impl Store {
     /// is the folder as the cleanup left it, to be stored with [`store_refreshed`] before the cleanup's job ends,
     /// while nothing else acts on the folder. Only read; if it cannot be made, the last check stands.
     fn refresh_check(&self, folder: i64) -> Option<Planned> {
-        self.compute_cleanup(folder,
-            &title_select_api::build::PlanCleanup::default(),
-        )
-        .ok()
-        .filter(|planned| planned.check.is_some())
+        self.compute_cleanup(folder, &title_select_api::build::PlanCleanup::default())
+            .ok()
+            .filter(|planned| planned.check.is_some())
     }
 
     /// Settles item `p` of the unfinished cleanup Build `build`, which was moving an entry within the folder `dir`

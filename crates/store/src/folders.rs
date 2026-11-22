@@ -881,11 +881,7 @@ impl Store {
     /// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest
     /// Folder, a relative path, not a registered Library Folder's and overlapping no folder Title Select reads or
     /// writes. Returns it normalized.
-    pub(super) fn check_library_path(
-        &self,
-        root_name: &str,
-        rel: &str,
-    ) -> Result<String> {
+    pub(super) fn check_library_path(&self, root_name: &str, rel: &str) -> Result<String> {
         let roots = &*self.roots();
         self.read(|c| check_library_path(c, roots, root_name, rel))
     }
@@ -893,10 +889,7 @@ impl Store {
     /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
     /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
     /// its marker is written before the registration commits.
-    pub fn add_library_folder(
-        &self,
-        add: &AddLibraryFolder,
-    ) -> Result<LibraryFolder> {
+    pub fn add_library_folder(&self, add: &AddLibraryFolder) -> Result<LibraryFolder> {
         let roots = &*self.roots();
         let rel = match (&add.path, &add.template) {
             (Some(_), Some(_)) => {
@@ -1000,7 +993,7 @@ impl Store {
     }
 
     /// Every Library Folder, by root and path.
-    pub fn library_folders(&self,) -> Result<Vec<LibraryFolder>> {
+    pub fn library_folders(&self) -> Result<Vec<LibraryFolder>> {
         let roots = &*self.roots();
         self.read(|c| {
             let mut stmt = c.prepare(&format!(
@@ -1080,10 +1073,7 @@ impl Store {
         let roots = &*self.roots();
         let set = self.read(|c| set_by_id(c, set_id))?;
         let Some(root) = roots.root(&set.record.root) else {
-            return Ok(Err(format!(
-                "there is no root {}",
-                set.record.root
-            )));
+            return Ok(Err(format!("there is no root {}", set.record.root)));
         };
         Ok(FolderDir::open(&root.path, &set.record.path).map_err(|e| e.to_string()))
     }

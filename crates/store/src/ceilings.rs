@@ -422,10 +422,7 @@ impl Store {
 
     /// How many Jobs may run at once now: the pace's share of the Host's Ceiling.
     pub fn concurrent_in_force(&self) -> Result<usize> {
-        Ok(self
-            .live_ceilings()?
-            .concurrent
-            .load(Ordering::SeqCst))
+        Ok(self.live_ceilings()?.concurrent.load(Ordering::SeqCst))
     }
 
     /// The pools a Job reading the Root `root` shares with every other Job.
@@ -805,7 +802,10 @@ mod tests {
         );
         assert_eq!(why, "There is no root elsewhere.");
         assert_eq!(store.settings().unwrap().ceilings, HostOverrides::default());
-        assert_eq!(store.roots().root("sets").unwrap().overrides(), RootOverrides::default());
+        assert_eq!(
+            store.roots().root("sets").unwrap().overrides(),
+            RootOverrides::default()
+        );
     }
 
     #[test]
@@ -836,7 +836,11 @@ mod tests {
         assert_eq!(store.archive_gate().permits(), 4);
         let view = store.settings_view().unwrap().jobs;
         assert_eq!(view.roots[0].write_mib_per_s.in_force, Some(40));
-        assert_eq!(store.roots().root("sets").unwrap().readers, Some(10), "kept with the root");
+        assert_eq!(
+            store.roots().root("sets").unwrap().readers,
+            Some(10),
+            "kept with the root"
+        );
 
         // A change of pace reaches the same pools.
         let gentle = SettingsUpdate {
@@ -873,7 +877,10 @@ mod tests {
             ..CeilingsUpdate::default()
         };
         store.update_settings(&update(cleared), "Operator").unwrap();
-        assert_eq!(store.roots().root("sets").unwrap().overrides(), RootOverrides::default());
+        assert_eq!(
+            store.roots().root("sets").unwrap().overrides(),
+            RootOverrides::default()
+        );
     }
 
     #[test]
@@ -903,7 +910,10 @@ mod tests {
             .unwrap();
         store.refresh_ceilings().unwrap();
         let sets = |store: &Store| store.ceilings().unwrap().roots[0].clone();
-        assert_eq!(of(&sets(&store).readers), (Some(3), Some(CeilingSource::Calibration)));
+        assert_eq!(
+            of(&sets(&store).readers),
+            (Some(3), Some(CeilingSource::Calibration))
+        );
         assert_eq!(
             of(&sets(&store).read_mib_per_s),
             (Some(250), Some(CeilingSource::Calibration))
@@ -924,7 +934,10 @@ mod tests {
         let after = sets(&store);
         assert_eq!(of(&after.readers), (Some(5), Some(CeilingSource::Yours)));
         assert_eq!(after.readers.measured, Some(3));
-        assert_eq!(of(&after.read_mib_per_s), (Some(90), Some(CeilingSource::Yours)));
+        assert_eq!(
+            of(&after.read_mib_per_s),
+            (Some(90), Some(CeilingSource::Yours))
+        );
     }
 
     #[test]

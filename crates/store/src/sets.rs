@@ -190,12 +190,7 @@ impl Store {
 
     /// Registers the folder `rel` in the Root `root` as a Source Set bound to `dat` (`<provider>/<name>`), covering
     /// every Game.
-    pub fn add_source_set(
-        &self,
-        root: &str,
-        rel: &str,
-        dat: &str,
-    ) -> Result<SourceSetRecord> {
+    pub fn add_source_set(&self, root: &str, rel: &str, dat: &str) -> Result<SourceSetRecord> {
         self.add_source_set_covering(root, rel, dat, None)
     }
 

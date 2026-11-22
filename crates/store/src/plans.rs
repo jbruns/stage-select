@@ -3026,11 +3026,7 @@ impl Store {
     /// Plans building `request.selection` into Library Folder `folder` with your choices, and stores the plan for
     /// review with the check of the folder it was made with. While a Build or Check of the folder is queued or
     /// running, the check is not stored and nothing it found is recorded.
-    pub fn plan_build_with(
-        &self,
-        folder: i64,
-        request: &PlanBuild,
-    ) -> Result<Plan> {
+    pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
         let mut choices = request.choices.clone();
         choices.adopt.sort();
         choices.adopt.dedup();

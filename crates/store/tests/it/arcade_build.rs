@@ -6,9 +6,9 @@
 //! The tests with Disks make their CHDs with chdman, found as the store finds it. Where it is missing they are skipped,
 //! except in CI, where they fail.
 
-use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use title_select_api::roots::RootSpec;
 
 use crate::common::noise;
 use title_select_api::build::{
@@ -187,9 +187,7 @@ impl Env {
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
-        store
-            .add_source_set("sets", "mame", &revision.dat)
-            .unwrap();
+        store.add_source_set("sets", "mame", &revision.dat).unwrap();
         store
             .save_profile(
                 "Mine",
@@ -202,13 +200,12 @@ impl Env {
             .unwrap();
         let folder = store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("arcade".into()),
-                    template: None,
-                    source_set: "mame".into(),
-                    profile: "Mine".into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("arcade".into()),
+                template: None,
+                source_set: "mame".into(),
+                profile: "Mine".into(),
+            })
             .unwrap();
         Env {
             tmp,
@@ -319,9 +316,7 @@ impl Env {
     }
 
     fn plan(&self, selection: i64) -> Plan {
-        self.store
-            .plan_build(self.folder.id, selection)
-            .unwrap()
+        self.store.plan_build(self.folder.id, selection).unwrap()
     }
 
     /// Checks the Library Folder, as a Check Job does.
@@ -331,10 +326,7 @@ impl Env {
             .enqueue_check(self.folder.id, "Operator")
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        let done = self
-            .store
-            .run_check_job(job.id, None)
-            .unwrap();
+        let done = self.store.run_check_job(job.id, None).unwrap();
         assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
         self.store.latest_check(self.folder.id).unwrap().unwrap()
     }
@@ -351,10 +343,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        let ended = self
-            .store
-            .run_build_job(job.id, None)
-            .unwrap();
+        let ended = self.store.run_build_job(job.id, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         ended
     }
@@ -463,10 +452,7 @@ fn a_library_folder_lacking_a_selected_games_device_is_incomplete_for_that_depen
     assert_eq!(blaster.missing_dependencies, ["acmesnd"]);
     env.build(&plan);
 
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     let counts = folder.incomplete.expect("the folder lacks the device");
     assert_eq!(
         (
@@ -523,10 +509,7 @@ fn a_clone_winners_disk_is_copied_into_a_folder_of_its_own_and_built_for_the_lis
         std::fs::read(env.library().join("blasterj/blaster.chd")).unwrap(),
         std::fs::read(env.set().join("blaster/blaster.chd")).unwrap()
     );
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
     assert_eq!(folder.built_for.as_deref(), Some("0.289 (mame0289)"));
     assert_eq!(folder.disk_folders, ["blasterj"]);
@@ -663,10 +646,7 @@ fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
     );
     // A Game's files are put in place together, so nothing of it is.
     assert!(files(&env.library()).is_empty());
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     let counts = folder.incomplete.expect("the folder lacks the game");
     // Its ZIP and its Disk.
     assert_eq!(counts.get(IncompleteReason::Failed), 2, "{counts:?}");
@@ -751,10 +731,7 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
     assert_eq!(item(&plan, "blaster/blaster.chd").kind, ItemKind::NoSource);
     env.build(&plan);
 
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     // A Game's files go in place together, so its ZIP waits on its Disk.
     let counts = folder.incomplete.expect("the folder lacks the disk");
     assert_eq!(

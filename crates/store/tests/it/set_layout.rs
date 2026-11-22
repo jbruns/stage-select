@@ -1,9 +1,9 @@
 //! Set Layouts of MAME Source Sets (ADR 0026): a Repair repacks a family towards the layout the Storage Policy gives,
 //! filling from sibling ZIPs, and keeps a ZIP aside only once every copy written from it is verified.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use title_select_api::build::AddLibraryFolder;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
@@ -163,9 +163,7 @@ impl Env {
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
-        store
-            .add_source_set("sets", "mame", &revision.dat)
-            .unwrap();
+        store.add_source_set("sets", "mame", &revision.dat).unwrap();
         store
             .save_profile(
                 "Mine",
@@ -178,20 +176,15 @@ impl Env {
             .unwrap();
         let folder = store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("arcade".into()),
-                    template: None,
-                    source_set: "mame".into(),
-                    profile: "Mine".into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("arcade".into()),
+                template: None,
+                source_set: "mame".into(),
+                profile: "Mine".into(),
+            })
             .unwrap()
             .id;
-        Env {
-            tmp,
-            store,
-            folder,
-        }
+        Env { tmp, store, folder }
     }
 
     fn set(&self) -> PathBuf {
@@ -255,7 +248,8 @@ impl Env {
     fn ingest(&self, zip: &str, members: &[&str]) {
         write_zip(&self.tmp.path().join("in").join(zip), members);
         self.store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -271,16 +265,11 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        self.store
-            .register_ingest_folder("in")
-            .unwrap();
+        self.store.register_ingest_folder("in").unwrap();
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -635,7 +624,8 @@ fn leaving_one_game_of_a_family_leaves_the_family_as_it_is() {
 
     let plan = env
         .store
-        .plan_repair("mame",
+        .plan_repair(
+            "mame",
             &PlanRepair {
                 choices: [("game:blasterj".to_owned(), RepairChoice::Leave)].into(),
                 additions: Default::default(),
@@ -735,7 +725,8 @@ fn choosing_to_repair_one_game_of_a_family_another_is_left_by_default_is_refused
     env.zip("blaster.zip", &["gfx.u4", "pal.u5", "prog.u3", "progj.u3"]);
     env.audit();
     let plan = |game: &str| {
-        env.store.plan_repair("mame",
+        env.store.plan_repair(
+            "mame",
             &PlanRepair {
                 choices: [(format!("game:{game}"), RepairChoice::Apply)].into(),
                 additions: Default::default(),
@@ -1300,7 +1291,8 @@ fn a_conflicting_entry_you_choose_to_keep_aside_with_the_last_copy_of_a_rom_says
 
     let plan = env
         .store
-        .plan_repair("mame",
+        .plan_repair(
+            "mame",
             &PlanRepair {
                 choices: [(conflict.key.clone(), RepairChoice::KeepAside)].into(),
                 ..PlanRepair::default()
@@ -1516,7 +1508,8 @@ fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
         .collect();
     let chosen = env
         .store
-        .plan_repair("mame",
+        .plan_repair(
+            "mame",
             &PlanRepair {
                 choices,
                 ..PlanRepair::default()
@@ -1876,7 +1869,8 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
     let plan = match keep_aside {
         true => env
             .store
-            .plan_repair("mame",
+            .plan_repair(
+                "mame",
                 &PlanRepair {
                     choices: [(spare.key.clone(), RepairChoice::KeepAside)].into(),
                     ..PlanRepair::default()

@@ -2092,8 +2092,8 @@ impl Store {
             )));
         }
         if let Some(cleanup) = &content.cleanup {
-            return self.carry_out_cleanup(job, plan_id, content, cleanup, &again, build_id, progress,
-            );
+            return self
+                .carry_out_cleanup(job, plan_id, content, cleanup, &again, build_id, progress);
         }
         let audit = content
             .audit
@@ -3267,11 +3267,7 @@ impl Store {
     /// intent recorded, at the Build's. Returns why the folder was left as it is, if it was; the Build then still
     /// needs recovery, and plans for its folder are blocked.
     /// What it reads back from the Library Folder's Root is counted to `job`, the Build's Job, if it is still running.
-    fn recover_build(
-        &self,
-        build: i64,
-        job: Option<&JobMeter>,
-    ) -> Result<Option<String>> {
+    fn recover_build(&self, build: i64, job: Option<&JobMeter>) -> Result<Option<String>> {
         // A CHD's work space, left by a Build that stopped while chdman ran, holds nothing it needs.
         remove_chd_dirs(&self.dir().join(crate::TMP), build);
         let (unfinished, folder, store) = self.read(|c| {
@@ -3318,23 +3314,18 @@ impl Store {
         let library = job
             .map(|job| job.tally(Some(&folder.root)))
             .unwrap_or_default();
-        let outcome = match self.clean_folder((build, &library),
-            &unfinished,
-            &folder,
-            store.clone(),
-        )? {
-            // Then each Game it was placing, or returning, is rolled forward or back, through the folder at its
-            // generation now.
-            Ok(()) => match self.recover_placing(build,
-                unfinished.plan,
-                &folder,
-                store.clone(),
-            )? {
-                Ok(()) => self.recover_returning(build, unfinished.plan, &folder, store)?,
+        let outcome =
+            match self.clean_folder((build, &library), &unfinished, &folder, store.clone())? {
+                // Then each Game it was placing, or returning, is rolled forward or back, through the folder at its
+                // generation now.
+                Ok(()) => {
+                    match self.recover_placing(build, unfinished.plan, &folder, store.clone())? {
+                        Ok(()) => self.recover_returning(build, unfinished.plan, &folder, store)?,
+                        Err(why) => Err(why),
+                    }
+                }
                 Err(why) => Err(why),
-            },
-            Err(why) => Err(why),
-        };
+            };
         let error = outcome.as_ref().err().cloned();
         self.write(|tx| {
             tx.execute(
@@ -3772,7 +3763,7 @@ impl Store {
     /// Run when the service starts, after [`Store::recover_jobs`]: cleans up the folder of each Build that ended
     /// without its folder being cleaned up. A folder that is not the store's, or
     /// cannot be reached, is left as it is; returns, for each, the Build and why.
-    pub fn recover_builds(&self,) -> Result<Vec<(i64, String)>> {
+    pub fn recover_builds(&self) -> Result<Vec<(i64, String)>> {
         let builds: Vec<i64> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id FROM builds WHERE cleaned_at IS NULL AND state IN ('failed', 'interrupted') ORDER BY id",

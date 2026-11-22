@@ -2,9 +2,9 @@
 //! Library Folder's Drift), the Selection Profile opting a system in to its Additions Set for builds, checks of an
 //! Additions Set for Drift, and recovery from a stop at each step of publishing one; from synthetic DATs and files.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use sha2::Digest;
@@ -61,11 +61,13 @@ impl Env {
                 RootSpec::new("sets", tmp.path().join("sets")).writing(&[SET]),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
                 RootSpec::new("play", tmp.path().join("play")).writable(),
-                RootSpec::new("additions", tmp.path().join("additions")).of_kind(RootKind::Additions),
+                RootSpec::new("additions", tmp.path().join("additions"))
+                    .of_kind(RootKind::Additions),
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -132,10 +134,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -154,7 +153,8 @@ impl Env {
     fn plan_ingest(&self, name: &str, new: NewAddition) -> IngestPlan {
         let id = self.item_id(name);
         self.store
-            .plan_ingest("in",
+            .plan_ingest(
+                "in",
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
@@ -287,13 +287,12 @@ impl Env {
     fn folder(&self) -> LibraryFolder {
         self.store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("atari".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap()
     }
 
@@ -309,29 +308,18 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        let ended = self
-            .store
-            .run_build_job(job.id, None)
-            .unwrap();
+        let ended = self.store.run_build_job(job.id, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     }
 
     /// Reopens the store, as the service does when it starts, and settles what a stop left.
     fn restart(self) -> Env {
-        let Env {
-            tmp,
-            store,
-            sha256,
-        } = self;
+        let Env { tmp, store, sha256 } = self;
         let path = store.dir().to_path_buf();
         drop(store);
         let store = Store::open(&path).unwrap();
         store.recover_jobs(WORKERS).unwrap();
-        Env {
-            tmp,
-            store,
-            sha256,
-        }
+        Env { tmp, store, sha256 }
     }
 
     fn only_addition(&self) -> Addition {
@@ -533,7 +521,8 @@ fn an_ingest_addition_needs_a_system_a_valid_unique_name_and_an_unmatched_item()
     env.ingest("Combat (USA).a26", |p| write_file(p, b"combat"));
     let plan = |name: &str, new: NewAddition| {
         let id = env.item_id(name);
-        env.store.plan_ingest("in",
+        env.store.plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![id],
@@ -557,7 +546,8 @@ fn an_ingest_addition_needs_a_system_a_valid_unique_name_and_an_unmatched_item()
         plan("Combat (USA).a26", new("Combat")).is_err(),
         "an item a source set needs is not an addition"
     );
-    let missing = env.store.plan_ingest("in",
+    let missing = env.store.plan_ingest(
+        "in",
         &PlanIngest {
             action: IngestAction::Addition,
             items: vec![env.item_id("My Hack.a26")],
@@ -580,10 +570,7 @@ fn an_unmatched_source_set_entry_is_kept_aside_by_a_repair_and_added_from_the_ke
     write_file(&env.set().join("Homebrew.a26"), b"homebrew");
     env.audit();
     let key = "file:Homebrew.a26";
-    let proposed = env
-        .store
-        .plan_repair(SET, &PlanRepair::default())
-        .unwrap();
+    let proposed = env.store.plan_repair(SET, &PlanRepair::default()).unwrap();
     let item = proposed
         .content
         .items
@@ -597,7 +584,8 @@ fn an_unmatched_source_set_entry_is_kept_aside_by_a_repair_and_added_from_the_ke
     );
     assert!(
         env.store
-            .plan_repair(SET,
+            .plan_repair(
+                SET,
                 &PlanRepair {
                     choices: BTreeMap::from([(key.to_owned(), RepairChoice::AddAddition)]),
                     additions: BTreeMap::new(),
@@ -645,11 +633,7 @@ fn drift_in_a_library_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_
     env.audit();
     let selection = env.record(&pong(&env.sha256));
     let folder = env.folder();
-    env.build(
-        &env.store
-            .plan_build(folder.id, selection)
-            .unwrap(),
-    );
+    env.build(&env.store.plan_build(folder.id, selection).unwrap());
     let dir = env.play().join("atari");
     write_file(&dir.join("Extra.a26"), b"extra");
     let job = env.store.enqueue_check(folder.id, "Operator").unwrap();
@@ -666,7 +650,8 @@ fn drift_in_a_library_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_
     );
 
     let entries = BTreeMap::from([("Extra.a26".to_owned(), CleanupAction::AddAddition)]);
-    let without = env.store.plan_cleanup(folder.id,
+    let without = env.store.plan_cleanup(
+        folder.id,
         &PlanCleanup {
             entries: entries.clone(),
             ..PlanCleanup::default()
@@ -678,7 +663,8 @@ fn drift_in_a_library_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_
     );
     let plan = env
         .store
-        .plan_cleanup(folder.id,
+        .plan_cleanup(
+            folder.id,
             &PlanCleanup {
                 entries,
                 additions: BTreeMap::from([("Extra.a26".to_owned(), new("Extra"))]),
@@ -692,7 +678,8 @@ fn drift_in_a_library_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_
     let extra = kept.iter().find(|k| k.name == "Extra.a26").unwrap().id;
     assert!(
         env.store
-            .plan_kept_deletion(folder.id,
+            .plan_kept_deletion(
+                folder.id,
                 &PlanKeptDeletion {
                     ids: vec![extra],
                     all: false
@@ -761,10 +748,7 @@ fn a_build_reads_the_additions_set_only_once_the_profile_opts_in_for_the_system(
         )
         .unwrap();
     let renamed = env.record(&pong(&env.sha256));
-    let plan = env
-        .store
-        .plan_build(folder.id, renamed)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, renamed).unwrap();
     assert!(
         plan.content
             .items
@@ -780,10 +764,7 @@ fn a_build_reads_the_additions_set_only_once_the_profile_opts_in_for_the_system(
     env.store.retire_addition(a.id).unwrap();
     env.settle();
     let retired = env.record(&pong(&env.sha256));
-    let plan = env
-        .store
-        .plan_build(folder.id, retired)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, retired).unwrap();
     assert!(plan.content.items.iter().all(|i| i.addition.is_none()));
     env.build(&plan);
     assert!(
@@ -811,10 +792,7 @@ fn an_addition_named_as_a_selected_game_blocks_only_itself() {
     env.opt_in(true);
     let folder = env.folder();
     let selection = env.record(&pong(&env.sha256));
-    let plan = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, selection).unwrap();
     let kind = |target: &str| {
         let item = plan
             .content
@@ -843,10 +821,7 @@ fn an_addition_named_exactly_as_a_selected_game_blocks_only_itself() {
     env.opt_in(true);
     let folder = env.folder();
     let selection = env.record(&pong(&env.sha256));
-    let plan = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, selection).unwrap();
     let mut kinds: Vec<(ItemKind, Option<String>)> = plan
         .content
         .items
@@ -890,12 +865,7 @@ fn a_check_of_an_additions_set_reports_drift_and_changes_nothing() {
         findings(&env),
         BTreeMap::from([("My Hack.zip".to_owned(), AdditionsFinding::Intact)])
     );
-    assert!(
-        !env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted()
-    );
+    assert!(!env.store.check_additions(SYSTEM).unwrap().drifted());
 
     write_file(&env.additions().join("stray.bin"), b"stray");
     std::fs::create_dir(env.additions().join("folder")).unwrap();
@@ -944,12 +914,7 @@ fn a_check_of_an_additions_set_reports_drift_and_changes_nothing() {
     assert_eq!(findings(&env)["My Hack.zip"], AdditionsFinding::Changed);
     std::fs::remove_file(&path).unwrap();
     assert_eq!(findings(&env)["My Hack.zip"], AdditionsFinding::Missing);
-    assert!(
-        env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted()
-    );
+    assert!(env.store.check_additions(SYSTEM).unwrap().drifted());
 }
 
 /// Adds `Homebrew.a26` from the Source Set by a repair stopped at `fault`, then restarts and settles it.
@@ -1157,14 +1122,13 @@ fn a_kept_file_an_addition_is_added_from_is_reserved_until_its_job_ends_and_may_
         all: false,
     };
     assert!(
-        env.store
-            .plan_source_kept_deletion(SET, &pick)
-            .is_err(),
+        env.store.plan_source_kept_deletion(SET, &pick).is_err(),
         "a reserved kept file is not picked"
     );
     let all = env
         .store
-        .plan_source_kept_deletion(SET,
+        .plan_source_kept_deletion(
+            SET,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -1181,10 +1145,7 @@ fn a_kept_file_an_addition_is_added_from_is_reserved_until_its_job_ends_and_may_
     let a = env.only_addition();
     assert_published(&env, &a, "Homebrew", "Homebrew.a26", b"homebrew");
     // Once published, its kept copy may be deleted through the approved cleanup; the addition is unaffected.
-    let deletion = env
-        .store
-        .plan_source_kept_deletion(SET, &pick)
-        .unwrap();
+    let deletion = env.store.plan_source_kept_deletion(SET, &pick).unwrap();
     let done = env
         .store
         .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
@@ -1198,12 +1159,7 @@ fn a_kept_file_an_addition_is_added_from_is_reserved_until_its_job_ends_and_may_
         "Homebrew.a26",
         b"homebrew",
     );
-    assert!(
-        !env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted()
-    );
+    assert!(!env.store.check_additions(SYSTEM).unwrap().drifted());
 }
 
 /// An active addition `My Hack`, added from the Ingest Folder.
@@ -1239,10 +1195,7 @@ fn a_retired_addition_moves_into_the_kept_files_from_where_it_is_restored_or_del
     assert!(!env.additions().join("My Hack.zip").exists());
     assert_eq!(additions_kept(&env), ["My Hack.zip"]);
     assert!(
-        !env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted(),
+        !env.store.check_additions(SYSTEM).unwrap().drifted(),
         "a check does not read the kept files"
     );
 
@@ -1259,19 +1212,15 @@ fn a_retired_addition_moves_into_the_kept_files_from_where_it_is_restored_or_del
         b"hack",
     );
     assert!(additions_kept(&env).is_empty());
-    assert!(
-        !env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted()
-    );
+    assert!(!env.store.check_additions(SYSTEM).unwrap().drifted());
 
     env.store.retire_addition(a.id).unwrap();
     env.settle();
     let kept = env.store.additions_kept_files(SYSTEM).unwrap();
     let deletion = env
         .store
-        .plan_additions_kept_deletion(SYSTEM,
+        .plan_additions_kept_deletion(
+            SYSTEM,
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
@@ -1304,7 +1253,8 @@ fn a_kept_file_of_an_addition_being_restored_is_not_deleted() {
     env.store.restore_addition(a.id).unwrap();
     assert!(
         env.store
-            .plan_additions_kept_deletion(SYSTEM,
+            .plan_additions_kept_deletion(
+                SYSTEM,
                 &PlanKeptDeletion {
                     ids: vec![kept[0].id],
                     all: false,
@@ -1340,12 +1290,7 @@ fn a_stop_while_an_addition_is_retired_or_restored_is_settled_on_restart() {
         b"hack",
     );
     assert!(additions_kept(&env).is_empty());
-    assert!(
-        !env.store
-            .check_additions(SYSTEM)
-            .unwrap()
-            .drifted()
-    );
+    assert!(!env.store.check_additions(SYSTEM).unwrap().drifted());
 }
 
 #[test]
@@ -1390,7 +1335,8 @@ fn a_stop_while_an_ingest_plan_is_approved_records_none_of_it() {
     let (a, b) = (env.item_id("Hack A.a26"), env.item_id("Hack B.a26"));
     let plan = env
         .store
-        .plan_ingest("in",
+        .plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
@@ -1523,16 +1469,16 @@ fn a_restore_rolled_back_keeps_what_it_put_back_listed_as_found_and_never_delete
     assert_eq!(std::fs::read(&path).unwrap(), b"something else");
     assert!(env.store.restore_addition(a.id).is_err());
 
-    if let Ok(deletion) = env.store.plan_additions_kept_deletion(SYSTEM,
+    if let Ok(deletion) = env.store.plan_additions_kept_deletion(
+        SYSTEM,
         &PlanKeptDeletion {
             ids: vec![kept[0].id],
             all: false,
         },
     ) {
-        let done = env.store.approve_additions_kept_deletion(deletion.id,
-            &deletion.digest,
-            "Operator",
-        );
+        let done =
+            env.store
+                .approve_additions_kept_deletion(deletion.id, &deletion.digest, "Operator");
         assert!(
             done.is_err() || done.unwrap().outcomes.iter().all(|o| !o.deleted),
             "a file found in place is never deleted"
@@ -1550,7 +1496,8 @@ fn work_given_to_a_member_while_its_job_runs_goes_to_a_fresh_job_when_it_ends() 
     let (a, b) = (env.item_id("Hack A.a26"), env.item_id("Hack B.a26"));
     let plan = env
         .store
-        .plan_ingest("in",
+        .plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
@@ -1686,7 +1633,8 @@ fn a_restore_asked_again_while_its_job_runs_is_handed_to_a_fresh_job() {
     let (a, b) = (env.item_id("Hack A.a26"), env.item_id("Hack B.a26"));
     let plan = env
         .store
-        .plan_ingest("in",
+        .plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::Addition,
                 items: vec![a, b],
@@ -1862,11 +1810,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
     let folder = env.folder();
     let dir = env.play().join("atari");
     let selection = env.record(&pong(&env.sha256));
-    env.build(
-        &env.store
-            .plan_build(folder.id, selection)
-            .unwrap(),
-    );
+    env.build(&env.store.plan_build(folder.id, selection).unwrap());
     assert!(dir.join("My Hack.zip").is_file() && dir.join("Demo.zip").is_file());
 
     // Loose, with originals deleted: each converted file verifies before its original is deleted, and the next
@@ -1875,10 +1819,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
     policy.play_libraries.format = StorageFormat::Loose;
     policy.play_libraries.delete_originals = true;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
-    let plan = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, selection).unwrap();
     for (game, original) in [("My Hack", "My Hack.zip"), ("Demo", "Demo.zip")] {
         let item = plan.content.items.iter().find(|i| i.game == game).unwrap();
         assert_eq!(
@@ -1929,10 +1870,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
     policy.play_libraries.format = StorageFormat::TorrentZip;
     policy.play_libraries.delete_originals = false;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
-    let plan = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(folder.id, selection).unwrap();
     assert!(
         plan.content
             .items
@@ -1970,9 +1908,9 @@ fn an_ingest_addition_is_published_only_where_its_plan_said() {
     );
 
     source_sets_store(&env, SYSTEM, StorageFormat::Loose);
-    let refused =
-        env.store
-            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(&refused, Err(title_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
         "{refused:?}"
@@ -2066,11 +2004,7 @@ fn a_drift_addition_is_published_only_where_its_cleanup_plan_said() {
     env.audit();
     let selection = env.record(&pong(&env.sha256));
     let folder = env.folder();
-    env.build(
-        &env.store
-            .plan_build(folder.id, selection)
-            .unwrap(),
-    );
+    env.build(&env.store.plan_build(folder.id, selection).unwrap());
     let dir = env.play().join("atari");
     write_file(&dir.join("Extra.a26"), b"extra");
     let job = env.store.enqueue_check(folder.id, "Operator").unwrap();
@@ -2078,7 +2012,8 @@ fn a_drift_addition_is_published_only_where_its_cleanup_plan_said() {
     env.store.run_check_job(job.id, None).unwrap();
     let plan = env
         .store
-        .plan_cleanup(folder.id,
+        .plan_cleanup(
+            folder.id,
             &PlanCleanup {
                 entries: BTreeMap::from([("Extra.a26".to_owned(), CleanupAction::AddAddition)]),
                 additions: BTreeMap::from([("Extra.a26".to_owned(), new("Extra"))]),

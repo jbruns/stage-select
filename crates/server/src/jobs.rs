@@ -68,14 +68,8 @@ impl Jobs {
         store: &Weak<Store>,
         folder: i64,
     ) -> title_select_store::Result<Option<RommReconciliation>> {
-        let kept = Store::reconcile_romm(
-            store,
-            folder,
-            None,
-            PAGE,
-            &self.romm_scan,
-            &self.romm_stop,
-        )?;
+        let kept =
+            Store::reconcile_romm(store, folder, None, PAGE, &self.romm_scan, &self.romm_stop)?;
         if let Some(kept) = &kept {
             self.reconciled(kept);
         }
@@ -131,19 +125,16 @@ fn request_romm_scan(store: &Arc<Store>, jobs: &Arc<Jobs>, id: i64) {
     let (store, jobs) = (Arc::downgrade(store), jobs.clone());
     tokio::task::spawn_blocking(move || {
         let timing = jobs.romm_scan;
-        let ended = match Store::request_romm_scan(
-            &store,
-            id,
-            &timing,
-            &jobs.romm_stop,
-            &mut |job| jobs.changed(job.clone()),
-        ) {
-            Ok(ended) => ended,
-            Err(err) => {
-                eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
-                None
-            }
-        };
+        let ended =
+            match Store::request_romm_scan(&store, id, &timing, &jobs.romm_stop, &mut |job| {
+                jobs.changed(job.clone())
+            }) {
+                Ok(ended) => ended,
+                Err(err) => {
+                    eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
+                    None
+                }
+            };
         // The Additions sync is bounded and quick; the comparison may page through a large platform, so it goes last.
         sync_romm_additions(&store, &jobs, id);
         if let Some(job) = ended {
@@ -156,11 +147,9 @@ fn request_romm_scan(store: &Arc<Store>, jobs: &Arc<Jobs>, id: i64) {
 /// the scan's own task. Each step is announced as a change of the Job.
 fn sync_romm_additions(store: &Weak<Store>, jobs: &Arc<Jobs>, id: i64) {
     let timing = jobs.romm_scan;
-    if let Err(err) =
-        Store::sync_romm_additions(store, id, &timing, &jobs.romm_stop, &mut |job| {
-            jobs.changed(job.clone())
-        })
-    {
+    if let Err(err) = Store::sync_romm_additions(store, id, &timing, &jobs.romm_stop, &mut |job| {
+        jobs.changed(job.clone())
+    }) {
         eprintln!("title-select: job {id}: RomM's Additions collection wasn't kept in step: {err}");
     }
 }
@@ -201,11 +190,7 @@ fn reconcile_romm(store: &Weak<Store>, jobs: &Jobs, job: &Job) {
 
 /// Claims and runs Queued Jobs forever, starting one only while fewer run than the pace allows now. A slower pace
 /// never stops a running Job: the runner waits for enough to end.
-pub async fn run(
-    store: Arc<Store>,
-    jobs: Arc<Jobs>,
-    engine: Option<Arc<Engine>>,
-) {
+pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>, engine: Option<Arc<Engine>>) {
     delete_released_romm_collection(&store);
     let running = Arc::new(AtomicUsize::new(0));
     loop {
@@ -361,13 +346,7 @@ impl Drop for Slot {
 }
 
 /// Runs one claimed Audit, Build, Check, Repair or Calibration Job, publishing its progress, and returns the Job as it ended.
-fn run_one(
-    store: &Store,
-    jobs: &Jobs,
-    kind: JobKind,
-    id: i64,
-    version: u64,
-) -> Option<Job> {
+fn run_one(store: &Store, jobs: &Jobs, kind: JobKind, id: i64, version: u64) -> Option<Job> {
     let last = Mutex::new(None::<Instant>);
     let progress = |p: Progress| {
         let mut last = last.lock().unwrap();
@@ -387,7 +366,8 @@ fn run_one(
         JobKind::Build => store.run_build_job(id, Some(&progress)),
         JobKind::Check => store.run_check_job(id, Some(&progress)),
         JobKind::Repair => store.run_repair_job(id, Some(&progress)),
-        JobKind::Calibration => store.run_calibration(id,
+        JobKind::Calibration => store.run_calibration(
+            id,
             &title_select_store::calibration::Calibrating {
                 limits: jobs.calibration,
                 progress: Some(&progress),

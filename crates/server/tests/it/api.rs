@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 use crate::common::*;
 use serde::de::DeserializeOwned;
+use title_select_api::roots::{RootKind, RootSpec};
 use title_select_api::{
     AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, GameStatus, ImportOutcome,
     ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
 use title_select_server::{Handle, Settings, StartError, TOKEN_ACTOR};
-use title_select_api::roots::{RootKind, RootSpec};
 use title_select_store::config::Config;
 
 const TOKEN: &str = "correct horse battery staple";
@@ -49,7 +49,9 @@ impl Env {
     /// Replaces the Root `root`'s registration in the store, before the Service starts.
     fn reregister(&self, root: RootSpec) {
         let store = title_select_store::Store::open(&self.store()).unwrap();
-        store.edit_root(&root.name.clone(), &root, "Operator").unwrap();
+        store
+            .edit_root(&root.name.clone(), &root, "Operator")
+            .unwrap();
     }
 
     fn store(&self) -> PathBuf {
@@ -317,10 +319,7 @@ fn startup_is_refused_with_no_auth_configured() {
         "{:?}",
         refused.err()
     );
-    assert!(
-        !store.exists(),
-        "nothing is opened before auth is checked"
-    );
+    assert!(!store.exists(), "nothing is opened before auth is checked");
 }
 
 #[test]
@@ -1531,7 +1530,11 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
     let roots: Vec<title_select_api::Root> = client.json("/roots");
-    assert!(roots.iter().any(|r| r.name == "drop" && r.kind == RootKind::Ingest));
+    assert!(
+        roots
+            .iter()
+            .any(|r| r.name == "drop" && r.kind == RootKind::Ingest)
+    );
 
     let mut response = client
         .post("/ingest-folders")
@@ -2009,8 +2012,7 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     assert_eq!(status_of(refused), 400, "the root is not writable");
     drop(service);
 
-    let service =
-        title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     let roots: Vec<title_select_api::Root> = client.json("/roots");
     assert!(
@@ -2108,8 +2110,7 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service =
-        title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     let auth = client.auth.clone().unwrap();
     client.upload("Test - System (20260101).dat", &env.dat());
@@ -2223,8 +2224,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     use title_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service =
-        title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat());
     client.add_set();
@@ -4327,7 +4327,12 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
 }
 
 /// Sends `body` to `path` with `method`, and returns the status and the JSON body, if any.
-fn send_root(client: &Client, method: &str, path: &str, body: Option<serde_json::Value>) -> (u16, serde_json::Value) {
+fn send_root(
+    client: &Client,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> (u16, serde_json::Value) {
     let (name, value) = client.auth.clone().unwrap();
     let url = format!("{}{path}", client.base);
     let mut response = match (method, body) {
@@ -4339,7 +4344,10 @@ fn send_root(client: &Client, method: &str, path: &str, body: Option<serde_json:
     .unwrap();
     let status = response.status().as_u16();
     let text = response.body_mut().read_to_string().unwrap();
-    (status, serde_json::from_str(&text).unwrap_or(serde_json::Value::Null))
+    (
+        status,
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null),
+    )
 }
 
 /// Roots are registered, edited and unregistered through the API, each refusal saying why, and a Root registered
@@ -4352,22 +4360,39 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
     let service = env.start();
     let client = Client::new(&service);
     let drop = env.tmp.path().join("drop");
-    let spec = |name: &str, path: &std::path::Path, kind: &str| {
-        serde_json::json!({"name": name, "path": path, "kind": kind, "writable": true})
-    };
+    let spec = |name: &str, path: &std::path::Path, kind: &str| serde_json::json!({"name": name, "path": path, "kind": kind, "writable": true});
 
-    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("drop", &drop, "ingest")));
+    let (status, body) = send_root(
+        &client,
+        "POST",
+        "/roots",
+        Some(spec("drop", &drop, "ingest")),
+    );
     assert_eq!(status, 400, "{body}");
-    assert!(body["error"].as_str().unwrap().contains("doesn't exist"), "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("doesn't exist"),
+        "{body}"
+    );
 
     std::fs::create_dir_all(&drop).unwrap();
     write_file(&drop.join("mystery.bin"), b"mystery");
-    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("drop", &drop, "ingest")));
+    let (status, body) = send_root(
+        &client,
+        "POST",
+        "/roots",
+        Some(spec("drop", &drop, "ingest")),
+    );
     assert_eq!(status, 201, "{body}");
     let registered: title_select_api::Root = serde_json::from_value(body).unwrap();
-    assert_eq!((registered.kind, registered.updated_by.as_str()), (RootKind::Ingest, TOKEN_ACTOR));
+    assert_eq!(
+        (registered.kind, registered.updated_by.as_str()),
+        (RootKind::Ingest, TOKEN_ACTOR)
+    );
     let roots: Vec<title_select_api::Root> = client.json("/roots");
-    assert_eq!(roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["drop", "sets"]);
+    assert_eq!(
+        roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["drop", "sets"]
+    );
 
     client.settle_after("drop", 0);
     let response = client
@@ -4380,20 +4405,41 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
     let job: Job = serde_json::from_value(job).unwrap();
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
     let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
-    assert_eq!(items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["mystery.bin"]);
+    assert_eq!(
+        items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+        ["mystery.bin"]
+    );
 
     let (status, body) = send_root(&client, "POST", "/roots/drop/unregistration", None);
     assert_eq!(status, 409, "{body}");
-    assert!(body["error"].as_str().unwrap().contains("ingest folder"), "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("ingest folder"),
+        "{body}"
+    );
 
-    let (status, body) = send_root(&client, "PUT", "/roots/drop", Some(spec("inbox", &drop, "ingest")));
+    let (status, body) = send_root(
+        &client,
+        "PUT",
+        "/roots/drop",
+        Some(spec("inbox", &drop, "ingest")),
+    );
     assert_eq!(status, 400, "{body}");
 
     let additions = env.tmp.path().join("additions");
     std::fs::create_dir_all(&additions).unwrap();
-    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("extra", &additions, "additions")));
+    let (status, body) = send_root(
+        &client,
+        "POST",
+        "/roots",
+        Some(spec("extra", &additions, "additions")),
+    );
     assert_eq!(status, 201, "{body}");
-    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("more", &additions, "additions")));
+    let (status, body) = send_root(
+        &client,
+        "POST",
+        "/roots",
+        Some(spec("more", &additions, "additions")),
+    );
     assert_eq!(status, 400, "{body}");
 
     let sets = env.tmp.path().join("roots/sets");
@@ -4407,12 +4453,18 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
     assert_eq!(body["root"]["read_mib_per_s"], 50, "{body}");
     let changes: Vec<RootChange> = client.json("/roots/sets/changes");
     assert_eq!(
-        changes.iter().map(|c| (c.action.as_str(), c.changed_by.as_str())).collect::<Vec<_>>(),
+        changes
+            .iter()
+            .map(|c| (c.action.as_str(), c.changed_by.as_str()))
+            .collect::<Vec<_>>(),
         [("registered", "Operator"), ("edited", TOKEN_ACTOR)]
     );
 
     let (status, body) = send_root(&client, "POST", "/roots/extra/unregistration", None);
     assert_eq!(status, 204, "{body}");
     let roots: Vec<title_select_api::Root> = client.json("/roots");
-    assert_eq!(roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["drop", "sets"]);
+    assert_eq!(
+        roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["drop", "sets"]
+    );
 }

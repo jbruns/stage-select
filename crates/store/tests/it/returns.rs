@@ -366,18 +366,12 @@ fn a_return_that_wont_fit_in_the_source_sets_root_is_refused_before_it_runs() {
 fn once_every_placed_game_is_home_the_folder_and_the_source_set_can_be_unregistered() {
     let env = Env::new();
     place_pong(&env, StorageFormat::TorrentZip);
-    assert!(
-        env.store
-            .unregister_library_folder(env.folder.id)
-            .is_err()
-    );
+    assert!(env.store.unregister_library_folder(env.folder.id).is_err());
     let selection = env.select(&["Combat (USA)"]);
     let plan = env.plan(&env.folder, selection);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
 
-    env.store
-        .unregister_library_folder(env.folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(env.folder.id).unwrap();
     env.store.unregister_source_set(SET).unwrap();
 }
 
@@ -402,9 +396,7 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
-    let audit = env
-        .store
-        .audit_source_set(SET, None, AuditEvidence::Full);
+    let audit = env.store.audit_source_set(SET, None, AuditEvidence::Full);
     assert!(
         matches!(&audit, Err(title_select_store::Error::Conflict(why)) if why.contains("returns them")),
         "{:?}",
@@ -416,11 +408,9 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
         "{holding:?}"
     );
     // That plan waits for the return queued: it can't be approved while it is.
-    let approved = env.store.approve_plan(placing.id,
-        &placing.digest,
-        "Operator",
-        WORKERS,
-    );
+    let approved = env
+        .store
+        .approve_plan(placing.id, &placing.digest, "Operator", WORKERS);
     assert!(
         matches!(&approved, Err(title_select_store::Error::Conflict(why)) if why.contains("changes source set")),
         "{:?}",

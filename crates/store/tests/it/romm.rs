@@ -1,12 +1,12 @@
 //! The RomM client, its connection test and the scan a Build requests, against a stub RomM on a local port that
 //! answers as RomM 5.4.1 does (research 0136). No test sends a request to a real RomM.
 
-use title_select_api::roots::RootSpec;
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use title_select_api::roots::RootSpec;
 
 use title_select_api::romm::{RommCheck, RommUser};
 use title_select_store::romm::{RommClient, RommError};
@@ -425,10 +425,7 @@ mod scans {
                 }
             }
             store
-                .audit_source_set(SET,
-                    None,
-                    title_select_engine::AuditEvidence::Incremental,
-                )
+                .audit_source_set(SET, None, title_select_engine::AuditEvidence::Incremental)
                 .unwrap();
             Env {
                 _tmp: tmp,
@@ -444,7 +441,8 @@ mod scans {
 
         fn romm_with(&self, enabled: bool, url: &str, token: SecretUpdate, root: &str) {
             self.store
-                .update_settings(&SettingsUpdate {
+                .update_settings(
+                    &SettingsUpdate {
                         romm: Some(RommUpdate {
                             enabled,
                             base_url: Some(url.into()),
@@ -461,13 +459,12 @@ mod scans {
         fn folder(&self, path: &str) -> LibraryFolder {
             self.store
                 .add_library_folder(&AddLibraryFolder {
-                        root: "play".into(),
-                        path: Some(path.into()),
-                        template: None,
-                        source_set: SET.into(),
-                        profile: PROFILE.into(),
-                    },
-                )
+                    root: "play".into(),
+                    path: Some(path.into()),
+                    template: None,
+                    source_set: SET.into(),
+                    profile: PROFILE.into(),
+                })
                 .unwrap()
         }
 
@@ -489,38 +486,27 @@ mod scans {
                 .unwrap()
                 .selection
                 .unwrap();
-            let plan = self
-                .store
-                .plan_build(folder.id, selection)
-                .unwrap();
+            let plan = self.store.plan_build(folder.id, selection).unwrap();
             let job = self
                 .store
                 .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let job = self
-                .store
-                .run_build_job(job.id, None)
-                .unwrap();
+            let job = self.store.run_build_job(job.id, None).unwrap();
             assert_eq!(job.state, JobState::Succeeded, "{job:?}");
             job
         }
 
         /// Plans, approves and runs the cleanup `request` of `folder`.
         fn cleanup(&self, folder: &LibraryFolder, request: PlanCleanup) -> Job {
-            let plan = self
-                .store
-                .plan_cleanup(folder.id, &request)
-                .unwrap();
+            let plan = self.store.plan_cleanup(folder.id, &request).unwrap();
             assert!(plan.approvable(), "{:?}", plan.content.blockers);
             let job = self
                 .store
                 .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
-            self.store
-                .run_build_job(job.id, None)
-                .unwrap()
+            self.store.run_build_job(job.id, None).unwrap()
         }
 
         fn dir(&self, folder: &str) -> std::path::PathBuf {
@@ -780,10 +766,7 @@ mod scans {
             )
             .unwrap();
         env.store.claim_job().unwrap().unwrap();
-        let audit = env
-            .store
-            .run_audit_job(audit.id, None)
-            .unwrap();
+        let audit = env.store.run_audit_job(audit.id, None).unwrap();
         assert_eq!(audit.kind, JobKind::Audit);
         none(&env, &audit);
 
@@ -1064,9 +1047,7 @@ mod scans {
 
         let job = env.build(&env.folder("snes"));
         let Env {
-            _tmp: tmp,
-            store,
-            ..
+            _tmp: tmp, store, ..
         } = env;
         let weak = Arc::downgrade(&store);
         let scanning = std::thread::spawn(move || {
@@ -1803,19 +1784,14 @@ mod scans {
                 ("platform", &romm.url, "sets"),
             ] {
                 env.romm(true, url, root);
-                let refused = env
-                    .store
-                    .request_romm_rescan(folder.id, 2)
-                    .unwrap_err();
+                let refused = env.store.request_romm_rescan(folder.id, 2).unwrap_err();
                 let title_select_store::Error::Refused(why) = &refused else {
                     panic!("{name}: {refused}");
                 };
                 assert!(why.contains("Compare again"), "{name}: {why}");
             }
             env.romm(true, &romm.url, "play");
-            env.store
-                .request_romm_rescan(folder.id, 2)
-                .unwrap();
+            env.store.request_romm_rescan(folder.id, 2).unwrap();
 
             let posts = |r: &StubRomm| r.seen().iter().filter(|s| s.method == "POST").count();
             assert_eq!((posts(&romm), posts(&elsewhere)), (1, 0));
@@ -1874,14 +1850,8 @@ mod scans {
             env.romm(true, &romm.url, "play");
             reconcile(&env, &folder, 50).unwrap();
 
-            let unmatched = env
-                .store
-                .request_romm_rescan(folder.id, 2)
-                .unwrap();
-            let update = env
-                .store
-                .request_romm_rescan(folder.id, 4)
-                .unwrap();
+            let unmatched = env.store.request_romm_rescan(folder.id, 2).unwrap();
+            let update = env.store.request_romm_rescan(folder.id, 4).unwrap();
 
             assert_eq!(
                 (unmatched.scan_type.as_str(), unmatched.task_id.as_str()),
@@ -1902,19 +1872,13 @@ mod scans {
                 ]
             );
 
-            let not_flagged = env
-                .store
-                .request_romm_rescan(folder.id, 99)
-                .unwrap_err();
+            let not_flagged = env.store.request_romm_rescan(folder.id, 99).unwrap_err();
             assert!(
                 matches!(not_flagged, title_select_store::Error::Refused(_)),
                 "{not_flagged}"
             );
             env.romm(false, &romm.url, "play");
-            let off = env
-                .store
-                .request_romm_rescan(folder.id, 2)
-                .unwrap_err();
+            let off = env.store.request_romm_rescan(folder.id, 2).unwrap_err();
             assert!(
                 matches!(off, title_select_store::Error::Refused(_)),
                 "{off}"

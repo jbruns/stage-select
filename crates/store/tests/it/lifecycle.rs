@@ -2,9 +2,9 @@
 //! what holds each, Retiring Selection Profiles, setting whole sets aside, moving Library Folders and forgetting
 //! what an Unregistered registration left in the store, from synthetic DATs, Source Sets and files.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::additions::NewAddition;
@@ -57,11 +57,13 @@ impl Env {
                 RootSpec::new("sets", tmp.path().join("sets")).writing(&[SET]),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
                 RootSpec::new("play", tmp.path().join("play")).writable(),
-                RootSpec::new("additions", tmp.path().join("additions")).of_kind(RootKind::Additions),
+                RootSpec::new("additions", tmp.path().join("additions"))
+                    .of_kind(RootKind::Additions),
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -122,13 +124,12 @@ impl Env {
     fn folder(&self) -> LibraryFolder {
         self.store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("atari".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap()
     }
 
@@ -153,9 +154,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        self.store
-            .run_build_job(job.id, None)
-            .unwrap()
+        self.store.run_build_job(job.id, None).unwrap()
     }
 
     /// A Library Folder with Pong and Combat built into it.
@@ -163,10 +162,7 @@ impl Env {
         self.audit();
         let selection = self.record(&both(&self.sha256));
         let folder = self.folder();
-        let plan = self
-            .store
-            .plan_build(folder.id, selection)
-            .unwrap();
+        let plan = self.store.plan_build(folder.id, selection).unwrap();
         assert_eq!(self.build(&plan).state, JobState::Succeeded);
         folder
     }
@@ -176,10 +172,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -199,7 +192,8 @@ impl Env {
             .id;
         let plan: IngestPlan = self
             .store
-            .plan_ingest("in",
+            .plan_ingest(
+                "in",
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
@@ -302,10 +296,7 @@ fn a_source_set_is_held_by_a_library_folder_bound_to_it_until_that_folder_is_unr
     assert!(env.store.source_set(SET).is_ok(), "nothing changed");
 
     let before = files(&env.play().join("atari"));
-    let done = env
-        .store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    let done = env.store.unregister_library_folder(folder.id).unwrap();
     assert_eq!(done.kind, RegistrationKind::LibraryFolder);
     let after = files(&env.play().join("atari"));
     assert!(
@@ -348,9 +339,7 @@ fn an_unregistered_source_sets_name_and_folder_are_free_and_its_history_stays_re
     assert_eq!(history.len(), 1);
     assert!(env.store.report(history[0].id).is_ok());
 
-    env.store
-        .add_source_set("sets", SET, SYSTEM)
-        .unwrap();
+    env.store.add_source_set("sets", SET, SYSTEM).unwrap();
     assert_ne!(
         env.set_id(),
         old,
@@ -373,9 +362,7 @@ fn a_queued_job_holds_its_source_set_and_its_library_folder() {
     assert!(why.contains(&format!("job {}", job.id)), "{why}");
     env.store.claim_job().unwrap().unwrap();
     env.store.run_check_job(job.id, None).unwrap();
-    env.store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(folder.id).unwrap();
 
     let job = env
         .store
@@ -393,9 +380,7 @@ fn a_retired_profile_is_hidden_from_new_choices_and_restored_on_request() {
     let why = conflict(env.store.retire_profile(PROFILE));
     assert!(why.contains("play/atari"), "{why}");
 
-    env.store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(folder.id).unwrap();
     let retired = env.store.retire_profile(PROFILE).unwrap();
     assert!(retired.retired_at.is_some());
     assert!(env.store.profiles().unwrap()[0].retired_at.is_some());
@@ -406,13 +391,12 @@ fn a_retired_profile_is_hidden_from_new_choices_and_restored_on_request() {
     for refused in [
         env.store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("other".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("other".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .map(|_| ()),
         env.store
             .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
@@ -457,7 +441,8 @@ fn a_rebind_to_a_retired_profile_is_refused() {
         )
         .unwrap();
     env.store.retire_profile("Other").unwrap();
-    let refused = env.store.change_library_folder(folder.id,
+    let refused = env.store.change_library_folder(
+        folder.id,
         &ChangeLibraryFolder {
             profile: Some("Other".into()),
             source_set: None,
@@ -483,26 +468,14 @@ fn an_ingest_folder_is_unregistered_and_its_root_then_holds_nothing() {
     env.store.claim_job().unwrap().unwrap();
     env.store.run_ingest_scan_job(job.id).unwrap();
 
-    env.store
-        .unregister_ingest_folder("in")
-        .unwrap();
+    env.store.unregister_ingest_folder("in").unwrap();
     assert!(
         !env.tmp.path().join("in/.title-select/marker").exists(),
         "its own marker goes"
     );
+    assert!(env.store.root_holds("in").unwrap().holds.is_empty());
     assert!(
-        env.store
-            .root_holds("in")
-            .unwrap()
-            .holds
-            .is_empty()
-    );
-    assert!(
-        env.store
-            .ingest_folder("in")
-            .unwrap()
-            .id
-            .is_none(),
+        env.store.ingest_folder("in").unwrap().id.is_none(),
         "it can be registered again"
     );
     env.store.register_ingest_folder("in").unwrap();
@@ -521,10 +494,7 @@ fn an_additions_set_is_unregistered_leaving_its_additions_in_place() {
     let before = files(&dir);
     assert!(before.contains("My Hack.zip"), "{before:?}");
 
-    let done = env
-        .store
-        .unregister_additions_set(SYSTEM)
-        .unwrap();
+    let done = env.store.unregister_additions_set(SYSTEM).unwrap();
     assert_eq!(
         (done.kind, done.id),
         (RegistrationKind::AdditionsSet, set.id)
@@ -552,10 +522,7 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
     let set = env.store.additions_set(SYSTEM).unwrap();
     let dir = env.tmp.path().join("additions").join(SET);
 
-    let done = env
-        .store
-        .unregister_additions_set(SYSTEM)
-        .unwrap();
+    let done = env.store.unregister_additions_set(SYSTEM).unwrap();
     assert!(
         done.notes.iter().any(|n| n.contains("kept files")),
         "{done:?}"
@@ -573,7 +540,8 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
     assert_eq!(kept.len(), 1);
     let deletion = env
         .store
-        .plan_additions_kept_deletion_by_id(set.id,
+        .plan_additions_kept_deletion_by_id(
+            set.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -629,9 +597,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
         conflict(env.store.plan_set_aside(SET)).contains("play/atari"),
         "a bound library folder holds it"
     );
-    env.store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(folder.id).unwrap();
     assert!(matches!(
         env.store.plan_set_aside(SET),
         Err(Error::Refused(ref why)) if why.contains("audit")
@@ -679,7 +645,8 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
 
     let deletion = env
         .store
-        .plan_source_kept_deletion_by_id(plan.content.set_id,
+        .plan_source_kept_deletion_by_id(
+            plan.content.set_id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -705,11 +672,7 @@ fn setting_aside_an_additions_set_retires_every_addition_then_unregisters_it() {
 
     env.add_addition("Third Hack", b"third");
     assert!(
-        conflict(
-            env.store
-                .approve_additions_set_aside(SYSTEM, &plan.digest)
-        )
-        .contains("changed"),
+        conflict(env.store.approve_additions_set_aside(SYSTEM, &plan.digest)).contains("changed"),
         "a set that changed since the review is refused"
     );
     let plan = env.store.plan_additions_set_aside(SYSTEM).unwrap();
@@ -745,18 +708,13 @@ fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
         env.store.plan_library_removal(fresh.id),
         Err(Error::Refused(ref why)) if why.contains("unregister it instead")
     ));
-    env.store
-        .unregister_library_folder(fresh.id)
-        .unwrap();
+    env.store.unregister_library_folder(fresh.id).unwrap();
     let folder = env.built();
     let dir = env.play().join("atari");
     let built = files(&dir);
     assert!(built.contains("Pong (USA).zip"), "{built:?}");
 
-    let plan = env
-        .store
-        .plan_library_removal(folder.id)
-        .unwrap();
+    let plan = env.store.plan_library_removal(folder.id).unwrap();
     assert!(plan.content.items.is_empty());
     assert_eq!(
         plan.content.removals.len(),
@@ -785,7 +743,8 @@ fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
     assert_eq!(kept.len(), 2);
     let deletion = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -806,7 +765,8 @@ fn moving_a_library_folder_renames_it_in_place_after_approval() {
     for refused in ["atari/inner", "", "../elsewhere"] {
         assert!(
             env.store
-                .plan_library_folder_move(folder.id,
+                .plan_library_folder_move(
+                    folder.id,
                     &PlanFolderMove {
                         path: refused.into()
                     }
@@ -817,7 +777,8 @@ fn moving_a_library_folder_renames_it_in_place_after_approval() {
     }
     let plan = env
         .store
-        .plan_library_folder_move(folder.id,
+        .plan_library_folder_move(
+            folder.id,
             &PlanFolderMove {
                 path: "consoles/atari 2600".into(),
             },
@@ -853,19 +814,11 @@ fn moving_a_library_folder_renames_it_in_place_after_approval() {
             .approve_library_folder_move(plan.id, &plan.digest, "Operator"),
         Err(Error::Conflict(_))
     ));
-    assert!(
-        env.store
-            .recover_library_folder_moves()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(env.store.recover_library_folder_moves().unwrap().is_empty());
 
     // The folder still builds where it is now.
     let selection = env.record(&both(&env.sha256));
-    let again = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let again = env.store.plan_build(folder.id, selection).unwrap();
     assert_eq!(env.build(&again).state, JobState::Succeeded);
 }
 
@@ -875,7 +828,8 @@ fn a_move_stopped_after_the_rename_is_settled_where_the_folder_is_found() {
     let folder = env.built();
     let plan = env
         .store
-        .plan_library_folder_move(folder.id,
+        .plan_library_folder_move(
+            folder.id,
             &PlanFolderMove {
                 path: "moved".into(),
             },
@@ -902,16 +856,8 @@ fn a_move_stopped_after_the_rename_is_settled_where_the_folder_is_found() {
         "{holds:?}"
     );
 
-    assert!(
-        env.store
-            .recover_library_folder_moves()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        env.store.library_folders().unwrap()[0].path,
-        "moved"
-    );
+    assert!(env.store.recover_library_folder_moves().unwrap().is_empty());
+    assert_eq!(env.store.library_folders().unwrap()[0].path, "moved");
     assert_eq!(
         env.store
             .library_folder_move(plan.id)
@@ -967,9 +913,7 @@ fn forgetting_an_unregistered_source_set_purges_its_history_and_the_dat_revision
 fn forgetting_a_source_set_waits_for_every_library_folder_bound_to_it() {
     let env = Env::new();
     let folder = env.built();
-    env.store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(folder.id).unwrap();
     env.store.unregister_source_set(SET).unwrap();
     let set = env.store.unregistered().unwrap();
     let set = set
@@ -997,11 +941,10 @@ fn forgetting_a_source_set_leaves_a_rebound_library_folders_builds_alone() {
     let env = Env::new();
     let folder = env.built();
     std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store.add_source_set("sets", "Other", SYSTEM).unwrap();
     env.store
-        .add_source_set("sets", "Other", SYSTEM)
-        .unwrap();
-    env.store
-        .change_library_folder(folder.id,
+        .change_library_folder(
+            folder.id,
             &ChangeLibraryFolder {
                 profile: None,
                 source_set: Some("Other".into()),
@@ -1029,7 +972,8 @@ fn a_move_is_refused_at_approval_when_its_destination_now_overlaps_a_registratio
     let folder = env.built();
     let plan = env
         .store
-        .plan_library_folder_move(folder.id,
+        .plan_library_folder_move(
+            folder.id,
             &PlanFolderMove {
                 path: "outer/atari".into(),
             },
@@ -1037,17 +981,16 @@ fn a_move_is_refused_at_approval_when_its_destination_now_overlaps_a_registratio
         .unwrap();
     env.store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("outer".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("outer".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
-    let refused =
-        env.store
-            .approve_library_folder_move(plan.id, &plan.digest, "Operator");
+    let refused = env
+        .store
+        .approve_library_folder_move(plan.id, &plan.digest, "Operator");
     assert!(
         matches!(refused, Err(Error::Conflict(ref why)) if why.contains("overlap")),
         "{refused:?}"
@@ -1062,7 +1005,8 @@ fn an_approved_move_reserves_its_destination_against_new_registrations() {
     let folder = env.built();
     let plan = env
         .store
-        .plan_library_folder_move(folder.id,
+        .plan_library_folder_move(
+            folder.id,
             &PlanFolderMove {
                 path: "next".into(),
             },
@@ -1076,13 +1020,12 @@ fn an_approved_move_reserves_its_destination_against_new_registrations() {
     )
     .unwrap();
     let refused = env.store.add_library_folder(&AddLibraryFolder {
-            root: "play".into(),
-            path: Some("next/inner".into()),
-            template: None,
-            source_set: SET.into(),
-            profile: PROFILE.into(),
-        },
-    );
+        root: "play".into(),
+        path: Some("next/inner".into()),
+        template: None,
+        source_set: SET.into(),
+        profile: PROFILE.into(),
+    });
     assert!(
         matches!(refused, Err(Error::Refused(ref why)) if why.contains("being moved")),
         "{refused:?}"
@@ -1113,7 +1056,8 @@ fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out()
     let item = env.store.ingest_items("in").unwrap()[0].id;
     let plan = env
         .store
-        .plan_ingest("in",
+        .plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::Discard,
                 items: vec![item],
@@ -1124,16 +1068,14 @@ fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out()
     let marker = env.tmp.path().join("in/.title-select");
     let saved = env.tmp.path().join("saved-marker");
     copy_all(&marker, &saved);
-    env.store
-        .unregister_ingest_folder("in")
-        .unwrap();
+    env.store.unregister_ingest_folder("in").unwrap();
     // The marker as the approval's own check of the folder saw it, before the unregistering removed it.
     copy_all(&saved, &marker);
     std::fs::set_permissions(&marker, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
 
-    let refused =
-        env.store
-            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(refused, Err(Error::Conflict(ref why)) if why.contains("unregistered")),
         "{refused:?}"
@@ -1191,9 +1133,7 @@ fn an_unregistered_additions_sets_additions_are_no_longer_changed() {
     env.add_addition("My Hack", b"hack");
     let a = env.store.additions_set(SYSTEM).unwrap().additions.remove(0);
     let dir = env.tmp.path().join("additions").join(SET);
-    env.store
-        .unregister_additions_set(SYSTEM)
-        .unwrap();
+    env.store.unregister_additions_set(SYSTEM).unwrap();
     let before = files(&dir);
 
     let retired = env.store.retire_addition(a.id);
@@ -1243,19 +1183,11 @@ fn builds_and_new_additions_no_longer_see_an_unregistered_additions_sets_additio
         .unwrap();
     let selection = env.record(&both(&env.sha256));
     let folder = env.folder();
-    let opted = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    let opted = env.store.plan_build(folder.id, selection).unwrap();
     assert!(format!("{opted:?}").contains("My Hack"), "{opted:#?}");
 
-    env.store
-        .unregister_additions_set(SYSTEM)
-        .unwrap();
-    let plan = env
-        .store
-        .plan_build(folder.id, selection)
-        .unwrap();
+    env.store.unregister_additions_set(SYSTEM).unwrap();
+    let plan = env.store.plan_build(folder.id, selection).unwrap();
     assert!(!format!("{plan:?}").contains("My Hack"), "{plan:#?}");
 
     // Its file name stays taken, as its file may still be there; its name is free again in a new additions set.
@@ -1281,11 +1213,10 @@ fn a_rebound_library_folders_built_files_are_still_removed() {
     let env = Env::new();
     let folder = env.built();
     std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store.add_source_set("sets", "Other", SYSTEM).unwrap();
     env.store
-        .add_source_set("sets", "Other", SYSTEM)
-        .unwrap();
-    env.store
-        .change_library_folder(folder.id,
+        .change_library_folder(
+            folder.id,
             &ChangeLibraryFolder {
                 profile: None,
                 source_set: Some("Other".into()),
@@ -1293,10 +1224,7 @@ fn a_rebound_library_folders_built_files_are_still_removed() {
         )
         .unwrap();
 
-    let plan = env
-        .store
-        .plan_library_removal(folder.id)
-        .unwrap();
+    let plan = env.store.plan_library_removal(folder.id).unwrap();
     assert_eq!(
         plan.content.removals.len(),
         2,
@@ -1326,9 +1254,7 @@ fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reu
         env.store.unregistered_history(RegistrationKind::SourceSet, set),
         Err(Error::Refused(ref why)) if why.contains("registered")
     ));
-    env.store
-        .unregister_library_folder(folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(folder.id).unwrap();
     env.store.unregister_source_set(SET).unwrap();
 
     let history = env
@@ -1351,9 +1277,7 @@ fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reu
     assert_eq!(built.builds.len(), 1);
     assert!(built.jobs.iter().any(|j| j.kind == JobKind::Build));
 
-    env.store
-        .add_source_set("sets", SET, SYSTEM)
-        .unwrap();
+    env.store.add_source_set("sets", SET, SYSTEM).unwrap();
     assert!(env.store.history(SET).unwrap().is_empty());
     assert!(env.store.selections(SET).unwrap().is_empty());
     assert_eq!(
@@ -1414,9 +1338,7 @@ fn atari() -> AddLibraryFolder {
 #[test]
 fn an_ingest_folder_unregistered_while_it_is_being_registered_is_left_without_a_marker() {
     let env = Env::new();
-    env.store
-        .unregister_ingest_folder("in")
-        .unwrap();
+    env.store.unregister_ingest_folder("in").unwrap();
     let marker = env.tmp.path().join("in/.title-select");
     assert!(!marker.exists());
 
@@ -1475,11 +1397,10 @@ fn a_rebound_library_folders_built_files_are_removed_whatever_its_old_source_set
     let env = Env::new();
     let folder = env.built();
     std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store.add_source_set("sets", "Other", SYSTEM).unwrap();
     env.store
-        .add_source_set("sets", "Other", SYSTEM)
-        .unwrap();
-    env.store
-        .change_library_folder(folder.id,
+        .change_library_folder(
+            folder.id,
             &ChangeLibraryFolder {
                 profile: None,
                 source_set: Some("Other".into()),
@@ -1491,16 +1412,10 @@ fn a_rebound_library_folders_built_files_are_removed_whatever_its_old_source_set
     let dat = write_dat_version(&env.tmp.path().join("dats"), "test-2.dat", "2", &newer);
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     env.store
-        .audit_source_set(SET,
-            Some(&revision.sha256),
-            AuditEvidence::Full,
-        )
+        .audit_source_set(SET, Some(&revision.sha256), AuditEvidence::Full)
         .unwrap();
 
-    let plan = env
-        .store
-        .plan_library_removal(folder.id)
-        .unwrap();
+    let plan = env.store.plan_library_removal(folder.id).unwrap();
     assert!(
         plan.content.blockers.is_empty(),
         "{:#?}",
@@ -1523,7 +1438,8 @@ fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_
     let folder = env.folder();
     let plan = env
         .store
-        .plan_library_folder_move(folder.id,
+        .plan_library_folder_move(
+            folder.id,
             &PlanFolderMove {
                 path: "next".into(),
             },
@@ -1556,9 +1472,7 @@ fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_
 #[test]
 fn an_ingest_folder_is_refused_where_it_would_overlap_a_source_set() {
     let env = Env::new();
-    env.store
-        .unregister_ingest_folder("in")
-        .unwrap();
+    env.store.unregister_ingest_folder("in").unwrap();
     env.store.unregister_root("in", "test").unwrap();
     register_all(&env);
     env.store.add_source_set("all", "in", SYSTEM).unwrap();
@@ -1582,10 +1496,7 @@ fn built_files_are_removed_while_the_source_set_folder_is_unavailable() {
     let folder = env.built();
     std::fs::rename(env.set(), env.tmp.path().join("unmounted")).unwrap();
 
-    let plan = env
-        .store
-        .plan_library_removal(folder.id)
-        .unwrap();
+    let plan = env.store.plan_library_removal(folder.id).unwrap();
     assert!(
         plan.content.blockers.is_empty(),
         "{:#?}",

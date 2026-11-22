@@ -5,9 +5,9 @@
 //!
 //! The CHD test finds chdman as the store does; where it is missing it is skipped, except in CI, where it fails.
 
-use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::JobState;
@@ -231,13 +231,12 @@ impl Env {
     fn folder(&self) -> LibraryFolder {
         self.store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("discs".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("discs".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap()
     }
 
@@ -265,9 +264,7 @@ impl Env {
     }
 
     fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
-        self.store
-            .plan_build(folder.id, selection)
-            .unwrap()
+        self.store.plan_build(folder.id, selection).unwrap()
     }
 
     /// Approves and runs `plan`, whatever becomes of it.
@@ -277,9 +274,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        self.store
-            .run_build_job(job.id, None)
-            .unwrap()
+        self.store.run_build_job(job.id, None).unwrap()
     }
 
     /// The items of `job`'s Build.
@@ -331,10 +326,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        let ended = self
-            .store
-            .run_build_job(job.id, None)
-            .unwrap();
+        let ended = self.store.run_build_job(job.id, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         let build = self.store.build_of_job(ended.id).unwrap().unwrap();
         for item in self.store.build(build.id).unwrap().items {
@@ -357,10 +349,7 @@ impl Env {
     fn check(&self, folder: &LibraryFolder) -> FolderCheck {
         let job = self.store.enqueue_check(folder.id, "Operator").unwrap();
         self.store.claim_job().unwrap().unwrap();
-        let done = self
-            .store
-            .run_check_job(job.id, None)
-            .unwrap();
+        let done = self.store.run_check_job(job.id, None).unwrap();
         assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
         self.store.latest_check(folder.id).unwrap().unwrap()
     }
@@ -571,7 +560,8 @@ fn audit_with_absent_optional(env: &mut Env, roms: &[(&str, &str)]) {
     std::fs::write(&dat, xml).unwrap();
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&env.sha256),
             title_select_engine::AuditEvidence::Full,
         )
@@ -960,7 +950,8 @@ fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<
     );
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&env.sha256),
             title_select_engine::AuditEvidence::Full,
         )
@@ -1333,11 +1324,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     assert!(ran.is_err(), "{ran:?}");
     assert!(!env.dir().join(M3U).exists());
 
-    let Env {
-        tmp,
-        store,
-        sha256,
-    } = env;
+    let Env { tmp, store, sha256 } = env;
     let path = store.dir().to_path_buf();
     drop(store);
     let store = Store::open(&path).unwrap();
@@ -1359,11 +1346,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
         "{killed}: {:?}",
         synced.lock().unwrap()
     );
-    let env = Env {
-        tmp,
-        store,
-        sha256,
-    };
+    let env = Env { tmp, store, sha256 };
     let saga: Vec<&str> = ES_DE_LOOSE
         .iter()
         .copied()
@@ -1842,22 +1825,14 @@ fn killed_and_recovered(
     env.store.hook_faults(None);
     assert!(ran.is_err(), "{ran:?}");
 
-    let Env {
-        tmp,
-        store,
-        sha256,
-    } = env;
+    let Env { tmp, store, sha256 } = env;
     let path = store.dir().to_path_buf();
     drop(store);
     let store = Store::open(&path).unwrap();
     store.recover_jobs(WORKERS).unwrap();
     let blocked = store.recover_builds().unwrap();
     assert!(blocked.is_empty(), "{blocked:?}");
-    Env {
-        tmp,
-        store,
-        sha256,
-    }
+    Env { tmp, store, sha256 }
 }
 
 #[test]
@@ -2008,13 +1983,12 @@ fn laid_out_by_hand(env: &Env) -> (LibraryFolder, i64) {
     let model = env
         .store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("model".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("model".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
     let selection = env.selection(&ALL);
     env.built(&model, selection);
@@ -2059,10 +2033,7 @@ fn adopt(env: &Env, folder: &LibraryFolder, names: &[String]) -> title_select_ap
             .collect(),
         ..PlanCleanup::default()
     };
-    let plan = env
-        .store
-        .plan_cleanup(folder.id, &request)
-        .unwrap();
+    let plan = env.store.plan_cleanup(folder.id, &request).unwrap();
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     env.run(&plan)
 }
@@ -2239,7 +2210,8 @@ fn a_hand_edited_m3u_is_never_adopted_and_never_overwritten() {
     assert!(m3u.conflict, "{m3u:?}");
     let refused = env
         .store
-        .plan_cleanup(folder.id,
+        .plan_cleanup(
+            folder.id,
             &PlanCleanup {
                 entries: [(M3U.to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()
@@ -2289,10 +2261,7 @@ fn a_plan_adopts_a_loose_es_de_tree_you_laid_out_with_its_m3u_and_its_folders() 
     let before = inodes(&env);
     let mut request = PlanBuild::new(selection);
     request.choices.adopt = ES_DE_LOOSE.iter().map(|t| t.to_string()).collect();
-    let plan = env
-        .store
-        .plan_build_with(folder.id, &request)
-        .unwrap();
+    let plan = env.store.plan_build_with(folder.id, &request).unwrap();
     assert!(
         plan.content
             .items
@@ -2359,7 +2328,8 @@ fn an_sbi_file_other_than_the_one_a_build_places_is_never_adopted_and_never_over
     assert_ne!(found.kind, DriftKind::Selected, "{found:?}");
     let refused = env
         .store
-        .plan_cleanup(folder.id,
+        .plan_cleanup(
+            folder.id,
             &PlanCleanup {
                 entries: [(sbi.to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()
@@ -2519,10 +2489,7 @@ fn adopting_a_chd_counts_it_read_from_the_librarys_root_and_its_cue_sheet_from_t
         entries: [("Orbit (USA).chd".to_owned(), CleanupAction::Adopt)].into(),
         ..PlanCleanup::default()
     };
-    let plan = env
-        .store
-        .plan_cleanup(folder.id, &request)
-        .unwrap();
+    let plan = env.store.plan_cleanup(folder.id, &request).unwrap();
     let m = env.store.meter();
     let (sets, play, total) = (m.root("sets"), m.root("play"), m.total());
 
@@ -2565,7 +2532,8 @@ fn a_chd_whose_cue_sheet_the_source_set_no_longer_holds_is_not_adopted() {
     .unwrap();
     let refused = env
         .store
-        .plan_cleanup(folder.id,
+        .plan_cleanup(
+            folder.id,
             &PlanCleanup {
                 entries: [("Orbit (USA).chd".to_owned(), CleanupAction::Adopt)].into(),
                 ..PlanCleanup::default()

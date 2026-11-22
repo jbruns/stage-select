@@ -64,8 +64,7 @@ impl Root {
     /// Whether Title Select may write to the folder `rel` of this Root: the Root is writable, or lists `rel` among
     /// its `writable_paths`.
     pub fn may_write(&self, rel: &str) -> bool {
-        self.writable
-            || relative_path(rel).is_ok_and(|rel| self.writable_paths.contains(&rel))
+        self.writable || relative_path(rel).is_ok_and(|rel| self.writable_paths.contains(&rel))
     }
 
     /// The Operator's Ceilings for it.
@@ -179,7 +178,9 @@ pub(crate) fn load(c: &Connection) -> Result<Roots> {
         .query_map([], row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Roots::of(
-        rows.into_iter().map(with_paths).collect::<Result<Vec<_>>>()?,
+        rows.into_iter()
+            .map(with_paths)
+            .collect::<Result<Vec<_>>>()?,
     ))
 }
 

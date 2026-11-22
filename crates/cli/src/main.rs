@@ -402,7 +402,11 @@ struct RootOptions {
     read_only: bool,
     /// In a read-only root, a source set's path, relative to the root, that a repair may write to. Repeat it for
     /// each; any you give replace those the root had.
-    #[arg(long = "writable-path", value_name = "PATH", conflicts_with = "no_writable_paths")]
+    #[arg(
+        long = "writable-path",
+        value_name = "PATH",
+        conflicts_with = "no_writable_paths"
+    )]
     writable_paths: Vec<String>,
     /// Remove every writable path.
     #[arg(long)]
@@ -473,7 +477,12 @@ fn root_line(root: &title_select_api::Root) -> String {
         (false, []) => "read-only".to_owned(),
         (false, paths) => format!("read-only but for {}", paths.join(", ")),
     };
-    let mut line = format!("{}\t{}\t{}\t{writes}", root.name, root.path, root.kind.as_str());
+    let mut line = format!(
+        "{}\t{}\t{}\t{writes}",
+        root.name,
+        root.path,
+        root.kind.as_str()
+    );
     for (what, value) in [
         ("readers", root.readers.map(|v| v.to_string())),
         ("reads", root.read_mib_per_s.map(|v| format!("{v} MiB/s"))),
@@ -1250,11 +1259,12 @@ fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         Command::Root {
-            command: RootCommand::Edit {
-                name,
-                path,
-                options,
-            },
+            command:
+                RootCommand::Edit {
+                    name,
+                    path,
+                    options,
+                },
         } => {
             let store = open_store(store)?;
             let mut spec = store

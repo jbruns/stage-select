@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 /// What a Root is for.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RootKind {
     /// Source Sets, if read-only, or Library Folders, if writable.
@@ -35,7 +37,9 @@ impl std::str::FromStr for RootKind {
         RootKind::ALL
             .into_iter()
             .find(|k| k.as_str() == s)
-            .ok_or_else(|| format!("{s:?} is not a kind of root: give general, ingest or additions"))
+            .ok_or_else(|| {
+                format!("{s:?} is not a kind of root: give general, ingest or additions")
+            })
     }
 }
 

@@ -1,12 +1,12 @@
 //! Fetching newer DAT Revisions for Following Source Sets (ADR 0012), against a fake DAT Provider on a local port.
 //! No test sends a request anywhere else.
 
-use title_select_api::roots::RootSpec;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
+use title_select_api::roots::RootSpec;
 
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger, SUPPORT_SYSTEM,
@@ -357,14 +357,10 @@ impl Env {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("sets/PSX")).unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        crate::register(
-            &store,
-            &[
-                RootSpec::new("sets", tmp.path().join("sets")),
-            ],
-        );
+        crate::register(&store, &[RootSpec::new("sets", tmp.path().join("sets"))]);
         store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     fetch: Some(fetch),
                     ..SettingsUpdate::default()
                 },
@@ -1067,9 +1063,7 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         .import_dat_bytes(&software_list("nes", "0"), "nes.xml", None)
         .unwrap();
     std::fs::create_dir_all(env._tmp.path().join("sets/NES")).unwrap();
-    env.store
-        .add_source_set("sets", "NES", "MAME/nes")
-        .unwrap();
+    env.store.add_source_set("sets", "NES", "MAME/nes").unwrap();
     env.store
         .audit_source_set("NES", None, AuditEvidence::Incremental)
         .unwrap();
@@ -1137,9 +1131,7 @@ fn a_deleted_software_list_revision_is_fetched_again_for_the_release_it_came_fro
     for set in ["NES", "NES again"] {
         std::fs::create_dir_all(env._tmp.path().join("sets").join(set)).unwrap();
     }
-    env.store
-        .add_source_set("sets", "NES", "MAME/nes")
-        .unwrap();
+    env.store.add_source_set("sets", "NES", "MAME/nes").unwrap();
     env.store.set_follow("NES", true).unwrap();
     env.serve_mame("mame0270");
     let first = env
@@ -1526,9 +1518,7 @@ fn an_older_listxml_imported_again_does_not_count_its_old_fetch_for_a_newer_one(
         .find(|r| r.dat == "MAME/MAME")
         .unwrap()
         .sha256;
-    env.store
-        .unregister_source_set("Arcade")
-        .unwrap();
+    env.store.unregister_source_set("Arcade").unwrap();
     env.store.delete_dat_revision(&old).unwrap();
 
     env.backdate(25);
@@ -1567,9 +1557,7 @@ fn a_fetch_in_flight_does_not_count_for_a_newer_listxml_imported_meanwhile() {
         let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
         // While catver.ini is in flight: 0.290 arrives, then 0.289 is imported again after it.
         seen.wait();
-        env.store
-            .unregister_source_set("Arcade")
-            .unwrap();
+        env.store.unregister_source_set("Arcade").unwrap();
         env.store.delete_dat_revision(&old).unwrap();
         env.add_arcade("mame0290");
         env.store
@@ -1613,9 +1601,7 @@ fn a_listxml_deleted_while_its_commit_check_is_in_flight_is_fetched_for_and_its_
         let fetching = scope.spawn(|| env.fetch(FetchProvider::Mame, FetchTrigger::Manual));
         // While the commit check is in flight: 0.289 is deleted and 0.290 imported in its place.
         seen.wait();
-        env.store
-            .unregister_source_set("Arcade")
-            .unwrap();
+        env.store.unregister_source_set("Arcade").unwrap();
         env.store.delete_dat_revision(&old).unwrap();
         env.add_arcade("mame0290");
         go.wait();

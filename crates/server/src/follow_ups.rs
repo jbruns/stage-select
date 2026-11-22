@@ -163,12 +163,7 @@ pub fn scan_ended(store: &Store, follow_ups: &FollowUps, job: &Job) {
     let Some(root) = job.ingest_folder.as_deref() else {
         return;
     };
-    follow_up(
-        store,
-        follow_ups,
-        root,
-        job.state == JobState::Succeeded,
-    );
+    follow_up(store, follow_ups, root, job.state == JobState::Succeeded);
 }
 
 /// Sets the follow-up of the folder of Root `root` after a scan that `succeeded` or not, from what the store says is

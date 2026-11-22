@@ -17,7 +17,6 @@ use super::folder_dir::{FolderDir, Identity};
 use super::folders::{MARKER_LIMIT, folder_by_id, open_folder, store_id};
 use super::{Error, Result, Store, now};
 
-
 /// The table each kind is registered in.
 fn table(kind: RegistrationKind) -> &'static str {
     match kind {
@@ -528,10 +527,7 @@ impl Store {
 
     /// Unregisters the Additions Set of `system`. Its additions are left in its folder, as files Title Select no
     /// longer manages.
-    pub fn unregister_additions_set(
-        &self,
-        system: &str,
-    ) -> Result<Unregistration> {
+    pub fn unregister_additions_set(&self, system: &str) -> Result<Unregistration> {
         let id = self.read(|c| Self::additions_set_id(c, system))?;
         self.unregister(RegistrationKind::AdditionsSet, id)
     }
@@ -542,11 +538,7 @@ impl Store {
         self.unregister(RegistrationKind::IngestFolder, id)
     }
 
-    pub(crate) fn unregister(
-        &self,
-        kind: RegistrationKind,
-        id: i64,
-    ) -> Result<Unregistration> {
+    pub(crate) fn unregister(&self, kind: RegistrationKind, id: i64) -> Result<Unregistration> {
         let _lifecycle = self.lifecycle_lock();
         let at = self.write(|tx| unregister_in(tx, kind, id))?;
         let reg = self.read(|c| registration(c, kind, id))?;
@@ -579,21 +571,13 @@ impl Store {
 
     /// Removes the marker of Unregistered registration `id` of `kind`, unless Kept Files of it are left, which its
     /// marker lets you delete. Returns a note when the marker stays, or could not be removed.
-    pub(crate) fn settle_marker(
-        &self,
-        kind: RegistrationKind,
-        id: i64,
-    ) -> Result<Option<String>> {
+    pub(crate) fn settle_marker(&self, kind: RegistrationKind, id: i64) -> Result<Option<String>> {
         let _lifecycle = self.lifecycle_lock();
         self.settle_marker_in(kind, id)
     }
 
     /// As [`Store::settle_marker`], with the lifecycle lock already held.
-    fn settle_marker_in(
-        &self,
-        kind: RegistrationKind,
-        id: i64,
-    ) -> Result<Option<String>> {
+    fn settle_marker_in(&self, kind: RegistrationKind, id: i64) -> Result<Option<String>> {
         let roots = &*self.roots();
         let (reg, kept, store) = self.read(|c| {
             Ok((

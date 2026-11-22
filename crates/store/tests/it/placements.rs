@@ -2,9 +2,9 @@
 //! Repairs and unregistering that follow them there. Each test records its Placements directly, from synthetic DATs,
 //! Source Sets and files; `single_copy` places them by Builds.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder};
@@ -65,7 +65,8 @@ impl Env {
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -105,19 +106,14 @@ impl Env {
             .unwrap();
         let folder = store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("atari".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap();
-        Env {
-            tmp,
-            store,
-            folder,
-        }
+        Env { tmp, store, folder }
     }
 
     fn set(&self) -> PathBuf {
@@ -151,10 +147,7 @@ impl Env {
             .enqueue_check(self.folder.id, "Operator")
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        let done = self
-            .store
-            .run_check_job(job.id, None)
-            .unwrap();
+        let done = self.store.run_check_job(job.id, None).unwrap();
         assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
         self.store.latest_check(self.folder.id).unwrap().unwrap()
     }
@@ -165,10 +158,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -300,11 +290,7 @@ fn an_audit_never_follows_a_symbolic_link_put_in_place_of_a_placed_file_or_its_f
         &[("Combat (USA).a26", b"combat")],
     );
     env.store
-        .record_placement(SET,
-            "Combat (USA)",
-            env.folder.id,
-            &["c/Combat (USA).zip"],
-        )
+        .record_placement(SET, "Combat (USA)", env.folder.id, &["c/Combat (USA).zip"])
         .unwrap();
     let report = env.audit(AuditEvidence::Full);
     assert_eq!(Env::statuses(&report)["Pong (USA)"], GameStatus::Complete);
@@ -484,10 +470,7 @@ fn unregistering_the_folder_or_the_source_set_is_refused_while_games_are_placed(
         .store
         .unregister_library_folder(env.folder.id)
         .unwrap_err();
-    let set = env
-        .store
-        .unregister_source_set(SET)
-        .unwrap_err();
+    let set = env.store.unregister_source_set(SET).unwrap_err();
 
     match folder {
         Error::Conflict(why) => assert!(
@@ -514,13 +497,12 @@ fn only_a_folder_bound_to_the_source_set_holds_its_placed_games() {
     let second = env
         .store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("atari-2".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("atari-2".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
     assert_eq!(
         env.store.holding_folder(SET).unwrap(),
@@ -532,11 +514,8 @@ fn only_a_folder_bound_to_the_source_set_holds_its_placed_games() {
         &[("Pong (USA).a26", b"pong")],
     );
     assert!(matches!(
-        env.store.record_placement(SET,
-            "Pong (USA)",
-            env.folder.id,
-            &["Pong (USA).zip"]
-        ),
+        env.store
+            .record_placement(SET, "Pong (USA)", env.folder.id, &["Pong (USA).zip"]),
         Err(Error::Refused(_))
     ));
 
@@ -609,10 +588,7 @@ fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything
     );
     let sha256 = env.audit(AuditEvidence::Full).dat_revision.sha256;
     let selection = select(&env, "Pong (USA)", &sha256);
-    let plan = env
-        .store
-        .plan_build(env.folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(env.folder.id, selection).unwrap();
 
     let audit = env
         .store
@@ -624,16 +600,10 @@ fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything
         Err(Error::Conflict(_))
     ));
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, audit.id);
-    let audited = env
-        .store
-        .run_audit_job(audit.id, None)
-        .unwrap();
+    let audited = env.store.run_audit_job(audit.id, None).unwrap();
     assert_eq!(audited.state, JobState::Succeeded);
 
-    let plan = env
-        .store
-        .plan_build(env.folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(env.folder.id, selection).unwrap();
     env.store
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
@@ -651,13 +621,12 @@ fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything
     // A second folder bound to the Source Set leaves it no holding folder by default: nothing an Audit reads waits.
     env.store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("atari-copy".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("atari-copy".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
     env.store
         .enqueue_audit(SET, None, "Operator", WORKERS, AuditEvidence::Incremental)
@@ -673,34 +642,21 @@ fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_neve
     );
     let sha256 = env.audit(AuditEvidence::Full).dat_revision.sha256;
     let selection = select(&env, "Pong (USA)", &sha256);
-    let plan = env
-        .store
-        .plan_build(env.folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(env.folder.id, selection).unwrap();
     let build = env
         .store
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, build.id);
-    let built = env
-        .store
-        .run_build_job(build.id, None)
-        .unwrap();
+    let built = env.store.run_build_job(build.id, None).unwrap();
     assert_eq!(built.state, JobState::Succeeded, "{built:?}");
     // The built file, now Pong's only copy: placed there.
     std::fs::remove_file(env.set().join("Pong (USA).zip")).unwrap();
     env.store
-        .record_placement(SET,
-            "Pong (USA)",
-            env.folder.id,
-            &["Pong (USA).zip"],
-        )
+        .record_placement(SET, "Pong (USA)", env.folder.id, &["Pong (USA).zip"])
         .unwrap();
 
-    let plan = env
-        .store
-        .plan_library_removal(env.folder.id)
-        .unwrap();
+    let plan = env.store.plan_library_removal(env.folder.id).unwrap();
 
     assert!(
         plan.content.removals.is_empty(),
@@ -1207,9 +1163,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changed_even_across_a_stop
         .clone()
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, requeued.id);
-    env.store
-        .run_repair_job(requeued.id, None)
-        .unwrap();
+    env.store.run_repair_job(requeued.id, None).unwrap();
 
     let combat = placed_path(env.folder.id, "Combat (USA).zip");
     assert!(
@@ -1443,27 +1397,17 @@ fn a_check_reads_again_a_file_both_built_and_placed_put_in_place_with_its_size_a
     );
     let sha256 = env.audit(AuditEvidence::Full).dat_revision.sha256;
     let selection = select(&env, "Pong (USA)", &sha256);
-    let plan = env
-        .store
-        .plan_build(env.folder.id, selection)
-        .unwrap();
+    let plan = env.store.plan_build(env.folder.id, selection).unwrap();
     let build = env
         .store
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, build.id);
-    let built = env
-        .store
-        .run_build_job(build.id, None)
-        .unwrap();
+    let built = env.store.run_build_job(build.id, None).unwrap();
     assert_eq!(built.state, JobState::Succeeded, "{built:?}");
     std::fs::remove_file(env.set().join("Pong (USA).zip")).unwrap();
     env.store
-        .record_placement(SET,
-            "Pong (USA)",
-            env.folder.id,
-            &["Pong (USA).zip"],
-        )
+        .record_placement(SET, "Pong (USA)", env.folder.id, &["Pong (USA).zip"])
         .unwrap();
     let outcome = |check: &FolderCheck| {
         let file = check
@@ -1532,9 +1476,7 @@ fn a_stop_once_a_fill_of_a_vanished_placed_game_is_done_leaves_it_no_longer_plac
         .clone()
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, requeued.id);
-    env.store
-        .run_repair_job(requeued.id, None)
-        .unwrap();
+    env.store.run_repair_job(requeued.id, None).unwrap();
     assert!(env.store.placed_files(SET).unwrap().is_empty());
 }
 
@@ -2258,23 +2200,15 @@ fn a_stop_once_a_fill_went_into_a_library_folder_since_moved_leaves_it_unfinishe
             assert_eq!(placed(&env), [(a.to_owned(), "Joust (USA)".to_owned())]);
             // The repair it belongs to holds the source set, and the move the folders it goes from and into.
             for held in [
-                env.store
-                    .unregister_ingest_folder("in")
-                    .unwrap_err(),
+                env.store.unregister_ingest_folder("in").unwrap_err(),
                 env.store
                     .unregister_library_folder(env.folder.id)
                     .unwrap_err(),
-                env.store
-                    .unregister_source_set(SET)
-                    .unwrap_err(),
+                env.store.unregister_source_set(SET).unwrap_err(),
             ] {
                 assert!(matches!(held, Error::Conflict(_)), "{held:?}");
             }
-            match env
-                .store
-                .unregister_ingest_folder("in")
-                .unwrap_err()
-            {
+            match env.store.unregister_ingest_folder("in").unwrap_err() {
                 Error::Conflict(why) => assert!(why.contains("put the folder back"), "{why}"),
                 other => panic!("{other:?}"),
             }

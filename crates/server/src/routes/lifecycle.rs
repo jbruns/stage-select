@@ -108,10 +108,7 @@ async fn unregister_source_set(
 ) -> ApiResult<Json<Unregistration>> {
     let Path(name) = name?;
     Ok(Json(
-        blocking(&state, move |store| {
-            store.unregister_source_set(&name)
-        })
-        .await?,
+        blocking(&state, move |store| store.unregister_source_set(&name)).await?,
     ))
 }
 
@@ -142,10 +139,7 @@ async fn unregister_library_folder(
 ) -> ApiResult<Json<Unregistration>> {
     let Path(id) = id?;
     Ok(Json(
-        blocking(&state, move |store| {
-            store.unregister_library_folder(id)
-        })
-        .await?,
+        blocking(&state, move |store| store.unregister_library_folder(id)).await?,
     ))
 }
 
@@ -279,10 +273,7 @@ async fn unregister_ingest_folder(
     let Path(root) = root?;
     let unregistered = {
         let root = root.clone();
-        blocking(&state, move |store| {
-            store.unregister_ingest_folder(&root)
-        })
-        .await?
+        blocking(&state, move |store| store.unregister_ingest_folder(&root)).await?
     };
     state.jobs.follow_ups.forget(&root);
     Ok(Json(unregistered))

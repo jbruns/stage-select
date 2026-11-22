@@ -435,10 +435,7 @@ fn drop_unplaced(tx: &Transaction, set: i64, game: &str) -> Result<()> {
 impl Store {
     /// The Library Folders holding Source Set `set`'s Placed Games, each with its folder resolved in its Root and the
     /// paths of the Placed Games' files in it.
-    pub(crate) fn placed_folders(
-        &self,
-        set: i64,
-    ) -> Result<Vec<(i64, Resolved, Vec<String>)>> {
+    pub(crate) fn placed_folders(&self, set: i64) -> Result<Vec<(i64, Resolved, Vec<String>)>> {
         let roots = &*self.roots();
         let files = self.read(|c| placed_files_of(c, set))?;
         let mut folders: Vec<(i64, Resolved, Vec<String>)> = Vec::new();

@@ -91,20 +91,12 @@ impl Env {
     /// service does when it next starts, recovers the Jobs and repairs the stop left and runs each Repair Job to its
     /// end.
     fn restarted(self, across: bool) -> Env {
-        let Env {
-            tmp,
-            store,
-            sha256,
-        } = self;
+        let Env { tmp, store, sha256 } = self;
         let path = store.dir().to_path_buf();
         drop(store);
         let store = Store::open(&path).unwrap();
         store.copy_across_filesystems(across);
-        let env = Env {
-            tmp,
-            store,
-            sha256,
-        };
+        let env = Env { tmp, store, sha256 };
         let mut jobs: Vec<i64> = env
             .store
             .recover_jobs(WORKERS)
@@ -241,10 +233,7 @@ fn a_repair_releases_a_damaged_placed_chd_into_the_source_sets_kept_files() {
         ids: vec![kept[0].id],
         all: false,
     };
-    let deletion = env
-        .store
-        .plan_source_kept_deletion(SET, &pick)
-        .unwrap();
+    let deletion = env.store.plan_source_kept_deletion(SET, &pick).unwrap();
     let done = env
         .store
         .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
@@ -967,8 +956,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
                     }
                 })));
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                env.store
-                    .run_repair_job(approved.job.unwrap(), None)
+                env.store.run_repair_job(approved.job.unwrap(), None)
             }));
             env.store.hook_faults(None);
             assert!(ran.is_err(), "{label}: never reached the stop: {ran:?}");
@@ -1038,8 +1026,7 @@ fn without_chdman(env: &mut Env) {
         &env.store,
         RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
     );
-    env.store
-        .use_chdman(Some(env.tmp.path().join("no-chdman")));
+    env.store.use_chdman(Some(env.tmp.path().join("no-chdman")));
 }
 
 /// A two-disc release the audit couldn't read is left by default, and choosing to set one disc aside sets every disc
@@ -1354,8 +1341,7 @@ fn a_release_stopped_before_its_delete_stamp_is_recorded_keeps_the_copy_and_the_
             }
         })));
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .run_repair_job(approved.job.unwrap(), None)
+        env.store.run_repair_job(approved.job.unwrap(), None)
     }));
     env.store.hook_faults(None);
     assert!(stopped.is_err());
@@ -1597,8 +1583,7 @@ fn a_chd_put_back_before_its_keep_is_recorded_stays_placed() {
             }
         })));
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .run_repair_job(approved.job.unwrap(), None)
+        env.store.run_repair_job(approved.job.unwrap(), None)
     }));
     env.store.hook_faults(None);
     assert!(stopped.is_err());

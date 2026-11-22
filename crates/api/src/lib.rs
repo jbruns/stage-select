@@ -53,7 +53,6 @@ pub struct ErrorBody {
     pub blockers: Option<Vec<DeletionBlocker>>,
 }
 
-
 /// A DAT, identified by its recognised provider and native name, or by its DAT Format and name when its provider is
 /// unknown, with its DAT Revisions, oldest first by header version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

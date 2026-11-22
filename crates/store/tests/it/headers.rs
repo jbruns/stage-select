@@ -1,7 +1,7 @@
 //! Headers in the store: a stored Audit keeps what a DAT's Header Rule found (ADR 0016).
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::path::PathBuf;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use std::collections::BTreeMap;
@@ -49,11 +49,13 @@ impl Env {
                 RootSpec::new("sets", root).writing(&[SET]),
                 RootSpec::new("play", tmp.path().join("roots/play")).writable(),
                 RootSpec::new("ingest", tmp.path().join("roots/ingest")).of_kind(RootKind::Ingest),
-                RootSpec::new("additions", tmp.path().join("roots/additions")).of_kind(RootKind::Additions),
+                RootSpec::new("additions", tmp.path().join("roots/additions"))
+                    .of_kind(RootKind::Additions),
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "ingest".to_owned(),
@@ -74,9 +76,7 @@ impl Env {
 
     /// Adds `payload`, put in the Ingest Folder as `name`, as the addition `addition` of the system.
     fn add_addition(&self, name: &str, payload: &[u8], addition: &str) {
-        self.store
-            .register_ingest_folder("ingest")
-            .unwrap();
+        self.store.register_ingest_folder("ingest").unwrap();
         write_file(&self.tmp.path().join("roots/ingest").join(name), payload);
         for _ in 0..2 {
             let job = self
@@ -84,10 +84,7 @@ impl Env {
                 .enqueue_ingest_scan("ingest", "Operator")
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
         let id = self
@@ -100,7 +97,8 @@ impl Env {
             .id;
         let plan = self
             .store
-            .plan_ingest("ingest",
+            .plan_ingest(
+                "ingest",
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![id],
@@ -409,13 +407,12 @@ fn build_with(
     let folder = env
         .store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some(path.into()),
-                template: None,
-                source_set: "Test - System".into(),
-                profile: "Mine".into(),
-            },
-        )
+            root: "play".into(),
+            path: Some(path.into()),
+            template: None,
+            source_set: "Test - System".into(),
+            profile: "Mine".into(),
+        })
         .unwrap();
     let plan = env.store.plan_build(folder.id, id).unwrap();
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
@@ -561,7 +558,8 @@ fn headered_drift_added_as_an_addition_by_a_cleanup_is_added_whole() {
 
     let plan = env
         .store
-        .plan_cleanup(folder,
+        .plan_cleanup(
+            folder,
             &PlanCleanup {
                 entries: BTreeMap::from([("My Hack.nes".to_owned(), CleanupAction::AddAddition)]),
                 additions: BTreeMap::from([(

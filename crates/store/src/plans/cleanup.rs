@@ -256,11 +256,7 @@ type Restore = (CleanupRestore, Option<(Seen, Probe)>);
 
 impl Store {
     /// Computes the cleanup of Library Folder `folder` that `choices` asks for, against its current Build.
-    pub(crate) fn compute_cleanup(
-        &self,
-        folder: i64,
-        choices: &PlanCleanup,
-    ) -> Result<Planned> {
+    pub(crate) fn compute_cleanup(&self, folder: i64, choices: &PlanCleanup) -> Result<Planned> {
         let roots = &*self.roots();
         type Kept = Vec<(i64, Option<KeptFile>, KeptProbe)>;
         type Sources = HashMap<String, Vec<PlanSource>>;
@@ -885,11 +881,7 @@ impl Store {
 
     /// Plans the cleanup of Library Folder `folder` that `request` asks for, and stores it for review with the check
     /// of the folder it was made with. Nothing is changed until you approve it.
-    pub fn plan_cleanup(
-        &self,
-        folder: i64,
-        request: &PlanCleanup,
-    ) -> Result<Plan> {
+    pub fn plan_cleanup(&self, folder: i64, request: &PlanCleanup) -> Result<Plan> {
         if request.is_empty() {
             return Err(Error::Refused(
                 "choose what to do with at least one entry, kept file or built file".into(),

@@ -18,8 +18,8 @@ use title_select_api::romm::{
 use title_select_api::settings::SecretUpdate;
 use title_select_api::{Job, JobKind};
 
-use crate::roots::Roots;
 use crate::fetch::{Http, Method, refusal_unnamed};
+use crate::roots::Roots;
 use crate::{Error, Result, Store, now};
 
 pub use crate::romm_additions::Released;

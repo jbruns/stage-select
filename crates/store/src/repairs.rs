@@ -130,10 +130,7 @@ pub(crate) fn open_repairable(
     let row = store.read(|c| set_by_id(c, set))?;
     let record = &row.record;
     let Some(root) = roots.root(&record.root) else {
-        return Ok(Err(format!(
-            "there is no root {}",
-            record.root
-        )));
+        return Ok(Err(format!("there is no root {}", record.root)));
     };
     if !root.may_write(&record.path) {
         return Ok(Err(not_writable(&record.name, &record.root, &record.path)));
@@ -858,11 +855,7 @@ impl Store {
     /// Proposes a repair of Source Set `name` from its latest Audit and the assessed items of Ingest Folders, with
     /// the choices `request` makes in place of the defaults. Refused unless the Source Set's Root lets a repair write
     /// to it. Changes nothing in the Source Set.
-    pub fn plan_repair(
-        &self,
-        name: &str,
-        request: &PlanRepair,
-    ) -> Result<RepairPlan> {
+    pub fn plan_repair(&self, name: &str, request: &PlanRepair) -> Result<RepairPlan> {
         let roots = &*self.roots();
         let set = self.read(|c| set_by_name(c, name))?;
         let record = &set.record;
@@ -881,12 +874,9 @@ impl Store {
                 "repair plan {id} of source set {name} is approved and hasn't finished; propose a repair once it has"
             )));
         }
-        let root = roots.root(&record.root).ok_or_else(|| {
-            Error::Refused(format!(
-                "there is no root {}",
-                record.root
-            ))
-        })?;
+        let root = roots
+            .root(&record.root)
+            .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
             return Err(Error::Refused(not_writable(
                 &record.name,
@@ -1137,12 +1127,9 @@ impl Store {
                 holds.join("; ")
             )));
         }
-        let root = roots.root(&record.root).ok_or_else(|| {
-            Error::Refused(format!(
-                "there is no root {}",
-                record.root
-            ))
-        })?;
+        let root = roots
+            .root(&record.root)
+            .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
             return Err(Error::Refused(not_writable(
                 &record.name,
@@ -1680,12 +1667,7 @@ impl Store {
 
     /// Carries out each step of approved repair `id` not yet ended, as Running Job `job`, then, once every step has
     /// ended, records what it did. `Err` says why it was left unfinished.
-    fn run_repair(
-        &self,
-        id: i64,
-        job: i64,
-        progress: Option<&(dyn Fn(Progress) + Sync)>,
-    ) -> Ran {
+    fn run_repair(&self, id: i64, job: i64, progress: Option<&(dyn Fn(Progress) + Sync)>) -> Ran {
         let roots = &*self.roots();
         let plan = self.repair_plan(id)?;
         let content = &plan.content;
@@ -2124,12 +2106,7 @@ impl Store {
 
     /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
     /// transaction.
-    fn finish_repair(
-        &self,
-        plan: &RepairPlan,
-        job: i64,
-        cancelled: bool,
-    ) -> Result<()> {
+    fn finish_repair(&self, plan: &RepairPlan, job: i64, cancelled: bool) -> Result<()> {
         let outcomes = self.read(|c| Self::outcomes(c, plan))?;
         // A Source Set set aside whole is unregistered once every file is kept aside, and owes no Audit: there is
         // nothing left to audit. Otherwise it stays registered, and is audited as after any repair.
@@ -2367,9 +2344,7 @@ impl Store {
                 roms,
                 loose,
             } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
-            RepairStep::Publish { build, target } => {
-                self.run_publish(r, step, *build, target)
-            }
+            RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
             RepairStep::Fill { .. } => self.run_fill(r, step),
             RepairStep::Delete {
                 path,
@@ -3713,13 +3688,7 @@ impl Store {
 
     /// Publishes the staged file of Build step `build` as `target`, by one rename that never replaces anything. A
     /// staged file that cannot be published is kept aside rather than left.
-    fn run_publish(
-        &self,
-        r: &Repairing,
-        step: &StepRow,
-        build: u32,
-        target: &str,
-    ) -> Ran {
+    fn run_publish(&self, r: &Repairing, step: &StepRow, build: u32, target: &str) -> Ran {
         let built = self.other_step(r.plan.id, build)?;
         let (Some(staged_name), Some(staged), "done") =
             (&built.staged_name, built.staged, built.state.as_str())
@@ -3952,11 +3921,7 @@ impl Store {
     /// Library Folder and path: forgotten as the step ends ([`Store::done_unplacing`]), since the Game is in the Source
     /// Set's folder again, or each file it is completed with where it is placed is recorded anew. A file still there,
     /// or in a Library Folder that can't be read now, stays placed.
-    fn vanished(
-        &self,
-        r: &Repairing,
-        step: &StepRow,
-    ) -> Result<Vec<(i64, String)>> {
+    fn vanished(&self, r: &Repairing, step: &StepRow) -> Result<Vec<(i64, String)>> {
         let roots = &*self.roots();
         let Some(game) = r.game_of(step) else {
             return Ok(Vec::new());

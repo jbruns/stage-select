@@ -3,13 +3,13 @@
 //! lacking `collections.write`. Against a stub RomM on a local port that keeps collections as RomM 5.4.1 does
 //! (research 0136); no test sends a request to a real RomM.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use sha1::Digest;
@@ -413,7 +413,8 @@ impl Env {
             ],
         );
         store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -458,13 +459,12 @@ impl Env {
             .unwrap();
         let folder = store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("atari".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap();
         Env {
             tmp,
@@ -494,10 +494,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
         let item = self
@@ -511,7 +508,8 @@ impl Env {
             .id;
         let plan = self
             .store
-            .plan_ingest("in",
+            .plan_ingest(
+                "in",
                 &PlanIngest {
                     action: IngestAction::Addition,
                     items: vec![item],
@@ -573,19 +571,13 @@ impl Env {
             .unwrap()
             .selection
             .unwrap();
-        let plan = self
-            .store
-            .plan_build(self.folder.id, selection)
-            .unwrap();
+        let plan = self.store.plan_build(self.folder.id, selection).unwrap();
         let job = self
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        let job = self
-            .store
-            .run_build_job(job.id, None)
-            .unwrap();
+        let job = self.store.run_build_job(job.id, None).unwrap();
         assert_eq!(job.state, JobState::Succeeded, "{job:?}");
         self.settle();
         job.id
@@ -594,15 +586,10 @@ impl Env {
     /// Follows the scan the Build Job `job` requests to its end.
     fn scan(&self, job: i64) {
         let weak = Arc::downgrade(&self.store);
-        let scanned = Store::request_romm_scan(
-            &weak,
-            job,
-            &FAST,
-            &ScanStop::default(),
-            &mut |_| {},
-        )
-        .unwrap()
-        .expect("the build owes a scan");
+        let scanned =
+            Store::request_romm_scan(&weak, job, &FAST, &ScanStop::default(), &mut |_| {})
+                .unwrap()
+                .expect("the build owes a scan");
         assert_eq!(
             scanned.romm_scan.as_ref().unwrap().outcome,
             RommScanOutcome::Finished
@@ -613,14 +600,11 @@ impl Env {
     fn sync(&self, job: i64) {
         let weak = Arc::downgrade(&self.store);
         let mut told = vec![];
-        let synced = Store::sync_romm_additions(
-            &weak,
-            job,
-            &FAST,
-            &ScanStop::default(),
-            &mut |j| told.push(j.clone()),
-        )
-        .unwrap();
+        let synced =
+            Store::sync_romm_additions(&weak, job, &FAST, &ScanStop::default(), &mut |j| {
+                told.push(j.clone())
+            })
+            .unwrap();
         assert_eq!(
             synced.as_ref(),
             told.last(),
@@ -799,7 +783,8 @@ fn the_additions_collection_follows_each_build_is_recreated_when_gone_and_delete
     // Turning RomM off, even clearing its token at once, deletes the collection with the token saved before.
     let (_, pending) = env
         .store
-        .update_settings_and_release(&romm_update(false, &romm.url, SecretUpdate::Clear),
+        .update_settings_and_release(
+            &romm_update(false, &romm.url, SecretUpdate::Clear),
             "Operator",
             |_| {},
         )
@@ -826,7 +811,8 @@ fn turning_romm_off_with_no_collection_or_changing_nothing_leaves_none_to_delete
     env.romm(&romm.url);
     let (_, left) = env
         .store
-        .update_settings_and_release(&romm_update(true, &romm.url, SecretUpdate::Keep),
+        .update_settings_and_release(
+            &romm_update(true, &romm.url, SecretUpdate::Keep),
             "Operator",
             |_| {},
         )
@@ -834,7 +820,8 @@ fn turning_romm_off_with_no_collection_or_changing_nothing_leaves_none_to_delete
     assert!(!left);
     let (_, left) = env
         .store
-        .update_settings_and_release(&romm_update(false, &romm.url, SecretUpdate::Keep),
+        .update_settings_and_release(
+            &romm_update(false, &romm.url, SecretUpdate::Keep),
             "Operator",
             |_| {},
         )
@@ -979,7 +966,8 @@ fn a_deletion_romm_refuses_is_kept_and_retried_until_it_succeeds() {
     romm.library.lock().unwrap().failing_deletes = true;
     let (_, pending) = env
         .store
-        .update_settings_and_release(&romm_update(false, &romm.url, SecretUpdate::Clear),
+        .update_settings_and_release(
+            &romm_update(false, &romm.url, SecretUpdate::Clear),
             "Operator",
             |_| {},
         )

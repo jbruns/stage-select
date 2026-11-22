@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use title_select_api::roots::RootSpec;
 use std::path::{Path, PathBuf};
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::paths::PathTemplate;
@@ -26,14 +26,10 @@ impl Env {
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        crate::register(
-            &store,
-            &[
-                RootSpec::new("sets", root),
-            ],
-        );
+        crate::register(&store, &[RootSpec::new("sets", root)]);
         store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     retention: Some(Retention {
                         audits_keep: keep,
                         selections_keep: DEFAULT_SELECTIONS_KEPT,
@@ -335,14 +331,12 @@ fn a_changed_template_leaves_existing_source_sets_where_they_are() {
     env.import(1);
     std::fs::create_dir_all(env.root().join("Atari - 2600")).unwrap();
     env.store
-        .add_source_set("sets",
-            "Atari - 2600",
-            "No-Intro/Test - System",
-        )
+        .add_source_set("sets", "Atari - 2600", "No-Intro/Test - System")
         .unwrap();
     let before = env.store.source_sets().unwrap();
     env.store
-        .update_settings(&SettingsUpdate {
+        .update_settings(
+            &SettingsUpdate {
                 path_templates: Some(PathTemplates {
                     source_set: PathTemplate::parse("Elsewhere/{dat}").unwrap(),
                     ..PathTemplates::default()
@@ -586,10 +580,9 @@ fn a_dat_blob_is_deleted_once_no_retained_audit_or_newer_import_holds_it() {
         history[1].dat_revision_sha256, first,
         "history still names it"
     );
-    let refused = env.store.audit_source_set("Test - System",
-        Some(&first),
-        AuditEvidence::Incremental,
-    );
+    let refused =
+        env.store
+            .audit_source_set("Test - System", Some(&first), AuditEvidence::Incremental);
     assert!(matches!(refused, Err(Error::Refused(_))));
 }
 
@@ -670,10 +663,7 @@ fn a_restored_dat_revision_is_kept_across_commands_until_an_audit_uses_it() {
     assert!(present(&old), "opening the store keeps the restored blob");
 
     store
-        .audit_source_set("Test - System",
-            Some(&new),
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Test - System", Some(&new), AuditEvidence::Incremental)
         .unwrap();
     assert!(
         present(&old),
@@ -681,18 +671,12 @@ fn a_restored_dat_revision_is_kept_across_commands_until_an_audit_uses_it() {
     );
 
     let audit = store
-        .audit_source_set("Test - System",
-            Some(&old),
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Test - System", Some(&old), AuditEvidence::Incremental)
         .unwrap();
     assert_eq!(audit.report.dat_revision.sha256, old);
 
     store
-        .audit_source_set("Test - System",
-            Some(&new),
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Test - System", Some(&new), AuditEvidence::Incremental)
         .unwrap();
     assert!(
         !present(&old),
@@ -707,10 +691,9 @@ fn an_audit_that_fails_leaves_no_row() {
     env.add_set();
     std::fs::write(env.store.blob_path(&sha), b"<datafile></datafile>").unwrap();
 
-    let failed = env.store.audit_source_set("Test - System",
-        None,
-        AuditEvidence::Incremental,
-    );
+    let failed = env
+        .store
+        .audit_source_set("Test - System", None, AuditEvidence::Incremental);
 
     assert!(matches!(failed, Err(Error::Io(_))), "{failed:?}");
     let rows: i64 = database(&env.store)
@@ -783,10 +766,9 @@ fn an_ambiguous_revision_prefix_is_refused() {
     }
     let prefix = shared.expect("17 SHA-256s share a first digit").to_string();
 
-    let refused = env.store.audit_source_set("Test - System",
-        Some(&prefix),
-        AuditEvidence::Incremental,
-    );
+    let refused =
+        env.store
+            .audit_source_set("Test - System", Some(&prefix), AuditEvidence::Incremental);
 
     let Err(Error::Refused(message)) = refused else {
         panic!("expected a refusal: {refused:?}");
@@ -875,9 +857,7 @@ fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
     );
     assert!(matches!(third, Err(Error::JobActive { job, .. }) if job == first.id));
 
-    env.store
-        .run_audit_job(first.id, None)
-        .unwrap();
+    env.store.run_audit_job(first.id, None).unwrap();
     env.store
         .enqueue_audit(
             "Test - System",
@@ -1058,8 +1038,7 @@ fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_it
 
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let progress = |_: title_select_engine::Progress| panic!("injected");
-        env.store
-            .run_audit_job(job.id, Some(&progress))
+        env.store.run_audit_job(job.id, Some(&progress))
     }));
     assert!(panicked.is_err());
     let running = || -> i64 {
@@ -1356,9 +1335,7 @@ mod profiles_and_selections {
         // Availability comes from the Audit against the same revision: the chosen Combat is there, and Pong,
         // which the choice left out, is Missing.
         env.store.claim_job().unwrap();
-        env.store
-            .run_audit_job(audit_job.id, None)
-            .unwrap();
+        env.store.run_audit_job(audit_job.id, None).unwrap();
         let (rows, _) = env
             .store
             .selection_releases(id, None, 10, None, None)
@@ -1386,7 +1363,8 @@ mod profiles_and_selections {
     fn selections_beyond_the_kept_number_are_pruned_and_no_longer_hold_their_dat_revision() {
         let env = Env::new(20);
         env.store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     retention: Some(Retention {
                         audits_keep: 20,
                         selections_keep: 1,
@@ -1429,7 +1407,8 @@ mod profiles_and_selections {
     fn a_selection_read_while_it_is_pruned_is_whole_or_refused() {
         let env = Env::new(20);
         env.store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     retention: Some(Retention {
                         audits_keep: 20,
                         selections_keep: 1,
@@ -1599,9 +1578,7 @@ mod profiles_and_selections {
             .unwrap();
         env.audit(None);
 
-        env.store
-            .unregister_source_set("Test - System")
-            .unwrap();
+        env.store.unregister_source_set("Test - System").unwrap();
         env.add_set();
         env.audit(Some(&sha256));
 
@@ -1846,9 +1823,7 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
         }),
         ..Default::default()
     };
-    env.store
-        .update_settings(&one_reader, "Operator")
-        .unwrap();
+    env.store.update_settings(&one_reader, "Operator").unwrap();
     let job = env
         .store
         .enqueue_audit(
@@ -1867,8 +1842,7 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
                 panic!("stopped");
             }
         };
-        env.store
-            .run_audit_job(job.id, Some(&progress))
+        env.store.run_audit_job(job.id, Some(&progress))
     }));
     assert!(stopped.is_err());
 
@@ -1879,9 +1853,7 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
         .unwrap();
     assert_eq!(requeued.evidence, Some(AuditEvidence::Full));
     store.claim_job().unwrap();
-    let done = store
-        .run_audit_job(requeued.id, None)
-        .unwrap();
+    let done = store.run_audit_job(requeued.id, None).unwrap();
 
     assert_eq!(done.state, JobState::Succeeded);
     let report = store.report(done.audit.unwrap()).unwrap();

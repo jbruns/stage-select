@@ -99,11 +99,7 @@ fn finish(c: &Connection, id: i64, outcome: &str) -> Result<()> {
 impl Store {
     /// Plans moving or renaming Library Folder `id` to `to.path` in the same Root. Nothing is moved until the plan
     /// is approved; it is refused while anything holds the folder, or where a new Library Folder could not be.
-    pub fn plan_library_folder_move(
-        &self,
-        id: i64,
-        to: &PlanFolderMove,
-    ) -> Result<FolderMove> {
+    pub fn plan_library_folder_move(&self, id: i64, to: &PlanFolderMove) -> Result<FolderMove> {
         let roots = &*self.roots();
         let (row, store) = self.read(|c| {
             let row = folder_by_id(c, id)?;
@@ -270,7 +266,7 @@ impl Store {
     /// Run when the service starts: settles each approved move of a Library Folder the service stopped while
     /// carrying out, from where the folder is found by its identity. Returns, for each move left unsettled because
     /// the folder is at neither path, the move and why; it holds its folder until a later start settles it.
-    pub fn recover_library_folder_moves(&self,) -> Result<Vec<(i64, String)>> {
+    pub fn recover_library_folder_moves(&self) -> Result<Vec<(i64, String)>> {
         let roots = &*self.roots();
         let unfinished: Vec<i64> = self.read(|c| {
             let mut stmt = c.prepare(

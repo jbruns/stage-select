@@ -293,11 +293,7 @@ impl Store {
 
     /// Walks Source Set `name`, returning its id, the Audit it compared with and what it counted; none if it
     /// yielded.
-    fn stat_walk(
-        &self,
-        name: &str,
-        since: &str,
-    ) -> Result<Option<(i64, i64, Counts)>> {
+    fn stat_walk(&self, name: &str, since: &str) -> Result<Option<(i64, i64, Counts)>> {
         let roots = &*self.roots();
         let (set, baseline) = self.read(|c| {
             let set = set_by_name(c, name)?;

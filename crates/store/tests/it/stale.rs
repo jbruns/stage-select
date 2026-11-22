@@ -1,8 +1,8 @@
 //! Stale Source Sets: what a stat walk finds against the latest Audit, and what a newer DAT Revision does to a
 //! Source Set that Follows its DAT, from synthetic DATs and Source Sets.
 
-use title_select_api::roots::RootSpec;
 use std::path::PathBuf;
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::{AuditEvidence, JobKind, JobState, SourceSetStale};
@@ -28,12 +28,7 @@ impl Env {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        crate::register(
-            &store,
-            &[
-                RootSpec::new("sets", tmp.path().join("sets")),
-            ],
-        );
+        crate::register(&store, &[RootSpec::new("sets", tmp.path().join("sets"))]);
         let env = Env { tmp, store };
         env.import("1", &games());
         for set in ["Alpha", "Beta"] {
@@ -64,9 +59,7 @@ impl Env {
     }
 
     fn audit(&self, name: &str, evidence: AuditEvidence) {
-        self.store
-            .audit_source_set(name, None, evidence)
-            .unwrap();
+        self.store.audit_source_set(name, None, evidence).unwrap();
     }
 
     /// Queues a stat walk of `name`, then claims and runs it.
@@ -243,10 +236,7 @@ fn a_newer_revision_makes_only_the_source_sets_that_follow_their_dat_stale() {
     let revision = env.store.source_set("Alpha").unwrap();
     assert!(revision.follow);
     env.store
-        .audit_source_set("Alpha",
-            Some(&newest_sha(&env)),
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Alpha", Some(&newest_sha(&env)), AuditEvidence::Incremental)
         .unwrap();
     assert_eq!(env.stale("Alpha"), [], "an audit against it clears it");
 
@@ -462,10 +452,7 @@ fn each_newer_revision_that_made_a_followed_source_set_stale_stays_in_its_histor
         .unwrap()
         .sha256;
     env.store
-        .audit_source_set("Alpha",
-            Some(&three),
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Alpha", Some(&three), AuditEvidence::Incremental)
         .unwrap();
     assert_eq!(env.stale("Alpha"), [], "an audit clears it");
     assert_eq!(versions("Alpha"), ["3", "2"], "but not its history");

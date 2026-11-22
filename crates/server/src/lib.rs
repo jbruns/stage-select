@@ -280,10 +280,7 @@ impl Prepared {
                 state.store.clone(),
                 state.jobs.clone(),
             ));
-            tokio::spawn(follow_ups::run(
-                state.store.clone(),
-                state.jobs.clone(),
-            ));
+            tokio::spawn(follow_ups::run(state.store.clone(), state.jobs.clone()));
             tokio::spawn(jobs::schedule_stat_walks(
                 state.store.clone(),
                 state.jobs.clone(),
@@ -293,11 +290,7 @@ impl Prepared {
                 state.fetcher.clone(),
             ));
             tokio::spawn(throughput::run(state.store.clone(), state.jobs.clone()));
-            tokio::spawn(jobs::run(
-                state.store,
-                state.jobs,
-                state.engine,
-            ));
+            tokio::spawn(jobs::run(state.store, state.jobs, state.engine));
         }
         let listener = tokio::net::TcpListener::from_std(self.listener)?;
         axum::serve(

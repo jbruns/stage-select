@@ -1,7 +1,7 @@
 //! Deleting a DAT Revision nothing depends on (ADR 0003, amendment of 2026-11-15).
 
-use title_select_api::roots::RootSpec;
 use std::path::PathBuf;
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::settings::{DEFAULT_SELECTIONS_KEPT, Retention, SettingsUpdate};
@@ -23,14 +23,10 @@ impl Env {
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        crate::register(
-            &store,
-            &[
-                RootSpec::new("sets", root),
-            ],
-        );
+        crate::register(&store, &[RootSpec::new("sets", root)]);
         store
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     retention: Some(Retention {
                         audits_keep: 1,
                         selections_keep: DEFAULT_SELECTIONS_KEPT,
@@ -75,17 +71,12 @@ impl Env {
     }
 
     fn unregister_set(&self) {
-        self.store
-            .unregister_source_set("Test - System")
-            .unwrap();
+        self.store.unregister_source_set("Test - System").unwrap();
     }
 
     fn audit(&self, revision: &str) {
         self.store
-            .audit_source_set("Test - System",
-                Some(revision),
-                AuditEvidence::Incremental,
-            )
+            .audit_source_set("Test - System", Some(revision), AuditEvidence::Incremental)
             .unwrap();
     }
 
@@ -298,10 +289,7 @@ fn a_deleted_newer_revision_no_longer_holds_the_newest_place() {
     );
     env.add_set();
     env.store
-        .audit_source_set("Test - System",
-            None,
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Test - System", None, AuditEvidence::Incremental)
         .unwrap();
     let history = env.store.history("Test - System").unwrap();
     assert_eq!(history[0].dat_revision_version, "20260102-000000");

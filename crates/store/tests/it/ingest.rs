@@ -1,10 +1,10 @@
 //! Ingest Folders: scans, the state of each item, assessment against every Source Set, and the plans that move items
 //! out, from synthetic DATs, Source Sets and files.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
@@ -90,7 +90,8 @@ impl Env {
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -126,9 +127,7 @@ impl Env {
         }
         let env = Env { tmp, store };
         env.store.register_ingest_folder("in").unwrap();
-        env.store
-            .register_ingest_folder("slow")
-            .unwrap();
+        env.store.register_ingest_folder("slow").unwrap();
         env
     }
 
@@ -149,10 +148,7 @@ impl Env {
         assert_eq!(job.ingest_folder.as_deref(), Some(root));
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job.id);
-        let ended = self
-            .store
-            .run_ingest_scan_job(job.id)
-            .unwrap();
+        let ended = self.store.run_ingest_scan_job(job.id).unwrap();
         assert_eq!(
             ended.state,
             title_select_api::JobState::Succeeded,
@@ -204,7 +200,8 @@ impl Env {
     fn plan(&self, action: IngestAction, items: &[&str]) -> title_select_api::ingest::IngestPlan {
         let ids = items.iter().map(|name| self.item(name).id).collect();
         self.store
-            .plan_ingest("in",
+            .plan_ingest(
+                "in",
                 &PlanIngest {
                     action,
                     items: ids,
@@ -289,10 +286,7 @@ fn an_item_still_changing_stays_arriving_and_partial_downloads_and_dotfiles_are_
 fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     let env = Env::new();
     let slow = env.dir("slow");
-    assert_eq!(
-        env.store.ingest_follow_up_at("slow").unwrap(),
-        None
-    );
+    assert_eq!(env.store.ingest_follow_up_at("slow").unwrap(), None);
 
     let before = jiff::Timestamp::now();
     write_file(&slow.join("pong.a26"), b"pong");
@@ -309,17 +303,10 @@ fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     // A later arrival, or the same one changing again, doesn't bring the earliest forward.
     write_file(&slow.join("combat.a26"), b"combat");
     env.scan_root("slow");
-    assert_eq!(
-        env.store.ingest_follow_up_at("slow").unwrap(),
-        Some(due)
-    );
+    assert_eq!(env.store.ingest_follow_up_at("slow").unwrap(), Some(due));
     write_file(&slow.join("pong.a26"), b"pong, again");
     env.scan_root("slow");
-    let later = env
-        .store
-        .ingest_follow_up_at("slow")
-        .unwrap()
-        .unwrap();
+    let later = env.store.ingest_follow_up_at("slow").unwrap().unwrap();
     assert!(
         later > due,
         "pong restarted, combat is the earliest now: {later}"
@@ -330,10 +317,7 @@ fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     env.scan();
     env.scan();
     assert_eq!(env.state("pong.a26"), ItemState::Assessed);
-    assert_eq!(
-        env.store.ingest_follow_up_at("in").unwrap(),
-        None
-    );
+    assert_eq!(env.store.ingest_follow_up_at("in").unwrap(), None);
 }
 
 #[test]
@@ -602,9 +586,9 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].kept_name, "mystery.a26.kept");
 
-    let again =
-        env.store
-            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+    let again = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(again.is_err(), "a plan is carried out once");
 }
 
@@ -618,9 +602,9 @@ fn approval_is_refused_once_anything_in_the_folder_changed_since_the_plan() {
 
     env.put("new arrival.a26", b"new");
     let before = env.listing();
-    let refused =
-        env.store
-            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
     assert_eq!(env.listing(), before);
@@ -733,7 +717,8 @@ fn a_dropped_in_support_file_is_known_by_its_header_imported_and_kept_and_anothe
     );
     assert!(
         env.store
-            .plan_ingest("in",
+            .plan_ingest(
+                "in",
                 &PlanIngest {
                     action: IngestAction::DatImport,
                     items: vec![other.id],
@@ -888,7 +873,8 @@ fn a_dat_import_of_many_keeps_each_dat_under_the_provider_its_header_names_or_as
 
     let plan = env
         .store
-        .plan_ingest("in",
+        .plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::DatImport,
                 items: ids.to_vec(),
@@ -934,7 +920,8 @@ fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
     env.scan();
     env.scan();
     let id = env.item("mystery.a26").id;
-    let refused = env.store.plan_ingest("in",
+    let refused = env.store.plan_ingest(
+        "in",
         &PlanIngest {
             action: IngestAction::DatImport,
             items: vec![id],
@@ -970,7 +957,8 @@ fn a_dat_with_no_name_is_never_imported_or_proposed_as_an_addition_and_says_why(
         assert_eq!(item.assessment.proposal, None, "{name}");
         let reason = item.reason.unwrap_or_default();
         assert!(reason.contains(missing), "{name}: {reason}");
-        let refused = env.store.plan_ingest("in",
+        let refused = env.store.plan_ingest(
+            "in",
             &PlanIngest {
                 action: IngestAction::DatImport,
                 items: vec![item.id],
@@ -993,9 +981,9 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
     std::fs::remove_file(env.dir("in").join(".title-select/marker")).unwrap();
 
-    let refused =
-        env.store
-            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     assert_eq!(env.listing(), ["mystery.a26"]);
@@ -1044,7 +1032,8 @@ fn an_item_still_arriving_cannot_be_planned() {
     let item = &env.store.ingest_items("slow").unwrap()[0];
     assert_eq!(item.state, ItemState::Arriving);
 
-    let refused = env.store.plan_ingest("slow",
+    let refused = env.store.plan_ingest(
+        "slow",
         &PlanIngest {
             action: IngestAction::Discard,
             items: vec![item.id],
@@ -1059,7 +1048,8 @@ fn an_item_still_arriving_cannot_be_planned() {
 fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
     let env = Env::new();
     let plan = |root: &str, action: IngestAction, id: i64| {
-        env.store.plan_ingest(root,
+        env.store.plan_ingest(
+            root,
             &PlanIngest {
                 action,
                 items: vec![id],
@@ -1126,9 +1116,9 @@ fn approval_is_refused_after_an_overwrite_that_hides_itself_or_a_new_link_to_the
             _ => std::fs::hard_link(&path, env.dir("in").join(".hidden link")).unwrap(),
         }
         let before = env.listing();
-        let refused =
-            env.store
-                .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
+        let refused = env
+            .store
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
         assert!(
             matches!(refused, Err(Error::Conflict(_))),
@@ -1147,7 +1137,8 @@ fn an_item_with_another_link_to_it_cannot_be_planned() {
     env.scan();
     let id = env.item("mystery.a26").id;
 
-    let refused = env.store.plan_ingest("in",
+    let refused = env.store.plan_ingest(
+        "in",
         &PlanIngest {
             action: IngestAction::Discard,
             items: vec![id],
@@ -1305,12 +1296,7 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
         env.store.claim_job().unwrap().unwrap();
         env.store.fail_job(blocking.id, "stopped").unwrap();
         match recovered {
-            true => assert!(
-                env.store
-                    .recover_ingest_moves()
-                    .unwrap()
-                    .is_empty()
-            ),
+            true => assert!(env.store.recover_ingest_moves().unwrap().is_empty()),
             false => assert_eq!(env.store.fulfil_ingest_reaudits().unwrap().queued.len(), 1),
         }
 
@@ -1619,10 +1605,7 @@ fn an_optional_rom_of_a_game_with_nothing_to_check_is_needed_while_absent() {
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     let audit = env
         .store
-        .audit_source_set("Beta",
-            Some(&revision.sha256),
-            AuditEvidence::Full,
-        )
+        .audit_source_set("Beta", Some(&revision.sha256), AuditEvidence::Full)
         .unwrap();
     let report = env.store.report(audit.id).unwrap();
     let extras = report.games.iter().find(|g| g.name == "Extras (Beta)");

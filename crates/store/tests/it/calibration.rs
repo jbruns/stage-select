@@ -1,9 +1,9 @@
 //! Calibration Jobs: how one queues ahead of every other Job and runs alone, what it reads and records, and when
 //! its results are Stale, from synthetic Roots with tiny step limits.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::path::PathBuf;
 use std::time::Duration;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::calibration::{CalibrationStale, RootOutcome};
@@ -111,9 +111,7 @@ impl Env {
     fn calibrate(&self, how: &Calibrating) -> title_select_api::Job {
         let job = self.store.enqueue_calibration("Operator").unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        self.store
-            .run_calibration(job.id, how)
-            .unwrap()
+        self.store.run_calibration(job.id, how).unwrap()
     }
 
     /// Every entry under the temporary folder but the store, with its size, modification time and content.
@@ -224,9 +222,7 @@ fn a_calibration_waits_for_running_jobs_holds_queued_ones_and_is_refused_a_secon
         "the calibration waits for the running audit, and the queued one waits behind it"
     );
 
-    env.store
-        .run_audit_job(running.id, None)
-        .unwrap();
+    env.store.run_audit_job(running.id, None).unwrap();
     let claimed = env.store.claim_job().unwrap().unwrap();
     assert_eq!(
         claimed.id, calibration.id,
@@ -242,10 +238,7 @@ fn a_calibration_waits_for_running_jobs_holds_queued_ones_and_is_refused_a_secon
         Err(Error::Conflict(_))
     ));
 
-    let ended = env
-        .store
-        .run_calibration(calibration.id, &how(1))
-        .unwrap();
+    let ended = env.store.run_calibration(calibration.id, &how(1)).unwrap();
     assert_eq!(ended.state, JobState::Succeeded);
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, held.id);
     env.store.enqueue_calibration("Operator").unwrap();
@@ -264,7 +257,8 @@ fn a_cancelled_calibration_keeps_the_roots_it_finished() {
     };
     let ended = env
         .store
-        .run_calibration(job.id,
+        .run_calibration(
+            job.id,
             &Calibrating {
                 progress: Some(&cancel),
                 ..how(1)
@@ -307,7 +301,8 @@ fn a_calibration_that_panics_fails_and_lets_other_jobs_run() {
             panic!("a sweep went wrong");
         }
     };
-    let ran = env.store.run_calibration(job.id,
+    let ran = env.store.run_calibration(
+        job.id,
         &Calibrating {
             progress: Some(&panics),
             ..how(1)
@@ -331,9 +326,7 @@ fn a_queued_calibration_you_cancel_ends_at_once_and_holds_nothing_back() {
     assert_eq!(cancelled.state, JobState::Interrupted);
     assert!(cancelled.cancel_requested_at.is_some());
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, held.id);
-    env.store
-        .run_audit_job(running.id, None)
-        .unwrap();
+    env.store.run_audit_job(running.id, None).unwrap();
 }
 
 #[test]

@@ -385,11 +385,7 @@ impl Store {
     }
 
     /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
-    fn open_owner(
-        &self,
-        owner: Owner,
-        set: i64,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    fn open_owner(&self, owner: Owner, set: i64) -> Result<std::result::Result<FolderDir, String>> {
         let roots = &*self.roots();
         match owner {
             Owner::Source => open_repairable(self, roots, set, MarkerRule::Required),
@@ -433,9 +429,7 @@ impl Store {
             }
             Ok(free)
         })?;
-        let dir = self
-            .open_owner(owner, set)?
-            .map_err(Error::Refused)?;
+        let dir = self.open_owner(owner, set)?.map_err(Error::Refused)?;
         let (mut files, mut reviewed) = (Vec::new(), Vec::new());
         for file in picked {
             match review(self, owner, &dir, &file)? {
@@ -494,8 +488,7 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
-        self.open_owner(owner, set)?
-            .map_err(Error::Refused)?;
+        self.open_owner(owner, set)?.map_err(Error::Refused)?;
         self.write(|tx| {
             if let Some(busy) = owner.busy(tx, set)? {
                 return Err(Error::Conflict(busy));
@@ -545,7 +538,7 @@ impl Store {
 
     /// Finishes each approved deletion of kept files of a Source Set or an Additions Set that a stop interrupted.
     /// Returns each left unfinished, with why.
-    pub fn recover_source_kept_deletions(&self,) -> Result<Vec<(i64, String)>> {
+    pub fn recover_source_kept_deletions(&self) -> Result<Vec<(i64, String)>> {
         let mut left = Vec::new();
         for owner in [Owner::Source, Owner::Additions] {
             let unfinished: Vec<i64> = self.read(|c| {

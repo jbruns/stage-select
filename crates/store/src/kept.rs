@@ -1489,7 +1489,8 @@ impl Store {
             };
             deletion_by_id(tx, id)
         })?;
-        self.settle_marker(title_select_api::lifecycle::RegistrationKind::LibraryFolder,
+        self.settle_marker(
+            title_select_api::lifecycle::RegistrationKind::LibraryFolder,
             folder,
         )?;
         Ok(finished)
@@ -1807,7 +1808,7 @@ impl Store {
     /// that file is now, and moving back what was moved aside. Nothing is settled unless the folder's root is writable
     /// and its marker shows it is the store's folder; a deletion left so keeps its kept files recorded and its
     /// folder's plans blocked until the next start. Returns, for each, the deletion and why.
-    pub fn recover_kept_deletions(&self,) -> Result<Vec<(i64, String)>> {
+    pub fn recover_kept_deletions(&self) -> Result<Vec<(i64, String)>> {
         let unfinished: Vec<(i64, i64)> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id, folder_id FROM kept_deletions WHERE approved_at IS NOT NULL AND finished_at IS NULL",

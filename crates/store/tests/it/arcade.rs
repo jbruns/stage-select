@@ -1,8 +1,8 @@
 //! MAME Source Sets and the arcade selector (ADR 0027): a software list is audited but never selected or built, a
 //! ListXML Source Set takes no Coverage, and a Selection and an Audit keep their Dependencies.
 
-use title_select_api::roots::RootSpec;
 use title_select_api::build::{AddLibraryFolder, LibraryFolder};
+use title_select_api::roots::RootSpec;
 use title_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, Dependency, Role, Rule, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
@@ -72,13 +72,12 @@ impl Env {
 
     fn folder(&self) -> Result<LibraryFolder, Error> {
         self.store.add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("mame".into()),
-                template: None,
-                source_set: "mame".into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("mame".into()),
+            template: None,
+            source_set: "mame".into(),
+            profile: PROFILE.into(),
+        })
     }
 }
 
@@ -139,9 +138,7 @@ fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_sourc
 
     let plan = env
         .store
-        .plan_repair("mame",
-            &title_select_api::repair::PlanRepair::default(),
-        )
+        .plan_repair("mame", &title_select_api::repair::PlanRepair::default())
         .unwrap();
     let kinds: Vec<_> = plan
         .content
@@ -192,9 +189,9 @@ fn a_listxml_source_set_takes_no_coverage() {
         .import_dat_bytes(LISTXML.as_bytes(), "mame.xml", None)
         .unwrap();
     let usa = ["USA".to_owned()];
-    let added =
-        env.store
-            .add_source_set_covering("sets", "mame", &revision.dat, Some(&usa));
+    let added = env
+        .store
+        .add_source_set_covering("sets", "mame", &revision.dat, Some(&usa));
     assert_eq!(refused(added), ARCADE_COVERAGE_REFUSAL);
 
     env.store

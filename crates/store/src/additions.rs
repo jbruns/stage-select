@@ -446,7 +446,9 @@ pub(crate) fn ensure_set(tx: &Transaction, dat: i64) -> Result<i64> {
         )));
     }
     let root: Option<String> = tx
-        .query_row("SELECT name FROM roots WHERE kind = 'additions'", [], |r| r.get(0))
+        .query_row("SELECT name FROM roots WHERE kind = 'additions'", [], |r| {
+            r.get(0)
+        })
         .optional()?;
     let Some(root) = root else {
         return Err(Error::Refused(
@@ -1300,10 +1302,7 @@ impl Store {
 
     /// Opens the folder of Additions Set `set`, which must be in place: in the configured, writable Root `additions`,
     /// the directory recorded, with this store's marker for it.
-    pub(crate) fn open_set(
-        &self,
-        set: &SetRow,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    pub(crate) fn open_set(&self, set: &SetRow) -> Result<std::result::Result<FolderDir, String>> {
         let root = match self.additions_root() {
             Ok(root) => root,
             Err(why) => return Ok(Err(why)),
@@ -1349,10 +1348,7 @@ impl Store {
     }
 
     /// Opens the folder of Additions Set `id`, which a build reads its Additions from.
-    pub(crate) fn open_additions(
-        &self,
-        id: i64,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    pub(crate) fn open_additions(&self, id: i64) -> Result<std::result::Result<FolderDir, String>> {
         let set = self.read(|c| set_by_id(c, id))?;
         self.open_set(&set)
     }
@@ -1390,10 +1386,7 @@ impl Store {
     /// recorded temporary name, checked to be the empty directory made, given its marker, and renamed into place
     /// without replacing anything. A temporary folder a stop left is used only once it is found in place as the one
     /// recorded; otherwise it is left as it is, recorded among the set's leftovers, and a new one made.
-    pub(crate) fn ensure_set_dir(
-        &self,
-        id: i64,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    pub(crate) fn ensure_set_dir(&self, id: i64) -> Result<std::result::Result<FolderDir, String>> {
         let _guard = self.set_dirs.lock().unwrap_or_else(|e| e.into_inner());
         let set = self.read(|c| set_by_id(c, id))?;
         if set.identity.is_some() {
@@ -1717,7 +1710,10 @@ impl Store {
                     Err(why) => return self.fail_addition(id, why),
                 };
                 let meter = self.meter.job(job);
-                let (from, to) = (meter.tally(Some(&root)), meter.tally(self.additions_root_name().as_deref()));
+                let (from, to) = (
+                    meter.tally(Some(&root)),
+                    meter.tally(self.additions_root_name().as_deref()),
+                );
                 self.publish_kept(row, (&dir, &name, identity, &file), &dest, (&from, &to))
             }
         }

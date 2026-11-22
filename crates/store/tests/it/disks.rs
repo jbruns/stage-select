@@ -9,9 +9,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
-use title_select_api::roots::{RootKind, RootSpec};
 use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
+use title_select_api::roots::{RootKind, RootSpec};
 use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState, Reuse};
 use title_select_store::{Store, Workers};
@@ -81,7 +81,8 @@ impl Env {
             ],
         );
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
@@ -107,9 +108,7 @@ impl Env {
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
-        store
-            .add_source_set("sets", "mame", &revision.dat)
-            .unwrap();
+        store.add_source_set("sets", "mame", &revision.dat).unwrap();
         store.register_ingest_folder("in").unwrap();
         Env { tmp, store }
     }
@@ -139,10 +138,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }

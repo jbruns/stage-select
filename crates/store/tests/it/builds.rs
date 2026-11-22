@@ -1,9 +1,9 @@
 //! Library Folders, Change Plans and Builds, from synthetic DATs, Source Sets and hand-made Selections.
 
-use title_select_api::roots::RootSpec;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::build::{
@@ -158,10 +158,7 @@ impl Env {
 
     fn audit(&self) {
         self.store
-            .audit_source_set(SET,
-                None,
-                title_select_engine::AuditEvidence::Incremental,
-            )
+            .audit_source_set(SET, None, title_select_engine::AuditEvidence::Incremental)
             .unwrap();
     }
 
@@ -180,9 +177,7 @@ impl Env {
     }
 
     fn folder(&self, path: &str) -> LibraryFolder {
-        self.store
-            .add_library_folder(&add(path))
-            .unwrap()
+        self.store.add_library_folder(&add(path)).unwrap()
     }
 
     /// Approves `plan`, claims its Build Job and runs it with `progress`.
@@ -196,9 +191,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        self.store
-            .run_build_job(job.id, Some(progress))
-            .unwrap()
+        self.store.run_build_job(job.id, Some(progress)).unwrap()
     }
 
     /// Approves `plan` and runs its Build Job until `fault` stops it as a kill would. Returns the Job's id.
@@ -225,9 +218,8 @@ impl Env {
 
     /// Restarts with the Root `play` made writable, or read-only, while the store is closed.
     fn restart_with_play(self, writable: bool) -> (Env, Vec<(i64, String)>) {
-        let (env, blocked) = self.restart_changing(None, |dir| {
-            crate::force_writable(dir, "play", writable)
-        });
+        let (env, blocked) =
+            self.restart_changing(None, |dir| crate::force_writable(dir, "play", writable));
         (env, blocked.unwrap())
     }
 
@@ -256,11 +248,7 @@ impl Env {
         hook: Option<title_select_store::FaultHook>,
         change: impl FnOnce(&Path),
     ) -> (Env, Option<Vec<(i64, String)>>) {
-        let Env {
-            tmp,
-            store,
-            sha256,
-        } = self;
+        let Env { tmp, store, sha256 } = self;
         let path = store.dir().to_path_buf();
         drop(store);
         change(&path);
@@ -276,20 +264,11 @@ impl Env {
         }))
         .ok();
         store.hook_faults(None);
-        (
-            Env {
-                tmp,
-                store,
-                sha256,
-            },
-            blocked,
-        )
+        (Env { tmp, store, sha256 }, blocked)
     }
 
     fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
-        self.store
-            .plan_build(folder.id, selection)
-            .unwrap()
+        self.store.plan_build(folder.id, selection).unwrap()
     }
 
     /// Approves `plan`, then claims and runs its Build Job.
@@ -301,9 +280,7 @@ impl Env {
         assert_eq!(job.kind, JobKind::Build);
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job.id);
-        self.store
-            .run_build_job(job.id, None)
-            .unwrap()
+        self.store.run_build_job(job.id, None).unwrap()
     }
 }
 
@@ -737,11 +714,9 @@ fn a_dat_revision_mismatch_and_an_unresolved_group_block_the_plan() {
         BTreeSet::from([BlockerKind::RevisionMismatch])
     );
     assert!(mismatched.content.items.is_empty());
-    let refused = env.store.approve_plan(mismatched.id,
-        &mismatched.digest,
-        "Operator",
-        WORKERS,
-    );
+    let refused = env
+        .store
+        .approve_plan(mismatched.id, &mismatched.digest, "Operator", WORKERS);
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
 
     let env = Env::new();
@@ -866,7 +841,8 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
 
     let one = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
@@ -875,9 +851,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
         .unwrap();
     assert_eq!(one.content.files, vec![kept[0].clone()]);
     assert!(path(&kept[0]).exists(), "planning deletes nothing");
-    let stale = env
-        .store
-        .approve_kept_deletion(one.id, "0000", "Operator");
+    let stale = env.store.approve_kept_deletion(one.id, "0000", "Operator");
     assert!(matches!(stale, Err(Error::Conflict(_))), "{stale:?}");
     assert!(path(&kept[0]).exists());
 
@@ -896,7 +870,8 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
 
     let rest = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -919,10 +894,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
         BTreeSet::from([".deleting".to_string(), "2".to_string()])
     );
     assert!(names(&dir.join(RETAINED).join("2")).is_empty());
-    let checked = check(
-        &env,
-        &env.store.library_folder(folder.id).unwrap(),
-    );
+    let checked = check(&env, &env.store.library_folder(folder.id).unwrap());
     assert!(checked.drift.is_empty(), "{:?}", checked.drift);
     assert_eq!(checked.files.len(), 1);
     let again = env
@@ -942,7 +914,8 @@ fn a_substituted_retention_entry_is_never_deleted() {
     let generation = dir.join(RETAINED).join("2");
     let deletion = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -996,7 +969,8 @@ fn a_substituted_retention_entry_is_never_deleted() {
     assert_eq!(env2.build(&plan).state, JobState::Succeeded);
     let deletion = env2
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -1053,7 +1027,8 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Incremental,
         )
@@ -1146,7 +1121,8 @@ fn a_rom_its_game_does_not_need_is_built_when_found_and_left_out_without_a_gap_w
     write_file(&env.set_dir().join("Bonus (USA).txt"), b"bonus manual");
     write_file(&env.set_dir().join("Manual (USA).a26"), b"manual game");
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Incremental,
         )
@@ -1222,7 +1198,8 @@ fn a_file_built_for_a_game_now_with_nothing_to_build_is_left_as_it_is() {
     write_file(&source, b"extras");
     let audit = || {
         env.store
-            .audit_source_set(SET,
+            .audit_source_set(
+                SET,
                 Some(&revision.sha256),
                 title_select_engine::AuditEvidence::Incremental,
             )
@@ -1329,7 +1306,8 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
     assert_eq!(folder.incomplete, None);
 
     // Choosing to adopt and to keep aside the same file is refused.
-    let both = env.store.plan_build_with(folder.id,
+    let both = env.store.plan_build_with(
+        folder.id,
         &PlanBuild {
             selection: id,
             choices: PlanChoices {
@@ -1416,7 +1394,8 @@ fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it(
 /// Plans deleting every kept file of `folder`.
 fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> title_select_api::build::KeptDeletion {
     env.store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
                 all: true,
@@ -1506,7 +1485,8 @@ fn recovery_syncs_both_folders_before_it_deletes_a_kept_file_a_crash_left_aside(
         .join(first.id.to_string());
     let deletion = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
                 all: false,
@@ -1542,7 +1522,8 @@ fn a_crash_mid_deletion_never_loses_a_kept_file_and_recovery_settles_it() {
         let bytes = std::fs::read(&path).unwrap();
         let deletion = env
             .store
-            .plan_kept_deletion(folder.id,
+            .plan_kept_deletion(
+                folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
                     all: false,
@@ -1558,9 +1539,9 @@ fn a_crash_mid_deletion_never_loses_a_kept_file_and_recovery_settles_it() {
         let unfinished = env.store.kept_deletion(deletion.id).unwrap();
         assert!(unfinished.finished_at.is_none(), "{at}");
         let again = env.plan(&folder, plan.content.selection);
-        let approve =
-            env.store
-                .approve_plan(again.id, &again.digest, "Operator", WORKERS);
+        let approve = env
+            .store
+            .approve_plan(again.id, &again.digest, "Operator", WORKERS);
         assert!(
             matches!(approve, Err(Error::Conflict(_))),
             "{at}: {approve:?}"
@@ -1727,7 +1708,8 @@ fn a_stopped_deletion_resumes_only_by_the_ctime_held_across_the_rename_and_the_r
         let bytes = std::fs::read(&path).unwrap();
         let deletion = env
             .store
-            .plan_kept_deletion(folder.id,
+            .plan_kept_deletion(
+                folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
                     all: false,
@@ -1781,7 +1763,8 @@ fn recovery_deletes_only_what_it_verified_never_what_merely_looks_unchanged() {
         let bytes = std::fs::read(&path).unwrap();
         let deletion = env
             .store
-            .plan_kept_deletion(folder.id,
+            .plan_kept_deletion(
+                folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
                     all: false,
@@ -1839,7 +1822,8 @@ fn what_is_swapped_into_deleting_after_it_is_recorded_held_aside_is_moved_back_a
         .join(first.id.to_string());
     let deletion = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
                 all: false,
@@ -1926,10 +1910,9 @@ fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
             .contains("not writable"),
         "{pending:?}"
     );
-    let approve = env.store.approve_kept_deletion(deletion_again.id,
-        &deletion_again.digest,
-        "Operator",
-    );
+    let approve =
+        env.store
+            .approve_kept_deletion(deletion_again.id, &deletion_again.digest, "Operator");
     assert!(
         matches!(&approve, Err(Error::Conflict(m)) if m.contains("not finished")),
         "{approve:?}"
@@ -1962,7 +1945,8 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     let deletion = plan_delete_all(&env, &folder);
     let later = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
@@ -1977,7 +1961,8 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
         env.tmp.path().join("marker"),
     )
     .unwrap();
-    let refused = env.store.plan_kept_deletion(folder.id,
+    let refused = env.store.plan_kept_deletion(
+        folder.id,
         &PlanKeptDeletion {
             ids: vec![],
             all: true,
@@ -2090,7 +2075,8 @@ fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stop
         let deleting = dir.join(RETAINED).join(".deleting");
         let plan_one = |env: &Env, id: i64| {
             env.store
-                .plan_kept_deletion(folder.id,
+                .plan_kept_deletion(
+                    folder.id,
                     &PlanKeptDeletion {
                         ids: vec![id],
                         all: false,
@@ -2116,10 +2102,8 @@ fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stop
                     }
                 })));
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                env.store.approve_kept_deletion(deletion.id,
-                    &deletion.digest,
-                    "Operator",
-                )
+                env.store
+                    .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
             }));
             env.store.hook_faults(None);
             assert!(ran.is_err());
@@ -2229,12 +2213,9 @@ fn a_retention_area_left_mid_creation_is_recorded_or_adopted_by_recovery_and_an_
         let next = env.plan(&folder, plan.content.selection);
         assert!(blockers(&next).contains(&BlockerKind::Recovery), "{adopt}");
         assert!(
-            check(
-                &env,
-                &env.store.library_folder(folder.id).unwrap()
-            )
-            .drift
-            .is_empty()
+            check(&env, &env.store.library_folder(folder.id).unwrap())
+                .drift
+                .is_empty()
         );
     }
 }
@@ -2255,7 +2236,8 @@ fn a_move_back_is_recorded_only_once_it_is_found_back_and_made_durable() {
     let aside = env.tmp.path().join("aside");
     let deletion = env
         .store
-        .plan_kept_deletion(folder.id,
+        .plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
                 all: false,
@@ -2339,7 +2321,8 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
         let original = env.tmp.path().join("original");
         let deletion = env
             .store
-            .plan_kept_deletion(folder.id,
+            .plan_kept_deletion(
+                folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
                     all: false,
@@ -2396,9 +2379,9 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
                 .any(|k| k.id == first.id)
         );
         let others = plan_delete_all(&env, &folder);
-        let refused =
-            env.store
-                .approve_kept_deletion(others.id, &others.digest, "Operator");
+        let refused = env
+            .store
+            .approve_kept_deletion(others.id, &others.digest, "Operator");
         assert!(
             matches!(&refused, Err(Error::Conflict(m)) if m.contains("not finished")),
             "{refused:?}"
@@ -2425,7 +2408,8 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
         assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
 
         // It is still not the file that was kept: a later deletion is refused when it is planned.
-        let again = env.store.plan_kept_deletion(folder.id,
+        let again = env.store.plan_kept_deletion(
+            folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
                 all: false,
@@ -2632,10 +2616,7 @@ fn a_quick_inventorys_claims_are_never_build_sources() {
     bytes[at..at + 4].copy_from_slice(b"CAFE");
     std::fs::write(&okami, &bytes).unwrap();
     env.store
-        .audit_source_set(SET,
-            None,
-            title_select_engine::AuditEvidence::Quick,
-        )
+        .audit_source_set(SET, None, title_select_engine::AuditEvidence::Quick)
         .unwrap();
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
@@ -2746,9 +2727,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
     assert!(ran.is_err());
     assert!(dir.join(".title-select/staging").is_dir());
 
-    let Env {
-        tmp, store, ..
-    } = env;
+    let Env { tmp, store, .. } = env;
     let path = store.dir().to_path_buf();
     drop(store);
     let store = Store::open(&path).unwrap();
@@ -2849,7 +2828,8 @@ fn the_preview_attributes_each_change_to_settings_choices_or_the_dat_revision() 
 fn the_current_build_keeps_its_selection_and_audit_from_pruning_until_a_later_build() {
     let env = Env::new();
     env.store
-        .update_settings(&title_select_api::settings::SettingsUpdate {
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
                 retention: Some(title_select_api::settings::Retention {
                     audits_keep: 1,
                     selections_keep: 1,
@@ -3035,11 +3015,7 @@ fn a_backup_taken_mid_finalize_and_restored_never_moves_the_marker_back() {
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert_eq!(marker(&dir)["generation"], 1);
 
-    let Env {
-        tmp,
-        store,
-        sha256,
-    } = env;
+    let Env { tmp, store, sha256 } = env;
     drop(store);
     let store = Store::open(&backup).unwrap();
     store.recover_jobs(WORKERS).unwrap();
@@ -3060,11 +3036,7 @@ fn a_store_restored_one_generation_behind_its_folder_blocks_and_recovery_leaves_
     let folder = env.folder("atari2600");
     let dir = env.play().join("atari2600");
     // A backup of the store, taken before the folder's first Build.
-    let Env {
-        tmp,
-        store,
-        sha256,
-    } = env;
+    let Env { tmp, store, sha256 } = env;
     let path = store.dir().to_path_buf();
     drop(store);
     let backup = tmp.path().join("backup");
@@ -3077,11 +3049,7 @@ fn a_store_restored_one_generation_behind_its_folder_blocks_and_recovery_leaves_
     assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
     assert_eq!(marker(&dir)["generation"], 1);
 
-    let Env {
-        tmp,
-        store,
-        sha256,
-    } = env;
+    let Env { tmp, store, sha256 } = env;
     drop(store);
     let store = Store::open(&backup).unwrap();
     store.recover_jobs(WORKERS).unwrap();
@@ -3263,11 +3231,7 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
         blockers(&next),
         BTreeSet::from([BlockerKind::FolderMissing])
     );
-    assert!(
-        env.store
-            .add_library_folder(&add("atari2600/sub"))
-            .is_err()
-    );
+    assert!(env.store.add_library_folder(&add("atari2600/sub")).is_err());
 }
 
 #[test]
@@ -3483,7 +3447,8 @@ fn recovery_waits_while_the_root_is_read_only() {
 fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released_when_it_fails() {
     let env = Env::new();
     env.store
-        .update_settings(&title_select_api::settings::SettingsUpdate {
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
                 retention: Some(title_select_api::settings::Retention {
                     audits_keep: 1,
                     selections_keep: 1,
@@ -3762,11 +3727,9 @@ fn building_resolved_groups_only_is_a_choice_the_digest_binds_and_leaves_the_res
     assert!(partial.content.choices.resolved_only);
     assert_ne!(partial.digest, blocked.digest);
     assert_eq!(kinds(&partial)["Combat (USA)"], ItemKind::Unresolved);
-    let refused = env.store.approve_plan(blocked.id,
-        &blocked.digest,
-        "Operator",
-        WORKERS,
-    );
+    let refused = env
+        .store
+        .approve_plan(blocked.id, &blocked.digest, "Operator", WORKERS);
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     assert_eq!(env.build(&partial).state, JobState::Succeeded);
 
@@ -4042,7 +4005,8 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
     );
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Incremental,
         )
@@ -4109,7 +4073,8 @@ fn with_saga(env: &Env) -> String {
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("Saga (USA) (Disc 1).a26"), b"saga u1");
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Incremental,
         )
@@ -4247,9 +4212,7 @@ fn cleaned_with(env: Env) -> (Env, LibraryFolder, PathBuf) {
 }
 
 fn cleanup(env: &Env, folder: &LibraryFolder, request: PlanCleanup) -> Plan {
-    env.store
-        .plan_cleanup(folder.id, &request)
-        .unwrap()
+    env.store.plan_cleanup(folder.id, &request).unwrap()
 }
 
 fn choose(entries: &[(&str, CleanupAction)]) -> PlanCleanup {
@@ -4388,7 +4351,8 @@ fn drift_is_kept_aside_whole_or_acknowledged_until_it_changes() {
     assert_eq!(checked.summary.acknowledged, 1);
 
     // A kept folder is not deleted in this way.
-    let deletion = env.store.plan_kept_deletion(folder.id,
+    let deletion = env.store.plan_kept_deletion(
+        folder.id,
         &PlanKeptDeletion {
             ids: vec![disc.id],
             all: false,
@@ -5220,7 +5184,8 @@ fn a_cleanup_is_refused_at_approval_once_anything_in_the_folder_changed() {
             _ => {
                 let deletion = env
                     .store
-                    .plan_kept_deletion(folder.id,
+                    .plan_kept_deletion(
+                        folder.id,
                         &PlanKeptDeletion {
                             ids: vec![kept_named(&env, &folder, "old.txt").id],
                             all: false,
@@ -5354,18 +5319,15 @@ fn a_build_reading_a_source_set_and_a_repair_of_it_never_overlap() {
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
     let build = env.plan(&folder, id);
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
 
     let job = env
         .store
         .approve_plan(build.id, &build.digest, "Operator", WORKERS)
         .unwrap();
-    let refused =
-        env.store
-            .approve_repair(repair.id, &repair.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_repair(repair.id, &repair.digest, "Operator", WORKERS);
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains(&format!("build job {}", job.id))),
         "{refused:?}"
@@ -6106,7 +6068,8 @@ fn a_game_whose_roms_changed_is_replaced_not_converted_and_its_original_is_never
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Incremental,
         )
@@ -6391,7 +6354,8 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
         .add_source_set("sets", "Another", "No-Intro/Test - System")
         .unwrap();
     env.store
-        .change_library_folder(folder.id,
+        .change_library_folder(
+            folder.id,
             &title_select_api::build::ChangeLibraryFolder {
                 source_set: Some("Another".into()),
                 profile: Some("Other".into()),
@@ -6600,7 +6564,8 @@ fn a_rom_its_game_does_not_need_that_a_quick_inventory_only_claims_holds_its_gam
         &[("Bonus (USA).txt", b"bonus manual")],
     );
     env.store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Quick,
         )
@@ -6644,7 +6609,8 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
     );
     let audit = env
         .store
-        .audit_source_set(SET,
+        .audit_source_set(
+            SET,
             Some(&revision.sha256),
             title_select_engine::AuditEvidence::Full,
         )

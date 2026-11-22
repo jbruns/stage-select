@@ -869,9 +869,7 @@ impl Store {
             evidence,
             resumes: None,
         };
-        self.begin(set, how, |tx, set| {
-            choose_revision(tx, set, revision)
-        })
+        self.begin(set, how, |tx, set| choose_revision(tx, set, revision))
     }
 
     /// Starts the Audit of a Running Job: its Source Set against the DAT Revision chosen when it was queued.
@@ -972,14 +970,13 @@ impl Store {
                 let threads = self.chdman_threads()?;
                 let tally =
                     job.map_or_else(Default::default, |job| self.meter.job(job).tally(None));
-                self.chdman().map(|program| {
-                    title_select_engine::chd::Chdman {
+                self.chdman()
+                    .map(|program| title_select_engine::chd::Chdman {
                         program,
                         threads,
                         deadline: Default::default(),
                         tally,
-                    }
-                })
+                    })
             }
         };
         let chd = title_select_engine::ChdAudit {
@@ -990,9 +987,7 @@ impl Store {
         self.placed_folders(set)?
             .into_iter()
             .map(|(folder, resolved, files)| {
-                let pools = job
-                    .map(|_| self.job_pools(&resolved.root))
-                    .transpose()?;
+                let pools = job.map(|_| self.job_pools(&resolved.root)).transpose()?;
                 let chds = chds
                     .iter()
                     .filter(|c| c.folder == folder)
@@ -1439,10 +1434,14 @@ mod tests {
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
         store
-            .register_root(&title_select_api::roots::RootSpec::new("sets", &root), "test")
+            .register_root(
+                &title_select_api::roots::RootSpec::new("sets", &root),
+                "test",
+            )
             .unwrap();
         store
-            .update_settings(&title_select_api::settings::SettingsUpdate {
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
                     retention: Some(title_select_api::settings::Retention {
                         audits_keep: 1,
                         ..Default::default()

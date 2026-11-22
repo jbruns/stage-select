@@ -43,7 +43,10 @@ fn a_root_is_registered_edited_and_unregistered_with_who_did_each() {
         .register_root(&RootSpec::new("sets", env.dir("sets")), "Operator")
         .unwrap();
     let root = &env.store.roots_view()[0];
-    assert_eq!((root.name.as_str(), root.updated_by.as_str()), ("sets", "Operator"));
+    assert_eq!(
+        (root.name.as_str(), root.updated_by.as_str()),
+        ("sets", "Operator")
+    );
 
     let edited = env
         .store
@@ -152,7 +155,10 @@ fn each_kind_keeps_its_writability_and_a_root_needs_a_name() {
         (RootSpec::new("", &dir), "name"),
         (RootSpec::new("a/b", &dir), "name"),
         (RootSpec::new("sets", "relative"), "absolute"),
-        (RootSpec::new("sets", &dir).writing(&["../up"]), "writable path"),
+        (
+            RootSpec::new("sets", &dir).writing(&["../up"]),
+            "writable path",
+        ),
     ] {
         let why = env.refused(&spec);
         assert!(why.contains(says), "{spec:?}: {why}");
@@ -163,10 +169,13 @@ fn each_kind_keeps_its_writability_and_a_root_needs_a_name() {
 #[test]
 fn a_roots_name_cant_be_changed() {
     let env = Env::new();
-    env.register(&RootSpec::new("sets", env.dir("sets"))).unwrap();
-    let renamed = env
-        .store
-        .edit_root("sets", &RootSpec::new("library", env.dir("sets")), "Operator");
+    env.register(&RootSpec::new("sets", env.dir("sets")))
+        .unwrap();
+    let renamed = env.store.edit_root(
+        "sets",
+        &RootSpec::new("library", env.dir("sets")),
+        "Operator",
+    );
     assert!(
         matches!(&renamed, Err(Error::Refused(why)) if why.contains("name can't be changed")),
         "{renamed:?}"
@@ -197,7 +206,8 @@ fn a_root_is_not_unregistered_while_something_is_registered_in_it() {
 #[test]
 fn a_root_holding_source_sets_isnt_made_writable() {
     let env = Env::new();
-    env.register(&RootSpec::new("sets", env.dir("sets"))).unwrap();
+    env.register(&RootSpec::new("sets", env.dir("sets")))
+        .unwrap();
     std::fs::create_dir_all(env.dir("sets").join("Alpha")).unwrap();
     let dat = crate::common::write_dat(&env.dir("dats"), &[]);
     env.store.import_dat(&dat, None).unwrap();
@@ -205,9 +215,11 @@ fn a_root_holding_source_sets_isnt_made_writable() {
         .add_source_set("sets", "Alpha", "No-Intro/Test - System")
         .unwrap();
 
-    let edited = env
-        .store
-        .edit_root("sets", &RootSpec::new("sets", env.dir("sets")).writable(), "Operator");
+    let edited = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", env.dir("sets")).writable(),
+        "Operator",
+    );
     assert!(
         matches!(&edited, Err(Error::Refused(why)) if why.contains("Alpha")),
         "{edited:?}"
@@ -231,7 +243,10 @@ fn a_roots_path_or_writability_doesnt_change_while_a_job_runs_on_it() {
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
 
     for (spec, change) in [
-        (RootSpec::new("play", env.dir("elsewhere")).writable(), "path"),
+        (
+            RootSpec::new("play", env.dir("elsewhere")).writable(),
+            "path",
+        ),
         (RootSpec::new("play", env.dir("play")), "writability"),
     ] {
         let refused = env.store.edit_root("play", &spec, "Operator");

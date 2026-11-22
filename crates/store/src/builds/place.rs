@@ -535,10 +535,7 @@ impl Store {
     /// Opens Source Set `set`'s folder for a Build to place its Games from, as a repair opens it: only while it is
     /// registered, its Root lets Title Select write there, and its marker is this store's, written first if no repair
     /// wrote one. Returns why not.
-    pub(super) fn open_placing(
-        &self,
-        set: i64,
-    ) -> Result<std::result::Result<SetDirs, String>> {
+    pub(super) fn open_placing(&self, set: i64) -> Result<std::result::Result<SetDirs, String>> {
         let roots = &*self.roots();
         if let Err(Error::Conflict(why)) =
             self.read(|c| crate::lifecycle::check_live(c, RegistrationKind::SourceSet, set))

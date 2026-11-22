@@ -4,9 +4,9 @@
 //! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where
 //! it is missing they are skipped, except in CI, where they fail.
 
-use title_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::JobState;
@@ -275,21 +275,13 @@ impl Env {
 
     /// Reopens the store as after a crash, recovers what it left unfinished, and says why what is still unfinished is.
     fn reopen(self) -> (Env, Vec<String>) {
-        let Env {
-            tmp,
-            store,
-            sha256,
-        } = self;
+        let Env { tmp, store, sha256 } = self;
         let path = store.dir().to_path_buf();
         drop(store);
         let store = Store::open(&path).unwrap();
         store.recover_jobs(WORKERS).unwrap();
         let blocked = store.recover_builds().unwrap();
-        let env = Env {
-            tmp,
-            store,
-            sha256,
-        };
+        let env = Env { tmp, store, sha256 };
         (env, blocked.into_iter().map(|(_, why)| why).collect())
     }
 
@@ -302,13 +294,12 @@ impl Env {
         let folder = self
             .store
             .add_library_folder(&AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("discs".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+                root: "play".into(),
+                path: Some("discs".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap();
         self.store
             .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
@@ -334,9 +325,7 @@ impl Env {
     }
 
     fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
-        self.store
-            .plan_build(folder.id, selection)
-            .unwrap()
+        self.store.plan_build(folder.id, selection).unwrap()
     }
 
     fn build(&self, plan: &Plan) -> title_select_api::Job {
@@ -345,9 +334,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        self.store
-            .run_build_job(job.id, None)
-            .unwrap()
+        self.store.run_build_job(job.id, None).unwrap()
     }
 
     /// Checks `folder`.
@@ -447,8 +434,7 @@ fn a_cd_and_a_dvd_build_to_chd_verify_and_pass_later_checks_by_their_header_alon
     assert_eq!(built.len(), 3, "{built:?}");
 
     // Later checks never run chdman: the store uses one that isn't there.
-    env.store
-        .use_chdman(Some(env.tmp.path().join("no-chdman")));
+    env.store.use_chdman(Some(env.tmp.path().join("no-chdman")));
     let check = env.check(&folder);
     assert_eq!(
         outcome(&check, "Orbit (USA).chd"),
@@ -685,9 +671,7 @@ fn a_pace_changed_during_a_build_reaches_its_next_chd_but_not_the_one_compressin
             pace: Some(title_select_api::settings::Pace::Unthrottled),
             ..Default::default()
         };
-        env.store
-            .update_settings(&unthrottled, "Operator")
-            .unwrap();
+        env.store.update_settings(&unthrottled, "Operator").unwrap();
         std::fs::remove_file(&held).unwrap();
         running.join().unwrap().unwrap();
     });
@@ -749,9 +733,7 @@ fn a_pace_changed_while_a_chds_inputs_are_prepared_reaches_the_chdman_it_then_st
             pace: Some(title_select_api::settings::Pace::Unthrottled),
             ..Default::default()
         };
-        env.store
-            .update_settings(&unthrottled, "Operator")
-            .unwrap();
+        env.store.update_settings(&unthrottled, "Operator").unwrap();
         go.store(true, Ordering::SeqCst);
         running.join().unwrap().unwrap();
     });
@@ -918,7 +900,8 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
     };
     let plan = env
         .store
-        .plan_build_with(folder.id,
+        .plan_build_with(
+            folder.id,
             &title_select_api::build::PlanBuild { selection, choices },
         )
         .unwrap();
@@ -1405,7 +1388,8 @@ fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
     let fake = fake_chdman(root.path(), "slow");
     let env = Env::with(Some(&fake));
     env.store
-        .update_settings(&title_select_api::settings::SettingsUpdate {
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
                 chd: Some(title_select_api::settings::ChdTimeouts {
                     seconds: 1,
                     seconds_per_gib: 0,
@@ -1720,10 +1704,7 @@ fn a_disc_whose_placement_stops_between_its_files_is_recorded_whole_in_one_place
         placing(&mut env, None);
         env.store.copy_across_filesystems(across);
         env.store
-            .audit_source_set(SET,
-                None,
-                title_select_engine::AuditEvidence::Incremental,
-            )
+            .audit_source_set(SET, None, title_select_engine::AuditEvidence::Incremental)
             .unwrap();
         let job = env.build(&env.plan(&folder, selection));
         assert_eq!(job.state, JobState::Succeeded, "{name}: {job:?}");
@@ -1747,13 +1728,12 @@ fn another_folder_builds_a_chd_from_a_disc_placed_in_the_folder_holding_it() {
     let other = env
         .store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("chds".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("chds".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
     env.store.set_holding_folder(SET, Some(holding.id)).unwrap();
     env.set_format(Some(StorageFormat::Chd), false);
@@ -2298,7 +2278,8 @@ fn use_chdman(env: &mut Env, chdman: &Path) {
 /// Gives chdman `seconds` for any disc.
 fn chd_seconds(env: &Env, seconds: u64) {
     env.store
-        .update_settings(&title_select_api::settings::SettingsUpdate {
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
                 chd: Some(title_select_api::settings::ChdTimeouts {
                     seconds,
                     seconds_per_gib: 0,
@@ -2684,13 +2665,12 @@ fn orbit_and_another_folder(env: &mut Env, chdman: &Path) -> (LibraryFolder, Lib
     let other = env
         .store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some("more".into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some("more".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap();
     (holding, other)
 }
@@ -2832,10 +2812,7 @@ fn a_repair_leaves_a_disc_placed_as_chd_as_it_is() {
         std::fs::write(set.join(format!("stray {n}.bin")), &rom.payload).unwrap();
     }
     env.audit(title_select_engine::AuditEvidence::Full);
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     let placed = title_select_api::storage::placed_path(folder.id, "");
     let touching: Vec<_> = repair
         .content
@@ -3103,10 +3080,7 @@ fn a_repair_rebuilds_a_game_whose_placed_chd_is_gone_in_the_source_set() {
         std::fs::write(set.join(format!("stray {n}.bin")), &rom.payload).unwrap();
     }
     env.audit(title_select_engine::AuditEvidence::Full);
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     let item = repair
         .content
         .items
@@ -3242,7 +3216,8 @@ fn ingest(env: &mut Env, chdman: &Path, name: &str, bytes: &[u8]) {
         );
     }
     env.store
-        .update_settings(&title_select_api::settings::SettingsUpdate {
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
                 ingest_folders: Some(
                     [(
                         "in".to_owned(),

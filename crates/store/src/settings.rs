@@ -13,14 +13,14 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use title_select_api::settings::{
-    ArchiveLimits, ChdTimeouts, HostOverrides, MAX_DICTIONARY_MIB, FetchSettings, IngestCadence, JobsView, MAX_CHD_SECONDS,
-    MAX_CHECK_EVERY_MINUTES, MAX_KEPT, MAX_SCAN_EVERY_MINUTES, MAX_SETTLE_SECS, NotifyEvent,
-    NotifyUpdate, NotifyView, Pace, PathTemplates, Retention, SecretUpdate, SettingsUpdate,
-    SettingsView, SourceSetChecks,
+    ArchiveLimits, ChdTimeouts, FetchSettings, HostOverrides, IngestCadence, JobsView,
+    MAX_CHD_SECONDS, MAX_CHECK_EVERY_MINUTES, MAX_DICTIONARY_MIB, MAX_KEPT, MAX_SCAN_EVERY_MINUTES,
+    MAX_SETTLE_SECS, NotifyEvent, NotifyUpdate, NotifyView, Pace, PathTemplates, Retention,
+    SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
 };
 
-use crate::roots::Roots;
 use crate::romm::Romm;
+use crate::roots::Roots;
 use crate::{Error, Result, Store, now};
 
 /// The webhook as stored, secrets included.
@@ -472,7 +472,8 @@ mod tests {
             assert_eq!(store.settings().unwrap(), Settings::default());
             register(&store, dir.path(), INGEST);
             store
-                .update_settings(&SettingsUpdate {
+                .update_settings(
+                    &SettingsUpdate {
                         pace: Some(Pace::Gentle),
                         retention: Some(Retention {
                             audits_keep: 3,
@@ -622,7 +623,8 @@ mod tests {
         let (dir2, other) = self::store();
         register(&other, dir2.path(), INGEST);
         other
-            .update_settings(&SettingsUpdate {
+            .update_settings(
+                &SettingsUpdate {
                     ingest_folders: Some(longest),
                     ..SettingsUpdate::default()
                 },
@@ -689,13 +691,15 @@ mod tests {
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
         assert!(
             store
-                .update_settings(&notify(set("https://hooks.example/x"), SecretUpdate::Keep),
+                .update_settings(
+                    &notify(set("https://hooks.example/x"), SecretUpdate::Keep),
                     "Operator"
                 )
                 .is_err()
         );
         let on = store
-            .update_settings(&notify(set("https://hooks.example/x"), set(" s3cret \n")),
+            .update_settings(
+                &notify(set("https://hooks.example/x"), set(" s3cret \n")),
                 "Operator",
             )
             .unwrap()
@@ -709,21 +713,18 @@ mod tests {
         );
         assert_eq!(on.workbench_url.as_deref(), Some("https://ts.example"));
         let kept = store
-            .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Keep),
-                "Operator",
-            )
+            .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Keep), "Operator")
             .unwrap()
             .notify;
         assert_eq!(kept, on);
         assert!(
             store
-                .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Clear),
-                    "Operator"
-                )
+                .update_settings(&notify(SecretUpdate::Keep, SecretUpdate::Clear), "Operator")
                 .is_err()
         );
         let off = store
-            .update_settings(&notify(SecretUpdate::Clear, SecretUpdate::Clear),
+            .update_settings(
+                &notify(SecretUpdate::Clear, SecretUpdate::Clear),
                 "Operator",
             )
             .unwrap()
@@ -778,13 +779,11 @@ mod tests {
         let (dir, store) = store();
         register(&store, dir.path(), ROMM);
         let set = |s: &str| SecretUpdate::Set(s.to_owned());
-        assert_eq!(
-            store.settings_view().unwrap().romm,
-            RommView::default()
-        );
+        assert_eq!(store.settings_view().unwrap().romm, RommView::default());
 
         let on = store
-            .update_settings(&romm(
+            .update_settings(
+                &romm(
                     true,
                     Some(" https://romm.example/ "),
                     set(" rmm_first-token \n"),
@@ -805,7 +804,8 @@ mod tests {
         );
 
         let kept = store
-            .update_settings(&romm(
+            .update_settings(
+                &romm(
                     false,
                     Some("https://romm.example"),
                     SecretUpdate::Keep,
@@ -818,7 +818,8 @@ mod tests {
         assert!(!kept.romm.enabled, "turning RomM off keeps its connection");
 
         let replaced = store
-            .update_settings(&romm(
+            .update_settings(
+                &romm(
                     true,
                     Some("https://romm.example"),
                     set("rmm_second-token"),
@@ -835,7 +836,8 @@ mod tests {
         assert!(!format!("{replaced:?}").contains("rmm_"));
 
         let cleared = store
-            .update_settings(&romm(
+            .update_settings(
+                &romm(
                     false,
                     Some("https://romm.example"),
                     SecretUpdate::Clear,
@@ -892,9 +894,7 @@ mod tests {
         assert_eq!(store.settings().unwrap(), Settings::default());
 
         store
-            .update_settings(&romm(true, url, set("rmm_t"), Some("library")),
-                "Operator",
-            )
+            .update_settings(&romm(true, url, set("rmm_t"), Some("library")), "Operator")
             .unwrap();
         for (bad, why) in [
             (
@@ -918,7 +918,8 @@ mod tests {
             }
         }
         let moved = store
-            .update_settings(&romm(
+            .update_settings(
+                &romm(
                     true,
                     Some("https://elsewhere.example"),
                     set("rmm_u"),

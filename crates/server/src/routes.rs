@@ -29,11 +29,11 @@ use title_select_api::ingest::{
     RegisterIngestFolder,
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
-use title_select_api::roots::{RootChange, RootEdited, RootSpec};
 use title_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
     RommTestRequest,
 };
+use title_select_api::roots::{RootChange, RootEdited, RootSpec};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
@@ -962,10 +962,7 @@ async fn plan_build(
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| {
-        store.plan_build_with(id, &request)
-    })
-    .await?;
+    let plan = blocking(&state, move |store| store.plan_build_with(id, &request)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -978,10 +975,7 @@ async fn plan_cleanup(
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| {
-        store.plan_cleanup(id, &request)
-    })
-    .await?;
+    let plan = blocking(&state, move |store| store.plan_cleanup(id, &request)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -1029,10 +1023,7 @@ async fn plan_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<KeptDeletion>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| {
-        store.plan_kept_deletion(id, &request)
-    })
-    .await?;
+    let plan = blocking(&state, move |store| store.plan_kept_deletion(id, &request)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -1183,10 +1174,7 @@ async fn plan_ingest(
 ) -> ApiResult<(StatusCode, Json<IngestPlan>)> {
     let Path(root) = root?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| {
-        store.plan_ingest(&root, &request)
-    })
-    .await?;
+    let plan = blocking(&state, move |store| store.plan_ingest(&root, &request)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -1261,10 +1249,7 @@ async fn check_additions(
 ) -> ApiResult<Json<AdditionsCheck>> {
     let Query(query) = query?;
     Ok(Json(
-        blocking(&state, move |store| {
-            store.check_additions(&query.system)
-        })
-        .await?,
+        blocking(&state, move |store| store.check_additions(&query.system)).await?,
     ))
 }
 
@@ -1395,10 +1380,7 @@ async fn plan_repair(
 ) -> ApiResult<(StatusCode, Json<RepairPlan>)> {
     let Path(name) = name?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| {
-        store.plan_repair(&name, &request)
-    })
-    .await?;
+    let plan = blocking(&state, move |store| store.plan_repair(&name, &request)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -2598,10 +2580,7 @@ mod tests {
             .import_dat_bytes(dat.as_bytes(), "test.dat", None)
             .unwrap();
         store
-            .add_source_set("sets",
-                "Test - System",
-                "No-Intro/Test - System",
-            )
+            .add_source_set("sets", "Test - System", "No-Intro/Test - System")
             .unwrap();
         store
             .enqueue_audit(
@@ -2627,9 +2606,7 @@ mod tests {
             rates: None,
         };
         state.jobs.publish(JobEvent::Progress(stale));
-        let done = store
-            .run_audit_job(running.id, None)
-            .unwrap();
+        let done = store.run_audit_job(running.id, None).unwrap();
         assert_eq!(done.state, title_select_api::JobState::Succeeded);
         state.jobs.publish(JobEvent::State(Box::new(done.clone())));
 

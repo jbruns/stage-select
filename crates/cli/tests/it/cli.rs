@@ -774,7 +774,11 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     assert!(!missing.status.success());
     assert!(String::from_utf8_lossy(&missing.stderr).contains("doesn't exist"));
 
-    let registered = run_ok(ts().args(["root", "register", "sets"]).arg(root).args(["--readers", "4"]));
+    let registered = run_ok(
+        ts().args(["root", "register", "sets"])
+            .arg(root)
+            .args(["--readers", "4"]),
+    );
     assert!(registered.contains("sets\t"), "{registered}");
     run_ok(ts().args(["dat", "import"]).arg(&dat));
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
@@ -782,11 +786,22 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     assert!(!held.status.success());
     assert!(String::from_utf8_lossy(&held.stderr).contains(&format!("source set {rel}")));
 
-    run_ok(ts().args(["root", "edit", "sets", "--writable-path", rel, "--readers", "default"]));
+    run_ok(ts().args([
+        "root",
+        "edit",
+        "sets",
+        "--writable-path",
+        rel,
+        "--readers",
+        "default",
+    ]));
     let listed = run_ok(ts().args(["root", "list"]));
     assert_eq!(
         listed,
-        format!("sets\t{}\tgeneral\tread-only but for {rel}\n", root.display())
+        format!(
+            "sets\t{}\tgeneral\tread-only but for {rel}\n",
+            root.display()
+        )
     );
     run_ok(ts().args(["set", "unregister", rel]));
     run_ok(ts().args(["root", "unregister", "sets"]));

@@ -133,7 +133,10 @@ fn ingest_root<'a>(
 }
 
 /// Opens the Ingest Folder of Root `root`. Its configured path is followed; nothing in it is.
-pub(super) fn open_ingest(roots: &crate::roots::Roots, root: &str) -> std::result::Result<FolderDir, String> {
+pub(super) fn open_ingest(
+    roots: &crate::roots::Roots,
+    root: &str,
+) -> std::result::Result<FolderDir, String> {
     let root_config = ingest_root(roots, root)?;
     FolderDir::open(&root_config.path, "").map_err(|e| e.to_string())
 }
@@ -1444,7 +1447,7 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
 
 impl Store {
     /// Every Root of kind ingest, as an Ingest Folder, with its id once registered.
-    pub fn ingest_folders(&self,) -> Result<Vec<IngestFolder>> {
+    pub fn ingest_folders(&self) -> Result<Vec<IngestFolder>> {
         let roots = &*self.roots();
         self.read(|c| {
             let mut found = Vec::new();
@@ -1867,10 +1870,7 @@ impl Store {
     /// When the earliest item still arriving in the Ingest Folder of Root `root`, or changed since it was assessed,
     /// could have settled: the folder's settle interval after its stat last changed. A scan then assesses it if it
     /// has not changed since. None when no item is waiting to settle, or the folder is not registered.
-    pub fn ingest_follow_up_at(
-        &self,
-        root: &str,
-    ) -> Result<Option<jiff::Timestamp>> {
+    pub fn ingest_follow_up_at(&self, root: &str) -> Result<Option<jiff::Timestamp>> {
         let roots = &*self.roots();
         ingest_root(roots, root).map_err(Error::NotFound)?;
         let settle = self.settings()?.ingest(root).settle_secs;
@@ -1936,11 +1936,7 @@ impl Store {
 
     /// Plans `request` for items of the Ingest Folder of Root `root`. Nothing changes until you approve it; the plan
     /// binds each item, where it goes and why, and every entry of the folder as it is now.
-    pub fn plan_ingest(
-        &self,
-        root: &str,
-        request: &PlanIngest,
-    ) -> Result<IngestPlan> {
+    pub fn plan_ingest(&self, root: &str, request: &PlanIngest) -> Result<IngestPlan> {
         let roots = &*self.roots();
         let row = self.read(|c| registered(c, root))?;
         let dir = open_checked(self, roots, &row)?.map_err(Error::Refused)?;
@@ -2308,27 +2304,26 @@ impl Store {
                 }
             }
             let moved = self.move_out(Move {
-                    folder: row.id,
-                    plan: Some(id),
-                    item: Some(item.item),
-                    name: &item.name,
-                    seen: Seen {
-                        identity: item.identity.into(),
-                        file: item.file.clone(),
-                        ctime_ns: item.ctime_ns,
-                    },
-                    sha256: item.sha256.clone(),
-                    dest: Destination::Kept {
-                        generation: content.generation,
-                        kept_name: kept_leaf(&item.name, 1),
-                        reason: item.reason.clone(),
-                    },
-                    repack: None,
-                    exact: None,
-                    loose: false,
-                    leave: false,
+                folder: row.id,
+                plan: Some(id),
+                item: Some(item.item),
+                name: &item.name,
+                seen: Seen {
+                    identity: item.identity.into(),
+                    file: item.file.clone(),
+                    ctime_ns: item.ctime_ns,
                 },
-            )?;
+                sha256: item.sha256.clone(),
+                dest: Destination::Kept {
+                    generation: content.generation,
+                    kept_name: kept_leaf(&item.name, 1),
+                    reason: item.reason.clone(),
+                },
+                repack: None,
+                exact: None,
+                loose: false,
+                leave: false,
+            })?;
             outcomes.push(match moved {
                 Ok(moved) => {
                     detail.push(format!("kept as {}", item.destination));
@@ -2601,7 +2596,7 @@ impl Store {
     ///
     /// It runs before any Job, so no move is being made: first it removes the scratch every 7z repack a kill
     /// interrupted left behind, whether its move is then published, failed or tried again from the start.
-    pub fn recover_ingest_moves(&self,) -> Result<Vec<(i64, String)>> {
+    pub fn recover_ingest_moves(&self) -> Result<Vec<(i64, String)>> {
         let roots = &*self.roots();
         let mut left = Vec::new();
         if let Err(err) = moves::remove_sevenz_scratch(&self.dir().join(crate::TMP)) {

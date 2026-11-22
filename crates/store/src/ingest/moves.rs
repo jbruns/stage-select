@@ -550,11 +550,7 @@ impl Store {
 
     /// As [`Store::drive_move`], writing a move to a path through `into`, its destination folder already opened and
     /// checked, when the caller holds it: then nothing is written in whatever is at that folder's path now.
-    pub(crate) fn drive_move_into(
-        &self,
-        id: i64,
-        into: Option<&FolderDir>,
-    ) -> Outcome {
+    pub(crate) fn drive_move_into(&self, id: i64, into: Option<&FolderDir>) -> Outcome {
         let roots = &*self.roots();
         let m = self.read(|c| move_by_id(c, id))?;
         if m.state == "done" {
@@ -742,11 +738,7 @@ impl Store {
         };
         match m.kind.as_str() {
             "rename" => self.drive_rename(&m, &src, (&dest, &to), &in_place),
-            _ => self.drive_copy(&m,
-                (&src, &tally(&row.root)),
-                (&dest, &to),
-                &in_place,
-            ),
+            _ => self.drive_copy(&m, (&src, &tally(&row.root)), (&dest, &to), &in_place),
         }
     }
 
@@ -2367,16 +2359,8 @@ mod tests {
         ] {
             store.register_root(&spec, "test").unwrap();
         }
-        let folder = store
-            .register_ingest_folder("in")
-            .unwrap()
-            .id
-            .unwrap();
-        Env {
-            tmp,
-            store,
-            folder,
-        }
+        let folder = store.register_ingest_folder("in").unwrap().id.unwrap();
+        Env { tmp, store, folder }
     }
 
     impl Env {

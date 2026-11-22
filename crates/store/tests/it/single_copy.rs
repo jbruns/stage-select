@@ -1,10 +1,10 @@
 //! Single Copy (ADR 0023): Builds that place a Source Set's Games in the Library Folder holding them, by a rename, a
 //! copy or a conversion, and recovery from a stop at each step, from synthetic DATs, Source Sets and files.
 
-use title_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::build::{
@@ -160,9 +160,7 @@ impl Env {
     }
 
     pub(crate) fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
-        self.store
-            .plan_build(folder.id, selection)
-            .unwrap()
+        self.store.plan_build(folder.id, selection).unwrap()
     }
 
     /// Approves `plan`, then claims and runs its Build Job.
@@ -172,9 +170,7 @@ impl Env {
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        self.store
-            .run_build_job(job.id, None)
-            .unwrap()
+        self.store.run_build_job(job.id, None).unwrap()
     }
 
     /// Approves `plan` and runs its Build Job until `stop` says to stop it, as a kill would.
@@ -249,13 +245,12 @@ impl Env {
 pub(crate) fn add_folder(store: &Store, path: &str) -> LibraryFolder {
     store
         .add_library_folder(&AddLibraryFolder {
-                root: "play".into(),
-                path: Some(path.into()),
-                template: None,
-                source_set: SET.into(),
-                profile: PROFILE.into(),
-            },
-        )
+            root: "play".into(),
+            path: Some(path.into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        })
         .unwrap()
 }
 
@@ -813,10 +808,7 @@ fn a_source_set_is_locked_while_a_build_placing_its_games_is_queued() {
             .enqueue_audit(SET, None, "Operator", WORKERS, AuditEvidence::Incremental),
         Err(Error::Conflict(_))
     ));
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     assert!(matches!(
         env.store
             .approve_repair(repair.id, &repair.digest, "Operator", WORKERS),
@@ -1087,18 +1079,15 @@ fn a_repair_planned_before_a_build_placed_its_games_is_refused() {
     env.audit(AuditEvidence::Full);
     env.single_copy(StorageFormat::TorrentZip);
     let selection = env.select(&["Pong (USA)"]);
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     assert_eq!(
         env.build(&env.plan(&env.folder, selection)).state,
         JobState::Succeeded
     );
 
-    let refused =
-        env.store
-            .approve_repair(repair.id, &repair.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_repair(repair.id, &repair.digest, "Operator", WORKERS);
     assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
 }
 
@@ -1156,10 +1145,7 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
     std::fs::write(env.set().join("readme.txt"), b"hello").unwrap();
     env.audit(AuditEvidence::Full);
     // A repair keeps the file no game needs aside, then audits the source set again.
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     let approved = env
         .store
         .approve_repair(repair.id, &repair.digest, "Operator", WORKERS)
@@ -1184,17 +1170,17 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
         .unwrap();
     let deletion = env
         .store
-        .plan_source_kept_deletion(SET,
+        .plan_source_kept_deletion(
+            SET,
             &title_select_api::build::PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
             },
         )
         .unwrap();
-    let refused = env.store.approve_source_kept_deletion(deletion.id,
-        &deletion.digest,
-        "Operator",
-    );
+    let refused = env
+        .store
+        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator");
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("places the source set's games")),
         "{refused:?}"
@@ -1421,10 +1407,7 @@ fn a_placed_file_missing_or_changed_is_reported_and_never_written_over() {
     let job = env.build(&plan);
     assert_eq!(std::fs::read(&placed).unwrap(), b"something else");
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     let incomplete = folder.incomplete.unwrap();
     assert_eq!(incomplete.conflict, 1, "{incomplete:?}");
 
@@ -1443,10 +1426,7 @@ fn a_placed_file_missing_or_changed_is_reported_and_never_written_over() {
     let job = env.build(&plan);
     assert!(!placed.exists());
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
-    let folder = env
-        .store
-        .library_folder(env.folder.id)
-        .unwrap();
+    let folder = env.store.library_folder(env.folder.id).unwrap();
     let incomplete = folder.incomplete.unwrap();
     assert_eq!(incomplete.blocked, 1, "{incomplete:?}");
 }
@@ -1558,10 +1538,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
         &[("junk.bin", b"junk")],
     );
     env.audit(AuditEvidence::Full);
-    let repair = env
-        .store
-        .plan_repair(SET, &Default::default())
-        .unwrap();
+    let repair = env.store.plan_repair(SET, &Default::default()).unwrap();
     run_repair(&env, &repair);
     assert!(env.store.placed_files(SET).unwrap().is_empty());
     let kept = env.store.source_kept_files(SET).unwrap();
@@ -1571,9 +1548,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     assert!(owners.contains(&(Some(repair.id), None)), "{kept:?}");
 
     // Forgetting the folder forgets its builds; the file its build kept is the source set's, and stays as it was.
-    env.store
-        .unregister_library_folder(env.folder.id)
-        .unwrap();
+    env.store.unregister_library_folder(env.folder.id).unwrap();
     env.store
         .forget(RegistrationKind::LibraryFolder, env.folder.id)
         .unwrap();
@@ -1582,7 +1557,8 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     // Both are deleted when you approve it.
     let deletion = env
         .store
-        .plan_source_kept_deletion(SET,
+        .plan_source_kept_deletion(
+            SET,
             &title_select_api::build::PlanKeptDeletion {
                 ids: vec![],
                 all: true,
