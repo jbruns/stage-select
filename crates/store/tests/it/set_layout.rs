@@ -372,6 +372,25 @@ fn contents(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
         .collect()
 }
 
+/// What becomes of a ZIP after the Audit reads it.
+#[derive(Debug, Clone, Copy)]
+enum Since {
+    /// Replaced by a corrupt file.
+    Changed,
+    /// Deleted.
+    Gone,
+}
+
+impl Since {
+    /// Replaces or deletes the ZIP at `path`.
+    fn apply_to(self, path: &Path) {
+        match self {
+            Since::Changed => std::fs::write(path, b"not a zip any more").unwrap(),
+            Since::Gone => std::fs::remove_file(path).unwrap(),
+        }
+    }
+}
+
 fn members(path: &Path) -> Vec<String> {
     let zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
     let mut names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
@@ -863,7 +882,7 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_where_it_i
     }
 }
 
-/// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds, and audited;
+/// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds when it is audited;
 /// then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. The Game is stored where it is
 /// placed as the Audit found it, a TorrentZip, so the fill finds that ZIP in the way: nothing is written into the
 /// Library Folder, where its ROMs would otherwise be written loose.
@@ -877,7 +896,7 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(sinc
         statuses(&env.audit()).get("blasterb"),
         Some(&GameStatus::Incomplete)
     );
-    since.befall(&env.library().join("blasterb.zip"));
+    since.apply_to(&env.library().join("blasterb.zip"));
     env.ingest("blasterb.zip", &["bios.u1", "gfx.u4", "prog.u3"]);
     let before = contents(&env.library());
 
@@ -1255,25 +1274,6 @@ fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_
     }
 }
 
-/// What becomes of a ZIP after the Audit reads it.
-#[derive(Debug, Clone, Copy)]
-enum Since {
-    /// Replaced by a corrupt file.
-    Changed,
-    /// Deleted.
-    Gone,
-}
-
-impl Since {
-    /// Does it to the ZIP at `path`.
-    fn befall(self, path: &Path) {
-        match self {
-            Since::Changed => std::fs::write(path, b"not a zip any more").unwrap(),
-            Since::Gone => std::fs::remove_file(path).unwrap(),
-        }
-    }
-}
-
 /// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP goes
 /// or changes as `since` says, and the layout turns to `layout`. What the Audit read of the parent's ZIP no longer
 /// holds, so it holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's
@@ -1298,7 +1298,7 @@ fn a_zip_gone_or_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_
     }
     env.layout(layout);
     verified(&env.audit());
-    since.befall(&env.set().join("blaster.zip"));
+    since.apply_to(&env.set().join("blaster.zip"));
     let note = match since {
         Since::Changed => {
             "blaster.zip changed since the audit read it, so it is left as it is; audit again to repair it"

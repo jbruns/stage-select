@@ -1390,9 +1390,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     for entry in &i.report.entries {
         by_path.entry(&entry.path).or_default().push(entry);
     }
-    // Every file the Audit found holding each ROM, whether or not a repair may change it or it is as the Audit read it
-    // now: where a Game may still hold a ROM. That makes the ROM wanted, keeps a Placed Game stored as it was found and
-    // refuses a fill that would set the ROM aside, each of which errs towards leaving the Game.
+    // Every file the Audit found holding each ROM, whether or not a repair may change it, and whether or not it is
+    // still as the Audit read it: where a Game may still hold a ROM. That makes the ROM wanted, keeps a Placed Game
+    // stored as it was found and refuses a fill that would set the ROM aside, each of which errs towards leaving it.
     let mut found_in: HashMap<RomKey, BTreeSet<&str>> = HashMap::new();
     let mut usable: BTreeMap<&str, Usable> = BTreeMap::new();
     for (path, entries) in &by_path {
