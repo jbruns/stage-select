@@ -644,7 +644,7 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             <dd>{current_build(&f.build)}</dd>
             {f.built_for.clone().map(|version| view! {
                 <dt>"Built for"</dt>
-                <dd>{format!("MAME {version}. Only that version of MAME runs what it holds.")}</dd>
+                <dd>{format!("MAME {version}. Only that version of MAME runs what this folder holds.")}</dd>
             })}
             <dt>"Last checked"</dt>
             <dd>{checked}</dd>
@@ -1203,11 +1203,10 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
         <section aria-labelledby="disk-folders-title">
             <h2 id="disk-folders-title">"Disk folders"</h2>
             <p>
-                {format!(
-                    "{} {} the CHDs of the game of the same name. MAME finds them there.",
-                    folders.len(),
-                    if folders.len() == 1 { "folder holds" } else { "folders hold" },
-                )}
+                {match folders.len() {
+                    1 => "1 folder holds the CHDs of the game it is named for. MAME finds them there.".to_owned(),
+                    n => format!("{n} folders: each holds the CHDs of the game it is named for. MAME finds them there."),
+                }}
             </p>
             <details>
                 <summary>"Using RomM? Leave these folders out"</summary>

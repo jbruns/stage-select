@@ -28,6 +28,8 @@ const UNCHECKED: &str = "its files here weren't all found as they were built, so
                          set's files";
 const MIXED: &str = "some of its files are built here already and others aren't";
 const NOT_BUILT: &str = "not every file of it can be built here";
+const NOT_SELF_CONTAINED: &str = "its ZIP in the source set doesn't yet hold every ROM it needs, so it is written from \
+                                  other games' ZIPs too, which stay there";
 
 /// How one item of a release is placed, before the release decides how all of them are.
 struct Found {
@@ -85,16 +87,16 @@ pub(super) fn place(
     // An Arcade DAT's Game is placed only as a non-merged ZIP, its Source Set's own, which holds that Game alone (ADR
     // 0026).
     let arcade = inputs.revision.format == DatFormat::Listxml;
-    let layout = match inputs.set_storage.set_layout {
-        Some(SetLayout::Split) => Some("split"),
-        Some(SetLayout::Merged) => Some("merged"),
-        Some(SetLayout::NonMerged) | None => None,
-    };
+    let layout = inputs
+        .set_storage
+        .set_layout
+        .filter(|l| *l != SetLayout::NonMerged);
     if let (true, Some(layout)) = (arcade, layout) {
         notes.push(format!(
-            "single copy is on, but source set {set} keeps its ZIPs {layout}, so each holds more than one game's \
-             ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
-             source set"
+            "single copy is on, but source set {set} uses the {} set layout, so each of its ZIPs holds more than one \
+             game's ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
+             source set",
+            layout.label()
         ));
         return;
     }
@@ -262,6 +264,16 @@ fn release(
             return Err(Some(CHD));
         }
         found.push(placement(inputs, folder, sources, item)?);
+    }
+    // An Arcade DAT's Game is placed only from its own self-contained ZIP: a Game written from its family's or its
+    // Dependencies' ZIPs would consume them.
+    if arcade
+        && placing.iter().zip(&found).any(|(&i, f)| {
+            let own = format!("{}.zip", items[i].game);
+            f.originals.iter().any(|o| o.path != own)
+        })
+    {
+        return Err(Some(NOT_SELF_CONTAINED));
     }
     // Each Source Set file consumed holds this release alone, every Entry of it matched on its payload and taken by
     // one of its items: nothing else in it is lost. A file two items are written from is consumed once. A

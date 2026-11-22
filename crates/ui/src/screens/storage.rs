@@ -631,6 +631,20 @@ fn GlobalSingleCopy(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     }
 }
 
+/// Why single copy places nothing for MAME `system`'s play libraries under `policy`: its source sets use the split or
+/// merged set layout, whose ZIPs each hold more than one game's ROMs. None where it can place games.
+fn single_copy_unavailable(policy: &StoragePolicy, system: &str) -> Option<String> {
+    let layout = policy
+        .of(StorageScope::SourceSets, system)
+        .set_layout
+        .filter(|l| *l != SetLayout::NonMerged)?;
+    Some(format!(
+        "Unavailable for this system: its source sets use the {} set layout, whose ZIPs each hold more than one \
+         game's ROMs, so every game is copied. Choose non-merged for its source sets to place its games.",
+        layout.label()
+    ))
+}
+
 /// A system's own single copy settings for its play libraries; placing converted games only for a disc system, the
 /// only ones stored as CHD.
 #[component]
@@ -680,6 +694,7 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
             <option value="off">"Off: copy each game"</option>
             <option value="on">"On: place each game as its only copy"</option>
         </select>
+        {move || policy.with(|p| single_copy_unavailable(p, &s.get_value())).map(|why| view! { <p class="note small">{why}</p> })}
         <p class="note small">{SINGLE_COPY_NOTE}</p>
         {is_disc_system(&s.get_value())
             .then(|| {
@@ -738,6 +753,20 @@ mod tests {
         ] {
             assert!(SINGLE_COPY_NOTE.contains(said), "{said}");
         }
+    }
+
+    /// A MAME system's single copy is unavailable, with why, while its source sets aren't non-merged.
+    #[test]
+    fn single_copy_is_unavailable_for_mame_unless_its_source_sets_are_non_merged() {
+        let mut policy = StoragePolicy::default();
+        assert_eq!(single_copy_unavailable(&policy, "MAME/MAME"), None);
+        policy.source_sets.set_layout = SetLayout::Merged;
+        let why = single_copy_unavailable(&policy, "MAME/MAME").unwrap();
+        assert!(why.contains("use the merged set layout"), "{why}");
+        assert_eq!(
+            single_copy_unavailable(&policy, "No-Intro/Atari - Atari 2600"),
+            None
+        );
     }
 
     /// Placing converted games makes a CHD the only copy: the note says what a repair does with a damaged one.

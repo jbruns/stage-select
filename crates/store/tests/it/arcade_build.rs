@@ -584,8 +584,8 @@ fn single_copy_places_nothing_from_a_merged_source_set_and_says_why() {
     assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Repack);
     assert!(
         plan.content.notes.iter().any(|n| n
-            == "single copy is on, but source set mame keeps its ZIPs merged, so each holds more than one game's \
-                ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
+            == "single copy is on, but source set mame uses the merged set layout, so each of its ZIPs holds \
+                more than one game's ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
                 source set"),
         "{:#?}",
         plan.content.notes
@@ -593,4 +593,36 @@ fn single_copy_places_nothing_from_a_merged_source_set_and_says_why() {
     env.build(&plan);
     assert_eq!(files(&env.library()), ["blaster.zip"]);
     assert!(env.set().join("blaster.zip").is_file());
+}
+
+#[test]
+fn a_library_folder_lacking_a_selected_games_bios_is_incomplete_for_that_dependency() {
+    let env = Env::with(listxml(None), None);
+    // The game lists the BIOS's ROM as one it shares, but neither its ZIP nor the BIOS's holds it.
+    write_zip(&env.set().join("acmesnd.zip"), &["snd.u2"]);
+    write_zip(
+        &env.set().join("blaster.zip"),
+        &["gfx.u4", "prog.u3", "snd.u2"],
+    );
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    let blaster = item(&plan, "blaster.zip");
+    assert_eq!(blaster.kind, ItemKind::NoSource);
+    assert_eq!(blaster.missing_dependencies, ["acmebios"]);
+}
+
+#[test]
+fn single_copy_places_no_game_whose_zip_isnt_yet_self_contained() {
+    let env = Env::with(listxml(None), None);
+    env.single_copy();
+    // The set layout is non-merged, but the game's ZIP is still split: its BIOS's and device's ROMs are elsewhere.
+    env.stored(SetLayout::Split);
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Repack);
+    env.build(&plan);
+    assert_eq!(
+        files(&env.set()),
+        ["acmebios.zip", "acmesnd.zip", "blaster.zip", "blasterj.zip"]
+    );
 }
