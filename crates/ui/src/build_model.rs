@@ -577,8 +577,6 @@ pub fn blocker_label(kind: BlockerKind) -> &'static str {
         BlockerKind::ReadOnlyRoot => "Read-only root",
         BlockerKind::FolderMissing => "Folder missing",
         BlockerKind::Marker => "Marker",
-        BlockerKind::Replacement => "Replacement",
-        BlockerKind::Removal => "Removal",
         BlockerKind::Recovery => "Recovery",
         BlockerKind::Cleanup => "Cleanup",
         BlockerKind::Space => "Not enough space",
@@ -1053,9 +1051,7 @@ mod tests {
     }
 
     fn summary(json: serde_json::Value) -> PlanSummary {
-        let mut s = serde_json::json!({
-            "copy": 0, "repack": 0, "unchanged": 0, "no_source": 0, "conflict": 0, "blocked": 0,
-        });
+        let mut s = serde_json::to_value(PlanSummary::default()).unwrap();
         s.as_object_mut()
             .unwrap()
             .extend(json.as_object().unwrap().clone());

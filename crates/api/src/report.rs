@@ -460,18 +460,13 @@ pub struct Report {
     pub schema: String,
     pub dat_revision: DatRevision,
     pub source_set: String,
-    /// How the Audit got its Entries' checksums. A report from before this was recorded read every payload.
-    #[serde(default = "full")]
+    /// How the Audit got its Entries' checksums.
     pub evidence: AuditEvidence,
     pub started_at: jiff::Timestamp,
     pub finished_at: jiff::Timestamp,
     pub summary: Summary,
     pub entries: Vec<Entry>,
     pub games: Vec<Game>,
-}
-
-fn full() -> AuditEvidence {
-    AuditEvidence::Full
 }
 
 /// A Game that needs review because a Build proved its placed CHD doesn't hold its disc as the DAT lists it: a

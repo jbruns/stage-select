@@ -328,7 +328,6 @@ pub struct SourceSetRecord {
     pub added_at: String,
     pub last_verified_against: Option<LastVerified>,
     /// Whether it Follows its DAT: a newer DAT Revision then makes it Stale.
-    #[serde(default)]
     pub follow: bool,
     /// Why it is Stale, if it is: each cause, files first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -474,11 +473,9 @@ pub struct AuditSummary {
     pub games: BTreeMap<GameStatus, usize>,
     /// How many of its Nothing to Check Games it found any of their own files of (ADR 0025), counted whole whatever
     /// the Source Set's Coverage.
-    #[serde(default)]
     pub nothing_to_check_found: usize,
     pub pruned: bool,
     /// How the Audit got its Entries' checksums.
-    #[serde(default = "full_evidence")]
     pub evidence: AuditEvidence,
     /// How many of its Entries rest on Claim Evidence rather than Payload Evidence; unknown once it is pruned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -596,10 +593,6 @@ pub struct OpenRepair {
     pub job: Option<i64>,
 }
 
-fn full_evidence() -> AuditEvidence {
-    AuditEvidence::Full
-}
-
 /// A named Selection Profile and its newest version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileRecord {
@@ -670,13 +663,10 @@ pub struct Vocabulary {
     pub videos: Vec<String>,
     pub categories: Vec<selection::Category>,
     /// The region order a Selection uses when a Profile or system leaves it empty.
-    #[serde(default)]
     pub default_region_order: Vec<String>,
     /// The video order a Selection uses when a Profile or system leaves it empty.
-    #[serde(default)]
     pub default_video_order: Vec<String>,
     /// The presets a Coverage can be built from, with their regions.
-    #[serde(default)]
     pub coverage_presets: Vec<CoveragePreset>,
 }
 
@@ -757,7 +747,6 @@ pub struct SelectionRecord {
     pub pruned: bool,
     /// The Library Folders whose plans or builds use the Selection, so that a client can tell a what-if
     /// Selection, which none uses.
-    #[serde(default)]
     pub library_folders: Vec<i64>,
 }
 
@@ -953,7 +942,6 @@ pub struct ProfileVersionRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub id: i64,
-    #[serde(default)]
     pub kind: JobKind,
     pub state: JobState,
     pub source_set: String,
@@ -1097,7 +1085,6 @@ pub struct JobProgress {
 pub struct Throughput {
     pub total: Rates,
     /// The byte-rate caps on the Roots moving bytes now, added up.
-    #[serde(default)]
     pub caps: ByteCaps,
     /// Each Root bytes moved in or out of since the Service started, by name.
     pub roots: Vec<RootRates>,
@@ -1119,7 +1106,6 @@ pub struct RootRates {
     pub root: String,
     pub rates: Rates,
     /// The Root's byte-rate caps in force now.
-    #[serde(default)]
     pub caps: ByteCaps,
 }
 
@@ -1129,7 +1115,6 @@ pub struct JobLoad {
     pub job: i64,
     pub rates: Rates,
     /// The byte-rate caps on the Roots the Job moves bytes in, added up.
-    #[serde(default)]
     pub caps: ByteCaps,
     /// Payload readers at work now.
     pub readers: usize,

@@ -665,8 +665,8 @@ mod tests {
         let build: BuildSummary = serde_json::from_value(serde_json::json!({
             "id": 7, "folder": 2, "plan": 5, "job": 8, "state": "succeeded", "generation": 1,
             "selection": 1, "audit": 1, "dat_revision": "r", "started_at": "2026-01-05T00:00:00Z",
-            "finished_at": "2026-01-06T00:00:00Z", "applied": 1, "failed": 0, "pending": 0,
-            "planned": {"copy": 1, "repack": 0, "unchanged": 0, "no_source": 0, "conflict": 0, "blocked": 0}
+            "finished_at": "2026-01-06T00:00:00Z", "applied": 1, "failed": 0, "pending": 0, "uncertain": 0,
+            "planned": (title_select_api::build::PlanSummary { copy: 1, ..Default::default() })
         }))
         .unwrap();
         let ingest: IngestPlan = serde_json::from_value(serde_json::json!({

@@ -309,7 +309,7 @@ mod tests {
     fn summary(latest: serde_json::Value, outside: Option<serde_json::Value>) -> SourceSetSummary {
         let mut s = json!({
             "set": { "name": "Atari", "root": "sets", "path": "Atari", "dat": "No-Intro/Atari", "added_at": "t",
-                     "last_verified_against": null },
+                     "last_verified_against": null, "follow": false },
             "latest": latest,
         });
         if let Some(outside) = outside {
@@ -321,7 +321,8 @@ mod tests {
     fn audit(games: serde_json::Value) -> serde_json::Value {
         json!({
             "id": 1, "source_set": "Atari", "started_at": "t", "finished_at": "t", "dat_revision_sha256": "r",
-            "dat_revision_version": "1", "findings": {}, "games": games, "pruned": false,
+            "dat_revision_version": "1", "findings": {}, "games": games, "nothing_to_check_found": 0,
+            "pruned": false, "evidence": "full",
         })
     }
 
@@ -329,7 +330,7 @@ mod tests {
         serde_json::from_value(json!({
             "id": id, "root": "play", "path": path, "system": "No-Intro/Atari", "source_set": set,
             "profile": "Everyday", "generation": 0, "created_at": "t", "writable": true, "build": null, "files": 0,
-            "active_job": null, "latest_plan": null,
+            "active_job": null, "latest_plan": null, "plan_open": false,
         }))
         .unwrap()
     }
@@ -462,6 +463,7 @@ mod tests {
         serde_json::from_value(json!({
             "target": target, "game": "Pong (USA)", "kind": kind, "build": 1, "selection": 1,
             "audit": 1, "dat_revision": "r", "sources": [], "roms": [], "file": {"size": 1, "mtime_ns": 0},
+            "torrentzip": true,
         }))
         .unwrap()
     }

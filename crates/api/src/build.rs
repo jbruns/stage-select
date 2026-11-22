@@ -78,7 +78,6 @@ pub struct LibraryFolder {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<CheckSummary>,
     /// The newest plan waits on approval: it is not approved, and was made at the folder's current generation.
-    #[serde(default)]
     pub plan_open: bool,
     /// What changed since the current build's Selection was made, so that building again would build something
     /// else; empty when nothing did, and before the first build.
@@ -131,7 +130,6 @@ pub struct UnfinishedBuild {
     /// Files the build never reached, or that failed.
     pub not_written: u64,
     /// Files it kept aside before it stopped.
-    #[serde(default)]
     pub kept: u64,
 }
 
@@ -664,10 +662,6 @@ pub enum BlockerKind {
     FolderMissing,
     /// The folder's marker does not match the store.
     Marker,
-    /// No longer raised: a replacement keeps the old file aside. Kept so that older plans still read.
-    Replacement,
-    /// No longer raised: a removal keeps the file aside. Kept so that older plans still read.
-    Removal,
     /// An earlier build stopped and its folder has not been cleaned up since, or the folder holds leftovers no
     /// build of this store accounts for.
     Recovery,
@@ -764,37 +758,25 @@ pub struct PlanSummary {
     pub no_source: u64,
     pub conflict: u64,
     pub blocked: u64,
-    #[serde(default)]
     pub adopt: u64,
-    #[serde(default)]
     pub unresolved: u64,
     /// Files kept aside: replacements, conflicts you chose to keep aside, and removals.
-    #[serde(default)]
     pub keep: u64,
     /// Built files no longer selected, whether kept aside, forgotten or left.
-    #[serde(default)]
     pub remove: u64,
     /// A cleanup's entries acknowledged.
-    #[serde(default)]
     pub acknowledge: u64,
     /// A cleanup's kept files put back.
-    #[serde(default)]
     pub restore: u64,
     /// Games placed under Single Copy, and of them how many by a rename.
-    #[serde(default)]
     pub place: u64,
-    #[serde(default)]
     pub place_renamed: u64,
     /// The bytes placing frees in the Source Set, and writes in the folder: estimates (see [`PlanPlace`]).
-    #[serde(default)]
     pub place_freed: u64,
-    #[serde(default)]
     pub place_written: u64,
     /// Placed Games returned to their Source Set's folder, and the bytes the returns write in its Root (see
     /// [`PlanReturn`]).
-    #[serde(default)]
     pub returned: u64,
-    #[serde(default)]
     pub return_needs: u64,
 }
 
@@ -941,7 +923,6 @@ pub struct BuildSummary {
     pub failed: u64,
     pub pending: u64,
     /// Files whose target, once the build stopped, held something other than what it wrote.
-    #[serde(default)]
     pub uncertain: u64,
     /// What the plan held, including the items it skipped.
     pub planned: PlanSummary,
@@ -1023,7 +1004,6 @@ pub struct BuiltFile {
     pub sha256: Option<String>,
     /// False once a check found the file holds the right ROMs in a ZIP that is not TorrentZip, such as one re-zipped
     /// by another tool.
-    #[serde(default = "yes")]
     pub torrentzip: bool,
 }
 
@@ -1117,9 +1097,7 @@ pub struct IncompleteCounts {
     pub conflict: u64,
     pub blocked: u64,
     pub missing: u64,
-    #[serde(default)]
     pub missing_disc: u64,
-    #[serde(default)]
     pub missing_dependency: u64,
 }
 
@@ -1305,7 +1283,6 @@ pub struct CheckSummary {
     /// Entries Title Select did not build.
     pub drift: u64,
     /// Entries Title Select did not build that you acknowledged, unchanged since; not counted as drift.
-    #[serde(default)]
     pub acknowledged: u64,
 }
 
@@ -1554,7 +1531,6 @@ pub struct PlanKeptDeletion {
 pub struct KeptDeletionContent {
     pub folder: i64,
     pub files: Vec<KeptFile>,
-    #[serde(default)]
     pub reviewed: Vec<crate::repair::KeptFileReviewed>,
 }
 
