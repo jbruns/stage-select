@@ -13,7 +13,6 @@ use super::jobs::JobRow;
 use super::repairs::open_repair;
 use super::sets::{Resolved, SourceSetRow, resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use title_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
 use title_select_engine::payload::Checksums;
 use title_select_engine::{
@@ -849,18 +848,16 @@ impl Store {
     /// recorded in one transaction when it finishes; older Audits are then pruned and unheld DAT blobs dropped.
     pub fn audit_source_set(
         &self,
-        config: &Config,
         name: &str,
         revision: Option<&str>,
         evidence: AuditEvidence,
     ) -> Result<StoredAudit> {
-        let running = self.begin_audit(config, name, revision, evidence)?;
+        let running = self.begin_audit(name, revision, evidence)?;
         self.complete_audit(running, None)
     }
 
     fn begin_audit(
         &self,
-        config: &Config,
         name: &str,
         revision: Option<&str>,
         evidence: AuditEvidence,
@@ -872,13 +869,11 @@ impl Store {
             evidence,
             resumes: None,
         };
-        self.begin(config, set, how, |tx, set| {
-            choose_revision(tx, set, revision)
-        })
+        self.begin(set, how, |tx, set| choose_revision(tx, set, revision))
     }
 
     /// Starts the Audit of a Running Job: its Source Set against the DAT Revision chosen when it was queued.
-    pub(super) fn begin_job_audit(&self, config: &Config, job: &JobRow) -> Result<RunningAudit> {
+    pub(super) fn begin_job_audit(&self, job: &JobRow) -> Result<RunningAudit> {
         let set = self.read(|c| set_by_id(c, job.source_set_id))?;
         let revision_id = job.dat_revision_id;
         let how = How {
@@ -887,34 +882,34 @@ impl Store {
             evidence: job.evidence,
             resumes: job.requeued_from,
         };
-        self.begin(config, set, how, |tx, _| revision_by_id(tx, revision_id))
+        self.begin(set, how, |tx, _| revision_by_id(tx, revision_id))
     }
 
     /// Chooses the revision with `choose` and inserts the running row in one transaction, which pins the blob:
     /// retention, which also runs under the writer, treats a running Audit as a holder.
     fn begin(
         &self,
-        config: &Config,
         set: SourceSetRow,
         how: How,
         choose: impl FnOnce(&Transaction, &SourceSetRow) -> Result<(i64, DatRevisionRecord)>,
     ) -> Result<RunningAudit> {
-        let resolved = resolve(config, &set.record.root, &set.record.path)?;
+        let roots = &*self.roots();
+        let resolved = resolve(roots, &set.record.root, &set.record.path)?;
         let pools = how
             .job
             .map(|job| {
-                let pools = self.job_pools(config, &set.record.root)?;
+                let pools = self.job_pools(&set.record.root)?;
                 pools.meter(&self.meter.job(job));
                 Ok::<_, Error>(pools)
             })
             .transpose()?;
         let source_set_path = resolved.path.display().to_string();
-        let placed = self.placed_reads(config, set.id, how.job)?;
+        let placed = self.placed_reads(set.id, how.job)?;
         // chdman, found as a Build finds it, reads a Disk's CHD from the Source Set's Root, so is counted against it.
         let tally = how.job.map_or_else(Default::default, |job| {
             self.meter.job(job).tally(Some(&set.record.root))
         });
-        let disks = self.disk_audit(config, tally)?;
+        let disks = self.disk_audit(tally)?;
         let (id, revision) = self.write(|tx| {
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             crate::placements::check_no_holding_build(tx, set.id, &set.record.name)?;
@@ -950,15 +945,14 @@ impl Store {
         })
     }
 
-    /// How a Disk's CHD is verified (ADR 0026): with chdman as the configuration finds it, counting what it reads in
+    /// How a Disk's CHD is verified (ADR 0026): with chdman as [`Store::use_chdman`] finds it, counting what it reads in
     /// `tally`, within the CHD time limits, in the store's `tmp/`.
     pub(crate) fn disk_audit(
         &self,
-        config: &Config,
         tally: title_select_engine::meter::Tally,
     ) -> Result<title_select_engine::ChdAudit> {
         Ok(title_select_engine::ChdAudit::verifying(
-            title_select_engine::chd::locate(config.chd.chdman.as_deref()),
+            self.chdman(),
             tally,
             self.settings()?.chd_limits(),
             self.dir().join(crate::TMP),
@@ -967,23 +961,22 @@ impl Store {
 
     /// What an Audit of Source Set `set` reads of its Placed Games, by the Library Folder that holds them, with the
     /// pools of each folder's Root for the Job `job`, if it runs in one.
-    fn placed_reads(&self, config: &Config, set: i64, job: Option<i64>) -> Result<Vec<PlacedRead>> {
+    fn placed_reads(&self, set: i64, job: Option<i64>) -> Result<Vec<PlacedRead>> {
         let chds = self.read(|c| crate::placements::placed_chds_of(c, set))?;
         // chdman, found as a Build finds it, only for an Audit that has a CHD to read.
         let chdman = match chds.is_empty() {
             true => Err("no placed game is a CHD".to_owned()),
             false => {
-                let threads = self.chdman_threads(config)?;
+                let threads = self.chdman_threads()?;
                 let tally =
                     job.map_or_else(Default::default, |job| self.meter.job(job).tally(None));
-                title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
-                    title_select_engine::chd::Chdman {
+                self.chdman()
+                    .map(|program| title_select_engine::chd::Chdman {
                         program,
                         threads,
                         deadline: Default::default(),
                         tally,
-                    }
-                })
+                    })
             }
         };
         let chd = title_select_engine::ChdAudit {
@@ -991,12 +984,10 @@ impl Store {
             limits: self.settings()?.chd_limits(),
             tmp: self.dir().join(crate::TMP),
         };
-        self.placed_folders(config, set)?
+        self.placed_folders(set)?
             .into_iter()
             .map(|(folder, resolved, files)| {
-                let pools = job
-                    .map(|_| self.job_pools(config, &resolved.root))
-                    .transpose()?;
+                let pools = job.map(|_| self.job_pools(&resolved.root)).transpose()?;
                 let chds = chds
                     .iter()
                     .filter(|c| c.folder == folder)
@@ -1431,7 +1422,7 @@ mod tests {
     use super::*;
 
     /// A store with keep = 1 and one Source Set `Test` in a Root, bound to an imported DAT.
-    fn store_with_a_set() -> (tempfile::TempDir, Store, Config) {
+    fn store_with_a_set() -> (tempfile::TempDir, Store) {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("sets");
         std::fs::create_dir_all(root.join("Test")).unwrap();
@@ -1441,15 +1432,15 @@ mod tests {
             "<datafile><header><name>Test</name><version>1</version></header></datafile>",
         )
         .unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            root.display().to_string()
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
         store
+            .register_root(
+                &title_select_api::roots::RootSpec::new("sets", &root),
+                "test",
+            )
+            .unwrap();
+        store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     retention: Some(title_select_api::settings::Retention {
                         audits_keep: 1,
@@ -1462,20 +1453,20 @@ mod tests {
             .unwrap();
         store.import_dat(&dat, None).unwrap();
         store
-            .add_source_set(&config, "sets", "Test", "unknown-logiqx/Test")
+            .add_source_set("sets", "Test", "unknown-logiqx/Test")
             .unwrap();
 
-        (tmp, store, config)
+        (tmp, store)
     }
 
     #[test]
     fn the_latest_audit_is_the_last_to_finish_and_is_never_pruned_by_its_own_completion() {
-        let (_tmp, store, config) = store_with_a_set();
+        let (_tmp, store) = store_with_a_set();
         let first = store
-            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .begin_audit("Test", None, AuditEvidence::Incremental)
             .unwrap();
         let second = store
-            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .begin_audit("Test", None, AuditEvidence::Incremental)
             .unwrap();
         let (first_id, second_id) = (first.id, second.id);
         store.complete_audit(second, None).unwrap();
@@ -1496,12 +1487,12 @@ mod tests {
 
     #[test]
     fn a_finished_audits_report_survives_another_audit_pruning_it_before_its_own_pruning() {
-        let (_tmp, store, config) = store_with_a_set();
+        let (_tmp, store) = store_with_a_set();
         let first = store
-            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .begin_audit("Test", None, AuditEvidence::Incremental)
             .unwrap();
         let second = store
-            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .begin_audit("Test", None, AuditEvidence::Incremental)
             .unwrap();
         let (first_id, set_id) = (first.id, first.set_id);
 
@@ -1522,13 +1513,13 @@ mod tests {
 
     #[test]
     fn pruning_an_audit_deletes_the_stamps_it_read() {
-        let (tmp, store, config) = store_with_a_set();
+        let (tmp, store) = store_with_a_set();
         std::fs::write(tmp.path().join("sets/Test/readme.txt"), b"hello").unwrap();
         let first = store
-            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .audit_source_set("Test", None, AuditEvidence::Full)
             .unwrap();
         let second = store
-            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .audit_source_set("Test", None, AuditEvidence::Full)
             .unwrap();
 
         let stamps = |id: i64| -> i64 {

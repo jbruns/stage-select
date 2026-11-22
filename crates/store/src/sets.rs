@@ -6,7 +6,6 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::dats::split_dat;
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 
 pub use title_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
@@ -126,10 +125,10 @@ pub(super) struct Resolved {
 /// Checks that `rel` names a directory inside the Root called `root`.
 ///
 /// Refuses an absolute path, `..`, and a path that, after following symlinks, resolves outside the Root.
-pub(super) fn resolve(config: &Config, root: &str, rel: &str) -> Result<Resolved> {
-    let root_config = config
+pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Result<Resolved> {
+    let root_config = roots
         .root(root)
-        .ok_or_else(|| Error::Refused(format!("no root named {root} is configured")))?;
+        .ok_or_else(|| Error::Refused(format!("no root named {root} is registered")))?;
     let rel = relative_path(rel)
         .map_err(|e| Error::Refused(format!("{rel}: a source set's path {e}")))?;
     // Defence in depth: the Host's own reading of the path must agree that every component is a plain folder name.
@@ -191,37 +190,31 @@ impl Store {
 
     /// Registers the folder `rel` in the Root `root` as a Source Set bound to `dat` (`<provider>/<name>`), covering
     /// every Game.
-    pub fn add_source_set(
-        &self,
-        config: &Config,
-        root: &str,
-        rel: &str,
-        dat: &str,
-    ) -> Result<SourceSetRecord> {
-        self.add_source_set_covering(config, root, rel, dat, None)
+    pub fn add_source_set(&self, root: &str, rel: &str, dat: &str) -> Result<SourceSetRecord> {
+        self.add_source_set_covering(root, rel, dat, None)
     }
 
     /// Registers a Source Set as `add_source_set` does, with the Coverage `coverage`: engine region names the caller
     /// checked against the engine's vocabulary (`title_select_api::coverage::canonical`).
     pub fn add_source_set_covering(
         &self,
-        config: &Config,
         root: &str,
         rel: &str,
         dat: &str,
         coverage: Option<&[String]>,
     ) -> Result<SourceSetRecord> {
         let coverage = coverage_json(coverage)?;
-        if config.root(root).is_some_and(|r| r.writable) {
+        // Held while it is checked and recorded, so that no Library Folder registered, move approved or Root edited
+        // meanwhile comes to overlap it or change the Root it is checked against.
+        let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
+        if roots.root(root).is_some_and(|r| r.writable) {
             return Err(Error::Refused(format!(
                 "root {root} is writable, and only library folders go in a writable root; add the source set from a \
                  read-only root"
             )));
         }
-        // Held while it is checked and recorded, so that no Library Folder registered or move approved meanwhile
-        // comes to overlap it.
-        let _lifecycle = self.lifecycle_lock();
-        let resolved = resolve(config, root, rel)?;
+        let resolved = resolve(roots, root, rel)?;
         let canonical = resolved
             .path
             .canonicalize()
@@ -232,7 +225,7 @@ impl Store {
         self.write(|tx| {
             if let Some((what, other)) = crate::folders::overlapping(
                 tx,
-                config,
+                roots,
                 &canonical,
                 crate::folders::Registering::SourceSet,
             )? {

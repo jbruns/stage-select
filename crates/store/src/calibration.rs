@@ -20,7 +20,6 @@ use title_select_engine::meter::JobMeter;
 
 use super::jobs::{finish_running, job_by_id};
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use crate::folder_dir::FolderDir;
 
 /// Why a restart Interrupted a Calibration Job, which is never queued again.
@@ -101,10 +100,10 @@ impl Store {
         })
     }
 
-    /// Runs the Running Calibration `id`: the Host's sweep, then each configured Root's in name order, recording
+    /// Runs the Running Calibration `id`: the Host's sweep, then each registered Root's in name order, recording
     /// each as it finishes. Once you cancel it, it stops at the next step and ends Interrupted, keeping what it
     /// finished. Returns the Job as it ends.
-    pub fn run_calibration(&self, config: &Config, id: i64, how: &Calibrating) -> Result<Job> {
+    pub fn run_calibration(&self, id: i64, how: &Calibrating) -> Result<Job> {
         let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
         if job.kind != JobKind::Calibration {
@@ -134,7 +133,7 @@ impl Store {
             });
             // A sweep that panics fails the Calibration rather than ending the Service's worker without a word.
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.calibrate(config, id, how, cancel, &meter)
+                self.calibrate(id, how, cancel, &meter)
             }))
             .unwrap_or_else(|panic| {
                 let why = panic
@@ -165,7 +164,7 @@ impl Store {
         };
         ended?;
         // What it measured applies to Jobs from their workers' next file, unless you set those Ceilings yourself.
-        self.refresh_ceilings(config)?;
+        self.refresh_ceilings()?;
         let job = self.job(id)?;
         match ran {
             Err(err) => Err(err),
@@ -175,13 +174,13 @@ impl Store {
 
     fn calibrate(
         &self,
-        config: &Config,
         id: i64,
         how: &Calibrating,
         cancel: &AtomicBool,
         meter: &JobMeter,
     ) -> Result<Ran> {
-        let total = 1 + config.roots.len();
+        let roots = self.roots();
+        let total = 1 + roots.iter().count();
         let progress = |files_done| {
             if let Some(progress) = how.progress {
                 progress(Progress {
@@ -217,7 +216,8 @@ impl Store {
             Ok(())
         })?;
         progress(1);
-        for (done, (name, root)) in config.roots.iter().enumerate() {
+        for (done, root) in roots.iter().enumerate() {
+            let name = &root.name;
             if cancelled()? {
                 return Ok(Ran::Cancelled);
             }
@@ -355,9 +355,10 @@ impl Store {
         })
     }
 
-    /// The Calibration results that apply under `config`: the latest measurement of the Host and of each configured
+    /// The Calibration results that apply now: the latest measurement of the Host and of each registered
     /// Root, and why they are Stale, when they are, with the Service able to use `cpus` CPUs.
-    pub fn calibration(&self, config: &Config, cpus: usize) -> Result<Calibration> {
+    pub fn calibration(&self, cpus: usize) -> Result<Calibration> {
+        let registered = self.roots();
         self.read(|c| {
             let host = c
                 .query_row(
@@ -368,7 +369,8 @@ impl Store {
                 .optional()?;
             let mut roots = Vec::new();
             let mut stale = Vec::new();
-            for (name, root) in &config.roots {
+            for root in registered.iter() {
+                let name = &root.name;
                 let found = c
                     .query_row(
                         &format!("{ROOT_QUERY} WHERE root = ?1 ORDER BY job_id DESC LIMIT 1"),

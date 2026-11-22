@@ -294,8 +294,7 @@ pub fn IngestFolders() -> impl IntoView {
                 id="ingest-folders"
                 label="Ingest folders"
                 rows
-                empty="No ingest folders. Declare a root with kind = \"ingest\" and writable = true in your \
-                    configuration, then restart the service."
+                empty="No ingest folders. Register a root of the kind ingest folder under settings, in roots."
                 placeholder="Filter by folder or path"
                 row_actions
                 detail=Callback::new(folder_detail)

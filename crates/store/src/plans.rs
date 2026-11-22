@@ -40,7 +40,6 @@ use super::{Error, Result, Store, now};
 mod cleanup;
 mod place;
 pub(crate) mod returns;
-use crate::config::Config;
 
 /// A file a Build wrote into a Library Folder, as the store recorded it.
 #[derive(Debug, Clone)]
@@ -458,22 +457,22 @@ struct Folder {
 /// The folder's state, from a stat of it and its marker and a check of its entries: its files by lowercased name, or
 /// why it cannot be built into.
 fn check_folder(
-    config: &Config,
+    roots: &crate::roots::Roots,
     inputs: &Inputs,
     dat: Option<&Dat>,
     blockers: &mut Vec<Blocker>,
 ) -> Option<Folder> {
     let folder = &inputs.folder;
-    if !config.root(&folder.root).is_some_and(|r| r.writable) {
+    if !roots.root(&folder.root).is_some_and(|r| r.writable) {
         blockers.push(blocker(
             BlockerKind::ReadOnlyRoot,
             format!(
-                "root {} is not writable; declare it with writable = true to build into it",
+                "root {} is not writable; make it writable in your roots to build into it",
                 folder.root
             ),
         ));
     }
-    let dir = match open_folder(config, &folder.root, &folder.path) {
+    let dir = match open_folder(roots, &folder.root, &folder.path) {
         Ok(dir) => dir,
         Err(reason) => {
             blockers.push(blocker(
@@ -942,8 +941,8 @@ struct Sources<'a> {
 }
 
 impl<'a> Sources<'a> {
-    fn new(config: &Config, inputs: &'a Inputs) -> Sources<'a> {
-        let set_dir = resolve(config, &inputs.set_root, &inputs.set_path)
+    fn new(roots: &crate::roots::Roots, inputs: &'a Inputs) -> Sources<'a> {
+        let set_dir = resolve(roots, &inputs.set_root, &inputs.set_path)
             .ok()
             .map(|r| (r.path, r.canonical_root));
         let mut by_rom: HashMap<(String, String), Vec<&Entry>> = HashMap::new();
@@ -973,7 +972,7 @@ impl<'a> Sources<'a> {
         let placed_dirs = inputs
             .placed_rows
             .iter()
-            .map(|(id, (root, path))| (*id, open_folder(config, root, path).ok()))
+            .map(|(id, (root, path))| (*id, open_folder(roots, root, path).ok()))
             .collect();
         Sources {
             set_dir,
@@ -1182,7 +1181,7 @@ fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, &'a str, Option<&'a str>) {
     )
 }
 
-fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
+fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let mut blockers = Vec::new();
     let usable_audit = match &inputs.audit {
         None => {
@@ -1254,14 +1253,14 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             });
         }
     }
-    let folder = check_folder(config, inputs, dat, &mut blockers);
+    let folder = check_folder(roots, inputs, dat, &mut blockers);
 
     let mut items = Vec::new();
     let mut placing = Vec::new();
     let mut nothing = NothingToBuild::default();
     if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(
-            config,
+            roots,
             inputs,
             dat,
             folder.as_ref(),
@@ -1274,7 +1273,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         && (inputs.choices.remove_all || (dat.is_some() && usable_audit.is_some()));
     let (returns, returned) = match returning {
         true => returns::returns(
-            config,
+            roots,
             inputs,
             folder.as_ref(),
             dat,
@@ -1382,7 +1381,7 @@ fn short(sha256: &str) -> &str {
 }
 
 fn plan_items(
-    config: &Config,
+    roots: &crate::roots::Roots,
     inputs: &Inputs,
     dat: &Dat,
     folder: Option<&Folder>,
@@ -1519,7 +1518,7 @@ fn plan_items(
             )
         }))
         .collect::<Vec<_>>();
-    let mut sources = Sources::new(config, inputs);
+    let mut sources = Sources::new(roots, inputs);
     for (title, roms) in &contained {
         let held = roms.iter().chain(disks.get(title).into_iter().flatten());
         for &r in held {
@@ -2048,7 +2047,7 @@ fn plan_items(
     }
     whole_releases(&mut items, &nothing.held);
     place::place(
-        config,
+        roots,
         inputs,
         folder,
         &mut sources,
@@ -2914,11 +2913,11 @@ impl Store {
     /// Computes what building `selection` into the Library Folder would do, with your `choices`.
     pub(super) fn compute_plan(
         &self,
-        config: &Config,
         folder: i64,
         selection: i64,
         choices: &PlanChoices,
     ) -> Result<Planned> {
+        let roots = &*self.roots();
         let mut inputs = self.read(|c| {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
@@ -2938,7 +2937,7 @@ impl Store {
         } else {
             None
         };
-        let mut planned = compute(config, &inputs, dat.as_ref());
+        let mut planned = compute(roots, &inputs, dat.as_ref());
         // A Placed Game's file is its only copy: never a kept file of the folder. Removing every built file returns
         // each Placed Game to its Source Set's folder first, and is refused while one can't go.
         let games = |n: u64| match n {
@@ -2979,7 +2978,7 @@ impl Store {
         // Returns are refused before they run when their Source Set's Root hasn't the space they need.
         let needs: u64 = planned.content.returns.iter().map(|r| r.needs).sum();
         if needs > 0 {
-            let free = self.free_space(config, &inputs.set_root, &inputs.set_path);
+            let free = self.free_space(&inputs.set_root, &inputs.set_path);
             let short = match free {
                 Ok(free) if free >= needs => None,
                 Ok(free) => Some(format!("it has {} free", returns::bytes(free))),
@@ -3012,27 +3011,22 @@ impl Store {
     }
 
     /// Computes again the plan whose content is `content`, a cleanup or a build, as it would be now.
-    pub(super) fn recompute(&self, config: &Config, content: &PlanContent) -> Result<Planned> {
+    pub(super) fn recompute(&self, content: &PlanContent) -> Result<Planned> {
         match &content.cleanup {
-            Some(cleanup) => self.compute_cleanup(config, content.folder, &cleanup.choices),
-            None => self.compute_plan(config, content.folder, content.selection, &content.choices),
+            Some(cleanup) => self.compute_cleanup(content.folder, &cleanup.choices),
+            None => self.compute_plan(content.folder, content.selection, &content.choices),
         }
     }
 
     /// Plans building `selection` into Library Folder `folder`, and stores the plan for review.
-    pub fn plan_build(&self, config: &Config, folder: i64, selection: i64) -> Result<Plan> {
-        self.plan_build_with(config, folder, &PlanBuild::new(selection))
+    pub fn plan_build(&self, folder: i64, selection: i64) -> Result<Plan> {
+        self.plan_build_with(folder, &PlanBuild::new(selection))
     }
 
     /// Plans building `request.selection` into Library Folder `folder` with your choices, and stores the plan for
     /// review with the check of the folder it was made with. While a Build or Check of the folder is queued or
     /// running, the check is not stored and nothing it found is recorded.
-    pub fn plan_build_with(
-        &self,
-        config: &Config,
-        folder: i64,
-        request: &PlanBuild,
-    ) -> Result<Plan> {
+    pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
         let mut choices = request.choices.clone();
         choices.adopt.sort();
         choices.adopt.dedup();
@@ -3047,7 +3041,7 @@ impl Store {
                 "you chose both to adopt {both} and to keep it aside; choose one"
             )));
         }
-        let planned = self.compute_plan(config, folder, request.selection, &choices)?;
+        let planned = self.compute_plan(folder, request.selection, &choices)?;
         self.write(|tx| {
             let active = folder_by_id(tx, folder)?.active_job;
             let check = match (&planned.check, active) {
@@ -3064,7 +3058,7 @@ impl Store {
 
     /// Plans removing every file built in Library Folder `folder`, keeping each aside in its retention area, after
     /// which the folder is unregistered. It is planned from the Selection of the folder's current Build.
-    pub fn plan_library_removal(&self, config: &Config, folder: i64) -> Result<Plan> {
+    pub fn plan_library_removal(&self, folder: i64) -> Result<Plan> {
         let selection: Option<i64> = self.read(|c| {
             folder_by_id(c, folder)?.check_registered()?;
             Ok(c.query_row(
@@ -3082,7 +3076,7 @@ impl Store {
         })?;
         let mut request = PlanBuild::new(selection);
         request.choices.remove_all = true;
-        self.plan_build_with(config, folder, &request)
+        self.plan_build_with(folder, &request)
     }
 
     pub fn plan(&self, id: i64) -> Result<Plan> {
@@ -3094,7 +3088,6 @@ impl Store {
     /// refused, naming it.
     pub fn approve_plan(
         &self,
-        config: &Config,
         id: i64,
         digest_reviewed: &str,
         actor: &str,
@@ -3115,7 +3108,8 @@ impl Store {
             )));
         }
         let content = &plan.content;
-        let again = self.recompute(config, content)?;
+        let roots = self.roots();
+        let again = self.recompute(content)?;
         if digest(&again.content) != plan.digest {
             let newer = self.write(|tx| insert_plan(tx, &again, None))?;
             return Err(Error::Conflict(format!(
@@ -3123,6 +3117,7 @@ impl Store {
                 newer.id
             )));
         }
+        let _lifecycle = self.lock_roots_unchanged(&roots)?;
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(

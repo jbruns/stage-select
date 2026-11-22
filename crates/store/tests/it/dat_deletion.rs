@@ -1,12 +1,12 @@
 //! Deleting a DAT Revision nothing depends on (ADR 0003, amendment of 2026-11-15).
 
 use std::path::PathBuf;
+use title_select_api::roots::RootSpec;
 
 use crate::common::*;
 use title_select_api::settings::{DEFAULT_SELECTIONS_KEPT, Retention, SettingsUpdate};
 use title_select_api::{DatRevisionRecord, DeletionBlocker, DeletionBlockerKind as K};
 use title_select_engine::AuditEvidence;
-use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
 
 const SET: &str = "No-Intro/Test - System";
@@ -14,7 +14,6 @@ const SET: &str = "No-Intro/Test - System";
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -23,15 +22,10 @@ impl Env {
         let root = tmp.path().join("roots/sets");
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            root.display().to_string()
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(&store, &[RootSpec::new("sets", root)]);
         store
             .update_settings(
-                &config,
                 &SettingsUpdate {
                     retention: Some(Retention {
                         audits_keep: 1,
@@ -42,7 +36,7 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        Env { tmp, store, config }
+        Env { tmp, store }
     }
 
     /// Revision 1 lists Pong; each later one adds a game.
@@ -72,24 +66,17 @@ impl Env {
 
     fn add_set(&self) {
         self.store
-            .add_source_set(&self.config, "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
     }
 
     fn unregister_set(&self) {
-        self.store
-            .unregister_source_set(&self.config, "Test - System")
-            .unwrap();
+        self.store.unregister_source_set("Test - System").unwrap();
     }
 
     fn audit(&self, revision: &str) {
         self.store
-            .audit_source_set(
-                &self.config,
-                "Test - System",
-                Some(revision),
-                AuditEvidence::Incremental,
-            )
+            .audit_source_set("Test - System", Some(revision), AuditEvidence::Incremental)
             .unwrap();
     }
 
@@ -227,7 +214,7 @@ fn deleting_the_last_revision_removes_the_dat_and_importing_it_again_adds_it_afr
     // With no revision catalogued, no source set can be registered for the DAT.
     assert!(
         env.store
-            .add_source_set(&env.config, "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .is_err()
     );
 
@@ -302,12 +289,7 @@ fn a_deleted_newer_revision_no_longer_holds_the_newest_place() {
     );
     env.add_set();
     env.store
-        .audit_source_set(
-            &env.config,
-            "Test - System",
-            None,
-            AuditEvidence::Incremental,
-        )
+        .audit_source_set("Test - System", None, AuditEvidence::Incremental)
         .unwrap();
     let history = env.store.history("Test - System").unwrap();
     assert_eq!(history[0].dat_revision_version, "20260102-000000");

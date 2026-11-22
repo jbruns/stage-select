@@ -27,7 +27,6 @@ use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, p
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
-use crate::config::Config;
 use title_select_engine::meter::Tally;
 
 /// What a kept file cites, in `audit_citations` and `selection_citations`: the provenance of the file a Build wrote,
@@ -1255,10 +1254,10 @@ impl Store {
     /// kept file that is no longer the file kept is left out of "all", and refuses a plan that picks it.
     pub fn plan_kept_deletion(
         &self,
-        config: &Config,
         folder: i64,
         request: &PlanKeptDeletion,
     ) -> Result<KeptDeletion> {
+        let roots = &*self.roots();
         let (row, store, picked) = self.read(|c| {
             let row = folder_by_id(c, folder)?;
             let kept = kept_where(c, "k.folder_id = ?1 AND k.state = 'kept'", [folder])?;
@@ -1303,7 +1302,7 @@ impl Store {
                 "pick at least one kept file to delete".into(),
             ));
         }
-        let dir = open_writable_folder(config, &row.root, &row.path).map_err(Error::Refused)?;
+        let dir = open_writable_folder(roots, &row.root, &row.path).map_err(Error::Refused)?;
         let expected = Marker {
             store,
             folder,
@@ -1397,7 +1396,6 @@ impl Store {
     /// a Build of the folder is queued or running, and when the kept files changed since the plan.
     pub fn approve_kept_deletion(
         &self,
-        config: &Config,
         id: i64,
         digest_reviewed: &str,
         actor: &str,
@@ -1413,6 +1411,8 @@ impl Store {
         }
         let content = &plan.content;
         let folder = content.folder;
+        // Recorded between edits of Roots, so the deletion reads the Roots as they are once it is recorded.
+        let lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(
@@ -1462,7 +1462,8 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let outcomes = match self.delete_kept(config, id, content) {
+        drop(lifecycle);
+        let outcomes = match self.delete_kept(id, content) {
             Ok(outcomes) => outcomes,
             // A kept file may have been mid-deletion: the deletion stays unfinished, and recovery settles it.
             Err(err) => {
@@ -1492,7 +1493,6 @@ impl Store {
             deletion_by_id(tx, id)
         })?;
         self.settle_marker(
-            config,
             title_select_api::lifecycle::RegistrationKind::LibraryFolder,
             folder,
         )?;
@@ -1501,13 +1501,13 @@ impl Store {
 
     fn delete_kept(
         &self,
-        config: &Config,
         deletion: i64,
         content: &KeptDeletionContent,
     ) -> Result<Vec<KeptDeletionOutcome>> {
+        let roots = &*self.roots();
         let folder = content.folder;
         let (row, store) = self.read(|c| Ok((folder_by_id(c, folder)?, store_id(c)?)))?;
-        let dir = match open_writable_folder(config, &row.root, &row.path) {
+        let dir = match open_writable_folder(roots, &row.root, &row.path) {
             Ok(dir) => dir,
             Err(reason) => {
                 return Ok(content
@@ -1811,7 +1811,7 @@ impl Store {
     /// that file is now, and moving back what was moved aside. Nothing is settled unless the folder's root is writable
     /// and its marker shows it is the store's folder; a deletion left so keeps its kept files recorded and its
     /// folder's plans blocked until the next start. Returns, for each, the deletion and why.
-    pub fn recover_kept_deletions(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+    pub fn recover_kept_deletions(&self) -> Result<Vec<(i64, String)>> {
         let unfinished: Vec<(i64, i64)> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id, folder_id FROM kept_deletions WHERE approved_at IS NOT NULL AND finished_at IS NULL",
@@ -1821,7 +1821,7 @@ impl Store {
         })?;
         let mut blocked = Vec::new();
         for (deletion, folder) in unfinished {
-            let error = self.finish_deletion(config, deletion, folder)?.err();
+            let error = self.finish_deletion(deletion, folder)?.err();
             self.write(|tx| {
                 tx.execute(
                     "UPDATE kept_deletions SET recovery_error = ?2 WHERE id = ?1",
@@ -1838,13 +1838,13 @@ impl Store {
 
     fn finish_deletion(
         &self,
-        config: &Config,
         deletion: i64,
         folder: i64,
     ) -> Result<std::result::Result<(), String>> {
+        let roots = &*self.roots();
         let plan = self.kept_deletion(deletion)?;
         let (row, store) = self.read(|c| Ok((folder_by_id(c, folder)?, store_id(c)?)))?;
-        let dir = match open_writable_folder(config, &row.root, &row.path) {
+        let dir = match open_writable_folder(roots, &row.root, &row.path) {
             Ok(dir) => dir,
             Err(reason) => return Ok(Err(reason)),
         };

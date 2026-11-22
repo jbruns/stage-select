@@ -283,7 +283,7 @@ async fn preview(
             None => (None, None),
         };
         let stale_library_folders = store
-            .folders_stale_under(&state.config, &name, coverage.as_deref())?
+            .folders_stale_under(&name, coverage.as_deref())?
             .into_iter()
             .map(|f| CoverageStaleFolder {
                 id: f.id,
@@ -305,7 +305,7 @@ async fn preview(
 #[cfg(test)]
 mod tests {
     use title_select_api::AuditEvidence;
-    use title_select_store::config::Config;
+    use title_select_api::roots::RootSpec;
 
     use super::*;
 
@@ -324,12 +324,10 @@ mod tests {
     fn a_summary_read_before_a_newer_audit_finished_is_read_again_whole() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("sets/Test - System")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            dir.path().join("sets").display().to_string()
-        ))
-        .unwrap();
         let store = Store::open(&dir.path().join("store")).unwrap();
+        store
+            .register_root(&RootSpec::new("sets", dir.path().join("sets")), "Operator")
+            .unwrap();
         store.set_regions(|game| {
             vec![
                 if game.contains("(Europe)") {
@@ -345,7 +343,7 @@ mod tests {
             .unwrap();
         let set = "Test - System";
         store
-            .add_source_set(&config, "sets", set, "No-Intro/Test - System")
+            .add_source_set("sets", set, "No-Intro/Test - System")
             .unwrap();
         store.set_follow(set, true).unwrap();
         store
@@ -353,7 +351,7 @@ mod tests {
             .unwrap();
         let audit = |revision: Option<&str>| {
             store
-                .audit_source_set(&config, set, revision, AuditEvidence::Incremental)
+                .audit_source_set(set, revision, AuditEvidence::Incremental)
                 .unwrap()
         };
         audit(None);

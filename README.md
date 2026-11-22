@@ -406,66 +406,96 @@ first use. Only one Title Select process may have a store open at a time: it hol
 
 ## Configuration
 
-`title-select.toml`, passed with `--config <file>` or `TITLE_SELECT_CONFIG`, declares the roots Title Select may
-read, how the service knows it is you, and the most work it may do at once. Without it there are no roots, so Title
-Select reads none of your folders. Everything else you set in the workbench, under Settings, then Operations; see
-"Operations settings". A change to this file takes effect when you restart the service, and a key it doesn't know
-stops the service from starting, naming the key.
+You set up Title Select in the workbench, under Settings, or with the commands below, and everything you set is kept
+in the store, so a backup of the store keeps it too. Each change applies at once, without a restart.
+
+### Roots
+
+A root is a folder Title Select may read: the source sets in it, the play library folders it builds into, an ingest
+folder, or the additions sets. Title Select reads none of your folders until you register a root for them. You
+register, edit and unregister roots under Settings, then Roots, in the workbench; with `title-select root`; or with
+the API (see "HTTP API"). Each root has:
+
+- **A name**, fixed once registered: everything you register in the root refers to it by name. It can't be empty,
+  hold a `/` or a control character, or begin or end with a space.
+- **A path**, the absolute path of a folder that exists when you register it.
+- **A kind:** `general`, for source sets, if read-only, or play library folders, if writable; `ingest`, an ingest
+  folder, where new files arrive (see "Ingest folders"); or `additions`, where your additions sets live, one folder
+  per system (see "Additions"). There is at most one `additions` root. An ingest or additions root is always
+  writable.
+- **Whether it's writable.** Title Select writes only to writable roots, and checks it can write to the folder
+  when you make a root writable. A read-only root may instead list its **writable paths**: the source sets in it,
+  each a path in the root, that repairs may write to. An additions root has no writable paths.
+- **Its ceilings**, the most every job together may do in it; see "Jobs". You set them with the root, or under
+  "Adjust ceilings" in Operations.
+
+Each change records who made it and when: the workbench shows the latest, and `GET /api/v1/roots/{name}/changes`
+lists them all.
+
+What you can't change, and what a change does:
+
+- A root's name can't change. To use another name, register a new root.
+- You can't unregister a root while anything is registered in it, such as a source set, a library folder, an ingest
+  folder or an additions set; while it holds kept files you can still delete, even of something you've unregistered;
+  or while work that hasn't finished reads or writes in it. You're told what holds it. Unregister or finish those
+  first. Unregistering a root touches no file.
+- You can't change its kind while anything holds it from being unregistered, nor make a root holding source sets
+  writable.
+- You can't change its path, or whether it's writable, while a job runs on it. A plan counts wherever it reads or
+  writes: a repair writes to its source set, to each play library folder holding placed games it changes, and to
+  each ingest folder it fills a game from.
+- You can't change its path, or make it more writable (read-only to writable, or by adding a writable path to a
+  read-only root), while an approved plan that hasn't finished writes to it. A change that both narrows and widens,
+  such as swapping one writable path for another, counts as widening.
+- Making a root less writable, from writable to read-only (even listing writable paths) or by removing a writable
+  path, voids each approved plan not yet started that would write where it no longer may: its job fails, having
+  changed nothing, and you're told which plans. A plan already under way there must finish first. Plan again once the
+  root is as you want it.
+- A plan you approve while a root it uses is being changed is refused, changing nothing: review it again.
+
+```sh
+title-select root list
+title-select root register <name> <path> [--kind general|ingest|additions] [--writable | --read-only]
+    [--writable-path <path>]… [--readers N] [--read-mib-per-s N] [--write-mib-per-s N]
+title-select root edit <name> [--path <path>] [--kind …] [--writable | --read-only]
+    [--writable-path <path>]… [--no-writable-paths] [--readers N|default] [--read-mib-per-s N|default]
+    [--write-mib-per-s N|default]
+title-select root unregister <name>
+title-select root holds <name>
+```
+
+`root list` prints each root's name, path, kind, where Title Select may write to it, and your ceilings for it.
+`root edit` changes only what you give; `--writable-path` replaces the root's writable paths, and `default` clears
+your value of a ceiling. The commands work on the store directly, so stop the service first, or use the workbench or
+the API while it runs.
+
+### The configuration file
+
+Until a later release moves them to the environment, two things still come from `title-select.toml`, passed with
+`--config <file>` or `TITLE_SELECT_CONFIG`: how the service knows it is you (see "Auth"), and which chdman to run
+(see "Storage policy"). Only `serve` reads it. A change to it takes effect when you restart the service, and a key it
+doesn't know stops the service from starting, naming the key.
 
 ```toml
-[roots.sets]                # a root called `sets`
-path = "/data/source-sets"
-writable = false            # the default
-# writable_paths = ["No-Intro/Atari - 2600"]   # source sets in it that repairs may write
-# readers = 4               # ceilings for this root, shared by every job; see "Jobs"
-# read_mib_per_s = 400
-# write_mib_per_s = 200
-
-[roots.play]                # a root for your front end's `roms/` folder
-path = "/data/roms"
-writable = true             # only library folders may live in a writable root
-
-[roots.downloads]           # an ingest folder, where new files arrive
-path = "/data/downloads/games"
-writable = true             # an ingest root is always declared writable
-kind = "ingest"
-
-[roots.additions]           # the additions sets, one folder per system; see "Additions"
-path = "/data/additions"
-writable = true             # required, with no kind and no writable_paths
-
-[auth]                      # how the Service knows it is you; see "Service"
+[auth]                      # how the service knows it is you; see "Auth"
 identity_header = "Remote-User"
 trusted_proxies = ["10.0.0.0/8"]
 # dev_identity = "Developer"
-
-[jobs]                      # host ceilings, shared by every job; see "Jobs"
-# concurrent = 8            # jobs run at once
-# hashers = 8               # hash workers
-
-[ingest]                    # how 7z archives in ingest folders are read; see "Ingest folders" and "Memory"
-# archive_workers = 2       # 7z archives decoded at once, across every job (the default; 1 to 64)
-max_dictionary_mib = 128    # the largest dictionary a 7z may need (the default; 1 to 4096)
 
 [chd]                       # see "Storage policy"
 # chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
 ```
 
-Leave the ceilings out unless you need to pin one: a ceiling set here can't be changed in the workbench. Each must be
-a whole number of at least 1: `concurrent`, `hashers` and `readers` at most 1024, `archive_workers` at most 64, and
-`read_mib_per_s` and `write_mib_per_s` at most 1048576. Title Select won't start with one outside these, except
-`concurrent` or `hashers` above 1024: it lowers that to 1024 and warns you as it starts. The pace you choose in the
-workbench uses a share of each; see "Jobs".
-
 ### Operations settings
 
-Settings, then Operations, in the workbench holds every setting that isn't in the file. Each applies as soon as you
-save it, without a restart, and is kept in the store, so a backup of the store keeps it too.
+Settings, then Operations, in the workbench holds every other setting. Each applies as soon as you save it, without
+a restart, and is kept in the store, so a backup of the store keeps it too.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
 | Job pace | the share of each ceiling jobs use: gentle, default or unthrottled; see "Jobs" | default |
-| Ceilings | under "Adjust ceilings", your own value for each ceiling the configuration file doesn't set; see "Jobs" | none: calibration, then the CPU count |
+| Ceilings | under "Adjust ceilings", your own value for each ceiling of the host and of each root, each a whole number of at least 1: jobs at once, hash workers and readers at most 1,024, 7z archive workers at most 64, and read and write rates at most 1,048,576 MiB/s; see "Jobs" | none: calibration, then the CPU count; 2 archive workers |
+| 7z archives | the largest dictionary a 7z in an ingest folder may need, from 1 to 4,096 MiB, shown with the memory it may cost; see "Ingest folders" and "Memory" | 128 MiB |
 | Retention | full audits and full selections each source set keeps, from 1 to 10,000 | 20 each |
 | Path templates | the paths registration proposes for a source set and a library folder; see "Path templates" | `{provider}/{dat}`, `{platform}` |
 | Checking source sets | how often each audited source set is checked for changed files, at most every 525,600 minutes (a year); 0 checks only when you ask | every 360 minutes |
@@ -778,7 +808,7 @@ title-select unregistered forget <source-set|library-folder|additions-set|ingest
 
 `holds` prints what holds a registration: each reason it can't be unregistered yet, such as a library folder built
 from a source set or a job working on it. `unregister` unregisters it when nothing does; see "Unregistering". `root
-holds` lists what is registered in a root, which you unregister before you remove the root from your configuration.
+holds` lists what is registered in a root, which you unregister before you unregister the root; see "Roots".
 `profile retire` hides a selection profile from new choices, and `profile restore` offers it again. `unregistered
 list` lists what you unregistered with the history the store still holds for it, `unregistered history` shows that
 history (its audits, selections, builds and jobs) by the id `list` prints, and `unregistered forget` removes it.
@@ -831,20 +861,19 @@ recorded; a resumed quick inventory takes them again.
 Ceilings are the most work the service does at once, shared by every job running at the same time, not given to each:
 
 - **The host's:** `concurrent`, the most jobs that run at once; `hashers`, one pool of hash workers every job's
-  checksums share; and `archive_workers`, the most 7z archives decoded at once (see "Ingest folders").
+  checksums share; `readers`, the payload readers of each root that has none of its own; and `archive_workers`, the
+  most 7z archives decoded at once (see "Ingest folders").
 - **Each root's:** `readers`, the payload readers, which also decompress ZIP members, shared by every job reading that
   root; `read_mib_per_s` and `write_mib_per_s`, the most it reads and writes each second, in MiB. Roots on one
   storage pool, such as folders of one disk or one ZFS pool, add up: their ceilings together are what the pool sees.
 
 Each ceiling's value comes from the first of these that has one:
 
-1. **Your configuration file:** `[jobs] concurrent` and `hashers`, `[ingest] archive_workers`, and `readers`,
-   `read_mib_per_s` and `write_mib_per_s` under each `[roots.NAME]`. A ceiling set there is locked: the workbench
-   shows it, and why it can't change it.
-2. **Yours:** the value you set under Settings, then Operations, then "Adjust ceilings".
-3. **The calibration:** the host's knee for `hashers`, each root's knee for its `readers`, and the throughput at that
+1. **Yours:** the value you set under Settings, then Operations, then "Adjust ceilings"; for a root's, also with
+   `title-select root edit` or with the root in the API.
+2. **The calibration:** the host's knee for `hashers`, each root's knee for its `readers`, and the throughput at that
    knee for its `read_mib_per_s`; see "Calibration".
-4. **The CPU count** the service can use, for `concurrent`, `hashers` and `readers`. `archive_workers` defaults to 2,
+3. **The CPU count** the service can use, for `concurrent`, `hashers` and `readers`. `archive_workers` defaults to 2,
    and the byte rates have no limit until something sets them.
 
 "Adjust ceilings" lists each one with what the pace makes of it, the ceiling, where it comes from, and what the
@@ -1543,7 +1572,7 @@ offers to take it out and leaves it placed unless you choose to.
 
 ### Ingest folders
 
-An ingest folder is a writable root of kind `ingest` where new files arrive, such as a downloader's completed folder
+An ingest folder is a root of kind `ingest`, always writable, where new files arrive, such as a downloader's completed folder
 or a folder you drop files into. There may be several. Registering one writes a marker naming this store; without it,
 scans and every write fail.
 
@@ -1571,12 +1600,13 @@ A 7z is read only here, in an ingest folder: in a source set or a library folder
 never opened, and Title Select never writes one. A file is a 7z when it begins as one. Its members are read when it is
 compressed with LZMA, LZMA2 or zstd, with or without the usual executable filters, solid or not, within the same
 limits as a game's ZIP. Before any member is decoded, Title Select reads from its header the dictionary it needs. One
-that needs more than `[ingest] max_dictionary_mib` is unsupported, with "this 7z needs a <N> MiB dictionary, more than
+that needs more than the largest dictionary you allow (`max_dictionary_mib`, under Settings, then Operations, then 7z
+archives) is unsupported, with "this 7z needs a <N> MiB dictionary, more than
 max_dictionary_mib (<M>); unpack it yourself or raise the limit"; it is read again on the next scan, so raising the
 limit takes effect without touching the file. Every zstd frame in a 7z is held to the same limit, counted with the
 other dictionaries decoding beside it, and to 128 MiB whatever the limit, as it streams. A header larger than 8 MiB, or one that lists more than 4096 entries, is
 unsupported without being read further; a compressed header is decoded within the same dictionary limit. At most
-`[ingest] archive_workers` 7z archives are read at once, from their header to their last member, across every scan
+`archive_workers` (a host ceiling; see "Jobs") 7z archives are read at once, from their header to their last member, across every scan
 and plan; others wait their turn. Members are decoded in order and hashed as they stream, never kept, so a solid
 archive is decoded once per scan. An encrypted 7z, a damaged one, or one compressed another way (PPMd, BZip2, Deflate) is unreadable, with
 the reason. When a plan moves a 7z's members into a source set or an additions set, they are decoded again and
@@ -1711,7 +1741,7 @@ with, the fill fails and both are left as they are. Audits never read `.title-se
 An addition is a file no DAT knows that you chose to keep, such as a ROM hack or a translation. It is known
 by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name you give it, never as a match of any DAT, and may
 name a parent game, which is shown and nothing more. Each system has an additions set: the folder named after its DAT
-in the root named `additions`, created by its first addition with a marker naming this store. Each addition is stored
+in your root of kind `additions`, created by its first addition with a marker naming this store. Each addition is stored
 there in the format the storage policy says for its system's source sets when you approve it: as TorrentZip,
 `<name>.zip`, holding its one ROM, or loose, as the ROM itself named `<name>` with the ROM's extension. The plan
 shows that file name, and you approve it with the plan: if the storage policy changes before you approve, the
@@ -1816,7 +1846,11 @@ What these versions promise you:
 | Method and path                                    | What                                                         |
 |----------------------------------------------------|--------------------------------------------------------------|
 | `GET /api/v1/health`                               | `{"status": "ok"}`, unauthenticated                          |
-| `GET /api/v1/roots`                                | the configured roots                                         |
+| `GET /api/v1/roots`                                | your roots, by name: each `{"name", "path", "kind", "writable", "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "updated_by", "updated_at"}`, `kind` being `general`, `ingest` or `additions` |
+| `POST /api/v1/roots`                               | register a root: `{"name", "path", "kind"?, "writable"?, "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?}`; `201` with the root; `400` when the folder doesn't exist, can't be written though you made it writable, the name is taken, there is already an additions root, or another rule in "Roots" refuses it |
+| `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it or a plan under way writes to it, naming them |
+| `POST /api/v1/roots/{name}/unregistration`         | unregister a root, touching no file; `204`, or `409` naming what is registered in it |
+| `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at"}`, `action` being `registered`, `edited` or `unregistered`, and `after` the root as it left it |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision, each with `blockers`: what stops you deleting it, empty when nothing does |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `source_url`?, `file`; its provider, name and metadata come from the DAT |
@@ -1863,8 +1897,8 @@ What these versions promise you:
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, `set_layout` `non_merged` (the default, left out), `split` or `merged`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?, "set_layout"?}`; only a disc system's play libraries take `layout` and `sbi`, and only a MAME system's source sets `set_layout` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
-| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured", "locked_by"}`, its `source` one of `config`, `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
-| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace` and `ceilings`, `{"host": {…}, "roots": {"NAME": {…}}}`, every ceiling of yours at once: one left out or `null` is cleared, and one the configuration file sets is refused; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
+| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers`, `readers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured"}`, its `source` one of `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `archive` (`max_dictionary_mib`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
+| `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace` and `ceilings`, `{"host": {…}, "roots": {"NAME": {…}}}`, every ceiling of yours at once: one left out or `null` is cleared; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
 | `POST /api/v1/romm/test`                           | test the RomM connection without saving it: `{"base_url"?, "token"?}`, each by default the saved one; returns `{"version", "version_tested", "user" ({"username", "admin"}, with `me.read`), "missing_scopes", "failure"}`; `400` for a new address with the saved token |
 | `GET /api/v1/romm/platforms`                       | each library folder's RomM platform: `{"folder_id", "root", "path", "platform"}`, `platform` being `{"mapping": "mapped", "fs_slug"}` or a `mapping` of `no_root`, `outside_root`, `nested`, `is_root` or `unresolved` (the folder or the RomM root can't be found on disk) |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
@@ -2317,8 +2351,9 @@ Its screens:
   libraries keep each game once under single copy and place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
-  **Roots** lists the roots in the service's configuration file, read-only: each one's path, whether it's writable
-  or an ingest folder, and the source set paths a repair may write to in a read-only root. **About**, also linked
+  **Roots** lists your roots: each one's path, kind, whether it's writable, the source set paths a repair may write
+  to in a read-only root, and who changed it last. You register a root there, edit one, its name aside, or
+  unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
@@ -2412,12 +2447,12 @@ mkdir -p target/site/licences && cp LICENSE target/site/licences/title-select.tx
   && cp third_party/retool/LICENSE target/site/licences/retool.txt \
   && cp .clone-lists/LICENSE target/site/licences/retool-clonelists-metadata.txt \
   && cp .curated-list/LICENSE target/site/licences/curated-mame-arcade-romset.txt
-printf '[roots.sets]\npath = "/data/source-sets"\n\n[auth]\ndev_identity = "Developer"\n' > dev.toml
+printf '[auth]\ndev_identity = "Developer"\n' > dev.toml
 TITLE_SELECT_CURATED_LIST=.curated-list target/release/title-select --store dev-store --config dev.toml serve \
   --ui target/site --clone-lists .clone-lists
 ```
 
-Then open `http://127.0.0.1:8080/`.
+Then open `http://127.0.0.1:8080/`, and register a root under Settings, then Roots.
 
 `crates/ui/bench/filter.py` measures the audit screen's filtering over 100,000 synthetic entries in headless Chromium.
 It builds the workbench with the `bench` feature, which adds a `/bench` screen of synthetic entries that no release or

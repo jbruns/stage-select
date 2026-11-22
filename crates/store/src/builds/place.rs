@@ -51,7 +51,6 @@ use super::{
     stage_chd, staged_temp, still_sha256,
 };
 use crate::carry::{self, Intent, Intents};
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
 use crate::folders::{check_marker, open_writable_folder};
 use crate::ingest::moves::descend;
@@ -82,7 +81,7 @@ pub(super) struct Placing<'a> {
     pub dir: &'a FolderDir,
     pub expected: &'a Marker,
     /// Where the Library Folder is registered: walked again from there to check a placed file is in place.
-    pub config: &'a Config,
+    pub roots: &'a crate::roots::Roots,
     pub root: &'a str,
     pub path: &'a str,
     /// The Source Set folder's generation, which a Source Set file kept instead of deleted is kept under.
@@ -290,7 +289,7 @@ fn chain_of(c: &rusqlite::Connection, build: i64, seq: i64) -> Result<Option<Vec
 /// Whether `target` is still below `chain`, the folders it was put in, in the Library Folder at its registered path,
 /// with its marker: each walked again from there without following a symbolic link. Returns why not.
 fn in_place(p: &Placing, chain: &[Identity], target: &str) -> std::result::Result<(), String> {
-    let dir = open_writable_folder(p.config, p.root, p.path).map_err(|why| {
+    let dir = open_writable_folder(p.roots, p.root, p.path).map_err(|why| {
         format!("the play library folder can't be opened where it is registered: {why}")
     })?;
     check_marker(&dir, p.expected)?;
@@ -536,11 +535,8 @@ impl Store {
     /// Opens Source Set `set`'s folder for a Build to place its Games from, as a repair opens it: only while it is
     /// registered, its Root lets Title Select write there, and its marker is this store's, written first if no repair
     /// wrote one. Returns why not.
-    pub(super) fn open_placing(
-        &self,
-        config: &Config,
-        set: i64,
-    ) -> Result<std::result::Result<SetDirs, String>> {
+    pub(super) fn open_placing(&self, set: i64) -> Result<std::result::Result<SetDirs, String>> {
+        let roots = &*self.roots();
         if let Err(Error::Conflict(why)) =
             self.read(|c| crate::lifecycle::check_live(c, RegistrationKind::SourceSet, set))
         {
@@ -560,7 +556,7 @@ impl Store {
             true => MarkerRule::Required,
             false => MarkerRule::Creating,
         };
-        let dir = match open_repairable(self, config, set, rule)? {
+        let dir = match open_repairable(self, roots, set, rule)? {
             Ok(dir) => dir,
             Err(why) => return Ok(Err(why)),
         };
@@ -2010,12 +2006,12 @@ impl Store {
     /// Set's folder. `Err` says why one is left outstanding.
     pub(super) fn recover_placing(
         &self,
-        config: &Config,
         build: i64,
         plan: i64,
         folder: &crate::folders::FolderRow,
         store: String,
     ) -> Result<std::result::Result<(), String>> {
+        let roots = &*self.roots();
         let open: bool = self.read(|c| {
             Ok(c.query_row(
                 "SELECT EXISTS (SELECT 1 FROM build_items WHERE build_id = ?1
@@ -2027,7 +2023,7 @@ impl Store {
         if !open {
             return Ok(Ok(()));
         }
-        let dir = match open_writable_folder(config, &folder.root, &folder.path) {
+        let dir = match open_writable_folder(roots, &folder.root, &folder.path) {
             Ok(dir) => dir,
             Err(why) => return Ok(Err(why)),
         };
@@ -2040,19 +2036,19 @@ impl Store {
             return Ok(Err(why));
         }
         let items = self.plan(plan)?.content.items;
-        self.recover_placements(config, build, &items, (&dir, &expected), folder)
+        self.recover_placements(build, &items, (&dir, &expected), folder)
     }
 
     /// Rolls forward or back each release of Build `build`, of plan `items`, that a stop left part way, through the
     /// Library Folder `dir` and the Source Set's folder, opened now. `Err` says why one is left outstanding.
     fn recover_placements(
         &self,
-        config: &Config,
         build: i64,
         items: &[PlanItem],
         (dir, expected): (&FolderDir, &Marker),
         row: &crate::folders::FolderRow,
     ) -> Result<std::result::Result<(), String>> {
+        let roots = &*self.roots();
         let (set, set_name, audit, generation, open): (i64, String, i64, i64, Vec<Stopped>) =
             self.read(|c| {
                 let (set, name, audit, generation) = c.query_row(
@@ -2076,7 +2072,7 @@ impl Store {
         if open.is_empty() {
             return Ok(Ok(()));
         }
-        let set_dirs = match self.open_placing(config, set)? {
+        let set_dirs = match self.open_placing(set)? {
             Ok(dirs) => dirs,
             Err(why) => {
                 return Ok(Err(format!(
@@ -2094,7 +2090,7 @@ impl Store {
             audit,
             dir,
             expected,
-            config,
+            roots,
             root: &row.root,
             path: &row.path,
             generation: generation as u64,

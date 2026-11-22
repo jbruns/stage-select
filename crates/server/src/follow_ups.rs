@@ -12,7 +12,6 @@ use std::time::Duration;
 use jiff::{SignedDuration, Timestamp};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_store::Store;
-use title_select_store::config::Config;
 use tokio::sync::Notify;
 
 use crate::jobs::Jobs;
@@ -157,26 +156,20 @@ fn retry_after(settle_secs: u64, failures: u32) -> SignedDuration {
 }
 
 /// Sets the follow-up of the folder a scan `job` scanned, now that it has ended.
-pub fn scan_ended(store: &Store, config: &Config, follow_ups: &FollowUps, job: &Job) {
+pub fn scan_ended(store: &Store, follow_ups: &FollowUps, job: &Job) {
     if job.kind != JobKind::IngestScan || !job.state.is_final() {
         return;
     }
     let Some(root) = job.ingest_folder.as_deref() else {
         return;
     };
-    follow_up(
-        store,
-        config,
-        follow_ups,
-        root,
-        job.state == JobState::Succeeded,
-    );
+    follow_up(store, follow_ups, root, job.state == JobState::Succeeded);
 }
 
 /// Sets the follow-up of the folder of Root `root` after a scan that `succeeded` or not, from what the store says is
 /// arriving in it.
-fn follow_up(store: &Store, config: &Config, follow_ups: &FollowUps, root: &str, succeeded: bool) {
-    let settles_at = match store.ingest_follow_up_at(config, root) {
+fn follow_up(store: &Store, follow_ups: &FollowUps, root: &str, succeeded: bool) {
+    let settles_at = match store.ingest_follow_up_at(root) {
         Ok(at) => at,
         Err(err) => {
             eprintln!("title-select: cannot tell when to scan ingest folder {root} again: {err}");
@@ -196,13 +189,13 @@ fn follow_up(store: &Store, config: &Config, follow_ups: &FollowUps, root: &str,
 
 /// Queues each follow-up scan as it falls due, from the follow-ups the store's arriving items call for now. A
 /// follow-up that meets a scan already queued or running stays pending; that scan sets it as it ends.
-pub async fn run(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
+pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>) {
     let seeded = {
-        let (store, config, jobs) = (store.clone(), config.clone(), jobs.clone());
+        let (store, jobs) = (store.clone(), jobs.clone());
         tokio::task::spawn_blocking(move || -> title_select_store::Result<()> {
-            for folder in store.ingest_folders(&config)? {
+            for folder in store.ingest_folders()? {
                 if folder.id.is_some() {
-                    follow_up(&store, &config, &jobs.follow_ups, &folder.root, true);
+                    follow_up(&store, &jobs.follow_ups, &folder.root, true);
                 }
             }
             Ok(())

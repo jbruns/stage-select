@@ -1,12 +1,13 @@
 //! The Ceilings of the Host and each Root (ADR 0022): where each comes from, what the pace allows of it now, and the
 //! pools every Job shares to keep to it.
 //!
-//! Each Ceiling takes the first of these that has a value: the configuration file, which locks it; the Operator's
-//! value, saved in the `ceilings` settings section; the latest Calibration's knee; the CPU count. Byte rates have no
+//! Each Ceiling takes the first of these that has a value: the Operator's value, saved in the `ceilings` settings
+//! section for the Host and with each Root for its own; the latest Calibration's knee; the CPU count. A Root's readers
+//! fall back to the Host's readers value, if the Operator set one, before the Calibration. Byte rates have no
 //! CPU-count fallback, and 7z archive workers, which aren't measured, fall back to a fixed default.
 //!
-//! The resolved Ceilings are worked out again when the settings or a Calibration change them, never while a Job
-//! reads: each worker takes a permit from a pool whose size is already the pace's share, at its next file.
+//! The resolved Ceilings are worked out again when the settings, a Root or a Calibration change them, never while a
+//! Job reads: each worker takes a permit from a pool whose size is already the pace's share, at its next file.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -24,15 +25,15 @@ use title_select_engine::cap::Caps;
 use title_select_engine::pool::Pool;
 use title_select_engine::sevenz::Gate;
 
-use crate::config::Config;
+use crate::roots::Roots;
 use crate::{Error, Result, Store};
 
 const MIB: f64 = 1024.0 * 1024.0;
 
-/// What the Ceilings are worked out from, besides the configuration file.
+/// What the Ceilings are worked out from, besides each Root's own.
 pub struct Sources<'a> {
-    /// The Operator's values, saved in the workbench.
-    pub yours: &'a CeilingOverrides,
+    /// The Operator's values for the Host, saved in the workbench.
+    pub yours: &'a HostOverrides,
     pub calibration: &'a Calibration,
     /// The CPUs the Service can use.
     pub cpus: usize,
@@ -41,21 +42,19 @@ pub struct Sources<'a> {
     pub observed_writes: &'a BTreeMap<String, u64>,
 }
 
-/// One Ceiling from its sources, first first: the configuration file's value and the key that sets it, the
-/// Operator's, the measured one, then the fallback. `in_force` is the pace's share of it.
+/// One Ceiling from its sources, first first: the Operator's, the measured one, then the fallback. `in_force` is the
+/// pace's share of it.
 fn ceiling(
-    config: Option<(u64, String)>,
     yours: Option<u64>,
     measured: Option<u64>,
     fallback: Option<(u64, CeilingSource)>,
     in_force: impl Fn(u64) -> Option<u64>,
 ) -> Ceiling {
-    let (value, source) = match (&config, yours, measured, fallback) {
-        (Some((value, _)), ..) => (Some(*value), Some(CeilingSource::Config)),
-        (None, Some(value), ..) => (Some(value), Some(CeilingSource::Yours)),
-        (None, None, Some(value), _) => (Some(value), Some(CeilingSource::Calibration)),
-        (None, None, None, Some((value, source))) => (Some(value), Some(source)),
-        (None, None, None, None) => (None, None),
+    let (value, source) = match (yours, measured, fallback) {
+        (Some(value), ..) => (Some(value), Some(CeilingSource::Yours)),
+        (None, Some(value), _) => (Some(value), Some(CeilingSource::Calibration)),
+        (None, None, Some((value, source))) => (Some(value), Some(source)),
+        (None, None, None) => (None, None),
     };
     Ceiling {
         ceiling: value,
@@ -63,18 +62,16 @@ fn ceiling(
         source,
         yours,
         measured,
-        locked_by: config.map(|(_, key)| key),
     }
 }
 
-/// Every Ceiling of the Host and of each Root `config` names, and what `sources.pace` allows of each.
-pub fn resolve(config: &Config, sources: &Sources) -> JobsView {
+/// Every Ceiling of the Host and of each Root in `roots`, and what `sources.pace` allows of each.
+pub fn resolve(roots: &Roots, sources: &Sources) -> JobsView {
     let pace = sources.pace;
     let workers = |c: u64| Some(pace.of(c as usize) as u64);
     let rate = |c: u64| pace.rate(Some(c));
     let cpus = Some((sources.cpus.max(1) as u64, CeilingSource::Cpus));
-    let set = |value: Option<usize>, key: &str| value.map(|v| (v as u64, key.to_owned()));
-    let yours = &sources.yours.host;
+    let yours = sources.yours;
     let host_knee = sources
         .calibration
         .host
@@ -82,68 +79,41 @@ pub fn resolve(config: &Config, sources: &Sources) -> JobsView {
         .and_then(|h| h.knee)
         .map(|k| k.workers as u64);
     let host = HostCeilings {
-        concurrent: ceiling(
-            set(config.jobs.concurrent, "[jobs] concurrent"),
-            yours.concurrent,
-            None,
-            cpus,
-            workers,
-        ),
-        hashers: ceiling(
-            set(config.jobs.hashers, "[jobs] hashers"),
-            yours.hashers,
-            host_knee,
-            cpus,
-            workers,
-        ),
+        concurrent: ceiling(yours.concurrent, None, cpus, workers),
+        hashers: ceiling(yours.hashers, host_knee, cpus, workers),
+        readers: ceiling(yours.readers, None, None, workers),
         archive_workers: ceiling(
-            set(config.ingest.archive_workers, "[ingest] archive_workers"),
             yours.archive_workers,
             None,
             Some((DEFAULT_ARCHIVE_WORKERS, CeilingSource::Default)),
             workers,
         ),
     };
-    let roots = config
-        .roots
+    let roots = roots
         .iter()
-        .map(|(name, root)| {
-            let yours = sources.yours.roots.get(name).cloned().unwrap_or_default();
+        .map(|root| {
+            let name = &root.name;
             let knee = sources
                 .calibration
                 .roots
                 .iter()
                 .find(|r| &r.root == name)
                 .and_then(|r| r.knee);
-            let readers_set = root
-                .readers
-                .map(|v| (v, format!("[roots.{name}] readers")))
-                .or_else(|| set(config.jobs.readers, "[jobs] readers"));
-            let rate_set =
-                |value: Option<u64>, key: &str| value.map(|v| (v, format!("[roots.{name}] {key}")));
             RootCeilings {
                 root: name.clone(),
                 readers: ceiling(
-                    readers_set,
-                    yours.readers,
+                    root.readers.or(yours.readers),
                     knee.map(|k| k.workers as u64),
                     cpus,
                     workers,
                 ),
                 read_mib_per_s: ceiling(
-                    rate_set(root.read_mib_per_s, "read_mib_per_s"),
-                    yours.read_mib_per_s,
+                    root.read_mib_per_s,
                     knee.map(|k| ((k.bytes_per_s / MIB) as u64).max(1)),
                     None,
                     rate,
                 ),
-                write_mib_per_s: ceiling(
-                    rate_set(root.write_mib_per_s, "write_mib_per_s"),
-                    yours.write_mib_per_s,
-                    None,
-                    None,
-                    rate,
-                ),
+                write_mib_per_s: ceiling(root.write_mib_per_s, None, None, rate),
                 observed_write_mib_per_s: sources.observed_writes.get(name).copied(),
             }
         })
@@ -175,91 +145,56 @@ pub(crate) fn observed_writes(c: &Connection) -> Result<BTreeMap<String, u64>> {
         .collect())
 }
 
-/// Checks `update` against `config` and returns the Operator's Ceilings it sets: each a whole number in range, for
-/// a Root `config` names, and none the configuration file sets.
-pub(crate) fn checked(config: &Config, update: &CeilingsUpdate) -> Result<CeilingOverrides> {
+/// Checks `update` against `roots` and returns the Operator's Ceilings it sets: each a whole number in range, for a
+/// Root `roots` holds.
+pub(crate) fn checked(roots: &Roots, update: &CeilingsUpdate) -> Result<CeilingOverrides> {
     let host = &update.host;
     let host = HostOverrides {
-        concurrent: value(
-            &host.concurrent,
-            "the most jobs at once",
-            MAX_WORKERS,
-            config.jobs.concurrent.map(|_| "[jobs] concurrent"),
-        )?,
-        hashers: value(
-            &host.hashers,
-            "the hash workers",
-            MAX_WORKERS,
-            config.jobs.hashers.map(|_| "[jobs] hashers"),
-        )?,
+        concurrent: value(&host.concurrent, "the most jobs at once", MAX_WORKERS)?,
+        hashers: value(&host.hashers, "the hash workers", MAX_WORKERS)?,
+        readers: value(&host.readers, "the readers on each root", MAX_WORKERS)?,
         archive_workers: value(
             &host.archive_workers,
             "the 7z archive workers",
             MAX_ARCHIVE_WORKERS,
-            config
-                .ingest
-                .archive_workers
-                .map(|_| "[ingest] archive_workers"),
         )?,
     };
-    let mut roots = BTreeMap::new();
+    let mut overrides = BTreeMap::new();
     for (name, update) in &update.roots {
-        let Some(root) = config.root(name) else {
-            return Err(Error::Refused(format!(
-                "{name} is not a root in your configuration."
-            )));
-        };
-        let readers_key = match (root.readers, config.jobs.readers) {
-            (Some(_), _) => Some(format!("[roots.{name}] readers")),
-            (None, Some(_)) => Some("[jobs] readers".to_owned()),
-            (None, None) => None,
-        };
-        let key = |set: Option<u64>, key: &str| set.map(|_| format!("[roots.{name}] {key}"));
-        let overrides = RootOverrides {
+        if roots.root(name).is_none() {
+            return Err(Error::Refused(format!("There is no root {name}.")));
+        }
+        let root = RootOverrides {
             readers: value(
                 &update.readers,
                 &format!("the readers on {name}"),
                 MAX_WORKERS,
-                readers_key.as_deref(),
             )?,
             read_mib_per_s: value(
                 &update.read_mib_per_s,
                 &format!("the read rate of {name}"),
                 MAX_MIB_PER_S,
-                key(root.read_mib_per_s, "read_mib_per_s").as_deref(),
             )?,
             write_mib_per_s: value(
                 &update.write_mib_per_s,
                 &format!("the write rate of {name}"),
                 MAX_MIB_PER_S,
-                key(root.write_mib_per_s, "write_mib_per_s").as_deref(),
             )?,
         };
-        if !overrides.is_empty() {
-            roots.insert(name.clone(), overrides);
-        }
+        overrides.insert(name.clone(), root);
     }
-    Ok(CeilingOverrides { host, roots })
+    Ok(CeilingOverrides {
+        host,
+        roots: overrides,
+    })
 }
 
-/// One Ceiling as given: none when null or absent, else a whole number from 1 to `max` that `locked_by`, the
-/// configuration key setting it if any, doesn't lock.
-fn value(
-    given: &CeilingInput,
-    what: &str,
-    max: u64,
-    locked_by: Option<&str>,
-) -> Result<Option<u64>> {
+/// One Ceiling as given: none when null or absent, else a whole number from 1 to `max`.
+fn value(given: &CeilingInput, what: &str, max: u64) -> Result<Option<u64>> {
     let given = match given {
         None | Some(serde_json::Value::Null) => return Ok(None),
         Some(given) => given,
     };
-    if let Some(key) = locked_by {
-        return Err(Error::Refused(format!(
-            "Your configuration file sets {what} ({key}), so you can't change it here. Change it in the file, \
-             then restart the service."
-        )));
-    }
     match given.as_u64() {
         Some(v) if (1..=max).contains(&v) => Ok(Some(v)),
         _ => Err(Error::Refused(format!(
@@ -345,7 +280,7 @@ impl Live {
 #[derive(Debug)]
 pub(crate) struct RootPools {
     map: RwLock<BTreeMap<String, Arc<Pool>>>,
-    /// The limit of a Root the configuration doesn't name: the pace's share of the CPU count.
+    /// The limit of a Root not registered: the pace's share of the CPU count.
     unnamed: AtomicUsize,
     /// Each Root's byte-rate caps, at the pace's share of its byte-rate Ceilings.
     caps: RwLock<BTreeMap<String, Arc<Caps>>>,
@@ -371,7 +306,7 @@ impl title_select_engine::meter::RootLimits for RootPools {
         {
             return Some(caps.clone());
         }
-        // A Root the configuration doesn't name has no byte-rate Ceiling, so no cap.
+        // A Root not registered has no byte-rate Ceiling, so no cap.
         Some(
             self.caps
                 .write()
@@ -416,20 +351,20 @@ impl JobPools {
 }
 
 impl Store {
-    /// Works the Ceilings out again under `config`, from the settings, the latest Calibration and past Jobs' writes,
-    /// and applies them to every Job from its workers' next file. Run when any of those change.
-    pub fn refresh_ceilings(&self, config: &Config) -> Result<JobsView> {
+    /// Works the Ceilings out again, from the Roots, the settings, the latest Calibration and past Jobs' writes, and
+    /// applies them to every Job from its workers' next file. Run when any of those change.
+    pub fn refresh_ceilings(&self) -> Result<JobsView> {
         let _one_at_a_time = self
             .ceilings
             .refreshing
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cpus = crate::calibration::cpus();
-        let calibration = self.calibration(config, cpus)?;
+        let calibration = self.calibration(cpus)?;
         let (yours, observed_writes) =
             self.read(|c| Ok((crate::settings::load(c)?.ceilings, observed_writes(c)?)))?;
         let view = resolve(
-            config,
+            &self.roots(),
             &Sources {
                 yours: &yours,
                 calibration: &calibration,
@@ -442,9 +377,9 @@ impl Store {
         Ok(view)
     }
 
-    /// The Ceilings in force: worked out under `config` when first asked for, and again whenever they change.
-    pub fn ceilings(&self, config: &Config) -> Result<JobsView> {
-        self.live_ceilings(config)?;
+    /// The Ceilings in force: worked out when first asked for, and again whenever they change.
+    pub fn ceilings(&self) -> Result<JobsView> {
+        self.live_ceilings()?;
         Ok(self
             .ceilings
             .view
@@ -454,9 +389,9 @@ impl Store {
             .expect("ceilings are worked out once ready"))
     }
 
-    fn live_ceilings(&self, config: &Config) -> Result<&Live> {
+    fn live_ceilings(&self) -> Result<&Live> {
         if !self.ceilings.ready.load(Ordering::Acquire) {
-            self.refresh_ceilings(config)?;
+            self.refresh_ceilings()?;
         }
         Ok(&self.ceilings)
     }
@@ -465,9 +400,9 @@ impl Store {
     /// reads through the shared pools starts its threads as they let them work, whatever these say, so a Ceiling or
     /// pace changed while it runs reaches it at each worker's next file; these are what it records, and what the
     /// pace's share is taken of where it reads without them.
-    pub fn job_workers(&self, config: &Config) -> title_select_api::Workers {
+    pub fn job_workers(&self) -> title_select_api::Workers {
         let cpus = crate::calibration::cpus();
-        let Ok(view) = self.ceilings(config) else {
+        let Ok(view) = self.ceilings() else {
             return title_select_api::Workers {
                 readers: cpus,
                 hashers: cpus,
@@ -486,17 +421,14 @@ impl Store {
     }
 
     /// How many Jobs may run at once now: the pace's share of the Host's Ceiling.
-    pub fn concurrent_in_force(&self, config: &Config) -> Result<usize> {
-        Ok(self
-            .live_ceilings(config)?
-            .concurrent
-            .load(Ordering::SeqCst))
+    pub fn concurrent_in_force(&self) -> Result<usize> {
+        Ok(self.live_ceilings()?.concurrent.load(Ordering::SeqCst))
     }
 
     /// The pools a Job reading the Root `root` shares with every other Job.
-    pub fn job_pools(&self, config: &Config, root: &str) -> Result<JobPools> {
-        let live = self.live_ceilings(config)?;
-        // A Root the configuration doesn't name is read with the readers of the CPU count, at this pace.
+    pub fn job_pools(&self, root: &str) -> Result<JobPools> {
+        let live = self.live_ceilings()?;
+        // A Root not registered is read with the readers of the CPU count, at this pace.
         Ok(JobPools {
             readers: title_select_engine::meter::RootLimits::readers(&*live.readers, root),
             hashers: live.hashers.clone(),
@@ -505,8 +437,8 @@ impl Store {
 
     /// The threads chdman compresses with: the pace's share of the hash workers Ceiling, or chdman's own choice of
     /// every core when `unthrottled`.
-    pub(crate) fn chdman_threads(&self, config: &Config) -> Result<Option<usize>> {
-        self.live_ceilings(config)?;
+    pub(crate) fn chdman_threads(&self) -> Result<Option<usize>> {
+        self.live_ceilings()?;
         Ok(self.chdman_threads_now())
     }
 
@@ -542,8 +474,8 @@ impl Store {
     }
 
     /// The gate every 7z archive decodes through, its size the pace's share of the archive workers Ceiling.
-    pub(crate) fn archive_gate(&self, config: &Config) -> &Gate {
-        match self.live_ceilings(config) {
+    pub(crate) fn archive_gate(&self) -> &Gate {
+        match self.live_ceilings() {
             Ok(live) => &live.archives,
             // The Ceilings can't be worked out: the gate keeps the size it had, one archive at a time at first.
             Err(_) => &self.ceilings.archives,
@@ -560,8 +492,24 @@ mod tests {
 
     use super::*;
 
-    fn config(text: &str) -> Config {
-        Config::parse(text).unwrap()
+    /// A Root named `name` with the Operator's Ceilings `[readers, read, write]`.
+    fn root(name: &str, [readers, read, write]: [Option<u64>; 3]) -> crate::roots::Root {
+        crate::roots::Root {
+            name: name.into(),
+            path: format!("/{name}").into(),
+            kind: crate::roots::RootKind::General,
+            writable: false,
+            writable_paths: Vec::new(),
+            readers,
+            read_mib_per_s: read,
+            write_mib_per_s: write,
+            updated_by: "test".into(),
+            updated_at: "then".into(),
+        }
+    }
+
+    fn roots(roots: impl IntoIterator<Item = crate::roots::Root>) -> Roots {
+        Roots::of(roots)
     }
 
     fn calibrated(hashers: usize, readers: usize, mib_per_s: f64) -> Calibration {
@@ -595,13 +543,13 @@ mod tests {
     }
 
     fn resolved(
-        config: &Config,
-        yours: &CeilingOverrides,
+        roots: &Roots,
+        yours: &HostOverrides,
         calibration: &Calibration,
         pace: Pace,
     ) -> JobsView {
         resolve(
-            config,
+            roots,
             &Sources {
                 yours,
                 calibration,
@@ -668,14 +616,15 @@ mod tests {
     }
 
     #[test]
-    fn each_ceiling_takes_the_file_then_yours_then_the_calibration_then_the_cpu_count() {
+    fn each_ceiling_takes_yours_then_the_calibration_then_the_cpu_count() {
         use CeilingSource as S;
-        let bare = config("[roots.sets]\npath = \"/sets\"");
-        let none = CeilingOverrides::default();
+        let bare = roots([root("sets", [None; 3])]);
+        let none = HostOverrides::default();
         let unmeasured = Calibration::default();
         let view = resolved(&bare, &none, &unmeasured, Pace::Unthrottled);
         assert_eq!(of(&view.host.concurrent), (Some(8), Some(S::Cpus)));
         assert_eq!(of(&view.host.hashers), (Some(8), Some(S::Cpus)));
+        assert_eq!(of(&view.host.readers), (None, None), "only yours");
         assert_eq!(of(&view.host.archive_workers), (Some(2), Some(S::Default)));
         let sets = &view.roots[0];
         assert_eq!(of(&sets.readers), (Some(8), Some(S::Cpus)));
@@ -696,96 +645,57 @@ mod tests {
         assert_eq!(of(&sets.readers), (Some(2), Some(S::Calibration)));
         assert_eq!(of(&sets.read_mib_per_s), (Some(250), Some(S::Calibration)));
 
-        let yours = CeilingOverrides {
-            host: HostOverrides {
-                concurrent: Some(3),
-                hashers: Some(5),
-                archive_workers: Some(4),
-            },
-            roots: BTreeMap::from([(
-                "sets".to_owned(),
-                RootOverrides {
-                    readers: Some(6),
-                    read_mib_per_s: Some(100),
-                    write_mib_per_s: Some(40),
-                },
-            )]),
+        let yours = HostOverrides {
+            concurrent: Some(3),
+            hashers: Some(5),
+            readers: None,
+            archive_workers: Some(4),
         };
-        let view = resolved(&bare, &yours, &measured, Pace::Unthrottled);
+        let set = roots([root("sets", [Some(6), Some(100), Some(40)])]);
+        let view = resolved(&set, &yours, &measured, Pace::Unthrottled);
         assert_eq!(of(&view.host.hashers), (Some(5), Some(S::Yours)));
         assert_eq!(view.host.hashers.measured, Some(3));
         assert_eq!(of(&view.host.archive_workers), (Some(4), Some(S::Yours)));
         let sets = &view.roots[0];
         assert_eq!(of(&sets.readers), (Some(6), Some(S::Yours)));
+        assert_eq!(sets.readers.measured, Some(2));
         assert_eq!(of(&sets.read_mib_per_s), (Some(100), Some(S::Yours)));
         assert_eq!(of(&sets.write_mib_per_s), (Some(40), Some(S::Yours)));
-
-        let file = config(
-            "[jobs]\nconcurrent = 2\nhashers = 7\n[ingest]\narchive_workers = 1\n\
-             [roots.sets]\npath = \"/sets\"\nreaders = 9\nread_mib_per_s = 300\nwrite_mib_per_s = 50",
-        );
-        let view = resolved(&file, &yours, &measured, Pace::Unthrottled);
-        assert_eq!(of(&view.host.concurrent), (Some(2), Some(S::Config)));
-        assert_eq!(of(&view.host.hashers), (Some(7), Some(S::Config)));
-        assert_eq!(
-            view.host.hashers.locked_by.as_deref(),
-            Some("[jobs] hashers")
-        );
-        assert_eq!(
-            view.host.hashers.yours,
-            Some(5),
-            "kept, though it doesn't apply"
-        );
-        assert_eq!(of(&view.host.archive_workers), (Some(1), Some(S::Config)));
-        let sets = &view.roots[0];
-        assert_eq!(of(&sets.readers), (Some(9), Some(S::Config)));
-        assert_eq!(
-            sets.readers.locked_by.as_deref(),
-            Some("[roots.sets] readers")
-        );
-        assert_eq!(of(&sets.read_mib_per_s), (Some(300), Some(S::Config)));
-        assert_eq!(of(&sets.write_mib_per_s), (Some(50), Some(S::Config)));
     }
 
     #[test]
-    fn jobs_readers_in_the_file_is_the_reader_ceiling_of_every_root_without_its_own() {
-        let file = config(
-            "[jobs]\nreaders = 3\n[roots.a]\npath = \"/a\"\n[roots.b]\npath = \"/b\"\nreaders = 5",
-        );
+    fn your_readers_for_the_host_is_the_reader_ceiling_of_every_root_without_its_own() {
+        let yours = HostOverrides {
+            readers: Some(3),
+            ..HostOverrides::default()
+        };
         let view = resolved(
-            &file,
-            &CeilingOverrides::default(),
-            &Calibration::default(),
+            &roots([root("a", [None; 3]), root("b", [Some(5), None, None])]),
+            &yours,
+            &calibrated(4, 4, 100.0),
             Pace::Unthrottled,
         );
-        let readers: Vec<_> = view
-            .roots
-            .iter()
-            .map(|r| (r.readers.ceiling, r.readers.locked_by.clone()))
-            .collect();
-        assert_eq!(
-            readers,
-            [
-                (Some(3), Some("[jobs] readers".to_owned())),
-                (Some(5), Some("[roots.b] readers".to_owned()))
-            ]
-        );
+        let readers: Vec<_> = view.roots.iter().map(|r| r.readers.ceiling).collect();
+        assert_eq!(readers, [Some(3), Some(5)]);
+        assert_eq!(view.host.readers.ceiling, Some(3));
     }
 
     #[test]
     fn the_pace_scales_every_ceiling_and_unthrottled_sets_no_byte_cap() {
-        let file = config(
-            "[jobs]\nconcurrent = 8\nhashers = 8\n[ingest]\narchive_workers = 8\n\
-             [roots.sets]\npath = \"/sets\"\nreaders = 8\nread_mib_per_s = 400\nwrite_mib_per_s = 3",
-        );
-        let none = CeilingOverrides::default();
+        let yours = HostOverrides {
+            concurrent: Some(8),
+            hashers: Some(8),
+            readers: None,
+            archive_workers: Some(8),
+        };
+        let set = roots([root("sets", [Some(8), Some(400), Some(3)])]);
         let unmeasured = Calibration::default();
         for (pace, workers, read, write) in [
             (Pace::Gentle, 2, Some(100), Some(1)),
             (Pace::Default, 4, Some(200), Some(1)),
             (Pace::Unthrottled, 8, None, None),
         ] {
-            let view = resolved(&file, &none, &unmeasured, pace);
+            let view = resolved(&set, &yours, &unmeasured, pace);
             let host = &view.host;
             let sets = &view.roots[0];
             assert_eq!(
@@ -805,8 +715,28 @@ mod tests {
 
     fn store() -> (tempfile::TempDir, Store) {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path()).unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
         (dir, store)
+    }
+
+    /// Registers a read-only Root `name` in a new folder of `dir`, with the Operator's Ceilings `ceilings`.
+    fn register(store: &Store, dir: &tempfile::TempDir, name: &str, ceilings: [Option<u64>; 3]) {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        let [readers, read_mib_per_s, write_mib_per_s] = ceilings;
+        store
+            .register_root(
+                &title_select_api::roots::RootSpec {
+                    name: name.into(),
+                    path: path.display().to_string(),
+                    readers,
+                    read_mib_per_s,
+                    write_mib_per_s,
+                    ..Default::default()
+                },
+                "test",
+            )
+            .unwrap();
     }
 
     fn update(ceilings: CeilingsUpdate) -> SettingsUpdate {
@@ -816,20 +746,17 @@ mod tests {
         }
     }
 
-    fn refused(store: &Store, config: &Config, ceilings: CeilingsUpdate) -> String {
-        match store.update_settings(config, &update(ceilings), "Operator") {
+    fn refused(store: &Store, ceilings: CeilingsUpdate) -> String {
+        match store.update_settings(&update(ceilings), "Operator") {
             Err(Error::Refused(why)) => why,
             other => panic!("not refused: {other:?}"),
         }
     }
 
     #[test]
-    fn a_ceiling_the_file_sets_or_one_out_of_range_is_refused_and_changes_nothing() {
-        let (_dir, store) = store();
-        let config = config(
-            "[jobs]\nhashers = 4\nreaders = 2\n[ingest]\narchive_workers = 3\n\
-             [roots.sets]\npath = \"/sets\"\nwrite_mib_per_s = 10",
-        );
+    fn a_ceiling_out_of_range_or_for_no_root_is_refused_and_changes_nothing() {
+        let (dir, store) = store();
+        register(&store, &dir, "sets", [None; 3]);
         let host = |h: HostCeilingsUpdate| CeilingsUpdate {
             host: h,
             ..CeilingsUpdate::default()
@@ -838,45 +765,6 @@ mod tests {
             roots: BTreeMap::from([("sets".to_owned(), r)]),
             ..CeilingsUpdate::default()
         };
-        let why = refused(
-            &store,
-            &config,
-            host(HostCeilingsUpdate {
-                hashers: Some(6.into()),
-                ..HostCeilingsUpdate::default()
-            }),
-        );
-        assert!(
-            why.contains("configuration file sets the hash workers ([jobs] hashers)"),
-            "{why}"
-        );
-        let why = refused(
-            &store,
-            &config,
-            host(HostCeilingsUpdate {
-                archive_workers: Some(1.into()),
-                ..HostCeilingsUpdate::default()
-            }),
-        );
-        assert!(why.contains("[ingest] archive_workers"), "{why}");
-        let why = refused(
-            &store,
-            &config,
-            root(RootCeilingsUpdate {
-                readers: Some(1.into()),
-                ..RootCeilingsUpdate::default()
-            }),
-        );
-        assert!(why.contains("[jobs] readers"), "{why}");
-        let why = refused(
-            &store,
-            &config,
-            root(RootCeilingsUpdate {
-                write_mib_per_s: Some(5.into()),
-                ..RootCeilingsUpdate::default()
-            }),
-        );
-        assert!(why.contains("[roots.sets] write_mib_per_s"), "{why}");
         for bad in [
             serde_json::json!(0),
             serde_json::json!(-1),
@@ -886,7 +774,6 @@ mod tests {
         ] {
             let why = refused(
                 &store,
-                &config,
                 host(HostCeilingsUpdate {
                     concurrent: Some(bad.clone()),
                     ..HostCeilingsUpdate::default()
@@ -900,7 +787,6 @@ mod tests {
         }
         let why = refused(
             &store,
-            &config,
             root(RootCeilingsUpdate {
                 read_mib_per_s: Some(serde_json::json!(0)),
                 ..RootCeilingsUpdate::default()
@@ -909,29 +795,30 @@ mod tests {
         assert!(why.contains("the read rate of sets"), "{why}");
         let why = refused(
             &store,
-            &config,
             CeilingsUpdate {
                 roots: BTreeMap::from([("elsewhere".to_owned(), RootCeilingsUpdate::default())]),
                 ..CeilingsUpdate::default()
             },
         );
-        assert_eq!(why, "elsewhere is not a root in your configuration.");
+        assert_eq!(why, "There is no root elsewhere.");
+        assert_eq!(store.settings().unwrap().ceilings, HostOverrides::default());
         assert_eq!(
-            store.settings().unwrap().ceilings,
-            CeilingOverrides::default()
+            store.roots().root("sets").unwrap().overrides(),
+            RootOverrides::default()
         );
     }
 
     #[test]
     fn your_ceilings_replace_those_you_set_before_and_reach_the_shared_pools() {
-        let (_dir, store) = store();
-        let config = config("[roots.sets]\npath = \"/sets\"");
-        let pools = store.job_pools(&config, "sets").unwrap();
+        let (dir, store) = store();
+        register(&store, &dir, "sets", [None; 3]);
+        let pools = store.job_pools("sets").unwrap();
         let set = CeilingsUpdate {
             host: HostCeilingsUpdate {
                 hashers: Some(6.into()),
                 archive_workers: Some(8.into()),
                 concurrent: Some(serde_json::Value::Null),
+                ..HostCeilingsUpdate::default()
             },
             roots: BTreeMap::from([(
                 "sets".to_owned(),
@@ -942,26 +829,29 @@ mod tests {
                 },
             )]),
         };
-        store
-            .update_settings(&config, &update(set), "Operator")
-            .unwrap();
+        store.update_settings(&update(set), "Operator").unwrap();
         // The default pace: half of each.
         let p = pools.pools();
         assert_eq!((p.readers.limit(), p.hashers.limit()), (5, 3));
-        assert_eq!(store.archive_gate(&config).permits(), 4);
-        let view = store.settings_view(&config).unwrap().jobs;
+        assert_eq!(store.archive_gate().permits(), 4);
+        let view = store.settings_view().unwrap().jobs;
         assert_eq!(view.roots[0].write_mib_per_s.in_force, Some(40));
+        assert_eq!(
+            store.roots().root("sets").unwrap().readers,
+            Some(10),
+            "kept with the root"
+        );
 
         // A change of pace reaches the same pools.
         let gentle = SettingsUpdate {
             pace: Some(Pace::Gentle),
             ..SettingsUpdate::default()
         };
-        store.update_settings(&config, &gentle, "Operator").unwrap();
+        store.update_settings(&gentle, "Operator").unwrap();
         assert_eq!((p.readers.limit(), p.hashers.limit()), (2, 1));
-        assert_eq!(store.archive_gate(&config).permits(), 2);
+        assert_eq!(store.archive_gate().permits(), 2);
 
-        // Setting the Ceilings again replaces them: those left out fall back.
+        // Setting the Host's Ceilings again replaces them: those left out fall back. A root left out keeps its own.
         let only = CeilingsUpdate {
             host: HostCeilingsUpdate {
                 hashers: Some(12.into()),
@@ -969,29 +859,94 @@ mod tests {
             },
             ..CeilingsUpdate::default()
         };
-        store
-            .update_settings(&config, &update(only), "Operator")
-            .unwrap();
+        store.update_settings(&update(only), "Operator").unwrap();
         let yours = store.settings().unwrap().ceilings;
-        assert_eq!(yours.host.hashers, Some(12));
-        assert_eq!(yours.host.archive_workers, None);
-        assert!(yours.roots.is_empty());
+        assert_eq!(yours.hashers, Some(12));
+        assert_eq!(yours.archive_workers, None);
+        assert_eq!(store.roots().root("sets").unwrap().readers, Some(10));
         assert_eq!(p.hashers.limit(), 3);
         assert_eq!(
-            store.archive_gate(&config).permits(),
+            store.archive_gate().permits(),
             1,
             "a quarter of the default 2, at least 1"
+        );
+
+        // Clearing a root's Ceilings in the update clears them.
+        let cleared = CeilingsUpdate {
+            roots: BTreeMap::from([("sets".to_owned(), RootCeilingsUpdate::default())]),
+            ..CeilingsUpdate::default()
+        };
+        store.update_settings(&update(cleared), "Operator").unwrap();
+        assert_eq!(
+            store.roots().root("sets").unwrap().overrides(),
+            RootOverrides::default()
+        );
+    }
+
+    #[test]
+    fn a_ceiling_you_set_overrides_the_calibration() {
+        let (dir, store) = store();
+        register(&store, &dir, "sets", [None; 3]);
+        store
+            .write(|tx| {
+                tx.execute(
+                    "INSERT INTO jobs (state, kind, actor, readers, hashers, created_at)
+                     VALUES ('succeeded', 'calibration', 'Operator', 1, 1, 'then')",
+                    [],
+                )?;
+                let job = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO calibration_roots (job_id, root, path, outcome, available_bytes, curve, knee,
+                                                    knee_bytes_per_s, measured_at)
+                     VALUES (?1, 'sets', ?2, 'measured', 1, '[]', 3, ?3, '2026-01-01T00:00:00Z')",
+                    rusqlite::params![
+                        job,
+                        dir.path().join("sets").display().to_string(),
+                        250.0 * MIB
+                    ],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        store.refresh_ceilings().unwrap();
+        let sets = |store: &Store| store.ceilings().unwrap().roots[0].clone();
+        assert_eq!(
+            of(&sets(&store).readers),
+            (Some(3), Some(CeilingSource::Calibration))
+        );
+        assert_eq!(
+            of(&sets(&store).read_mib_per_s),
+            (Some(250), Some(CeilingSource::Calibration))
+        );
+
+        let yours = CeilingsUpdate {
+            roots: BTreeMap::from([(
+                "sets".to_owned(),
+                RootCeilingsUpdate {
+                    readers: Some(5.into()),
+                    read_mib_per_s: Some(90.into()),
+                    ..RootCeilingsUpdate::default()
+                },
+            )]),
+            ..CeilingsUpdate::default()
+        };
+        store.update_settings(&update(yours), "Operator").unwrap();
+        let after = sets(&store);
+        assert_eq!(of(&after.readers), (Some(5), Some(CeilingSource::Yours)));
+        assert_eq!(after.readers.measured, Some(3));
+        assert_eq!(
+            of(&after.read_mib_per_s),
+            (Some(90), Some(CeilingSource::Yours))
         );
     }
 
     #[test]
     fn the_pace_and_your_ceilings_set_each_roots_byte_caps_live() {
-        let (_dir, store) = store();
-        let config = config(
-            "[roots.sets]\npath = \"/sets\"\nread_mib_per_s = 400\n[roots.library]\npath = \"/library\"",
-        );
+        let (dir, store) = store();
+        register(&store, &dir, "sets", [None, Some(400), None]);
+        register(&store, &dir, "library", [None; 3]);
         let meter_caps = RootLimits::caps(&*store.ceilings.readers, "sets").unwrap();
-        store.refresh_ceilings(&config).unwrap();
+        store.refresh_ceilings().unwrap();
         let mib = 1u64 << 20;
         let caps = |root: &str| store.byte_caps().get(root).copied().unwrap_or_default();
         let read = |c: ByteCaps| c.read_bytes_per_s;
@@ -1018,7 +973,7 @@ mod tests {
                 pace: Some(pace),
                 ..SettingsUpdate::default()
             };
-            store.update_settings(&config, &update, "Operator").unwrap();
+            store.update_settings(&update, "Operator").unwrap();
             assert_eq!(read(caps("sets")), cap, "{pace:?}");
             assert_eq!(meter_caps.read.rate(), cap, "{pace:?}");
         }
@@ -1033,9 +988,7 @@ mod tests {
             )]),
             ..CeilingsUpdate::default()
         };
-        store
-            .update_settings(&config, &update(yours), "Operator")
-            .unwrap();
+        store.update_settings(&update(yours), "Operator").unwrap();
         assert_eq!(write(caps("library")), Some(40 * mib));
         assert_eq!(read(caps("library")), None);
     }
@@ -1232,13 +1185,13 @@ mod tests {
     #[test]
     fn a_running_job_reads_more_at_once_when_a_ceiling_or_the_pace_rises_and_fewer_when_it_falls() {
         bounded(|| {
-            let (_dir, store) = store();
-            let config = config("[roots.sets]\npath = \"/sets\"");
+            let (dir, store) = store();
+            register(&store, &dir, "sets", [None; 3]);
             store
-                .update_settings(&config, &readers_of_sets(4), "Operator")
+                .update_settings(&readers_of_sets(4), "Operator")
                 .unwrap();
-            let workers = store.job_workers(&config);
-            let pools = store.job_pools(&config, "sets").unwrap();
+            let workers = store.job_workers();
+            let pools = store.job_pools("sets").unwrap();
             let tally = store.meter().start(1, workers).tally(Some("sets"));
             let (_files, set, dat) = files(120);
             let reads = Reading::new(vec![20, 50, 80], 2);
@@ -1247,7 +1200,7 @@ mod tests {
             // change is made as that many files are done, and the files after it wait for it.
             let progress = |p: title_select_engine::Progress| {
                 let set = |u: SettingsUpdate| {
-                    store.update_settings(&config, &u, "Operator").unwrap();
+                    store.update_settings(&u, "Operator").unwrap();
                 };
                 match p.files_done {
                     20 => {
@@ -1287,12 +1240,12 @@ mod tests {
     #[test]
     fn a_build_reading_a_root_and_an_audit_of_it_share_its_readers() {
         bounded(|| {
-            let (_dir, store) = store();
-            let config = config("[roots.sets]\npath = \"/sets\"");
+            let (dir, store) = store();
+            register(&store, &dir, "sets", [None; 3]);
             store
-                .update_settings(&config, &readers_of_sets(4), "Operator")
+                .update_settings(&readers_of_sets(4), "Operator")
                 .unwrap();
-            let pools = store.job_pools(&config, "sets").unwrap();
+            let pools = store.job_pools("sets").unwrap();
             let shared = pools.pools().readers;
             assert_eq!(shared.limit(), 2);
             let (_files, set, dat) = files(40);
@@ -1300,7 +1253,7 @@ mod tests {
             let reads = Reading::new(Vec::new(), 2);
 
             // The Root's readers all taken by other Jobs: a Build's read of the Root waits for one.
-            let build = store.meter().start(2, store.job_workers(&config));
+            let build = store.meter().start(2, store.job_workers());
             let held = (shared.enter(), shared.enter());
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::scope(|s| {
@@ -1326,11 +1279,11 @@ mod tests {
             });
 
             // A Build reading every file of the Root alongside an Audit of it: never more than two at once in all.
-            let audited = store.meter().start(1, store.job_workers(&config));
+            let audited = store.meter().start(1, store.job_workers());
             std::thread::scope(|s| {
                 s.spawn(|| {
                     let tally = audited.tally(Some("sets"));
-                    let workers = store.job_workers(&config);
+                    let workers = store.job_workers();
                     audit((&set, &dat), workers, &pools, tally, &reads, &|_| {});
                 });
                 for _ in 0..4 {

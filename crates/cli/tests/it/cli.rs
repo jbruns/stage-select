@@ -134,11 +134,7 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -146,6 +142,7 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(ts().args(["dat", "import"]).arg(&dat));
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
 
@@ -164,11 +161,7 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -176,6 +169,7 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
 
     let imported = run_ok(ts().args(["dat", "import"]).arg(&dat));
     assert!(imported.contains("No-Intro/Test - System"), "{imported}");
@@ -251,11 +245,7 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -263,6 +253,7 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(ts().args(["dat", "import"]).arg(&dat));
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     let unaudited = ts().args(["fixdat", rel]).output().unwrap();
@@ -331,11 +322,7 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -343,6 +330,7 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(ts().args(["dat", "import"]).arg(&dat));
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     run_ok(ts().args(["audit", "--set", rel]));
@@ -388,11 +376,7 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
     std::fs::create_dir_all(root.join("No-Intro/Test - System")).unwrap();
     std::fs::create_dir_all(root.join("Mine/Test - System")).unwrap();
     let config = f.dat_dir.path().join("title-select.toml");
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -400,6 +384,7 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(ts().args(["dat", "import"]).arg(&dat));
 
     let out = ts()
@@ -444,11 +429,7 @@ fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -456,6 +437,7 @@ fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(ts().args(["dat", "import"]).arg(&dat));
 
     let added = run_ok(
@@ -608,19 +590,18 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     std::fs::create_dir_all(&inbox).unwrap();
     write_file(&inbox.join("mystery.bin"), b"nobody knows");
     let config = f.dat_dir.path().join("title-select.toml");
-    std::fs::write(
-        &config,
-        format!(
-            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            inbox.display().to_string()
-        ),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
-    title_select_store::Store::open(&store)
-        .unwrap()
+    let opened = title_select_store::Store::open(&store).unwrap();
+    opened
+        .register_root(
+            &title_select_api::roots::RootSpec::new("in", &inbox)
+                .of_kind(title_select_api::roots::RootKind::Ingest),
+            "test",
+        )
+        .unwrap();
+    opened
         .update_settings(
-            &title_select_store::config::Config::load(&config).unwrap(),
             &title_select_api::settings::SettingsUpdate {
                 ingest_folders: Some(
                     [(
@@ -637,6 +618,7 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
             "test",
         )
         .unwrap();
+    drop(opened);
     let ts = || {
         let mut cmd = title_select();
         cmd.env("TITLE_SELECT_STORE", &store)
@@ -698,11 +680,7 @@ fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does
     let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(
-        &config,
-        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
-    )
-    .unwrap();
+    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
@@ -710,6 +688,7 @@ fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does
             .env("TITLE_SELECT_CONFIG", &config);
         cmd
     };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
     let imported = run_ok(ts().args(["dat", "import"]).arg(&dat));
     let sha = imported
         .split_whitespace()
@@ -772,4 +751,75 @@ fn support_file_import_keeps_a_support_file_and_list_prints_it() {
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("not a MAME support file"), "{err}");
+}
+
+/// A root is registered, edited and unregistered from the command line, through the rules the service applies, and
+/// each change is recorded as the command line's.
+#[test]
+fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
+    let (f, dat) = pong_fixture();
+    let store = f.dat_dir.path().join("store");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store);
+        cmd
+    };
+    let missing = ts()
+        .args(["root", "register", "sets"])
+        .arg(root.join("nowhere"))
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("doesn't exist"));
+
+    let registered = run_ok(
+        ts().args(["root", "register", "sets"])
+            .arg(root)
+            .args(["--readers", "4"]),
+    );
+    assert!(registered.contains("sets\t"), "{registered}");
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
+    let held = ts().args(["root", "unregister", "sets"]).output().unwrap();
+    assert!(!held.status.success());
+    assert!(String::from_utf8_lossy(&held.stderr).contains(&format!("source set {rel}")));
+
+    run_ok(ts().args([
+        "root",
+        "edit",
+        "sets",
+        "--writable-path",
+        rel,
+        "--readers",
+        "default",
+    ]));
+    let listed = run_ok(ts().args(["root", "list"]));
+    assert_eq!(
+        listed,
+        format!(
+            "sets\t{}\tgeneral\tread-only but for {rel}\n",
+            root.display()
+        )
+    );
+    run_ok(ts().args(["set", "unregister", rel]));
+    run_ok(ts().args(["root", "unregister", "sets"]));
+    assert!(run_ok(ts().args(["root", "list"])).starts_with("no roots are registered"));
+
+    let changes = title_select_store::Store::open(&store)
+        .unwrap()
+        .root_changes("sets")
+        .unwrap();
+    assert_eq!(
+        changes
+            .iter()
+            .map(|c| (c.action.as_str(), c.changed_by.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("registered", "command line"),
+            ("edited", "command line"),
+            ("unregistered", "command line")
+        ]
+    );
 }

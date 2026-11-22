@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crate::common::*;
+use title_select_api::roots::RootSpec;
 use title_select_server::{Handle, Settings};
 use title_select_store::Store;
 use title_select_store::config::Config;
@@ -25,17 +26,16 @@ impl Env {
             ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
             ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
         ]);
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            fx.set.path().display().to_string()
-        ))
-        .unwrap();
+        let config = Config::default();
         let store = fx.dat_dir.path().join("store");
         {
             let store = Store::open(&store).unwrap();
+            store
+                .register_root(&RootSpec::new("sets", fx.set.path()), "test")
+                .unwrap();
             store.import_dat(&dat, None).unwrap();
             store
-                .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
+                .add_source_set("sets", SET, "No-Intro/Test - System")
                 .unwrap();
         }
         std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
@@ -272,15 +272,14 @@ fn health_refuses_a_timeout_out_of_range() {
 fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
     let fx = Fixture::new();
     write_file(&fx.set_path(SET).join("Pong (USA).a26"), &[7; 64 << 10]);
-    let config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\n",
-        fx.set.path().display().to_string()
-    ))
-    .unwrap();
+    Store::open(&fx.dat_dir.path().join("store"))
+        .unwrap()
+        .register_root(&RootSpec::new("sets", fx.set.path()), "test")
+        .unwrap();
     std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
     let service = title_select_server::spawn(Settings {
         store: fx.dat_dir.path().join("store"),
-        config,
+        config: Config::default(),
         listen: "127.0.0.1:0".parse().unwrap(),
         token_file: Some(fx.dat_dir.path().join("token")),
         ui: None,

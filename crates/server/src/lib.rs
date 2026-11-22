@@ -106,6 +106,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     };
     let auth = auth::Auth::new(&config.auth, token_file.as_deref(), listen)?;
     let store = Store::open(&store)?;
+    store.use_chdman(config.chd.chdman.clone());
     if let Some(engine) = &engine {
         match engine.regions() {
             Ok(regions) => store.set_regions(move |game| regions.of(game)),
@@ -116,8 +117,8 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     delivery.backoff = notify_backoff.unwrap_or(notify::BACKOFF);
     // The Ceilings are worked out before any Job runs. Each Job records the Ceilings it starts with; the pools it
     // shares with other Jobs say how many of its workers work, file by file.
-    store.refresh_ceilings(&config)?;
-    for interruption in store.recover_jobs(store.job_workers(&config))? {
+    store.refresh_ceilings()?;
+    for interruption in store.recover_jobs(store.job_workers())? {
         let job = &interruption.job;
         match &interruption.requeued {
             Some(again) => eprintln!(
@@ -148,25 +149,25 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             "title-select: job {job}: the RomM scan was still being followed at the last stop; check it in RomM"
         );
     }
-    for (build, reason) in store.recover_builds(&config)? {
+    for (build, reason) in store.recover_builds()? {
         eprintln!(
             "title-select: build {build} stopped and its folder was left as it is: {reason}. Plans for the folder are \
              blocked until it is cleaned up when the service next starts"
         );
     }
-    for (deletion, reason) in store.recover_kept_deletions(&config)? {
+    for (deletion, reason) in store.recover_kept_deletions()? {
         eprintln!(
             "title-select: deletion {deletion} of kept files stopped and was not finished: {reason}. Its kept files \
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
-    for (id, reason) in store.recover_library_folder_moves(&config)? {
+    for (id, reason) in store.recover_library_folder_moves()? {
         eprintln!(
             "title-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \
              stays held until it is settled when the service next starts"
         );
     }
-    for (id, reason) in store.recover_ingest_moves(&config)? {
+    for (id, reason) in store.recover_ingest_moves()? {
         match id {
             0 => eprintln!("title-select: after the last stop: {reason}"),
             _ => eprintln!(
@@ -182,7 +183,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             job.id
         );
     }
-    for (deletion, reason) in store.recover_source_kept_deletions(&config)? {
+    for (deletion, reason) in store.recover_source_kept_deletions()? {
         eprintln!(
             "title-select: deletion {deletion} of kept files of a source set stopped and was not finished: {reason}. \
              It is finished when the service next starts"
@@ -214,7 +215,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         .set_nonblocking(true)
         .map_err(|e| StartError::Listen(listen, e))?;
     // Never calibrated again by itself: Stale results keep applying until you calibrate.
-    let calibration = store.calibration(&config, title_select_store::calibration::cpus())?;
+    let calibration = store.calibration(title_select_store::calibration::cpus())?;
     if !calibration.stale.is_empty() {
         eprintln!(
             "title-select: the calibration is stale ({}); calibrate again to measure what changed",
@@ -230,7 +231,6 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     jobs.calibration = calibration_limits.unwrap_or_default();
     let state = routes::AppState {
         store: Arc::new(store),
-        config: Arc::new(config),
         jobs: Arc::new(jobs),
         engine,
         previews: Arc::default(),
@@ -278,14 +278,9 @@ impl Prepared {
         if !self.hold_jobs {
             tokio::spawn(jobs::schedule_ingest_scans(
                 state.store.clone(),
-                state.config.clone(),
                 state.jobs.clone(),
             ));
-            tokio::spawn(follow_ups::run(
-                state.store.clone(),
-                state.config.clone(),
-                state.jobs.clone(),
-            ));
+            tokio::spawn(follow_ups::run(state.store.clone(), state.jobs.clone()));
             tokio::spawn(jobs::schedule_stat_walks(
                 state.store.clone(),
                 state.jobs.clone(),
@@ -295,12 +290,7 @@ impl Prepared {
                 state.fetcher.clone(),
             ));
             tokio::spawn(throughput::run(state.store.clone(), state.jobs.clone()));
-            tokio::spawn(jobs::run(
-                state.store,
-                state.config,
-                state.jobs,
-                state.engine,
-            ));
+            tokio::spawn(jobs::run(state.store, state.jobs, state.engine));
         }
         let listener = tokio::net::TcpListener::from_std(self.listener)?;
         axum::serve(

@@ -17,18 +17,18 @@ impl Env {
             choices: choices.iter().map(|(k, c)| (k.to_string(), *c)).collect(),
             ..Default::default()
         };
-        self.store.plan_repair(&self.config, SET, &request).unwrap()
+        self.store.plan_repair(SET, &request).unwrap()
     }
 
     /// Approves and runs `plan`, then runs the audit it owes; returns the plan as it ended.
     fn repair(&self, plan: &RepairPlan) -> RepairPlan {
         let approved = self
             .store
-            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         let job = approved.job.unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
-        let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
+        let ended = self.store.run_repair_job(job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         self.follow_up(plan.id)
     }
@@ -45,7 +45,7 @@ impl Env {
             )
         });
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
-        let audited = self.store.run_audit_job(&self.config, audit, None).unwrap();
+        let audited = self.store.run_audit_job(audit, None).unwrap();
         assert_eq!(audited.state, JobState::Succeeded, "{audited:?}");
         done
     }
@@ -91,22 +91,12 @@ impl Env {
     /// service does when it next starts, recovers the Jobs and repairs the stop left and runs each Repair Job to its
     /// end.
     fn restarted(self, across: bool) -> Env {
-        let Env {
-            tmp,
-            store,
-            config,
-            sha256,
-        } = self;
+        let Env { tmp, store, sha256 } = self;
         let path = store.dir().to_path_buf();
         drop(store);
         let store = Store::open(&path).unwrap();
         store.copy_across_filesystems(across);
-        let env = Env {
-            tmp,
-            store,
-            config,
-            sha256,
-        };
+        let env = Env { tmp, store, sha256 };
         let mut jobs: Vec<i64> = env
             .store
             .recover_jobs(WORKERS)
@@ -114,7 +104,7 @@ impl Env {
             .into_iter()
             .filter_map(|r| r.requeued.map(|j| j.id))
             .collect();
-        assert!(env.store.recover_builds(&env.config).unwrap().is_empty());
+        assert!(env.store.recover_builds().unwrap().is_empty());
         jobs.extend(
             env.store
                 .recover_repairs()
@@ -124,7 +114,7 @@ impl Env {
         );
         for id in jobs {
             assert_eq!(env.store.claim_job().unwrap().unwrap().id, id);
-            env.store.run_repair_job(&env.config, id, None).unwrap();
+            env.store.run_repair_job(id, None).unwrap();
         }
         env
     }
@@ -243,13 +233,10 @@ fn a_repair_releases_a_damaged_placed_chd_into_the_source_sets_kept_files() {
         ids: vec![kept[0].id],
         all: false,
     };
-    let deletion = env
-        .store
-        .plan_source_kept_deletion(&env.config, SET, &pick)
-        .unwrap();
+    let deletion = env.store.plan_source_kept_deletion(SET, &pick).unwrap();
     let done = env
         .store
-        .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
         .unwrap();
     assert!(done.outcomes.iter().all(|o| o.deleted), "{done:#?}");
     assert!(!copy.exists());
@@ -470,7 +457,7 @@ fn a_release_its_root_has_no_space_for_is_refused_before_it_runs() {
     env.store.pretend_free_space(Some(needs - 1));
     let refused = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap_err();
     assert!(
         matches!(&refused, title_select_store::Error::Refused(why) if why.contains("needs up to")),
@@ -747,7 +734,7 @@ fn after_a_release_the_folder_check_reports_the_released_discs_missing() {
     let (folder, selection) = damaged_saga(&mut env, &chdman, 2);
     env.repair(&env.repair_plan(&[]));
 
-    let check = env.check(&env.config, &folder);
+    let check = env.check(&folder);
     let mut missing: Vec<&str> = check
         .files
         .iter()
@@ -780,7 +767,7 @@ fn after_a_release_the_folder_check_reports_the_released_discs_missing() {
     env.repair(&env.repair_plan(&[]));
     let job = env.build(&env.plan(&folder, selection));
     assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
-    let check = env.check(&env.config, &folder);
+    let check = env.check(&folder);
     assert_eq!(check.summary.missing, 0, "{:#?}", check.files);
 }
 
@@ -909,7 +896,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
             let plan = env.repair_plan(&[]);
             let approved = env
                 .store
-                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             env.store.claim_job().unwrap().unwrap();
             let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -923,7 +910,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
                 })));
             let ended = env
                 .store
-                .run_repair_job(&env.config, approved.job.unwrap(), None)
+                .run_repair_job(approved.job.unwrap(), None)
                 .unwrap();
             env.store.hook_faults(None);
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
@@ -959,7 +946,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
             };
             let approved = env
                 .store
-                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap();
             env.store.claim_job().unwrap().unwrap();
             env.store
@@ -969,8 +956,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
                     }
                 })));
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                env.store
-                    .run_repair_job(&env.config, approved.job.unwrap(), None)
+                env.store.run_repair_job(approved.job.unwrap(), None)
             }));
             env.store.hook_faults(None);
             assert!(ran.is_err(), "{label}: never reached the stop: {ran:?}");
@@ -1036,14 +1022,11 @@ fn a_placed_chd_the_audit_couldnt_read_is_set_aside_only_by_your_choice() {
 
 /// Names chdman where none is, so that a full audit can't read a CHD; the source set stays writable.
 fn without_chdman(env: &mut Env) {
-    env.config = Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
-         [chd]\nchdman = {:?}\n",
-        env.tmp.path().join("roots/sets").display().to_string(),
-        env.tmp.path().join("roots/play").display().to_string(),
-        env.tmp.path().join("no-chdman").display().to_string(),
-    ))
-    .unwrap();
+    crate::reregister(
+        &env.store,
+        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
+    );
+    env.store.use_chdman(Some(env.tmp.path().join("no-chdman")));
 }
 
 /// A two-disc release the audit couldn't read is left by default, and choosing to set one disc aside sets every disc
@@ -1095,7 +1078,7 @@ fn choosing_to_leave_one_disc_of_a_release_leaves_every_disc_placed() {
         .into(),
         ..Default::default()
     };
-    let refused = env.store.plan_repair(&env.config, SET, &request);
+    let refused = env.store.plan_repair(SET, &request);
     assert!(
         matches!(&refused, Err(title_select_store::Error::Refused(why)) if why.contains("choose the same")),
         "{refused:?}"
@@ -1348,7 +1331,7 @@ fn a_release_stopped_before_its_delete_stamp_is_recorded_keeps_the_copy_and_the_
     let seq = keeping(&plan, SAGA_CHDS[0]);
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
     env.store
@@ -1358,8 +1341,7 @@ fn a_release_stopped_before_its_delete_stamp_is_recorded_keeps_the_copy_and_the_
             }
         })));
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .run_repair_job(&env.config, approved.job.unwrap(), None)
+        env.store.run_repair_job(approved.job.unwrap(), None)
     }));
     env.store.hook_faults(None);
     assert!(stopped.is_err());
@@ -1481,7 +1463,7 @@ fn a_release_whose_every_chd_is_gone_stays_recorded_until_its_last_side_file_is_
 fn rescan(env: &Env) {
     let job = env.store.enqueue_ingest_scan("in", "Operator").unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let ended = env.store.run_ingest_scan_job(&env.config, job.id).unwrap();
+    let ended = env.store.run_ingest_scan_job(job.id).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
 }
 
@@ -1591,7 +1573,7 @@ fn a_chd_put_back_before_its_keep_is_recorded_stays_placed() {
     let bytes = std::fs::read(&path).unwrap();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
     env.store
@@ -1601,8 +1583,7 @@ fn a_chd_put_back_before_its_keep_is_recorded_stays_placed() {
             }
         })));
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .run_repair_job(&env.config, approved.job.unwrap(), None)
+        env.store.run_repair_job(approved.job.unwrap(), None)
     }));
     env.store.hook_faults(None);
     assert!(stopped.is_err());
@@ -1894,12 +1875,12 @@ fn a_release_split_by_a_chd_put_back_after_its_repair_was_approved_is_written_no
     let plan = env.repair_plan(&[]);
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     std::fs::write(&path, &bytes).unwrap();
     env.store.claim_job().unwrap().unwrap();
     env.store
-        .run_repair_job(&env.config, approved.job.unwrap(), None)
+        .run_repair_job(approved.job.unwrap(), None)
         .unwrap();
     env.follow_up(plan.id);
     assert!(env.placed_paths().contains(&SAGA_CHDS[0].to_owned()));

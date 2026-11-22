@@ -86,9 +86,8 @@ async fn root_holds(
     name: Result<Path<String>, PathRejection>,
 ) -> ApiResult<Json<Holds>> {
     let Path(name) = name?;
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.root_holds(&config, &name)).await?,
+        blocking(&state, move |store| store.root_holds(&name)).await?,
     ))
 }
 
@@ -108,12 +107,8 @@ async fn unregister_source_set(
     name: Result<Path<String>, PathRejection>,
 ) -> ApiResult<Json<Unregistration>> {
     let Path(name) = name?;
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| {
-            store.unregister_source_set(&config, &name)
-        })
-        .await?,
+        blocking(&state, move |store| store.unregister_source_set(&name)).await?,
     ))
 }
 
@@ -123,8 +118,7 @@ async fn plan_set_aside(
     name: Result<Path<String>, PathRejection>,
 ) -> ApiResult<(StatusCode, Json<RepairPlan>)> {
     let Path(name) = name?;
-    let config = state.config.clone();
-    let plan = blocking(&state, move |store| store.plan_set_aside(&config, &name)).await?;
+    let plan = blocking(&state, move |store| store.plan_set_aside(&name)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -144,12 +138,8 @@ async fn unregister_library_folder(
     id: Result<Path<i64>, PathRejection>,
 ) -> ApiResult<Json<Unregistration>> {
     let Path(id) = id?;
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| {
-            store.unregister_library_folder(&config, id)
-        })
-        .await?,
+        blocking(&state, move |store| store.unregister_library_folder(id)).await?,
     ))
 }
 
@@ -160,8 +150,7 @@ async fn plan_library_removal(
     id: Result<Path<i64>, PathRejection>,
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
-    let config = state.config.clone();
-    let plan = blocking(&state, move |store| store.plan_library_removal(&config, id)).await?;
+    let plan = blocking(&state, move |store| store.plan_library_removal(id)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -173,9 +162,8 @@ async fn plan_library_folder_move(
 ) -> ApiResult<(StatusCode, Json<FolderMove>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_library_folder_move(&config, id, &request)
+        store.plan_library_folder_move(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -200,10 +188,9 @@ async fn approve_library_folder_move(
 ) -> ApiResult<Json<FolderMove>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_library_folder_move(&config, id, &approve.digest, &actor)
+            store.approve_library_folder_move(id, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -228,10 +215,9 @@ async fn unregister_additions_set(
     query: Result<Query<SystemQuery>, QueryRejection>,
 ) -> ApiResult<Json<Unregistration>> {
     let Query(query) = query?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.unregister_additions_set(&config, &query.system)
+            store.unregister_additions_set(&query.system)
         })
         .await?,
     ))
@@ -260,9 +246,8 @@ async fn approve_additions_set_aside(
 ) -> ApiResult<Json<AdditionsSetAside>> {
     let Query(query) = query?;
     let Json(approve) = body?;
-    let config = state.config.clone();
     let (plan, queued) = blocking(&state, move |store| {
-        let plan = store.approve_additions_set_aside(&config, &query.system, &approve.digest)?;
+        let plan = store.approve_additions_set_aside(&query.system, &approve.digest)?;
         Ok((plan, store.queued_additions_jobs()?))
     })
     .await?;
@@ -286,13 +271,9 @@ async fn unregister_ingest_folder(
     root: Result<Path<String>, PathRejection>,
 ) -> ApiResult<Json<Unregistration>> {
     let Path(root) = root?;
-    let config = state.config.clone();
     let unregistered = {
         let root = root.clone();
-        blocking(&state, move |store| {
-            store.unregister_ingest_folder(&config, &root)
-        })
-        .await?
+        blocking(&state, move |store| store.unregister_ingest_folder(&root)).await?
     };
     state.jobs.follow_ups.forget(&root);
     Ok(Json(unregistered))
@@ -367,9 +348,8 @@ async fn plan_unregistered_source_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_source_kept_deletion_by_id(&config, id, &request)
+        store.plan_source_kept_deletion_by_id(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -394,9 +374,8 @@ async fn plan_unregistered_additions_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_additions_kept_deletion_by_id(&config, id, &request)
+        store.plan_additions_kept_deletion_by_id(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))

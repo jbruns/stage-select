@@ -15,6 +15,7 @@ pub mod paths;
 pub mod repair;
 pub mod report;
 pub mod romm;
+pub mod roots;
 pub mod selection;
 pub mod settings;
 pub mod storage;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 pub use dat::DatFormat;
 pub use report::*;
+pub use roots::Root;
 
 /// The path every API route is under.
 pub const PREFIX: &str = "/api/v1";
@@ -49,20 +51,6 @@ pub struct ErrorBody {
     /// What stops a DAT Revision from being deleted, when that is why the request was refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blockers: Option<Vec<DeletionBlocker>>,
-}
-
-/// A Root the Operator configured.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Root {
-    pub name: String,
-    pub path: String,
-    pub writable: bool,
-    /// For a read-only Root: the paths of the Source Sets in it that a repair may write to.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub writable_paths: Vec<String>,
-    /// Whether it is an Ingest Folder.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub ingest: bool,
 }
 
 /// A DAT, identified by its recognised provider and native name, or by its DAT Format and name when its provider is

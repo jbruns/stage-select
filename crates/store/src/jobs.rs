@@ -5,7 +5,6 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use super::audits::{check_blob_present, choose_revision, delete_audits};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use title_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
 use title_select_engine::meter::Meter;
 use title_select_engine::{AuditEvidence, Progress};
@@ -174,6 +173,21 @@ pub(crate) fn finish_running(
     release_holds(tx, id)
 }
 
+/// Ends the Queued Job `id` as `to`, with `error`, and releases its holds, as a Running one's end does. Returns whether
+/// it was still Queued: one that has started is left as it is.
+pub(crate) fn end_queued(tx: &Transaction, id: i64, to: JobState, error: &str) -> Result<bool> {
+    let updated = tx.execute(
+        "UPDATE jobs SET state = ?2, error = ?3, finished_at = ?4, version = version + 1
+         WHERE id = ?1 AND state = 'queued'",
+        params![id, to.as_str(), error, now()],
+    )?;
+    if updated != 1 {
+        return Ok(false);
+    }
+    release_holds(tx, id)?;
+    Ok(true)
+}
+
 /// What holds a Build Job's Selection and Audit from pruning, from its approval until it ends.
 pub(super) fn build_hold(job: i64) -> String {
     format!("build-job:{job}")
@@ -278,6 +292,9 @@ impl Store {
     /// Set is Queued or Running. A Calibration goes ahead of every other Queued Job and runs alone: it is claimed
     /// once no Job is Running, and no other Job is claimed while it is Queued or Running.
     pub fn claim_job(&self) -> Result<Option<Job>> {
+        // A Job claimed reads the Roots as they are once it is Running, when no change to a Root it works on is let
+        // through: a change under way is published before it is claimed.
+        let _lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             let id: Option<i64> = tx
                 .query_row(
@@ -310,7 +327,6 @@ impl Store {
     /// pruning or retention failed after the Job Succeeded.
     pub fn run_audit_job(
         &self,
-        config: &Config,
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
@@ -354,7 +370,7 @@ impl Store {
             return Err(Error::Refused(format!("job {id} is {state}, not running")));
         }
         let outcome = self
-            .begin_job_audit(config, &row)
+            .begin_job_audit(&row)
             .and_then(|running| self.complete_audit(running, progress));
         if let Err(err) = &outcome {
             // A failure before the Audit's row existed leaves the Job Running; one after has Failed it already.

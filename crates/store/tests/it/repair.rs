@@ -2,6 +2,7 @@
 //! approving one, and what an approved repair does, from synthetic DATs, Source Sets and files.
 
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
@@ -11,7 +12,6 @@ use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan,
 use title_select_api::storage::{StorageFormat, SystemStorage};
 use title_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
 use title_select_engine::build::is_torrentzip;
-use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -39,7 +39,6 @@ fn alpha_games() -> Vec<(&'static str, Vec<RomSpec>)> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -53,18 +52,17 @@ impl Env {
         for dir in ["roots/sets/Alpha", "roots/ro/Gamma", "in", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"Alpha\"]\n\n[roots.ro]\npath = {:?}\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            tmp.path().join("roots/sets").display().to_string(),
-            tmp.path().join("roots/ro").display().to_string(),
-            tmp.path().join("in").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("ro", tmp.path().join("roots/ro")),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            ],
+        );
         store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -84,14 +82,10 @@ impl Env {
         let dat = write_dat_from(&tmp.path().join("dats"), "alpha.dat", "1", provider, games);
         store.import_dat(&dat, None).unwrap();
         let system = format!("{provider}/Test - System");
-        store
-            .add_source_set(&config, "sets", "Alpha", &system)
-            .unwrap();
-        store
-            .add_source_set(&config, "ro", "Gamma", &system)
-            .unwrap();
-        let env = Env { tmp, store, config };
-        env.store.register_ingest_folder(&env.config, "in").unwrap();
+        store.add_source_set("sets", "Alpha", &system).unwrap();
+        store.add_source_set("ro", "Gamma", &system).unwrap();
+        let env = Env { tmp, store };
+        env.store.register_ingest_folder("in").unwrap();
         env
     }
 
@@ -105,7 +99,7 @@ impl Env {
 
     fn audit(&self, evidence: AuditEvidence) {
         self.store
-            .audit_source_set(&self.config, "Alpha", None, evidence)
+            .audit_source_set("Alpha", None, evidence)
             .unwrap();
     }
 
@@ -115,10 +109,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -135,16 +126,14 @@ impl Env {
                 .collect(),
             additions: Default::default(),
         };
-        self.store
-            .plan_repair(&self.config, "Alpha", &request)
-            .unwrap()
+        self.store.plan_repair("Alpha", &request).unwrap()
     }
 
     /// Approves `plan`, runs the Repair Job that queues, and queues the Audit it owes.
     fn approve(&self, plan: &RepairPlan) -> RepairPlan {
         let approved = self
             .store
-            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert!(approved.finished_at.is_none(), "approval only queues it");
         let ended = self.run_repair_job(&approved);
@@ -161,7 +150,7 @@ impl Env {
         let job = plan.job.expect("an approved repair has a job");
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job);
-        self.store.run_repair_job(&self.config, job, None).unwrap()
+        self.store.run_repair_job(job, None).unwrap()
     }
 
     /// Runs the incremental Audit a repair queued.
@@ -169,7 +158,7 @@ impl Env {
         let job = plan.audit_job.expect("a repair queues an audit");
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job);
-        let ended = self.store.run_audit_job(&self.config, job, None).unwrap();
+        let ended = self.store.run_audit_job(job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     }
 
@@ -225,15 +214,13 @@ fn a_source_set_its_root_does_not_let_you_write_to_is_refused() {
         b"pong",
     );
     env.store
-        .audit_source_set(&env.config, "Gamma", None, AuditEvidence::Full)
+        .audit_source_set("Gamma", None, AuditEvidence::Full)
         .unwrap();
 
-    let refused = env
-        .store
-        .plan_repair(&env.config, "Gamma", &PlanRepair::default());
+    let refused = env.store.plan_repair("Gamma", &PlanRepair::default());
 
     match refused {
-        Err(Error::Refused(why)) => assert!(why.contains("writable_paths"), "{why}"),
+        Err(Error::Refused(why)) => assert!(why.contains("writable paths"), "{why}"),
         other => panic!("{other:?}"),
     }
 }
@@ -394,7 +381,7 @@ fn audit_manual_without_its_optional_rom(env: &Env) {
     let revision = import_manual_with_an_optional_rom(env);
     env.put("manual.bin", b"manual game");
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
 }
 
@@ -442,7 +429,7 @@ fn audit_adventure_with_a_member_under_a_nodump_roms_name(env: &Env) {
         ],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
 }
 
@@ -512,7 +499,7 @@ fn a_missing_game_is_filled_from_an_ingest_item_without_its_optional_rom() {
     let env = Env::new();
     let revision = import_manual_with_an_optional_rom(&env);
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     env.ingest("manual.zip", |p| {
         write_zip(p, &[("Manual (USA).a26", b"manual game")])
@@ -547,7 +534,7 @@ fn an_ingest_item_without_the_optional_rom_a_file_holds_never_replaces_that_file
         &[("Manual (USA).txt", b"manual text")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     env.ingest("manual.zip", |p| {
         write_zip(p, &[("Manual (USA).a26", b"manual game")])
@@ -607,7 +594,7 @@ fn an_optional_rom_only_another_ingest_item_holds_never_holds_back_a_fill() {
     let env = Env::new();
     let revision = import_manual_with_an_optional_rom(&env);
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     env.ingest("manual.zip", |p| {
         write_zip(p, &[("Manual (USA).a26", b"manual game")])
@@ -631,7 +618,7 @@ fn a_missing_game_is_filled_from_the_ingest_item_that_also_holds_its_optional_ro
     let env = Env::new();
     let revision = import_manual_with_an_optional_rom(&env);
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     env.ingest("manual.zip", |p| {
         write_zip(p, &[("Manual (USA).a26", b"manual game")])
@@ -662,7 +649,7 @@ fn a_missing_game_with_a_nodump_rom_is_filled_from_an_ingest_item() {
     let env = Env::new();
     let revision = import_adventure_with_a_nodump_manual(&env);
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     env.ingest("adventure.zip", |p| {
         write_zip(p, &[("Adventure (USA).a26", b"adventure")])
@@ -824,7 +811,7 @@ fn a_repair_keeps_another_games_rom_under_a_nodump_roms_name_in_its_games_file_b
         &[("Beta (USA).a26", b"beta"), ("pal.u1", b"pal-good")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     let report = env.latest_report();
     let pal = report
@@ -851,7 +838,7 @@ fn a_repair_never_moves_a_file_under_a_nodump_roms_name_to_the_game_it_matches_b
         &[("pal.u1", b"pal-good")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
 
     let plan = env.plan();
@@ -887,7 +874,7 @@ fn a_repair_keeps_a_file_under_a_parents_nodump_roms_name_that_a_clone_listed_fi
         &[("Parent (USA).a26", b"parent"), ("pal.u1", b"8 bytes!")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
 
     let plan = env.plan();
@@ -916,7 +903,7 @@ fn a_repair_keeps_a_file_in_an_ancestors_zip_under_a_nodump_roms_name_of_a_game_
         &[("Base (USA).a26", b"base"), ("pal.u1", b"8 bytes!")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
     let report = env.latest_report();
     let pal = report
@@ -962,7 +949,7 @@ fn a_repair_keeps_a_file_in_a_parents_zip_under_a_nodump_roms_name_of_one_clone_
         &[("Parent (USA).a26", b"parent"), ("pal.u1", b"8 bytes!")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
         .unwrap();
 
     let plan = env.plan();
@@ -1006,7 +993,7 @@ fn a_loose_file_under_a_nodump_roms_name_in_its_games_folder_is_never_moved_or_k
     env.put("Beta (USA)/pal.u1", b"pal-good");
     let audit = || {
         env.store
-            .audit_source_set(&env.config, "Alpha", Some(&revision), AuditEvidence::Full)
+            .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
             .unwrap()
     };
     audit();
@@ -1064,7 +1051,6 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
     let deletion = env
         .store
         .plan_source_kept_deletion(
-            &env.config,
             "Alpha",
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
@@ -1073,14 +1059,14 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
         )
         .unwrap();
     assert_eq!(env.listing().len(), 2, "planning deletes nothing");
-    let wrong =
-        env.store
-            .approve_source_kept_deletion(&env.config, deletion.id, "0000", "Operator");
+    let wrong = env
+        .store
+        .approve_source_kept_deletion(deletion.id, "0000", "Operator");
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
 
     let deleted = env
         .store
-        .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
         .unwrap();
 
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
@@ -1110,7 +1096,6 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
         let deletion = env
             .store
             .plan_source_kept_deletion(
-                &env.config,
                 "Alpha",
                 &PlanKeptDeletion {
                     ids: vec![id],
@@ -1138,12 +1123,9 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
             rewrite_unnoticed(&kept, bytes);
         }
 
-        let done = env.store.approve_source_kept_deletion(
-            &env.config,
-            deletion.id,
-            &deletion.digest,
-            "Operator",
-        );
+        let done =
+            env.store
+                .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator");
         env.store.hook_faults(None);
 
         let done = done.unwrap();
@@ -1170,7 +1152,6 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
     let deletion = env
         .store
         .plan_source_kept_deletion(
-            &env.config,
             "Alpha",
             &PlanKeptDeletion {
                 ids: vec![id],
@@ -1180,12 +1161,8 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
         .unwrap();
     env.store.inject_fault(Some(Fault::SourceKeptMoved(id)));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store.approve_source_kept_deletion(
-            &env.config,
-            deletion.id,
-            &deletion.digest,
-            "Operator",
-        )
+        env.store
+            .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
     }));
     assert!(ran.is_err(), "{ran:?}");
     let moved = env.listing();
@@ -1197,7 +1174,7 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
     let recover_until_synced = || {
         env.store.inject_fault(Some(Fault::SourceKeptSynced(id)));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            env.store.recover_source_kept_deletions(&env.config)
+            env.store.recover_source_kept_deletions()
         }));
         env.store.inject_fault(None);
         assert!(ran.is_err(), "recovery decided before it synced: {ran:?}");
@@ -1219,7 +1196,7 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
 
     assert!(
         env.store
-            .recover_source_kept_deletions(&env.config)
+            .recover_source_kept_deletions()
             .unwrap()
             .is_empty()
     );
@@ -1237,14 +1214,14 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
 
     let wrong = env
         .store
-        .approve_repair(&env.config, plan.id, "0000", "Operator", WORKERS);
+        .approve_repair(plan.id, "0000", "Operator", WORKERS);
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
 
     env.put("new arrival.a26", b"new");
     let before = env.listing();
     let changed = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(matches!(changed, Err(Error::Conflict(_))), "{changed:?}");
     assert_eq!(env.listing(), before, "nothing changed");
 
@@ -1252,7 +1229,7 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
     env.audit(AuditEvidence::Full);
     let audited = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(&audited, Err(Error::Conflict(why)) if why.contains("audit")),
         "{audited:?}"
@@ -1263,7 +1240,7 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
     env.approve(&second);
     let stale = env
         .store
-        .approve_repair(&env.config, first.id, &first.digest, "Operator", WORKERS);
+        .approve_repair(first.id, &first.digest, "Operator", WORKERS);
     assert!(matches!(stale, Err(Error::Conflict(_))), "{stale:?}");
 }
 
@@ -1275,10 +1252,10 @@ fn no_repair_is_proposed_while_an_approved_one_runs() {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let request = PlanRepair::default();
-    let refused = env.store.plan_repair(&env.config, "Alpha", &request);
+    let refused = env.store.plan_repair("Alpha", &request);
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("hasn't finished")),
         "{refused:?}"
@@ -1312,7 +1289,7 @@ fn an_approval_is_refused_when_an_audit_finishes_while_it_is_being_checked() {
     let approved = std::thread::scope(|s| {
         let approving = s.spawn(|| {
             env.store
-                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         });
         wait.recv().unwrap();
         env.audit(AuditEvidence::Full);
@@ -1344,7 +1321,7 @@ fn once_a_source_set_has_been_repaired_a_repair_is_refused_without_its_marker() 
     let before = env.listing();
     let refused = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
 
     match refused {
         Err(Error::Refused(why)) => assert!(why.contains("marker"), "{why}"),
@@ -1555,7 +1532,7 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
         };
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         // A file appears where Adventure's new file goes, so that new file is kept aside instead.
         env.put("Adventure (USA).zip", b"in the way");
@@ -1672,7 +1649,7 @@ fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
 
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         env.store.inject_fault(Some(stop));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1721,27 +1698,25 @@ fn an_audit_of_a_source_set_and_a_repair_of_it_never_overlap() {
 
     let refused = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains(&format!("audit job {}", audit.id))),
         "{refused:?}"
     );
 
     env.store.claim_job().unwrap().unwrap();
-    env.store
-        .run_audit_job(&env.config, audit.id, None)
-        .unwrap();
+    env.store.run_audit_job(audit.id, None).unwrap();
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let queued = env
         .store
         .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full);
     let direct = env
         .store
-        .audit_source_set(&env.config, "Alpha", None, AuditEvidence::Full);
+        .audit_source_set("Alpha", None, AuditEvidence::Full);
     for refused in [queued.map(|_| ()), direct.map(|_| ())] {
         assert!(
             matches!(
@@ -1761,7 +1736,7 @@ fn a_finished_repair_queues_the_audit_it_owes_even_after_a_stop_right_after_it_f
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.inject_fault(Some(Fault::RepairFinished));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1797,7 +1772,7 @@ fn a_repair_you_cancel_finishes_the_item_it_started_and_skips_the_rest() {
     let started = plan.content.steps[first_keep].item.clone();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store
         .inject_fault(Some(Fault::RepairMoved(first_keep as u32)));
@@ -1864,7 +1839,7 @@ fn a_repair_cancelled_after_a_shared_keep_finishes_every_item_that_keep_displace
     assert_eq!(item(&plan, "game:Combat (USA)").kind, RepairKind::Replace);
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store
         .inject_fault(Some(Fault::RepairStepDone(keeps[0] as u32)));
@@ -1905,7 +1880,7 @@ fn cancelled_after_a_build_staged(env: &Env) -> RepairPlan {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.inject_fault(Some(Fault::RepairStaged(0)));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2179,7 +2154,7 @@ fn a_new_file_kept_aside_is_recorded_as_title_selects_only_while_it_matches_what
         .unwrap() as u32;
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let target = env.set().join("Pong (USA).zip");
     let kept = env
@@ -2227,7 +2202,7 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_kept_after_a
             .unwrap() as u32;
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         let set = env.set();
         let kept = set.join(".title-select/retained/1/Pong (USA).zip.kept");
@@ -2294,7 +2269,7 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_only_once_bo
         .unwrap() as u32;
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let set = env.set();
     let kept = set.join(".title-select/retained/1/Pong (USA).zip.kept");
@@ -2357,7 +2332,7 @@ fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_st
         .unwrap() as u32;
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     // Something takes Pong's place once its file is staged; the service stops once that file is moved aside.
     let target = env.set().join("Pong (USA).zip");
@@ -2417,7 +2392,7 @@ fn a_repair_cancelled_before_it_ran_changes_nothing_not_even_the_marker() {
     let before = env.listing();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     env.store.cancel_job(approved.job.unwrap()).unwrap();
@@ -2441,7 +2416,7 @@ fn a_kept_file_recorded_before_a_stop_is_accepted_when_its_step_runs_again() {
         .unwrap();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store
         .inject_fault(Some(Fault::RepairStepDone(keep as u32)));
@@ -2476,7 +2451,7 @@ fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_agai
         let plan = env.plan();
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         env.store.inject_fault(Some(stop));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2508,7 +2483,7 @@ fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.inject_fault(Some(Fault::RepairMarkerWritten));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2545,7 +2520,7 @@ fn a_file_put_in_place_of_the_first_marker_once_it_is_checked_is_never_written_o
         let plan = env.plan();
         let mut approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         if after_a_stop {
             env.store.inject_fault(Some(Fault::RepairMarkerChecked));
@@ -2593,7 +2568,7 @@ fn a_marker_that_appears_while_the_first_one_is_written_is_never_replaced() {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let marker = env.set().join(".title-select/marker");
     let planted = marker.clone();
@@ -2757,8 +2732,7 @@ fn a_file_swapped_after_its_audit_is_left_alone_even_once_an_interrupted_audit_r
                 panic!("stopped");
             }
         };
-        env.store
-            .run_audit_job(&env.config, job.id, Some(&progress))
+        env.store.run_audit_job(job.id, Some(&progress))
     }));
     assert!(stopped.is_err());
     env.store.recover_jobs(WORKERS).unwrap();
@@ -2791,7 +2765,7 @@ fn run_with_hook(
 ) -> RepairPlan {
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.hook_faults(Some(std::sync::Arc::new(swap)));
     env.run_repair_job(&approved);
@@ -2939,10 +2913,7 @@ fn a_repair_uses_the_stamps_its_own_audit_read_even_when_an_overlapping_audit_re
             env.audit(AuditEvidence::Full);
         }
     };
-    let ended = env
-        .store
-        .run_audit_job(&env.config, job.id, Some(&progress))
-        .unwrap();
+    let ended = env.store.run_audit_job(job.id, Some(&progress)).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     assert_eq!(
         env.latest_report().entries[0].roms[0].game,
@@ -3029,7 +3000,7 @@ fn stop_and_resume(
 ) -> RepairPlan {
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.inject_fault(Some(fault));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3212,7 +3183,7 @@ fn a_plan_made_before_the_storage_policy_changed_is_refused() {
 
     let refused = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("storage policy")),
@@ -3355,7 +3326,7 @@ fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() 
         let plan = env.plan();
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         env.store.inject_fault(Some(stop));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3405,7 +3376,7 @@ fn a_conversion_whose_new_file_finds_its_name_taken_leaves_the_original_in_place
 
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.run_repair_job(&approved);
 
@@ -3534,7 +3505,7 @@ fn a_source_sets_summary_shows_its_latest_audit_and_the_repair_open_on_it() {
 
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let open = summary(&env).repair.expect("an approved repair is open");
     assert_eq!(
@@ -3562,7 +3533,7 @@ fn a_stat_walk_never_holds_a_source_set_against_a_repair_and_waits_for_it() {
 
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let repair = env.store.claim_job().unwrap().unwrap();
     assert_eq!(Some(repair.id), approved.job, "the repair goes first");
@@ -3571,9 +3542,7 @@ fn a_stat_walk_never_holds_a_source_set_against_a_repair_and_waits_for_it() {
         None,
         "the walk waits while the repair runs"
     );
-    env.store
-        .run_repair_job(&env.config, repair.id, None)
-        .unwrap();
+    env.store.run_repair_job(repair.id, None).unwrap();
     env.store.fulfil_repair_audits().unwrap();
     let audit = env.store.claim_job().unwrap().unwrap();
     assert_eq!(
@@ -3581,9 +3550,7 @@ fn a_stat_walk_never_holds_a_source_set_against_a_repair_and_waits_for_it() {
         JobKind::Audit,
         "the audit the repair owes first"
     );
-    env.store
-        .run_audit_job(&env.config, audit.id, None)
-        .unwrap();
+    env.store.run_audit_job(audit.id, None).unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, walk.id);
 }
 
@@ -3596,11 +3563,11 @@ fn a_running_stat_walk_stops_for_a_repair_and_records_nothing() {
     env.store.claim_job().unwrap().unwrap();
     let plan = env.plan();
     env.store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.put("new.bin", b"new");
 
-    let ended = env.store.run_stat_walk_job(&env.config, walk.id).unwrap();
+    let ended = env.store.run_stat_walk_job(walk.id).unwrap();
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
     assert!(ended.error.unwrap().contains("repair or build"));
@@ -3651,10 +3618,10 @@ fn an_approved_fill_holds_its_ingest_folder_against_unregistering() {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
-    let refused = env.store.unregister_ingest_folder(&env.config, "in");
+    let refused = env.store.unregister_ingest_folder("in");
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("repair")),
         "{refused:?}"
@@ -3662,6 +3629,35 @@ fn an_approved_fill_holds_its_ingest_folder_against_unregistering() {
     let ended = env.run_repair_job(&approved);
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     assert!(env.ingest_listing().is_empty());
+}
+
+#[test]
+fn a_repair_is_refused_when_its_root_is_made_less_writable_while_it_is_being_approved() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let (approved, edited) = race(
+        &env.store,
+        Fault::RepairApproving,
+        || {
+            env.store
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        },
+        || {
+            env.store
+                .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
+        },
+    );
+
+    assert!(edited.unwrap().voided.is_empty());
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("roots changed")),
+        "{approved:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
 }
 
 #[test]
@@ -3677,13 +3673,11 @@ fn a_fill_is_refused_when_its_ingest_folder_is_registered_anew_while_the_repair_
         Fault::RepairApproving,
         || {
             env.store
-                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         },
         || {
-            env.store
-                .unregister_ingest_folder(&env.config, "in")
-                .unwrap();
-            env.store.register_ingest_folder(&env.config, "in").unwrap();
+            env.store.unregister_ingest_folder("in").unwrap();
+            env.store.register_ingest_folder("in").unwrap();
         },
     );
 
@@ -3872,7 +3866,7 @@ fn a_conversion_stopped_once_its_tracks_were_extracted_together_finishes_them_al
     let build = step_seq(&plan, |s| matches!(s, RepairStep::Build { .. }));
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.inject_fault(Some(Fault::RepairStaged(build)));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3992,7 +3986,7 @@ fn leaving_one_disc_of_a_game_leaves_every_disc_and_a_split_choice_is_refused() 
         .into(),
         additions: Default::default(),
     };
-    let split = env.store.plan_repair(&env.config, "Alpha", &request);
+    let split = env.store.plan_repair("Alpha", &request);
     assert!(
         matches!(&split, Err(Error::Refused(why)) if why.contains("every disc")),
         "{split:?}"
@@ -4152,7 +4146,7 @@ fn a_shared_original_stays_in_place_while_a_disc_written_from_it_could_not_be_pu
     }
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     // A file appears where Disc 2's track would be put in place.
     let folder = env.set().join("Saga (USA) (Disc 2)");
@@ -4181,7 +4175,7 @@ fn cancelled_once_one_disc_converted(env: &Env, before_rerun: impl FnOnce()) -> 
         .unwrap();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store
         .inject_fault(Some(Fault::RepairStepDone(first as u32)));
@@ -4497,7 +4491,7 @@ fn planning_matches_cue_sheets_indexed_at_import_without_reading_the_pack() {
     assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.run_repair_job(&approved);
     let done = env.store.repair_plan(plan.id).unwrap();
@@ -5024,12 +5018,10 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
         }),
         ..Default::default()
     };
-    env.store
-        .update_settings(&env.config, &slow, "Operator")
-        .unwrap();
+    env.store.update_settings(&slow, "Operator").unwrap();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let before = env.store.meter().root("sets").read;
 
@@ -5072,7 +5064,7 @@ fn a_repair_that_cannot_start_ends_failed_with_why_even_after_a_stop_as_it_is_ab
         let plan = env.plan();
         let approved = env
             .store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         // Another folder in its place: no longer the folder the plan was made for.
         let set = env.set();
@@ -5147,4 +5139,137 @@ fn a_repair_that_cannot_start_ends_failed_with_why_even_after_a_stop_as_it_is_ab
         assert!(env.store.recover_repairs().unwrap().is_empty(), "{stopped}");
         assert!(env.listing().is_empty(), "{stopped}: {:?}", env.listing());
     }
+}
+
+/// An approved repair, not started, is voided when its source set's folder is taken out of its Root's writable paths:
+/// it ends having changed nothing. While it is approved, the Root's path can't change.
+#[test]
+fn an_approved_fill_holds_the_root_of_the_ingest_folder_it_moves_from() {
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
+    env.store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let moved = env.store.edit_root(
+        "in",
+        &RootSpec::new("in", env.tmp.path().join("dats")).of_kind(RootKind::Ingest),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{moved:?}"
+    );
+    assert!(env.tmp.path().join("in/pong.a26").is_file());
+}
+
+#[test]
+fn a_root_isnt_made_more_writable_while_an_approved_repair_writes_to_it() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let widened = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", &sets).writing(&["Alpha", "Beta"]),
+        "Operator",
+    );
+    assert!(
+        matches!(&widened, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{widened:?}"
+    );
+    assert_eq!(
+        env.store.roots().root("sets").unwrap().writable_paths,
+        ["Alpha"]
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
+}
+
+#[test]
+fn swapping_the_writable_path_an_approved_repair_writes_to_for_another_is_refused() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let swapped = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", &sets).writing(&["Beta"]),
+        "Operator",
+    );
+    assert!(
+        matches!(&swapped, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{swapped:?}"
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
+}
+
+#[test]
+fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_set() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let before = env.listing();
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let job = approved.job.unwrap();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let moved = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", env.tmp.path().join("dats")).writing(&["Alpha"]),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{moved:?}"
+    );
+
+    let edited = env
+        .store
+        .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
+        .unwrap();
+    assert_eq!(
+        edited.voided,
+        [title_select_api::roots::VoidedPlan {
+            kind: title_select_api::roots::VoidedPlanKind::Repair,
+            plan: plan.id,
+            job,
+            writes_to: "source set Alpha".into(),
+        }]
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Failed);
+    let voided = env.store.repair_plan(plan.id).unwrap();
+    assert!(voided.finished_at.is_some(), "{voided:?}");
+    assert!(
+        voided.outcomes.iter().all(|o| !o.done),
+        "{:?}",
+        voided.outcomes
+    );
+    assert_eq!(env.listing(), before, "nothing was changed");
+    assert!(
+        env.store.claim_job().unwrap().is_none(),
+        "no job is left to run"
+    );
 }

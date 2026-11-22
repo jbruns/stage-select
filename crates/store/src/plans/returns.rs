@@ -18,7 +18,6 @@ use title_select_api::storage::{Placement, placement_writing, release_of};
 use title_select_engine::dat::Dat;
 
 use super::{Built, Folder, Inputs, roms_of, same_roms};
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::open_folder;
 
@@ -49,7 +48,7 @@ struct Found<'a> {
 /// placed files they take; and says in `notes` why any that should go back stays. A release `held` back stays whole,
 /// placed files and all: its return waits on the hold.
 pub(super) fn returns(
-    config: &Config,
+    roots: &crate::roots::Roots,
     inputs: &Inputs,
     folder: Option<&Folder>,
     dat: Option<&Dat>,
@@ -81,10 +80,10 @@ pub(super) fn returns(
         .collect();
     let selected = |game: &str| !remove_all && chosen.contains(game);
     let mut stays: Vec<String> = Vec::new();
-    let writable = config
+    let writable = roots
         .root(&inputs.set_root)
         .is_some_and(|r| r.may_write(&inputs.set_path));
-    let set_dir = open_folder(config, &inputs.set_root, &inputs.set_path);
+    let set_dir = open_folder(roots, &inputs.set_root, &inputs.set_path);
     // A rename moves a file only within one filesystem; a test may say they are two.
     let same_fs = match (&set_dir, folder.dir.identity()) {
         (Ok(set), Ok(here)) => {

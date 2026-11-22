@@ -35,7 +35,7 @@ use title_select_engine::build::{
 use title_select_engine::meter::Tally;
 
 use crate::builds::{sha256_of, still_sha256};
-use crate::config::{ADDITIONS_ROOT, Config};
+
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::{folder_by_id, open_folder, store_id};
 use crate::ingest::moves::exactly;
@@ -445,9 +445,20 @@ pub(crate) fn ensure_set(tx: &Transaction, dat: i64) -> Result<i64> {
             "the additions set of this system would be the folder {name}, which cannot be: {why}"
         )));
     }
+    let root: Option<String> = tx
+        .query_row("SELECT name FROM roots WHERE kind = 'additions'", [], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let Some(root) = root else {
+        return Err(Error::Refused(
+            "no additions root is registered to hold the additions sets; register a root of kind additions first"
+                .into(),
+        ));
+    };
     tx.execute(
         "INSERT OR IGNORE INTO additions_sets (dat_id, root, path, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![dat, ADDITIONS_ROOT, name, now()],
+        params![dat, root, name, now()],
     )?;
     let (id, aside): (i64, bool) = tx.query_row(
         "SELECT id, setting_aside_at IS NOT NULL FROM additions_sets WHERE dat_id = ?1 AND unregistered_at IS NULL",
@@ -1075,7 +1086,6 @@ impl Store {
     /// to it meanwhile. Refused when it changed since you reviewed it, and while anything holds it.
     pub fn approve_additions_set_aside(
         &self,
-        config: &Config,
         system: &str,
         digest_reviewed: &str,
     ) -> Result<AdditionsSetAside> {
@@ -1104,7 +1114,7 @@ impl Store {
             Ok((plan, settle_set_aside(tx, set)?))
         })?;
         if now_unregistered {
-            self.settle_marker(config, RegistrationKind::AdditionsSet, plan.set)?;
+            self.settle_marker(RegistrationKind::AdditionsSet, plan.set)?;
         }
         Ok(plan)
     }
@@ -1187,7 +1197,7 @@ impl Store {
     /// Checks the Additions Set of `system` against its additions' records, which act as its DAT, only reading it:
     /// each file an active addition was published as must still be that file, unchanged, and anything else is drift.
     /// Title Select's own entries are not drift.
-    pub fn check_additions(&self, config: &Config, system: &str) -> Result<AdditionsCheck> {
+    pub fn check_additions(&self, system: &str) -> Result<AdditionsCheck> {
         let (set, rows) = self.read(|c| {
             let (dat, _) = dat_of(c, system)?;
             let set = c
@@ -1214,7 +1224,7 @@ impl Store {
         }
         let dir = match set.identity {
             None => None,
-            Some(_) => Some(self.open_set(config, &set)?.map_err(Error::Refused)?),
+            Some(_) => Some(self.open_set(&set)?.map_err(Error::Refused)?),
         };
         let listed = match &dir {
             Some(dir) => dir.entries().map_err(io)?,
@@ -1292,12 +1302,8 @@ impl Store {
 
     /// Opens the folder of Additions Set `set`, which must be in place: in the configured, writable Root `additions`,
     /// the directory recorded, with this store's marker for it.
-    pub(crate) fn open_set(
-        &self,
-        config: &Config,
-        set: &SetRow,
-    ) -> Result<std::result::Result<FolderDir, String>> {
-        let root = match self.additions_root(config) {
+    pub(crate) fn open_set(&self, set: &SetRow) -> Result<std::result::Result<FolderDir, String>> {
+        let root = match self.additions_root() {
             Ok(root) => root,
             Err(why) => return Ok(Err(why)),
         };
@@ -1342,20 +1348,15 @@ impl Store {
     }
 
     /// Opens the folder of Additions Set `id`, which a build reads its Additions from.
-    pub(crate) fn open_additions(
-        &self,
-        config: &Config,
-        id: i64,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    pub(crate) fn open_additions(&self, id: i64) -> Result<std::result::Result<FolderDir, String>> {
         let set = self.read(|c| set_by_id(c, id))?;
-        self.open_set(config, &set)
+        self.open_set(&set)
     }
 
     /// Opens the folder of the Additions Set at `rel` in the Root `root`, the destination of an ingest move, if there
     /// is one there.
     pub(crate) fn open_set_at(
         &self,
-        config: &Config,
         root: &str,
         rel: &str,
     ) -> Result<Option<std::result::Result<FolderDir, String>>> {
@@ -1363,38 +1364,35 @@ impl Store {
             return Ok(None);
         };
         let set = self.read(|c| set_by_id(c, id))?;
-        self.open_set(config, &set).map(Some)
+        self.open_set(&set).map(Some)
     }
 
-    fn additions_root(&self, config: &Config) -> std::result::Result<FolderDir, String> {
-        match config.root(ADDITIONS_ROOT) {
-            Some(root) if root.writable => {
-                FolderDir::open(&root.path, "").map_err(|e| e.to_string())
-            }
-            Some(_) => Err(format!(
-                "root {ADDITIONS_ROOT} is not writable now; declare it with writable = true, then restart the service"
-            )),
-            None => Err(format!(
-                "there is no root {ADDITIONS_ROOT} in the configuration; add one to hold the additions sets"
-            )),
+    fn additions_root(&self) -> std::result::Result<FolderDir, String> {
+        match self.roots().additions() {
+            Some(root) => FolderDir::open(&root.path, "").map_err(|e| e.to_string()),
+            None => Err(
+                "no additions root is registered; register a root of kind additions to hold the additions sets"
+                    .into(),
+            ),
         }
+    }
+
+    /// The name of the Root the Additions Sets are in, which their bytes are metered to.
+    pub(crate) fn additions_root_name(&self) -> Option<String> {
+        self.roots().additions().map(|root| root.name.clone())
     }
 
     /// Opens the folder of Additions Set `id`, creating it first if it is not created yet: made private under a
     /// recorded temporary name, checked to be the empty directory made, given its marker, and renamed into place
     /// without replacing anything. A temporary folder a stop left is used only once it is found in place as the one
     /// recorded; otherwise it is left as it is, recorded among the set's leftovers, and a new one made.
-    pub(crate) fn ensure_set_dir(
-        &self,
-        config: &Config,
-        id: i64,
-    ) -> Result<std::result::Result<FolderDir, String>> {
+    pub(crate) fn ensure_set_dir(&self, id: i64) -> Result<std::result::Result<FolderDir, String>> {
         let _guard = self.set_dirs.lock().unwrap_or_else(|e| e.into_inner());
         let set = self.read(|c| set_by_id(c, id))?;
         if set.identity.is_some() {
-            return self.open_set(config, &set);
+            return self.open_set(&set);
         }
-        let root = match self.additions_root(config) {
+        let root = match self.additions_root() {
             Ok(root) => root,
             Err(why) => return Ok(Err(why)),
         };
@@ -1406,7 +1404,7 @@ impl Store {
             // Renamed into place before a stop: its marker was written and synced before the rename.
             root.sync().map_err(io)?;
             self.record_set_dir(id, temp)?;
-            return self.open_set(config, &self.read(|c| set_by_id(c, id))?);
+            return self.open_set(&self.read(|c| set_by_id(c, id))?);
         }
         let temp_name = format!("{}.new-{}", set.path, unique());
         self.write(|tx| {
@@ -1493,7 +1491,7 @@ impl Store {
             }
         }
         self.record_set_dir(id, temp)?;
-        self.open_set(config, &self.read(|c| set_by_id(c, id))?)
+        self.open_set(&self.read(|c| set_by_id(c, id))?)
     }
 
     fn record_set_dir(&self, id: i64, identity: Identity) -> Result<()> {
@@ -1515,7 +1513,7 @@ impl Store {
     /// cancel the Job, each member nothing was yet done for ends failed instead, and whatever it came from is left
     /// where it was. One that cannot be settled now, because the Root `additions` cannot be written, is left as it is
     /// and the Job Failed; it is tried again when the service next starts. Returns the Job as it ends.
-    pub fn run_additions_job(&self, config: &Config, id: i64) -> Result<Job> {
+    pub fn run_additions_job(&self, id: i64) -> Result<Job> {
         // What it reads and writes is counted for it, even where it isn't handed its meter.
         let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
@@ -1536,7 +1534,7 @@ impl Store {
             )?)
         })?;
         let mut visits = BTreeMap::new();
-        let ran = self.run_additions(config, set, id, &mut visits);
+        let ran = self.run_additions(set, id, &mut visits);
         let (to, why) = match &ran {
             Ok(Ok(false)) => (JobState::Succeeded, None),
             Ok(Ok(true)) => (
@@ -1580,7 +1578,7 @@ impl Store {
         })
         .and_then(|unregistered| match unregistered {
             true => self
-                .settle_marker(config, RegistrationKind::AdditionsSet, set)
+                .settle_marker(RegistrationKind::AdditionsSet, set)
                 .map(drop),
             false => Ok(()),
         })?;
@@ -1592,7 +1590,6 @@ impl Store {
     /// tried again; it joins a later Job.
     fn run_additions(
         &self,
-        config: &Config,
         set: i64,
         job: i64,
         visits: &mut BTreeMap<i64, (i64, Settled)>,
@@ -1606,7 +1603,7 @@ impl Store {
             return Ok(Err(why));
         }
         if row.identity.is_some()
-            && let Ok(dir) = self.open_set(config, &row)?
+            && let Ok(dir) = self.open_set(&row)?
             && let Err(why) = settle_dir_temps(self, Scope::Additions(set), &dir)?
         {
             return Ok(Err(why));
@@ -1644,9 +1641,9 @@ impl Store {
                 continue;
             }
             let settled = match row.raw_state.as_str() {
-                "retiring" => self.retire(config, &row)?,
-                "restoring" => self.restore_retired(config, &row)?,
-                _ => self.settle(config, &row, job)?,
+                "retiring" => self.retire(&row)?,
+                "restoring" => self.restore_retired(&row)?,
+                _ => self.settle(&row, job)?,
             };
             if let Settled::Blocked(why) = &settled {
                 blocked.push(format!("addition {}: {why}", row.addition.id));
@@ -1663,9 +1660,9 @@ impl Store {
     }
 
     /// Settles addition `row`, being added, for Job `job`.
-    fn settle(&self, config: &Config, row: &AdditionRow, job: i64) -> Result<Settled> {
+    fn settle(&self, row: &AdditionRow, job: i64) -> Result<Settled> {
         let id = row.addition.id;
-        if let Err(why) = self.additions_root(config) {
+        if let Err(why) = self.additions_root() {
             return Ok(Settled::Blocked(why));
         }
         if let Some(move_id) = row.move_id {
@@ -1678,7 +1675,7 @@ impl Store {
             })?;
             if !ended {
                 // A folder that cannot be made fails the move, which then never started, and so the addition.
-                if let Err(why) = self.ensure_set_dir(config, row.set_id)? {
+                if let Err(why) = self.ensure_set_dir(row.set_id)? {
                     self.write(|tx| {
                         tx.execute(
                             "UPDATE ingest_moves SET state = 'failed', error = ?2 WHERE id = ?1 AND state = 'pending'",
@@ -1687,14 +1684,14 @@ impl Store {
                         Ok(())
                     })?;
                 }
-                self.drive_move(config, move_id)?.ok();
+                self.drive_move(move_id)?.ok();
             }
             return self.settle_ingest(row, move_id);
         }
         let kept = if let Some((plan, key)) = &row.repair {
-            self.repair_kept(config, *plan, key)?
+            self.repair_kept(*plan, key)?
         } else if let Some(plan) = row.cleanup_plan {
-            self.drift_kept(config, plan, &row.addition.origin)?
+            self.drift_kept(plan, &row.addition.origin)?
         } else {
             Kept::Failed("it records no way to be added".into())
         };
@@ -1708,12 +1705,15 @@ impl Store {
                 identity,
                 file,
             } => {
-                let dest = match self.ensure_set_dir(config, row.set_id)? {
+                let dest = match self.ensure_set_dir(row.set_id)? {
                     Ok(dest) => dest,
                     Err(why) => return self.fail_addition(id, why),
                 };
                 let meter = self.meter.job(job);
-                let (from, to) = (meter.tally(Some(&root)), meter.tally(Some(ADDITIONS_ROOT)));
+                let (from, to) = (
+                    meter.tally(Some(&root)),
+                    meter.tally(self.additions_root_name().as_deref()),
+                );
                 self.publish_kept(row, (&dir, &name, identity, &file), &dest, (&from, &to))
             }
         }
@@ -1733,9 +1733,9 @@ impl Store {
     /// Moves the file of addition `row`, being retired, into the folder of its id among its Additions Set's kept
     /// files, without replacing anything, and records it kept and the addition retired. A file at its name that is no
     /// longer the file published is left as it is, and the addition retired with nothing kept.
-    fn retire(&self, config: &Config, row: &AdditionRow) -> Result<Settled> {
+    fn retire(&self, row: &AdditionRow) -> Result<Settled> {
         let id = row.addition.id;
-        if let Err(why) = self.additions_root(config) {
+        if let Err(why) = self.additions_root() {
             return Ok(Settled::Blocked(why));
         }
         let Some(kept) = self.read(|c| kept_of(c, id, "keeping"))? else {
@@ -1745,7 +1745,7 @@ impl Store {
             return self.retire_ends(id, Some(kept.id), "it records no published file".into());
         };
         let set = self.read(|c| set_by_id(c, row.set_id))?;
-        let dir = match self.open_set(config, &set)? {
+        let dir = match self.open_set(&set)? {
             Ok(dir) => dir,
             Err(why) => return self.retire_ends(id, Some(kept.id), why),
         };
@@ -1769,7 +1769,7 @@ impl Store {
         if is_kept_entry(&area, &kept.kept_name, p.identity, Some(&p.file), false) {
             return self.retired(id, kept.id);
         }
-        let additions = Tally::of_this_thread(Some(ADDITIONS_ROOT));
+        let additions = Tally::of_this_thread(self.additions_root_name().as_deref());
         if !still_published((&dir, &additions), file_name, p)? {
             return self.retire_ends(
                 id,
@@ -1891,9 +1891,9 @@ impl Store {
     /// Moves the kept file of addition `row`, being restored, back to its file name in its Additions Set, without
     /// replacing anything, once it is found, through a descriptor held on it, to hash as recorded; and records the
     /// addition added again with the stamps read through that descriptor.
-    fn restore_retired(&self, config: &Config, row: &AdditionRow) -> Result<Settled> {
+    fn restore_retired(&self, row: &AdditionRow) -> Result<Settled> {
         let id = row.addition.id;
-        if let Err(why) = self.additions_root(config) {
+        if let Err(why) = self.additions_root() {
             return Ok(Settled::Blocked(why));
         }
         let Some(kept) = self.read(|c| kept_of(c, id, "kept"))? else {
@@ -1903,7 +1903,7 @@ impl Store {
             return self.unrestore(id, None, "its kept file has no trusted hash".into());
         };
         let set = self.read(|c| set_by_id(c, row.set_id))?;
-        let dir = match self.open_set(config, &set)? {
+        let dir = match self.open_set(&set)? {
             Ok(dir) => dir,
             Err(why) => return self.unrestore(id, None, why),
         };
@@ -1946,7 +1946,7 @@ impl Store {
             || still_sha256(
                 &held,
                 ctime_ns(&st),
-                &Tally::of_this_thread(Some(ADDITIONS_ROOT)),
+                &Tally::of_this_thread(self.additions_root_name().as_deref()),
             )
             .map_err(io)?
             .as_deref()
@@ -2048,7 +2048,7 @@ impl Store {
         let found = still_sha256(
             held,
             ctime_ns(&st),
-            &Tally::of_this_thread(Some(ADDITIONS_ROOT)),
+            &Tally::of_this_thread(self.additions_root_name().as_deref()),
         )
         .map_err(io)?;
         let in_place = dir
@@ -2187,7 +2187,8 @@ impl Store {
     }
 
     /// The file the Keep step of item `key` of repair `plan` kept aside, once it has.
-    fn repair_kept(&self, config: &Config, plan: i64, key: &str) -> Result<Kept> {
+    fn repair_kept(&self, plan: i64, key: &str) -> Result<Kept> {
+        let roots = &*self.roots();
         type Step = (String, Option<String>, Option<i64>);
         let step: Option<Step> = self.read(|c| {
             Ok(c.query_row(
@@ -2234,7 +2235,7 @@ impl Store {
                 "the file the repair kept aside is {state}"
             )));
         }
-        let dir = match open_repairable(self, config, set, MarkerRule::Required)? {
+        let dir = match open_repairable(self, roots, set, MarkerRule::Required)? {
             Ok(dir) => dir,
             Err(why) => return Ok(Kept::Failed(why)),
         };
@@ -2260,7 +2261,8 @@ impl Store {
     }
 
     /// The file cleanup `plan` kept aside from the drift entry `origin`, once it has.
-    fn drift_kept(&self, config: &Config, plan: i64, origin: &str) -> Result<Kept> {
+    fn drift_kept(&self, plan: i64, origin: &str) -> Result<Kept> {
+        let roots = &*self.roots();
         type KeptRow = (i64, i64, String, String, i64, i64, Identity);
         let kept: Option<KeptRow> = self.read(|c| {
             Ok(c.query_row(
@@ -2307,7 +2309,7 @@ impl Store {
             }
         }
         let row = self.read(|c| folder_by_id(c, folder))?;
-        let dir = match open_folder(config, &row.root, &row.path) {
+        let dir = match open_folder(roots, &row.root, &row.path) {
             Ok(dir) => dir,
             Err(why) => return Ok(Kept::Failed(why)),
         };

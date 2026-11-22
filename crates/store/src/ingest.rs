@@ -39,7 +39,7 @@ use super::plans::{json, to_json};
 use super::sets::set_by_name;
 use super::support_files::SUPPORT_FILE_LIMIT;
 use super::{Error, Fault, Result, Store, now};
-use crate::config::{Config, Root};
+use crate::roots::Root;
 
 /// Endings of names a download is written under until it finishes.
 const PARTIAL: [&str; 4] = [".part", ".!qB", ".crdownload", ".tmp"];
@@ -119,20 +119,25 @@ fn registered(c: &Connection, root: &str) -> Result<IngestRow> {
 }
 
 /// The Root `root`, refused unless it is an Ingest Folder.
-fn ingest_root<'a>(config: &'a Config, root: &str) -> std::result::Result<&'a Root, String> {
-    match config.root(root) {
+fn ingest_root<'a>(
+    roots: &'a crate::roots::Roots,
+    root: &str,
+) -> std::result::Result<&'a Root, String> {
+    match roots.root(root) {
         Some(r) if r.is_ingest() && r.writable => Ok(r),
         Some(_) => Err(format!(
-            "root {root} is not an ingest folder; declare it with kind = \"ingest\" and writable = true, then \
-             restart the service"
+            "root {root} is not an ingest folder; edit it to be of kind ingest first"
         )),
-        None => Err(format!("there is no root {root} in the configuration")),
+        None => Err(format!("there is no root {root}")),
     }
 }
 
 /// Opens the Ingest Folder of Root `root`. Its configured path is followed; nothing in it is.
-pub(super) fn open_ingest(config: &Config, root: &str) -> std::result::Result<FolderDir, String> {
-    let root_config = ingest_root(config, root)?;
+pub(super) fn open_ingest(
+    roots: &crate::roots::Roots,
+    root: &str,
+) -> std::result::Result<FolderDir, String> {
+    let root_config = ingest_root(roots, root)?;
     FolderDir::open(&root_config.path, "").map_err(|e| e.to_string())
 }
 
@@ -182,10 +187,10 @@ pub(super) fn check_ingest_marker(
 /// Opens the registered Ingest Folder `row` and checks its marker.
 fn open_checked(
     store: &Store,
-    config: &Config,
+    roots: &crate::roots::Roots,
     row: &IngestRow,
 ) -> Result<std::result::Result<FolderDir, String>> {
-    let dir = match open_ingest(config, &row.root) {
+    let dir = match open_ingest(roots, &row.root) {
         Ok(dir) => dir,
         Err(why) => return Ok(Err(why)),
     };
@@ -497,10 +502,10 @@ fn add_from_ingest(
     let target = crate::additions::check_new(tx, new, &rom.name)?;
     target.check_reviewed(new, item.addition_target.as_ref())?;
     let set = crate::additions::ensure_set(tx, target.dat)?;
-    let path: String = tx.query_row(
-        "SELECT path FROM additions_sets WHERE id = ?1",
+    let (root, path): (String, String) = tx.query_row(
+        "SELECT root, path FROM additions_sets WHERE id = ?1",
         [set],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let mv = moves::insert_move(
         tx,
@@ -516,7 +521,7 @@ fn add_from_ingest(
             },
             sha256: item.sha256.clone(),
             dest: Destination::Path {
-                root: crate::config::ADDITIONS_ROOT.into(),
+                root,
                 rel: path,
                 name: target.file_name,
                 generation,
@@ -1441,33 +1446,33 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
 }
 
 impl Store {
-    /// Every Ingest Folder the configuration declares, with its id once registered.
-    pub fn ingest_folders(&self, config: &Config) -> Result<Vec<IngestFolder>> {
+    /// Every Root of kind ingest, as an Ingest Folder, with its id once registered.
+    pub fn ingest_folders(&self) -> Result<Vec<IngestFolder>> {
+        let roots = &*self.roots();
         self.read(|c| {
             let mut found = Vec::new();
-            for (name, root) in &config.roots {
-                if !root.is_ingest() {
-                    continue;
-                }
-                found.push(ingest_record(c, name, root)?);
+            for root in roots.ingest() {
+                found.push(ingest_record(c, &root.name, root)?);
             }
             Ok(found)
         })
     }
 
     /// The Ingest Folder of Root `root`.
-    pub fn ingest_folder(&self, config: &Config, root: &str) -> Result<IngestFolder> {
-        let root_config = ingest_root(config, root).map_err(Error::NotFound)?;
+    pub fn ingest_folder(&self, root: &str) -> Result<IngestFolder> {
+        let roots = &*self.roots();
+        let root_config = ingest_root(roots, root).map_err(Error::NotFound)?;
         self.read(|c| ingest_record(c, root, root_config))
     }
 
     /// Registers the Ingest Folder of Root `root` and writes its marker; every scan and every change then requires
     /// it. Registering again changes nothing. Refused when the folder has a marker that is not this store's for it.
-    pub fn register_ingest_folder(&self, config: &Config, root: &str) -> Result<IngestFolder> {
+    pub fn register_ingest_folder(&self, root: &str) -> Result<IngestFolder> {
         // Held until its marker is written, so that no Unregistering of it comes in between to leave the marker of an
-        // Unregistered folder behind.
+        // Unregistered folder behind, and no edit of its Root changes where it is.
         let _lifecycle = self.lifecycle_lock();
-        let dir = open_ingest(config, root).map_err(Error::Refused)?;
+        let roots = &*self.roots();
+        let dir = open_ingest(roots, root).map_err(Error::Refused)?;
         let store = self.read(store_id)?;
         // Checked for a registration made before too, whose root may since point somewhere else. Registrations
         // that could come to overlap it take the lifecycle lock held here.
@@ -1478,7 +1483,7 @@ impl Store {
         if let Some((what, other)) = self.read(|c| {
             crate::folders::overlapping(
                 c,
-                config,
+                roots,
                 &canonical,
                 crate::folders::Registering::IngestFolder,
             )
@@ -1529,7 +1534,7 @@ impl Store {
                 ));
             }
         }
-        self.ingest_folder(config, root)
+        self.ingest_folder(root)
     }
 
     /// Queues a scan of the Ingest Folder of Root `root`, started by `actor`. Refused while one is queued or
@@ -1560,8 +1565,10 @@ impl Store {
 
     /// Scans the Ingest Folder of Root `root` now, as a Job started by `actor` and run on this thread. Refused while
     /// a scan is queued or running. Returns the Job as it ends.
-    pub fn scan_ingest_folder(&self, config: &Config, root: &str, actor: &str) -> Result<Job> {
+    pub fn scan_ingest_folder(&self, root: &str, actor: &str) -> Result<Job> {
         let job = self.enqueue_ingest_scan(root, actor)?;
+        // Claimed as claim_job claims a Job.
+        let lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             tx.execute(
                 "UPDATE jobs SET state = 'running', started_at = ?2, version = version + 1
@@ -1570,12 +1577,13 @@ impl Store {
             )?;
             Ok(())
         })?;
-        self.run_ingest_scan_job(config, job.id)
+        drop(lifecycle);
+        self.run_ingest_scan_job(job.id)
     }
 
     /// Runs the Running scan Job `id`. A folder that cannot be opened, or whose marker is not this store's, fails
     /// the Job and leaves every item as it was. Returns the Job as it ends.
-    pub fn run_ingest_scan_job(&self, config: &Config, id: i64) -> Result<Job> {
+    pub fn run_ingest_scan_job(&self, id: i64) -> Result<Job> {
         // What it reads and writes is counted for it, even where it isn't handed its meter.
         let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
@@ -1595,7 +1603,7 @@ impl Store {
                 |r| r.get(0),
             )?)
         })?;
-        let outcome = self.scan_ingest(config, folder);
+        let outcome = self.scan_ingest(folder);
         self.write(|tx| {
             let (state, error) = match &outcome {
                 Ok(()) => (JobState::Succeeded, None),
@@ -1609,11 +1617,12 @@ impl Store {
         self.job(id)
     }
 
-    fn scan_ingest(&self, config: &Config, folder: i64) -> Result<()> {
+    fn scan_ingest(&self, folder: i64) -> Result<()> {
+        let roots = &*self.roots();
         let row = self.read(|c| ingest_by_id(c, folder))?;
-        ingest_root(config, &row.root).map_err(Error::Refused)?;
+        ingest_root(roots, &row.root).map_err(Error::Refused)?;
         let settle = self.settings()?.ingest(&row.root).settle_secs;
-        let dir = open_checked(self, config, &row)?.map_err(Error::Refused)?;
+        let dir = open_checked(self, roots, &row)?.map_err(Error::Refused)?;
         let entries = dir.entries().map_err(|e| Error::Io(e.to_string()))?;
         let mut items = self.read(|c| present_items(c, folder))?;
         let mut matcher: Option<Matcher> = None;
@@ -1644,7 +1653,6 @@ impl Store {
         }
         // chdman verifies each CHD of a folder of Disks before any plan moves it, reading it from the folder's Root.
         let disks = self.disk_audit(
-            config,
             title_select_engine::meter::this_thread()
                 .map_or_else(Default::default, |job| job.tally(Some(&row.root))),
         )?;
@@ -1733,7 +1741,7 @@ impl Store {
                         .map_or_else(Default::default, |job| job.tally(Some(&row.root)));
                     // Only a CHD of a folder of Disks is in a folder.
                     let disks = name.contains('/').then_some(&disks);
-                    match read_item(&dir, &name, &seen, &self.decoding(config, &from), disks) {
+                    match read_item(&dir, &name, &seen, &self.decoding(&from), disks) {
                         Ok(Ok(read)) => (read, true),
                         Ok(Err(why)) => {
                             let again = existing.item.state == ItemState::Unsupported
@@ -1865,12 +1873,9 @@ impl Store {
     /// When the earliest item still arriving in the Ingest Folder of Root `root`, or changed since it was assessed,
     /// could have settled: the folder's settle interval after its stat last changed. A scan then assesses it if it
     /// has not changed since. None when no item is waiting to settle, or the folder is not registered.
-    pub fn ingest_follow_up_at(
-        &self,
-        config: &Config,
-        root: &str,
-    ) -> Result<Option<jiff::Timestamp>> {
-        ingest_root(config, root).map_err(Error::NotFound)?;
+    pub fn ingest_follow_up_at(&self, root: &str) -> Result<Option<jiff::Timestamp>> {
+        let roots = &*self.roots();
+        ingest_root(roots, root).map_err(Error::NotFound)?;
         let settle = self.settings()?.ingest(root).settle_secs;
         let earliest: Option<String> = self.read(|c| {
             let Some(row) = ingest_by_root(c, root)? else {
@@ -1934,14 +1939,10 @@ impl Store {
 
     /// Plans `request` for items of the Ingest Folder of Root `root`. Nothing changes until you approve it; the plan
     /// binds each item, where it goes and why, and every entry of the folder as it is now.
-    pub fn plan_ingest(
-        &self,
-        config: &Config,
-        root: &str,
-        request: &PlanIngest,
-    ) -> Result<IngestPlan> {
+    pub fn plan_ingest(&self, root: &str, request: &PlanIngest) -> Result<IngestPlan> {
+        let roots = &*self.roots();
         let row = self.read(|c| registered(c, root))?;
-        let dir = open_checked(self, config, &row)?.map_err(Error::Refused)?;
+        let dir = open_checked(self, roots, &row)?.map_err(Error::Refused)?;
         if request.items.is_empty() {
             return Err(Error::Refused("choose at least one item".into()));
         }
@@ -2158,12 +2159,12 @@ impl Store {
     /// file. Returns the plan with what happened to each item.
     pub fn approve_ingest_plan(
         &self,
-        config: &Config,
         id: i64,
         digest: &str,
         actor: &str,
         workers: Workers,
     ) -> Result<IngestPlan> {
+        let roots = &*self.roots();
         let plan = self.ingest_plan(id)?;
         if plan.approval.is_some() {
             return Err(Error::Conflict(format!("plan {id} was already approved")));
@@ -2176,7 +2177,7 @@ impl Store {
         }
         let content = &plan.content;
         let row = self.read(|c| ingest_by_id(c, content.ingest_folder))?;
-        let dir = open_checked(self, config, &row)?.map_err(Error::Refused)?;
+        let dir = open_checked(self, roots, &row)?.map_err(Error::Refused)?;
         if row.generation + 1 != content.generation {
             return Err(Error::Conflict(format!(
                 "another plan changed ingest folder {} since this one was made; plan it again",
@@ -2214,6 +2215,7 @@ impl Store {
         if let Err(why) = settle_dir_temps(self, Scope::Ingest(row.id), &dir)? {
             return Err(Error::Refused(why));
         }
+        let lifecycle = self.lock_roots_unchanged(roots)?;
         let approve = |tx: &Transaction| {
             crate::lifecycle::check_live(
                 tx,
@@ -2283,6 +2285,7 @@ impl Store {
             });
         }
         self.write(approve)?;
+        drop(lifecycle);
         let mut outcomes = Vec::new();
         for item in &content.items {
             let mut detail = Vec::new();
@@ -2305,30 +2308,27 @@ impl Store {
                     }
                 }
             }
-            let moved = self.move_out(
-                config,
-                Move {
-                    folder: row.id,
-                    plan: Some(id),
-                    item: Some(item.item),
-                    name: &item.name,
-                    seen: Seen {
-                        identity: item.identity.into(),
-                        file: item.file.clone(),
-                        ctime_ns: item.ctime_ns,
-                    },
-                    sha256: item.sha256.clone(),
-                    dest: Destination::Kept {
-                        generation: content.generation,
-                        kept_name: kept_leaf(&item.name, 1),
-                        reason: item.reason.clone(),
-                    },
-                    repack: None,
-                    exact: None,
-                    loose: false,
-                    leave: false,
+            let moved = self.move_out(Move {
+                folder: row.id,
+                plan: Some(id),
+                item: Some(item.item),
+                name: &item.name,
+                seen: Seen {
+                    identity: item.identity.into(),
+                    file: item.file.clone(),
+                    ctime_ns: item.ctime_ns,
                 },
-            )?;
+                sha256: item.sha256.clone(),
+                dest: Destination::Kept {
+                    generation: content.generation,
+                    kept_name: kept_leaf(&item.name, 1),
+                    reason: item.reason.clone(),
+                },
+                repack: None,
+                exact: None,
+                loose: false,
+                leave: false,
+            })?;
             outcomes.push(match moved {
                 Ok(moved) => {
                     detail.push(format!("kept as {}", item.destination));
@@ -2601,7 +2601,8 @@ impl Store {
     ///
     /// It runs before any Job, so no move is being made: first it removes the scratch every 7z repack a kill
     /// interrupted left behind, whether its move is then published, failed or tried again from the start.
-    pub fn recover_ingest_moves(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+    pub fn recover_ingest_moves(&self) -> Result<Vec<(i64, String)>> {
+        let roots = &*self.roots();
         let mut left = Vec::new();
         if let Err(err) = moves::remove_sevenz_scratch(&self.dir().join(crate::TMP)) {
             left.push((
@@ -2618,7 +2619,7 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
         for row in &folders {
-            if let Ok(dir) = open_checked(self, config, row)?
+            if let Ok(dir) = open_checked(self, roots, row)?
                 && let Err(why) = settle_dir_temps(self, Scope::Ingest(row.id), &dir)?
             {
                 left.push((0, why));
@@ -2636,7 +2637,7 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
         for id in unfinished {
-            if let Err(why) = self.drive_move(config, id)? {
+            if let Err(why) = self.drive_move(id)? {
                 left.push((id, why));
             }
         }

@@ -15,7 +15,6 @@ use title_select_api::report::{EvidenceLevel, Finding};
 use title_select_api::storage::{release_of, split_placed};
 
 use super::{Folder, Inputs, Sources};
-use crate::config::Config;
 
 /// Why a release a plan could place is copied instead.
 const CHD: &str = "it is stored as CHD here, and a CHD is copied, not placed, unless you choose to place converted \
@@ -45,7 +44,7 @@ struct Found {
 /// Source Set's Placed Games, other than one `held` back; and says in `notes` what placing does, and why any release
 /// is copied instead.
 pub(super) fn place(
-    config: &Config,
+    roots: &crate::roots::Roots,
     inputs: &Inputs,
     folder: Option<&Folder>,
     sources: &mut Sources,
@@ -75,7 +74,7 @@ pub(super) fn place(
         }
         Some(_) => {}
     }
-    let writable = config
+    let writable = roots
         .root(&inputs.set_root)
         .is_some_and(|r| r.may_write(&inputs.set_path));
     if !writable {

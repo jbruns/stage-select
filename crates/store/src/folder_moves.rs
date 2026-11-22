@@ -15,7 +15,6 @@ use super::folders::{
 };
 use super::lifecycle::{holds_of, library_folder_work};
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 
 /// A move as stored, with the identity of the folder it moves.
 struct Row {
@@ -83,8 +82,8 @@ fn open_creating(root: FolderDir, rel: &str) -> std::io::Result<FolderDir> {
 }
 
 /// The identity of the folder `rel` in the Root `root`, if it can be opened.
-fn identity_at(config: &Config, root: &str, rel: &str) -> Option<Identity> {
-    open_writable_folder(config, root, rel)
+fn identity_at(roots: &crate::roots::Roots, root: &str, rel: &str) -> Option<Identity> {
+    open_writable_folder(roots, root, rel)
         .ok()
         .and_then(|dir| dir.identity().ok())
 }
@@ -100,12 +99,8 @@ fn finish(c: &Connection, id: i64, outcome: &str) -> Result<()> {
 impl Store {
     /// Plans moving or renaming Library Folder `id` to `to.path` in the same Root. Nothing is moved until the plan
     /// is approved; it is refused while anything holds the folder, or where a new Library Folder could not be.
-    pub fn plan_library_folder_move(
-        &self,
-        config: &Config,
-        id: i64,
-        to: &PlanFolderMove,
-    ) -> Result<FolderMove> {
+    pub fn plan_library_folder_move(&self, id: i64, to: &PlanFolderMove) -> Result<FolderMove> {
+        let roots = &*self.roots();
         let (row, store) = self.read(|c| {
             let row = folder_by_id(c, id)?;
             row.check_registered()?;
@@ -118,8 +113,8 @@ impl Store {
             }
             Ok((row, store_id(c)?))
         })?;
-        let to_path = self.check_library_path(config, &row.root, &to.path)?;
-        let dir = open_writable_folder(config, &row.root, &row.path).map_err(Error::Refused)?;
+        let to_path = self.check_library_path(&row.root, &to.path)?;
+        let dir = open_writable_folder(roots, &row.root, &row.path).map_err(Error::Refused)?;
         if let Some(problem) = marker_problem(&dir, &store, id, row.generation, true) {
             return Err(Error::Refused(format!(
                 "{}: {problem}; nothing was moved",
@@ -128,7 +123,7 @@ impl Store {
         }
         let identity = dir.identity().map_err(|e| Error::Io(e.to_string()))?;
         let (parent, name) = split(&to_path);
-        if let Ok(parent) = open_writable_folder(config, &row.root, parent)
+        if let Ok(parent) = open_writable_folder(roots, &row.root, parent)
             && parent
                 .stat(name)
                 .map_err(|e| Error::Io(e.to_string()))?
@@ -160,13 +155,14 @@ impl Store {
     /// to its new path, creating the folders above it, and its registration follows it.
     pub fn approve_library_folder_move(
         &self,
-        config: &Config,
         id: i64,
         digest: &str,
         actor: &str,
     ) -> Result<FolderMove> {
-        // Reserving the destination is serialized with registering Library Folders, which check it.
+        // Reserving the destination is serialized with registering Library Folders, which check it, and with edits
+        // of Roots, so the Roots it reads are those it is recorded under.
         let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
         let planned = self.write(|tx| {
             let row = move_by_id(tx, id)?;
             if row.plan.approved_at.is_some() {
@@ -196,7 +192,7 @@ impl Store {
                 )));
             }
             // What was registered since the plan may overlap where it goes; approving reserves the destination.
-            check_library_path(tx, config, &row.plan.root, &row.plan.to_path).map_err(
+            check_library_path(tx, roots, &row.plan.root, &row.plan.to_path).map_err(
                 |e| match e {
                     Error::Refused(why) => Error::Conflict(format!("{why}; plan the move again")),
                     other => other,
@@ -217,7 +213,7 @@ impl Store {
                     work.join("; ")
                 )));
             }
-            match self.rename_folder(config, plan, planned.identity) {
+            match self.rename_folder(plan, planned.identity) {
                 Ok(()) => {
                     tx.execute(
                         "UPDATE library_folders SET path = ?2 WHERE id = ?1",
@@ -242,13 +238,13 @@ impl Store {
     /// Renames the folder of `plan`, checked to still be the one with `identity`, to its new path.
     fn rename_folder(
         &self,
-        config: &Config,
         plan: &FolderMove,
         identity: Identity,
     ) -> std::result::Result<(), String> {
+        let roots = &*self.roots();
         let (from_parent, from_name) = split(&plan.from_path);
         let (to_parent, to_name) = split(&plan.to_path);
-        let found = open_writable_folder(config, &plan.root, &plan.from_path)?
+        let found = open_writable_folder(roots, &plan.root, &plan.from_path)?
             .identity()
             .map_err(|e| e.to_string())?;
         if found != identity {
@@ -257,8 +253,8 @@ impl Store {
                 plan.from_path
             ));
         }
-        let source = open_writable_folder(config, &plan.root, from_parent)?;
-        let root = open_writable_folder(config, &plan.root, "")?;
+        let source = open_writable_folder(roots, &plan.root, from_parent)?;
+        let root = open_writable_folder(roots, &plan.root, "")?;
         let dest = open_creating(root, to_parent).map_err(|e| e.to_string())?;
         source
             .rename_new(from_name, &dest, to_name)
@@ -271,7 +267,8 @@ impl Store {
     /// Run when the service starts: settles each approved move of a Library Folder the service stopped while
     /// carrying out, from where the folder is found by its identity. Returns, for each move left unsettled because
     /// the folder is at neither path, the move and why; it holds its folder until a later start settles it.
-    pub fn recover_library_folder_moves(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+    pub fn recover_library_folder_moves(&self) -> Result<Vec<(i64, String)>> {
+        let roots = &*self.roots();
         let unfinished: Vec<i64> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id FROM library_folder_moves WHERE approved_at IS NOT NULL AND finished_at IS NULL",
@@ -283,7 +280,7 @@ impl Store {
         for id in unfinished {
             let row = self.read(|c| move_by_id(c, id))?;
             let plan = &row.plan;
-            if identity_at(config, &plan.root, &plan.to_path) == Some(row.identity) {
+            if identity_at(roots, &plan.root, &plan.to_path) == Some(row.identity) {
                 self.write(|tx| {
                     tx.execute(
                         "UPDATE library_folders SET path = ?2 WHERE id = ?1",
@@ -291,7 +288,7 @@ impl Store {
                     )?;
                     finish(tx, id, "moved")
                 })?;
-            } else if identity_at(config, &plan.root, &plan.from_path) == Some(row.identity) {
+            } else if identity_at(roots, &plan.root, &plan.from_path) == Some(row.identity) {
                 self.write(|tx| {
                     finish(
                         tx,

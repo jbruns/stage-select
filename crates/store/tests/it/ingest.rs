@@ -4,13 +4,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
 use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
 use title_select_api::support::{SupportFileKind, SupportFileOrigin};
 use title_select_api::{AuditEvidence, JobKind};
-use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -68,7 +68,6 @@ fn beta_games() -> Vec<(&'static str, Vec<RomSpec>)> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -81,18 +80,17 @@ impl Env {
         for dir in ["in", "slow", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
-             [roots.slow]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            sets.display().to_string(),
-            tmp.path().join("in").display().to_string(),
-            tmp.path().join("slow").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", &sets),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+                RootSpec::new("slow", tmp.path().join("slow")).of_kind(RootKind::Ingest),
+            ],
+        );
         store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -115,23 +113,21 @@ impl Env {
         store.import_dat(&alpha, None).unwrap();
         store.import_dat(&beta, None).unwrap();
         store
-            .add_source_set(&config, "sets", "Alpha", "No-Intro/Alpha System")
+            .add_source_set("sets", "Alpha", "No-Intro/Alpha System")
             .unwrap();
         store
-            .add_source_set(&config, "sets", "Beta", "No-Intro/Beta System")
+            .add_source_set("sets", "Beta", "No-Intro/Beta System")
             .unwrap();
         write_file(&sets.join("Alpha/Pong (USA).a26"), b"pong");
         write_file(&sets.join("Alpha/Combat (USA).a26"), b"combat");
         for set in ["Alpha", "Beta"] {
             store
-                .audit_source_set(&config, set, None, AuditEvidence::Full)
+                .audit_source_set(set, None, AuditEvidence::Full)
                 .unwrap();
         }
-        let env = Env { tmp, store, config };
-        env.store.register_ingest_folder(&env.config, "in").unwrap();
-        env.store
-            .register_ingest_folder(&env.config, "slow")
-            .unwrap();
+        let env = Env { tmp, store };
+        env.store.register_ingest_folder("in").unwrap();
+        env.store.register_ingest_folder("slow").unwrap();
         env
     }
 
@@ -152,10 +148,7 @@ impl Env {
         assert_eq!(job.ingest_folder.as_deref(), Some(root));
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job.id);
-        let ended = self
-            .store
-            .run_ingest_scan_job(&self.config, job.id)
-            .unwrap();
+        let ended = self.store.run_ingest_scan_job(job.id).unwrap();
         assert_eq!(
             ended.state,
             title_select_api::JobState::Succeeded,
@@ -208,7 +201,6 @@ impl Env {
         let ids = items.iter().map(|name| self.item(name).id).collect();
         self.store
             .plan_ingest(
-                &self.config,
                 "in",
                 &PlanIngest {
                     action,
@@ -294,10 +286,7 @@ fn an_item_still_changing_stays_arriving_and_partial_downloads_and_dotfiles_are_
 fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     let env = Env::new();
     let slow = env.dir("slow");
-    assert_eq!(
-        env.store.ingest_follow_up_at(&env.config, "slow").unwrap(),
-        None
-    );
+    assert_eq!(env.store.ingest_follow_up_at("slow").unwrap(), None);
 
     let before = jiff::Timestamp::now();
     write_file(&slow.join("pong.a26"), b"pong");
@@ -305,7 +294,7 @@ fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     let after = jiff::Timestamp::now();
     let due = env
         .store
-        .ingest_follow_up_at(&env.config, "slow")
+        .ingest_follow_up_at("slow")
         .unwrap()
         .expect("an item is arriving");
     let settle = jiff::SignedDuration::from_secs(60);
@@ -314,17 +303,10 @@ fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     // A later arrival, or the same one changing again, doesn't bring the earliest forward.
     write_file(&slow.join("combat.a26"), b"combat");
     env.scan_root("slow");
-    assert_eq!(
-        env.store.ingest_follow_up_at(&env.config, "slow").unwrap(),
-        Some(due)
-    );
+    assert_eq!(env.store.ingest_follow_up_at("slow").unwrap(), Some(due));
     write_file(&slow.join("pong.a26"), b"pong, again");
     env.scan_root("slow");
-    let later = env
-        .store
-        .ingest_follow_up_at(&env.config, "slow")
-        .unwrap()
-        .unwrap();
+    let later = env.store.ingest_follow_up_at("slow").unwrap().unwrap();
     assert!(
         later > due,
         "pong restarted, combat is the earliest now: {later}"
@@ -335,10 +317,7 @@ fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
     env.scan();
     env.scan();
     assert_eq!(env.state("pong.a26"), ItemState::Assessed);
-    assert_eq!(
-        env.store.ingest_follow_up_at(&env.config, "in").unwrap(),
-        None
-    );
+    assert_eq!(env.store.ingest_follow_up_at("in").unwrap(), None);
 }
 
 #[test]
@@ -468,7 +447,7 @@ fn an_unchanged_item_is_not_read_again_but_matched_again() {
     // Beta gains Pong: the item, read once, is now held by every Source Set it matches.
     write_file(&env.dir("roots/sets/Beta/Pong (Beta).bin"), b"pong");
     env.store
-        .audit_source_set(&env.config, "Beta", None, AuditEvidence::Full)
+        .audit_source_set("Beta", None, AuditEvidence::Full)
         .unwrap();
     env.scan();
     assert_eq!(reads.load(Ordering::SeqCst), 1);
@@ -581,13 +560,13 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
 
     let wrong = env
         .store
-        .approve_ingest_plan(&env.config, plan.id, "0000", "Operator", WORKERS);
+        .approve_ingest_plan(plan.id, "0000", "Operator", WORKERS);
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
     assert_eq!(env.listing(), before);
 
     let applied = env
         .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert!(applied.outcomes.iter().all(|o| o.moved), "{applied:?}");
     assert_eq!(
@@ -607,9 +586,9 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].kept_name, "mystery.a26.kept");
 
-    let again =
-        env.store
-            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let again = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(again.is_err(), "a plan is carried out once");
 }
 
@@ -623,9 +602,9 @@ fn approval_is_refused_once_anything_in_the_folder_changed_since_the_plan() {
 
     env.put("new arrival.a26", b"new");
     let before = env.listing();
-    let refused =
-        env.store
-            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
     assert_eq!(env.listing(), before);
@@ -664,7 +643,7 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     assert!(env.store.source_set_ingests("Alpha").unwrap().is_empty());
     let applied = env
         .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     assert!(applied.outcomes[0].moved, "{applied:?}");
@@ -739,7 +718,6 @@ fn a_dropped_in_support_file_is_known_by_its_header_imported_and_kept_and_anothe
     assert!(
         env.store
             .plan_ingest(
-                &env.config,
                 "in",
                 &PlanIngest {
                     action: IngestAction::DatImport,
@@ -751,7 +729,7 @@ fn a_dropped_in_support_file_is_known_by_its_header_imported_and_kept_and_anothe
     );
     let applied = env
         .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert!(applied.outcomes[0].moved, "{applied:?}");
     let kept = env.store.support_files().unwrap();
@@ -811,7 +789,7 @@ fn a_dropped_in_dat_is_recognized_as_a_newer_revision_and_makes_the_following_so
 
     let plan = env.plan(IngestAction::DatImport, &["whatever I downloaded.dat"]);
     env.store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     let stale = env.store.source_set("Alpha").unwrap().stale;
@@ -842,7 +820,7 @@ fn an_older_dat_dropped_in_is_recorded_but_never_becomes_the_newest_revision() {
 
     let plan = env.plan(IngestAction::DatImport, &["old.dat", "older.dat"]);
     env.store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     let alpha: Vec<(String, bool)> = env
@@ -896,7 +874,6 @@ fn a_dat_import_of_many_keeps_each_dat_under_the_provider_its_header_names_or_as
     let plan = env
         .store
         .plan_ingest(
-            &env.config,
             "in",
             &PlanIngest {
                 action: IngestAction::DatImport,
@@ -921,7 +898,7 @@ fn a_dat_import_of_many_keeps_each_dat_under_the_provider_its_header_names_or_as
         ]
     );
     env.store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let homebrew = env
         .store
@@ -944,7 +921,6 @@ fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
     env.scan();
     let id = env.item("mystery.a26").id;
     let refused = env.store.plan_ingest(
-        &env.config,
         "in",
         &PlanIngest {
             action: IngestAction::DatImport,
@@ -982,7 +958,6 @@ fn a_dat_with_no_name_is_never_imported_or_proposed_as_an_addition_and_says_why(
         let reason = item.reason.unwrap_or_default();
         assert!(reason.contains(missing), "{name}: {reason}");
         let refused = env.store.plan_ingest(
-            &env.config,
             "in",
             &PlanIngest {
                 action: IngestAction::DatImport,
@@ -1006,15 +981,15 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
     std::fs::remove_file(env.dir("in").join(".title-select/marker")).unwrap();
 
-    let refused =
-        env.store
-            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     assert_eq!(env.listing(), ["mystery.a26"]);
     let job = env.store.enqueue_ingest_scan("in", "Operator").unwrap();
     env.store.claim_job().unwrap();
-    let ended = env.store.run_ingest_scan_job(&env.config, job.id).unwrap();
+    let ended = env.store.run_ingest_scan_job(job.id).unwrap();
     assert_eq!(ended.state, title_select_api::JobState::Failed);
     assert_eq!(
         env.state("mystery.a26"),
@@ -1026,11 +1001,11 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
 #[test]
 fn only_an_ingest_root_is_registered_and_it_holds_no_library_folder() {
     let env = Env::new();
-    let refused = env.store.register_ingest_folder(&env.config, "sets");
+    let refused = env.store.register_ingest_folder("sets");
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     assert!(env.store.enqueue_ingest_scan("sets", "Operator").is_err());
 
-    let folders = env.store.ingest_folders(&env.config).unwrap();
+    let folders = env.store.ingest_folders().unwrap();
     let roots: Vec<(&str, bool)> = folders
         .iter()
         .map(|f| (f.root.as_str(), f.id.is_some()))
@@ -1040,13 +1015,13 @@ fn only_an_ingest_root_is_registered_and_it_holds_no_library_folder() {
     let marker = std::fs::read_to_string(env.dir("in").join(".title-select/marker")).unwrap();
     assert!(marker.contains("ingest_folder"), "{marker}");
     // Registering again is a no-op; a marker of another store is refused.
-    env.store.register_ingest_folder(&env.config, "in").unwrap();
+    env.store.register_ingest_folder("in").unwrap();
     std::fs::write(
         env.dir("in").join(".title-select/marker"),
         r#"{"store": "another", "ingest_folder": 1}"#,
     )
     .unwrap();
-    assert!(env.store.register_ingest_folder(&env.config, "in").is_err());
+    assert!(env.store.register_ingest_folder("in").is_err());
 }
 
 #[test]
@@ -1058,7 +1033,6 @@ fn an_item_still_arriving_cannot_be_planned() {
     assert_eq!(item.state, ItemState::Arriving);
 
     let refused = env.store.plan_ingest(
-        &env.config,
         "slow",
         &PlanIngest {
             action: IngestAction::Discard,
@@ -1075,7 +1049,6 @@ fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
     let env = Env::new();
     let plan = |root: &str, action: IngestAction, id: i64| {
         env.store.plan_ingest(
-            &env.config,
             root,
             &PlanIngest {
                 action,
@@ -1143,9 +1116,9 @@ fn approval_is_refused_after_an_overwrite_that_hides_itself_or_a_new_link_to_the
             _ => std::fs::hard_link(&path, env.dir("in").join(".hidden link")).unwrap(),
         }
         let before = env.listing();
-        let refused =
-            env.store
-                .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        let refused = env
+            .store
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
 
         assert!(
             matches!(refused, Err(Error::Conflict(_))),
@@ -1165,7 +1138,6 @@ fn an_item_with_another_link_to_it_cannot_be_planned() {
     let id = env.item("mystery.a26").id;
 
     let refused = env.store.plan_ingest(
-        &env.config,
         "in",
         &PlanIngest {
             action: IngestAction::Discard,
@@ -1242,10 +1214,10 @@ fn a_games_zip_holding_a_rom_it_shares_with_other_games_is_that_games_zip() {
     );
     env.store.import_dat(&dat, None).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Gamma", "No-Intro/Gamma System")
+        .add_source_set("sets", "Gamma", "No-Intro/Gamma System")
         .unwrap();
     env.store
-        .audit_source_set(&env.config, "Gamma", None, AuditEvidence::Full)
+        .audit_source_set("Gamma", None, AuditEvidence::Full)
         .unwrap();
     write_zip(
         &env.dir("in").join("pac.zip"),
@@ -1296,7 +1268,7 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
 
         let applied = env
             .store
-            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
 
         let detail = applied.outcomes[0].detail.clone().unwrap();
@@ -1324,12 +1296,7 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
         env.store.claim_job().unwrap().unwrap();
         env.store.fail_job(blocking.id, "stopped").unwrap();
         match recovered {
-            true => assert!(
-                env.store
-                    .recover_ingest_moves(&env.config)
-                    .unwrap()
-                    .is_empty()
-            ),
+            true => assert!(env.store.recover_ingest_moves().unwrap().is_empty()),
             false => assert_eq!(env.store.fulfil_ingest_reaudits().unwrap().queued.len(), 1),
         }
 
@@ -1370,7 +1337,7 @@ fn an_owed_audit_holds_its_revisions_dat_until_its_job_does() {
         .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
         .unwrap();
     env.store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.import_dat(&newest, None).unwrap();
 
@@ -1416,7 +1383,7 @@ fn an_owed_audit_whose_revision_is_not_imported_yet_stays_owed() {
     let applied = std::thread::scope(|scope| {
         let approving = scope.spawn(|| {
             env.store
-                .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
                 .unwrap()
         });
         wait.recv().unwrap();
@@ -1451,7 +1418,7 @@ fn a_game_held_only_on_its_claim_is_not_already_held() {
         &[("Combat (USA).a26", b"combat")],
     );
     env.store
-        .audit_source_set(&env.config, "Alpha", None, AuditEvidence::Quick)
+        .audit_source_set("Alpha", None, AuditEvidence::Quick)
         .unwrap();
     env.put("combat.a26", b"combat");
     env.scan();
@@ -1542,15 +1509,25 @@ fn a_7z_is_read_by_member_and_one_encrypted_damaged_or_not_a_7z_is_unreadable_wi
 
 #[test]
 fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is_raised() {
-    let mut env = Env::new();
+    let env = Env::new();
     sevenz_fixtures::write_7z(
         &env.dir("in").join("yars.7z"),
         &[("Yars (USA).a26", b"yars")],
         sevenz_fixtures::Method::Lzma2,
         true,
     );
-    let limit = env.config.ingest.max_dictionary_mib;
-    env.config.ingest.max_dictionary_mib = 1;
+    let limit = |max_dictionary_mib| {
+        env.store
+            .update_settings(
+                &title_select_api::settings::SettingsUpdate {
+                    archive: Some(title_select_api::settings::ArchiveLimits { max_dictionary_mib }),
+                    ..Default::default()
+                },
+                "Operator",
+            )
+            .unwrap();
+    };
+    limit(1);
     let reads = Arc::new(AtomicUsize::new(0));
     let counted = reads.clone();
     env.store.hook_faults(Some(Arc::new(move |fault| {
@@ -1575,7 +1552,7 @@ fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is
     );
     assert_eq!(reads.load(Ordering::SeqCst), 2, "read again on each scan");
 
-    env.config.ingest.max_dictionary_mib = limit;
+    limit(title_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB);
     env.scan();
 
     assert_eq!(env.state("yars.7z"), ItemState::Assessed);
@@ -1628,12 +1605,7 @@ fn an_optional_rom_of_a_game_with_nothing_to_check_is_needed_while_absent() {
     let (revision, _) = env.store.import_dat(&dat, None).unwrap();
     let audit = env
         .store
-        .audit_source_set(
-            &env.config,
-            "Beta",
-            Some(&revision.sha256),
-            AuditEvidence::Full,
-        )
+        .audit_source_set("Beta", Some(&revision.sha256), AuditEvidence::Full)
         .unwrap();
     let report = env.store.report(audit.id).unwrap();
     let extras = report.games.iter().find(|g| g.name == "Extras (Beta)");

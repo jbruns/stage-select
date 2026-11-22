@@ -34,7 +34,6 @@ use super::{
     record_applied, record_temp, remove_staged, set_item, sha256_of, staged_temp,
 };
 use crate::checks::Seen;
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{
     MARKER_NEW, check_marker, folder_by_id, open_folder, open_writable_folder, store_id,
@@ -243,7 +242,6 @@ type Outcome = std::result::Result<(), String>;
 /// The folder a cleanup changes, opened and checked, and what it creates in it as it goes.
 struct Run<'a> {
     store: &'a Store,
-    config: &'a Config,
     job: i64,
     dir: FolderDir,
     expected: Marker,
@@ -444,9 +442,8 @@ impl Run<'_> {
             Err(err) => return Ok(Err(err.to_string())),
         };
         let cancelled = || self.store.cancel_requested(self.job).unwrap_or(false);
-        let config = self.config;
         let limits = self.store.settings()?.chd_limits();
-        let threads = self.store.chdman_threads(config)?;
+        let threads = self.store.chdman_threads()?;
         let set = self
             .store
             .read(|c| folder_by_id(c, self.folder))?
@@ -454,14 +451,15 @@ impl Run<'_> {
         let job = self.store.meter.job(self.job);
         let work = super::ChdWork {
             store: self.store,
-            chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
-                title_select_engine::chd::Chdman {
+            chdman: self
+                .store
+                .chdman()
+                .map(|program| title_select_engine::chd::Chdman {
                     program,
                     threads,
                     deadline: limits.base,
                     tally: job.tally(None),
-                }
-            }),
+                }),
             // The CHD cleaned up is read from the Library Folder it is in.
             to: self.to.clone(),
             // Its cue sheet is extracted from the Source Set.
@@ -485,7 +483,7 @@ impl Run<'_> {
         let game = e.game.as_deref().unwrap_or_default();
         let set_fd = match e.sources.is_empty() {
             true => Err(String::new()),
-            false => self.store.set_folder_dir(config, set)?,
+            false => self.store.set_folder_dir(set)?,
         };
         let cue = e.sources.first().map(|source| (source, &set_fd));
         Ok(
@@ -870,7 +868,6 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn carry_out_cleanup(
         &self,
-        config: &Config,
         job: i64,
         plan_id: i64,
         content: &PlanContent,
@@ -879,6 +876,7 @@ impl Store {
         build_id: &mut Option<i64>,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<()> {
+        let roots = &*self.roots();
         let audit = content
             .audit
             .ok_or_else(|| Error::Io(format!("plan {plan_id} has no audit")))?;
@@ -886,9 +884,9 @@ impl Store {
             self.read(|c| Ok((folder_by_id(c, content.folder)?, store_id(c)?)))?;
         let changes = cleanup.changes_folder();
         let dir = if changes {
-            open_writable_folder(config, &folder_row.root, &folder_row.path)
+            open_writable_folder(roots, &folder_row.root, &folder_row.path)
         } else {
-            open_folder(config, &folder_row.root, &folder_row.path)
+            open_folder(roots, &folder_row.root, &folder_row.path)
         }
         .map_err(Error::Refused)?;
         let expected = Marker {
@@ -969,7 +967,7 @@ impl Store {
                 Ok(id)
             })?;
             *build_id = Some(id);
-            let refreshed = self.refresh_check(config, folder);
+            let refreshed = self.refresh_check(folder);
             return self.write(|tx| {
                 store_refreshed(tx, folder, refreshed)?;
                 finish_running(tx, &self.meter, job, JobState::Succeeded, None)
@@ -981,7 +979,6 @@ impl Store {
         *build_id = Some(id);
         let mut run = Run {
             store: self,
-            config,
             job,
             dir,
             expected: expected.clone(),
@@ -1094,7 +1091,7 @@ impl Store {
             &mut |tmp| record_temp(self, folder, MARKER_NEW, tmp),
         )?;
         self.fault_point(Fault::AfterMarker);
-        let refreshed = self.refresh_check(config, folder);
+        let refreshed = self.refresh_check(folder);
         self.write(|tx| {
             tx.execute(
                 "UPDATE builds SET state = 'succeeded', finished_at = ?2, cleaned_at = ?2 WHERE id = ?1",
@@ -1109,14 +1106,10 @@ impl Store {
     /// Checks Library Folder `folder` again once a cleanup changed what a check finds in it, so that what it reports
     /// is the folder as the cleanup left it, to be stored with [`store_refreshed`] before the cleanup's job ends,
     /// while nothing else acts on the folder. Only read; if it cannot be made, the last check stands.
-    fn refresh_check(&self, config: &Config, folder: i64) -> Option<Planned> {
-        self.compute_cleanup(
-            config,
-            folder,
-            &title_select_api::build::PlanCleanup::default(),
-        )
-        .ok()
-        .filter(|planned| planned.check.is_some())
+    fn refresh_check(&self, folder: i64) -> Option<Planned> {
+        self.compute_cleanup(folder, &title_select_api::build::PlanCleanup::default())
+            .ok()
+            .filter(|planned| planned.check.is_some())
     }
 
     /// Settles item `p` of the unfinished cleanup Build `build`, which was moving an entry within the folder `dir`

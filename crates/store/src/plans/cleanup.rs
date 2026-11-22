@@ -22,7 +22,6 @@ use super::{
     check_folder, insert_plan, laid_files, load, short, to_json,
 };
 use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{folder_by_id, open_folder};
 use crate::kept::{kept_where, name_key, open_retention};
@@ -257,12 +256,8 @@ type Restore = (CleanupRestore, Option<(Seen, Probe)>);
 
 impl Store {
     /// Computes the cleanup of Library Folder `folder` that `choices` asks for, against its current Build.
-    pub(crate) fn compute_cleanup(
-        &self,
-        config: &Config,
-        folder: i64,
-        choices: &PlanCleanup,
-    ) -> Result<Planned> {
+    pub(crate) fn compute_cleanup(&self, folder: i64, choices: &PlanCleanup) -> Result<Planned> {
+        let roots = &*self.roots();
         type Kept = Vec<(i64, Option<KeptFile>, KeptProbe)>;
         type Sources = HashMap<String, Vec<PlanSource>>;
         let (mut inputs, build, audit, kept, sources): (_, i64, i64, Kept, Sources) = self.read(|c| {
@@ -335,7 +330,7 @@ impl Store {
                 )
             });
         let mut blockers = Vec::new();
-        let found = check_folder(config, &inputs, dat.as_ref(), &mut blockers);
+        let found = check_folder(roots, &inputs, dat.as_ref(), &mut blockers);
         // Acknowledging writes nothing to the folder, so it needs no writable root.
         if !changes {
             blockers.retain(|b| b.kind != BlockerKind::ReadOnlyRoot);
@@ -368,7 +363,7 @@ impl Store {
             })
             .unwrap_or_default();
 
-        let mut set_sources = SetSources::new(config, &inputs);
+        let mut set_sources = SetSources::new(roots, &inputs);
         let mut entries = Vec::new();
         let mut restores = Vec::new();
         let mut repacks = Vec::new();
@@ -567,7 +562,7 @@ impl Store {
                     entries.push(entry);
                 }
 
-                let dir = open_folder(config, &inputs.folder.root, &inputs.folder.path).ok();
+                let dir = open_folder(roots, &inputs.folder.root, &inputs.folder.path).ok();
                 for (id, kept, cached) in &kept {
                     let Some(kept) = kept else {
                         blockers.push(refuse(
@@ -886,12 +881,7 @@ impl Store {
 
     /// Plans the cleanup of Library Folder `folder` that `request` asks for, and stores it for review with the check
     /// of the folder it was made with. Nothing is changed until you approve it.
-    pub fn plan_cleanup(
-        &self,
-        config: &Config,
-        folder: i64,
-        request: &PlanCleanup,
-    ) -> Result<Plan> {
+    pub fn plan_cleanup(&self, folder: i64, request: &PlanCleanup) -> Result<Plan> {
         if request.is_empty() {
             return Err(Error::Refused(
                 "choose what to do with at least one entry, kept file or built file".into(),
@@ -910,7 +900,7 @@ impl Store {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        let planned = self.compute_cleanup(config, folder, &choices)?;
+        let planned = self.compute_cleanup(folder, &choices)?;
         self.fault_point(Fault::Scanned);
         self.write(|tx| {
             let active = folder_by_id(tx, folder)?.active_job;

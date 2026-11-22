@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use title_select_api::build::AddLibraryFolder;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
@@ -11,7 +12,6 @@ use title_select_api::storage::{SetLayout, StorageFormat, SystemStorage, split_p
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_engine::torrentzip;
-use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -135,7 +135,6 @@ fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
     /// The Library Folder's id.
     folder: i64,
 }
@@ -152,21 +151,19 @@ impl Env {
         std::fs::create_dir_all(sets.join("mame")).unwrap();
         std::fs::create_dir_all(tmp.path().join("play")).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            sets.display().to_string(),
-            tmp.path().join("play").display().to_string(),
-            tmp.path().join("in").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", sets).writing(&["mame"]),
+                RootSpec::new("play", tmp.path().join("play")).writable(),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            ],
+        );
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
-        store
-            .add_source_set(&config, "sets", "mame", &revision.dat)
-            .unwrap();
+        store.add_source_set("sets", "mame", &revision.dat).unwrap();
         store
             .save_profile(
                 "Mine",
@@ -178,24 +175,16 @@ impl Env {
             )
             .unwrap();
         let folder = store
-            .add_library_folder(
-                &config,
-                &AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("arcade".into()),
-                    template: None,
-                    source_set: "mame".into(),
-                    profile: "Mine".into(),
-                },
-            )
+            .add_library_folder(&AddLibraryFolder {
+                root: "play".into(),
+                path: Some("arcade".into()),
+                template: None,
+                source_set: "mame".into(),
+                profile: "Mine".into(),
+            })
             .unwrap()
             .id;
-        Env {
-            tmp,
-            store,
-            config,
-            folder,
-        }
+        Env { tmp, store, folder }
     }
 
     fn set(&self) -> PathBuf {
@@ -230,7 +219,7 @@ impl Env {
     fn placed(&self, game: &str) {
         let name = format!("{game}.zip");
         self.store
-            .record_placement(&self.config, "mame", game, self.folder, &[&name])
+            .record_placement("mame", game, self.folder, &[&name])
             .unwrap();
     }
 
@@ -260,7 +249,6 @@ impl Env {
         write_zip(&self.tmp.path().join("in").join(zip), members);
         self.store
             .update_settings(
-                &self.config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -277,16 +265,11 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        self.store
-            .register_ingest_folder(&self.config, "in")
-            .unwrap();
+        self.store.register_ingest_folder("in").unwrap();
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -294,14 +277,14 @@ impl Env {
     fn audit(&self) -> title_select_api::Report {
         let audit = self
             .store
-            .audit_source_set(&self.config, "mame", None, AuditEvidence::Full)
+            .audit_source_set("mame", None, AuditEvidence::Full)
             .unwrap();
         self.store.report(audit.id).unwrap()
     }
 
     fn plan(&self) -> RepairPlan {
         self.store
-            .plan_repair(&self.config, "mame", &PlanRepair::default())
+            .plan_repair("mame", &PlanRepair::default())
             .unwrap()
     }
 
@@ -311,7 +294,7 @@ impl Env {
         assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
         let audit = done.audit_job.expect("a repair queues an audit");
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
-        let ended = self.store.run_audit_job(&self.config, audit, None).unwrap();
+        let ended = self.store.run_audit_job(audit, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         let latest = &self.store.history("mame").unwrap()[0];
         self.store.report(latest.id).unwrap()
@@ -327,12 +310,12 @@ impl Env {
     fn run_after(&self, plan: &RepairPlan, meanwhile: impl FnOnce()) -> RepairPlan {
         let approved = self
             .store
-            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         meanwhile();
         let job = approved.job.expect("an approved repair has a job");
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
-        let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
+        let ended = self.store.run_repair_job(job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         self.store.fulfil_repair_audits().unwrap();
         self.store.repair_plan(plan.id).unwrap()
@@ -642,7 +625,6 @@ fn leaving_one_game_of_a_family_leaves_the_family_as_it_is() {
     let plan = env
         .store
         .plan_repair(
-            &env.config,
             "mame",
             &PlanRepair {
                 choices: [("game:blasterj".to_owned(), RepairChoice::Leave)].into(),
@@ -744,7 +726,6 @@ fn choosing_to_repair_one_game_of_a_family_another_is_left_by_default_is_refused
     env.audit();
     let plan = |game: &str| {
         env.store.plan_repair(
-            &env.config,
             "mame",
             &PlanRepair {
                 choices: [(format!("game:{game}"), RepairChoice::Apply)].into(),
@@ -1311,7 +1292,6 @@ fn a_conflicting_entry_you_choose_to_keep_aside_with_the_last_copy_of_a_rom_says
     let plan = env
         .store
         .plan_repair(
-            &env.config,
             "mame",
             &PlanRepair {
                 choices: [(conflict.key.clone(), RepairChoice::KeepAside)].into(),
@@ -1529,7 +1509,6 @@ fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
     let chosen = env
         .store
         .plan_repair(
-            &env.config,
             "mame",
             &PlanRepair {
                 choices,
@@ -1891,7 +1870,6 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
         true => env
             .store
             .plan_repair(
-                &env.config,
                 "mame",
                 &PlanRepair {
                     choices: [(spare.key.clone(), RepairChoice::KeepAside)].into(),

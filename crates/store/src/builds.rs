@@ -44,7 +44,6 @@ use super::jobs::finish_running;
 use super::kept::{Keep, Original, Retention, create_dir, open_retention, settle_dir_temps};
 use super::plans::{digest, json, to_json};
 use super::{Error, Fault, Result, Store, now};
-use crate::config::Config;
 use rustix::fs::Stat;
 
 mod cleanup;
@@ -1994,7 +1993,6 @@ impl Store {
     /// as it ends.
     pub fn run_build_job(
         &self,
-        config: &Config,
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
@@ -2035,7 +2033,7 @@ impl Store {
             return self.job(id);
         }
         let mut build = None;
-        let outcome = self.carry_out(config, id, plan_id, &mut build, progress);
+        let outcome = self.carry_out(id, plan_id, &mut build, progress);
         if let Err(err) = &outcome {
             let message = err.to_string();
             // The Build is recorded failed, with the Job's error, before its folder is recovered, and the Job ends
@@ -2044,7 +2042,7 @@ impl Store {
                 Some(build) => {
                     self.write(|tx| fail_build(tx, id, build, &message))?;
                     self.fault_point(Fault::BuildFailed);
-                    self.recover_build(config, build, Some(&self.meter.job(id)))
+                    self.recover_build(build, Some(&self.meter.job(id)))
                         .map(drop)
                 }
                 None => Ok(()),
@@ -2062,7 +2060,7 @@ impl Store {
             // hold it meanwhile; then it stays registered, empty, and you unregister it once nothing does.
             let content = self.plan(plan_id)?.content;
             if content.choices.remove_all {
-                match self.unregister(config, RegistrationKind::LibraryFolder, content.folder) {
+                match self.unregister(RegistrationKind::LibraryFolder, content.folder) {
                     Ok(_) | Err(Error::Conflict(_)) => {}
                     Err(err) => return Err(err),
                 }
@@ -2073,19 +2071,19 @@ impl Store {
 
     fn carry_out(
         &self,
-        config: &Config,
         job: i64,
         plan_id: i64,
         build_id: &mut Option<i64>,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<()> {
+        let roots = &*self.roots();
         let plan = self.plan(plan_id)?;
         let approved = plan
             .approval
             .as_ref()
             .ok_or_else(|| Error::Io(format!("plan {plan_id} is not approved")))?;
         let content = &plan.content;
-        let again = self.recompute(config, content)?;
+        let again = self.recompute(content)?;
         if digest(&again.content) != approved.digest {
             let newer = self.write(|tx| super::plans::insert_plan(tx, &again, None))?;
             return Err(Error::Conflict(format!(
@@ -2094,16 +2092,15 @@ impl Store {
             )));
         }
         if let Some(cleanup) = &content.cleanup {
-            return self.carry_out_cleanup(
-                config, job, plan_id, content, cleanup, &again, build_id, progress,
-            );
+            return self
+                .carry_out_cleanup(job, plan_id, content, cleanup, &again, build_id, progress);
         }
         let audit = content
             .audit
             .ok_or_else(|| Error::Io(format!("plan {plan_id} has no audit")))?;
         let (folder_row, store) =
             self.read(|c| Ok((folder_by_id(c, content.folder)?, store_id(c)?)))?;
-        let dir = open_writable_folder(config, &folder_row.root, &folder_row.path)
+        let dir = open_writable_folder(roots, &folder_row.root, &folder_row.path)
             .map_err(Error::Refused)?;
         // What verifying a conversion's file reads back from the Library Folder's Root.
         let library = self.meter.job(job).tally(Some(&folder_row.root));
@@ -2128,7 +2125,7 @@ impl Store {
         // The Additions Set the plan's Additions are copied from: one, the folder's system's.
         let additions = match content.items.iter().find_map(|i| i.addition.as_ref()) {
             Some(a) => Some(
-                self.open_additions(config, a.additions_set)?
+                self.open_additions(a.additions_set)?
                     .map_err(Error::Refused)?,
             ),
             None => None,
@@ -2154,8 +2151,8 @@ impl Store {
         let set = match work.is_empty() {
             true => None,
             false => {
-                let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
-                let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
+                let (set_dir, set_root) = self.set_folder(folder_row.source_set_id)?;
+                let set_fd = self.set_folder_dir(folder_row.source_set_id)?;
                 Some((set_dir, set_root, set_fd))
             }
         };
@@ -2165,7 +2162,7 @@ impl Store {
             || !content.returns.is_empty()
         {
             true => Some(
-                self.open_placing(config, folder_row.source_set_id)?
+                self.open_placing(folder_row.source_set_id)?
                     .map_err(|why| {
                         Error::Refused(format!(
                             "source set {} can't be changed to place its games or return them: {why}; nothing was \
@@ -2411,7 +2408,7 @@ impl Store {
         };
         let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
         let limits = self.settings()?.chd_limits();
-        let threads = self.chdman_threads(config)?;
+        let threads = self.chdman_threads()?;
         let meter = self.meter.job(job);
         let placed_chds: HashMap<String, crate::placements::PlacedChd> = self
             .read(|c| crate::placements::placed_chds_of(c, folder_row.source_set_id))?
@@ -2429,7 +2426,7 @@ impl Store {
                         .any(|s| placed_chds.contains_key(&s.path))
             }) || !returning.is_empty()
             {
-                true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
+                true => self.chdman().map(|program| Chdman {
                     program,
                     threads,
                     deadline: limits.base,
@@ -2449,7 +2446,7 @@ impl Store {
                 // With no Source Set, nothing is read from one.
                 None => Tally::default(),
             },
-            additions: meter.tally(Some(crate::config::ADDITIONS_ROOT)),
+            additions: meter.tally(self.additions_root_name().as_deref()),
             scratch: meter.tally(None),
             set: folder_row.source_set_id,
             placed_chds: placed_chds.clone(),
@@ -2470,7 +2467,7 @@ impl Store {
                 let mut placed = HashMap::new();
                 for f in folders {
                     let row = self.read(|c| folder_by_id(c, f))?;
-                    placed.insert(f, super::folders::open_folder(config, &row.root, &row.path));
+                    placed.insert(f, super::folders::open_folder(roots, &row.root, &row.path));
                 }
                 placed
             },
@@ -2558,7 +2555,7 @@ impl Store {
             audit,
             dir: &dir,
             expected: &expected,
-            config,
+            roots,
             root: &folder_row.root,
             path: &folder_row.path,
             generation: set_generation,
@@ -3059,7 +3056,7 @@ impl Store {
                 set: folder_row.source_set_id,
                 set_name: &folder_row.source_set,
                 dir: &dir,
-                config,
+                roots,
                 to: &to,
                 from: &library,
                 chd: Some(&chd_work),
@@ -3270,12 +3267,7 @@ impl Store {
     /// intent recorded, at the Build's. Returns why the folder was left as it is, if it was; the Build then still
     /// needs recovery, and plans for its folder are blocked.
     /// What it reads back from the Library Folder's Root is counted to `job`, the Build's Job, if it is still running.
-    fn recover_build(
-        &self,
-        config: &Config,
-        build: i64,
-        job: Option<&JobMeter>,
-    ) -> Result<Option<String>> {
+    fn recover_build(&self, build: i64, job: Option<&JobMeter>) -> Result<Option<String>> {
         // A CHD's work space, left by a Build that stopped while chdman ran, holds nothing it needs.
         remove_chd_dirs(&self.dir().join(crate::TMP), build);
         let (unfinished, folder, store) = self.read(|c| {
@@ -3322,27 +3314,18 @@ impl Store {
         let library = job
             .map(|job| job.tally(Some(&folder.root)))
             .unwrap_or_default();
-        let outcome = match self.clean_folder(
-            config,
-            (build, &library),
-            &unfinished,
-            &folder,
-            store.clone(),
-        )? {
-            // Then each Game it was placing, or returning, is rolled forward or back, through the folder at its
-            // generation now.
-            Ok(()) => match self.recover_placing(
-                config,
-                build,
-                unfinished.plan,
-                &folder,
-                store.clone(),
-            )? {
-                Ok(()) => self.recover_returning(config, build, unfinished.plan, &folder, store)?,
+        let outcome =
+            match self.clean_folder((build, &library), &unfinished, &folder, store.clone())? {
+                // Then each Game it was placing, or returning, is rolled forward or back, through the folder at its
+                // generation now.
+                Ok(()) => {
+                    match self.recover_placing(build, unfinished.plan, &folder, store.clone())? {
+                        Ok(()) => self.recover_returning(build, unfinished.plan, &folder, store)?,
+                        Err(why) => Err(why),
+                    }
+                }
                 Err(why) => Err(why),
-            },
-            Err(why) => Err(why),
-        };
+            };
         let error = outcome.as_ref().err().cloned();
         self.write(|tx| {
             tx.execute(
@@ -3500,13 +3483,13 @@ impl Store {
 
     fn clean_folder(
         &self,
-        config: &Config,
         (build, library): (i64, &Tally),
         unfinished: &Unfinished,
         folder: &super::folders::FolderRow,
         store: String,
     ) -> Result<std::result::Result<(), String>> {
-        let dir = match open_writable_folder(config, &folder.root, &folder.path) {
+        let roots = &*self.roots();
+        let dir = match open_writable_folder(roots, &folder.root, &folder.path) {
             Ok(dir) => dir,
             Err(reason) => return Ok(Err(reason)),
         };
@@ -3780,7 +3763,7 @@ impl Store {
     /// Run when the service starts, after [`Store::recover_jobs`]: cleans up the folder of each Build that ended
     /// without its folder being cleaned up. A folder that is not the store's, or
     /// cannot be reached, is left as it is; returns, for each, the Build and why.
-    pub fn recover_builds(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+    pub fn recover_builds(&self) -> Result<Vec<(i64, String)>> {
         let builds: Vec<i64> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT id FROM builds WHERE cleaned_at IS NULL AND state IN ('failed', 'interrupted') ORDER BY id",
@@ -3791,7 +3774,7 @@ impl Store {
         let mut blocked = Vec::new();
         for id in builds {
             // Recovery when the service starts is not a Job's I/O: no Job's meter counts it.
-            if let Some(reason) = self.recover_build(config, id, None)? {
+            if let Some(reason) = self.recover_build(id, None)? {
                 blocked.push((id, reason));
             }
         }

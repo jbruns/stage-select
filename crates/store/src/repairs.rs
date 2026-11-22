@@ -37,7 +37,6 @@ use title_select_engine::{FileStamp, Progress};
 
 use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
-use crate::config::Config;
 use crate::folder_dir::{
     FolderDir, Identity, create_staged, ctime_ns, file_stat, parent_made, parent_of,
     remove_emptied, staged_name,
@@ -69,8 +68,8 @@ pub(crate) enum MarkerRule {
 /// Why a Root does not let a repair write to `path`.
 fn not_writable(set: &str, root: &str, path: &str) -> String {
     format!(
-        "source set {set} is in root {root}, which does not let Title Select write to it. Declare the root writable, \
-         or list \"{path}\" in its writable_paths, then restart the service"
+        "source set {set} is in root {root}, which does not let Title Select write to it. Make the root writable, \
+         or add \"{path}\" to its writable paths, in your roots"
     )
 }
 
@@ -124,17 +123,14 @@ fn check_set_marker(
 /// found writable now, and its marker is as `rule` says.
 pub(crate) fn open_repairable(
     store: &Store,
-    config: &Config,
+    roots: &crate::roots::Roots,
     set: i64,
     rule: MarkerRule,
 ) -> Result<std::result::Result<FolderDir, String>> {
     let row = store.read(|c| set_by_id(c, set))?;
     let record = &row.record;
-    let Some(root) = config.root(&record.root) else {
-        return Ok(Err(format!(
-            "there is no root {} in the configuration",
-            record.root
-        )));
+    let Some(root) = roots.root(&record.root) else {
+        return Ok(Err(format!("there is no root {}", record.root)));
     };
     if !root.may_write(&record.path) {
         return Ok(Err(not_writable(&record.name, &record.root, &record.path)));
@@ -204,7 +200,7 @@ fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>
 #[allow(clippy::unnecessary_cast)]
 fn walk_with_placed(
     store: &Store,
-    config: &Config,
+    roots: &crate::roots::Roots,
     set: i64,
     dir: &FolderDir,
 ) -> Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
@@ -216,7 +212,7 @@ fn walk_with_placed(
             std::collections::btree_map::Entry::Occupied(found) => found.into_mut(),
             std::collections::btree_map::Entry::Vacant(at) => {
                 let row = store.read(|c| folder_by_id(c, file.library_folder))?;
-                let opened = open_folder(config, &row.root, &row.path).map_err(|e| {
+                let opened = open_folder(roots, &row.root, &row.path).map_err(|e| {
                     Error::Refused(format!(
                         "play library folder {}/{}, which holds placed games of the source set, can't be opened: {e}",
                         row.root, row.path
@@ -246,7 +242,7 @@ fn walk_with_placed(
 }
 
 /// The Library Folders holding Placed Games whose files the steps of `content` read, write, rename or keep aside.
-fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
+pub(crate) fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
     content
         .steps
         .iter()
@@ -294,7 +290,7 @@ fn unplaceable(content: &RepairPlanContent) -> Option<String> {
 /// else changes it now.
 fn open_placed(
     store: &Store,
-    config: &Config,
+    roots: &crate::roots::Roots,
     folder: i64,
 ) -> Result<std::result::Result<FolderDir, String>> {
     let (row, store_id, busy) = store.read(|c| {
@@ -316,7 +312,7 @@ fn open_placed(
     if let Some(why) = busy.first() {
         return Ok(Err(format!("{label}: {why}")));
     }
-    let dir = match open_writable_folder(config, &row.root, &row.path) {
+    let dir = match open_writable_folder(roots, &row.root, &row.path) {
         Ok(dir) => dir,
         Err(why) => return Ok(Err(format!("{label}: {why}"))),
     };
@@ -859,12 +855,8 @@ impl Store {
     /// Proposes a repair of Source Set `name` from its latest Audit and the assessed items of Ingest Folders, with
     /// the choices `request` makes in place of the defaults. Refused unless the Source Set's Root lets a repair write
     /// to it. Changes nothing in the Source Set.
-    pub fn plan_repair(
-        &self,
-        config: &Config,
-        name: &str,
-        request: &PlanRepair,
-    ) -> Result<RepairPlan> {
+    pub fn plan_repair(&self, name: &str, request: &PlanRepair) -> Result<RepairPlan> {
+        let roots = &*self.roots();
         let set = self.read(|c| set_by_name(c, name))?;
         let record = &set.record;
         let running: Option<i64> = self.read(|c| {
@@ -882,12 +874,9 @@ impl Store {
                 "repair plan {id} of source set {name} is approved and hasn't finished; propose a repair once it has"
             )));
         }
-        let root = config.root(&record.root).ok_or_else(|| {
-            Error::Refused(format!(
-                "there is no root {} in the configuration",
-                record.root
-            ))
-        })?;
+        let root = roots
+            .root(&record.root)
+            .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
             return Err(Error::Refused(not_writable(
                 &record.name,
@@ -905,7 +894,7 @@ impl Store {
             .map_err(|e| Error::Io(e.to_string()))?;
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
-        let (fingerprint, files) = walk_with_placed(self, config, set.id, &dir)?;
+        let (fingerprint, files) = walk_with_placed(self, roots, set.id, &dir)?;
         let stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
         let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
         let candidates =
@@ -935,7 +924,7 @@ impl Store {
                 placed_dirs.entry(file.library_folder)
             {
                 let row = self.read(|c| folder_by_id(c, file.library_folder))?;
-                if let Ok(opened) = open_folder(config, &row.root, &row.path) {
+                if let Ok(opened) = open_folder(roots, &row.root, &row.path) {
                     at.insert(opened);
                 }
             }
@@ -944,7 +933,7 @@ impl Store {
         let mut beside: BTreeMap<String, Vec<(String, Seen)>> = BTreeMap::new();
         for (folder, path, release) in self.read(|c| crate::placements::laid_beside(c, set.id))? {
             let row = self.read(|c| folder_by_id(c, folder))?;
-            let Ok(opened) = open_folder(config, &row.root, &row.path) else {
+            let Ok(opened) = open_folder(roots, &row.root, &row.path) else {
                 continue;
             };
             if let Some(st) = opened.stat(&path).map_err(io_err)?
@@ -1052,7 +1041,7 @@ impl Store {
             }
         }
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
-        let needs = self.release_needs(config, &planned, &dir, generation + 1)?;
+        let needs = self.release_needs(&planned, &dir, generation + 1)?;
         if let Some(needs) = needs {
             planned.notes.push(format!(
                 "{}, and the plan can't be approved without it",
@@ -1118,7 +1107,7 @@ impl Store {
             Some(plan) => Ok(plan),
             // A cue pack it reads was deleted as it was made, and stays deleted until imported again, so planning
             // again reads only the packs still kept.
-            None => self.plan_repair(config, name, request),
+            None => self.plan_repair(name, request),
         }
     }
 
@@ -1126,7 +1115,8 @@ impl Store {
     /// its kept files, by renaming it there, and once each is kept unregisters the Source Set. Its kept files are
     /// then deleted, if you want, as any are. Refused while anything holds the Source Set, and until it is audited:
     /// the plan is approved as a repair is, against the latest Audit.
-    pub fn plan_set_aside(&self, config: &Config, name: &str) -> Result<RepairPlan> {
+    pub fn plan_set_aside(&self, name: &str) -> Result<RepairPlan> {
+        let roots = &*self.roots();
         let set = self.read(|c| set_by_name(c, name))?;
         let record = &set.record;
         let holds =
@@ -1137,12 +1127,9 @@ impl Store {
                 holds.join("; ")
             )));
         }
-        let root = config.root(&record.root).ok_or_else(|| {
-            Error::Refused(format!(
-                "there is no root {} in the configuration",
-                record.root
-            ))
-        })?;
+        let root = roots
+            .root(&record.root)
+            .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
             return Err(Error::Refused(not_writable(
                 &record.name,
@@ -1257,11 +1244,11 @@ impl Store {
     /// copied across. None when it needs none.
     fn release_needs(
         &self,
-        config: &Config,
         planned: &planning::Planned,
         dir: &FolderDir,
         generation: u64,
     ) -> Result<Option<u64>> {
+        let roots = &*self.roots();
         // Where the kept files go, or the nearest folder of the way there that is there now.
         let mut kept = dir.try_clone().map_err(io_err)?;
         for part in crate::kept::generation_dir(generation).split('/') {
@@ -1279,7 +1266,7 @@ impl Store {
                 return Ok(false);
             }
             let row = self.read(|c| folder_by_id(c, id))?;
-            let Ok(lib) = open_folder(config, &row.root, &row.path) else {
+            let Ok(lib) = open_folder(roots, &row.root, &row.path) else {
                 return Ok(false);
             };
             Ok(parent_of(&lib, rel).is_ok_and(|(parent, _)| {
@@ -1303,9 +1290,9 @@ impl Store {
 
     /// Why `content` can't release the placed CHDs it sets aside, if it can't: the Root it writes in hasn't the space
     /// it needs, or its free space can't be read.
-    fn release_unfit(&self, config: &Config, content: &RepairPlanContent) -> Option<String> {
+    fn release_unfit(&self, content: &RepairPlanContent) -> Option<String> {
         content.needs.iter().find_map(|(root, needs)| {
-            let short = short_of(self.free_space(config, &content.root, &content.path), *needs)?;
+            let short = short_of(self.free_space(&content.root, &content.path), *needs)?;
             Some(format!(
                 "{}, and {short}; nothing was changed. Free some space there, or leave them placed, then plan the \
                  repair again",
@@ -1321,12 +1308,12 @@ impl Store {
     /// incremental Audit of the Source Set is queued, with `workers`.
     pub fn approve_repair(
         &self,
-        config: &Config,
         id: i64,
         digest: &str,
         actor: &str,
         workers: Workers,
     ) -> Result<RepairPlan> {
+        let roots = &*self.roots();
         let plan = self.repair_plan(id)?;
         if plan.approval.is_some() {
             return Err(Error::Conflict(format!(
@@ -1371,16 +1358,16 @@ impl Store {
             true => MarkerRule::Creating,
             false => MarkerRule::Required,
         };
-        let dir = open_repairable(self, config, content.set_id, rule)?.map_err(Error::Refused)?;
+        let dir = open_repairable(self, roots, content.set_id, rule)?.map_err(Error::Refused)?;
         if let Some(why) = unplaceable(content) {
             return Err(Error::Refused(format!(
                 "{why}; nothing was changed. Plan the repair again and review the new plan"
             )));
         }
         for folder in placed_folders(content) {
-            open_placed(self, config, folder)?.map_err(Error::Refused)?;
+            open_placed(self, roots, folder)?.map_err(Error::Refused)?;
         }
-        let (fingerprint, _) = walk_with_placed(self, config, content.set_id, &dir)?;
+        let (fingerprint, _) = walk_with_placed(self, roots, content.set_id, &dir)?;
         if Identity::from(content.folder) != dir.identity().map_err(io_err)?
             || fingerprint != content.fingerprint
         {
@@ -1405,10 +1392,11 @@ impl Store {
         if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
             return Err(Error::Refused(why));
         }
-        if let Some(why) = self.release_unfit(config, content) {
+        if let Some(why) = self.release_unfit(content) {
             return Err(Error::Refused(why));
         }
         self.fault_point(crate::Fault::RepairApproving);
+        let _lifecycle = self.lock_roots_unchanged(roots)?;
         self.write(|tx| {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.
@@ -1551,7 +1539,6 @@ impl Store {
     /// ends.
     pub fn run_repair_job(
         &self,
-        config: &Config,
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
@@ -1567,7 +1554,7 @@ impl Store {
                 job.state.as_str()
             )));
         }
-        let ran = self.run_repair(config, plan, id, progress);
+        let ran = self.run_repair(plan, id, progress);
         let why = match &ran {
             Ok(Ok(())) => None,
             Ok(Err(why)) => Some(why.clone()),
@@ -1681,13 +1668,8 @@ impl Store {
 
     /// Carries out each step of approved repair `id` not yet ended, as Running Job `job`, then, once every step has
     /// ended, records what it did. `Err` says why it was left unfinished.
-    fn run_repair(
-        &self,
-        config: &Config,
-        id: i64,
-        job: i64,
-        progress: Option<&(dyn Fn(Progress) + Sync)>,
-    ) -> Ran {
+    fn run_repair(&self, id: i64, job: i64, progress: Option<&(dyn Fn(Progress) + Sync)>) -> Ran {
+        let roots = &*self.roots();
         let plan = self.repair_plan(id)?;
         let content = &plan.content;
         let (_, marked) = self.read(|c| source_folder(c, content.set_id))?;
@@ -1719,7 +1701,7 @@ impl Store {
         {
             return stop(why);
         }
-        let dir = match open_repairable(self, config, content.set_id, rule)? {
+        let dir = match open_repairable(self, roots, content.set_id, rule)? {
             Ok(dir) => dir,
             Err(why) => return stop(why),
         };
@@ -1730,12 +1712,12 @@ impl Store {
             ));
         }
         // Space freed since the approval may be taken again before the repair starts.
-        if unstarted && let Some(why) = self.release_unfit(config, content) {
+        if unstarted && let Some(why) = self.release_unfit(content) {
             return stop(why);
         }
         let mut placed = BTreeMap::new();
         for folder in placed_folders(content) {
-            let opened = match open_placed(self, config, folder)? {
+            let opened = match open_placed(self, roots, folder)? {
                 Ok(opened) => opened,
                 Err(why) => return stop(why),
             };
@@ -1786,7 +1768,7 @@ impl Store {
                 && matches!(step.step, RepairStep::Build { .. })
                 && !committed_items(&self.read(|c| steps_of(c, id))?).contains(&step.item);
             if !is_terminal(&step.state)
-                && let Err(why) = self.run_step(config, &repairing, &step, droppable)?
+                && let Err(why) = self.run_step(&repairing, &step, droppable)?
             {
                 return Ok(Err(why));
             }
@@ -1803,7 +1785,7 @@ impl Store {
                 });
             }
         }
-        self.finish_repair(config, &plan, job, cancelled)?;
+        self.finish_repair(&plan, job, cancelled)?;
         Ok(Ok(()))
     }
 
@@ -1826,6 +1808,23 @@ impl Store {
             )?;
             finish_running(tx, &self.meter, job, JobState::Failed, Some(why))
         })
+    }
+
+    /// Ends approved repair `plan`, none of whose steps started, in `tx` as voided: every step fails with `why`, and
+    /// the plan finishes, owing no Audit, as when it is abandoned. Its queued Job is ended by the caller.
+    pub(crate) fn void_repair(tx: &Transaction, plan: i64, why: &str, at: &str) -> Result<()> {
+        tx.execute(
+            "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3
+             WHERE plan_id = ?1 AND state = 'pending'",
+            params![plan, why, at],
+        )?;
+        let plan = plan_by_id(tx, plan)?;
+        let outcomes = Self::outcomes(tx, &plan)?;
+        tx.execute(
+            "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+            params![plan.id, at, to_json(&outcomes)],
+        )?;
+        Ok(())
     }
 
     /// Writes Source Set `set`'s first marker through `dir`, durably: that its temporary file is about to be created
@@ -2108,13 +2107,7 @@ impl Store {
 
     /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
     /// transaction.
-    fn finish_repair(
-        &self,
-        config: &Config,
-        plan: &RepairPlan,
-        job: i64,
-        cancelled: bool,
-    ) -> Result<()> {
+    fn finish_repair(&self, plan: &RepairPlan, job: i64, cancelled: bool) -> Result<()> {
         let outcomes = self.read(|c| Self::outcomes(c, plan))?;
         // A Source Set set aside whole is unregistered once every file is kept aside, and owes no Audit: there is
         // nothing left to audit. Otherwise it stays registered, and is audited as after any repair.
@@ -2150,7 +2143,7 @@ impl Store {
             Ok(false)
         })?;
         if set_aside {
-            self.settle_marker(config, RegistrationKind::SourceSet, plan.content.set_id)?;
+            self.settle_marker(RegistrationKind::SourceSet, plan.content.set_id)?;
         }
         self.fault_point(Fault::RepairFinished);
         Ok(())
@@ -2262,7 +2255,7 @@ impl Store {
     }
 
     /// Runs `step`; a Build `droppable` by a cancel stops its reads and writes for one ([`Interruptible`]).
-    fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
+    fn run_step(&self, r: &Repairing, step: &StepRow, droppable: bool) -> Ran {
         // A disc placed as a CHD is never completed where it is placed: no file of another format is written beside
         // it, whatever the plan says. Keeping its files aside, as a release does, writes nothing.
         let writes = match &step.step {
@@ -2343,7 +2336,7 @@ impl Store {
                         );
                     }
                 }
-                self.run_keep(config, r, step, path, kept_name, reason, &seen_of(seen))
+                self.run_keep(r, step, path, kept_name, reason, &seen_of(seen))
             }
             RepairStep::Rename {
                 from,
@@ -2351,11 +2344,9 @@ impl Store {
                 seen,
                 roms,
                 loose,
-            } => self.run_rename(config, r, step, from, to, &seen_of(seen), roms, *loose),
-            RepairStep::Publish { build, target } => {
-                self.run_publish(config, r, step, *build, target)
-            }
-            RepairStep::Fill { .. } => self.run_fill(config, r, step),
+            } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
+            RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
+            RepairStep::Fill { .. } => self.run_fill(r, step),
             RepairStep::Delete {
                 path,
                 build,
@@ -3054,7 +3045,6 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     fn run_keep(
         &self,
-        config: &Config,
         r: &Repairing,
         step: &StepRow,
         path: &str,
@@ -3069,7 +3059,7 @@ impl Store {
             // be the one at its path, stays placed, and the kept copy stays kept, so the release is parted, for the next
             // repair to release the rest of.
             for (folder, placed) in kept_placed.iter().chain(&others) {
-                if self.held_in_place(config, r, *folder)?.is_ok()
+                if self.held_in_place(r, *folder)?.is_ok()
                     && r.holds(&placed_path(*folder, placed)).map_err(io_err)? == Some(false)
                 {
                     crate::placements::forget_placed(tx, *folder, placed)?;
@@ -3546,7 +3536,6 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     fn run_rename(
         &self,
-        config: &Config,
         r: &Repairing,
         step: &StepRow,
         from: &str,
@@ -3689,7 +3678,7 @@ impl Store {
             }
             // Written in the Source Set's folder: its Game's placed files that are gone are no longer placed.
             (_, None) => {
-                let vanished = self.vanished(config, r, step)?;
+                let vanished = self.vanished(r, step)?;
                 self.done_unplacing(step, None, &vanished, None)?;
             }
             _ => self.step_done(step, None)?,
@@ -3700,14 +3689,7 @@ impl Store {
 
     /// Publishes the staged file of Build step `build` as `target`, by one rename that never replaces anything. A
     /// staged file that cannot be published is kept aside rather than left.
-    fn run_publish(
-        &self,
-        config: &Config,
-        r: &Repairing,
-        step: &StepRow,
-        build: u32,
-        target: &str,
-    ) -> Ran {
+    fn run_publish(&self, r: &Repairing, step: &StepRow, build: u32, target: &str) -> Ran {
         let built = self.other_step(r.plan.id, build)?;
         let (Some(staged_name), Some(staged), "done") =
             (&built.staged_name, built.staged, built.state.as_str())
@@ -3797,7 +3779,7 @@ impl Store {
         match placed {
             true => self.publish_placed(r, step, &built, target, &st)?,
             false => {
-                let vanished = self.vanished(config, r, step)?;
+                let vanished = self.vanished(r, step)?;
                 self.done_unplacing(step, None, &vanished, None)?;
             }
         }
@@ -3940,12 +3922,8 @@ impl Store {
     /// Library Folder and path: forgotten as the step ends ([`Store::done_unplacing`]), since the Game is in the Source
     /// Set's folder again, or each file it is completed with where it is placed is recorded anew. A file still there,
     /// or in a Library Folder that can't be read now, stays placed.
-    fn vanished(
-        &self,
-        config: &Config,
-        r: &Repairing,
-        step: &StepRow,
-    ) -> Result<Vec<(i64, String)>> {
+    fn vanished(&self, r: &Repairing, step: &StepRow) -> Result<Vec<(i64, String)>> {
+        let roots = &*self.roots();
         let Some(game) = r.game_of(step) else {
             return Ok(Vec::new());
         };
@@ -3954,7 +3932,7 @@ impl Store {
         let mut gone = Vec::new();
         for file in placed.into_iter().filter(|f| f.game == game) {
             let row = self.read(|c| folder_by_id(c, file.library_folder))?;
-            let Ok(dir) = open_folder(config, &row.root, &row.path) else {
+            let Ok(dir) = open_folder(roots, &row.root, &row.path) else {
                 continue;
             };
             if dir.stat(&file.path).map_err(io_err)?.is_none() {
@@ -3968,16 +3946,16 @@ impl Store {
     /// moved away, nor replaced. Returns why not.
     fn held_in_place<'r>(
         &self,
-        config: &Config,
         r: &'r Repairing,
         folder: i64,
     ) -> Result<std::result::Result<&'r FolderDir, String>> {
+        let roots = &*self.roots();
         let Some((held, _)) = r.placed.get(&folder) else {
             return Ok(Err(format!("play library folder {folder} is not open")));
         };
         let row = self.read(|c| folder_by_id(c, folder))?;
         let label = format!("play library folder {}/{}", row.root, row.path);
-        let at = match open_folder(config, &row.root, &row.path) {
+        let at = match open_folder(roots, &row.root, &row.path) {
             Ok(at) => at,
             Err(why) => return Ok(Err(format!("{label}: {why}"))),
         };
@@ -4462,7 +4440,7 @@ impl Store {
         Ok(checks_as(&file, &expected, *loose, &r.to))
     }
 
-    fn run_fill(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {
+    fn run_fill(&self, r: &Repairing, step: &StepRow) -> Ran {
         let RepairStep::Fill {
             target,
             ingest_root,
@@ -4546,7 +4524,7 @@ impl Store {
                 }
                 // Begun only while the folder held is still the one at its path.
                 if let Some(folder) = placed_in
-                    && let Err(why) = self.held_in_place(config, r, folder)?
+                    && let Err(why) = self.held_in_place(r, folder)?
                 {
                     return self.step_failed(
                         step,
@@ -4589,7 +4567,7 @@ impl Store {
                     loose: *loose,
                     leave: *leave,
                 };
-                let recorded = self.record_move(config, mv, held, &mut |tx, move_id| {
+                let recorded = self.record_move(mv, held, &mut |tx, move_id| {
                     tx.execute(
                         "UPDATE repair_steps SET state = 'moving', move_id = ?2 WHERE id = ?1",
                         params![step.id, move_id],
@@ -4602,13 +4580,13 @@ impl Store {
                 }
             }
         };
-        match self.drive_move_into(config, move_id, held)? {
+        match self.drive_move_into(move_id, held)? {
             Ok(moved) => {
-                let vanished = self.vanished(config, r, step)?;
+                let vanished = self.vanished(r, step)?;
                 // Recorded placed only while the folder it was written in is still the one at its path.
                 let placed = match placed_in {
                     Some(folder) => {
-                        let filled = match self.held_in_place(config, r, folder)? {
+                        let filled = match self.held_in_place(r, folder)? {
                             Ok(_) => self.filled_placed(r, step, target, moved.dest_sha256)?,
                             Err(why) => Err(format!("{target} was written, but {why}")),
                         };

@@ -88,8 +88,6 @@ pub const DEFAULT_ARCHIVE_WORKERS: u64 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CeilingSource {
-    /// The configuration file, which locks it.
-    Config,
     /// The Operator's value, saved in the workbench.
     Yours,
     /// The latest Calibration's knee.
@@ -114,16 +112,6 @@ pub struct Ceiling {
     pub yours: Option<u64>,
     /// What the latest Calibration measured, where it measures this Ceiling.
     pub measured: Option<u64>,
-    /// The configuration key that sets and locks it, as `[roots.sets] readers`; none when the configuration file
-    /// doesn't set it.
-    pub locked_by: Option<String>,
-}
-
-impl Ceiling {
-    /// Whether the configuration file sets it, so that the workbench can't.
-    pub fn locked(&self) -> bool {
-        self.locked_by.is_some()
-    }
 }
 
 /// The Ceilings of the Host, shared by every Job.
@@ -133,6 +121,9 @@ pub struct HostCeilings {
     pub concurrent: Ceiling,
     /// Hash workers, one pool for every Job.
     pub hashers: Ceiling,
+    /// Payload readers on each Root that sets none of its own: only ever the Operator's, as each Root is measured
+    /// on its own.
+    pub readers: Ceiling,
     /// 7z archives decoded at once.
     pub archive_workers: Ceiling,
 }
@@ -151,8 +142,8 @@ pub struct RootCeilings {
     pub observed_write_mib_per_s: Option<u64>,
 }
 
-/// The Operator's own Ceilings, saved in the workbench: each one set overrides the Calibration and the CPU count,
-/// but not the configuration file.
+/// The Operator's own Ceilings of the Host, saved in the workbench: each one set overrides the Calibration and the
+/// CPU count.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostOverrides {
@@ -161,10 +152,12 @@ pub struct HostOverrides {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hashers: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_workers: Option<u64>,
 }
 
-/// The Operator's own Ceilings for one Root.
+/// The Operator's own Ceilings for one Root, kept with the Root.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RootOverrides {
@@ -182,7 +175,7 @@ impl RootOverrides {
     }
 }
 
-/// Every Ceiling the Operator set in the workbench.
+/// Every Ceiling the Operator set: the Host's, and each Root's.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CeilingOverrides {
@@ -206,6 +199,8 @@ pub struct HostCeilingsUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hashers: CeilingInput,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readers: CeilingInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_workers: CeilingInput,
 }
 
@@ -222,7 +217,8 @@ pub struct RootCeilingsUpdate {
 }
 
 /// Every Ceiling the Operator sets in the workbench, replacing those set before: one left out is cleared, and
-/// falls back to the Calibration or the CPU count. One the configuration file sets can't be given.
+/// falls back to the Calibration or the CPU count. Each Root's are saved with the Root; a Root left out keeps its
+/// own.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CeilingsUpdate {
@@ -230,6 +226,27 @@ pub struct CeilingsUpdate {
     pub host: HostCeilingsUpdate,
     #[serde(default)]
     pub roots: BTreeMap<String, RootCeilingsUpdate>,
+}
+
+/// The default and largest `max_dictionary_mib`: the largest 7z dictionary an archive may declare, in MiB. 4 GiB is
+/// the most an LZMA2 header can declare.
+pub const DEFAULT_MAX_DICTIONARY_MIB: u32 = 128;
+pub const MAX_DICTIONARY_MIB: u32 = 4096;
+
+/// How 7z archives are read: the largest dictionary one may declare. Decoding takes up to about the archive
+/// workers Ceiling times this much memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveLimits {
+    pub max_dictionary_mib: u32,
+}
+
+impl Default for ArchiveLimits {
+    fn default() -> Self {
+        ArchiveLimits {
+            max_dictionary_mib: DEFAULT_MAX_DICTIONARY_MIB,
+        }
+    }
 }
 
 /// How many full Audits and Selections each Source Set keeps; older ones are pruned.
@@ -513,6 +530,7 @@ pub struct JobsView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsView {
     pub jobs: JobsView,
+    pub archive: ArchiveLimits,
     pub retention: Retention,
     pub path_templates: PathTemplates,
     pub source_sets: SourceSetChecks,
@@ -534,6 +552,8 @@ pub struct SettingsUpdate {
     /// Replaces every Ceiling you set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ceilings: Option<CeilingsUpdate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<ArchiveLimits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

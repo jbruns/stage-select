@@ -18,8 +18,8 @@ use title_select_api::romm::{
 use title_select_api::settings::SecretUpdate;
 use title_select_api::{Job, JobKind};
 
-use crate::config::Config;
 use crate::fetch::{Http, Method, refusal_unnamed};
+use crate::roots::Roots;
 use crate::{Error, Result, Store, now};
 
 pub use crate::romm_additions::Released;
@@ -91,8 +91,8 @@ impl Romm {
         self.enabled && self.base_url.is_some() && self.token.is_some() && self.root.is_some()
     }
 
-    /// This connection with `update` applied, checked against `config`.
-    pub(crate) fn updated(&self, config: &Config, update: &RommUpdate) -> Result<Romm> {
+    /// This connection with `update` applied, checked against `roots`.
+    pub(crate) fn updated(&self, roots: &Roots, update: &RommUpdate) -> Result<Romm> {
         let refuse = |why: String| Err(Error::Refused(why));
         let base_url = match update.base_url.as_deref().map(str::trim) {
             None | Some("") => None,
@@ -117,8 +117,8 @@ impl Romm {
         };
         let root = match update.root.as_deref().map(str::trim) {
             None | Some("") => None,
-            Some(name) => match config.root(name) {
-                None => return refuse(format!("{name} is not a root in your configuration.")),
+            Some(name) => match roots.root(name) {
+                None => return refuse(format!("There is no root {name}.")),
                 Some(root) if root.is_ingest() => {
                     return refuse(format!(
                         "{name} is an ingest folder. Choose the root that holds your library folders, the one RomM \
@@ -151,11 +151,11 @@ impl Romm {
     /// are resolved to where they really are on disk, symlinks followed, so that two spellings of one folder agree
     /// and a `..` past a symlink isn't taken for its parent as written; either missing from disk is
     /// [`RommPlatform::Unresolved`].
-    pub fn platform(&self, config: &Config, root: &str, path: &str) -> RommPlatform {
-        let Some(romm_root) = self.root.as_deref().and_then(|name| config.root(name)) else {
+    pub fn platform(&self, roots: &Roots, root: &str, path: &str) -> RommPlatform {
+        let Some(romm_root) = self.root.as_deref().and_then(|name| roots.root(name)) else {
             return RommPlatform::NoRoot;
         };
-        let Some(root) = config.root(root) else {
+        let Some(root) = roots.root(root) else {
             return RommPlatform::OutsideRoot;
         };
         match (
@@ -772,7 +772,7 @@ fn unscannable(platform: &RommPlatform) -> Option<&'static str> {
              folder directly under that root."
         }
         RommPlatform::NoRoot => {
-            "The root RomM mounts as its library is no longer in your configuration, so RomM wasn't asked to scan. \
+            "The root RomM mounts as its library is no longer registered, so RomM wasn't asked to scan. \
              Choose it again in your RomM settings."
         }
         RommPlatform::Unresolved => {
@@ -870,7 +870,6 @@ impl Store {
     /// and returns `None`. A scan that ends any way but finished after `stop` is recorded as stopped.
     pub fn request_romm_scan(
         store: &Weak<Store>,
-        config: &Config,
         job: i64,
         timing: &ScanTiming,
         stop: &ScanStop,
@@ -907,7 +906,7 @@ impl Store {
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )?)
             })?;
-            let platform = romm.platform(config, &root, &path);
+            let platform = romm.platform(&store.roots(), &root, &path);
             let mut scan = RommScan {
                 platform: platform.clone(),
                 outcome: RommScanOutcome::Requested,
@@ -983,13 +982,14 @@ impl Store {
     }
 
     /// Each Library Folder and the RomM platform it maps to, by the RomM root saved now.
-    pub fn romm_platforms(&self, config: &Config) -> Result<Vec<RommFolderPlatform>> {
+    pub fn romm_platforms(&self) -> Result<Vec<RommFolderPlatform>> {
         let romm = self.settings()?.romm;
+        let roots = self.roots();
         Ok(self
-            .library_folders(config)?
+            .library_folders()?
             .into_iter()
             .map(|folder| RommFolderPlatform {
-                platform: romm.platform(config, &folder.root, &folder.path),
+                platform: romm.platform(&roots, &folder.root, &folder.path),
                 folder_id: folder.id,
                 root: folder.root,
                 path: folder.path,
@@ -1038,15 +1038,15 @@ mod tests {
         }
         symlink(t.join("mnt/roms"), t.join("library")).unwrap();
         symlink(t.join("a/b"), t.join("top/link")).unwrap();
-        let config = Config::parse(&format!(
-            "[roots.library]\npath = {:?}\n[roots.mnt]\npath = {:?}\n\
-             [roots.top]\npath = {:?}\n[roots.up]\npath = {:?}\n",
-            t.join("library").display().to_string(),
-            t.join("mnt/roms").display().to_string(),
-            t.join("top").display().to_string(),
-            t.join("top/link/..").display().to_string(),
-        ))
-        .unwrap();
+        let config = Roots::of(
+            [
+                ("library", t.join("library")),
+                ("mnt", t.join("mnt/roms")),
+                ("top", t.join("top")),
+                ("up", t.join("top/link/..")),
+            ]
+            .map(|(name, path)| crate::roots::Root::test(name, path)),
+        );
         let romm = |root: &str| Romm {
             root: Some(root.into()),
             ..Romm::default()

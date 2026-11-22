@@ -795,7 +795,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
             .and_then(Result::ok)
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| r.writable && !r.ingest)
+            .filter(|r| r.writable && r.kind != title_select_api::roots::RootKind::Ingest)
             .collect::<Vec<_>>()
     };
     let existing = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
@@ -935,8 +935,8 @@ pub fn NewLibraryFolder() -> impl IntoView {
         {move || match roots.get() {
             Some(Ok(_)) if writable().is_empty() => view! {
                 <p class="note">
-                    "None of your roots is writable. To build into your front end's folders, add a root for them \
-                    with "<code>"writable = true"</code>" to your configuration."
+                    "None of your roots is writable. To build into your front end's folders, register a writable \
+                    root for them in "<A href="/settings/roots">"roots"</A>"."
                 </p>
             }
             .into_any(),

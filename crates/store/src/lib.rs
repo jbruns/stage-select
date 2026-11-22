@@ -30,6 +30,7 @@ mod profiles;
 mod repairs;
 pub mod romm;
 mod romm_additions;
+pub mod roots;
 mod sbi_packs;
 mod selections;
 mod sets;
@@ -144,10 +145,16 @@ pub struct Store {
     /// What receives each occurrence as its write commits.
     observer: std::sync::OnceLock<observe::Observer>,
     /// The Ceilings in force, and the pools and gates every Job shares to keep to them: worked out from the
-    /// configuration on first use, and again as the settings or a Calibration change them.
+    /// Roots and settings on first use, and again as they or a Calibration change them.
     ceilings: ceilings::Live,
     /// The pace in the settings, which running Jobs read at each file.
     pace: std::sync::RwLock<title_select_api::settings::Pace>,
+    /// The largest 7z dictionary in the settings, in MiB, which each Job reads as it starts.
+    max_dictionary_mib: std::sync::atomic::AtomicU32,
+    /// Every registered Root, replaced whole as one changes.
+    roots: std::sync::RwLock<std::sync::Arc<roots::Roots>>,
+    /// The chdman the Service was told to run, if any; else `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`.
+    chdman: std::sync::RwLock<Option<PathBuf>>,
     /// Held across each settings update's commit and publication, so they happen in the same order.
     settings_update: std::sync::Mutex<()>,
     /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
@@ -368,6 +375,8 @@ pub enum Fault {
     FolderRegistering,
     /// Before a change to what is registered waits for another under way to finish.
     LifecycleWaiting,
+    /// After an edit of a Root takes the lifecycle lock, before it checks and records the edit.
+    RootEditing,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
     /// either folder is synced.
     SourceKeptMoved(i64),
@@ -454,16 +463,33 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 impl Store {
+    /// Runs `program` as chdman from now on, or, when `None`, the program `TITLE_SELECT_CHDMAN` names, else `chdman`
+    /// on the `PATH`.
+    pub fn use_chdman(&self, program: Option<PathBuf>) {
+        *self.chdman.write().unwrap_or_else(|e| e.into_inner()) = program;
+    }
+
+    /// The chdman to run, found as [`Store::use_chdman`] says.
+    pub(crate) fn chdman(&self) -> std::result::Result<PathBuf, String> {
+        title_select_engine::chd::locate(
+            self.chdman
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref(),
+        )
+    }
+
     /// The bounds a 7z decodes within: the store's one gate, sized by the pace's share of the archive workers Ceiling,
-    /// and `config`'s dictionary limit; its bytes read are counted to `read`.
+    /// and the dictionary limit in the settings; its bytes read are counted to `read`.
     pub(crate) fn decoding<'a>(
         &'a self,
-        config: &config::Config,
         read: &'a title_select_engine::meter::Tally,
     ) -> title_select_engine::sevenz::Decoding<'a> {
         title_select_engine::sevenz::Decoding {
-            gate: self.archive_gate(config),
-            max_dictionary_mib: config.ingest.max_dictionary_mib,
+            gate: self.archive_gate(),
+            max_dictionary_mib: self
+                .max_dictionary_mib
+                .load(std::sync::atomic::Ordering::Relaxed),
             read,
         }
     }
@@ -514,6 +540,11 @@ impl Store {
             observer: std::sync::OnceLock::new(),
             ceilings: ceilings::Live::default(),
             pace: std::sync::RwLock::default(),
+            max_dictionary_mib: std::sync::atomic::AtomicU32::new(
+                title_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB,
+            ),
+            roots: std::sync::RwLock::default(),
+            chdman: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),
             meter: title_select_engine::meter::Meter::default(),
@@ -522,8 +553,13 @@ impl Store {
             romm_syncs_waiting: std::sync::Arc::default(),
         };
         store.meter.share_limits(store.ceilings.readers.clone());
-        let pace = store.settings()?.pace;
-        *store.pace.write().unwrap_or_else(|e| e.into_inner()) = pace;
+        let settings = store.settings()?;
+        *store.pace.write().unwrap_or_else(|e| e.into_inner()) = settings.pace;
+        store.max_dictionary_mib.store(
+            settings.archive.max_dictionary_mib,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        store.reload_roots()?;
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
         store.discard_unfinished_audits()?;
@@ -550,11 +586,11 @@ impl Store {
     }
 
     /// The bytes free to Title Select in the filesystem holding the folder `path` of Root `root`.
-    fn free_space(&self, config: &config::Config, root: &str, path: &str) -> Result<u64> {
+    fn free_space(&self, root: &str, path: &str) -> Result<u64> {
         if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
         }
-        let resolved = sets::resolve(config, root, path)?;
+        let resolved = sets::resolve(&self.roots(), root, path)?;
         let st = rustix::fs::statvfs(&resolved.path)
             .map_err(|e| Error::Io(format!("{}: {e}", resolved.path.display())))?;
         Ok(st.f_bavail.saturating_mul(st.f_frsize))

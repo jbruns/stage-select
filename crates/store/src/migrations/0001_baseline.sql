@@ -26,6 +26,42 @@ CREATE TABLE settings (
     updated_at TEXT NOT NULL
 );
 
+-- Roots: the folders Title Select may read, registered by the Operator. A Root's name never changes once registered:
+-- every record of a folder in it refers to the Root by name, and keeps doing so after the Root is unregistered.
+-- kind: 'ingest' is an Ingest Folder, which is writable; 'additions' holds the Additions Sets, is writable and has no
+-- writable_paths, and there is at most one.
+-- writable_paths: for a read-only Root, a JSON array of the paths, relative to it, of the Source Sets in it that a
+-- repair may write to.
+-- readers, read_mib_per_s, write_mib_per_s: the Operator's Ceilings for the Root (ADR 0022); NULL leaves each to the
+-- Calibration or the CPU count.
+CREATE TABLE roots (
+    name TEXT PRIMARY KEY CHECK (name <> ''),
+    path TEXT NOT NULL CHECK (path <> ''),
+    kind TEXT NOT NULL CHECK (kind IN ('general', 'ingest', 'additions')),
+    writable INTEGER NOT NULL CHECK (writable IN (0, 1)),
+    writable_paths TEXT NOT NULL DEFAULT '[]',
+    readers INTEGER,
+    read_mib_per_s INTEGER,
+    write_mib_per_s INTEGER,
+    updated_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (kind = 'general' OR writable = 1),
+    CHECK (writable = 0 OR writable_paths = '[]')
+);
+CREATE UNIQUE INDEX roots_one_additions ON roots (kind) WHERE kind = 'additions';
+
+-- Every change to a Root, oldest first, kept after the Root is unregistered: who made it, when, and the Root as it
+-- became (JSON), or NULL for an unregistration.
+CREATE TABLE root_changes (
+    id INTEGER PRIMARY KEY,
+    root TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('registered', 'edited', 'unregistered')),
+    root_after TEXT,
+    changed_by TEXT NOT NULL,
+    changed_at TEXT NOT NULL
+);
+CREATE INDEX root_changes_by_root ON root_changes (root, id);
+
 -- Storage Policy: how Source Sets and Play Libraries store each Game, and whether a conversion deletes each original
 -- once its converted file is verified. One row per scope and system: system '' is the scope's default, which always
 -- sets format and delete_originals; a system's row overrides what it sets, and follows the default where it is NULL.

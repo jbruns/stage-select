@@ -1,15 +1,15 @@
 //! Calibration Jobs: how one queues ahead of every other Job and runs alone, what it reads and records, and when
 //! its results are Stale, from synthetic Roots with tiny step limits.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::calibration::{CalibrationStale, RootOutcome};
 use title_select_api::{AuditEvidence, JobKind, JobState, Workers};
 use title_select_engine::calibrate::Limits;
 use title_select_store::calibration::Calibrating;
-use title_select_store::config::Config;
 use title_select_store::{DATABASE, Error, Store};
 
 const KIB: usize = 1 << 10;
@@ -37,7 +37,6 @@ fn how(cpus: usize) -> Calibrating<'static> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -53,9 +52,16 @@ impl Env {
             );
         }
         write_file(&tmp.path().join("in/new.zip"), b"new");
-        let config = Env::config(tmp.path(), &[("sets", "sets"), ("plain", "plain")]);
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let env = Env { tmp, store, config };
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("sets")),
+                RootSpec::new("plain", tmp.path().join("plain")),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            ],
+        );
+        let env = Env { tmp, store };
         let dat = write_dat_version(
             &env.tmp.path().join("dats"),
             "test.dat",
@@ -68,7 +74,7 @@ impl Env {
         env.store.import_dat(&dat, None).unwrap();
         for set in ["Alpha", "Beta"] {
             env.store
-                .add_source_set(&env.config, "sets", set, "No-Intro/Test - System")
+                .add_source_set("sets", set, "No-Intro/Test - System")
                 .unwrap();
             write_file(&env.set(set).join("Pong (USA).a26"), b"pong");
             write_zip(
@@ -76,26 +82,10 @@ impl Env {
                 &[("Combat (USA).a26", b"combat")],
             );
             env.store
-                .audit_source_set(&env.config, set, None, AuditEvidence::Full)
+                .audit_source_set(set, None, AuditEvidence::Full)
                 .unwrap();
         }
         env
-    }
-
-    /// A configuration with each `(name, folder)` Root, and the Ingest Folder `in`.
-    fn config(base: &Path, roots: &[(&str, &str)]) -> Config {
-        let mut text = String::new();
-        for (name, folder) in roots {
-            text += &format!(
-                "[roots.{name}]\npath = {:?}\n",
-                base.join(folder).display().to_string()
-            );
-        }
-        text += &format!(
-            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            base.join("in").display().to_string()
-        );
-        Config::parse(&text).unwrap()
     }
 
     fn set(&self, name: &str) -> PathBuf {
@@ -121,9 +111,7 @@ impl Env {
     fn calibrate(&self, how: &Calibrating) -> title_select_api::Job {
         let job = self.store.enqueue_calibration("Operator").unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
-        self.store
-            .run_calibration(&self.config, job.id, how)
-            .unwrap()
+        self.store.run_calibration(job.id, how).unwrap()
     }
 
     /// Every entry under the temporary folder but the store, with its size, modification time and content.
@@ -234,9 +222,7 @@ fn a_calibration_waits_for_running_jobs_holds_queued_ones_and_is_refused_a_secon
         "the calibration waits for the running audit, and the queued one waits behind it"
     );
 
-    env.store
-        .run_audit_job(&env.config, running.id, None)
-        .unwrap();
+    env.store.run_audit_job(running.id, None).unwrap();
     let claimed = env.store.claim_job().unwrap().unwrap();
     assert_eq!(
         claimed.id, calibration.id,
@@ -252,10 +238,7 @@ fn a_calibration_waits_for_running_jobs_holds_queued_ones_and_is_refused_a_secon
         Err(Error::Conflict(_))
     ));
 
-    let ended = env
-        .store
-        .run_calibration(&env.config, calibration.id, &how(1))
-        .unwrap();
+    let ended = env.store.run_calibration(calibration.id, &how(1)).unwrap();
     assert_eq!(ended.state, JobState::Succeeded);
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, held.id);
     env.store.enqueue_calibration("Operator").unwrap();
@@ -275,7 +258,6 @@ fn a_cancelled_calibration_keeps_the_roots_it_finished() {
     let ended = env
         .store
         .run_calibration(
-            &env.config,
             job.id,
             &Calibrating {
                 progress: Some(&cancel),
@@ -294,7 +276,7 @@ fn a_cancelled_calibration_keeps_the_roots_it_finished() {
             .collect::<Vec<_>>(),
         ["in"]
     );
-    let now = env.store.calibration(&env.config, 1).unwrap();
+    let now = env.store.calibration(1).unwrap();
     assert_eq!(
         now.stale,
         [
@@ -320,7 +302,6 @@ fn a_calibration_that_panics_fails_and_lets_other_jobs_run() {
         }
     };
     let ran = env.store.run_calibration(
-        &env.config,
         job.id,
         &Calibrating {
             progress: Some(&panics),
@@ -345,9 +326,7 @@ fn a_queued_calibration_you_cancel_ends_at_once_and_holds_nothing_back() {
     assert_eq!(cancelled.state, JobState::Interrupted);
     assert!(cancelled.cancel_requested_at.is_some());
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, held.id);
-    env.store
-        .run_audit_job(&env.config, running.id, None)
-        .unwrap();
+    env.store.run_audit_job(running.id, None).unwrap();
 }
 
 #[test]
@@ -505,38 +484,41 @@ fn an_audited_root_that_is_gone_is_recorded_unreadable() {
 fn calibration_results_are_stale_when_the_cpus_or_the_roots_change() {
     let env = Env::new();
     assert_eq!(
-        env.store.calibration(&env.config, 4).unwrap(),
+        env.store.calibration(4).unwrap(),
         Default::default(),
         "nothing measured is not stale"
     );
     let job = env.calibrate(&how(4));
-    let now = env.store.calibration(&env.config, 4).unwrap();
+    let now = env.store.calibration(4).unwrap();
     assert_eq!(now.stale, []);
     assert_eq!(now.host.as_ref().unwrap().job, job.id);
     assert_eq!(now.roots.len(), 3);
 
     assert_eq!(
-        env.store.calibration(&env.config, 8).unwrap().stale,
+        env.store.calibration(8).unwrap().stale,
         [CalibrationStale::Cpus {
             measured: 4,
             now: 8
         }]
     );
 
-    std::fs::create_dir_all(env.tmp.path().join("more")).unwrap();
-    let added = Env::config(
-        env.tmp.path(),
-        &[("sets", "sets"), ("plain", "plain"), ("more", "more")],
+    crate::register(
+        &env.store,
+        &[RootSpec::new("more", env.tmp.path().join("more"))],
     );
     assert_eq!(
-        env.store.calibration(&added, 4).unwrap().stale,
+        env.store.calibration(4).unwrap().stale,
         [CalibrationStale::Unmeasured {
             root: "more".into()
         }]
     );
 
-    let moved = Env::config(env.tmp.path(), &[("sets", "sets"), ("plain", "more")]);
-    let found = env.store.calibration(&moved, 4).unwrap();
+    env.store.unregister_root("more", "test").unwrap();
+    crate::reregister(
+        &env.store,
+        RootSpec::new("plain", env.tmp.path().join("more")),
+    );
+    let found = env.store.calibration(4).unwrap();
     assert_eq!(
         found.stale,
         [CalibrationStale::Moved {
@@ -547,10 +529,10 @@ fn calibration_results_are_stale_when_the_cpus_or_the_roots_change() {
     );
     assert_eq!(found.roots.len(), 3, "stale results keep applying");
 
-    let removed = Env::config(env.tmp.path(), &[("sets", "sets")]);
+    env.store.unregister_root("plain", "test").unwrap();
     assert_eq!(
-        env.store.calibration(&removed, 4).unwrap().roots.len(),
+        env.store.calibration(4).unwrap().roots.len(),
         2,
-        "only configured roots"
+        "only registered roots"
     );
 }

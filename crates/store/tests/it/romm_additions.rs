@@ -9,6 +9,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use sha1::Digest;
@@ -22,7 +23,6 @@ use title_select_api::selection::{
 };
 use title_select_api::settings::{IngestCadence, SecretUpdate, SettingsUpdate};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_store::config::Config;
 use title_select_store::romm::{Released, ScanStop, ScanTiming};
 use title_select_store::{Store, Workers};
 
@@ -385,7 +385,6 @@ fn answer(r: &Seen, scopes: &BTreeSet<String>, lib: &mut Library) -> (u16, Strin
 struct Env {
     tmp: tempfile::TempDir,
     store: Arc<Store>,
-    config: Config,
     sha256: String,
     folder: LibraryFolder,
 }
@@ -403,19 +402,18 @@ impl Env {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
         let path = |p: &str| tmp.path().join(p).display().to_string();
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n\n[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
-             [roots.play]\npath = {:?}\nwritable = true\n\n[roots.additions]\npath = {:?}\nwritable = true\n",
-            path("sets"),
-            path("in"),
-            path("play"),
-            path("additions"),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", path("sets")),
+                RootSpec::new("in", path("in")).of_kind(RootKind::Ingest),
+                RootSpec::new("play", path("play")).writable(),
+                RootSpec::new("additions", path("additions")).of_kind(RootKind::Additions),
+            ],
+        );
         store
             .update_settings(
-                &config,
                 &SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -439,7 +437,7 @@ impl Env {
             &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
         );
         let (revision, _) = store.import_dat(&dat, None).unwrap();
-        store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
+        store.add_source_set("sets", SET, SYSTEM).unwrap();
         let mut profile = SelectionProfile::default();
         profile.systems.insert(
             SET.into(),
@@ -451,30 +449,26 @@ impl Env {
         store
             .save_profile(PROFILE, &profile, None, "Operator", &[], WORKERS)
             .unwrap();
-        store.register_ingest_folder(&config, "in").unwrap();
+        store.register_ingest_folder("in").unwrap();
         write_file(
             &tmp.path().join("sets").join(SET).join("Pong (USA).a26"),
             b"pong",
         );
         store
-            .audit_source_set(&config, SET, None, AuditEvidence::Full)
+            .audit_source_set(SET, None, AuditEvidence::Full)
             .unwrap();
         let folder = store
-            .add_library_folder(
-                &config,
-                &AddLibraryFolder {
-                    root: "play".into(),
-                    path: Some("atari".into()),
-                    template: None,
-                    source_set: SET.into(),
-                    profile: PROFILE.into(),
-                },
-            )
+            .add_library_folder(&AddLibraryFolder {
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            })
             .unwrap();
         Env {
             tmp,
             store: Arc::new(store),
-            config,
             sha256: revision.sha256,
             folder,
         }
@@ -486,7 +480,7 @@ impl Env {
 
     fn settings(&self, enabled: bool, url: &str, token: SecretUpdate) {
         self.store
-            .update_settings(&self.config, &romm_update(enabled, url, token), "Operator")
+            .update_settings(&romm_update(enabled, url, token), "Operator")
             .unwrap();
     }
 
@@ -500,10 +494,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
         let item = self
@@ -518,7 +509,6 @@ impl Env {
         let plan = self
             .store
             .plan_ingest(
-                &self.config,
                 "in",
                 &PlanIngest {
                     action: IngestAction::Addition,
@@ -535,7 +525,7 @@ impl Env {
             )
             .unwrap();
         self.store
-            .approve_ingest_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.settle();
     }
@@ -555,7 +545,7 @@ impl Env {
     fn settle(&self) {
         while let Some(job) = self.store.claim_job().unwrap() {
             assert_eq!(job.kind, JobKind::Additions, "{job:?}");
-            let job = self.store.run_additions_job(&self.config, job.id).unwrap();
+            let job = self.store.run_additions_job(job.id).unwrap();
             assert_eq!(job.state, JobState::Succeeded, "{job:?}");
         }
     }
@@ -581,19 +571,13 @@ impl Env {
             .unwrap()
             .selection
             .unwrap();
-        let plan = self
-            .store
-            .plan_build(&self.config, self.folder.id, selection)
-            .unwrap();
+        let plan = self.store.plan_build(self.folder.id, selection).unwrap();
         let job = self
             .store
-            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.store.claim_job().unwrap().unwrap();
-        let job = self
-            .store
-            .run_build_job(&self.config, job.id, None)
-            .unwrap();
+        let job = self.store.run_build_job(job.id, None).unwrap();
         assert_eq!(job.state, JobState::Succeeded, "{job:?}");
         self.settle();
         job.id
@@ -602,16 +586,10 @@ impl Env {
     /// Follows the scan the Build Job `job` requests to its end.
     fn scan(&self, job: i64) {
         let weak = Arc::downgrade(&self.store);
-        let scanned = Store::request_romm_scan(
-            &weak,
-            &self.config,
-            job,
-            &FAST,
-            &ScanStop::default(),
-            &mut |_| {},
-        )
-        .unwrap()
-        .expect("the build owes a scan");
+        let scanned =
+            Store::request_romm_scan(&weak, job, &FAST, &ScanStop::default(), &mut |_| {})
+                .unwrap()
+                .expect("the build owes a scan");
         assert_eq!(
             scanned.romm_scan.as_ref().unwrap().outcome,
             RommScanOutcome::Finished
@@ -622,15 +600,11 @@ impl Env {
     fn sync(&self, job: i64) {
         let weak = Arc::downgrade(&self.store);
         let mut told = vec![];
-        let synced = Store::sync_romm_additions(
-            &weak,
-            &self.config,
-            job,
-            &FAST,
-            &ScanStop::default(),
-            &mut |j| told.push(j.clone()),
-        )
-        .unwrap();
+        let synced =
+            Store::sync_romm_additions(&weak, job, &FAST, &ScanStop::default(), &mut |j| {
+                told.push(j.clone())
+            })
+            .unwrap();
         assert_eq!(
             synced.as_ref(),
             told.last(),
@@ -810,7 +784,6 @@ fn the_additions_collection_follows_each_build_is_recreated_when_gone_and_delete
     let (_, pending) = env
         .store
         .update_settings_and_release(
-            &env.config,
             &romm_update(false, &romm.url, SecretUpdate::Clear),
             "Operator",
             |_| {},
@@ -839,7 +812,6 @@ fn turning_romm_off_with_no_collection_or_changing_nothing_leaves_none_to_delete
     let (_, left) = env
         .store
         .update_settings_and_release(
-            &env.config,
             &romm_update(true, &romm.url, SecretUpdate::Keep),
             "Operator",
             |_| {},
@@ -849,7 +821,6 @@ fn turning_romm_off_with_no_collection_or_changing_nothing_leaves_none_to_delete
     let (_, left) = env
         .store
         .update_settings_and_release(
-            &env.config,
             &romm_update(false, &romm.url, SecretUpdate::Keep),
             "Operator",
             |_| {},
@@ -996,7 +967,6 @@ fn a_deletion_romm_refuses_is_kept_and_retried_until_it_succeeds() {
     let (_, pending) = env
         .store
         .update_settings_and_release(
-            &env.config,
             &romm_update(false, &romm.url, SecretUpdate::Clear),
             "Operator",
             |_| {},

@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use crate::common::*;
 use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
+use title_select_api::roots::{RootKind, RootSpec};
 use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState, Reuse};
-use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
 
 const WORKERS: Workers = Workers {
@@ -62,7 +62,6 @@ fn make_chd(chdman: &Path, path: &Path, seed: u64, extra: &[&std::ffi::OsStr]) -
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -72,11 +71,17 @@ impl Env {
         for dir in ["roots/sets/mame", "in"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = config(tmp.path(), &chdman);
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        store.use_chdman(Some(chdman));
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["mame"]),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            ],
+        );
         store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -103,16 +108,14 @@ impl Env {
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
-        store
-            .add_source_set(&config, "sets", "mame", &revision.dat)
-            .unwrap();
-        store.register_ingest_folder(&config, "in").unwrap();
-        Env { tmp, store, config }
+        store.add_source_set("sets", "mame", &revision.dat).unwrap();
+        store.register_ingest_folder("in").unwrap();
+        Env { tmp, store }
     }
 
-    /// Finds chdman at `chdman` from now on, as when the Operator corrects its path in the configuration.
+    /// Finds chdman at `chdman` from now on, as when the Operator corrects its path.
     fn use_chdman(&mut self, chdman: &Path) {
-        self.config = config(self.tmp.path(), chdman);
+        self.store.use_chdman(Some(chdman.to_path_buf()));
     }
 
     fn set(&self) -> PathBuf {
@@ -125,7 +128,7 @@ impl Env {
 
     fn audit(&self, evidence: AuditEvidence) -> title_select_api::Report {
         self.store
-            .audit_source_set(&self.config, "mame", None, evidence)
+            .audit_source_set("mame", None, evidence)
             .unwrap()
             .report
     }
@@ -135,10 +138,7 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
     }
@@ -154,7 +154,7 @@ impl Env {
 
     fn plan(&self) -> RepairPlan {
         self.store
-            .plan_repair(&self.config, "mame", &PlanRepair::default())
+            .plan_repair("mame", &PlanRepair::default())
             .unwrap()
     }
 
@@ -162,34 +162,22 @@ impl Env {
     fn approve(&self, plan: &RepairPlan) -> title_select_api::Report {
         let approved = self
             .store
-            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         let job = approved.job.expect("an approved repair has a job");
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
-        let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
+        let ended = self.store.run_repair_job(job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         self.store.fulfil_repair_audits().unwrap();
         let done = self.store.repair_plan(plan.id).unwrap();
         assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
         let audit = done.audit_job.expect("a repair queues an audit");
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
-        let ended = self.store.run_audit_job(&self.config, audit, None).unwrap();
+        let ended = self.store.run_audit_job(audit, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         let latest = &self.store.history("mame").unwrap()[0];
         self.store.report(latest.id).unwrap()
     }
-}
-
-/// The configuration of a store in `tmp`, as [`Env`] says, finding chdman at `chdman`.
-fn config(tmp: &Path, chdman: &Path) -> Config {
-    Config::parse(&format!(
-        "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n\
-         [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[chd]\nchdman = {:?}\n",
-        tmp.join("roots/sets").display().to_string(),
-        tmp.join("in").display().to_string(),
-        chdman.display().to_string(),
-    ))
-    .unwrap()
 }
 
 /// Every file under `dir`, as paths relative to it, but a marker.

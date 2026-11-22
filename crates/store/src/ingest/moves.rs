@@ -38,7 +38,6 @@ use title_select_engine::sevenz;
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, kept_leaf, open_ingest};
 use crate::builds::sha256_of;
 use crate::checks::Seen;
-use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use crate::kept::{Scope, open_area_deleting, open_retention, unique};
@@ -469,9 +468,9 @@ enum Aside {
 impl Store {
     /// Records the intent to make `mv`, then makes it. `Err` says why it was not made, or not finished; one not
     /// finished is rolled forward when the service next starts.
-    pub(crate) fn move_out(&self, config: &Config, mv: Move) -> Outcome {
-        match self.record_move(config, mv, None, &mut |_, _| Ok(()))? {
-            Ok(id) => self.drive_move(config, id),
+    pub(crate) fn move_out(&self, mv: Move) -> Outcome {
+        match self.record_move(mv, None, &mut |_, _| Ok(()))? {
+            Ok(id) => self.drive_move(id),
             Err(why) => Ok(Err(why)),
         }
     }
@@ -481,13 +480,13 @@ impl Store {
     /// the caller holds it.
     pub(crate) fn record_move(
         &self,
-        config: &Config,
         mv: Move,
         into: Option<&FolderDir>,
         also: &mut dyn FnMut(&Transaction, i64) -> Result<()>,
     ) -> Result<std::result::Result<i64, String>> {
+        let roots = &*self.roots();
         let row = self.read(|c| ingest_by_id(c, mv.folder))?;
-        let src = match open_ingest(config, &row.root) {
+        let src = match open_ingest(roots, &row.root) {
             Ok(dir) => dir,
             Err(why) => return Ok(Err(why)),
         };
@@ -498,7 +497,7 @@ impl Store {
                 let opened;
                 let dest = match into {
                     Some(dest) => dest,
-                    None => match self.open_dest_folder(config, root, rel)? {
+                    None => match self.open_dest_folder(root, rel)? {
                         Ok(dest) => {
                             opened = dest;
                             &opened
@@ -545,18 +544,14 @@ impl Store {
 
     /// Advances move `id` from the step it was recorded at to its end, after checking that its folder is open, in a
     /// writable Root, with this store's marker.
-    pub(crate) fn drive_move(&self, config: &Config, id: i64) -> Outcome {
-        self.drive_move_into(config, id, None)
+    pub(crate) fn drive_move(&self, id: i64) -> Outcome {
+        self.drive_move_into(id, None)
     }
 
     /// As [`Store::drive_move`], writing a move to a path through `into`, its destination folder already opened and
     /// checked, when the caller holds it: then nothing is written in whatever is at that folder's path now.
-    pub(crate) fn drive_move_into(
-        &self,
-        config: &Config,
-        id: i64,
-        into: Option<&FolderDir>,
-    ) -> Outcome {
+    pub(crate) fn drive_move_into(&self, id: i64, into: Option<&FolderDir>) -> Outcome {
+        let roots = &*self.roots();
         let m = self.read(|c| move_by_id(c, id))?;
         if m.state == "done" {
             return Ok(Ok(Moved {
@@ -590,7 +585,7 @@ impl Store {
         {
             return precondition(format!("{why}; it was left as it is"));
         }
-        let src = match open_ingest(config, &row.root) {
+        let src = match open_ingest(roots, &row.root) {
             Ok(dir) => dir,
             Err(why) => return precondition(why),
         };
@@ -618,7 +613,7 @@ impl Store {
             } => {
                 let top = match into {
                     Some(into) => Ok(into.try_clone().map_err(io)?),
-                    None => self.open_dest_folder(config, root, rel)?,
+                    None => self.open_dest_folder(root, rel)?,
                 };
                 match top.map(|top| descend(top, name)) {
                     Ok(Ok((dir, chain))) => Ok((dir, Some(chain))),
@@ -680,7 +675,7 @@ impl Store {
             else {
                 return Ok(Ok(()));
             };
-            let now = match self.open_dest_folder(config, root, rel)? {
+            let now = match self.open_dest_folder(root, rel)? {
                 Ok(top) => descend(top, name).map_err(|e| e.to_string()),
                 Err(why) => Err(why),
             };
@@ -742,14 +737,8 @@ impl Store {
             Destination::Path { root, .. } => tally(root),
         };
         match m.kind.as_str() {
-            "rename" => self.drive_rename(config, &m, &src, (&dest, &to), &in_place),
-            _ => self.drive_copy(
-                config,
-                &m,
-                (&src, &tally(&row.root)),
-                (&dest, &to),
-                &in_place,
-            ),
+            "rename" => self.drive_rename(&m, &src, (&dest, &to), &in_place),
+            _ => self.drive_copy(&m, (&src, &tally(&row.root)), (&dest, &to), &in_place),
         }
     }
 
@@ -854,7 +843,6 @@ impl Store {
 
     fn drive_rename(
         &self,
-        config: &Config,
         m: &MoveRow,
         src: &FolderDir,
         (dest, to): (&FolderDir, &Tally),
@@ -902,7 +890,7 @@ impl Store {
                             )?;
                             Ok(())
                         })?;
-                        return self.drive_move(config, m.id);
+                        return self.drive_move(m.id);
                     }
                     Err(e) => return self.fail_move(m.id, format!("{e}; it was left as it is")),
                 }
@@ -1181,7 +1169,6 @@ impl Store {
 
     fn drive_copy(
         &self,
-        config: &Config,
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         (dest, to): (&FolderDir, &Tally),
@@ -1190,7 +1177,7 @@ impl Store {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
         if matches!(m.state.as_str(), "pending" | "moving" | "staging") {
-            match self.stage_and_publish(config, m, (src, from), (dest, to), &dest_name)? {
+            match self.stage_and_publish(m, (src, from), (dest, to), &dest_name)? {
                 Ok(sha) => dest_sha256 = Some(sha),
                 Err(why) => return Ok(Err(why)),
             }
@@ -1323,10 +1310,9 @@ impl Store {
 
     /// Writes the copy or repack of `m` under a staged name recorded first, checks it, and renames it to `dest_name`
     /// without replacing anything. Resumes from a staged file or a publish a stop interrupted. Returns the SHA-256
-    /// of what was published. ROMs read from a 7z are decoded again, within `config`'s bounds.
+    /// of what was published. ROMs read from a 7z are decoded again, within the store's bounds.
     fn stage_and_publish(
         &self,
-        config: &Config,
         m: &MoveRow,
         (src, from): (&FolderDir, &Tally),
         (dest, to): (&FolderDir, &Tally),
@@ -1426,7 +1412,7 @@ impl Store {
             // ROMs of a 7z are decoded from it again, the whole archive hashed as it is read.
             (Some(roms), _) if sevenz => {
                 self.fault_point(Fault::IngestReadWhole);
-                let decoding = self.decoding(config, from);
+                let decoding = self.decoding(from);
                 let named: std::result::Result<Vec<(&ExpectedRom, &str)>, String> = roms
                     .iter()
                     .map(|(rom, member)| {
@@ -1618,11 +1604,11 @@ impl Store {
     /// to it and its marker is this store's; any other folder only in a writable Root.
     fn open_dest_folder(
         &self,
-        config: &Config,
         root: &str,
         rel: &str,
     ) -> Result<std::result::Result<FolderDir, String>> {
-        if let Some(opened) = self.open_set_at(config, root, rel)? {
+        let roots = &*self.roots();
+        if let Some(opened) = self.open_set_at(root, rel)? {
             return Ok(opened);
         }
         let set: Option<i64> = self.read(|c| {
@@ -1634,7 +1620,7 @@ impl Store {
             .optional()?)
         })?;
         if let Some(set) = set {
-            return open_repairable(self, config, set, MarkerRule::Required);
+            return open_repairable(self, roots, set, MarkerRule::Required);
         }
         // A Library Folder, written into to complete a Placed Game: only while it has this store's marker for it, so
         // that nothing is written into whatever was put at its path in its place.
@@ -1648,7 +1634,7 @@ impl Store {
         })?;
         if let Some(folder) = folder {
             let (row, store) = self.read(|c| Ok((folder_by_id(c, folder)?, store_id(c)?)))?;
-            let dir = match open_writable_folder(config, root, rel) {
+            let dir = match open_writable_folder(roots, root, rel) {
                 Ok(dir) => dir,
                 Err(why) => return Ok(Err(why)),
             };
@@ -1659,12 +1645,12 @@ impl Store {
             };
             return Ok(check_marker(&dir, &expected).map(|()| dir));
         }
-        Ok(match config.root(root) {
+        Ok(match roots.root(root) {
             Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
             Some(_) => Err(format!(
-                "root {root} is not writable now; declare it with writable = true, then restart the service"
+                "root {root} is not writable now; make it writable in your roots"
             )),
-            None => Err(format!("there is no root {root} in the configuration")),
+            None => Err(format!("there is no root {root}")),
         })
     }
 
@@ -2357,7 +2343,6 @@ mod tests {
     struct Env {
         tmp: tempfile::TempDir,
         store: Store,
-        config: Config,
         folder: i64,
     }
 
@@ -2366,24 +2351,16 @@ mod tests {
         for dir in ["in", "lib/Atari"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n[roots.lib]\npath = {:?}\nwritable = true\n",
-            tmp.path().join("in").display().to_string(),
-            tmp.path().join("lib").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let folder = store
-            .register_ingest_folder(&config, "in")
-            .unwrap()
-            .id
-            .unwrap();
-        Env {
-            tmp,
-            store,
-            config,
-            folder,
+        use title_select_api::roots::{RootKind, RootSpec};
+        for spec in [
+            RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            RootSpec::new("lib", tmp.path().join("lib")).writable(),
+        ] {
+            store.register_root(&spec, "test").unwrap();
         }
+        let folder = store.register_ingest_folder("in").unwrap().id.unwrap();
+        Env { tmp, store, folder }
     }
 
     impl Env {
@@ -2418,10 +2395,10 @@ mod tests {
         /// Makes the move, stopping as a kill would at `fault`, then recovers it.
         fn interrupted(&self, mv: Move, fault: Fault) {
             self.store.inject_fault(Some(fault));
-            let ran = catch_unwind(AssertUnwindSafe(|| self.store.move_out(&self.config, mv)));
+            let ran = catch_unwind(AssertUnwindSafe(|| self.store.move_out(mv)));
             assert!(ran.is_err(), "the fault was not reached");
             self.store.inject_fault(None);
-            let left = self.store.recover_ingest_moves(&self.config).unwrap();
+            let left = self.store.recover_ingest_moves().unwrap();
             assert!(left.is_empty(), "{left:?}");
         }
 
@@ -2576,7 +2553,7 @@ mod tests {
             let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
             mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
             env.store.inject_fault(Some(fault));
-            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
             assert!(ran.is_err(), "{fault:?}");
             env.store.inject_fault(None);
             let tmp = env.store.dir().join(crate::TMP);
@@ -2585,7 +2562,7 @@ mod tests {
                 std::fs::write(tmp.join(dir).join("0"), b"member").unwrap();
             }
 
-            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+            let left = env.store.recover_ingest_moves().unwrap();
 
             assert!(left.is_empty(), "{left:?}");
             assert_eq!(env.unfinished(), 0);
@@ -2607,7 +2584,7 @@ mod tests {
         let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
         mv.sha256 = Some("0".repeat(64));
 
-        let moved = env.store.move_out(&env.config, mv).unwrap();
+        let moved = env.store.move_out(mv).unwrap();
 
         assert!(moved.is_err(), "{moved:?}");
         let listing = env.listing();
@@ -2668,7 +2645,7 @@ mod tests {
         );
         mv.exact = Some(rom.clone());
 
-        env.store.move_out(&env.config, mv).unwrap().unwrap();
+        env.store.move_out(mv).unwrap().unwrap();
 
         assert_eq!(env.listing(), ["lib/Atari/Pong (USA).zip"]);
         let m = env.store.read(|c| move_by_id(c, 1)).unwrap();
@@ -2767,7 +2744,7 @@ mod tests {
                 }
             })));
 
-        let moved = env.store.move_out(&env.config, mv);
+        let moved = env.store.move_out(mv);
         env.store.hook_faults(None);
         FORCE_COPY.with(|f| f.set(false));
 
@@ -2807,7 +2784,7 @@ mod tests {
             );
             mv.exact = Some(rom);
             env.store.inject_fault(Some(Fault::IngestIsolated));
-            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
             assert!(ran.is_err(), "{dest}");
             env.store.inject_fault(None);
             let published = env.tmp.path().join("lib/Atari").join(dest);
@@ -2823,7 +2800,7 @@ mod tests {
                 }
             }
 
-            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+            let left = env.store.recover_ingest_moves().unwrap();
 
             assert!(left.is_empty(), "{left:?}");
             assert_eq!(
@@ -2874,7 +2851,7 @@ mod tests {
                 Stop::Renamed => Fault::IngestRenamed,
                 Stop::PublishedWithoutAStamp => Fault::IngestPublished,
             }));
-            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
             assert!(ran.is_err());
             env.store.inject_fault(None);
             let published = env.tmp.path().join("lib/Atari/Pong (USA).a26");
@@ -2895,7 +2872,7 @@ mod tests {
                 }
             }
 
-            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+            let left = env.store.recover_ingest_moves().unwrap();
 
             assert!(left.is_empty(), "{left:?}");
             assert_eq!(
@@ -2954,13 +2931,13 @@ mod tests {
                         panic!("stopped");
                     }
                 })));
-            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
             assert!(ran.is_err(), "{case}");
             env.store.hook_faults(None);
             FORCE_COPY.with(|f| f.set(false));
             std::fs::remove_file(env.tmp.path().join("lib/Atari").join(dest)).unwrap();
 
-            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+            let left = env.store.recover_ingest_moves().unwrap();
 
             assert!(left.is_empty(), "{case}: {left:?}");
             let (state, error, note) = last_move(&env);
@@ -2986,7 +2963,7 @@ mod tests {
         mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
         FORCE_COPY.with(|f| f.set(true));
         env.store.inject_fault(Some(Fault::IngestIsolated));
-        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
         assert!(ran.is_err());
         env.store.inject_fault(None);
         FORCE_COPY.with(|f| f.set(false));
@@ -3014,7 +2991,7 @@ mod tests {
             })));
         crate::folder_dir::SYNCED.with(|synced| synced.borrow_mut().clear());
 
-        let left = env.store.recover_ingest_moves(&env.config).unwrap();
+        let left = env.store.recover_ingest_moves().unwrap();
 
         env.store.hook_faults(None);
         assert!(left.is_empty(), "{left:?}");
@@ -3077,7 +3054,7 @@ mod tests {
 
             let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
             mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
-            let moved = env.store.move_out(&env.config, mv).unwrap().unwrap();
+            let moved = env.store.move_out(mv).unwrap().unwrap();
 
             assert_eq!(env.listing(), [kept, "lib/Atari/Pong (USA).a26"], "{at:?}");
             assert_eq!(std::fs::read(env.tmp.path().join(kept)).unwrap(), left);
@@ -3105,7 +3082,7 @@ mod tests {
 
             let moved = env
                 .store
-                .move_out(&env.config, env.mv("pong.a26", kept("pong.a26"), None))
+                .move_out(env.mv("pong.a26", kept("pong.a26"), None))
                 .unwrap();
 
             assert!(moved.is_err_and(|why| why.contains("put back")), "{dir}");
@@ -3132,7 +3109,7 @@ mod tests {
                 _ => {}
             })));
 
-        let moved = env.store.move_out(&env.config, moving).unwrap();
+        let moved = env.store.move_out(moving).unwrap();
 
         assert!(moved.is_err_and(|why| why.contains("kept as")));
         let listing = env.listing();
@@ -3162,7 +3139,7 @@ mod tests {
             let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
             mv.exact = exact.clone();
 
-            let moved = env.store.move_out(&env.config, mv).unwrap().unwrap();
+            let moved = env.store.move_out(mv).unwrap().unwrap();
 
             assert_eq!(
                 env.listing(),
@@ -3214,11 +3191,11 @@ mod tests {
                     panic!("stopped at {fault:?}");
                 }
             })));
-        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(mv)));
         assert!(ran.is_err(), "{stop:?} was not reached");
         env.store.hook_faults(None);
         crate::folder_dir::SYNCED.with(|synced| synced.borrow_mut().clear());
-        env.store.recover_ingest_moves(&env.config).unwrap();
+        env.store.recover_ingest_moves().unwrap();
         assert_eq!(env.unfinished(), 0, "{stop:?}");
         let tmp = env.tmp.path().to_string_lossy().into_owned();
         crate::folder_dir::SYNCED.with(|synced| {

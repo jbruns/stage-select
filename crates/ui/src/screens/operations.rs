@@ -17,8 +17,8 @@ use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StatusIcon};
 use crate::settings_model::{
-    CadenceDraft, CeilingField, CeilingKey, Draft, Refreshed, at_pace, ceiling, ceiling_curve,
-    ceiling_keys, locked_reason, pace_label, refreshed, romm_check_lines, romm_platform_label,
+    CadenceDraft, CeilingField, CeilingKey, Draft, Refreshed, archive_memory, at_pace, ceiling,
+    ceiling_curve, ceiling_keys, pace_label, refreshed, romm_check_lines, romm_platform_label,
     secret_state, source_label,
 };
 
@@ -266,6 +266,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     view! {
         <div class="settings">
             <PaceSection saved draft newer />
+            <ArchiveSection saved draft />
             <fieldset class="setting">
                 <legend>"Retention"</legend>
                 <p class="note small">
@@ -430,7 +431,7 @@ fn PaceSection(
 }
 
 /// Every Ceiling of the Host and of each Root: what the pace makes of it, where it comes from, what a calibration
-/// measured, and your own value, which you can change unless the configuration file sets it.
+/// measured, and your own value.
 #[component]
 fn CeilingsTable(
     saved: RwSignal<SettingsView>,
@@ -476,7 +477,7 @@ fn CeilingsTable(
         <details class="ceilings">
             <summary>"Adjust ceilings"</summary>
             <p class="note small">
-                "Each ceiling is the most the pace shares out. Its value comes from the first of these that has one: your configuration file, yours, the calibration, then the CPU count. Clear yours to fall back. Read and write rates have no limit until a calibration or you set one, and roots on one storage pool add up."
+                "Each ceiling is the most the pace shares out. Its value comes from the first of these that has one: yours, the calibration, then the CPU count. Clear yours to fall back. Read and write rates have no limit until a calibration or you set one, and roots on one storage pool add up."
             </p>
             <div class="table-scroll">
                 <table aria-label="Ceilings">
@@ -557,14 +558,8 @@ fn CeilingRow(
         }
     });
     let source = source_label(c.source);
-    let yours = match c.locked_by.clone() {
-        Some(locked) => view! {
-            <Tooltip label=locked_reason(&locked) focusable=true>
-                <span>"Locked"</span>
-            </Tooltip>
-        }
-        .into_any(),
-        None => {
+    let yours = {
+        {
             let draft_key = key.clone();
             let get_key = key.clone();
             let placeholder = observed
@@ -605,7 +600,6 @@ fn CeilingRow(
                 />
                 {suggest}
             }
-            .into_any()
         }
     };
     // Read as the calibration loads and each time it is fetched again, as a calibration ends.
@@ -637,6 +631,28 @@ fn CeilingRow(
             <td>{status}</td>
             <td>{curve}</td>
         </tr>
+    }
+}
+
+/// The largest 7z dictionary an archive may declare, with what it may cost in memory.
+#[component]
+fn ArchiveSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl IntoView {
+    let cost = move || saved.with(|s| draft.with(|d| archive_memory(&s.jobs, d)));
+    view! {
+        <fieldset class="setting">
+            <legend>"7z archives"</legend>
+            <p class="note small">
+                "A 7z that needs a larger dictionary than this is reported as unsupported, and read again on the next scan after you raise it. Each archive decoding at once may need this much memory."
+            </p>
+            <NumberField
+                draft
+                id="max-dictionary"
+                label="Largest dictionary, in MiB, from 1 to 4096"
+                get=|d| d.max_dictionary_mib.clone()
+                set=|d, v| d.max_dictionary_mib = v
+            />
+            <p class="note small" aria-live="polite">{cost}</p>
+        </fieldset>
     }
 }
 
@@ -867,7 +883,7 @@ fn RommSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
                         .and_then(Result::ok)
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|r| !r.ingest)
+                        .filter(|r| r.kind != title_select_api::roots::RootKind::Ingest)
                         .map(|r| {
                             let selected = draft.with_untracked(|d| d.romm_root == r.name);
                             let label = r.name.clone();

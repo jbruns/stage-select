@@ -27,7 +27,6 @@ use super::jobs::{finish_running, job_by_id};
 use super::plans::{Built, LaidFile, generated_what, json, laid_files, read_built, to_json};
 use super::sets::set_by_id;
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 
 /// A built file's record to bring up to date: only while it is still as the check read it.
 pub(super) struct Update {
@@ -983,7 +982,6 @@ impl Store {
     /// the Job. Returns the Job as it ends.
     pub fn run_check_job(
         &self,
-        config: &Config,
         id: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<Job> {
@@ -1002,7 +1000,7 @@ impl Store {
         let folder = job
             .library_folder
             .ok_or_else(|| Error::Io(format!("check job {id} has no library folder")))?;
-        let outcome = self.check_folder(config, id, folder, progress);
+        let outcome = self.check_folder(id, folder, progress);
         if let Err(err) = outcome {
             let message = err.to_string();
             self.write(|tx| {
@@ -1017,11 +1015,11 @@ impl Store {
 
     fn check_folder(
         &self,
-        config: &Config,
         job: i64,
         folder: i64,
         progress: Option<&(dyn Fn(Progress) + Sync)>,
     ) -> Result<()> {
+        let roots = &*self.roots();
         let inputs = self.read(|c| {
             let tx = c.unchecked_transaction()?;
             let folder = folder_by_id(&tx, folder)?;
@@ -1062,7 +1060,7 @@ impl Store {
                 revision,
             })
         })?;
-        let dir = open_folder(config, &inputs.folder.root, &inputs.folder.path)
+        let dir = open_folder(roots, &inputs.folder.root, &inputs.folder.path)
             .map_err(|e| Error::Refused(format!("the library folder cannot be opened: {e}")))?;
         let entries =
             listing(&dir, &disk_dirs(&inputs.built)).map_err(|e| Error::Io(e.to_string()))?;

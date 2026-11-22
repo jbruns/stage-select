@@ -3,13 +3,13 @@
 //! DAT, Source Set and Ingest Folder; regions are read from Game names by the Selection engine.
 
 use std::path::{Path, PathBuf};
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use title_select_api::ingest::{ItemState, Need, Proposal};
 use title_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
 use title_select_api::{AuditEvidence, GameStatus, JobState, Workers};
 use title_select_engine::dat::Dat;
-use title_select_store::config::Config;
 use title_select_store::{Error, FixdatScope, Store};
 
 const SET: &str = "Alpha";
@@ -52,7 +52,6 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -86,14 +85,14 @@ impl Env {
         for dir in ["roots/sets/Alpha", "in", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [\"Alpha\"]\n\n\
-             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-            tmp.path().join("roots/sets").display().to_string(),
-            tmp.path().join("in").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
+            ],
+        );
         if regions {
             let regions = title_select_selection::Engine::locate(None)
                 .and_then(|engine| engine.regions())
@@ -102,7 +101,6 @@ impl Env {
         }
         store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -122,15 +120,15 @@ impl Env {
         let dat = write_dat(&tmp.path().join("dats"), games);
         store.import_dat(&dat, None).unwrap();
         store
-            .add_source_set(&config, "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
-        store.register_ingest_folder(&config, "in").unwrap();
-        Env { tmp, store, config }
+        store.register_ingest_folder("in").unwrap();
+        Env { tmp, store }
     }
 
     fn audit(&self) {
         self.store
-            .audit_source_set(&self.config, SET, None, AuditEvidence::Full)
+            .audit_source_set(SET, None, AuditEvidence::Full)
             .unwrap();
     }
 
@@ -144,17 +142,17 @@ impl Env {
     fn approve(&self, plan: &RepairPlan) {
         let approved = self
             .store
-            .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         let job = approved.job.unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
-        let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
+        let ended = self.store.run_repair_job(job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         self.store.fulfil_repair_audits().unwrap();
         let done = self.store.repair_plan(plan.id).unwrap();
         let audit = done.audit_job.unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
-        self.store.run_audit_job(&self.config, audit, None).unwrap();
+        self.store.run_audit_job(audit, None).unwrap();
     }
 
     fn set(&self) -> PathBuf {
@@ -176,16 +174,12 @@ impl Env {
         for _ in 0..2 {
             let job = self.store.enqueue_ingest_scan("in", "Operator").unwrap();
             self.store.claim_job().unwrap().unwrap();
-            self.store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            self.store.run_ingest_scan_job(job.id).unwrap();
         }
     }
 
     fn plan(&self) -> RepairPlan {
-        self.store
-            .plan_repair(&self.config, SET, &PlanRepair::default())
-            .unwrap()
+        self.store.plan_repair(SET, &PlanRepair::default()).unwrap()
     }
 
     fn fixdat_games(&self, scope: Option<FixdatScope>) -> (Vec<String>, String) {
@@ -409,7 +403,7 @@ fn a_repair_plan_made_under_another_coverage_is_refused_on_approval() {
 
     let refused = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
 
     let Err(Error::Conflict(why)) = refused else {
         panic!("{refused:?}");
@@ -421,13 +415,8 @@ fn a_repair_plan_made_under_another_coverage_is_refused_on_approval() {
     let cleared = env.plan();
     env.store.set_coverage(SET, None).unwrap();
     assert!(matches!(
-        env.store.approve_repair(
-            &env.config,
-            cleared.id,
-            &cleared.digest,
-            "Operator",
-            WORKERS
-        ),
+        env.store
+            .approve_repair(cleared.id, &cleared.digest, "Operator", WORKERS),
         Err(Error::Conflict(_))
     ));
 }
@@ -439,7 +428,7 @@ fn the_coverage_cannot_change_while_an_approved_repair_has_not_finished() {
     let plan = env.plan();
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
     let usa = ["USA".to_owned()];
@@ -458,7 +447,7 @@ fn the_coverage_cannot_change_while_an_approved_repair_has_not_finished() {
     );
     let job = approved.job.unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job);
-    let ended = env.store.run_repair_job(&env.config, job, None).unwrap();
+    let ended = env.store.run_repair_job(job, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     env.store.set_coverage(SET, Some(&usa)).unwrap();
 }
@@ -481,11 +470,11 @@ fn without_regions_to_read_ingest_leaves_a_covered_sets_matches_unresolved_and_s
     env.store.import_dat(&other, None).unwrap();
     std::fs::create_dir_all(env.tmp.path().join("roots/sets/Beta")).unwrap();
     env.store
-        .add_source_set(&env.config, "sets", "Beta", "Redump/Test - System")
+        .add_source_set("sets", "Beta", "Redump/Test - System")
         .unwrap();
     let audit = env
         .store
-        .audit_source_set(&env.config, "Beta", None, AuditEvidence::Full);
+        .audit_source_set("Beta", None, AuditEvidence::Full);
     audit.unwrap();
     write_file(&env.tmp.path().join("in/mystery.bin"), b"mystery");
     write_dat_from(
@@ -536,8 +525,7 @@ fn without_regions_to_read_ingest_leaves_a_covered_sets_matches_unresolved_and_s
     ));
     env.audit();
     assert!(matches!(
-        env.store
-            .plan_repair(&env.config, SET, &PlanRepair::default()),
+        env.store.plan_repair(SET, &PlanRepair::default()),
         Err(Error::RegionsUnavailable(_))
     ));
 }

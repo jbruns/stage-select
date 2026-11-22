@@ -1,6 +1,7 @@
 //! Headers in the store: a stored Audit keeps what a DAT's Header Rule found (ADR 0016).
 
 use std::path::PathBuf;
+use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use std::collections::BTreeMap;
@@ -19,7 +20,6 @@ use title_select_api::selection::{
 use title_select_api::storage::{StorageFormat, SystemStorage};
 use title_select_api::{JobKind, JobState};
 use title_select_engine::{AuditEvidence, Finding, GameWarning, Reuse};
-use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
 
 const SET: &str = "No-Intro/Test - System";
@@ -31,7 +31,6 @@ const WORKERS: Workers = Workers {
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
-    config: Config,
 }
 
 impl Env {
@@ -43,21 +42,19 @@ impl Env {
         for dir in ["roots/play", "roots/ingest", "roots/additions"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n\
-             [roots.play]\npath = {:?}\nwritable = true\n\n\
-             [roots.ingest]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
-             [roots.additions]\npath = {:?}\nwritable = true\n",
-            root.display().to_string(),
-            tmp.path().join("roots/play").display().to_string(),
-            tmp.path().join("roots/ingest").display().to_string(),
-            tmp.path().join("roots/additions").display().to_string(),
-        ))
-        .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
+        crate::register(
+            &store,
+            &[
+                RootSpec::new("sets", root).writing(&[SET]),
+                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("ingest", tmp.path().join("roots/ingest")).of_kind(RootKind::Ingest),
+                RootSpec::new("additions", tmp.path().join("roots/additions"))
+                    .of_kind(RootKind::Additions),
+            ],
+        );
         store
             .update_settings(
-                &config,
                 &title_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
@@ -74,14 +71,12 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        Env { tmp, store, config }
+        Env { tmp, store }
     }
 
     /// Adds `payload`, put in the Ingest Folder as `name`, as the addition `addition` of the system.
     fn add_addition(&self, name: &str, payload: &[u8], addition: &str) {
-        self.store
-            .register_ingest_folder(&self.config, "ingest")
-            .unwrap();
+        self.store.register_ingest_folder("ingest").unwrap();
         write_file(&self.tmp.path().join("roots/ingest").join(name), payload);
         for _ in 0..2 {
             let job = self
@@ -89,10 +84,7 @@ impl Env {
                 .enqueue_ingest_scan("ingest", "Operator")
                 .unwrap();
             self.store.claim_job().unwrap().unwrap();
-            let ended = self
-                .store
-                .run_ingest_scan_job(&self.config, job.id)
-                .unwrap();
+            let ended = self.store.run_ingest_scan_job(job.id).unwrap();
             assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         }
         let id = self
@@ -106,7 +98,6 @@ impl Env {
         let plan = self
             .store
             .plan_ingest(
-                &self.config,
                 "ingest",
                 &PlanIngest {
                     action: IngestAction::Addition,
@@ -123,7 +114,7 @@ impl Env {
             )
             .unwrap();
         self.store
-            .approve_ingest_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         self.settle();
     }
@@ -132,7 +123,7 @@ impl Env {
     fn settle(&self) {
         while let Some(job) = self.store.claim_job().unwrap() {
             assert_eq!(job.kind, JobKind::Additions, "{job:?}");
-            let job = self.store.run_additions_job(&self.config, job.id).unwrap();
+            let job = self.store.run_additions_job(job.id).unwrap();
             assert_eq!(job.state, JobState::Succeeded, "{job:?}");
         }
     }
@@ -145,13 +136,13 @@ impl Env {
         let dat = write_dat_with_header(&self.tmp.path().join("in"), rule, games);
         self.store.import_dat(&dat, None).unwrap();
         self.store
-            .add_source_set(&self.config, "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
     }
 
     fn audit(&self, evidence: AuditEvidence) -> title_select_store::StoredAudit {
         self.store
-            .audit_source_set(&self.config, "Test - System", None, evidence)
+            .audit_source_set("Test - System", None, evidence)
             .unwrap()
     }
 }
@@ -295,7 +286,7 @@ fn a_repair_writes_a_headered_dump_with_its_header_and_its_audit_matches_it() {
 
     let plan = env
         .store
-        .plan_repair(&env.config, "Test - System", &PlanRepair::default())
+        .plan_repair("Test - System", &PlanRepair::default())
         .unwrap();
     let kinds: Vec<_> = plan
         .content
@@ -313,12 +304,12 @@ fn a_repair_writes_a_headered_dump_with_its_header_and_its_audit_matches_it() {
     );
     let approved = env
         .store
-        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
     let ended = env
         .store
-        .run_repair_job(&env.config, approved.job.unwrap(), None)
+        .run_repair_job(approved.job.unwrap(), None)
         .unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     let done = env.store.repair_plan(plan.id).unwrap();
@@ -415,25 +406,22 @@ fn build_with(
         .unwrap();
     let folder = env
         .store
-        .add_library_folder(
-            &env.config,
-            &AddLibraryFolder {
-                root: "play".into(),
-                path: Some(path.into()),
-                template: None,
-                source_set: "Test - System".into(),
-                profile: "Mine".into(),
-            },
-        )
+        .add_library_folder(&AddLibraryFolder {
+            root: "play".into(),
+            path: Some(path.into()),
+            template: None,
+            source_set: "Test - System".into(),
+            profile: "Mine".into(),
+        })
         .unwrap();
-    let plan = env.store.plan_build(&env.config, folder.id, id).unwrap();
+    let plan = env.store.plan_build(folder.id, id).unwrap();
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let ended = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    let ended = env.store.run_build_job(job.id, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     env.settle();
     folder.id
@@ -446,7 +434,7 @@ fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
 fn check(env: &Env, folder: i64) -> FolderCheck {
     let job = env.store.enqueue_check(folder, "Operator").unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let done = env.store.run_check_job(&env.config, job.id, None).unwrap();
+    let done = env.store.run_check_job(job.id, None).unwrap();
     assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
     env.store.latest_check(folder).unwrap().unwrap()
 }
@@ -571,7 +559,6 @@ fn headered_drift_added_as_an_addition_by_a_cleanup_is_added_whole() {
     let plan = env
         .store
         .plan_cleanup(
-            &env.config,
             folder,
             &PlanCleanup {
                 entries: BTreeMap::from([("My Hack.nes".to_owned(), CleanupAction::AddAddition)]),
@@ -590,10 +577,10 @@ fn headered_drift_added_as_an_addition_by_a_cleanup_is_added_whole() {
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     let job = env
         .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let ended = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    let ended = env.store.run_build_job(job.id, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     env.settle();
 

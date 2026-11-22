@@ -22,6 +22,7 @@ pub mod parts;
 pub mod placement_model;
 pub mod registration;
 pub mod repair_model;
+pub mod roots_model;
 pub mod screens;
 pub mod selection_model;
 pub mod settings_model;

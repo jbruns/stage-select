@@ -10,7 +10,6 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use super::jobs::{check_no_active, finish_running, job_by_id};
 use super::sets::{resolve, set_by_name};
 use super::{Error, Result, Store, now};
-use crate::config::Config;
 use title_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
 use title_select_engine::{FileStamp, StatEntry};
 
@@ -256,7 +255,7 @@ impl Store {
     /// Runs the Running stat walk Job `id`: stats every file of its Source Set, reads no payload and writes nothing
     /// there. It stops, recording nothing and ending Interrupted, once a Repair or Build wants the Source Set or the
     /// job slot. Returns the Job as it ends.
-    pub fn run_stat_walk_job(&self, config: &Config, id: i64) -> Result<Job> {
+    pub fn run_stat_walk_job(&self, id: i64) -> Result<Job> {
         // What it reads and writes is counted for it, even where it isn't handed its meter.
         let _metered = self.meter.job(id).on_this_thread();
         let job = self.job(id)?;
@@ -270,7 +269,7 @@ impl Store {
             )));
         }
         let since = job.started_at.clone().unwrap_or_else(now);
-        let outcome = self.stat_walk(config, &job.source_set, &since);
+        let outcome = self.stat_walk(&job.source_set, &since);
         self.write(|tx| {
             let (state, error) = match &outcome {
                 Ok(Some((set, audit, counts))) => {
@@ -294,12 +293,8 @@ impl Store {
 
     /// Walks Source Set `name`, returning its id, the Audit it compared with and what it counted; none if it
     /// yielded.
-    fn stat_walk(
-        &self,
-        config: &Config,
-        name: &str,
-        since: &str,
-    ) -> Result<Option<(i64, i64, Counts)>> {
+    fn stat_walk(&self, name: &str, since: &str) -> Result<Option<(i64, i64, Counts)>> {
+        let roots = &*self.roots();
         let (set, baseline) = self.read(|c| {
             let set = set_by_name(c, name)?;
             let audit = latest_audit(c, set.id)?.ok_or_else(|| {
@@ -307,7 +302,7 @@ impl Store {
             })?;
             Ok((set, baseline(c, audit)?))
         })?;
-        let resolved = resolve(config, &set.record.root, &set.record.path)?;
+        let resolved = resolve(roots, &set.record.root, &set.record.path)?;
         let polled = Cell::new(Instant::now());
         let stop = Cell::new(false);
         let keep_going = || {
@@ -327,7 +322,7 @@ impl Store {
             return Ok(None);
         };
         // Its Placed Games' files are its own too, where they are placed.
-        for (folder, placed, files) in self.placed_folders(config, set.id)? {
+        for (folder, placed, files) in self.placed_folders(set.id)? {
             walked.extend(title_select_engine::stat_placed(
                 &title_select_engine::Placed {
                     id: folder,
