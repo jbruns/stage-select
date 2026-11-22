@@ -8,6 +8,7 @@ mod sevenz_fixtures;
 
 mod additions;
 mod arcade;
+mod arcade_build;
 mod builds;
 mod calibration;
 mod chd;

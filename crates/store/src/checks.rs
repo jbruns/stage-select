@@ -13,7 +13,7 @@ use title_select_api::build::{
     PlacedFile,
 };
 use title_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
-use title_select_api::{HeaderRule, Job, JobKind, JobState};
+use title_select_api::{DatFormat, HeaderRule, Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
 use title_select_engine::dat::Dat;
@@ -121,17 +121,26 @@ pub(super) struct ScanInput<'a> {
 }
 
 /// The names in a folder other than Title Select's own entries, sorted, with each disc layout folder's entries in
-/// place of it, as [`deepen`].
-pub(super) fn listing(dir: &FolderDir) -> std::io::Result<Vec<String>> {
+/// place of it, and each of `disks`, as [`deepen`].
+pub(super) fn listing(dir: &FolderDir, disks: &HashSet<String>) -> std::io::Result<Vec<String>> {
     let names: Vec<String> = dir
         .entries()?
         .into_iter()
         .map(|(name, _)| name)
         .filter(|name| !is_own(name))
         .collect();
-    let mut names = deepen(dir, names);
+    let mut names = deepen(dir, names, disks);
     names.sort();
     Ok(names)
+}
+
+/// The folders of `built` that hold the Disks of an Arcade DAT's Games, `<game>/`.
+pub(super) fn disk_dirs(built: &BTreeMap<String, Built>) -> HashSet<String> {
+    built
+        .iter()
+        .filter(|(_, b)| b.disk)
+        .filter_map(|(target, _)| target.split_once('/').map(|(dir, _)| dir.to_owned()))
+        .collect()
 }
 
 /// Whether `name`, at the top of a Library Folder, is a folder a disc layout puts files in: one named for the `.cue`
@@ -141,13 +150,13 @@ pub(super) fn is_layout_dir(name: &str) -> bool {
     name.ends_with(".cue") || name.ends_with(".m3u")
 }
 
-/// `names`, a folder's top-level entries, with each disc layout folder that is a directory replaced by its entries,
-/// as `<folder>/<entry>`: they belong to the folder as its other files do. One that is empty, or can't be read,
-/// stays itself.
-pub(super) fn deepen(dir: &FolderDir, names: Vec<String>) -> Vec<String> {
+/// `names`, a folder's top-level entries, with each disc layout folder that is a directory, and each folder of `disks`,
+/// an Arcade DAT's Game's Disks', replaced by its entries, as `<folder>/<entry>`: they belong to the folder as its
+/// other files do. One that is empty, or can't be read, stays itself.
+pub(super) fn deepen(dir: &FolderDir, names: Vec<String>, disks: &HashSet<String>) -> Vec<String> {
     let mut out = Vec::new();
     for name in names {
-        let inner = is_layout_dir(&name)
+        let inner = (is_layout_dir(&name) || disks.contains(&name))
             .then(|| dir.stat(&name).ok().flatten())
             .flatten()
             .filter(|st| FolderDir::kind(st) == FileType::Directory)
@@ -295,6 +304,18 @@ pub(super) fn reuse(
 /// The files the storage policy stores games of `dat` as other than `<game>.zip`, by game: loose, as CHD, or laid out
 /// as a disc layout says; none unless it says loose, loose folder or CHD.
 pub(crate) fn loose_names(storage: Storage, dat: Option<&Dat>) -> HashMap<String, Vec<String>> {
+    // An Arcade DAT's Game is `<game>.zip` whatever the storage policy says, and its Disks are `<game>/<disk>.chd`
+    // (ADR 0026).
+    if let Some(dat) = dat.filter(|d| d.format == DatFormat::Listxml) {
+        let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        for rom in dat.roms.iter().filter(|r| r.disk) {
+            let game = &dat.games[rom.game];
+            out.entry(game.clone())
+                .or_insert_with(|| vec![format!("{game}.zip")])
+                .push(format!("{game}/{}", rom.name));
+        }
+        return out;
+    }
     let Some(dat) = dat.filter(|_| storage.format != StorageFormat::TorrentZip) else {
         return HashMap::new();
     };
@@ -1043,7 +1064,8 @@ impl Store {
         })?;
         let dir = open_folder(config, &inputs.folder.root, &inputs.folder.path)
             .map_err(|e| Error::Refused(format!("the library folder cannot be opened: {e}")))?;
-        let entries = listing(&dir).map_err(|e| Error::Io(e.to_string()))?;
+        let entries =
+            listing(&dir, &disk_dirs(&inputs.built)).map_err(|e| Error::Io(e.to_string()))?;
         let dat = match inputs.revision.1 {
             true => Some(Dat::read(&self.blob_path(&inputs.revision.0))?),
             false => None,

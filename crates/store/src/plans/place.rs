@@ -7,11 +7,12 @@
 use std::collections::{BTreeMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 
+use title_select_api::DatFormat;
 use title_select_api::build::{
     FileIdentity, FileOutcome, ItemKind, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, PlanSource,
 };
 use title_select_api::report::{EvidenceLevel, Finding};
-use title_select_api::storage::{release_of, split_placed};
+use title_select_api::storage::{SetLayout, release_of, split_placed};
 
 use super::{Folder, Inputs, Sources};
 use crate::config::Config;
@@ -81,6 +82,22 @@ pub(super) fn place(
         ));
         return;
     }
+    // An Arcade DAT's Game is placed only as a non-merged ZIP, its Source Set's own, which holds that Game alone (ADR
+    // 0026).
+    let arcade = inputs.revision.format == DatFormat::Listxml;
+    let layout = match inputs.set_storage.set_layout {
+        Some(SetLayout::Split) => Some("split"),
+        Some(SetLayout::Merged) => Some("merged"),
+        Some(SetLayout::NonMerged) | None => None,
+    };
+    if let (true, Some(layout)) = (arcade, layout) {
+        notes.push(format!(
+            "single copy is on, but source set {set} keeps its ZIPs {layout}, so each holds more than one game's \
+             ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
+             source set"
+        ));
+        return;
+    }
     let (Some(folder), Some((set_dir, _))) = (folder, sources.set_dir.clone()) else {
         return;
     };
@@ -101,10 +118,11 @@ pub(super) fn place(
     let mut chds = 0;
     let (mut freed, mut written) = (0u64, 0u64);
     for (_, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
+        // A Disk is always copied, never placed: one family's folder of Disks may serve several Games.
         let placing: Vec<usize> = members
             .iter()
             .copied()
-            .filter(|&i| items[i].generated.is_none())
+            .filter(|&i| items[i].generated.is_none() && !items[i].disk)
             .collect();
         // Placed already, or nothing of the Source Set's to place.
         if placing.is_empty()
@@ -114,7 +132,7 @@ pub(super) fn place(
         {
             continue;
         }
-        let planned = match release(inputs, folder, sources, items, &placing) {
+        let planned = match release(inputs, folder, sources, items, &placing, arcade) {
             Ok(planned) => planned,
             Err(Some(why)) => {
                 *copied.entry(why).or_default() += 1;
@@ -229,6 +247,7 @@ fn release(
     sources: &mut Sources,
     items: &[PlanItem],
     placing: &[usize],
+    arcade: bool,
 ) -> Result<Vec<Found>, Option<&'static str>> {
     let mut found: Vec<Found> = Vec::new();
     for &i in placing {
@@ -245,7 +264,9 @@ fn release(
         found.push(placement(inputs, folder, sources, item)?);
     }
     // Each Source Set file consumed holds this release alone, every Entry of it matched on its payload and taken by
-    // one of its items: nothing else in it is lost. A file two items are written from is consumed once.
+    // one of its items: nothing else in it is lost. A file two items are written from is consumed once. A
+    // self-contained ZIP of an Arcade DAT's Game holds its Dependencies' ROMs too, which other Games may also be found
+    // to hold: it is the Game's alone while the Game takes every Entry of it.
     let games: HashSet<&str> = placing.iter().map(|&i| items[i].game.as_str()).collect();
     let taken: HashSet<(String, Option<String>)> = found
         .iter()
@@ -271,7 +292,7 @@ fn release(
             }
             let all_ours = entries.iter().all(|e| {
                 !e.roms.is_empty()
-                    && e.roms.iter().all(|r| games.contains(r.game.as_str()))
+                    && (arcade || e.roms.iter().all(|r| games.contains(r.game.as_str())))
                     && taken.contains(&(e.path.clone(), e.member.clone()))
             });
             if entries.is_empty() || !all_ours {

@@ -84,6 +84,14 @@ pub struct LibraryFolder {
     /// else; empty when nothing did, and before the first build.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale: Vec<Stale>,
+    /// For a folder of an Arcade DAT's Games, the MAME version its current Build's Selection was made for: its ListXML
+    /// DAT Revision's build, such as `0.289 (mame0289)`. Only that version of MAME runs what it holds (ADR 0026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_for: Option<String>,
+    /// The folders a Build made in it for its Games' Disks, `<game>/`, by name: a front end that takes each folder for
+    /// a game of its own, as RomM does, is to leave them out (ADR 0026).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disk_folders: Vec<String>,
 }
 
 /// One thing that changed since a Library Folder's current Build: its Source Set, its Source Set's Coverage, or its
@@ -497,6 +505,15 @@ pub struct PlanItem {
     /// approves that.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub changes_source_set: bool,
+    /// Whether it is a Disk of a Game of an Arcade DAT, `<game>/<disk>.chd`: the CHD its Source Set keeps in its
+    /// family's folder, copied as it is, never placed, and checked against the copy it was made from and the SHA-1 its
+    /// header records. It is also a [`chd`](Self::chd).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disk: bool,
+    /// For a Game of an Arcade DAT with no source, when only its Dependencies' ROMs have none: those Dependencies, so
+    /// that the folder is Incomplete for lacking them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_dependencies: Vec<String>,
 }
 
 /// How a Game is placed.
@@ -1056,10 +1073,13 @@ pub enum IncompleteReason {
     Missing,
     /// A disc of a selected Multi-disc Game that no selected release has: the choice for its group left it out.
     MissingDisc,
+    /// A selected Game of an Arcade DAT whose own ROMs are there, but not every ROM of its Dependencies, such as a
+    /// device's, so its self-contained ZIP can't be built.
+    MissingDependency,
 }
 
 impl IncompleteReason {
-    pub const ALL: [IncompleteReason; 7] = [
+    pub const ALL: [IncompleteReason; 8] = [
         IncompleteReason::Unresolved,
         IncompleteReason::NoSource,
         IncompleteReason::Failed,
@@ -1067,6 +1087,7 @@ impl IncompleteReason {
         IncompleteReason::Blocked,
         IncompleteReason::Missing,
         IncompleteReason::MissingDisc,
+        IncompleteReason::MissingDependency,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -1078,6 +1099,7 @@ impl IncompleteReason {
             IncompleteReason::Blocked => "blocked",
             IncompleteReason::Missing => "missing",
             IncompleteReason::MissingDisc => "missing_disc",
+            IncompleteReason::MissingDependency => "missing_dependency",
         }
     }
 
@@ -1097,6 +1119,8 @@ pub struct IncompleteCounts {
     pub missing: u64,
     #[serde(default)]
     pub missing_disc: u64,
+    #[serde(default)]
+    pub missing_dependency: u64,
 }
 
 impl IncompleteCounts {
@@ -1109,6 +1133,7 @@ impl IncompleteCounts {
             IncompleteReason::Blocked => self.blocked,
             IncompleteReason::Missing => self.missing,
             IncompleteReason::MissingDisc => self.missing_disc,
+            IncompleteReason::MissingDependency => self.missing_dependency,
         }
     }
 
@@ -1121,6 +1146,7 @@ impl IncompleteCounts {
             IncompleteReason::Blocked => &mut self.blocked,
             IncompleteReason::Missing => &mut self.missing,
             IncompleteReason::MissingDisc => &mut self.missing_disc,
+            IncompleteReason::MissingDependency => &mut self.missing_dependency,
         } += 1;
     }
 

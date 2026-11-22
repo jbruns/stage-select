@@ -56,6 +56,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0045_dump_status.sql"),
     include_str!("migrations/0046_disk_reads.sql"),
     include_str!("migrations/0047_set_layout.sql"),
+    include_str!("migrations/0048_arcade_library_folders.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

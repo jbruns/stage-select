@@ -915,6 +915,9 @@ fn stage(
     {
         return stage_from_placed_chd((item, seq), file, placed, chd, built_at);
     }
+    if item.disk {
+        return stage_disk(item, file, set_fd, chd, built_at);
+    }
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
@@ -1075,6 +1078,69 @@ fn stage(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
+    })
+}
+
+/// Copies `item`, a Disk of an Arcade DAT's Game, to `file`, new in the staging directory, from the CHD its Source Set
+/// keeps, opened by descriptor while it is the file the plan found there, as the Audit's `chdman verify` proved it. The
+/// copy is the Disk when it is that file byte for byte, by their SHA-256s, and its header records the Disk's SHA-1.
+fn stage_disk(
+    item: &PlanItem,
+    file: &mut File,
+    set: &std::result::Result<FolderDir, String>,
+    chd: &ChdWork,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let ([rom], [source]) = (item.roms.as_slice(), item.sources.as_slice()) else {
+        return Err(Failure::Item(
+            "a disk is copied from one CHD for its one disk".into(),
+        ));
+    };
+    let staged =
+        |e: io::Error| Failure::Folder(format!("the staged file for {}: {e}", item.target));
+    let from = open_either(set, &chd.placed, source).map_err(Failure::Item)?;
+    let before = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
+    copy_chunked(&from, &chd.from, file, &chd.to)
+        .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+    chd.from.file_read();
+    chd.to.file_written();
+    file.sync_all().map_err(staged)?;
+    let (read, _) =
+        sha256_of(&from, &chd.from).map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+    let after = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
+    if file_stat(&after) != file_stat(&before)
+        || crate::folder_dir::ctime_ns(&after) != crate::folder_dir::ctime_ns(&before)
+    {
+        return Err(Failure::Item(format!(
+            "{} changed while it was read",
+            source.path
+        )));
+    }
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(staged)?;
+    let (sha256, size) = sha256_of(file, &chd.to).map_err(staged)?;
+    if sha256 != read || size != source.file.size {
+        return Err(Failure::Item(format!(
+            "{} does not verify: it is not a copy of {}",
+            item.target, source.path
+        )));
+    }
+    let header =
+        chd::header(file).map_err(|why| Failure::Item(format!("{}: {why}", item.target)))?;
+    if rom.sha1.as_deref() != Some(header.sha1.as_str()) {
+        return Err(Failure::Item(format!(
+            "{} does not verify: its CHD header records SHA-1 {}, not the disk's",
+            item.target, header.sha1
+        )));
+    }
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: Some(header.sha1),
+        chd_raw_sha1: Some(header.raw_sha1),
         cue: None,
     })
 }
@@ -1571,9 +1637,9 @@ fn record_applied(
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
                                   roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
-                                  chd_sha1, chd_raw_sha1)
+                                  chd_sha1, chd_raw_sha1, disk)
          SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
-                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END
+                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END, ?15
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
@@ -1581,7 +1647,8 @@ fn record_applied(
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
              torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id,
-             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1",
+             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1,
+             disk = excluded.disk",
         params![
             folder,
             item.target,
@@ -1596,7 +1663,8 @@ fn record_applied(
             torrentzip && !item.loose && !item.chd,
             item.loose,
             item.addition.as_ref().map(|a| a.id),
-            item.chd
+            item.chd,
+            item.disk
         ],
     )?;
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
@@ -1808,6 +1876,9 @@ fn record_incomplete(
             // Left out, but only complete when the file built before still holds the ROMs the item now expects.
             ItemKind::Unresolved if retained.contains(&item.target) => continue,
             ItemKind::Unresolved => IncompleteReason::Unresolved,
+            ItemKind::NoSource if !item.missing_dependencies.is_empty() => {
+                IncompleteReason::MissingDependency
+            }
             ItemKind::NoSource => IncompleteReason::NoSource,
             ItemKind::Conflict => IncompleteReason::Conflict,
             ItemKind::Blocked => IncompleteReason::Blocked,
@@ -2348,7 +2419,7 @@ impl Store {
         let chd_work = ChdWork {
             // A return extracts any CHD it takes home, and an item read from a placed CHD reads it so.
             chdman: match work.iter().any(|w| {
-                w.item.chd
+                (w.item.chd && !w.item.disk)
                     || w.item
                         .sources
                         .iter()

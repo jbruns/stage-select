@@ -12,6 +12,9 @@
 #
 # DAT names are header names without dump-format qualifiers such as "(Headered)" or "(Decrypted)", which a lookup
 # ignores. Each line is: provider, a tab, DAT name, a tab, folder name. Every provider and DAT name pair is unique.
+#
+# MAME's ListXML is the one MAME DAT here: its Library Folder holds arcade machines, which ES-DE's and RomM's `arcade`
+# reads. A MAME software list has no folder, as it can't be built yet.
 
 No-Intro	Atari - Atari 2600	atari2600
 No-Intro	Atari - Atari 5200	atari5200
@@ -91,3 +94,4 @@ Redump	Sony - PlayStation 2	ps2
 Redump	Sony - PlayStation 3	ps3
 Redump	Sony - PlayStation 4	ps4
 Redump	Sony - PlayStation Portable	psp
+MAME	MAME	arcade

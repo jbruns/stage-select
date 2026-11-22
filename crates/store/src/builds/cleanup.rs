@@ -137,6 +137,8 @@ fn built_item(
         generated: None,
         place: None,
         changes_source_set: false,
+        disk: false,
+        missing_dependencies: Vec::new(),
     }
 }
 

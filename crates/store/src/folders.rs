@@ -6,6 +6,7 @@ use std::io::{ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use title_select_api::DatFormat;
 use title_select_api::build::{
     AddLibraryFolder, BuildState, BuildSummary, ChangeLibraryFolder, FileOutcome, Incomplete,
     IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, STATE, Stale,
@@ -189,6 +190,25 @@ fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFold
     let unfinished = unfinished(c, &row)?;
     let plan_open = plan_open(c, &row)?;
     let stale = stale(c, &row)?;
+    let built_for = match row.current_build {
+        Some(build) => c.query_row(
+            "SELECT r.format, r.version FROM builds b JOIN dat_revisions r ON r.id = b.dat_revision_id
+             WHERE b.id = ?1",
+            [build],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )?,
+        None => (String::new(), String::new()),
+    };
+    let built_for = (built_for.0 == DatFormat::Listxml.as_str() && !built_for.1.is_empty())
+        .then_some(built_for.1);
+    // A disk's folder is the one a built Disk is in.
+    let disk_folders = c
+        .prepare(
+            "SELECT DISTINCT substr(target, 1, instr(target, '/') - 1) FROM built_files
+             WHERE folder_id = ?1 AND disk ORDER BY 1",
+        )?
+        .query_map([row.id], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(LibraryFolder {
         id: row.id,
         writable: config.root(&row.root).is_some_and(|r| r.writable),
@@ -208,6 +228,8 @@ fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFold
         check: latest_summary(c, row.id)?,
         plan_open,
         stale,
+        built_for,
+        disk_folders,
     })
 }
 

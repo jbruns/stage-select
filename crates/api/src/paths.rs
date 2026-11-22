@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_for_a_no_intro_and_a_redump_dat() {
+    fn the_defaults_for_a_no_intro_a_redump_and_a_listxml_dat() {
         for (provider, dat, set, folder) in [
             (
                 "No-Intro",
@@ -404,6 +404,8 @@ mod tests {
                 "Redump/Sony - PlayStation",
                 "psx",
             ),
+            // MAME's ListXML, whose Library Folder holds arcade machines.
+            ("MAME", "MAME", "MAME/MAME", "arcade"),
         ] {
             assert_eq!(
                 render(DEFAULT_SOURCE_SET_TEMPLATE, provider, dat).unwrap(),
@@ -610,7 +612,7 @@ mod tests {
         for p in table {
             assert!(keys.insert((p.provider, p.dat)), "{p:?} is listed twice");
             assert!(
-                ["No-Intro", "Redump"].contains(&p.provider),
+                ["No-Intro", "Redump", "MAME"].contains(&p.provider),
                 "{p:?}: an unexpected provider"
             );
             assert!(!p.dat.is_empty() && p.dat.trim() == p.dat, "{p:?}");

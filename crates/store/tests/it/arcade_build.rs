@@ -1,0 +1,596 @@
+//! Building an arcade Selection into a MAME Library Folder (ADR 0026): each selected Game is `<shortname>.zip`,
+//! non-merged with its Dependencies' ROMs inside, copied from a non-merged Source Set or repacked from a split or merged
+//! one, and its Disks are copied into `<shortname>/`. A Library Folder lacking a Dependency is Incomplete, and Single
+//! Copy places only a non-merged Source Set's ZIPs, never a Disk.
+//!
+//! The tests with Disks make their CHDs with chdman, found as the store finds it. Where it is missing they are skipped,
+//! except in CI, where they fail.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::common::noise;
+use title_select_api::build::{
+    AddLibraryFolder, FileOutcome, FolderCheck, IncompleteReason, ItemKind, LibraryFolder, Plan,
+    PlanItem,
+};
+use title_select_api::selection::{
+    CoverageDrift, Dependency, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary, Winner,
+};
+use title_select_api::storage::{SetLayout, SystemStorage};
+use title_select_api::{AuditEvidence, JobKind, JobState};
+use title_select_engine::torrentzip;
+use title_select_store::config::Config;
+use title_select_store::{Store, Workers};
+
+const WORKERS: Workers = Workers {
+    readers: 1,
+    hashers: 1,
+};
+
+/// A ROM's payload, by its name.
+fn payload(name: &str) -> &'static [u8] {
+    match name {
+        "bios.u1" => b"bios",
+        "snd.u2" => b"sound",
+        "prog.u3" => b"program",
+        "gfx.u4" | "gfxj.u4" => b"graphics",
+        "progj.u3" => b"program j",
+        other => panic!("no ROM {other}"),
+    }
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    <sha1::Sha1 as sha1::Digest>::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn rom(name: &str, merge: Option<&str>) -> String {
+    let p = payload(name);
+    let merge = merge
+        .map(|m| format!(r#" merge="{m}""#))
+        .unwrap_or_default();
+    format!(
+        r#"<rom name="{name}"{merge} size="{}" crc="{:08x}" sha1="{}"/>"#,
+        p.len(),
+        crc32fast::hash(p),
+        sha1_hex(p)
+    )
+}
+
+/// A BIOS; a sound device; a parent on the BIOS that names the device; and its clone, which shares the BIOS's ROM and
+/// the parent's graphics, the latter under a name of its own. With `disk`, the parent lists a Disk of that SHA-1, and
+/// the clone shares it.
+fn listxml(disk: Option<&str>) -> String {
+    let (disk, disk_m) = match disk {
+        Some(sha1) => (
+            format!(r#"<disk name="blaster" sha1="{sha1}"/>"#),
+            format!(r#"<disk name="blaster" merge="blaster" sha1="{sha1}"/>"#),
+        ),
+        None => Default::default(),
+    };
+    format!(
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="acmebios" isbios="yes"><description>Acme BIOS</description>{bios}</machine>
+  <machine name="acmesnd" isdevice="yes" runnable="no"><description>Acme Sound</description>{snd}</machine>
+  <machine name="blaster" romof="acmebios"><description>Blaster</description>{bios_m}{prog}{gfx}{disk}
+    <device_ref name="acmesnd"/></machine>
+  <machine name="blasterj" cloneof="blaster" romof="blaster"><description>Blaster (Japan)</description>{bios_m}{progj}{gfxj}{disk_m}
+    <device_ref name="acmesnd"/></machine>
+</mame>
+"#,
+        bios = rom("bios.u1", None),
+        snd = rom("snd.u2", None),
+        bios_m = rom("bios.u1", Some("bios.u1")),
+        prog = rom("prog.u3", None),
+        gfx = rom("gfx.u4", None),
+        progj = rom("progj.u3", None),
+        gfxj = rom("gfxj.u4", Some("gfx.u4")),
+    )
+}
+
+/// The family's ZIPs as `layout` keeps them.
+fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
+    let mut zips = vec![
+        ("acmebios.zip", vec!["bios.u1"]),
+        ("acmesnd.zip", vec!["snd.u2"]),
+    ];
+    zips.extend(match layout {
+        SetLayout::NonMerged => vec![
+            (
+                "blaster.zip",
+                vec!["bios.u1", "gfx.u4", "prog.u3", "snd.u2"],
+            ),
+            (
+                "blasterj.zip",
+                vec!["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"],
+            ),
+        ],
+        SetLayout::Split => vec![
+            ("blaster.zip", vec!["gfx.u4", "prog.u3"]),
+            ("blasterj.zip", vec!["progj.u3"]),
+        ],
+        SetLayout::Merged => vec![("blaster.zip", vec!["gfx.u4", "prog.u3", "progj.u3"])],
+    });
+    zips
+}
+
+/// chdman, as the store finds it; `None`, outside CI, where it isn't there.
+fn chdman() -> Option<PathBuf> {
+    match title_select_engine::chd::locate(None) {
+        Ok(path) if path.is_file() => Some(path),
+        found if std::env::var_os("CI").is_some() => {
+            panic!("CI runs these tests with chdman: {found:?}")
+        }
+        _ => {
+            eprintln!("skipped: chdman isn't here; set TITLE_SELECT_CHDMAN to run this test");
+            None
+        }
+    }
+}
+
+/// Makes a CHD of 64 KiB of noise at `path` with chdman; returns its combined SHA-1.
+fn make_chd(chdman: &Path, path: &Path) -> String {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let raw = scratch.path().join("disk.raw");
+    std::fs::write(&raw, noise(7, 64 * 1024)).unwrap();
+    let out = std::process::Command::new(chdman)
+        .args(["createraw", "-hs", "4096", "-us", "512", "-i"])
+        .arg(&raw)
+        .arg("-o")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    title_select_engine::chd::header(&std::fs::File::open(path).unwrap())
+        .unwrap()
+        .sha1
+}
+
+/// A store with the MAME Source Set `mame` in the Root `sets`, which lets Builds write it, and the Library Folder
+/// `arcade` bound to it in the writable Root `play`.
+struct Env {
+    tmp: tempfile::TempDir,
+    store: Store,
+    config: Config,
+    folder: LibraryFolder,
+    sha256: String,
+}
+
+impl Env {
+    /// The Source Set holds the family as `layout` keeps it, and the DAT lists no Disk.
+    fn new(layout: SetLayout) -> Env {
+        let env = Env::with(listxml(None), None);
+        env.layout(layout);
+        env.stored(layout);
+        env
+    }
+
+    /// The DAT is `xml`, and chdman is found at `chdman`.
+    fn with(xml: String, chdman: Option<&Path>) -> Env {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("sets/mame")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("play")).unwrap();
+        let chd = chdman
+            .map(|p| format!("\n[chd]\nchdman = {:?}\n", p.display().to_string()))
+            .unwrap_or_default();
+        let config = Config::parse(&format!(
+            "[roots.sets]\npath = {:?}\nwritable_paths = [\"mame\"]\n\n[roots.play]\npath = {:?}\nwritable = true\n{chd}",
+            tmp.path().join("sets").display().to_string(),
+            tmp.path().join("play").display().to_string(),
+        ))
+        .unwrap();
+        let store = Store::open(&tmp.path().join("store")).unwrap();
+        let (revision, _) = store
+            .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
+            .unwrap();
+        store
+            .add_source_set(&config, "sets", "mame", &revision.dat)
+            .unwrap();
+        store
+            .save_profile(
+                "Mine",
+                &SelectionProfile::default(),
+                None,
+                "Operator",
+                &[],
+                WORKERS,
+            )
+            .unwrap();
+        let folder = store
+            .add_library_folder(
+                &config,
+                &AddLibraryFolder {
+                    root: "play".into(),
+                    path: Some("arcade".into()),
+                    template: None,
+                    source_set: "mame".into(),
+                    profile: "Mine".into(),
+                },
+            )
+            .unwrap();
+        Env {
+            tmp,
+            store,
+            config,
+            folder,
+            sha256: revision.sha256,
+        }
+    }
+
+    fn set(&self) -> PathBuf {
+        self.tmp.path().join("sets/mame")
+    }
+
+    fn library(&self) -> PathBuf {
+        self.tmp.path().join("play/arcade")
+    }
+
+    /// Writes the family as `layout` keeps it.
+    fn stored(&self, layout: SetLayout) {
+        for (zip, members) in family(layout) {
+            write_zip(&self.set().join(zip), &members);
+        }
+    }
+
+    /// Sets the MAME system's set layout.
+    fn layout(&self, layout: SetLayout) {
+        let mut policy = self.store.storage_policy().unwrap();
+        policy.source_sets.systems.insert(
+            "MAME/MAME".into(),
+            SystemStorage {
+                set_layout: Some(layout),
+                ..SystemStorage::default()
+            },
+        );
+        self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
+    /// Turns Single Copy on for play libraries.
+    fn single_copy(&self) {
+        let mut policy = self.store.storage_policy().unwrap();
+        policy.play_libraries.single_copy = true;
+        self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
+    fn audit(&self) {
+        self.store
+            .audit_source_set(&self.config, "mame", None, AuditEvidence::Full)
+            .unwrap();
+    }
+
+    /// Selects `titles`, each the Winner of its family, with the BIOS and the device as their Dependencies.
+    fn select(&self, titles: &[&str]) -> i64 {
+        self.store
+            .enqueue_selection("mame", None, "Mine", None, "Operator", WORKERS)
+            .unwrap();
+        let job = self.store.claim_job().unwrap().unwrap();
+        assert_eq!(job.kind, JobKind::Selection);
+        let rule = |stage: &str| Rule {
+            stage: stage.into(),
+            reference: None,
+            message: "m".into(),
+        };
+        let group = |name: &str| SelectionGroup {
+            group: name.into(),
+            unresolved: false,
+            winners: Vec::new(),
+            alternatives: Vec::new(),
+            exclusions: Vec::new(),
+            dependencies: Vec::new(),
+            choice: None,
+            drift: false,
+        };
+        let needed_by: Vec<String> = titles.iter().map(|t| (*t).to_owned()).collect();
+        let mut groups: Vec<SelectionGroup> = ["acmebios", "acmesnd"]
+            .into_iter()
+            .map(|dep| SelectionGroup {
+                dependencies: vec![Dependency {
+                    title: dep.into(),
+                    needed_by: needed_by.clone(),
+                    rule: rule("dependency"),
+                }],
+                ..group(dep)
+            })
+            .collect();
+        groups.extend(titles.iter().map(|title| SelectionGroup {
+            winners: vec![Winner {
+                title: (*title).into(),
+                rule: rule("election"),
+                unresolved: false,
+            }],
+            ..group(title)
+        }));
+        let selection = Selection {
+            pins: SelectionPins::default(),
+            dat_sha256: self.sha256.clone(),
+            system: "MAME".into(),
+            system_settings: false,
+            summary: SelectionSummary::default(),
+            coverage_drift: CoverageDrift::default(),
+            groups,
+            stale_choices: BTreeMap::new(),
+        };
+        self.store
+            .record_selection(job.id, &selection)
+            .unwrap()
+            .selection
+            .unwrap()
+    }
+
+    fn plan(&self, selection: i64) -> Plan {
+        self.store
+            .plan_build(&self.config, self.folder.id, selection)
+            .unwrap()
+    }
+
+    /// Checks the Library Folder, as a Check Job does.
+    fn check(&self) -> FolderCheck {
+        let job = self
+            .store
+            .enqueue_check(self.folder.id, "Operator")
+            .unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
+        let done = self
+            .store
+            .run_check_job(&self.config, job.id, None)
+            .unwrap();
+        assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
+        self.store.latest_check(self.folder.id).unwrap().unwrap()
+    }
+
+    /// Approves `plan`, then claims and runs its Build Job, which succeeds.
+    fn build(&self, plan: &Plan) {
+        assert!(
+            plan.content.blockers.is_empty(),
+            "{:#?}",
+            plan.content.blockers
+        );
+        let job = self
+            .store
+            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
+        let ended = self
+            .store
+            .run_build_job(&self.config, job.id, None)
+            .unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    }
+}
+
+/// Writes the TorrentZip `path`, holding `members`.
+fn write_zip(path: &Path, members: &[&str]) {
+    let mut members = members.to_vec();
+    members.sort_by(|a, b| torrentzip::compare_names(a, b));
+    let file = std::fs::File::create_new(path).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    for m in members {
+        let p = payload(m);
+        writer.add(m, p.len() as u64, &mut &p[..]).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+/// The members of the ZIP at `path`, sorted.
+fn members(path: &Path) -> Vec<String> {
+    let zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
+    names.sort();
+    names
+}
+
+/// Every file under `dir`, as paths relative to it, leaving out Title Select's own.
+fn files(dir: &Path) -> Vec<String> {
+    let mut found: Vec<String> = walkdir::WalkDir::new(dir)
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != ".title-select")
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            e.path()
+                .strip_prefix(dir)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+fn item<'a>(plan: &'a Plan, target: &str) -> &'a PlanItem {
+    plan.content
+        .items
+        .iter()
+        .find(|i| i.target == target)
+        .unwrap_or_else(|| panic!("no item {target} in {:#?}", plan.content.items))
+}
+
+#[test]
+fn a_non_merged_source_set_is_copied_and_a_merged_one_repacked_into_the_same_self_contained_zips() {
+    let mut built = Vec::new();
+    for (layout, kind) in [
+        (SetLayout::NonMerged, ItemKind::Copy),
+        (SetLayout::Merged, ItemKind::Repack),
+    ] {
+        let env = Env::new(layout);
+        env.audit();
+        let plan = env.plan(env.select(&["blaster", "blasterj"]));
+        for target in ["blaster.zip", "blasterj.zip"] {
+            assert_eq!(item(&plan, target).kind, kind, "{layout:?}: {target}");
+        }
+        env.build(&plan);
+
+        assert_eq!(files(&env.library()), ["blaster.zip", "blasterj.zip"]);
+        assert_eq!(
+            members(&env.library().join("blasterj.zip")),
+            ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"]
+        );
+        built.push(
+            ["blaster.zip", "blasterj.zip"].map(|z| std::fs::read(env.library().join(z)).unwrap()),
+        );
+    }
+    assert!(built[0] == built[1], "the copies and the repacks differ");
+}
+
+#[test]
+fn a_library_folder_lacking_a_selected_games_device_is_incomplete_for_that_dependency() {
+    let env = Env::with(listxml(None), None);
+    // The Game's own ROMs are all there, but not the sound device's, in its ZIP or of its own.
+    write_zip(&env.set().join("acmebios.zip"), &["bios.u1"]);
+    write_zip(
+        &env.set().join("blaster.zip"),
+        &["bios.u1", "gfx.u4", "prog.u3"],
+    );
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    let blaster = item(&plan, "blaster.zip");
+    assert_eq!(blaster.kind, ItemKind::NoSource);
+    assert_eq!(blaster.missing_dependencies, ["acmesnd"]);
+    env.build(&plan);
+
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    let counts = folder.incomplete.expect("the folder lacks the device");
+    assert_eq!(
+        (
+            counts.total(),
+            counts.get(IncompleteReason::MissingDependency)
+        ),
+        (1, 1)
+    );
+    let lacking = env.store.incomplete(env.folder.id).unwrap().items;
+    assert_eq!(lacking.len(), 1);
+    assert_eq!(
+        (lacking[0].reason, lacking[0].game.as_str()),
+        (IncompleteReason::MissingDependency, "blaster")
+    );
+    assert_eq!(
+        lacking[0].detail.as_deref(),
+        Some(
+            "it needs acmesnd (snd.u2), which the latest audit found no source for, so it can't run"
+        )
+    );
+    assert!(files(&env.library()).is_empty());
+}
+
+/// A store whose DAT gives the family a Disk, which the Source Set keeps merged, in `blaster/`, beside the family's
+/// non-merged ZIPs; none without chdman.
+fn with_disk() -> Option<Env> {
+    let chdman = chdman()?;
+    let scratch = tempfile::tempdir().unwrap();
+    let chd = scratch.path().join("blaster.chd");
+    let sha1 = make_chd(&chdman, &chd);
+    let env = Env::with(listxml(Some(&sha1)), Some(&chdman));
+    env.stored(SetLayout::NonMerged);
+    std::fs::create_dir(env.set().join("blaster")).unwrap();
+    std::fs::copy(&chd, env.set().join("blaster/blaster.chd")).unwrap();
+    Some(env)
+}
+
+#[test]
+fn a_clone_winners_disk_is_copied_into_a_folder_of_its_own_and_built_for_the_listxmls_mame() {
+    let Some(env) = with_disk() else { return };
+    env.audit();
+    let selection = env.select(&["blasterj"]);
+    let plan = env.plan(selection);
+    let disk = item(&plan, "blasterj/blaster.chd");
+    assert_eq!((disk.kind, disk.disk), (ItemKind::Copy, true));
+    assert_eq!(disk.sources[0].path, "blaster/blaster.chd");
+    env.build(&plan);
+
+    assert_eq!(
+        files(&env.library()),
+        ["blasterj.zip", "blasterj/blaster.chd"]
+    );
+    assert_eq!(
+        std::fs::read(env.library().join("blasterj/blaster.chd")).unwrap(),
+        std::fs::read(env.set().join("blaster/blaster.chd")).unwrap()
+    );
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    assert_eq!(folder.incomplete, None);
+    assert_eq!(folder.built_for.as_deref(), Some("0.289 (mame0289)"));
+    assert_eq!(folder.disk_folders, ["blasterj"]);
+
+    // Built again, nothing changed: the Disk in its folder is as built, and nothing there is drift.
+    let again = env.plan(selection);
+    assert!(
+        again
+            .content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:#?}",
+        again.content.items
+    );
+    assert!(
+        again.content.removals.is_empty(),
+        "{:#?}",
+        again.content.removals
+    );
+    let check = env.check();
+    assert!(check.drift.is_empty(), "{:#?}", check.drift);
+    assert!(
+        check
+            .files
+            .iter()
+            .all(|f| f.outcome == FileOutcome::Unchanged),
+        "{:#?}",
+        check.files
+    );
+}
+
+#[test]
+fn single_copy_places_a_non_merged_zip_and_copies_its_disk() {
+    let Some(env) = with_disk() else { return };
+    env.single_copy();
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Place);
+    let disk = item(&plan, "blaster/blaster.chd");
+    assert_eq!(
+        (disk.kind, disk.changes_source_set),
+        (ItemKind::Copy, false)
+    );
+    env.build(&plan);
+
+    assert_eq!(
+        files(&env.library()),
+        ["blaster.zip", "blaster/blaster.chd"]
+    );
+    let set = files(&env.set());
+    assert!(!set.contains(&"blaster.zip".to_owned()), "{set:?}");
+    assert!(set.contains(&"blaster/blaster.chd".to_owned()), "{set:?}");
+}
+
+#[test]
+fn single_copy_places_nothing_from_a_merged_source_set_and_says_why() {
+    let env = Env::new(SetLayout::Merged);
+    env.single_copy();
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Repack);
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "single copy is on, but source set mame keeps its ZIPs merged, so each holds more than one game's \
+                ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
+                source set"),
+        "{:#?}",
+        plan.content.notes
+    );
+    env.build(&plan);
+    assert_eq!(files(&env.library()), ["blaster.zip"]);
+    assert!(env.set().join("blaster.zip").is_file());
+}

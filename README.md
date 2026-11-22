@@ -611,7 +611,8 @@ empty one or one starting with `/` or `../`, is refused when you save it. A temp
 you change it, source sets you already registered keep their paths.
 
 `{platform}` comes from a table in this repository, `crates/api/data/platforms.tsv`, of No-Intro and Redump DATs and
-the system folder names ES-DE uses that RomM also reads as the same system. A system they name differently, such as
+the system folder names ES-DE uses that RomM also reads as the same system, and of MAME's ListXML, whose folder is
+`arcade`. A system they name differently, such as
 the Commodore Plus/4, isn't listed. A dump-format qualifier at the end of a DAT's name, such as `(Headered)` or
 `(Decrypted)`, doesn't change its system. A DAT the table doesn't list has no `{platform}`: the workbench says so, and
 you type the path.
@@ -1391,6 +1392,25 @@ planning until you remove it.
 
 The current build of each library folder keeps its selection and its audit from being pruned.
 
+#### MAME library folders
+
+A library folder of a MAME ListXML holds each selected game ready to play, as MAME, RetroArch's `mame` core and ES-DE's
+`arcade` and `mame` systems read it, whatever format the storage policy gives your play libraries:
+
+- `<game>.zip`, non-merged: the game's own ROMs and every ROM of its dependencies, its BIOS and devices, in one
+  TorrentZip. No BIOS or device ZIP is built. From a non-merged source set the ZIP is copied as it is; from a split or
+  merged one it is repacked from the family's ZIPs and its dependencies' ZIPs, and checked against the DAT, as any
+  repack is. Both give the same bytes.
+- `<game>/<disk>.chd` for each of its disks, copied from where your source set keeps them, normally the family's
+  folder, `<parent>/`, and checked: the copy must be the same bytes as the CHD the latest audit verified, and its
+  header must record the disk's SHA-1. A clone's disks go in the clone's own folder.
+
+A game whose own ROMs are all there, but not every ROM of a dependency, such as a device's, isn't built: its plan item
+has no source and names the dependency, and the folder is incomplete as **missing dependency**. So is one lacking a
+disk: its disk's item has no source. The folder's page shows the MAME version its selection was made for, from the
+ListXML's build: only that version of MAME runs what it holds. Choose which MAME you keep and play by which ListXML
+your source set follows.
+
 ### Single copy
 
 A build copies each selected game from its source set into a library folder, so every game you play is kept twice:
@@ -1419,6 +1439,11 @@ How a game moves depends on where the folders are:
   source set's kept files instead.
 - **Conversion**, when the library folder stores the game in another format, such as loose where your source set
   keeps TorrentZip. The new file is written and checked, then the originals are deleted.
+
+For a MAME ListXML, single copy places a game only from a non-merged source set, where its ZIP is the game's own: a
+split or merged ZIP holds more than one game's ROMs, so under those set layouts nothing is placed, each game is copied,
+and the plan says why. A game's disks are always copied, never placed, as one family's disk folder may serve several
+games.
 
 Renames need one mount. A deployment that binds the source set and the library folder as two separate mounts, such
 as two volumes of one container, sees two filesystems even when they share a disk, so its games are copied, read
@@ -1799,7 +1824,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -2401,7 +2426,18 @@ change files Title Select built:
 - uploads: add games through Title Select, not through RomM.
 
 **Arcade.** RomM 5.5 splits arcade into separate platforms, such as `mame`, `fbneo` and `fba`. When you upgrade RomM,
-check that each arcade library folder's name is still the platform you want.
+check that each arcade library folder's name is still the platform you want. RomM takes every folder in a platform for
+a game of its own, so it lists each disk folder of a MAME library folder, `<game>/`, as a game that doesn't run. The
+library folder's page lists its disk folders, ready to add to `exclude.roms.multi_file.names` in RomM's `config.yml`;
+Title Select doesn't write RomM's configuration for you:
+
+```yaml
+exclude:
+  roms:
+    multi_file:
+      names:
+        - 'blaster'
+```
 
 **What Title Select does in RomM.** With RomM turned on, Title Select:
 **What Title Select does in RomM.** With RomM turned on, Title Select:
