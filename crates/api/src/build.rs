@@ -506,8 +506,8 @@ pub struct PlanItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub changes_source_set: bool,
     /// Whether it is a Disk of a Game of an Arcade DAT, `<game>/<disk>.chd`: the CHD its Source Set keeps in its
-    /// family's folder, copied as it is, never placed, and checked against the copy it was made from and the SHA-1 its
-    /// header records. It is also a [`chd`](Self::chd).
+    /// family's folder, copied as it is, never placed, and checked by `chdman verify` and the SHA-1 its header records, which must be
+    /// the DAT's. It is also a [`chd`](Self::chd).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disk: bool,
     /// For a Game of an Arcade DAT with no source, when only its Dependencies' ROMs have none: those Dependencies, so

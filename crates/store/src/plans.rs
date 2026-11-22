@@ -2072,12 +2072,15 @@ fn placed_here(
     built: Option<&Built>,
     item: &PlanItem,
 ) -> Option<std::result::Result<(), (ItemKind, String)>> {
-    let of_game: Vec<&str> = inputs
-        .placed
-        .iter()
-        .filter(|p| p.game == game && !item.disk)
-        .map(|p| p.path.as_str())
-        .collect();
+    let of_game: Vec<&str> = match item.disk {
+        true => Vec::new(),
+        false => inputs
+            .placed
+            .iter()
+            .filter(|p| p.game == game)
+            .map(|p| p.path.as_str())
+            .collect(),
+    };
     let set = &inputs.folder.source_set;
     if of_game.is_empty() {
         let other = inputs

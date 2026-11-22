@@ -364,7 +364,7 @@ impl Env {
         ended
     }
 
-    /// The Build of the ended Job `job`'s item for `target`.
+    /// The item for `target` of the Build the ended Job `job` ran.
     fn built_item(&self, job: &Job, target: &str) -> BuildItem {
         let build = self.store.build_of_job(job.id).unwrap().unwrap();
         let detail = self.store.build(build.id).unwrap();
@@ -673,7 +673,8 @@ fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
         .library_folder(&env.config, env.folder.id)
         .unwrap();
     let counts = folder.incomplete.expect("the folder lacks the game");
-    assert!(counts.get(IncompleteReason::Failed) > 0, "{counts:?}");
+    // Its ZIP and its Disk.
+    assert_eq!(counts.get(IncompleteReason::Failed), 2, "{counts:?}");
 }
 
 #[test]
@@ -729,8 +730,8 @@ fn single_copy_places_no_zip_another_game_is_repacked_from() {
     assert_eq!(parent.kind, ItemKind::Copy, "{parent:#?}");
     assert!(
         plan.content.notes.iter().any(|n| n
-            == "1 game's files are copied rather than placed: another game's file is written from its ZIP in the \
-                source set too, so that ZIP stays there"),
+            == "1 game's files are copied rather than placed: another game is written from its ZIP in the source \
+                set as well, so that ZIP stays there"),
         "{:#?}",
         plan.content.notes
     );

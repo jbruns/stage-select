@@ -1099,7 +1099,7 @@ fn stage_disk(
             "a disk is copied from one CHD for its one disk".into(),
         ));
     };
-    let staged_err = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
+    let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
     let from = open_either(set, &chd.placed, source).map_err(Failure::Item)?;
     copy_chunked(&from, &chd.from, file, &chd.to)
         .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
@@ -1107,7 +1107,7 @@ fn stage_disk(
     chd.to.file_written();
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
-        .map_err(staged_err)?;
+        .map_err(at)?;
     let header =
         chd::header(file).map_err(|why| Failure::Item(format!("{}: {why}", item.target)))?;
     if rom.sha1.as_deref() != Some(header.sha1.as_str()) {
@@ -1124,7 +1124,7 @@ fn stage_disk(
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| Failure::Item(format!("{}: {e}", dir.display())))?;
     let _scratch = Scratch(dir.clone());
-    let input = std::path::absolute(staged).map_err(staged_err)?;
+    let input = std::path::absolute(staged).map_err(at)?;
     match chdman.verify_in_place(&dir, &input, chd.cancelled) {
         Ok(()) => {}
         Err(_) if (chd.cancelled)() => return Err(Failure::Cancelled),
@@ -1136,7 +1136,7 @@ fn stage_disk(
             )));
         }
     }
-    let (sha256, size) = sha256_of(file, &chd.to).map_err(staged_err)?;
+    let (sha256, size) = sha256_of(file, &chd.to).map_err(at)?;
     Ok(Staged {
         sha256,
         size,
@@ -2419,7 +2419,8 @@ impl Store {
             .map(|p| (title_select_api::storage::placed_path(p.folder, &p.path), p))
             .collect();
         let chd_work = ChdWork {
-            // A return extracts any CHD it takes home, and an item read from a placed CHD reads it so.
+            // A CHD is made or verified with chdman, a return extracts any CHD it takes home, and an item read from a
+            // placed CHD reads it so.
             chdman: match work.iter().any(|w| {
                 w.item.chd
                     || w.item

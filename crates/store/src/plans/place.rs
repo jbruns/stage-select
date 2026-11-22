@@ -28,7 +28,7 @@ const UNCHECKED: &str = "its files here weren't all found as they were built, so
                          set's files";
 const MIXED: &str = "some of its files are built here already and others aren't";
 const NOT_BUILT: &str = "not every file of it can be built here";
-const READ_ELSEWHERE: &str = "another game's file is written from its ZIP in the source set too, so that ZIP stays \
+const READ_ELSEWHERE: &str = "another game is written from its ZIP in the source set as well, so that ZIP stays \
                               there";
 const NOT_SELF_CONTAINED: &str = "its ZIP in the source set doesn't yet hold every ROM it needs, so it is written from \
                                   other games' ZIPs too, which stay there";
