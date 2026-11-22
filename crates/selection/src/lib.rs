@@ -608,9 +608,5 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    Ok(title_select_engine::hex(&hasher.finalize()))
 }

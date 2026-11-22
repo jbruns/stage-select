@@ -9,13 +9,13 @@ use std::io::{Cursor, Read};
 use std::path::PathBuf;
 
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
-use sha2::{Digest, Sha256};
 
 use super::blobs::{remove_blob, write_blob};
 use super::fetch::{NOT_HELD, hold_pack};
 use super::{Error, Result, Store, io_error, now};
 
 use title_select_api::ImportOutcome;
+use title_select_engine::sha256_hex;
 
 /// The directory, in the store directory, that holds SBI packs.
 pub const SBI_PACKS: &str = "sbi_packs";
@@ -35,13 +35,6 @@ pub(crate) struct SbiMember {
     pub name: String,
     pub sha256: String,
     pub size: u64,
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 impl Store {
@@ -71,10 +64,7 @@ impl Store {
                 "{file}: not an SBI pack: it holds no .sbi file"
             )));
         }
-        let sha: String = Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let sha = sha256_hex(bytes);
         let packs = self.dir.join(SBI_PACKS);
         let outcome = self.with_writer(|conn| {
             std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;

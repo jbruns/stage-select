@@ -6,7 +6,6 @@ use std::collections::BTreeSet;
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
-use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion, RETENTION};
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::repair::{
@@ -187,10 +186,7 @@ fn deletion_by_id(c: &Connection, owner: Owner, id: i64) -> Result<SourceKeptDel
 
 fn digest(content: &SourceKeptDeletionContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a deletion always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 fn outcome(file: &SourceKeptFile, deleted: bool, detail: Option<String>) -> KeptDeletionOutcome {

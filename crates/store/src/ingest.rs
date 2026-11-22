@@ -14,7 +14,6 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
 use title_select_api::ingest::{
     Assessment, FolderEntry, FoundDat, FoundSupportFile, IngestAction, IngestFolder, IngestItem,
@@ -1293,10 +1292,7 @@ fn read_planned(dir: &FolderDir, item: &IngestPlanItem, limit: u64) -> Result<Ve
         .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| Error::Io(e.to_string()))?;
-    let sha: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha = title_select_engine::sha256_hex(&bytes);
     let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
     if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
         return Err(changed());
@@ -1369,10 +1365,7 @@ fn plan_by_id(c: &Connection, id: i64) -> Result<IngestPlan> {
 
 fn digest(content: &IngestPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<IngestKeptFile> {

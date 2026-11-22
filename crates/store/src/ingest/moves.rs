@@ -2331,14 +2331,10 @@ mod tests {
     use std::io::Write;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    use sha2::{Digest, Sha256};
+    use title_select_engine::sha256_hex;
 
     use super::*;
     use title_select_api::build::kept_name;
-
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
 
     struct Env {
         tmp: tempfile::TempDir,
@@ -2383,7 +2379,7 @@ mod tests {
                 item: None,
                 name,
                 seen: Seen::of(&st),
-                sha256: Some(hex(&Sha256::digest(&bytes))),
+                sha256: Some(sha256_hex(&bytes)),
                 dest,
                 repack,
                 exact: None,
@@ -2681,7 +2677,7 @@ mod tests {
         );
 
         let mut other = m.clone();
-        other.sha256 = Some(hex(&Sha256::digest(b"pang")));
+        other.sha256 = Some(sha256_hex(b"pang"));
         assert!(
             !exactly_repacked(&other, &rom, (&one, &Tally::default())),
             "a payload that is not what was read"
@@ -2691,7 +2687,7 @@ mod tests {
         crc_only.sha256 = None;
         let mut wrong = m.clone();
         wrong.roms = Some(vec![(crc_only.clone(), None)]);
-        wrong.sha256 = Some(hex(&Sha256::digest(b"pang")));
+        wrong.sha256 = Some(sha256_hex(b"pang"));
         assert!(
             !exactly_repacked(&wrong, &crc_only, (&one, &Tally::default())),
             "a payload whose listed checksums match but whose bytes are not what was read"

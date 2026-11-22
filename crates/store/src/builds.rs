@@ -27,12 +27,12 @@ use title_select_api::build::{
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::storage::{ChdKind, chd_of};
 use title_select_api::{Job, JobKind, JobState};
-use title_select_engine::Progress;
 use title_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
 use title_select_engine::meter::{Interruptible, JobMeter, Meter, Metered, Tally, copy_chunked};
+use title_select_engine::{Progress, hex};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -451,10 +451,6 @@ fn stage_chd(
         chd_raw_sha1: Some(header.raw_sha1),
         cue,
     })
-}
-
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Checks that `found`, a CHD you put in the folder at item `seq`'s target, holds the disc of `game` whose ROMs are

@@ -18,7 +18,6 @@ use std::io;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{Access, AtFlags, FileType};
-use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, Marker, kept_name};
 use title_select_api::ingest::FolderEntry;
 use title_select_api::lifecycle::RegistrationKind;
@@ -488,10 +487,7 @@ fn io_err(e: io::Error) -> Error {
 
 fn digest(content: &RepairPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 const PLAN_QUERY: &str = "SELECT id, digest, created_at, content, approved_digest, approved_by, approved_at, \

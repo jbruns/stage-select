@@ -20,7 +20,6 @@ use std::io;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use sha2::Digest;
 use title_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionTarget, AdditionsCheck, AdditionsEntry,
     AdditionsFinding, AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
@@ -953,11 +952,9 @@ fn set_aside_of(c: &Connection, set: i64) -> Result<AdditionsSetAside> {
         stmt.query_map([set], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?
     };
-    let digest =
-        sha2::Sha256::digest(serde_json::to_vec(&(set, &additions)).expect("a plan serializes"))
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+    let digest = title_select_engine::sha256_hex(
+        &serde_json::to_vec(&(set, &additions)).expect("a plan serializes"),
+    );
     Ok(AdditionsSetAside {
         system: row.system,
         set,

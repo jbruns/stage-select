@@ -215,7 +215,7 @@ fn fingerprint(c: &Connection, inputs: &Inputs, found: Option<&Folder>) -> Resul
         hash.update(line.as_bytes());
         hash.update(b"\n");
     }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(title_select_engine::hex(&hash.finalize()))
 }
 
 /// The names in the folder a cleanup may put an entry at, and those it claims as it is planned.

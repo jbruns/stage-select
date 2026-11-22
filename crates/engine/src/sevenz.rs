@@ -168,7 +168,7 @@ fn damaged(what: impl std::fmt::Display) -> Judged {
 fn unsupported(id: &[u8]) -> Judged {
     let method = EncoderMethod::by_id(id)
         .map(|m| m.name().to_string())
-        .unwrap_or_else(|| id.iter().map(|b| format!("{b:02x}")).collect());
+        .unwrap_or_else(|| crate::hex(id));
     Judged::Unreadable(format!(
         "it is compressed with {method}, which is not read; only LZMA, LZMA2 and zstd are"
     ))

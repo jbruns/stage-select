@@ -2,7 +2,6 @@
 //! Profile's canonical JSON and its SHA-256; saving a Profile identical to its newest version creates none.
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use sha2::{Digest, Sha256};
 use title_select_api::selection::SelectionProfile;
 use title_select_api::{
     Job, ProfileRecord, ProfileVersion, SavedProfile, StartSelectionFor, Workers,
@@ -126,10 +125,7 @@ fn record(c: &Connection, id: i64, name: String, created_at: String) -> Result<P
 /// SHA-256 of the Profile's canonical JSON, and that JSON.
 pub fn canonical(profile: &SelectionProfile) -> (String, String) {
     let json = profile.canonical_json();
-    let sha = Sha256::digest(json.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha = title_select_engine::sha256_hex(json.as_bytes());
     (sha, json)
 }
 

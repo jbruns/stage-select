@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use sha2::{Digest, Sha256};
 use title_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
     FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
@@ -23,6 +22,7 @@ use title_select_api::storage::{
 use title_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
 use title_select_engine::dat::Dat;
+use title_select_engine::sha256_hex;
 
 use super::audits::{ENTRY_COLUMNS, entry_from_row};
 use super::checks::{Ack, Scan, ScanInput, Seen, read_acks, read_probes, scan, store_check};
@@ -139,10 +139,7 @@ pub(super) fn to_json<T: serde::Serialize>(value: &T) -> String {
 /// The SHA-256 of the plan's canonical JSON: compact, with fields in declaration order and items in plan order.
 pub(super) fn digest(content: &PlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    sha256_hex(&bytes)
 }
 
 /// Nanoseconds since the Unix epoch.
@@ -2204,13 +2201,6 @@ fn whole_releases(items: &mut [PlanItem], held: &BTreeMap<String, String>) {
             item.converts = None;
         }
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// Why `game`, a name from the DAT, can't name what a play library lays out for it: it must be one name, not one

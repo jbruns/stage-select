@@ -3,7 +3,6 @@
 //! names. A fetch brings them, or the Operator drops them in. None is deleted: a Selection records the ones it read.
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
-use sha2::{Digest, Sha256};
 
 use super::blobs::write_blob;
 use super::{Error, Result, Store, io_error, now};
@@ -78,7 +77,7 @@ impl Store {
             )));
         }
         let (kind, version) = read_header(bytes, file).map_err(Error::Refused)?;
-        let sha = super::builds::hex(&Sha256::digest(bytes));
+        let sha = title_select_engine::sha256_hex(bytes);
         let dir = self.dir.join(SUPPORT_FILES);
         let path = dir.join(&sha);
         self.with_writer(|conn| {

@@ -644,11 +644,7 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
             field(Some(format!("available elsewhere {elsewhere}")));
         }
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(title_select_engine::hex(&hasher.finalize()))
 }
 
 /// The Audit `id`'s content SHA-256: as recorded when it finished, or else worked out now.

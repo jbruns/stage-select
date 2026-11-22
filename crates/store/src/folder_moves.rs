@@ -6,7 +6,6 @@
 use std::io::ErrorKind;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use sha2::{Digest, Sha256};
 use title_select_api::lifecycle::{FolderMove, PlanFolderMove, RegistrationKind};
 
 use super::folder_dir::{FolderDir, Identity};
@@ -54,10 +53,7 @@ fn move_by_id(c: &Connection, id: i64) -> Result<Row> {
 fn digest(folder: i64, root: &str, from: &str, to: &str, identity: Identity) -> String {
     let bytes = serde_json::to_vec(&(folder, root, from, to, identity.to_sql()))
         .expect("a move serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 /// `rel` split into its parent's path and its own name.

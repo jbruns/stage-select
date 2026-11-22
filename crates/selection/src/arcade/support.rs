@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use title_select_api::selection::SupportFilePin;
 use title_select_api::support::{SupportFileKind, read_header};
 
@@ -111,7 +110,7 @@ impl SupportFiles {
         }
         self.pins.push(SupportFilePin {
             kind,
-            sha256: crate::hex(&Sha256::digest(&bytes)),
+            sha256: title_select_engine::sha256_hex(&bytes),
             mame_version,
             drift: false,
         });
