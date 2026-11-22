@@ -643,12 +643,14 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
     let path = Memo::new(move |_| {
         registration::chosen_path(typed.get().as_deref(), &proposal.get()).unwrap_or_default()
     });
-    // A MAME ListXML's source set covers every game: the editor is hidden, and starts over at every game.
-    let refused = Memo::new(move |_| {
+    let chosen_dat = Memo::new(move |_| {
         let dat = dat.get();
-        let dats = dats.get().and_then(Result::ok).unwrap_or_default();
-        registration::no_coverage(dats.iter().find(|d| d.dat == dat))
+        dats.get()
+            .and_then(Result::ok)
+            .and_then(|dats| dats.into_iter().find(|d| d.dat == dat))
     });
+    // A MAME ListXML's Source Set covers every Game: the editor is hidden, and starts over at every Game.
+    let refused = Memo::new(move |_| registration::no_coverage(chosen_dat.get().as_ref()));
     Effect::new(move || {
         if refused.get().is_some() {
             draft.set(Draft::every());
@@ -680,13 +682,8 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             return;
         }
         let drafted = order.with_untracked(|o| draft.with_untracked(|d| d.coverage(o)));
-        let chosen_dat = dat.get_untracked();
-        let all = dats
-            .get_untracked()
-            .and_then(Result::ok)
-            .unwrap_or_default();
         let coverage =
-            match registration::coverage_for(all.iter().find(|d| d.dat == chosen_dat), drafted) {
+            match registration::coverage_for(chosen_dat.get_untracked().as_ref(), drafted) {
                 Ok(coverage) => coverage,
                 Err(message) => {
                     problem.set(Some(message));

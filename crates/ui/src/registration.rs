@@ -89,7 +89,7 @@ mod tests {
 
         assert_eq!(no_coverage(Some(&mame)), Some(ARCADE_COVERAGE_REFUSAL));
         assert_eq!(coverage_for(Some(&mame), europe.clone()), Ok(None));
-        // A draft you can't fix is no reason to refuse it either.
+        // A draft the Operator left invalid is no reason to refuse it either.
         assert_eq!(
             coverage_for(Some(&mame), Err("Choose a region.".into())),
             Ok(None)

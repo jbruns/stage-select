@@ -2296,8 +2296,8 @@ Its screens:
   its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
   filter is on, and lists the filters you turned on that had nothing to read. Its facts list each support file it
   read, with its MAME version and SHA-256, marked **Older version** when it is for an older MAME than the ListXML, whose
-  newer machines it then lacks, **Newer version** when it is for a newer one, **Same version**, or **Not read**; and, with the curated list on, its commit and how many names on it
-  the DAT revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
+  newer machines it then lacks, **Newer version** when it is for a newer one, **Same version**, or **Not read**; and,
+  with the curated list on, its commit and how many names on it the DAT revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
   dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
   what you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a

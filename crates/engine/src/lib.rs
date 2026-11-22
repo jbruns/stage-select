@@ -702,6 +702,17 @@ struct Unnamed {
 
 impl Scan<'_> {
     fn unreadable(&mut self, path: String, member: Option<String>, reason: String) {
+        self.unreadable_chd(path, member, reason, None);
+    }
+
+    /// Records an Unreadable Entry; `parent_sha1` for a delta CHD, the combined SHA-1 of the parent it needs.
+    fn unreadable_chd(
+        &mut self,
+        path: String,
+        member: Option<String>,
+        reason: String,
+        parent_sha1: Option<String>,
+    ) {
         self.entries.push(Entry {
             path,
             member,
@@ -711,18 +722,15 @@ impl Scan<'_> {
             evidence: None,
             reason: Some(reason),
             disks: Vec::new(),
-            parent_sha1: None,
+            parent_sha1,
         });
     }
 
     fn record(&mut self, path: String, member: Option<String>, known: &Known, origin: Origin) {
         match known {
             Known::Delta(parent) => {
-                self.unreadable(path, member, needs_parent(self.dat, parent));
-                if let Some(entry) = self.entries.last_mut() {
-                    entry.parent_sha1 = Some(parent.clone());
-                }
-                return;
+                let reason = needs_parent(self.dat, parent);
+                return self.unreadable_chd(path, member, reason, Some(parent.clone()));
             }
             Known::NoDisk(why) => {
                 self.entries.push(Entry {

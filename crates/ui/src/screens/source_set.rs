@@ -317,7 +317,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             })
             }).into_any())
         }}
-        // A MAME source set takes no coverage, so not even a link opens the editor for it.
+        // A MAME Source Set takes no Coverage, so not even a link opens the editor for it.
         {move || {
             takes_coverage
                 .get()
@@ -436,7 +436,7 @@ fn Overview(
     });
     let coverage = set.coverage.clone();
     let (glyph, kind) = coverage::glyph(coverage.as_deref(), unavailable);
-    // A MAME source set covers every game, and offers no control to change that.
+    // A MAME Source Set covers every Game, and offers no control to change that.
     let refused = no_coverage(revisions.iter().map(|r| r.format));
     let (kind, line) = match (refused, coverage.as_deref()) {
         (Some(why), _) => ("Every game", why.to_owned()),

@@ -627,7 +627,7 @@ mod tests {
                 system: Some("MAME/MAME".into()),
                 arcade: true,
             },
-            // A MAME Logiqx DAT is no Arcade DAT: its source set takes a coverage.
+            // A MAME Logiqx DAT is no Arcade DAT: its Source Set takes a Coverage.
             SourceSetSystem {
                 source_set: "mame-logiqx".into(),
                 system: Some("MAME/MAME".into()),

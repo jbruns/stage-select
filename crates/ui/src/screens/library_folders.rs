@@ -611,8 +611,7 @@ impl ListRow for FolderRow {
     }
 }
 
-/// What the folder is bound to and where it stands.
-/// The coverage a library folder inherits from `source_set`, or, for an arcade source set, why it has none.
+/// The Coverage a Library Folder inherits from `source_set`, or, for an Arcade DAT's Source Set, why it has none.
 #[component]
 fn FolderCoverage(source_set: String) -> impl IntoView {
     let systems = LocalResource::new(|| api::get::<Vec<SourceSetSystem>>("/systems"));
@@ -628,6 +627,7 @@ fn FolderCoverage(source_set: String) -> impl IntoView {
     }
 }
 
+/// What the folder is bound to and where it stands.
 fn folder_facts(f: &LibraryFolder) -> AnyView {
     let writable = if f.writable {
         ", writable"
