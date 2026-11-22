@@ -2812,3 +2812,20 @@ fn ingest_record(c: &Connection, name: &str, root: &Root) -> Result<IngestFolder
         counts,
     })
 }
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn an_ingest_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"ingest_folder":1,"root":"r","action":"discard","generation":2,"items":[],"fingerprint":[]}"#;
+        let content: title_select_api::ingest::IngestPlanContent =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "22f12ecfb78ef4834d880b97241a0c9a29bb890a1b9ec15a91136a98da51f077"
+        );
+    }
+}

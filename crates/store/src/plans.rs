@@ -3246,3 +3246,19 @@ impl Store {
         })
     }
 }
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn a_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"folder":1,"generation":2,"selection":3,"audit":4,"dat_revision":"abc","items":[],"blockers":[]}"#;
+        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "2fdd832e813acc66d5552d86218c38bce39e261cc2f85bdaa20782df04f4b33d"
+        );
+    }
+}

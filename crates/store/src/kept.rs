@@ -2285,7 +2285,19 @@ pub(crate) fn name_key(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::name_key;
+    use super::{digest, name_key};
+
+    #[test]
+    fn a_deletion_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"folder":1,"files":[],"reviewed":[{"id":2,"ctime_ns":3,"sha256":"abc"}]}"#;
+        let content: title_select_api::build::KeptDeletionContent =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "6d1386cd0bcbacdf113c273a511217705d359caeb5901a06108acb4e69ffe442"
+        );
+    }
 
     #[test]
     fn names_a_case_insensitive_normalizing_file_system_takes_for_one_share_a_key() {

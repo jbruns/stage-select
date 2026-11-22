@@ -4719,3 +4719,20 @@ pub(super) fn open_repair(
     )
     .optional()?)
 }
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn a_repair_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"source_set":"Set","set_id":1,"root":"r","path":"p","audit":2,"dat_revision":"abc","generation":3,"creates_marker":true,"folder":{"dev":4,"ino":5},"items":[],"steps":[],"fingerprint":[]}"#;
+        let content: title_select_api::repair::RepairPlanContent =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "84b1e807b7c2e9c4bbf38c784dc83d35f620175e5ffe1896f62aaf98cacbbe3b"
+        );
+    }
+}

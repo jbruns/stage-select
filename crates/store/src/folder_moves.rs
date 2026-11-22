@@ -309,3 +309,16 @@ impl Store {
         Ok(left)
     }
 }
+
+#[cfg(test)]
+mod digest_tests {
+    use super::{Identity, digest};
+
+    #[test]
+    fn a_move_digest_is_the_sha256_of_its_compact_json() {
+        assert_eq!(
+            digest(1, "r", "a/b", "c", Identity::from_sql(2, 3)),
+            "aa68acd7d1afbce3ee7cb6a4c6a231a6234ea55536fe79569e4bb5eb0bfb74db"
+        );
+    }
+}

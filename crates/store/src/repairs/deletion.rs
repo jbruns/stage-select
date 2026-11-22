@@ -850,3 +850,21 @@ impl Store {
         }
     }
 }
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn a_deletion_digest_is_the_sha256_of_its_compact_json() {
+        let json =
+            r#"{"source_set":1,"files":[],"reviewed":[{"id":2,"ctime_ns":3,"sha256":"abc"}]}"#;
+        let content: title_select_api::repair::SourceKeptDeletionContent =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "92ff5e526f58009fd017a5ec0a238a33b38262169eb3df93d1dcab14c8d21f7d"
+        );
+    }
+}
