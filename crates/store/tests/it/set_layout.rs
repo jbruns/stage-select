@@ -361,6 +361,17 @@ fn write_plain_zip(path: &Path, members: &[&str]) {
     zip.finish().unwrap();
 }
 
+/// Every file under `dir`, with its bytes, in order of path.
+fn contents(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    walkdir::WalkDir::new(dir)
+        .sort_by_file_name()
+        .into_iter()
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| (e.path().to_owned(), std::fs::read(e.path()).unwrap()))
+        .collect()
+}
+
 fn members(path: &Path) -> Vec<String> {
     let zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
     let mut names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
@@ -1175,23 +1186,35 @@ fn listxml_same_name() -> String {
 fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout() {
     for stored in SetLayout::ALL {
         for layout in SetLayout::ALL {
-            a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
-                stored, layout,
-            );
+            for stale in [Stale::Changed, Stale::Gone] {
+                a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
+                    stored, layout, stale,
+                );
+            }
         }
     }
 }
 
-/// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP is
-/// replaced by a corrupt file, and the layout turns to `layout`. The audit's word for the parent's ZIP is stale, so it
+/// What became of the parent's ZIP since the Audit read it.
+#[derive(Debug, Clone, Copy)]
+enum Stale {
+    /// Replaced by a corrupt file.
+    Changed,
+    /// Deleted.
+    Gone,
+}
+
+/// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP
+/// changes as `stale` says, and the layout turns to `layout`. The Audit's word for the parent's ZIP is stale, so it
 /// holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's folder as it
 /// is, as no ZIP of the family can be repacked without the parent's ROMs.
 fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
     stored: SetLayout,
     layout: SetLayout,
+    stale: Stale,
 ) {
     let env = Env::with(listxml_same_name());
-    let at = format!("stored {stored:?}, repaired {layout:?}");
+    let at = format!("stored {stored:?}, repaired {layout:?}, {stale:?}");
     match stored {
         SetLayout::NonMerged => {
             env.zip("blaster.zip", &["gfx.u4", "prog.u3"]);
@@ -1205,23 +1228,23 @@ fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_unde
     }
     env.layout(layout);
     verified(&env.audit());
-    std::fs::write(env.set().join("blaster.zip"), b"not a zip any more").unwrap();
-    let files = || -> Vec<(PathBuf, Vec<u8>)> {
-        walkdir::WalkDir::new(env.set())
-            .sort_by_file_name()
-            .into_iter()
-            .map(|e| e.unwrap())
-            .filter(|e| e.file_type().is_file())
-            .map(|e| (e.path().to_owned(), std::fs::read(e.path()).unwrap()))
-            .collect()
+    let parent = env.set().join("blaster.zip");
+    let note = match stale {
+        Stale::Changed => {
+            std::fs::write(&parent, b"not a zip any more").unwrap();
+            "blaster.zip changed since the audit read it, so it is left as it is; audit again to repair it"
+        }
+        Stale::Gone => {
+            std::fs::remove_file(&parent).unwrap();
+            "blaster.zip is gone since the audit; audit again to repair what it held"
+        }
     };
-    let before = files();
+    let before = contents(&env.set());
 
     let plan = env.plan();
 
     assert!(
-        plan.content.notes.iter().any(|n| n
-            == "blaster.zip changed since the audit read it, so it is left as it is; audit again to repair it"),
+        plan.content.notes.iter().any(|n| n == note),
         "{at}: {:#?}",
         plan.content.notes
     );
@@ -1233,7 +1256,12 @@ fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_unde
     {
         env.approve(&plan);
     }
-    assert!(files() == before, "{at}: {:#?}", plan.content.items);
+    // Not `assert_eq!`, which would print every file's bytes.
+    assert!(
+        contents(&env.set()) == before,
+        "{at}: {:#?}",
+        plan.content.items
+    );
 }
 
 #[test]
@@ -1374,12 +1402,7 @@ fn every_item_of_the_source_sets_folder_stays_there(env: &Env, at: &str) {
     {
         return;
     }
-    let placed: Vec<(PathBuf, Vec<u8>)> = walkdir::WalkDir::new(env.library())
-        .into_iter()
-        .map(|e| e.unwrap())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| (e.path().to_owned(), std::fs::read(e.path()).unwrap()))
-        .collect();
+    let placed = contents(&env.library());
     let after = env.approve(&plan);
     for (path, bytes) in &placed {
         assert_eq!(
