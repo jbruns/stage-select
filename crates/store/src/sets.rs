@@ -1,12 +1,13 @@
 //! The Source Set registry: each Source Set is a Root plus a relative path, bound to a DAT.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use super::beneath::resolve_beneath;
 use super::dats::split_dat;
 use super::{Error, Result, Store, now};
-use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
+use title_select_api::paths::{PathTemplate, TokenValues};
 
 pub use title_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
 
@@ -129,42 +130,13 @@ pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Res
     let root_config = roots
         .root(root)
         .ok_or_else(|| Error::Refused(format!("no root named {root} is registered")))?;
-    let rel = relative_path(rel)
-        .map_err(|e| Error::Refused(format!("{rel}: a source set's path {e}")))?;
-    // Defence in depth: the Host's own reading of the path must agree that every component is a plain folder name.
-    if !Path::new(&rel)
-        .components()
-        .all(|c| matches!(c, Component::Normal(_)))
-    {
-        return Err(Error::Refused(format!(
-            "{rel}: a source set's path must be relative to its root"
-        )));
-    }
-    let canonical_root = root_config.path.canonicalize().map_err(|e| {
-        Error::Refused(format!("root {root} ({}): {e}", root_config.path.display()))
-    })?;
-    let configured = rel
-        .split('/')
-        .fold(root_config.path.clone(), |p, part| p.join(part));
-    let canonical = configured
-        .canonicalize()
-        .map_err(|e| Error::Refused(format!("{}: {e}", configured.display())))?;
-    if !canonical.starts_with(&canonical_root) {
-        return Err(Error::Refused(format!(
-            "{rel}: resolves outside root {root}"
-        )));
-    }
-    if !canonical.is_dir() {
-        return Err(Error::Refused(format!(
-            "{}: not a directory",
-            configured.display()
-        )));
-    }
+    let beneath = resolve_beneath(root_config, rel, "a source set's path")?;
+    let path = beneath.existing_dir()?;
     Ok(Resolved {
         root: root.to_owned(),
-        rel,
-        path: configured,
-        canonical_root,
+        rel: beneath.rel,
+        path,
+        canonical_root: beneath.canonical_root,
     })
 }
 
