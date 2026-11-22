@@ -715,7 +715,7 @@ fn step_from_row(r: &Row) -> rusqlite::Result<StepRow> {
 
 /// The items of a repair's `steps` that are committed, and run to their end even once you cancel: those one of whose
 /// steps other than a Build has started, or a committed or started step keeping a file aside needs one of whose
-/// Builds, and every disc of a game one of whose discs is.
+/// steps, and every disc of a game one of whose discs is.
 fn committed_items(steps: &[StepRow]) -> std::collections::HashSet<String> {
     // A step skipped changed nothing, so it commits nothing.
     let started = |s: &StepRow| !matches!(s.state.as_str(), "pending" | "skipped");
@@ -735,8 +735,8 @@ fn committed_items(steps: &[StepRow]) -> std::collections::HashSet<String> {
                 committed.insert(step.item.as_str());
                 committed.extend(affects.iter().map(String::as_str));
                 for need in needs {
-                    if let Some(build) = steps.iter().find(|b| b.seq == *need) {
-                        committed.insert(build.item.as_str());
+                    if let Some(needed) = steps.iter().find(|b| b.seq == *need) {
+                        committed.insert(needed.item.as_str());
                     }
                 }
             }
@@ -2049,7 +2049,7 @@ impl Store {
 
     /// Once you cancel a repair: skips every step of each item nothing was yet changed for, deleting the files its
     /// Builds staged. An item is committed, and runs to its end, once one of its steps other than a Build has
-    /// started, or a committed or started step keeping a file aside needs one of its Builds.
+    /// started, or a committed or started step keeping a file aside needs one of its steps.
     fn cancel_uncommitted(&self, r: &Repairing) -> Ran {
         let steps = self.read(|c| steps_of(c, r.plan.id))?;
         let committed = committed_items(&steps);
@@ -2312,6 +2312,17 @@ impl Store {
                             RepairStep::Keep { path: beside, .. } => format!(
                                 "{path} was left as it is, since {beside} could not be set aside with it"
                             ),
+                            // A file of another item, written with a copy of what this one holds.
+                            RepairStep::Build { target, .. }
+                            | RepairStep::Fill { target, .. }
+                            | RepairStep::Rename { to: target, .. }
+                                if needed.item != step.item =>
+                            {
+                                format!(
+                                    "{path} was left as it is, since {target}, which would hold a copy of \
+                                     what it holds, was not written"
+                                )
+                            }
                             _ => format!(
                                 "{path} was left as it is, since its game's new file was not written"
                             ),

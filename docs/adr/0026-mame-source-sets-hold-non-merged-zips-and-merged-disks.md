@@ -74,3 +74,16 @@ Library that is ready to play.
 
 Software lists are out of M6 (ADR 0027's amendment), so Disks come only from ListXML machines. The software-list Disk
 layout above, `<list>/<software>/<disk>.chd`, is recorded for a later milestone and not built now.
+
+## Amendment (2026-11-21): a repack sets no spare copy aside by default
+
+A Repair towards a Set Layout only repacks by default: its Builds, Renames, Fills and conversions run, and each keeps
+aside only the originals it replaces, once what it writes is verified. A file left holding only copies of ROMs that
+another file holds, or that the Repair writes, is left where it is by default, and the item says so; the Operator may
+choose to keep it aside. A file holding only Unmatched Entries is still kept aside by default, as it holds no ROM.
+
+Review found, round after round, a way for a default plan to set aside the last usable copy of a ROM, because what
+made a file spare was a write another item makes, and that write can fail after approval: a Fill whose Ingest Folder
+item is gone, say. So a Keep, chosen or not, needs every earlier step of the plan, in any item, that reads the file or
+writes a payload it holds, and the Publish of each such Build: if one of them fails, the Keep is skipped and the file
+stays. A conversion's Builds come after, but each reads only its own originals, which stay until it is verified.

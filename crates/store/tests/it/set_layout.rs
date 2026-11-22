@@ -307,6 +307,18 @@ impl Env {
 
     /// Approves `plan` and runs its Repair Job, then the Audit it queues, whose report it returns.
     fn approve(&self, plan: &RepairPlan) -> title_select_api::Report {
+        let done = self.run(plan);
+        assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+        let audit = done.audit_job.expect("a repair queues an audit");
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
+        let ended = self.store.run_audit_job(&self.config, audit, None).unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        let latest = &self.store.history("mame").unwrap()[0];
+        self.store.report(latest.id).unwrap()
+    }
+
+    /// Approves `plan` and runs its Repair Job, whatever steps of it fail, returning the plan as it ran.
+    fn run(&self, plan: &RepairPlan) -> RepairPlan {
         let approved = self
             .store
             .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
@@ -316,14 +328,7 @@ impl Env {
         let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
         self.store.fulfil_repair_audits().unwrap();
-        let done = self.store.repair_plan(plan.id).unwrap();
-        assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
-        let audit = done.audit_job.expect("a repair queues an audit");
-        assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
-        let ended = self.store.run_audit_job(&self.config, audit, None).unwrap();
-        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
-        let latest = &self.store.history("mame").unwrap()[0];
-        self.store.report(latest.id).unwrap()
+        self.store.repair_plan(plan.id).unwrap()
     }
 
     /// Each ZIP in the Source Set's folder, with its members sorted, and every other file, kept files included.
@@ -1716,8 +1721,16 @@ fn rom_payloads(env: &Env) -> BTreeSet<Vec<u8>> {
     held
 }
 
-#[test]
-fn applying_a_default_plan_in_any_layout_never_leaves_a_rom_payload_only_in_the_kept_files() {
+/// Each case [`family_without`] sets up: the layout the family is stored as, the layout it turns, the ZIP missing,
+/// the Game placed, and whether an Ingest Folder fills the missing Game.
+fn cases() -> Vec<(
+    SetLayout,
+    SetLayout,
+    &'static str,
+    Option<&'static str>,
+    bool,
+)> {
+    let mut cases = Vec::new();
     for stored in SetLayout::ALL {
         for layout in SetLayout::ALL {
             for (zip, _) in family(stored) {
@@ -1726,30 +1739,64 @@ fn applying_a_default_plan_in_any_layout_never_leaves_a_rom_payload_only_in_the_
                         let game = zip.trim_end_matches(".zip");
                         // Only a Game of the Source Set's folder, never a device, is filled.
                         if !fill || (!game.starts_with("acme") && placed != Some(game)) {
-                            applying_a_default_plan_loses_no_payload_under(
-                                stored, layout, zip, placed, fill,
-                            );
+                            cases.push((stored, layout, zip, placed, fill));
                         }
                     }
                 }
             }
         }
     }
+    cases
+}
+
+#[test]
+fn a_default_plan_in_any_layout_only_repacks_and_never_leaves_a_rom_payload_only_in_the_kept_files()
+{
+    for (stored, layout, missing, placed, fill) in cases() {
+        let at = format!(
+            "stored {stored:?}, repaired {layout:?}, no {missing}, {placed:?} placed, fill {fill}"
+        );
+        let env = family_without(stored, layout, missing, placed, fill);
+
+        let plan = env.plan();
+
+        let items = &plan.content.items;
+        assert!(
+            (items.iter())
+                .all(|i| i.kind != RepairKind::KeepAside || i.chosen == RepairChoice::Leave),
+            "{at}: {items:#?}"
+        );
+        // A file is kept aside only as the original of what its item writes.
+        let steps = &plan.content.steps;
+        let writes = |item: &str| {
+            steps.iter().any(|s| {
+                s.item == item
+                    && matches!(
+                        s.step,
+                        RepairStep::Build { .. }
+                            | RepairStep::Rename { .. }
+                            | RepairStep::Fill { .. }
+                    )
+            })
+        };
+        assert!(
+            (steps.iter()).all(|s| !matches!(s.step, RepairStep::Keep { .. }) || writes(&s.item)),
+            "{at}: {steps:#?}"
+        );
+        applying_by_default_loses_no_payload(&env, &plan, &at);
+    }
 }
 
 /// The family is stored as `stored` keeps it without `missing`, with `placed` placed self-contained and a ZIP of copies
 /// of shared ROMs; with `fill`, an Ingest Folder item holds the ROMs the missing Game lists, never its device's. The
-/// layout turns `layout`, and the plan as it is by default is applied.
-fn applying_a_default_plan_loses_no_payload_under(
+/// layout turns `layout`.
+fn family_without(
     stored: SetLayout,
     layout: SetLayout,
     missing: &str,
     placed: Option<&str>,
     fill: bool,
-) {
-    let at = format!(
-        "stored {stored:?}, repaired {layout:?}, no {missing}, {placed:?} placed, fill {fill}"
-    );
+) -> Env {
     let env = Env::new();
     let non_merged = |game: &str| {
         (family(SetLayout::NonMerged).into_iter())
@@ -1774,6 +1821,71 @@ fn applying_a_default_plan_loses_no_payload_under(
             .collect();
         env.ingest(missing, &own);
     }
+    env
+}
+
+#[test]
+fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_when_the_fill_fails() {
+    for layout in [SetLayout::Split, SetLayout::NonMerged] {
+        for keep_aside in [false, true] {
+            a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
+                layout, keep_aside,
+            );
+        }
+    }
+}
+
+/// The parent's ZIP holds a conflicting member, so it is left by default, and a loose file holds the Source Set's only
+/// copy of its graphics. The clone is missing, and an Ingest Folder holds it with its graphics under its own name, the
+/// parent's by `merge=`. The plan fills the clone, and the loose file, a copy of what the fill writes, is left by
+/// default; with `keep_aside`, you chose to keep it aside. The Ingest Folder's ZIP is gone once the plan is approved,
+/// so the fill fails, and the loose file's graphics stay in the Source Set's folder either way.
+fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
+    layout: SetLayout,
+    keep_aside: bool,
+) {
+    let at = format!("{layout:?}, keep aside {keep_aside}");
+    let env = Env::with(listxml_aliased(false));
+    env.zip("acmevga.zip", &["vga.bin"]);
+    // The member is named for the parent's program, but holds the graphics device's ROM.
+    write_zip_of(&env.set().join("blaster.zip"), "prog.u3", b"video");
+    std::fs::write(env.set().join("gfx.u4"), payload("gfx.u4")).unwrap();
+    env.layout(layout);
+    env.audit();
+    env.ingest("blasterj.zip", &["gfxj.u4", "progj.u3"]);
+
     let plan = env.plan();
-    applying_by_default_loses_no_payload(&env, &plan, &at);
+    let spare = (plan.content.items.iter())
+        .find(|i| i.key == "file:gfx.u4")
+        .unwrap_or_else(|| panic!("{at}: {:#?}", plan.content.items));
+    assert_eq!(spare.default, RepairChoice::Leave, "{at}: {spare:#?}");
+    let plan = match keep_aside {
+        true => env
+            .store
+            .plan_repair(
+                &env.config,
+                "mame",
+                &PlanRepair {
+                    choices: [(spare.key.clone(), RepairChoice::KeepAside)].into(),
+                    ..PlanRepair::default()
+                },
+            )
+            .unwrap(),
+        false => plan,
+    };
+    let fill = (plan.content.items.iter())
+        .find(|i| i.key == "game:blasterj")
+        .unwrap_or_else(|| panic!("{at}: {:#?}", plan.content.items));
+    assert_eq!(fill.chosen, RepairChoice::Apply, "{at}: {fill:#?}");
+    std::fs::remove_file(env.tmp.path().join("in/blasterj.zip")).unwrap();
+
+    let ran = env.run(&plan);
+
+    assert!(
+        rom_payloads(&env).contains(payload("gfx.u4")),
+        "{at}: {:#?}\n{:#?}",
+        plan.content,
+        ran.outcomes
+    );
+    assert!(env.set().join("gfx.u4").is_file(), "{at}");
 }

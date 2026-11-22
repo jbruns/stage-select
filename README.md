@@ -1226,7 +1226,9 @@ it is stored, and a layout other than yours is no discrepancy. The next repair p
 your layout, every item on by default: it writes each ZIP from the family's ZIPs, filling a ROM a ZIP lacks from a
 sibling ZIP that holds it, and a ZIP another game is written into is read but never set aside by this game's item. A
 ZIP the layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is
-written and verified; if one of them fails, it stays. A family is repacked whole: leaving one game of it as it is
+written and verified; if one of them fails, it stays. A repack only writes, renames and fills: a file left holding
+only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to keep it
+aside, and the item says so. A family is repacked whole: leaving one game of it as it is
 leaves the family's other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists
 for it wins, a game's own before its dependencies' and a parent's before its clones', the plan's notes say which ROM
 was left out, and the file that holds it stays where it is. Disks are never moved by the set layout: they stay in a
@@ -1610,7 +1612,10 @@ approving approves the plan as it was made, so it waits while you have changes y
   audit matched stays where it is: a repair never keeps it aside, and never packs a CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
-- unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
+- unmatched entries and extra members of a game's ZIP are kept aside by default;
+- a file holding only copies of ROMs that another file holds, or that the repair writes, is left where it is by
+  default. You can choose to keep it aside: it's kept aside only once every file the repair reads from it, or writes
+  with a copy of what it holds, is written and verified, and if one of them fails, it stays.
 
 When the source set has a coverage, a repair fills only the games in it: a game outside it is renamed, repacked and
 converted like any other, but nothing fills it, and the plan's notes say so. The plan records the coverage it was

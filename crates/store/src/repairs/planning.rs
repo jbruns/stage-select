@@ -146,6 +146,10 @@ const PLACED_CHD_UNVERIFIED: &str = "it is placed as a CHD in a play library fol
      set's kept files. Then, with a good copy of the game in an ingest folder, the repair after the audit rebuilds it in \
      your source set";
 
+/// Why a repair leaves, by default, a file holding only copies of ROMs another file holds or this plan writes.
+const SPARE_COPY: &str = "left as it is: a repair keeps a copy of a ROM aside only when you choose to. If you do, it \
+     is kept aside only once every file this plan writes with a copy of what it holds is written and verified";
+
 /// What becomes of each disc of a placed release a repair releases (ADR 0023): every CHD of it is set aside, never
 /// split from the rest, and nothing of it is extracted or deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -655,19 +659,22 @@ impl<T: Copy> Copies<T> {
         self.copies.push((sums, at));
     }
 
-    /// Whether a copy of `rom` is where `at` accepts. A ROM the DAT gives no checksum for has none: no bytes are known
-    /// to be it.
+    /// Whether a copy of `rom` is where `at` accepts ([`Copies::all_where`]).
     fn any_where(&self, rom: &Sums, at: impl Fn(T) -> bool) -> bool {
+        self.all_where(rom).into_iter().any(at)
+    }
+
+    /// Where each copy of `rom` is. A ROM the DAT gives no checksum for has none: no bytes are known to be it.
+    fn all_where(&self, rom: &Sums) -> Vec<T> {
         // A copy of it gives every checksum it gives, the first among them included.
         let Some(first) = rom.keys().into_iter().next() else {
-            return false;
+            return Vec::new();
         };
-        (self.by_key.get(&first)).is_some_and(|copies| {
-            copies.iter().any(|&n| {
-                let (sums, here) = &self.copies[n];
-                sums.pins(rom) && at(*here)
-            })
-        })
+        (self.by_key.get(&first).into_iter().flatten())
+            .map(|&n| &self.copies[n])
+            .filter(|(sums, _)| sums.pins(rom))
+            .map(|(_, here)| *here)
+            .collect()
     }
 }
 
@@ -2902,10 +2909,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let key = format!("file:{path}");
+        // A file holding a copy of a ROM is kept aside only once you choose it, as what makes it spare may be another
+        // item's write, which can fail; one holding nothing a Game needs is kept aside by default.
+        let copies = file.entries.iter().any(|e| e.finding != Finding::Unmatched);
         let nodump = left_for_nodump(i.dat, &holders, &layout_index, [file], IfChosen::KeepAside);
-        let default = match nodump {
-            Some(_) => RepairChoice::Leave,
-            None => RepairChoice::KeepAside,
+        let (default, note) = match (nodump, copies) {
+            (Some(why), _) => (RepairChoice::Leave, Some(why)),
+            (None, true) => (RepairChoice::Leave, Some(SPARE_COPY.to_owned())),
+            (None, false) => (RepairChoice::KeepAside, None),
         };
         let chosen = i.choices.get(&key).copied().unwrap_or(default);
         // A file holding one ROM no DAT knows can be added as an Addition, from where it is kept.
@@ -2939,7 +2950,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
             (_, None) => None,
         };
-        let summary = match file.entries.iter().any(|e| e.finding != Finding::Unmatched) {
+        let summary = match copies {
             true => format!("{path} holds only copies of ROMs a game's own file holds"),
             false => format!("{path} holds nothing a game needs"),
         };
@@ -2954,7 +2965,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 choices,
                 default,
                 chosen,
-                note: nodump,
+                note,
                 addition,
                 addition_rom: None,
                 addition_target: None,
@@ -2975,56 +2986,35 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     }
     proposed.extend(aside);
 
-    // A file kept aside by default is left when it holds the last copy in the Source Set of a ROM, so a repair as it is
-    // by default never loses one. What the Operator chose to keep aside is kept aside even then, which the item says: it
-    // can be restored from the kept files.
-    loop {
-        let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
-        let last: Vec<(usize, Vec<String>)> = proposed
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                !p.checked
-                    && matches!(
-                        p.item.chosen,
-                        RepairChoice::KeepAside | RepairChoice::AddAddition
-                    )
-            })
-            .filter_map(|(n, p)| {
-                let lost: BTreeSet<String> = p
-                    .displaces
-                    .iter()
-                    .filter_map(|(path, _)| Some((path, usable.get(path.as_str())?)))
-                    .flat_map(|(path, file)| preserved.lost(path, file))
-                    .map(|(game, name)| format!("{name} of {game}"))
-                    .collect();
-                (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
-            })
-            .collect();
-        // One file at a time, as a file left keeps its copies, so another may no longer hold the last of one.
-        if let Some((n, lost)) = last
-            .iter()
-            .find(|(n, _)| !i.choices.contains_key(&proposed[*n].item.key))
-        {
-            let item = &mut proposed[*n].item;
-            item.default = RepairChoice::Leave;
-            item.chosen = RepairChoice::Leave;
-            item.note = Some(format!(
-                "left as it is: it holds the last copy in the source set of {}; if you choose to keep it aside, you \
-                 can restore it from the kept files",
-                lost.join(", ")
-            ));
-            continue;
-        }
-        for (n, lost) in last {
-            let item = &mut proposed[n].item;
-            item.default = RepairChoice::Leave;
-            item.note = Some(format!(
-                "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
-                lost.join(", ")
-            ));
-        }
-        break;
+    // What you chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then says:
+    // it can be restored from the kept files. Nothing a repair keeps aside by default holds a ROM.
+    let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
+    let last: Vec<(usize, Vec<String>)> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            !p.checked
+                && matches!(
+                    p.item.chosen,
+                    RepairChoice::KeepAside | RepairChoice::AddAddition
+                )
+        })
+        .filter_map(|(n, p)| {
+            let lost: BTreeSet<String> = p
+                .displaces
+                .iter()
+                .filter_map(|(path, _)| Some((path, usable.get(path.as_str())?)))
+                .flat_map(|(path, file)| preserved.lost(path, file))
+                .map(|(game, name)| format!("{name} of {game}"))
+                .collect();
+            (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
+        })
+        .collect();
+    for (n, lost) in last {
+        proposed[n].item.note = Some(format!(
+            "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
+            lost.join(", ")
+        ));
     }
 
     if stays_zip > 0 {
@@ -3267,31 +3257,63 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
             }
         }
     }
-    // A file is kept aside only once every file built from it is written and verified, whichever item builds it: a
-    // ZIP that the layout no longer keeps a ROM in may be where a sibling's copy is written from (ADR 0026).
-    let reads: Vec<(u32, BTreeSet<&str>)> = steps
-        .iter()
-        .enumerate()
-        .filter_map(|(n, s)| match &s.step {
-            RepairStep::Build { sources, .. } => {
-                Some((n as u32, sources.keys().map(String::as_str).collect()))
-            }
-            _ => None,
-        })
+    // A file is kept aside only once every file written from it, or written with a copy of a payload it holds, is
+    // written and verified, whichever item writes it: a ZIP that the layout no longer keeps a ROM in may be where a
+    // sibling's copy is written from (ADR 0026), and a copy a fill writes from an ingest folder is no copy at all if the
+    // fill fails. A conversion's Builds come later, but each reads only its own originals, kept aside after them.
+    let dat_roms: HashMap<(&str, &str), &Rom> = (i.dat.roms.iter())
+        .map(|r| ((i.dat.games[r.game].as_str(), r.name.as_str()), r))
         .collect();
+    let mut held: HashMap<&str, Vec<&Rom>> = HashMap::new();
+    for e in &i.report.entries {
+        let roms = e
+            .roms
+            .iter()
+            .filter_map(|r| dat_roms.get(&(r.game.as_str(), r.name.as_str())));
+        held.entry(e.path.as_str()).or_default().extend(roms);
+    }
+    let mut written = Copies::new();
+    let mut reads: Vec<(u32, BTreeSet<&str>)> = Vec::new();
+    // Each Publish, by the Build whose staged file it puts in place.
+    let mut published: Vec<(u32, u32)> = Vec::new();
+    for (n, s) in steps.iter().enumerate() {
+        if let RepairStep::Publish { build, .. } = &s.step {
+            published.push((*build, n as u32));
+        }
+        let roms = match &s.step {
+            RepairStep::Build { roms, sources, .. } => {
+                reads.push((n as u32, sources.keys().map(String::as_str).collect()));
+                roms.iter().map(|r| &r.rom).collect()
+            }
+            RepairStep::Fill { roms, .. } => roms.iter().map(|r| &r.rom).collect(),
+            RepairStep::Rename { roms, .. } => roms.iter().collect(),
+            _ => Vec::new(),
+        };
+        for rom in roms {
+            written.insert(Sums::of_expected(rom), n as u32);
+        }
+    }
     let extra_needs: Vec<(usize, Vec<u32>)> = steps
         .iter()
         .enumerate()
         .filter_map(|(k, s)| match &s.step {
             RepairStep::Keep { path, needs, .. } => {
-                let more: Vec<u32> = reads
-                    .iter()
-                    .filter(|(b, from)| {
-                        (*b as usize) < k && from.contains(path.as_str()) && !needs.contains(b)
-                    })
-                    .map(|(b, _)| *b)
+                let mut more: BTreeSet<u32> = (held.get(path.as_str()).into_iter().flatten())
+                    .flat_map(|rom| written.all_where(&Sums::of(rom)))
+                    .chain(
+                        (reads.iter())
+                            .filter(|(_, from)| from.contains(path.as_str()))
+                            .map(|(b, _)| *b),
+                    )
                     .collect();
-                (!more.is_empty()).then_some((k, more))
+                // A file built is there once it is published too.
+                let publishes: Vec<u32> = (published.iter())
+                    .filter(|(b, _)| more.contains(b))
+                    .map(|(_, p)| *p)
+                    .collect();
+                more.extend(publishes);
+                more.retain(|b| (*b as usize) < k && !needs.contains(b));
+                (!more.is_empty()).then(|| (k, more.into_iter().collect()))
             }
             _ => None,
         })
