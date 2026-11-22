@@ -357,7 +357,7 @@ impl Usable<'_> {
 struct Preserved<'a> {
     /// Every ROM of the DAT, by its Game and name.
     dat: &'a HashMap<RomKey, &'a Rom>,
-    /// Every file the Audit found holding each ROM.
+    /// Every file holding each ROM that is as the Audit read it: a file changed since never holds a surviving copy.
     held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
     /// The scope of each file ([`Scope`]), which decides where a copy survives for it.
     scopes: &'a Scopes<'a>,
@@ -1390,23 +1390,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     for entry in &i.report.entries {
         by_path.entry(&entry.path).or_default().push(entry);
     }
-    // Every file the Audit found holding each ROM, whether or not a repair may change it.
+    // Every usable file holding each ROM, whether or not a repair may change it. A file gone, changed or read only by
+    // its claim since the Audit holds no ROM the plan may count on: never a copy that survives, makes a ROM wanted,
+    // or shapes where a Game is placed.
     let mut held_by: HashMap<RomKey, BTreeSet<&str>> = HashMap::new();
     let mut usable: BTreeMap<&str, Usable> = BTreeMap::new();
     for (path, entries) in &by_path {
-        for entry in entries {
-            if matches!(
-                entry.finding,
-                Finding::Matched | Finding::Misnamed | Finding::Conflicting
-            ) {
-                for rom in &entry.roms {
-                    held_by
-                        .entry((rom.game.clone(), rom.name.clone()))
-                        .or_default()
-                        .insert(path);
-                }
-            }
-        }
         let Some(seen) = i.files.get(*path) else {
             notes.push(format!(
                 "{path} is gone since the audit; audit again to repair what it held"
@@ -1447,6 +1436,19 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 "{path} changed since the audit read it, so it is left as it is; audit again to repair it"
             ));
             continue;
+        }
+        for entry in entries {
+            if matches!(
+                entry.finding,
+                Finding::Matched | Finding::Misnamed | Finding::Conflicting
+            ) {
+                for rom in &entry.roms {
+                    held_by
+                        .entry((rom.game.clone(), rom.name.clone()))
+                        .or_default()
+                        .insert(path);
+                }
+            }
         }
         usable.insert(
             path,

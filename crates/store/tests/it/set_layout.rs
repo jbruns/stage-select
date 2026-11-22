@@ -1154,6 +1154,88 @@ fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
     );
 }
 
+/// A parent and its clone, which shares the parent's graphics under the same name, as MAME most often lists a shared
+/// ROM: the members of their ZIPs are named alike.
+fn listxml_same_name() -> String {
+    format!(
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="blaster"><description>Blaster</description>{gfx}{prog}</machine>
+  <machine name="blasterj" cloneof="blaster" romof="blaster"><description>Blaster (Japan)</description>{gfx_m}{progj}</machine>
+</mame>
+"#,
+        gfx = rom("gfx.u4", None),
+        prog = rom("prog.u3", None),
+        gfx_m = rom("gfx.u4", Some("gfx.u4")),
+        progj = rom("progj.u3", None),
+    )
+}
+
+#[test]
+fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_in_any_layout() {
+    for stored in SetLayout::ALL {
+        for layout in SetLayout::ALL {
+            a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
+                stored, layout,
+            );
+        }
+    }
+}
+
+/// The family of [`listxml_same_name`] is stored as `stored` gives it and audited healthy, then the parent's ZIP is
+/// replaced by a corrupt file, and the layout turns to `layout`. The audit's word for the parent's ZIP is stale, so it
+/// holds no copy a repair may count on: the plan as it is by default leaves every file of the Source Set's folder as it
+/// is, as no ZIP of the family can be repacked without the parent's ROMs.
+fn a_zip_changed_since_the_audit_never_stands_in_for_a_copy_of_a_shared_rom_under(
+    stored: SetLayout,
+    layout: SetLayout,
+) {
+    let env = Env::with(listxml_same_name());
+    let at = format!("stored {stored:?}, repaired {layout:?}");
+    match stored {
+        SetLayout::NonMerged => {
+            env.zip("blaster.zip", &["gfx.u4", "prog.u3"]);
+            env.zip("blasterj.zip", &["gfx.u4", "progj.u3"]);
+        }
+        SetLayout::Split => {
+            env.zip("blaster.zip", &["gfx.u4", "prog.u3"]);
+            env.zip("blasterj.zip", &["progj.u3"]);
+        }
+        SetLayout::Merged => env.zip("blaster.zip", &["gfx.u4", "prog.u3", "progj.u3"]),
+    }
+    env.layout(layout);
+    verified(&env.audit());
+    std::fs::write(env.set().join("blaster.zip"), b"not a zip any more").unwrap();
+    let files = || -> Vec<(PathBuf, Vec<u8>)> {
+        walkdir::WalkDir::new(env.set())
+            .sort_by_file_name()
+            .into_iter()
+            .map(|e| e.unwrap())
+            .filter(|e| e.file_type().is_file())
+            .map(|e| (e.path().to_owned(), std::fs::read(e.path()).unwrap()))
+            .collect()
+    };
+    let before = files();
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "blaster.zip changed since the audit read it, so it is left as it is; audit again to repair it"),
+        "{at}: {:#?}",
+        plan.content.notes
+    );
+    if plan
+        .content
+        .items
+        .iter()
+        .any(|i| i.chosen != RepairChoice::Leave)
+    {
+        env.approve(&plan);
+    }
+    assert!(files() == before, "{at}: {:#?}", plan.content.items);
+}
+
 #[test]
 fn a_repair_of_the_source_sets_folder_never_reads_counts_or_displaces_a_placed_file() {
     for layout in SetLayout::ALL {
