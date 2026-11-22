@@ -787,3 +787,79 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
     );
     assert!(files(&env.library()).is_empty());
 }
+
+#[test]
+fn single_copy_places_no_zip_whose_disk_fails_to_verify() {
+    let Some(env) = with_disk() else { return };
+    env.single_copy();
+    env.audit();
+    // A byte of its data changes, and its header, with the SHA-1 it records, doesn't.
+    let chd = env.set().join("blaster/blaster.chd");
+    let mut bytes = std::fs::read(&chd).unwrap();
+    let at = bytes.len() / 2;
+    bytes[at] ^= 0xff;
+    std::fs::write(&chd, bytes).unwrap();
+    let plan = env.plan(env.select(&["blaster"]));
+    assert_eq!(item(&plan, "blaster.zip").kind, ItemKind::Place);
+    let ended = env.build(&plan);
+
+    let disk = env.built_item(&ended, "blaster/blaster.chd");
+    assert_eq!(disk.state, ItemState::Failed, "{disk:?}");
+    let zip = env.built_item(&ended, "blaster.zip");
+    assert_eq!(zip.state, ItemState::Failed, "{zip:?}");
+    assert_eq!(
+        zip.error.as_deref(),
+        Some(
+            "blaster/blaster.chd of the same game failed, so it was not put in place; blaster stays in source set \
+             mame as it was"
+        )
+    );
+    // The game's ZIP stays in the source set, and nothing of it is in the folder.
+    assert!(files(&env.library()).is_empty());
+    assert!(env.set().join("blaster.zip").is_file());
+}
+
+#[test]
+fn a_placed_parent_going_home_is_read_first_by_its_clone() {
+    let env = Env::with(listxml(None), None);
+    env.layout(SetLayout::NonMerged);
+    env.single_copy();
+    // The parent's ZIP is whole, and the only one to hold the device's ROM, which the clone's lacks.
+    write_zip(
+        &env.set().join("blaster.zip"),
+        &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"],
+    );
+    write_zip(
+        &env.set().join("blasterj.zip"),
+        &["bios.u1", "gfxj.u4", "progj.u3"],
+    );
+    env.audit();
+    env.build(&env.plan(env.select(&["blaster"])));
+    assert!(!env.set().join("blaster.zip").exists());
+
+    // The clone alone is selected now: it is written from the parent's placed ZIP, which then goes home.
+    let plan = env.plan(env.select(&["blasterj"]));
+    let clone = item(&plan, "blasterj.zip");
+    assert_eq!(clone.kind, ItemKind::Repack);
+    assert!(
+        clone
+            .sources
+            .iter()
+            .any(|s| s.path.ends_with("placed/1/blaster.zip")),
+        "{clone:#?}"
+    );
+    assert_eq!(plan.content.returns.len(), 1, "{:#?}", plan.content.returns);
+    let ended = env.build(&plan);
+
+    let built = env.built_item(&ended, "blasterj.zip");
+    assert_eq!(built.state, ItemState::Applied, "{built:?}");
+    assert_eq!(files(&env.library()), ["blasterj.zip"]);
+    assert_eq!(
+        members(&env.library().join("blasterj.zip")),
+        ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"]
+    );
+    assert_eq!(
+        members(&env.set().join("blaster.zip")),
+        ["bios.u1", "gfx.u4", "prog.u3", "snd.u2"]
+    );
+}

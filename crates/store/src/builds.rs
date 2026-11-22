@@ -2513,6 +2513,10 @@ impl Store {
             }
             units.push(vec![w]);
         }
+        // A release placed goes in place after every file written fresh, and only once the other files of its Games
+        // are in place: a Game's Disk is copied and verified before its ZIP is placed. And so every file the plan reads
+        // from the Source Set is read before a release placed consumes it.
+        units.sort_by_key(|u| u[0].item.kind == ItemKind::Place);
         /// A file of a unit, written and verified in the staging directory.
         struct Ready<'w, 'a> {
             w: &'w Work<'a>,
@@ -2538,36 +2542,6 @@ impl Store {
             to: &chd_work.to,
             from: &chd_work.from,
         };
-        // The releases placed here that go home go first, each whole or not at all, before anything is written here.
-        if let Some(set) = &placing
-            && !returning.is_empty()
-        {
-            let set_root = self
-                .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
-                .record
-                .root;
-            let to = meter.tally(Some(&set_root));
-            let returner = returns::Returning {
-                build: id,
-                folder,
-                set: folder_row.source_set_id,
-                set_name: &folder_row.source_set,
-                dir: &dir,
-                config,
-                to: &to,
-                from: &library,
-                chd: Some(&chd_work),
-            };
-            for (seq, r) in &returning {
-                if cancelled || self.cancel_requested(job)? {
-                    cancelled = true;
-                    break;
-                }
-                check_marker(&dir, &expected).map_err(Error::Refused)?;
-                self.return_release(&returner, set, *seq, r, built_at)?;
-                tick(&mut done);
-            }
-        }
         for unit in &units {
             if cancelled {
                 break;
@@ -2580,13 +2554,33 @@ impl Store {
             if let Some(set) = &placing
                 && unit[0].item.kind == ItemKind::Place
             {
-                self.place_unit(
-                    &placer,
-                    set,
-                    unit,
-                    (&staging, &mut staged_ids, built_at),
-                    &chd_work,
-                )?;
+                let release = title_select_api::storage::release_of(&unit[0].item.game);
+                let mut culprit = None;
+                for w in work.iter().filter(|w| {
+                    w.item.kind != ItemKind::Place
+                        && w.item.addition.is_none()
+                        && title_select_api::storage::release_of(&w.item.game) == release
+                }) {
+                    if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
+                        culprit = Some(&w.item.target);
+                        break;
+                    }
+                }
+                if let Some(culprit) = culprit {
+                    self.fail_unit(
+                        &placer,
+                        unit,
+                        &format!("{culprit} of the same game failed, so it was not put in place"),
+                    )?;
+                } else {
+                    self.place_unit(
+                        &placer,
+                        set,
+                        unit,
+                        (&staging, &mut staged_ids, built_at),
+                        &chd_work,
+                    )?;
+                }
                 for _ in unit {
                     tick(&mut done);
                 }
@@ -3010,6 +3004,37 @@ impl Store {
                     )?
                 };
                 record_disposal(self, id, *seq, outcome)?;
+                tick(&mut done);
+            }
+        }
+        // The releases placed here that go home go last, each whole or not at all, once every file the plan reads from
+        // their placed files is written.
+        if let Some(set) = &placing
+            && !returning.is_empty()
+        {
+            let set_root = self
+                .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
+                .record
+                .root;
+            let to = meter.tally(Some(&set_root));
+            let returner = returns::Returning {
+                build: id,
+                folder,
+                set: folder_row.source_set_id,
+                set_name: &folder_row.source_set,
+                dir: &dir,
+                config,
+                to: &to,
+                from: &library,
+                chd: Some(&chd_work),
+            };
+            for (seq, r) in &returning {
+                if cancelled || self.cancel_requested(job)? {
+                    cancelled = true;
+                    break;
+                }
+                check_marker(&dir, &expected).map_err(Error::Refused)?;
+                self.return_release(&returner, set, *seq, r, built_at)?;
                 tick(&mut done);
             }
         }

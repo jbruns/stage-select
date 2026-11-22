@@ -606,7 +606,7 @@ impl Store {
     }
 
     /// Fails every item of `unit` with `why`, its release left in its Source Set as it was.
-    fn fail_unit(&self, p: &Placing, unit: &[&Work], why: &str) -> Result<()> {
+    pub(super) fn fail_unit(&self, p: &Placing, unit: &[&Work], why: &str) -> Result<()> {
         self.write(|tx| {
             for w in unit {
                 set_place_state(tx, p.build, w.seq, None)?;
