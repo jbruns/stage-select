@@ -407,7 +407,8 @@ first use. Only one Title Select process may have a store open at a time: it hol
 ## Configuration
 
 You set up Title Select in the workbench, under Settings, or with the commands below, and everything you set is kept
-in the store, so a backup of the store keeps it too. Each change applies at once, without a restart.
+in the store, so a backup of the store keeps it too. Each change applies at once, without a restart. The few things
+the service needs before it starts are flags and environment variables instead; see "Starting the service".
 
 ### Roots
 
@@ -469,22 +470,26 @@ title-select root holds <name>
 your value of a ceiling. The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
 
-### The configuration file
+### Starting the service
 
-Until a later release moves them to the environment, two things still come from `title-select.toml`, passed with
-`--config <file>` or `TITLE_SELECT_CONFIG`: how the service knows it is you (see "Auth"), and which chdman to run
-(see "Storage policy"). Only `serve` reads it. A change to it takes effect when you restart the service, and a key it
-doesn't know stops the service from starting, naming the key.
+A few things come from `serve`'s flags, or the environment variables that match them, because the service needs them
+before it opens the store, or because the workbench mustn't be able to change them: who can reach the workbench, for
+one. There is no configuration file. A change takes effect when you restart the service.
 
-```toml
-[auth]                      # how the service knows it is you; see "Auth"
-identity_header = "Remote-User"
-trusted_proxies = ["10.0.0.0/8"]
-# dev_identity = "Developer"
+| Flag | Environment variable | What it does | Default |
+| --- | --- | --- | --- |
+| `--store` | `TITLE_SELECT_STORE` | the store directory; see "Store" | none; the image's is `/store` |
+| `--listen` | `TITLE_SELECT_LISTEN` | the address the service listens on | `127.0.0.1:8080`; the image's is `0.0.0.0:8080` |
+| `--ui` | `TITLE_SELECT_UI` | the workbench's built bundle, served at `/`; see "Workbench" | none; the image's is `/ui` |
+| `--clone-lists` | `TITLE_SELECT_CLONE_LISTS` | the clone lists selection reads | `/opt/clone-lists` |
+| `--token-file` | `TITLE_SELECT_OPERATOR_TOKEN_FILE` | the file holding your operator token; see "Auth" | none |
+| `--identity-header` | `TITLE_SELECT_IDENTITY_HEADER` | the header your authenticating reverse proxy names you in; see "Auth" | none |
+| `--trusted-proxies` | `TITLE_SELECT_TRUSTED_PROXIES` | the proxies that header is trusted from, as comma-separated CIDRs; see "Auth" | none |
+| `--dev-identity` | `TITLE_SELECT_DEV_IDENTITY` | for local development, the identity of a request with no credential; see "Auth" | none |
+| `--chdman` | `TITLE_SELECT_CHDMAN` | the chdman builds and audits run; see "Storage policy" | `chdman` on the `PATH`; the image's is `/usr/local/bin/chdman` |
 
-[chd]                       # see "Storage policy"
-# chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
-```
+A flag you give wins over its environment variable. The service refuses to start, saying which flag and environment
+variable to fix, when it has no way to authenticate you, or when the auth settings don't fit together; see "Auth".
 
 ### Operations settings
 
@@ -816,7 +821,8 @@ history (its audits, selections, builds and jobs) by the id `list` prints, and `
 ## Service
 
 ```sh
-title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>]
+title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>] [--identity-header <name>
+  --trusted-proxies <cidr>,…] [--dev-identity <name>] [--chdman <file>]
 ```
 
 Runs the Service: the `/api/v1` JSON API, and the jobs that run audits and selections. It listens on `--listen` or
@@ -825,7 +831,8 @@ Ctrl-C. While it runs, the store commands above fail with "the store is in use";
 below, instead. This is the supported way to run Title Select on your server. With `--ui` or `TITLE_SELECT_UI` naming
 the workbench's built bundle, it also serves the workbench at `/`; see "Workbench". Selections and previews read the
 clone lists named by `--clone-lists` or `TITLE_SELECT_CLONE_LISTS`, else `/opt/clone-lists`, as for `select`. Without
-them the Service still starts and runs audits, and refuses selections and previews, saying why.
+them the Service still starts and runs audits, and refuses selections and previews, saying why. Every flag has an
+environment variable; see "Starting the service".
 
 ### Auth
 
@@ -833,14 +840,17 @@ Every API path but `/api/v1/health` needs you to authenticate. Outside the API, 
 (see "Notifications and metrics") need no authentication. The Service refuses to start without a way to
 authenticate you:
 
-- `[auth] identity_header` with `[auth] trusted_proxies`: your authenticating reverse proxy sets the header to your
-  identity. The header is trusted only from a peer inside one of the CIDRs, and a request carrying it from any other
-  peer is rejected. The identity is recorded as the actor of each job the request starts.
+- `--identity-header` (`TITLE_SELECT_IDENTITY_HEADER`) with `--trusted-proxies` (`TITLE_SELECT_TRUSTED_PROXIES`):
+  your authenticating reverse proxy sets the header, such as `Remote-User`, to your identity. The header is trusted
+  only from a peer inside one of the CIDRs, given comma-separated, such as `10.0.0.0/8, ::1/128`, and a request
+  carrying it from any other peer is rejected. Each needs the other, and the header must be a valid header name. The
+  identity is recorded as the actor of each job the request starts.
 - The operator token: a file named by `TITLE_SELECT_OPERATOR_TOKEN_FILE` (or `--token-file`) holds a secret, sent as
   `Authorization: Bearer <token>`. The Service keeps only its SHA-256 and compares in constant time. Jobs it starts
   record the actor `Operator token`.
-- `[auth] dev_identity`, for local development: a request with no credential is you, under that identity. The
-  Service refuses to start with it unless it listens on a loopback address.
+- `--dev-identity` (`TITLE_SELECT_DEV_IDENTITY`), for local development: a request with no credential is you, under
+  that identity. The Service refuses to start with it unless it listens on a loopback address, and refuses an empty
+  one.
 
 Any other request, or a wrong token, gets `401`.
 
@@ -1223,8 +1233,7 @@ DAT's hashes. A CHD that doesn't give back the DAT's files is never put in place
 checked CHD's SHA-1, which its header holds and which covers its data and its track list, is recorded, and a check of
 the folder afterwards reads only that header, never the compressed data: a CHD recompressed by another chdman is the
 same CHD and isn't drift, but one whose data or track list changed is, and the check says which. A build runs chdman as
-the configuration's `[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the
-image ships its own. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
+`--chdman` or `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its own and names it. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
 twice its CHD's size while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it
 into place. It removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each
 GiB of the disc, set by the CHD time limits under Settings, then Operations; one that runs longer is stopped,
@@ -2059,14 +2068,39 @@ on `gcr.io/distroless/cc-debian12:nonroot`, for linux/amd64. The licence texts t
 `/ui/licences`: Title Select's, that of the project selection is derived from, the clone lists and metadata's, MAME's,
 which chdman is part of, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
 `/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
-run it with a read-only root filesystem:
+run it with a read-only root filesystem. You set it up with environment variables alone (see "Starting the
+service"), and register your roots in the workbench once it runs:
 
 ```sh
 docker run --read-only -p 8080:8080 -v title-select-store:/store \
   -v /path/to/token:/run/operator-token:ro -e TITLE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
-  -v /path/to/title-select.toml:/etc/title-select.toml:ro -e TITLE_SELECT_CONFIG=/etc/title-select.toml \
+  -e TITLE_SELECT_IDENTITY_HEADER=Remote-User -e TITLE_SELECT_TRUSTED_PROXIES=172.16.0.0/12 \
   -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/title-select:sha-<commit>
 ```
+
+With Docker Compose:
+
+```yaml
+services:
+  title-select:
+    image: ghcr.io/jbruns/title-select:sha-<commit>
+    read_only: true
+    ports:
+      - "8080:8080"
+    environment:
+      TITLE_SELECT_OPERATOR_TOKEN_FILE: /run/operator-token
+      TITLE_SELECT_IDENTITY_HEADER: Remote-User       # set by your authenticating reverse proxy
+      TITLE_SELECT_TRUSTED_PROXIES: 172.16.0.0/12      # where that proxy reaches the service from
+    volumes:
+      - title-select-store:/store
+      - /path/to/token:/run/operator-token:ro
+      - /data/source-sets:/data/source-sets:ro
+volumes:
+  title-select-store:
+```
+
+The container's mounts bound what Title Select can reach: the workbench can register any folder the container can
+see as a root, so mount read-only what it must never write.
 
 CI publishes `sha-<commit>` (the full commit SHA) for each push to `main`, and `<version>` and `<major>.<minor>` for
 each `v<version>` tag.
@@ -2435,7 +2469,7 @@ served with it under the SIL Open Font License (`crates/ui/assets/fonts/LICENSE-
 
 The workbench's own files are served without auth, with a same-origin Content Security Policy; everything it shows
 comes from the API, which needs you to authenticate as above. Behind an authenticating reverse proxy, the proxy's
-identity header covers the browser's API requests. To run it locally, with `[auth] dev_identity` on a loopback address:
+identity header covers the browser's API requests. To run it locally, with a dev identity on a loopback address:
 
 ```sh
 rustup target add wasm32-unknown-unknown   # rust-toolchain.toml lists it
@@ -2447,9 +2481,8 @@ mkdir -p target/site/licences && cp LICENSE target/site/licences/title-select.tx
   && cp third_party/retool/LICENSE target/site/licences/retool.txt \
   && cp .clone-lists/LICENSE target/site/licences/retool-clonelists-metadata.txt \
   && cp .curated-list/LICENSE target/site/licences/curated-mame-arcade-romset.txt
-printf '[auth]\ndev_identity = "Developer"\n' > dev.toml
-TITLE_SELECT_CURATED_LIST=.curated-list target/release/title-select --store dev-store --config dev.toml serve \
-  --ui target/site --clone-lists .clone-lists
+TITLE_SELECT_CURATED_LIST=.curated-list target/release/title-select --store dev-store serve \
+  --ui target/site --clone-lists .clone-lists --dev-identity Developer
 ```
 
 Then open `http://127.0.0.1:8080/`, and register a root under Settings, then Roots.
@@ -2478,7 +2511,7 @@ Select and fill in its settings, see "RomM".
 services:
   romm:
     volumes:
-      - /data/roms:/romm/library/roms:ro   # the path of that root in title-select.toml
+      - /data/roms:/romm/library/roms:ro   # the host folder you mount as that root
 ```
 
 Each library folder directly in that root is a RomM platform, named for its folder, such as `gba`. Title Select keeps

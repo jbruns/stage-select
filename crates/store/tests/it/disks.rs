@@ -686,7 +686,7 @@ fn a_chd_chdman_couldnt_verify_is_verified_at_the_next_scan_once_chdman_is_found
     assert_eq!(unread.state, ItemState::Unreadable, "{unread:#?}");
     assert!(unread.reason.unwrap().contains("chdman"));
 
-    // The CHD is as it was: only the configuration changed.
+    // The CHD is as it was: only the chdman changed.
     env.use_chdman(&chdman);
     env.scan();
 

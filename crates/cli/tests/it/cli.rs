@@ -131,15 +131,12 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
         &[("Zelda (USA)", vec![rom("Zelda (USA).nes", b"zelda")])],
     );
     write_file(&f.set_path("Zelda (USA).nes"), b"zelda");
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -158,15 +155,12 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
 #[test]
 fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history() {
     let (f, dat) = pong_fixture();
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -242,15 +236,12 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
         ("Breakout (USA)", vec![rom("Breakout (USA).a26", b"break")]),
     ]);
     write_file(&f.set_path("Pong (USA).a26"), b"pong");
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -319,15 +310,12 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
 #[test]
 fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
     let (f, dat) = pong_fixture();
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -375,13 +363,10 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
     let root = f.dat_dir.path().join("sets");
     std::fs::create_dir_all(root.join("No-Intro/Test - System")).unwrap();
     std::fs::create_dir_all(root.join("Mine/Test - System")).unwrap();
-    let config = f.dat_dir.path().join("title-select.toml");
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -426,15 +411,12 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
 #[test]
 fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
     let (f, dat) = pong_fixture();
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -589,8 +571,6 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     let inbox = f.dat_dir.path().join("in");
     std::fs::create_dir_all(&inbox).unwrap();
     write_file(&inbox.join("mystery.bin"), b"nobody knows");
-    let config = f.dat_dir.path().join("title-select.toml");
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let opened = title_select_store::Store::open(&store).unwrap();
     opened
@@ -621,8 +601,7 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     drop(opened);
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
 
@@ -677,15 +656,12 @@ fn dat_import_takes_no_provider_and_says_when_the_header_names_none() {
 #[test]
 fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does() {
     let (f, dat) = pong_fixture();
-    let config = f.dat_dir.path().join("title-select.toml");
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
-    std::fs::write(&config, "").unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
         let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store)
-            .env("TITLE_SELECT_CONFIG", &config);
+        cmd.env("TITLE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -822,4 +798,101 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
             ("unregistered", "command line")
         ]
     );
+}
+
+#[test]
+fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
+    let f = Fixture::new();
+    let store = f.dat_dir.path().join("store");
+
+    for args in [
+        &["--config", "title-select.toml", "serve"][..],
+        &["serve", "--config", "title-select.toml"],
+    ] {
+        let out = title_select()
+            .env("TITLE_SELECT_STORE", &store)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("unexpected argument '--config'"),
+            "{stderr}"
+        );
+    }
+    let out = title_select()
+        .env("TITLE_SELECT_STORE", &store)
+        .args(["serve", "--identity-header", "Remote-User"])
+        .args(["--trusted-proxies", "10.0.0.0/8,nonsense"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(
+            "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES): \"nonsense\" is not a CIDR"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        !store.exists(),
+        "nothing is opened when the flags don't parse"
+    );
+}
+
+/// A `title-select serve` process, stopped when dropped.
+struct Serving(std::process::Child);
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn the_service_starts_from_environment_variables_alone() {
+    use std::io::BufRead;
+
+    let f = Fixture::new();
+    let mut serving = Serving(
+        title_select()
+            .arg("serve")
+            .env("TITLE_SELECT_STORE", f.dat_dir.path().join("store"))
+            .env("TITLE_SELECT_LISTEN", "127.0.0.1:0")
+            .env("TITLE_SELECT_IDENTITY_HEADER", "Remote-User")
+            .env(
+                "TITLE_SELECT_TRUSTED_PROXIES",
+                " 192.0.2.0/24 , 127.0.0.0/8,::1/128,",
+            )
+            .env_remove("TITLE_SELECT_OPERATOR_TOKEN_FILE")
+            .env_remove("TITLE_SELECT_DEV_IDENTITY")
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let stderr = std::io::BufReader::new(serving.0.stderr.take().unwrap());
+    let mut said = String::new();
+    let mut url = None;
+    for line in stderr.lines() {
+        let line = line.unwrap();
+        said.push_str(&line);
+        said.push('\n');
+        if let Some((_, at)) = line.split_once(" on http://") {
+            url = Some(format!("http://{at}/api/v1/jobs"));
+            break;
+        }
+    }
+    let url = url.unwrap_or_else(|| panic!("the service didn't start: {said}"));
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let named = agent.get(&url).header("Remote-User", "You").call().unwrap();
+    let anonymous = agent.get(&url).call().unwrap();
+
+    assert_eq!(named.status(), 200);
+    assert_eq!(anonymous.status(), 401);
 }

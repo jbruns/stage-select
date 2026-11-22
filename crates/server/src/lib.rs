@@ -20,22 +20,25 @@ use title_select_api::JobKind;
 use title_select_api::calibration::CalibrationStale;
 pub use title_select_engine::calibrate::Limits as CalibrationLimits;
 use title_select_store::Store;
-use title_select_store::config::Config;
 use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::romm::ScanTiming;
 
-pub use auth::TOKEN_ACTOR;
+pub use auth::{AuthSettings, DEV_IDENTITY, IDENTITY_HEADER, TOKEN_ACTOR, TRUSTED_PROXIES};
+pub use ipnet::IpNet;
 pub use routes::UPLOAD_LIMIT;
 
 /// The environment variable naming the file that holds the Operator token.
-pub const TOKEN_FILE_ENV: &str = "TITLE_SELECT_OPERATOR_TOKEN_FILE";
+pub const TOKEN_FILE_ENV: &str = auth::TOKEN_FILE.1;
 
 /// Everything the Service needs to start.
 #[derive(Debug, Clone)]
 pub struct Settings {
     /// The store directory.
     pub store: PathBuf,
-    pub config: Config,
+    /// How the Service knows a request comes from the Operator, beside the token.
+    pub auth: AuthSettings,
+    /// The chdman to run. When `None`, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
+    pub chdman: Option<PathBuf>,
     pub listen: SocketAddr,
     /// The file holding the Operator token, if the token is enabled.
     pub token_file: Option<PathBuf>,
@@ -86,7 +89,8 @@ struct Prepared {
 fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     let Settings {
         store,
-        config,
+        auth,
+        chdman,
         listen,
         token_file,
         ui,
@@ -104,9 +108,9 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             None
         }
     };
-    let auth = auth::Auth::new(&config.auth, token_file.as_deref(), listen)?;
+    let auth = auth::Auth::new(&auth, token_file.as_deref(), listen)?;
     let store = Store::open(&store)?;
-    store.use_chdman(config.chd.chdman.clone());
+    store.use_chdman(chdman);
     if let Some(engine) = &engine {
         match engine.regions() {
             Ok(regions) => store.set_regions(move |game| regions.of(game)),

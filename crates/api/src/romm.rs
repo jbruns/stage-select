@@ -97,7 +97,7 @@ pub struct RommCheck {
 pub enum RommPlatform {
     /// The folder is `<root>/<fs_slug>`.
     Mapped { fs_slug: String },
-    /// No RomM root is set, or the configuration no longer has it.
+    /// No RomM root is set, or that Root is no longer registered.
     NoRoot,
     /// The folder isn't under the RomM root.
     OutsideRoot,

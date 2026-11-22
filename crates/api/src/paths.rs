@@ -10,9 +10,9 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// The template a Source Set's path is proposed from when the configuration names none.
+/// The template a Source Set's path is proposed from when the settings name none.
 pub const DEFAULT_SOURCE_SET_TEMPLATE: &str = "{provider}/{dat}";
-/// The template a Library Folder's path is proposed from when the configuration names none.
+/// The template a Library Folder's path is proposed from when the settings name none.
 pub const DEFAULT_LIBRARY_FOLDER_TEMPLATE: &str = "{platform}";
 
 /// The platform table, as committed: see the file's header for its sources.

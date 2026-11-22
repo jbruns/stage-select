@@ -8,7 +8,7 @@ repository's root:
 
 The `/bench` screen exists only with the workbench's `bench` feature, which no release or image has. So the script
 builds the workbench with it into target/bench/site, runs the Service on a loopback port with a scratch store and
-`[auth] dev_identity` under target/bench, measures, and stops the Service. With `--url`, it measures a Service already
+a dev identity under target/bench, measures, and stops the Service. With `--url`, it measures a Service already
 serving a `bench` build instead. The screen renders the Audit screen's Entries panel over deterministic synthetic
 Entries, or with `--list` the same Entries in the shared list every list screen uses (`parts::list`), or with
 `--repair` a repair plan of as many items in the Repair tab's review (the shared plan review); it reads nothing from
@@ -96,16 +96,13 @@ def bench_service():
         check=True,
         env={**os.environ, "LEPTOS_SITE_ROOT": str(site)},
     )
-    (work / "roots").mkdir(parents=True, exist_ok=True)
-    config = work / "title-select.toml"
-    config.write_text(f'[roots.bench]\npath = "{work / "roots"}"\n\n[auth]\ndev_identity = "Benchmark"\n')
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
     service = subprocess.Popen(
-        ["target/release/title-select", "--store", str(work / "store"), "--config", str(config),
-         "serve", "--listen", f"127.0.0.1:{port}", "--ui", str(site)]
+        ["target/release/title-select", "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
+         "--ui", str(site), "--dev-identity", "Benchmark"]
     )
     try:
         for _ in range(100):

@@ -15,7 +15,7 @@ use title_select_api::storage::ChdKind;
 
 use crate::meter::{JobMeter, Tally};
 
-/// The environment variable naming the chdman to run, where the configuration names none.
+/// The environment variable naming the chdman to run; without it, `chdman` on the `PATH`.
 pub const CHDMAN_ENV: &str = "TITLE_SELECT_CHDMAN";
 
 /// The bytes of a CHD v5 header.
@@ -616,7 +616,8 @@ pub struct Chdman {
     pub tally: Tally,
 }
 
-/// Where chdman is: `configured`, else the program [`CHDMAN_ENV`] names, else `chdman` on the `PATH`.
+/// Where chdman is: `configured` (`serve --chdman`, or a test's), else the program [`CHDMAN_ENV`] names, else
+/// `chdman` on the `PATH`.
 pub fn locate(configured: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(path) = configured {
         return Ok(path.to_owned());
@@ -630,10 +631,7 @@ pub fn locate(configured: Option<&Path>) -> Result<PathBuf, String> {
         .map(|dir| dir.join("chdman"))
         .find(|p| p.is_file())
         .ok_or_else(|| {
-            format!(
-                "chdman was not found: name it under [chd] chdman in the configuration, or with {CHDMAN_ENV}, or put \
-                 it on the PATH"
-            )
+            format!("chdman was not found: name it with {CHDMAN_ENV}, or put it on the PATH")
         })
 }
 
