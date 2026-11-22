@@ -678,7 +678,7 @@ fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
 }
 
 #[test]
-fn a_placed_games_disk_is_planned_as_a_copy_of_its_own_when_planned_again() {
+fn a_placed_games_disk_stays_the_folders_own_copy_when_planned_again() {
     let Some(env) = with_disk() else { return };
     env.single_copy();
     env.audit();
@@ -741,4 +741,34 @@ fn single_copy_places_no_zip_another_game_is_repacked_from() {
         ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"]
     );
     assert!(env.set().join("blaster.zip").is_file());
+}
+
+#[test]
+fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
+    let Some(chdman) = chdman() else { return };
+    let scratch = tempfile::tempdir().unwrap();
+    let sha1 = make_chd(&chdman, &scratch.path().join("blaster.chd"));
+    // The DAT lists the Disk, and the source set keeps the family's ZIPs but no CHD.
+    let env = Env::with(listxml(Some(&sha1)), Some(&chdman));
+    env.stored(SetLayout::NonMerged);
+    env.audit();
+    let plan = env.plan(env.select(&["blaster"]));
+    assert_eq!(item(&plan, "blaster/blaster.chd").kind, ItemKind::NoSource);
+    env.build(&plan);
+
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    // A game's files go in place together, so its ZIP waits on its Disk.
+    let counts = folder.incomplete.expect("the folder lacks the disk");
+    assert_eq!(
+        (
+            counts.total(),
+            counts.get(IncompleteReason::NoSource),
+            counts.get(IncompleteReason::Blocked)
+        ),
+        (2, 1, 1)
+    );
+    assert!(files(&env.library()).is_empty());
 }
