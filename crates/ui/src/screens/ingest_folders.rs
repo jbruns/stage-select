@@ -31,7 +31,9 @@ use crate::parts::url_state::query_string;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
 use crate::screens::lifecycle::{LifecycleSection, Paths, UnregisterAction};
+use crate::screens::source_sets::tab_href;
 use crate::shell::waiting_on_decision;
+use crate::source_set_model::PageTab;
 
 fn folder_href(root: &str) -> String {
     format!("/ingest/{}", api::segment(root))
@@ -808,10 +810,7 @@ fn Items(
                 actions.push(RowAction::go(
                     Glyph::Wrench,
                     format!("Open repair #{plan}"),
-                    format!(
-                        "/source-sets/{}/repair?plan={plan}",
-                        api::segment(source_set)
-                    ),
+                    format!("{}&plan={plan}", tab_href(source_set, PageTab::Repair)),
                 ));
             }
             if let Some(plan) = m.plan {
@@ -828,7 +827,7 @@ fn Items(
             actions.push(RowAction::go(
                 Glyph::Wrench,
                 format!("Repair {source_set}"),
-                format!("/source-sets/{}/repair", api::segment(source_set)),
+                tab_href(source_set, PageTab::Kept),
             ));
         }
         // Tracked, so the open item's detail offers a decision as soon as you fill in what it needs.

@@ -40,6 +40,6 @@ pub use operations::Operations;
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use roots::Roots;
 pub use selection::{NewSelection, SelectionScreen};
-pub use source_set::{RepairRedirect, SourceSet};
+pub use source_set::SourceSet;
 pub use source_sets::SourceSets;
 pub use storage::StoragePolicyScreen;

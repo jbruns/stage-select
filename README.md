@@ -2182,8 +2182,7 @@ Activity shows a badge counting the jobs running and the failed jobs you haven't
 lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and **Mark
 all failures seen** in its toolbar marks every failure seen at once (**Mark seen** marks the failed jobs you checked). Both badges follow `/api/v1/events`, and the
 Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
-the icons; hover over or focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`,
-`/jobs`, `/storage-policy`, `/about`) open their new place.
+the icons; hover over or focus one to see its name.
 
 Once jobs have run, a strip at the top of Activity shows how fast the service reads and writes, against the byte-rate
 caps in force ("312 MiB/s of 400 MiB/s cap"; just the rate where nothing caps it), files per second, its CPU use where
@@ -2368,8 +2367,7 @@ Its screens:
   entry you add as an addition asks for its system, name and parent game, one item at a time. Plan again with your
   choices to review what they change, and approve with the plan's digest to see what happened to each item. While a
   repair is open or hasn't finished, the tab opens on it, with its job's progress and a way to cancel it, and says
-  what stopped it if it was left unfinished; a link to a past repair shows it read-only. The old
-  `/source-sets/<name>/repair` opens the tab (`?plan=` the plan it names) or, without a plan, the kept files.
+  what stopped it if it was left unfinished; a link to a past repair shows it read-only.
 - **Additions** (`/additions`, linked from a source set's Additions tab) lists each system's additions set and its additions, with each one's name, hashes, state,
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and

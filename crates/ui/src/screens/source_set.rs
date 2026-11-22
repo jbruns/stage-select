@@ -5,9 +5,8 @@ use std::cmp::Ordering;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
-use leptos_router::NavigateOptions;
 use leptos_router::components::A;
-use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
+use leptos_router::hooks::{use_params_map, use_query_map};
 use title_select_api::additions::AdditionsSet;
 use title_select_api::build::{BuildSummary, LibraryFolder};
 use title_select_api::ingest::IngestPlan;
@@ -36,7 +35,6 @@ use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
     FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge, StatusIcon,
 };
-use crate::parts::url_state::encode;
 use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
@@ -80,33 +78,6 @@ pub fn SourceSet() -> impl IntoView {
         Some(Ok(set)) if set.name == name.get() => view! { <SetPage set /> }.into_any(),
         Some(Ok(_)) => view! { <Loading what="the source set" /> }.into_any(),
     }
-}
-
-/// The source set's repair page from before its tabs: a plan it names opens in the Repair tab, and otherwise its kept
-/// files, which the page held too.
-#[component]
-pub fn RepairRedirect() -> impl IntoView {
-    let params = use_params_map();
-    let query = use_query_map();
-    let navigate = use_navigate();
-    Effect::new(move || {
-        let name = params.read().get("name").unwrap_or_default();
-        let to = match query.read().get("plan") {
-            Some(plan) => format!(
-                "{}&plan={}",
-                tab_href(&name, PageTab::Repair),
-                encode(&plan)
-            ),
-            None => tab_href(&name, PageTab::Kept),
-        };
-        navigate(
-            &to,
-            NavigateOptions {
-                replace: true,
-                ..Default::default()
-            },
-        );
-    });
 }
 
 #[component]

@@ -1,7 +1,7 @@
 use codee::string::FromToStringCodec;
 use leptos::prelude::*;
-use leptos_router::components::{A, Outlet, ParentRoute, Redirect, Route, Router, Routes};
-use leptos_router::hooks::{use_location, use_navigate, use_params_map};
+use leptos_router::components::{A, ParentRoute, Redirect, Route, Router, Routes};
+use leptos_router::hooks::use_navigate;
 use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
 use title_select_api::ingest::IngestFolder;
@@ -19,11 +19,10 @@ use crate::screens::Bench;
 use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
-    NewLibraryFolder, NewProfile, NewSelection, Operations, ProfileScreen, Profiles,
-    RepairRedirect, Roots, SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
-    Unregistered, provide_planner,
+    NewLibraryFolder, NewProfile, NewSelection, Operations, ProfileScreen, Profiles, Roots,
+    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, provide_planner,
 };
-use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
+use crate::shell::{SeenJobs, needing_attention, waiting_on_decision};
 
 /// Without the `bench` feature, `/bench` is not a screen.
 #[cfg(not(feature = "bench"))]
@@ -53,11 +52,7 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| view! { <NotFound /> }>
                     <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" options=replace() /> } />
                     <Route path=path!("/source-sets") view=SourceSets />
-                    // A source set's page holds its tabs in `?tab=`; its repair page from before them redirects there.
-                    <ParentRoute path=path!("/source-sets/:name") view=Outlet>
-                        <Route path=path!("") view=SourceSet />
-                        <Route path=path!("repair") view=RepairRedirect />
-                    </ParentRoute>
+                    <Route path=path!("/source-sets/:name") view=SourceSet />
                     <Route path=path!("/dats") view=DatRevisions />
                     <Route path=path!("/audits/:id") view=AuditScreen />
                     <Route path=path!("/profiles") view=Profiles />
@@ -70,9 +65,6 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("new") view=NewLibraryFolder />
                         <Route path=path!(":id") view=LibraryFolderScreen />
                     </ParentRoute>
-                    // Library folders' pages before #73, kept so that old bookmarks still open them.
-                    <Route path=path!("/managed-folders") view=|| view! { <Redirect path="/libraries" options=replace() /> } />
-                    <Route path=path!("/managed-folders/:id") view=OldLibraryFolder />
                     <Route path=path!("/builds/:id") view=BuildScreen />
                     <Route path=path!("/ingest") view=IngestFolders />
                     <Route path=path!("/ingest/:root") view=IngestFolderScreen />
@@ -90,13 +82,6 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("unregistered") view=Unregistered />
                         <Route path=path!("about") view=About />
                     </ParentRoute>
-                    // Paths from before #71, kept so that old bookmarks still open their page.
-                    <Route path=path!("/dat-revisions") view=Moved />
-                    <Route path=path!("/ingest-folders") view=Moved />
-                    <Route path=path!("/ingest-folders/:root") view=Moved />
-                    <Route path=path!("/jobs") view=Moved />
-                    <Route path=path!("/storage-policy") view=Moved />
-                    <Route path=path!("/about") view=Moved />
                     <Route path=path!("/bench") view=Bench />
                 </Routes>
             </main>
@@ -229,22 +214,7 @@ fn Settings() -> impl IntoView {
     }
 }
 
-/// Sends a path from before #71 to where it moved.
-#[component]
-fn Moved() -> impl IntoView {
-    let location = use_location();
-    let search = location.search.get_untracked();
-    let path = format!(
-        "{}{}{}{}",
-        location.pathname.get_untracked(),
-        if search.is_empty() { "" } else { "?" },
-        search,
-        location.hash.get_untracked(),
-    );
-    view! { <Redirect path=moved(&path).unwrap_or_else(|| "/".into()) options=replace() /> }
-}
-
-/// Legacy paths redirect in place, so that Back doesn't return to the old path only to be sent forward again.
+/// Default pages redirect in place, so that Back doesn't return to the bare path only to be sent forward again.
 fn replace() -> NavigateOptions {
     NavigateOptions {
         replace: true,
@@ -312,14 +282,6 @@ fn provide_seen_jobs() {
 
 pub fn use_seen_jobs() -> Seen {
     expect_context::<Seen>()
-}
-
-/// Sends a library folder's page from before #73 to the page it moved to.
-#[component]
-fn OldLibraryFolder() -> impl IntoView {
-    let params = use_params_map();
-    let id = params.with_untracked(|p| p.get("id").unwrap_or_default());
-    view! { <Redirect path=format!("/libraries/{id}") options=replace() /> }
 }
 
 /// A mark in the header while jobs run unthrottled, linking to the setting.
