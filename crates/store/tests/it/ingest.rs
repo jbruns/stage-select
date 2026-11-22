@@ -38,13 +38,14 @@ fn write_named_dat_from(
     provider: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
-    let path = write_dat_from(dir, file, version, provider, games);
-    let xml = std::fs::read_to_string(&path).unwrap().replace(
-        "<name>Test - System</name>",
-        &format!("<name>{name}</name>"),
-    );
-    std::fs::write(&path, xml).unwrap();
-    path
+    let dat = Dat {
+        file,
+        name,
+        version,
+        provider,
+        header_rule: None,
+    };
+    write_dat_as(dir, &dat, games)
 }
 
 fn alpha_games() -> Vec<(&'static str, Vec<RomSpec>)> {

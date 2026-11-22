@@ -125,10 +125,10 @@ fn a_software_list_is_audited_but_never_selected_or_built() {
 fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_source_sets() {
     let env = Env::writable();
     env.add(SOFTWARE_LIST.as_bytes());
-    let zip = std::fs::File::create_new(env.tmp.path().join("sets/mame/game.zip")).unwrap();
-    let mut writer = title_select_engine::torrentzip::Writer::new(zip).unwrap();
-    writer.add("game.bin", 4, &mut &b"test"[..]).unwrap();
-    writer.finish().unwrap();
+    title_select_test_fixtures::write_torrentzip(
+        &env.tmp.path().join("sets/mame/game.zip"),
+        &[("game.bin", b"test")],
+    );
     let mut policy = env.store.storage_policy().unwrap();
     policy.source_sets.format = title_select_api::storage::StorageFormat::Loose;
     env.store.set_storage_policy(&policy, "Operator").unwrap();

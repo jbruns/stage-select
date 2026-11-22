@@ -16,7 +16,6 @@ use title_select_api::selection::{
 };
 use title_select_api::storage::{StorageFormat, placed_path};
 use title_select_api::{AuditEvidence, EvidenceLevel, Finding, JobKind, JobState, Report};
-use title_select_engine::torrentzip::Writer;
 use title_select_store::{Error, Fault, Store, Workers};
 
 pub(crate) const SET: &str = "Alpha";
@@ -308,18 +307,8 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-pub(crate) fn torrentzip(path: &Path, members: &[(&str, &[u8])]) {
-    let mut writer = Writer::new(std::fs::File::create(path).unwrap()).unwrap();
-    for (name, payload) in members {
-        writer
-            .add(name, payload.len() as u64, &mut &payload[..])
-            .unwrap();
-    }
-    writer.finish().unwrap();
-}
-
 pub(crate) fn pong_zip(env: &Env) -> Vec<u8> {
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -820,7 +809,7 @@ fn a_source_set_is_locked_while_a_build_placing_its_games_is_queued() {
 fn a_game_that_shares_its_source_set_file_with_another_is_copied_not_placed() {
     let env = Env::new();
     // One zip holding both games' ROMs: deleting it would lose Combat.
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Combat (USA).a26", b"combat"), ("Pong (USA).a26", b"pong")],
     );
@@ -978,7 +967,7 @@ fn a_game_whose_file_changed_since_the_plan_stays_in_the_source_set_unplaced() {
     for (name, format, across) in cases {
         let env = Env::new();
         let bytes = pong_zip(&env);
-        torrentzip(
+        write_torrentzip(
             &env.set().join("Combat (USA).zip"),
             &[("Combat (USA).a26", b"combat")],
         );
@@ -1095,7 +1084,7 @@ fn a_repair_planned_before_a_build_placed_its_games_is_refused() {
 fn a_built_file_changed_since_it_was_built_never_stands_in_for_its_source_set_files() {
     let env = Env::new();
     pong_zip(&env);
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Combat (USA).zip"),
         &[("Combat (USA).a26", b"combat")],
     );
@@ -1354,7 +1343,7 @@ fn after_a_stop_a_folder_replaced_leaves_its_placement_outstanding() {
 fn an_original_set_aside_whose_folder_is_gone_after_a_stop_is_never_stranded() {
     let env = Env::new();
     std::fs::create_dir(env.set().join("nested")).unwrap();
-    torrentzip(
+    write_torrentzip(
         &env.set().join("nested/Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -1533,7 +1522,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     // The placed file is written over too, and a repair keeps it aside: nothing is placed, so the folder can be
     // unregistered, and the source set has a file each kept.
     std::fs::remove_file(env.library().join("Pong (USA).zip")).unwrap();
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Pong (USA).zip"),
         &[("junk.bin", b"junk")],
     );

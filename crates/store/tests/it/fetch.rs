@@ -19,6 +19,7 @@ use title_select_store::fetch::{
     Allowed, Endpoints, FetchClock, FetchError, Fetcher, Http, MIN_GAP,
 };
 use title_select_store::{Error, Store};
+use title_select_test_fixtures::zip_bytes;
 
 /// What the fake provider answers a path with.
 #[derive(Clone)]
@@ -282,18 +283,6 @@ fn dat_xml(name: &str, version: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// A ZIP of `members`, in memory.
-fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
-    use std::io::Write as _;
-    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (name, payload) in members {
-        zip.start_file(*name, zip::write::SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(payload).unwrap();
-    }
-    zip.finish().unwrap().into_inner()
-}
-
 /// A fetcher's fake clock: time moves only as the fetcher waits, from the wall time it started at, and it records each
 /// wait. A fetcher waits before each request, so the waits are the gaps between them.
 struct Paced {
@@ -402,7 +391,7 @@ impl Env {
     }
 
     fn serve_psx(&self, version: &str) {
-        let dat = zip_of(&[(
+        let dat = zip_bytes(&[(
             "Sony - PlayStation (2026).dat",
             &dat_xml("Sony - PlayStation", version),
         )]);
@@ -415,12 +404,12 @@ impl Env {
         let cue = format!("FILE \"Game (USA).bin\" BINARY {version}");
         self.fake.reply(
             "/cues/psx/",
-            Reply::Body(zip_of(&[("Game (USA).cue", cue.as_bytes())])),
+            Reply::Body(zip_bytes(&[("Game (USA).cue", cue.as_bytes())])),
         );
         let sbi = format!("SBI\0{version}");
         self.fake.reply(
             "/sbi/psx/",
-            Reply::Body(zip_of(&[("Game (USA).sbi", sbi.as_bytes())])),
+            Reply::Body(zip_bytes(&[("Game (USA).sbi", sbi.as_bytes())])),
         );
     }
 
@@ -697,7 +686,7 @@ fn a_redirect_off_its_providers_hosts_fails_the_step_and_stops_the_fetch() {
 #[test]
 fn a_dat_for_another_system_fails_the_fetch() {
     let env = Env::new(REDUMP);
-    let other = zip_of(&[("x.dat", &dat_xml("Sega - Saturn", "2"))]);
+    let other = zip_bytes(&[("x.dat", &dat_xml("Sega - Saturn", "2"))]);
     env.fake.reply("/datfile/psx/", Reply::Body(other));
 
     let report = env
@@ -715,7 +704,7 @@ fn a_fetch_of_bytes_already_imported_under_another_dat_fails_naming_both_and_mov
     assert_eq!(manual.dat, "unknown-logiqx/Sony - PlayStation");
     env.fake.reply(
         "/datfile/psx/",
-        Reply::Body(zip_of(&[("Sony - PlayStation (2026).dat", &bytes)])),
+        Reply::Body(zip_bytes(&[("Sony - PlayStation (2026).dat", &bytes)])),
     );
 
     let report = env
@@ -882,15 +871,21 @@ fn only_what_redump_publishes_for_a_system_is_requested() {
     env.follow("GC", "Nintendo - GameCube");
     env.fake.reply(
         "/datfile/ps2/",
-        Reply::Body(zip_of(&[("x.dat", &dat_xml("Sony - PlayStation 2", "2"))])),
+        Reply::Body(zip_bytes(&[(
+            "x.dat",
+            &dat_xml("Sony - PlayStation 2", "2"),
+        )])),
     );
     env.fake.reply(
         "/cues/ps2/",
-        Reply::Body(zip_of(&[("Game (USA).cue", b"FILE")])),
+        Reply::Body(zip_bytes(&[("Game (USA).cue", b"FILE")])),
     );
     env.fake.reply(
         "/datfile/gc/",
-        Reply::Body(zip_of(&[("x.dat", &dat_xml("Nintendo - GameCube", "2"))])),
+        Reply::Body(zip_bytes(&[(
+            "x.dat",
+            &dat_xml("Nintendo - GameCube", "2"),
+        )])),
     );
 
     let report = env
@@ -1036,7 +1031,7 @@ impl Env {
         );
         self.fake.reply(
             &format!("/objects/{tag}lx.zip"),
-            Reply::Body(zip_of(&[(&format!("{tag}.xml"), &listxml(tag))])),
+            Reply::Body(zip_bytes(&[(&format!("{tag}.xml"), &listxml(tag))])),
         );
         self.fake.reply(
             &format!("/mamedev/mame/{tag}/hash/nes.xml"),

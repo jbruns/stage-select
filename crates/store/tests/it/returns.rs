@@ -5,7 +5,7 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
-use crate::common::{RomSpec, rom};
+use crate::common::{RomSpec, rom, write_torrentzip};
 use crate::single_copy::*;
 use title_select_api::build::{
     BlockerKind, ItemKind, ItemState, Plan, PlanReturn, RemovalKind, ReturnHow,
@@ -379,7 +379,7 @@ fn once_every_placed_game_is_home_the_folder_and_the_source_set_can_be_unregiste
 fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
     let env = Env::new();
     place_pong(&env, StorageFormat::TorrentZip);
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Combat (USA).zip"),
         &[("Combat (USA).a26", b"combat")],
     );
@@ -1015,7 +1015,7 @@ fn renaming_pitfall(env: &Env) -> (Plan, Vec<Vec<u8>>) {
     let mut bytes = Vec::new();
     for (zip, payload) in DISCS.iter().zip([&b"pitfall"[..], b"harry"]) {
         let member = zip.replace(".zip", ".a26");
-        torrentzip(&env.set().join(zip), &[(&member, payload)]);
+        write_torrentzip(&env.set().join(zip), &[(&member, payload)]);
         bytes.push(std::fs::read(env.set().join(zip)).unwrap());
     }
     env.audit(AuditEvidence::Full);
@@ -1224,7 +1224,7 @@ fn a_game_listing_more_than_one_rom_goes_home_as_torrentzip_though_one_was_place
         );
     std::fs::write(&dat, xml).unwrap();
     env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Manual (USA).zip"),
         &[("Manual (USA).a26", b"manual game")],
     );
@@ -1267,7 +1267,7 @@ fn a_game_placed_with_more_roms_than_its_dat_now_lists_goes_home_as_torrentzip()
         ("Manual (USA).a26", &b"manual game"[..]),
         ("Manual (USA).txt", &b"manual text"[..]),
     ];
-    torrentzip(&env.set().join("Manual (USA).zip"), &both);
+    write_torrentzip(&env.set().join("Manual (USA).zip"), &both);
     env.audit(AuditEvidence::Full);
     env.single_copy(StorageFormat::TorrentZip);
     let selection = env.select(&["Manual (USA)"]);
@@ -1321,7 +1321,7 @@ fn place_manual_then_list_no_roms() -> Env {
         ("Manual (USA).a26", &b"manual game"[..]),
         ("Manual (USA).txt", &b"manual text"[..]),
     ];
-    torrentzip(&env.set().join("Manual (USA).zip"), &both);
+    write_torrentzip(&env.set().join("Manual (USA).zip"), &both);
     env.audit(AuditEvidence::Full);
     env.single_copy(StorageFormat::TorrentZip);
     let selection = env.select(&["Manual (USA)"]);

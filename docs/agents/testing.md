@@ -30,9 +30,10 @@ The CHD tests need chdman. They skip without it, except where `CI` is set, where
 `tools/check` is how agents build and test locally. `--dry-run` prints its commands without running them.
 
 - **Default:** the crates changed since the merge-base with `origin/main` (committed, staged, unstaged and untracked),
-  and every workspace crate that depends on them, dev-dependencies included. It runs fmt, clippy and the debug nextest
-  run for those crates, both wasm clippy runs when api or ui is among them, and the release fixtures run when selection
-  is. It prints what it chose and why first.
+  and every workspace crate that depends on them. A dev-dependency counts for its dependent alone: a change to
+  `crates/test-fixtures` selects the crates whose tests use it, not every crate that depends on those. It runs fmt,
+  clippy and the debug nextest run for those crates, both wasm clippy runs when api or ui is among them, and the
+  release fixtures run when selection is. It prints what it chose and why first.
 - **Paths outside `crates/`:** `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/` and `.config/` select
   every crate. `third_party/` and the clone-list and curated-list fetch scripts select selection, which compiles their
   pins in and whose tests read the fixtures; `docs/brand-kit/` selects ui, which compiles its tokens in. Anything else,
@@ -63,6 +64,14 @@ dependencies again. A new integration test goes in a module under `tests/it/`, d
 new file under `tests/`. Under `cargo test` the modules share one process, so a test that changes process-wide state
 gets a binary of its own: the engine's `sevenz_memory` installs a global allocator, and the store's `fetch_proxy` sets
 the environment. Selection's `fixtures` is a binary of its own too, as CI runs it alone in release.
+
+## Shared fixture writers
+
+The ZIP, TorrentZip, Logiqx DAT and ListXML writers live in `crates/test-fixtures`, which crates take only as a
+dev-dependency and which never ships. A test that needs to write one of those files uses them rather than a copy of
+its own. Changing them changes the bytes every test reads, so a change keeps each writer's output byte for byte unless
+it means to change it. The engine's `tests/common` re-exports them beside its own builders, and each crate's
+environment builders stay in its own tests.
 
 ## No retries
 

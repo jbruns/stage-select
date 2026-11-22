@@ -29,6 +29,7 @@ zip.workspace = true
 rustix.workspace = true
 
 [dev-dependencies]
+title-select-test-fixtures.workspace = true
 sevenz-rust2 = { workspace = true, features = ["compress"] }
 tempfile.workspace = true
 serde_json.workspace = true

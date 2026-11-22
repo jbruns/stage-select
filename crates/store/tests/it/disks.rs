@@ -98,15 +98,8 @@ impl Env {
                 "Operator",
             )
             .unwrap();
-        let mut xml = String::from("<?xml version=\"1.0\"?>\n<mame build=\"0.289 (mame0289)\">\n");
-        for (name, attrs, body) in machines {
-            xml += &format!(
-                "  <machine name=\"{name}\" {attrs}>\n    <description>{name}</description>\n{body}\n  </machine>\n"
-            );
-        }
-        xml += "</mame>\n";
         let (revision, _) = store
-            .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
+            .import_dat_bytes(listxml(machines).as_bytes(), "mame.xml", None)
             .unwrap();
         store.add_source_set("sets", "mame", &revision.dat).unwrap();
         store.register_ingest_folder("in").unwrap();

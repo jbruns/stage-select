@@ -23,9 +23,5 @@ serde_json.workspace = true
 ureq = { version = "3.5.0", features = ["json"] }
 
 [dev-dependencies]
-crc32fast.workspace = true
-md-5.workspace = true
-sha1.workspace = true
-sha2.workspace = true
+title-select-test-fixtures.workspace = true
 tempfile.workspace = true
-zip.workspace = true

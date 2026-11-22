@@ -15,7 +15,6 @@ use title_select_api::selection::{
 };
 use title_select_api::storage::placed_path;
 use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState, Report};
-use title_select_engine::torrentzip::Writer;
 use title_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Alpha";
@@ -128,7 +127,7 @@ impl Env {
     /// there.
     fn place(&self, game: &str, members: &[(&str, &[u8])]) {
         let name = format!("{game}.zip");
-        torrentzip(&self.library().join(&name), members);
+        write_torrentzip(&self.library().join(&name), members);
         self.store
             .record_placement(SET, game, self.folder.id, &[&name])
             .unwrap();
@@ -223,27 +222,17 @@ impl Env {
     }
 }
 
-fn torrentzip(path: &std::path::Path, members: &[(&str, &[u8])]) {
-    let mut writer = Writer::new(std::fs::File::create(path).unwrap()).unwrap();
-    for (name, payload) in members {
-        writer
-            .add(name, payload.len() as u64, &mut &payload[..])
-            .unwrap();
-    }
-    writer.finish().unwrap();
-}
-
 #[test]
 fn an_audit_verifies_a_placed_game_where_it_is_placed_and_reports_it_missing_once_its_file_is_gone()
 {
     let env = Env::new();
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Combat (USA).zip"),
         &[("Combat (USA).a26", b"combat")],
     );
     env.place("Pong (USA)", &[("Pong (USA).a26", b"pong")]);
     // A file of the Library Folder that is no Placed Game's is never read as the Source Set's.
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Yars (USA).zip"),
         &[("Yars (USA).a26", b"yars")],
     );
@@ -285,7 +274,7 @@ fn an_audit_never_follows_a_symbolic_link_put_in_place_of_a_placed_file_or_its_f
     let env = Env::new();
     env.place("Pong (USA)", &[("Pong (USA).a26", b"pong")]);
     std::fs::create_dir(env.library().join("c")).unwrap();
-    torrentzip(
+    write_torrentzip(
         &env.library().join("c/Combat (USA).zip"),
         &[("Combat (USA).a26", b"combat")],
     );
@@ -347,7 +336,7 @@ fn a_changed_placed_game_gets_its_finding_and_an_incremental_audit_reuses_reads_
     env.audit(AuditEvidence::Incremental);
     // Combat's file is rewritten with other bytes under its ROM's name: not the ROM the DAT gives.
     std::thread::sleep(std::time::Duration::from_millis(20));
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Combat (USA).zip"),
         &[("Combat (USA).a26", b"c0mbat")],
     );
@@ -396,7 +385,7 @@ fn a_check_of_the_holding_folder_reports_a_changed_or_missing_placed_game_and_ne
     assert!(check.drift.is_empty(), "{:?}", check.drift);
 
     std::thread::sleep(std::time::Duration::from_millis(20));
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Combat (USA).zip"),
         &[("Combat (USA).a26", b"c0mbat")],
     );
@@ -509,7 +498,7 @@ fn only_a_folder_bound_to_the_source_set_holds_its_placed_games() {
         None,
         "with two bound and none named, none holds them"
     );
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -582,7 +571,7 @@ fn select(env: &Env, title: &str, sha256: &str) -> i64 {
 #[test]
 fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything_is_placed() {
     let env = Env::new();
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -636,7 +625,7 @@ fn an_audit_and_a_build_of_the_holding_folder_exclude_each_other_before_anything
 #[test]
 fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_never_keeps_it_aside() {
     let env = Env::new();
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -708,7 +697,7 @@ fn a_running_audit_of_placed_games_holds_their_library_folders_root() {
 #[test]
 fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
     let env = Env::new();
-    torrentzip(
+    write_torrentzip(
         &env.library().join("pong.zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -765,7 +754,7 @@ fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
 fn a_repair_renames_a_placed_game_where_it_is_placed() {
     let env = Env::new();
     // Pong, placed under a name that isn't its own; Combat, placed as it should be.
-    torrentzip(
+    write_torrentzip(
         &env.library().join("pong.zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -993,7 +982,7 @@ fn a_repair_replaces_a_placed_games_file_from_its_own_files_and_never_from_anoth
     let env = Env::new();
     // Combat's placed file holds its ROM beside a stray file; Pong's holds Yars's ROM too, which Yars, in no
     // folder, never takes from it.
-    torrentzip(
+    write_torrentzip(
         &env.library().join("c.zip"),
         &[("Combat (USA).a26", b"combat"), ("readme.txt", b"stray")],
     );
@@ -1369,7 +1358,7 @@ fn a_repacked_placed_file_whose_copy_in_place_changed_is_never_recorded_placed()
     let env = Env::new();
     env.store.copy_across_filesystems(true);
     // Placed under another name than its own, so its repack is published before it is kept aside.
-    torrentzip(&env.library().join("pong.zip"), &[("pong.a26", b"pong")]);
+    write_torrentzip(&env.library().join("pong.zip"), &[("pong.a26", b"pong")]);
     env.store
         .record_placement(SET, "Pong (USA)", env.folder.id, &["pong.zip"])
         .unwrap();
@@ -1468,7 +1457,7 @@ fn an_audit_never_follows_its_library_folder_itself_replaced_by_a_symbolic_link(
 fn a_check_reads_again_a_file_both_built_and_placed_put_in_place_with_its_size_and_modification_time_kept()
  {
     let env = Env::new();
-    torrentzip(
+    write_torrentzip(
         &env.set().join("Pong (USA).zip"),
         &[("Pong (USA).a26", b"pong")],
     );
@@ -1638,13 +1627,13 @@ fn a_fill_of_a_partly_vanished_zipped_placed_game_rebuilds_it_in_place() {
         ],
     );
     // Its zip loses a member: rewritten without it, as a tool outside Title Select might.
-    torrentzip(
+    write_torrentzip(
         &env.library().join("Joust (USA).zip"),
         &[("Joust (USA) (Side A).a26", b"joust-a")],
     );
     // A fill takes a Game whole from one ingest file, as it does into the source set's folder.
     let whole = env.tmp.path().join("joust.zip");
-    torrentzip(
+    write_torrentzip(
         &whole,
         &[
             ("Joust (USA) (Side A).a26", b"joust-a"),
@@ -1707,7 +1696,7 @@ fn a_fill_where_a_game_is_placed_writes_only_through_the_folder_it_checked_and_r
         let env = Env::new();
         env.place("Joust (USA)", &[("Joust (USA) (Side A).a26", b"joust-a")]);
         let whole = env.tmp.path().join("joust.zip");
-        torrentzip(
+        write_torrentzip(
             &whole,
             &[
                 ("Joust (USA) (Side A).a26", b"joust-a"),

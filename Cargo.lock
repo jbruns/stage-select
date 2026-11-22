@@ -2713,20 +2713,16 @@ name = "title-select"
 version = "0.11.0"
 dependencies = [
  "clap",
- "crc32fast",
- "md-5",
  "serde",
  "serde_json",
- "sha1",
- "sha2 0.11.1",
  "tempfile",
  "title-select-api",
  "title-select-engine",
  "title-select-selection",
  "title-select-server",
  "title-select-store",
+ "title-select-test-fixtures",
  "ureq",
- "zip",
 ]
 
 [[package]]
@@ -2759,6 +2755,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "title-select-api",
+ "title-select-test-fixtures",
  "walkdir",
  "zip",
  "zstd",
@@ -2787,15 +2784,12 @@ name = "title-select-server"
 version = "0.11.0"
 dependencies = [
  "axum",
- "crc32fast",
  "futures-util",
  "ipnet",
  "jiff",
- "md-5",
  "rustix",
  "serde",
  "serde_json",
- "sha1",
  "sha2 0.11.1",
  "subtle",
  "tempfile",
@@ -2804,11 +2798,11 @@ dependencies = [
  "title-select-engine",
  "title-select-selection",
  "title-select-store",
+ "title-select-test-fixtures",
  "tokio",
  "tokio-stream",
  "tower-http",
  "ureq",
- "zip",
 ]
 
 [[package]]
@@ -2818,7 +2812,6 @@ dependencies = [
  "crc32fast",
  "jiff",
  "lzma-rust2",
- "md-5",
  "rusqlite",
  "rustix",
  "serde",
@@ -2831,11 +2824,25 @@ dependencies = [
  "title-select-api",
  "title-select-engine",
  "title-select-selection",
+ "title-select-test-fixtures",
  "unicode-normalization",
  "ureq",
  "walkdir",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "title-select-test-fixtures"
+version = "0.11.0"
+dependencies = [
+ "crc32fast",
+ "md-5",
+ "sha1",
+ "sha2 0.11.1",
+ "tempfile",
+ "title-select-engine",
+ "zip",
 ]
 
 [[package]]
