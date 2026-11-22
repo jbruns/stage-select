@@ -666,7 +666,7 @@ fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
         error.contains("blaster/blaster.chd does not verify"),
         "{error}"
     );
-    // A game's files are put in place together, so nothing of it is.
+    // A Game's files are put in place together, so nothing of it is.
     assert!(files(&env.library()).is_empty());
     let folder = env
         .store
@@ -691,7 +691,7 @@ fn a_placed_games_disk_stays_the_folders_own_copy_when_planned_again() {
     let disk = item(&again, "blaster/blaster.chd");
     assert_eq!(disk.kind, ItemKind::Unchanged, "{disk:#?}");
 
-    // Once the copy is gone, it is copied again from the source set.
+    // Once the copy is gone, it is copied again from the Source Set.
     std::fs::remove_file(env.library().join("blaster/blaster.chd")).unwrap();
     env.check();
     let rebuilt = env.plan(selection);
@@ -748,7 +748,7 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
     let Some(chdman) = chdman() else { return };
     let scratch = tempfile::tempdir().unwrap();
     let sha1 = make_chd(&chdman, &scratch.path().join("blaster.chd"));
-    // The DAT lists the Disk, and the source set keeps the family's ZIPs but no CHD.
+    // The DAT lists the Disk, and the Source Set keeps the family's ZIPs but no CHD.
     let env = Env::with(listxml(Some(&sha1)), Some(&chdman));
     env.stored(SetLayout::NonMerged);
     env.audit();
@@ -760,7 +760,7 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
         .store
         .library_folder(&env.config, env.folder.id)
         .unwrap();
-    // A game's files go in place together, so its ZIP waits on its Disk.
+    // A Game's files go in place together, so its ZIP waits on its Disk.
     let counts = folder.incomplete.expect("the folder lacks the disk");
     assert_eq!(
         (
@@ -769,6 +769,21 @@ fn a_library_folder_lacking_a_selected_games_disk_is_incomplete() {
             counts.get(IncompleteReason::Blocked)
         ),
         (2, 1, 1)
+    );
+    let lacking: Vec<(IncompleteReason, String)> = env
+        .store
+        .incomplete(env.folder.id)
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|i| (i.reason, i.target))
+        .collect();
+    assert_eq!(
+        lacking,
+        [
+            (IncompleteReason::Blocked, "blaster.zip".to_owned()),
+            (IncompleteReason::NoSource, "blaster/blaster.chd".to_owned()),
+        ]
     );
     assert!(files(&env.library()).is_empty());
 }
