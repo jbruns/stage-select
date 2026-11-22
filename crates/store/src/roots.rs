@@ -282,6 +282,11 @@ fn check_folder(root: &Checked) -> Result<()> {
     match std::fs::metadata(&root.path) {
         Ok(meta) if meta.is_dir() => {}
         Ok(_) => return refused(format!("Root {name}: {path} is not a folder.")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return refused(format!(
+                "Root {name}: {path} doesn't exist. Make the folder, or check the path."
+            ));
+        }
         Err(e) => return refused(format!("Root {name}: {path} can't be read: {e}.")),
     }
     if root.writable

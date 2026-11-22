@@ -513,7 +513,7 @@ pub(super) fn open_folder(
 ) -> std::result::Result<FolderDir, String> {
     let root_config = roots
         .root(root)
-        .ok_or_else(|| format!("no root named {root} is configured any more"))?;
+        .ok_or_else(|| format!("no root named {root} is registered any more"))?;
     FolderDir::open(&root_config.path, rel).map_err(|e| {
         format!("{e} (no part of a library folder's path inside its root may be a symlink)")
     })
@@ -722,7 +722,7 @@ pub(super) fn check_library_path(
 ) -> Result<String> {
     let root = roots
         .root(root_name)
-        .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
+        .ok_or_else(|| Error::Refused(format!("no root named {} is registered", root_name)))?;
     if !root.writable {
         return Err(Error::Refused(format!(
             "root {} is read-only; a library folder needs a root with writable = true",
@@ -1081,7 +1081,7 @@ impl Store {
         let set = self.read(|c| set_by_id(c, set_id))?;
         let Some(root) = roots.root(&set.record.root) else {
             return Ok(Err(format!(
-                "there is no root {} in the configuration",
+                "there is no root {}",
                 set.record.root
             )));
         };

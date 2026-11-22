@@ -131,7 +131,7 @@ pub(crate) fn open_repairable(
     let record = &row.record;
     let Some(root) = roots.root(&record.root) else {
         return Ok(Err(format!(
-            "there is no root {} in the configuration",
+            "there is no root {}",
             record.root
         )));
     };
@@ -883,7 +883,7 @@ impl Store {
         }
         let root = roots.root(&record.root).ok_or_else(|| {
             Error::Refused(format!(
-                "there is no root {} in the configuration",
+                "there is no root {}",
                 record.root
             ))
         })?;
@@ -1139,7 +1139,7 @@ impl Store {
         }
         let root = roots.root(&record.root).ok_or_else(|| {
             Error::Refused(format!(
-                "there is no root {} in the configuration",
+                "there is no root {}",
                 record.root
             ))
         })?;

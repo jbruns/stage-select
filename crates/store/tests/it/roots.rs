@@ -81,7 +81,7 @@ fn a_root_is_registered_edited_and_unregistered_with_who_did_each() {
 fn a_root_whose_folder_is_missing_is_refused() {
     let env = Env::new();
     let why = env.refused(&RootSpec::new("sets", env.tmp.path().join("missing")));
-    assert!(why.contains("can't be read"), "{why}");
+    assert!(why.contains("doesn't exist"), "{why}");
     assert!(env.store.roots().is_empty());
 }
 

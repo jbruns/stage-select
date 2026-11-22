@@ -477,14 +477,12 @@ impl Store {
         })
     }
 
-    /// What holds the Root `name` in the configuration: each registration still registered in it. A Root lives in
-    /// the configuration only, so once nothing holds it you remove it there.
+    /// What holds the Root `name`: each registration still registered in it. Once nothing does, it can be
+    /// unregistered.
     pub fn root_holds(&self, name: &str) -> Result<Holds> {
         let roots = &*self.roots();
         if roots.root(name).is_none() {
-            return Err(Error::NotFound(format!(
-                "there is no root {name} in the configuration"
-            )));
+            return Err(Error::NotFound(format!("There is no root {name}.")));
         }
         self.read(|c| {
             let mut holds = strings(

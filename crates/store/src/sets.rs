@@ -128,7 +128,7 @@ pub(super) struct Resolved {
 pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Result<Resolved> {
     let root_config = roots
         .root(root)
-        .ok_or_else(|| Error::Refused(format!("no root named {root} is configured")))?;
+        .ok_or_else(|| Error::Refused(format!("no root named {root} is registered")))?;
     let rel = relative_path(rel)
         .map_err(|e| Error::Refused(format!("{rel}: a source set's path {e}")))?;
     // Defence in depth: the Host's own reading of the path must agree that every component is a plain folder name.

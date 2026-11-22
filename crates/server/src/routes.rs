@@ -29,6 +29,7 @@ use title_select_api::ingest::{
     RegisterIngestFolder,
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
+use title_select_api::roots::{RootChange, RootEdited, RootSpec};
 use title_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
     RommTestRequest,
@@ -44,7 +45,6 @@ use title_select_api::{
     SetHoldingFolder, SettingsChanged, SourceSetSystem, StartAudit, StartSelection, Vocabulary,
 };
 use title_select_selection::Engine;
-use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
 use title_select_store::{Error, Store, Workers};
 use tokio::sync::{broadcast, mpsc};
@@ -69,7 +69,6 @@ const NDJSON_CHUNK: usize = 64 * 1024;
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<Store>,
-    pub config: Arc<Config>,
     pub jobs: Arc<Jobs>,
     pub engine: Option<Arc<Engine>>,
     pub previews: Arc<Previews>,
@@ -80,7 +79,7 @@ pub struct AppState {
 impl AppState {
     /// The Ceilings a Job queued now records: the largest of its Ceilings, of which the pace allows a share.
     fn workers(&self) -> Workers {
-        self.store.job_workers(&self.config)
+        self.store.job_workers()
     }
 
     fn engine(&self) -> ApiResult<Arc<Engine>> {
@@ -92,7 +91,10 @@ impl AppState {
 
 pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) -> Router {
     let operator = Router::new()
-        .route("/roots", get(roots))
+        .route("/roots", get(roots).post(register_root))
+        .route("/roots/{name}", put(edit_root))
+        .route("/roots/{name}/unregistration", post(unregister_root))
+        .route("/roots/{name}/changes", get(root_changes))
         .route("/dats", get(dats))
         .route(
             "/dat-revisions",
@@ -424,21 +426,72 @@ async fn health() -> Json<Health> {
     })
 }
 
+/// Every registered Root, as it is now.
 async fn roots(State(state): State<AppState>) -> Json<Vec<Root>> {
-    Json(
-        state
-            .config
-            .roots
+    Json(state.store.roots_view())
+}
+
+/// Registers a Root. Refused unless its folder exists, and can be written when it's declared writable, and unless
+/// its kind allows its writability; there is at most one Root of kind `additions`.
+async fn register_root(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    body: Result<Json<RootSpec>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<Root>)> {
+    let Json(spec) = body?;
+    let root = blocking(&state, move |store| store.register_root(&spec, &actor)).await?;
+    state.jobs.wake();
+    Ok((StatusCode::CREATED, Json(root.view())))
+}
+
+/// Replaces a Root's path, kind, writability and Ceilings; never its name. A path or writability change waits for
+/// the Jobs running on it. Making it less writable voids the approved plans that write where it may no longer
+/// write, and names them; each voided plan's Job ends failed.
+async fn edit_root(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<RootSpec>, JsonRejection>,
+) -> ApiResult<Json<RootEdited>> {
+    let Path(name) = name?;
+    let Json(spec) = body?;
+    let (edited, voided) = blocking(&state, move |store| {
+        let edited = store.edit_root(&name, &spec, &actor)?;
+        let voided = edited
+            .voided
             .iter()
-            .map(|(name, root)| Root {
-                name: name.clone(),
-                path: root.path.display().to_string(),
-                writable: root.writable,
-                writable_paths: root.writable_paths.clone(),
-                ingest: root.is_ingest(),
-            })
-            .collect(),
-    )
+            .filter_map(|v| store.job(v.job).ok())
+            .collect::<Vec<_>>();
+        Ok((edited, voided))
+    })
+    .await?;
+    for job in voided {
+        state.jobs.changed(job);
+    }
+    state.jobs.wake();
+    Ok(Json(edited))
+}
+
+/// Unregisters a Root; no file is touched. Refused, naming what is registered in it, while anything is.
+async fn unregister_root(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<StatusCode> {
+    let Path(name) = name?;
+    blocking(&state, move |store| store.unregister_root(&name, &actor)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Every recorded change to a Root, oldest first: who made it and when.
+async fn root_changes(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<RootChange>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.root_changes(&name)).await?,
+    ))
 }
 
 async fn dats(State(state): State<AppState>) -> ApiResult<Json<Vec<Dat>>> {
@@ -649,9 +702,8 @@ async fn path_templates(State(state): State<AppState>) -> ApiResult<Json<PathTem
 
 /// Every operational setting, without its secrets.
 async fn settings(State(state): State<AppState>) -> ApiResult<Json<SettingsView>> {
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.settings_view(&config)).await?,
+        blocking(&state, move |store| store.settings_view()).await?,
     ))
 }
 
@@ -663,14 +715,13 @@ async fn change_settings(
     body: Result<Json<SettingsUpdate>, JsonRejection>,
 ) -> ApiResult<Json<SettingsView>> {
     let Json(update) = body?;
-    let config = state.config.clone();
     let jobs = state.jobs.clone();
     let (view, released) = blocking(&state, move |store| {
-        let (_, released) = store.update_settings_and_release(&config, &update, &actor, |now| {
+        let (_, released) = store.update_settings_and_release(&update, &actor, |now| {
             jobs.notifier.reconfigure(&now.notify);
             jobs.publish(JobEvent::Settings(SettingsChanged { pace: now.pace }));
         })?;
-        Ok((store.settings_view(&config)?, released))
+        Ok((store.settings_view()?, released))
     })
     .await?;
     // Turning RomM off, or changing its address, deletes its "Additions" collection on a task of its own, best
@@ -698,9 +749,8 @@ async fn test_romm(
 
 /// Each Library Folder and the RomM platform it maps to.
 async fn romm_platforms(State(state): State<AppState>) -> ApiResult<Json<Vec<RommFolderPlatform>>> {
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.romm_platforms(&config)).await?,
+        blocking(&state, move |store| store.romm_platforms()).await?,
     ))
 }
 
@@ -727,12 +777,8 @@ async fn reconcile_romm(
     id: Result<Path<i64>, PathRejection>,
 ) -> ApiResult<Json<RommReconciliation>> {
     let Path(id) = id?;
-    let (store, config, jobs) = (
-        Arc::downgrade(&state.store),
-        state.config.clone(),
-        state.jobs.clone(),
-    );
-    tokio::task::spawn_blocking(move || jobs.reconcile_romm(&store, &config, id))
+    let (store, jobs) = (Arc::downgrade(&state.store), state.jobs.clone());
+    tokio::task::spawn_blocking(move || jobs.reconcile_romm(&store, id))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??
         .map(Json)
@@ -754,10 +800,9 @@ async fn request_romm_rescan(
 ) -> ApiResult<Json<RommRescan>> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.request_romm_rescan(&config, id, request.rom_id)
+            store.request_romm_rescan(id, request.rom_id)
         })
         .await?,
     ))
@@ -787,7 +832,6 @@ async fn add_source_set(
     body: Result<Json<AddSourceSet>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<title_select_api::SourceSetRecord>)> {
     let Json(add) = body?;
-    let config = state.config.clone();
     let coverage = match &add.coverage {
         Some(regions) => Some(coverage(&state, regions).await?),
         None => None,
@@ -800,16 +844,15 @@ async fn add_source_set(
             (Some(path), None) => path,
             (None, template) => store.propose_source_set_path(&add.dat, template.as_deref())?,
         };
-        store.add_source_set_covering(&config, &add.root, &path, &add.dat, coverage.as_deref())
+        store.add_source_set_covering(&add.root, &path, &add.dat, coverage.as_deref())
     })
     .await?;
     Ok((StatusCode::CREATED, Json(record)))
 }
 
 async fn library_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<LibraryFolder>>> {
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.library_folders(&config)).await?,
+        blocking(&state, move |store| store.library_folders()).await?,
     ))
 }
 
@@ -818,8 +861,7 @@ async fn add_library_folder(
     body: Result<Json<AddLibraryFolder>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<LibraryFolder>)> {
     let Json(add) = body?;
-    let config = state.config.clone();
-    let folder = blocking(&state, move |store| store.add_library_folder(&config, &add)).await?;
+    let folder = blocking(&state, move |store| store.add_library_folder(&add)).await?;
     Ok((StatusCode::CREATED, Json(folder)))
 }
 
@@ -828,9 +870,8 @@ async fn library_folder(
     id: Result<Path<i64>, PathRejection>,
 ) -> ApiResult<Json<LibraryFolder>> {
     let Path(id) = id?;
-    let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.library_folder(&config, id)).await?,
+        blocking(&state, move |store| store.library_folder(id)).await?,
     ))
 }
 
@@ -841,10 +882,9 @@ async fn change_library_folder(
 ) -> ApiResult<Json<LibraryFolder>> {
     let Path(id) = id?;
     let Json(change) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.change_library_folder(&config, id, &change)
+            store.change_library_folder(id, &change)
         })
         .await?,
     ))
@@ -922,9 +962,8 @@ async fn plan_build(
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_build_with(&config, id, &request)
+        store.plan_build_with(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -939,9 +978,8 @@ async fn plan_cleanup(
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_cleanup(&config, id, &request)
+        store.plan_cleanup(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -964,9 +1002,9 @@ async fn approve_plan(
 ) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers());
+    let workers = state.workers();
     let job = blocking(&state, move |store| {
-        store.approve_plan(&config, id, &approve.digest, &actor, workers)
+        store.approve_plan(id, &approve.digest, &actor, workers)
     })
     .await?;
     state.jobs.changed(job.clone());
@@ -991,9 +1029,8 @@ async fn plan_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<KeptDeletion>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_kept_deletion(&config, id, &request)
+        store.plan_kept_deletion(id, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -1018,18 +1055,16 @@ async fn approve_kept_deletion(
 ) -> ApiResult<Json<KeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_kept_deletion(&config, id, &approve.digest, &actor)
+            store.approve_kept_deletion(id, &approve.digest, &actor)
         })
         .await?,
     ))
 }
 
 async fn ingest_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<IngestFolder>>> {
-    let config = state.config.clone();
-    let mut folders = blocking(&state, move |store| store.ingest_folders(&config)).await?;
+    let mut folders = blocking(&state, move |store| store.ingest_folders()).await?;
     for folder in &mut folders {
         next_check(&state, folder);
     }
@@ -1042,9 +1077,8 @@ async fn register_ingest_folder(
     body: Result<Json<RegisterIngestFolder>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<IngestFolder>)> {
     let Json(register) = body?;
-    let config = state.config.clone();
     let folder = blocking(&state, move |store| {
-        store.register_ingest_folder(&config, &register.root)
+        store.register_ingest_folder(&register.root)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(folder)))
@@ -1055,8 +1089,7 @@ async fn ingest_folder(
     root: Result<Path<String>, PathRejection>,
 ) -> ApiResult<Json<IngestFolder>> {
     let Path(root) = root?;
-    let config = state.config.clone();
-    let mut folder = blocking(&state, move |store| store.ingest_folder(&config, &root)).await?;
+    let mut folder = blocking(&state, move |store| store.ingest_folder(&root)).await?;
     next_check(&state, &mut folder);
     Ok(Json(folder))
 }
@@ -1150,9 +1183,8 @@ async fn plan_ingest(
 ) -> ApiResult<(StatusCode, Json<IngestPlan>)> {
     let Path(root) = root?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_ingest(&config, &root, &request)
+        store.plan_ingest(&root, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -1178,9 +1210,9 @@ async fn approve_ingest_plan(
 ) -> ApiResult<Json<IngestPlan>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers());
+    let workers = state.workers();
     let (plan, queued) = blocking(&state, move |store| {
-        let plan = store.approve_ingest_plan(&config, id, &approve.digest, &actor, workers)?;
+        let plan = store.approve_ingest_plan(id, &approve.digest, &actor, workers)?;
         let queued: Vec<_> = store
             .jobs(100)?
             .into_iter()
@@ -1228,10 +1260,9 @@ async fn check_additions(
     query: Result<Query<SystemQuery>, QueryRejection>,
 ) -> ApiResult<Json<AdditionsCheck>> {
     let Query(query) = query?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.check_additions(&config, &query.system)
+            store.check_additions(&query.system)
         })
         .await?,
     ))
@@ -1312,9 +1343,8 @@ async fn plan_additions_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
     let Query(query) = query?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_additions_kept_deletion(&config, &query.system, &request)
+        store.plan_additions_kept_deletion(&query.system, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -1339,10 +1369,9 @@ async fn approve_additions_kept_deletion(
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_additions_kept_deletion(&config, id, &approve.digest, &actor)
+            store.approve_additions_kept_deletion(id, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1366,9 +1395,8 @@ async fn plan_repair(
 ) -> ApiResult<(StatusCode, Json<RepairPlan>)> {
     let Path(name) = name?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_repair(&config, &name, &request)
+        store.plan_repair(&name, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -1393,9 +1421,9 @@ async fn approve_repair(
 ) -> ApiResult<Json<RepairPlan>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let (config, workers) = (state.config.clone(), state.workers());
+    let workers = state.workers();
     let plan = blocking(&state, move |store| {
-        store.approve_repair(&config, id, &approve.digest, &actor, workers)
+        store.approve_repair(id, &approve.digest, &actor, workers)
     })
     .await?;
     if let Some(job) = plan.job {
@@ -1423,9 +1451,8 @@ async fn plan_source_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
     let Path(name) = name?;
     let Json(request) = body?;
-    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_source_kept_deletion(&config, &name, &request)
+        store.plan_source_kept_deletion(&name, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
@@ -1450,10 +1477,9 @@ async fn approve_source_kept_deletion(
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_source_kept_deletion(&config, id, &approve.digest, &actor)
+            store.approve_source_kept_deletion(id, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -2347,10 +2373,9 @@ async fn start_calibration(
 
 /// The Calibration results that apply now, and why they are Stale, if they are.
 async fn calibration(State(state): State<AppState>) -> ApiResult<Json<Calibration>> {
-    let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.calibration(&config, title_select_store::calibration::cpus())
+            store.calibration(title_select_store::calibration::cpus())
         })
         .await?,
     ))
@@ -2532,7 +2557,6 @@ mod tests {
     fn state(dir: &std::path::Path) -> AppState {
         AppState {
             store: Arc::new(Store::open(&dir.join("store")).unwrap()),
-            config: Arc::new(Config::parse("").unwrap()),
             jobs: Arc::new(Jobs::new(
                 Arc::new(crate::notify::Notifier::new(&Default::default()).0),
                 Default::default(),
@@ -2561,14 +2585,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let set = dir.path().join("sets/Test - System");
         std::fs::create_dir_all(&set).unwrap();
-        let mut state = state(dir.path());
-        state.config = Arc::new(
-            Config::parse(&format!(
-                "[roots.sets]\npath = {:?}\n",
-                dir.path().join("sets").display().to_string()
-            ))
-            .unwrap(),
-        );
+        let state = state(dir.path());
+        state
+            .store
+            .register_root(&RootSpec::new("sets", dir.path().join("sets")), "Operator")
+            .unwrap();
         let dat = r#"<?xml version="1.0"?>
 <datafile><header><name>Test - System</name><version>1</version><homepage>No-Intro</homepage></header>
 <game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
@@ -2577,9 +2598,7 @@ mod tests {
             .import_dat_bytes(dat.as_bytes(), "test.dat", None)
             .unwrap();
         store
-            .add_source_set(
-                &state.config,
-                "sets",
+            .add_source_set("sets",
                 "Test - System",
                 "No-Intro/Test - System",
             )
@@ -2609,7 +2628,7 @@ mod tests {
         };
         state.jobs.publish(JobEvent::Progress(stale));
         let done = store
-            .run_audit_job(&state.config, running.id, None)
+            .run_audit_job(running.id, None)
             .unwrap();
         assert_eq!(done.state, title_select_api::JobState::Succeeded);
         state.jobs.publish(JobEvent::State(Box::new(done.clone())));

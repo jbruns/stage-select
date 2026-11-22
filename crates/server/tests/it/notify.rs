@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use crate::common::*;
 use serde_json::{Value, json};
 use sha2::Digest;
+use title_select_api::roots::RootSpec;
 use title_select_api::{Job, JobState};
 use title_select_server::{Handle, Settings};
 use title_select_store::config::Config;
@@ -199,15 +200,20 @@ impl Env {
 
     /// A Service fetching from `provider`, with no webhook set.
     fn spawn(&self, provider: &Fake) -> Handle {
-        let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n[roots.play]\npath = {:?}\nwritable = true\n",
-            self.tmp.path().join("roots/sets").display().to_string(),
-            self.tmp.path().join("roots/play").display().to_string(),
-        ))
-        .unwrap();
+        let store = title_select_store::Store::open(&self.tmp.path().join("store")).unwrap();
+        for root in [
+            RootSpec::new("sets", self.tmp.path().join("roots/sets")),
+            RootSpec::new("play", self.tmp.path().join("roots/play")).writable(),
+        ] {
+            if store.roots().root(&root.name).is_none() {
+                std::fs::create_dir_all(&root.path).unwrap();
+                store.register_root(&root, "Operator").unwrap();
+            }
+        }
+        drop(store);
         title_select_server::spawn(Settings {
             store: self.tmp.path().join("store"),
-            config,
+            config: Config::parse("").unwrap(),
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
             ui: None,

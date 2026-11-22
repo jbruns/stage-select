@@ -8,6 +8,7 @@ use title_select_api::{
     ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
 use title_select_server::{Handle, Settings, StartError, TOKEN_ACTOR};
+use title_select_api::roots::{RootKind, RootSpec};
 use title_select_store::config::Config;
 
 const TOKEN: &str = "correct horse battery staple";
@@ -31,20 +32,33 @@ impl Env {
         write_file(&set.join("notes.txt"), b"not a rom");
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
         std::fs::write(tmp.path().join("token"), format!("{TOKEN}\n")).unwrap();
-        Env { tmp }
+        let env = Env { tmp };
+        env.register(&[RootSpec::new("sets", env.tmp.path().join("roots/sets"))]);
+        env
+    }
+
+    /// Registers `roots` in the store, before the Service starts, making each one's folder.
+    fn register(&self, roots: &[RootSpec]) {
+        let store = title_select_store::Store::open(&self.store()).unwrap();
+        for root in roots {
+            std::fs::create_dir_all(&root.path).unwrap();
+            store.register_root(root, "Operator").unwrap();
+        }
+    }
+
+    /// Replaces the Root `root`'s registration in the store, before the Service starts.
+    fn reregister(&self, root: RootSpec) {
+        let store = title_select_store::Store::open(&self.store()).unwrap();
+        store.edit_root(&root.name.clone(), &root, "Operator").unwrap();
     }
 
     fn store(&self) -> PathBuf {
         self.tmp.path().join("store")
     }
 
+    /// The configuration file's `extra`: only auth and chdman are left in it.
     fn config(&self, extra: &str) -> Config {
-        let root = self.tmp.path().join("roots/sets");
-        Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n{extra}",
-            root.display().to_string()
-        ))
-        .unwrap()
+        Config::parse(extra).unwrap()
     }
 
     fn settings(&self, extra: &str) -> Settings {
@@ -61,6 +75,12 @@ impl Env {
             calibration_limits: None,
             notify_backoff: None,
         }
+    }
+
+    /// The settings with Root `sets` letting a repair write to the Source Set.
+    fn writing_the_set(&self) -> Settings {
+        self.reregister(RootSpec::new("sets", self.tmp.path().join("roots/sets")).writing(&[SET]));
+        self.settings("")
     }
 
     fn start(&self) -> Handle {
@@ -283,8 +303,10 @@ fn status_of(response: Result<ureq::http::Response<ureq::Body>, ureq::Error>) ->
 #[test]
 fn startup_is_refused_with_no_auth_configured() {
     let env = Env::new();
+    let store = env.tmp.path().join("another store");
     let settings = Settings {
         token_file: None,
+        store: store.clone(),
         ..env.settings("")
     };
 
@@ -296,7 +318,7 @@ fn startup_is_refused_with_no_auth_configured() {
         refused.err()
     );
     assert!(
-        !env.store().exists(),
+        !store.exists(),
         "nothing is opened before auth is checked"
     );
 }
@@ -1122,7 +1144,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
         std::fs::write(&dat, env.dat()).unwrap();
         store.import_dat(&dat, None).unwrap();
         store
-            .add_source_set(&env.config(""), "sets", SET, "No-Intro/Test - System")
+            .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
         let workers = title_select_store::Workers {
             readers: 1,
@@ -1332,11 +1354,12 @@ fn romm_is_off_until_you_turn_it_on_and_its_token_is_tested_but_never_shown() {
 fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceilings() {
     use title_select_api::settings::{CeilingSource, Pace, SettingsView};
     let env = Env::new();
-    let service = title_select_server::spawn(
-        env.settings("[jobs]\nconcurrent = 2\nreaders = 8\nhashers = 5\n"),
-    )
-    .unwrap();
+    let service = env.start();
     let client = Client::new(&service);
+    let (status, body) = client.change_settings(serde_json::json!({"ceilings": {
+        "host": {"concurrent": 2, "readers": 8, "hashers": 5}
+    }}));
+    assert_eq!(status, 200, "{body}");
     let settings: SettingsView = client.json("/settings");
     let host = &settings.jobs.host;
     assert_eq!(settings.jobs.pace, Pace::Default);
@@ -1348,8 +1371,7 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceili
         (host.hashers.ceiling, host.hashers.in_force),
         (Some(5), Some(2))
     );
-    assert_eq!(host.hashers.source, Some(CeilingSource::Config));
-    assert_eq!(host.hashers.locked_by.as_deref(), Some("[jobs] hashers"));
+    assert_eq!(host.hashers.source, Some(CeilingSource::Yours));
     let sets = settings
         .jobs
         .roots
@@ -1384,20 +1406,12 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceili
 }
 
 #[test]
-fn a_ceiling_you_set_applies_at_once_and_one_the_file_locks_or_out_of_range_is_refused() {
+fn a_ceiling_you_set_applies_at_once_and_one_out_of_range_is_refused() {
     use title_select_api::settings::{CeilingSource, SettingsView};
     let env = Env::new();
-    let service = title_select_server::spawn(env.settings("[jobs]\nhashers = 4\n")).unwrap();
+    let service = env.start();
     let client = Client::new(&service);
 
-    let (status, body) =
-        client.change_settings(serde_json::json!({"ceilings": {"host": {"hashers": 6}}}));
-    assert_eq!(status, 400, "{body}");
-    let why = body["error"].as_str().unwrap();
-    assert!(
-        why.contains("configuration file sets the hash workers ([jobs] hashers)"),
-        "{why}"
-    );
     for bad in [
         serde_json::json!(0),
         serde_json::json!(-2),
@@ -1507,11 +1521,8 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let env = Env::new();
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
-    let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-        drop.display().to_string()
-    )))
-    .unwrap();
+    env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
+    let service = title_select_server::spawn(env.settings("")).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -1520,7 +1531,7 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
     let roots: Vec<title_select_api::Root> = client.json("/roots");
-    assert!(roots.iter().any(|r| r.name == "drop" && r.ingest));
+    assert!(roots.iter().any(|r| r.name == "drop" && r.kind == RootKind::Ingest));
 
     let mut response = client
         .post("/ingest-folders")
@@ -1620,11 +1631,8 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
 fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
-    let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
-        drop.display().to_string()
-    )))
-    .unwrap();
+    env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
+    let service = title_select_server::spawn(env.settings("")).unwrap();
     Client::new(&service).settle_after("drop", settle_secs);
     let response = Client::new(&service)
         .post("/ingest-folders")
@@ -1781,13 +1789,11 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
     let additions = env.tmp.path().join("additions");
     std::fs::create_dir_all(&drop).unwrap();
     std::fs::create_dir_all(&additions).unwrap();
-    let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n\n\
-         [roots.additions]\npath = {:?}\nwritable = true\n",
-        drop.display().to_string(),
-        additions.display().to_string(),
-    )))
-    .unwrap();
+    env.register(&[
+        RootSpec::new("drop", &drop).of_kind(RootKind::Ingest),
+        RootSpec::new("additions", &additions).of_kind(RootKind::Additions),
+    ]);
+    let service = title_select_server::spawn(env.settings("")).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -2004,7 +2010,7 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     drop(service);
 
     let service =
-        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+        title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     let roots: Vec<title_select_api::Root> = client.json("/roots");
     assert!(
@@ -2103,7 +2109,7 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
     let service =
-        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+        title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     let auth = client.auth.clone().unwrap();
     client.upload("Test - System (20260101).dat", &env.dat());
@@ -2218,7 +2224,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
     let service =
-        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+        title_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat());
     client.add_set();
@@ -2922,15 +2928,12 @@ mod selections {
         for dir in [play.join("library"), other.clone()] {
             std::fs::create_dir_all(dir).unwrap();
         }
-        let service = title_select_server::spawn(env.settings(&format!(
-            "\n[roots.play]\npath = {:?}\nwritable = true\n\
-             [roots.romm]\npath = {:?}\nwritable = true\n\
-             [roots.other]\npath = {:?}\nwritable = true\n",
-            play.display().to_string(),
-            play.join("library").display().to_string(),
-            other.display().to_string(),
-        )))
-        .unwrap();
+        env.register(&[
+            RootSpec::new("play", &play).writable(),
+            RootSpec::new("romm", play.join("library")).writable(),
+            RootSpec::new("other", &other).writable(),
+        ]);
+        let service = title_select_server::spawn(env.settings("")).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -2989,15 +2992,12 @@ mod selections {
     ) -> (Handle, i64, Events) {
         use title_select_api::build::{LibraryFolder, Plan};
         let play = env.tmp.path().join("roots/play");
-        std::fs::create_dir_all(&play).unwrap();
+        env.register(&[RootSpec::new("play", &play).writable()]);
         let service = title_select_server::spawn(Settings {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
             notify_backoff: None,
-            ..env.settings(&format!(
-                "\n[roots.play]\npath = {:?}\nwritable = true\n",
-                play.display().to_string()
-            ))
+            ..env.settings("")
         })
         .unwrap();
         let client = Client::new(&service);
@@ -3279,11 +3279,8 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        let service = title_select_server::spawn(env.settings(&format!(
-            "\n[roots.play]\npath = {:?}\nwritable = true\n",
-            play.display().to_string()
-        )))
-        .unwrap();
+        env.register(&[RootSpec::new("play", &play).writable()]);
+        let service = title_select_server::spawn(env.settings("")).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3387,11 +3384,8 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        let service = title_select_server::spawn(env.settings(&format!(
-            "\n[roots.play]\npath = {:?}\nwritable = true\n",
-            play.display().to_string()
-        )))
-        .unwrap();
+        env.register(&[RootSpec::new("play", &play).writable()]);
+        let service = title_select_server::spawn(env.settings("")).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3548,11 +3542,9 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        let service = title_select_server::spawn(env.settings(&format!(
-            "writable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
-            play.display().to_string()
-        )))
-        .unwrap();
+        env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
+        env.register(&[RootSpec::new("play", &play).writable()]);
+        let service = title_select_server::spawn(env.settings("")).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -4162,11 +4154,12 @@ fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_ne
 fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
     const ESCAPED: &str = "Test%20-%20System";
     let env = Env::new();
-    let service = title_select_server::spawn(env.settings(&format!(
-        "writable_paths = [{SET:?}]\n[jobs]\nconcurrent = 2\n"
-    )))
-    .unwrap();
+    env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
+    let service = title_select_server::spawn(env.settings("")).unwrap();
     let client = Client::new(&service);
+    let (status, body) =
+        client.change_settings(serde_json::json!({"ceilings": {"host": {"concurrent": 2}}}));
+    assert_eq!(status, 200, "{body}");
     client.upload("Test - System (20260101).dat", &env.dat());
     client.add_set();
     let audit: Job = client.start_audit().body_mut().read_json().unwrap();
@@ -4331,4 +4324,95 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
     let now: title_select_api::calibration::Calibration = client.json("/calibration");
     assert_eq!(now.host.map(|h| h.job), Some(started.id));
     assert!(now.stale.is_empty(), "{:?}", now.stale);
+}
+
+/// Sends `body` to `path` with `method`, and returns the status and the JSON body, if any.
+fn send_root(client: &Client, method: &str, path: &str, body: Option<serde_json::Value>) -> (u16, serde_json::Value) {
+    let (name, value) = client.auth.clone().unwrap();
+    let url = format!("{}{path}", client.base);
+    let mut response = match (method, body) {
+        ("PUT", Some(body)) => agent().put(url).header(name, value).send_json(body),
+        ("POST", Some(body)) => agent().post(url).header(name, value).send_json(body),
+        ("POST", None) => agent().post(url).header(name, value).send_empty(),
+        _ => agent().get(url).header(name, value).call(),
+    }
+    .unwrap();
+    let status = response.status().as_u16();
+    let text = response.body_mut().read_to_string().unwrap();
+    (status, serde_json::from_str(&text).unwrap_or(serde_json::Value::Null))
+}
+
+/// Roots are registered, edited and unregistered through the API, each refusal saying why, and a Root registered
+/// while the Service runs is scanned as an ingest folder without a restart.
+#[test]
+fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restart() {
+    use title_select_api::ingest::IngestItem;
+    use title_select_api::roots::RootChange;
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let drop = env.tmp.path().join("drop");
+    let spec = |name: &str, path: &std::path::Path, kind: &str| {
+        serde_json::json!({"name": name, "path": path, "kind": kind, "writable": true})
+    };
+
+    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("drop", &drop, "ingest")));
+    assert_eq!(status, 400, "{body}");
+    assert!(body["error"].as_str().unwrap().contains("doesn't exist"), "{body}");
+
+    std::fs::create_dir_all(&drop).unwrap();
+    write_file(&drop.join("mystery.bin"), b"mystery");
+    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("drop", &drop, "ingest")));
+    assert_eq!(status, 201, "{body}");
+    let registered: title_select_api::Root = serde_json::from_value(body).unwrap();
+    assert_eq!((registered.kind, registered.updated_by.as_str()), (RootKind::Ingest, TOKEN_ACTOR));
+    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    assert_eq!(roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["drop", "sets"]);
+
+    client.settle_after("drop", 0);
+    let response = client
+        .post("/ingest-folders")
+        .send_json(serde_json::json!({"root": "drop"}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let (status, job) = send_root(&client, "POST", "/ingest-folders/drop/scans", None);
+    assert_eq!(status, 202, "{job}");
+    let job: Job = serde_json::from_value(job).unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+    assert_eq!(items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["mystery.bin"]);
+
+    let (status, body) = send_root(&client, "POST", "/roots/drop/unregistration", None);
+    assert_eq!(status, 409, "{body}");
+    assert!(body["error"].as_str().unwrap().contains("ingest folder"), "{body}");
+
+    let (status, body) = send_root(&client, "PUT", "/roots/drop", Some(spec("inbox", &drop, "ingest")));
+    assert_eq!(status, 400, "{body}");
+
+    let additions = env.tmp.path().join("additions");
+    std::fs::create_dir_all(&additions).unwrap();
+    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("extra", &additions, "additions")));
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = send_root(&client, "POST", "/roots", Some(spec("more", &additions, "additions")));
+    assert_eq!(status, 400, "{body}");
+
+    let sets = env.tmp.path().join("roots/sets");
+    let (status, body) = send_root(
+        &client,
+        "PUT",
+        "/roots/sets",
+        Some(serde_json::json!({"name": "sets", "path": sets, "read_mib_per_s": 50})),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["root"]["read_mib_per_s"], 50, "{body}");
+    let changes: Vec<RootChange> = client.json("/roots/sets/changes");
+    assert_eq!(
+        changes.iter().map(|c| (c.action.as_str(), c.changed_by.as_str())).collect::<Vec<_>>(),
+        [("registered", "Operator"), ("edited", TOKEN_ACTOR)]
+    );
+
+    let (status, body) = send_root(&client, "POST", "/roots/extra/unregistration", None);
+    assert_eq!(status, 204, "{body}");
+    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    assert_eq!(roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["drop", "sets"]);
 }
