@@ -263,19 +263,6 @@ impl<'a> LayoutIndex<'a> {
         self.index.get(&(game, rom)).map(|&r| self.laid.roots[r])
     }
 
-    /// The ROMs the containers of `games` hold once repaired, by `owners` ([`wanted_roms`]), each as its root.
-    fn roots_of<'g>(
-        &self,
-        games: impl Iterator<Item = &'g str>,
-        owners: &[Vec<usize>],
-    ) -> BTreeSet<usize> {
-        games
-            .filter_map(|game| self.dat.game_index(game))
-            .flat_map(|g| &owners[g])
-            .map(|&r| self.laid.roots[r])
-            .collect()
-    }
-
     /// Whether ROM `a` and ROM `b`, each by its Game and name, are one ROM.
     fn same(&self, a: (&str, &str), b: (&str, &str)) -> bool {
         a == b
@@ -336,35 +323,56 @@ struct Usable<'a> {
 impl Usable<'_> {
     /// The ROMs each of its payloads is.
     fn payloads(&self) -> impl Iterator<Item = Vec<RomKey>> {
-        self.entries
-            .iter()
-            .filter(|e| {
-                matches!(
-                    e.finding,
-                    Finding::Matched | Finding::Misnamed | Finding::Conflicting
-                )
-            })
-            .map(|e| {
-                e.roms
-                    .iter()
-                    .map(|r| (r.game.clone(), r.name.clone()))
-                    .collect()
-            })
+        payloads(&self.entries)
     }
+}
+
+/// The ROMs each payload of `entries` is: each Entry's that holds a matched payload.
+fn payloads<'e>(entries: &'e [&Entry]) -> impl Iterator<Item = Vec<RomKey>> + 'e {
+    entries
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.finding,
+                Finding::Matched | Finding::Misnamed | Finding::Conflicting
+            )
+        })
+        .map(|e| {
+            e.roms
+                .iter()
+                .map(|r| (r.game.clone(), r.name.clone()))
+                .collect()
+        })
+}
+
+/// Every payload the files `paths` hold, each by its Entries, by its checksums ([`Sums`]): its copy in that file.
+fn copies_in<'a>(
+    paths: impl Iterator<Item = (&'a str, &'a [&'a Entry])>,
+    dat: &HashMap<RomKey, &Rom>,
+) -> Copies<&'a str> {
+    let mut copies = Copies::new();
+    for (path, entries) in paths {
+        for roms in payloads(entries) {
+            if let Some(sums) = Sums::of_payload(roms.iter().filter_map(|r| dat.get(r).copied())) {
+                copies.insert(sums, path);
+            }
+        }
+    }
+    copies
 }
 
 /// What the plan keeps of the ROMs the files it keeps aside hold.
 struct Preserved<'a> {
     /// Every ROM of the DAT, by its Game and name.
     dat: &'a HashMap<RomKey, &'a Rom>,
-    /// Every usable file holding each ROM: one gone or changed since the Audit, or read only by its claim, holds none.
-    held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+    /// Every payload a usable file holds, by its checksums: one gone or changed since the Audit, or read only by its
+    /// claim, holds none.
+    held: &'a Copies<&'a str>,
     /// The scope of each file ([`Scope`]), which decides where a copy survives for it.
     scopes: &'a Scopes<'a>,
-    /// The ROMs an applied item writes, each as the ROM it is one with ([`LayoutIndex::root`]), by the scope it writes
-    /// them in: its Game's.
-    produced: HashMap<Scope<'a>, BTreeSet<usize>>,
-    layout_index: &'a LayoutIndex<'a>,
+    /// Every ROM an applied item writes, exactly as its steps write it ([`Proposed::writes`]), by the scope it writes
+    /// it in: its Game's.
+    produced: Copies<Scope<'a>>,
     /// The files an applied item keeps aside.
     displaced: BTreeSet<&'a str>,
 }
@@ -372,29 +380,27 @@ struct Preserved<'a> {
 impl<'a> Preserved<'a> {
     /// What `proposed`, as chosen now, keeps.
     fn of(
+        i: &Inputs,
         proposed: &'a [Proposed],
         dat: &'a HashMap<RomKey, &'a Rom>,
-        held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+        held: &'a Copies<&'a str>,
         scopes: &'a Scopes<'a>,
-        layout_index: &'a LayoutIndex<'a>,
-        owners: &[Vec<usize>],
     ) -> Self {
         let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
-        let mut produced: HashMap<Scope, BTreeSet<usize>> = HashMap::new();
-        for game in proposed
-            .iter()
-            .filter(applied)
-            .filter_map(|p| p.produces.as_deref())
-        {
-            (produced.entry(scopes.game(game)).or_default())
-                .extend(layout_index.roots_of([game].into_iter(), owners));
+        let mut produced = Copies::new();
+        for p in proposed.iter().filter(applied) {
+            let Some(game) = p.item.game.as_deref() else {
+                continue;
+            };
+            for rom in p.writes(i) {
+                produced.insert(Sums::of_expected(&rom), scopes.game(game));
+            }
         }
         Preserved {
             dat,
-            held_by,
+            held,
             scopes,
             produced,
-            layout_index,
             displaced: proposed
                 .iter()
                 .filter(applied)
@@ -404,32 +410,21 @@ impl<'a> Preserved<'a> {
     }
 
     /// The ROMs the file at `path` holds that would have no copy left in its scope once it is kept aside
-    /// ([`Scope::survives_for`]): no file there that stays holds one, and no applied item writes its payload there, as
-    /// a ROM of whichever Game, that the DAT pins at least as closely as it.
+    /// ([`Scope::survives_for`]): no file there that stays holds its payload, and no applied item writes it there, as a
+    /// ROM of whichever Game, under whichever name.
     fn lost(&self, path: &str, file: &Usable) -> BTreeSet<RomKey> {
         let scope = self.scopes.file(path);
         let mut lost = BTreeSet::new();
-        for roms in file.payloads() {
-            for rom in &roms {
-                let held = self.held_by.get(rom).is_some_and(|by| {
-                    by.iter().any(|p| {
-                        !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
-                    })
+        for rom in file.payloads().flatten() {
+            let kept = self.dat.get(&rom).is_some_and(|r| {
+                let sums = Sums::of(r);
+                let held = self.held.any(&sums, |p| {
+                    !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
                 });
-                let pinned = |w: &RomKey| {
-                    w == rom
-                        || (self.dat.get(w).zip(self.dat.get(rom))).is_some_and(|(w, r)| pins(w, r))
-                };
-                let written = roms.iter().any(|w| {
-                    pinned(w)
-                        && self.layout_index.root(&w.0, &w.1).is_some_and(|r| {
-                            (self.produced.iter())
-                                .any(|(at, roots)| at.survives_for(scope) && roots.contains(&r))
-                        })
-                });
-                if !held && !written {
-                    lost.insert(rom.clone());
-                }
+                held || self.produced.any(&sums, |at| at.survives_for(scope))
+            });
+            if !kept {
+                lost.insert(rom);
             }
         }
         lost
@@ -562,19 +557,118 @@ fn keep_uncovered(
     });
 }
 
-/// Whether bytes that are `w`, as the DAT gives it, are also `r`: the same size, with every checksum `r` gives also
-/// given for `w`, and alike.
-fn pins(w: &Rom, r: &Rom) -> bool {
-    let covered = |w: &Option<String>, r: &Option<String>| match (w, r) {
-        (_, None) => true,
-        (Some(w), Some(r)) => w.eq_ignore_ascii_case(r),
-        (None, Some(_)) => false,
-    };
-    w.size == r.size
-        && covered(&w.crc, &r.crc)
-        && covered(&w.md5, &r.md5)
-        && covered(&w.sha1, &r.sha1)
-        && covered(&w.sha256, &r.sha256)
+/// What a payload is, whatever ROM it is named or matched as: its size and the checksums the DAT gives for it, each
+/// lowercase. A copy of a ROM is any payload with its checksums, as a ROM of whichever Game, under whichever name.
+#[derive(Debug, Clone)]
+struct Sums {
+    size: u64,
+    crc: Option<String>,
+    md5: Option<String>,
+    sha1: Option<String>,
+    sha256: Option<String>,
+}
+
+/// One checksum of a [`Sums`], or its size, by which [`Copies`] finds a copy.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Sum {
+    Crc(String),
+    Md5(String),
+    Sha1(String),
+    Sha256(String),
+    Size(u64),
+}
+
+impl Sums {
+    fn of(rom: &Rom) -> Self {
+        Self::new(rom.size, [&rom.crc, &rom.md5, &rom.sha1, &rom.sha256])
+    }
+
+    fn of_expected(rom: &ExpectedRom) -> Self {
+        Self::new(rom.size, [&rom.crc, &rom.md5, &rom.sha1, &rom.sha256])
+    }
+
+    fn new(size: u64, [crc, md5, sha1, sha256]: [&Option<String>; 4]) -> Self {
+        let lower = |s: &Option<String>| s.as_ref().map(|s| s.to_ascii_lowercase());
+        Sums {
+            size,
+            crc: lower(crc),
+            md5: lower(md5),
+            sha1: lower(sha1),
+            sha256: lower(sha256),
+        }
+    }
+
+    /// The bytes of a payload the Audit matched as each of `roms`: their size, with every checksum any of them gives.
+    fn of_payload<'r>(roms: impl IntoIterator<Item = &'r Rom>) -> Option<Self> {
+        roms.into_iter().map(Sums::of).reduce(|mut a, b| {
+            a.crc = a.crc.or(b.crc);
+            a.md5 = a.md5.or(b.md5);
+            a.sha1 = a.sha1.or(b.sha1);
+            a.sha256 = a.sha256.or(b.sha256);
+            a
+        })
+    }
+
+    /// Every checksum it gives, then its size.
+    fn sums(&self) -> Vec<Sum> {
+        let mut sums: Vec<Sum> = [
+            self.crc.clone().map(Sum::Crc),
+            self.md5.clone().map(Sum::Md5),
+            self.sha1.clone().map(Sum::Sha1),
+            self.sha256.clone().map(Sum::Sha256),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        sums.push(Sum::Size(self.size));
+        sums
+    }
+
+    /// Whether bytes that are these are also `r`: the same size, with every checksum `r` gives also given here, and
+    /// alike.
+    fn is(&self, r: &Sums) -> bool {
+        let covered = |w: &Option<String>, r: &Option<String>| r.is_none() || w == r;
+        self.size == r.size
+            && covered(&self.crc, &r.crc)
+            && covered(&self.md5, &r.md5)
+            && covered(&self.sha1, &r.sha1)
+            && covered(&self.sha256, &r.sha256)
+    }
+}
+
+/// Copies of payloads, each with where it is, found by their checksums ([`Sums`]).
+struct Copies<T> {
+    copies: Vec<(Sums, T)>,
+    /// Each copy, by its index, under each checksum it gives and its size.
+    by: HashMap<Sum, Vec<usize>>,
+}
+
+impl<T: Copy> Copies<T> {
+    fn new() -> Self {
+        Copies {
+            copies: Vec::new(),
+            by: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, sums: Sums, at: T) {
+        for sum in sums.sums() {
+            self.by.entry(sum).or_default().push(self.copies.len());
+        }
+        self.copies.push((sums, at));
+    }
+
+    /// Whether a copy of `rom` is where `at` accepts.
+    fn any(&self, rom: &Sums, at: impl Fn(T) -> bool) -> bool {
+        // A copy of it gives every checksum it gives, the first among them included.
+        let first = rom.sums().swap_remove(0);
+        (self.by.get(&first)).is_some_and(|copies| {
+            copies.iter().any(|&n| {
+                let (sums, here) = &self.copies[n];
+                sums.is(rom) && at(*here)
+            })
+        })
+    }
 }
 
 /// How a Game is repaired.
@@ -647,6 +741,30 @@ impl Proposed {
             .map(|(path, _)| path.as_str())
             .chain(self.converts.iter().map(String::as_str))
             .chain(renames)
+    }
+
+    /// Each ROM its steps write, exactly as they write it ([`steps_of`]): what a Build, Rename or Fill puts in place,
+    /// never what its Game's layout wants and it lacks.
+    fn writes(&self, i: &Inputs) -> Vec<ExpectedRom> {
+        match &self.proposal {
+            Some(Proposal::Build { roms }) => roms.iter().map(|r| r.rom.clone()).collect(),
+            Some(Proposal::Rename { roms, .. }) => roms.clone(),
+            Some(Proposal::Folder { parts }) => parts
+                .iter()
+                .map(|part| match part {
+                    Part::Build { rom, .. } => rom.rom.clone(),
+                    Part::Rename { rom, .. } | Part::Fill { rom, .. } => rom.clone(),
+                })
+                .collect(),
+            Some(Proposal::Fill { candidate }) => {
+                let game = self.item.game.as_deref().expect("a game");
+                fill_roms(i, game, &i.candidates[*candidate])
+                    .into_iter()
+                    .map(|r| r.rom)
+                    .collect()
+            }
+            None => Vec::new(),
+        }
     }
 }
 
@@ -1459,14 +1577,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             },
         );
     }
-    // Every usable file holding each ROM: the copies that survive a file kept aside. A file gone or changed since the
-    // Audit, or read only by its claim, holds none.
-    let mut held_by: HashMap<RomKey, BTreeSet<&str>> = HashMap::new();
-    for (path, file) in &usable {
-        for rom in file.payloads().flatten() {
-            held_by.entry(rom).or_default().insert(*path);
-        }
-    }
+    let dat_roms: HashMap<RomKey, &Rom> = i
+        .dat
+        .roms
+        .iter()
+        .map(|r| ((i.dat.games[r.game].clone(), r.name.clone()), r))
+        .collect();
+    // Every payload a usable file holds, by its checksums: the copies that survive a file kept aside, whatever ROM they
+    // are named or matched as. A file gone or changed since the Audit, or read only by its claim, holds none.
+    let held = copies_in(
+        usable
+            .iter()
+            .map(|(path, file)| (*path, file.entries.as_slice())),
+        &dat_roms,
+    );
+    // Every payload the Audit found, by its checksums, in a file as read then: where a Game's scope may still hold a
+    // ROM under whichever name, which refuses a fill that would set it aside.
+    let found = copies_in(
+        by_path
+            .iter()
+            .map(|(path, entries)| (*path, entries.as_slice())),
+        &dat_roms,
+    );
     for path in i.files.keys() {
         if !by_path.contains_key(path.as_str()) {
             notes.push(format!(
@@ -1601,6 +1733,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         &mut notes,
     );
     let mut good: BTreeSet<String> = BTreeSet::new();
+    // The files of the Games in `good`, which stay as they are.
+    let mut stays_whole: Vec<&str> = Vec::new();
     let layout_index = LayoutIndex::of(i.dat, i.storage, i.placed);
     for &(game, r) in &layout_index.laid.left_out {
         let (owner, name) = layout_index.key(r);
@@ -1849,7 +1983,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             if in_place {
                 good.insert(game.clone());
                 for t in &targets {
-                    referenced.insert(usable.get_key_value(t.as_str()).expect("usable").0);
+                    let (path, _) = usable.get_key_value(t.as_str()).expect("usable");
+                    referenced.insert(path);
+                    stays_whole.push(*path);
                 }
                 continue;
             }
@@ -2317,8 +2453,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         // Each unused item holding every ROM the Game needs, with each ROM of `roms` it doesn't hold, and whether a file
-        // of the Game's scope holds that ROM. One lacking a ROM held there never fills it, so that the ROM is never set
-        // aside with the file it is in; of the others, the one lacking fewest fills it.
+        // of the Game's scope holds its payload, under whichever name. One lacking a ROM held there never fills it, so
+        // that the ROM is never set aside with the file it is in; of the others, the one lacking fewest fills it.
         let fillers: Vec<(usize, Vec<(&str, bool)>)> = i
             .candidates
             .iter()
@@ -2332,11 +2468,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .map(|(n, c)| {
                 let lacks = roms
                     .iter()
-                    .zip(&keys)
-                    .filter(|(rom, _)| c.matched.rom(&rom.name).is_none())
-                    .map(|(rom, (owner, name))| {
-                        let held = (found_in.get(&(owner.to_string(), name.to_string())))
-                            .is_some_and(|by| by.iter().any(|p| scopes.file(p) == scope));
+                    .filter(|rom| c.matched.rom(&rom.name).is_none())
+                    .map(|rom| {
+                        let held = found.any(&Sums::of_expected(rom), |p| scopes.file(p) == scope);
                         (rom.name.as_str(), held)
                     })
                     .collect();
@@ -2704,21 +2838,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     // An item that would keep aside the last copy of a ROM no repair writes is left, as is, in turn, any item that
     // relied on it.
-    let dat_roms: HashMap<RomKey, &Rom> = i
-        .dat
-        .roms
-        .iter()
-        .map(|r| ((i.dat.games[r.game].clone(), r.name.clone()), r))
-        .collect();
     loop {
-        let preserved = Preserved::of(
-            &proposed,
-            &dat_roms,
-            &held_by,
-            &scopes,
-            &layout_index,
-            &owners,
-        );
+        let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
         let lost = proposed.iter().position(|p| {
             p.checked
                 && p.item.chosen != RepairChoice::Leave
@@ -2768,26 +2889,33 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
     }
 
-    // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of ROMs that a
-    // Game's own file there holds, where the layout keeps them once repaired. A Placed Game's files are of another
+    // A file holding nothing a Game needs: Unmatched Entries, or, in the Source Set's folder, copies of payloads that a
+    // Game's own file there holds once repaired, under whichever name: one of a Game left as it is, as it is in place,
+    // or one an applied item writes there, exactly as it writes it ([`Proposed::writes`]). A Placed Game's files are of another
     // scope: they never make a file of the Source Set's folder a spare copy, and are never one themselves, as a placed
     // file holding a ROM leaves its Library Folder only when its Game returns home or is repaired there.
-    let whole = layout_index.roots_of(
-        good.iter()
-            .map(String::as_str)
-            .chain(
-                proposed
-                    .iter()
-                    .filter(|p| p.item.chosen != RepairChoice::Leave)
-                    .filter_map(|p| p.produces.as_deref()),
-            )
-            .filter(|game| scopes.game(game) == Scope::Source),
-        &owners,
+    let mut whole = copies_in(
+        (stays_whole.iter())
+            .filter(|path| scopes.file(path) == Scope::Source)
+            .map(|path| (*path, usable[path].entries.as_slice())),
+        &dat_roms,
     );
+    for p in proposed
+        .iter()
+        .filter(|p| p.item.chosen != RepairChoice::Leave)
+    {
+        if p.item.game.as_deref().map(|g| scopes.game(g)) == Some(Scope::Source) {
+            for rom in p.writes(i) {
+                whole.insert(
+                    Sums::of_expected(&rom),
+                    p.item.path.as_deref().unwrap_or_default(),
+                );
+            }
+        }
+    }
     let covered = |game: &str, rom: &str| {
-        layout_index
-            .root(game, rom)
-            .is_some_and(|r| whole.contains(&r))
+        (dat_roms.get(&(game.to_owned(), rom.to_owned())))
+            .is_some_and(|r| whole.any(&Sums::of(r), |_| true))
     };
     let mut aside = Vec::new();
     for (path, file) in &usable {
@@ -2883,14 +3011,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // by default never loses one. What the Operator chose to keep aside is kept aside even then, which the item says: it
     // can be restored from the kept files.
     loop {
-        let preserved = Preserved::of(
-            &proposed,
-            &dat_roms,
-            &held_by,
-            &scopes,
-            &layout_index,
-            &owners,
-        );
+        let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
         let last: Vec<(usize, Vec<String>)> = proposed
             .iter()
             .enumerate()
@@ -3431,18 +3552,11 @@ fn keeps_of(
     }
 }
 
-/// The Fill step of `p`, from ingest candidate `c`.
-fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
-    let game = p.item.game.as_deref().expect("a game");
-    let (target, loose) = p.target.clone().expect("a game's target");
-    let index = i
-        .dat
-        .games
-        .iter()
-        .position(|g| g == game)
-        .expect("a game of the DAT");
-    // Each ROM of the Game the item holds, in DAT order, which is each the Game needs and maybe others (ADR 0025).
-    let roms: Vec<RepairRom> = roms_of(i.dat, index)
+/// What a Fill of Game `game` from ingest candidate `c` writes: each ROM of the Game the item holds, in DAT order,
+/// which is each the Game needs and maybe others (ADR 0025), and never a ROM of a Dependency.
+fn fill_roms(i: &Inputs, game: &str, c: &FillCandidate) -> Vec<RepairRom> {
+    let index = i.dat.game_index(game).expect("a game of the DAT");
+    roms_of(i.dat, index)
         .into_iter()
         .filter_map(|rom| {
             let matched = c.matched.rom(&rom.name)?;
@@ -3453,7 +3567,14 @@ fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
                 cue_pack: None,
             })
         })
-        .collect();
+        .collect()
+}
+
+/// The Fill step of `p`, from ingest candidate `c`.
+fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
+    let game = p.item.game.as_deref().expect("a game");
+    let (target, loose) = p.target.clone().expect("a game's target");
+    let roms = fill_roms(i, game, c);
     // The original is deleted only once what was written reads as exactly this one ROM, from a loose file.
     let exact = match roms.as_slice() {
         [only] if !c.item.assessment.zip && only.member.is_none() => Some(only.rom.clone()),

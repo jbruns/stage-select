@@ -28,6 +28,8 @@ fn payload(name: &str) -> &'static [u8] {
         "gfx.u4" | "gfxj.u4" => b"graphics",
         "progj.u3" => b"program j",
         "extra.u6" => b"extra",
+        // A graphics device's ROM, and another device's copy of it under a name of its own.
+        "vga.bin" | "vgax.bin" => b"video",
         // The BIOS's ROM, under a name of a Game's own.
         "gamebios.u1" => b"bios",
         // Under the name of a nodump ROM, which no file matches.
@@ -1194,7 +1196,7 @@ fn a_placed_clones_repack_never_stands_in_for_the_source_sets_only_copy_of_a_dev
 }
 
 #[test]
-fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
+fn a_file_holding_the_bytes_only_a_merge_aliass_line_pins_is_no_spare_copy() {
     // The clone's graphics are the parent's by `merge=`, alike as the DAT gives them, the parent's by their CRC and the
     // clone's by their SHA-1; but the bytes each DAT line pins differ, so a file of the clone's is no copy of the
     // parent's.
@@ -1229,16 +1231,55 @@ fn a_file_kept_aside_by_default_that_holds_the_last_copy_of_a_rom_is_left() {
 
     let plan = env.plan();
 
-    let spare = (plan.content.items.iter())
-        .find(|i| i.path.as_deref() == Some("spare.zip"))
-        .unwrap_or_else(|| panic!("{:#?}", plan.content.items));
-    assert_eq!(spare.default, RepairChoice::Leave, "{spare:#?}");
-    assert_eq!(spare.chosen, RepairChoice::Leave, "{spare:#?}");
+    // It holds no copy of a payload the parent's ZIP holds, whatever ROM the two lines are one of.
+    assert!(
+        (plan.content.items.iter()).all(|i| i.path.as_deref() != Some("spare.zip")),
+        "{:#?}",
+        plan.content.items
+    );
+    if (plan.content.items.iter()).any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(&plan);
+    }
+    assert_eq!(members(&env.set().join("spare.zip")), ["gfxj.u4"]);
+}
+
+#[test]
+fn a_conflicting_entry_you_choose_to_keep_aside_with_the_last_copy_of_a_rom_says_you_can_restore_it()
+ {
+    let env = Env::with(listxml_aliased(false));
+    // The member is named for the device's ROM, but holds the parent's program, which no other file of the Source
+    // Set's folder holds.
+    let file = std::fs::File::create_new(env.set().join("acmevga.zip")).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    writer.add("vga.bin", 7, &mut &b"program"[..]).unwrap();
+    writer.finish().unwrap();
+    env.audit();
+    let conflict = (env.plan().content.items.into_iter())
+        .find(|i| i.kind == RepairKind::Conflict)
+        .unwrap();
+
+    let plan = env
+        .store
+        .plan_repair(
+            &env.config,
+            "mame",
+            &PlanRepair {
+                choices: [(conflict.key.clone(), RepairChoice::KeepAside)].into(),
+                ..PlanRepair::default()
+            },
+        )
+        .unwrap();
+
+    let item = (plan.content.items.iter())
+        .find(|i| i.key == conflict.key)
+        .unwrap();
+    assert_eq!(item.chosen, RepairChoice::KeepAside, "{item:#?}");
+    assert_eq!(item.default, RepairChoice::Leave, "{item:#?}");
     assert_eq!(
-        spare.note.as_deref(),
+        item.note.as_deref(),
         Some(
-            "left as it is: it holds the last copy in the source set of gfxj.u4 of blasterj; if you choose to keep \
-             it aside, you can restore it from the kept files"
+            "this keeps aside the last copy in the source set of prog.u3 of blaster; you can restore it from the \
+             kept files"
         )
     );
 }
@@ -1512,5 +1553,184 @@ fn no_placed_file_in_a_source_set_folder_repair(plan: &RepairPlan, at: &str) {
             step.item,
             plan.content.items
         );
+    }
+}
+
+/// A graphics device, and a second one that lists the first's ROM under a name of its own, by `merge=`, as MAME's
+/// `tandy_1000x_graphics` does `tandy_1000_graphics`'s; a parent; and its clone, which needs the first device. With
+/// `optional`, the clone may run without the device's ROM.
+fn listxml_aliased(optional: bool) -> String {
+    let vga = match optional {
+        true => rom("vga.bin", None).replacen("<rom ", r#"<rom optional="yes" "#, 1),
+        false => rom("vga.bin", None),
+    };
+    format!(
+        r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="acmevga" isdevice="yes" runnable="no"><description>Acme VGA</description>{vga}</machine>
+  <machine name="acmevgax" isdevice="yes" runnable="no" romof="acmevga"><description>Acme VGA X</description>{vgax}</machine>
+  <machine name="blaster"><description>Blaster</description>{prog}{gfx}</machine>
+  <machine name="blasterj" cloneof="blaster" romof="blaster"><description>Blaster (Japan)</description>{progj}{gfxj}
+    <device_ref name="acmevga"/></machine>
+</mame>
+"#,
+        vgax = rom("vgax.bin", Some("vga.bin")),
+        prog = rom("prog.u3", None),
+        gfx = rom("gfx.u4", None),
+        progj = rom("progj.u3", None),
+        gfxj = rom("gfxj.u4", Some("gfx.u4")),
+    )
+}
+
+#[test]
+fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_in_any_layout() {
+    for layout in SetLayout::ALL {
+        an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(layout, false);
+    }
+}
+
+#[test]
+fn an_ingest_fill_never_counts_an_optional_dependency_rom_it_doesnt_write_in_any_layout() {
+    for layout in SetLayout::ALL {
+        an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(layout, true);
+    }
+}
+
+/// The parent is placed, so its missing clone is laid out non-merged; the clone needs the first graphics device, whose
+/// ZIP holds a conflicting member and is left by default; the second device's ZIP holds the Source Set's only usable
+/// copy of the device's ROM, under its own name; and an Ingest Folder holds the clone's own ROMs, without the device's.
+/// With `optional`, the device's ROM is optional, and the clone wants it as an Ingest Folder holds the device whole too.
+/// A fill of the clone writes only the clone's own ROMs, so applying the plan as it is by default leaves the device's
+/// ROM in the Source Set's folder.
+fn an_ingest_fill_never_counts_a_dependency_rom_it_doesnt_write_under(
+    layout: SetLayout,
+    optional: bool,
+) {
+    let env = Env::with(listxml_aliased(optional));
+    let at = format!("{layout:?}, optional {optional}");
+    // The member is named for the device's ROM, but holds the parent's program.
+    let file = std::fs::File::create_new(env.set().join("acmevga.zip")).unwrap();
+    let mut writer = torrentzip::Writer::new(file).unwrap();
+    writer.add("vga.bin", 7, &mut &b"program"[..]).unwrap();
+    writer.finish().unwrap();
+    env.zip("acmevgax.zip", &["vgax.bin"]);
+    env.place("blaster", &["gfx.u4", "prog.u3"]);
+    env.layout(layout);
+    env.audit();
+    if optional {
+        // The clone wants the optional ROM, as an Ingest Folder holds the device whole, whose ZIP is in the way.
+        write_zip(&env.tmp.path().join("in/acmevga.zip"), &["vga.bin"]);
+    }
+    env.ingest("blasterj.zip", &["gfxj.u4", "progj.u3"]);
+
+    let plan = env.plan();
+
+    let conflict = (plan.content.items.iter())
+        .find(|i| i.kind == RepairKind::Conflict)
+        .unwrap_or_else(|| panic!("{at}: {:#?}", plan.content.items));
+    assert_eq!(conflict.chosen, RepairChoice::Leave, "{at}: {conflict:#?}");
+    assert!(
+        (plan.content.items.iter())
+            .all(|i| i.path.as_deref() != Some("acmevgax.zip") || i.chosen == RepairChoice::Leave),
+        "{at}: {:#?}",
+        plan.content.items
+    );
+    applying_by_default_loses_no_payload(&env, &plan, &at);
+}
+
+/// Every ROM payload a file holds before `plan` is applied as it is by default, in the Source Set's folder or where a
+/// Game is placed, some file there still holds after, outside the kept files: no copy is only kept aside.
+fn applying_by_default_loses_no_payload(env: &Env, plan: &RepairPlan, at: &str) {
+    let before = rom_payloads(env);
+    if (plan.content.items.iter()).any(|i| i.chosen != RepairChoice::Leave) {
+        env.approve(plan);
+    }
+    let after = rom_payloads(env);
+    let lost: Vec<String> = (before.difference(&after))
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect();
+    assert!(
+        lost.is_empty(),
+        "{at}: lost {lost:?}\n{:#?}",
+        plan.content.items
+    );
+}
+
+/// Each payload of a ROM that a file in the Source Set's folder or the Library Folder holds, as a member of a ZIP or as
+/// a loose file, leaving out the kept files.
+fn rom_payloads(env: &Env) -> std::collections::BTreeSet<Vec<u8>> {
+    const ROMS: [&str; 9] = [
+        "bios.u1",
+        "snd.u2",
+        "prog.u3",
+        "gfx.u4",
+        "progj.u3",
+        "extra.u6",
+        "vga.bin",
+        "gamebios.u1",
+        "gfxj.u4",
+    ];
+    let known: Vec<&[u8]> = ROMS.iter().map(|r| payload(r)).collect();
+    let mut held = std::collections::BTreeSet::new();
+    for dir in [env.set(), env.library()] {
+        for e in walkdir::WalkDir::new(&dir).min_depth(1) {
+            let e = e.unwrap();
+            let rel = e.path().strip_prefix(&dir).unwrap();
+            if !e.file_type().is_file() || rel.starts_with(".title-select") {
+                continue;
+            }
+            let bytes = std::fs::read(e.path()).unwrap();
+            let payloads = match zip::ZipArchive::new(std::io::Cursor::new(&bytes)) {
+                Ok(mut zip) => (0..zip.len())
+                    .map(|n| {
+                        let mut member = Vec::new();
+                        std::io::Read::read_to_end(&mut zip.by_index(n).unwrap(), &mut member)
+                            .unwrap();
+                        member
+                    })
+                    .collect(),
+                Err(_) => vec![bytes],
+            };
+            held.extend(
+                payloads
+                    .into_iter()
+                    .filter(|p| known.contains(&p.as_slice())),
+            );
+        }
+    }
+    held
+}
+
+#[test]
+fn applying_a_default_plan_in_any_layout_never_leaves_a_rom_payload_only_in_the_kept_files() {
+    for stored in SetLayout::ALL {
+        for layout in SetLayout::ALL {
+            for (n, (zip, _)) in family(stored).into_iter().enumerate() {
+                for placed in [None, Some("blaster"), Some("blasterj")] {
+                    let at = format!(
+                        "stored {stored:?}, repaired {layout:?}, no {zip}, {placed:?} placed"
+                    );
+                    let env = Env::new();
+                    for (m, (zip, members)) in family(stored).into_iter().enumerate() {
+                        let game = zip.trim_end_matches(".zip");
+                        if m != n && Some(game) != placed {
+                            env.zip(zip, &members);
+                        }
+                    }
+                    if let Some(game) = placed {
+                        let own = (family(SetLayout::NonMerged).into_iter())
+                            .find(|(zip, _)| *zip == format!("{game}.zip"))
+                            .map(|(_, members)| members)
+                            .unwrap();
+                        env.place(game, &own);
+                    }
+                    env.zip("copies.zip", &["bios.u1", "gfx.u4", "snd.u2"]);
+                    env.layout(layout);
+                    env.audit();
+                    let plan = env.plan();
+                    applying_by_default_loses_no_payload(&env, &plan, &at);
+                }
+            }
+        }
     }
 }
