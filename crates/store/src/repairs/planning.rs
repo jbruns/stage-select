@@ -678,27 +678,27 @@ impl<T: Copy> Copies<T> {
         self.copies.push((sums, at));
     }
 
-    /// Whether a copy of `rom` is where `at` accepts ([`Copies::all_where`]).
+    /// Whether a copy of `rom` is where `at` accepts ([`Copies::of`]).
     fn any_where(&self, rom: &Sums, at: impl Fn(T) -> bool) -> bool {
-        let Some(first) = rom.keys().into_iter().next() else {
-            return false;
-        };
-        (self.by_key.get(&first).into_iter().flatten())
-            .map(|&n| &self.copies[n])
-            .any(|(sums, here)| sums.pins(rom) && at(*here))
+        self.of(rom).any(at)
     }
 
-    /// Where each copy of `rom` is. A ROM the DAT gives no checksum for has none: no bytes are known to be it.
+    /// Where each copy of `rom` is ([`Copies::of`]).
     fn all_where(&self, rom: &Sums) -> Vec<T> {
+        self.of(rom).collect()
+    }
+
+    /// Where each copy of `rom` is, in turn. A ROM the DAT gives no checksum for has none: no bytes are known to be it.
+    fn of<'s>(&'s self, rom: &'s Sums) -> impl Iterator<Item = T> + 's {
         // A copy of it gives every checksum it gives, the first among them included.
-        let Some(first) = rom.keys().into_iter().next() else {
-            return Vec::new();
-        };
-        (self.by_key.get(&first).into_iter().flatten())
-            .map(|&n| &self.copies[n])
-            .filter(|(sums, _)| sums.pins(rom))
-            .map(|(_, here)| *here)
-            .collect()
+        let first = rom.keys().into_iter().next();
+        (first
+            .and_then(|first| self.by_key.get(&first))
+            .into_iter()
+            .flatten())
+        .map(|&n| &self.copies[n])
+        .filter(|(sums, _)| sums.pins(rom))
+        .map(|(_, here)| *here)
     }
 }
 
@@ -3066,9 +3066,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .filter(|u| !preserved.stays_beside(&u.path, &u.rom))
         .map(|u| u.item)
         .collect();
-    // Every Keep of a Repair item waits for its cover, as the loop that leaves an item keeping aside a last copy leaves
-    // one that can't ([`WAITS_ON_LATER`]); a file kept aside on its own is kept after every write but a conversion's,
-    // which never needs waiting for.
+    // Every Keep of a Repair item but a release's waits for its cover, as the loop that leaves an item keeping aside a
+    // last copy leaves one that can't ([`WAITS_ON_LATER`]); a file kept aside on its own is kept after every write but
+    // a conversion's, which never needs waiting for.
     if let Some(item) = ungated.first() {
         return Err(Error::Refused(format!(
             "{item} would keep a file aside before the copy it relies on is written; plan again"
@@ -3350,14 +3350,18 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, Vec<Ungated
         .filter(|p| !p.converts.is_empty() || p.release.is_some())
         .map(|p| p.item.key.as_str())
         .collect();
+    let releases: BTreeSet<&str> = (applied.iter())
+        .filter(|p| p.release.is_some())
+        .map(|p| p.item.key.as_str())
+        .collect();
     let mut ungated = Vec::new();
     let mut extra_needs: Vec<(usize, Vec<u32>)> = Vec::new();
     for (k, s) in steps.iter().enumerate() {
         let RepairStep::Keep { path, needs, .. } = &s.step else {
             continue;
         };
-        // A release's Keeps come first, by its own rules, and a conversion's after its own writes.
-        let waits = !apart.contains(s.item.as_str());
+        // A release's Keeps come first, by its own rules (ADR 0023).
+        let waits = !releases.contains(s.item.as_str());
         let publishes = |b: u32| {
             (published.iter())
                 .filter(move |(of, _)| *of == b)
