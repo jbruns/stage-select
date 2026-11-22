@@ -22,6 +22,7 @@ pub mod selection;
 mod source_set;
 pub mod source_sets;
 mod storage;
+mod welcome;
 
 pub use about::About;
 pub use additions::Additions;
@@ -43,3 +44,4 @@ pub use selection::{NewSelection, SelectionScreen};
 pub use source_set::SourceSet;
 pub use source_sets::SourceSets;
 pub use storage::StoragePolicyScreen;
+pub use welcome::{Home, Welcome};

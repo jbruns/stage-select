@@ -614,8 +614,9 @@ pub fn SourceSets() -> impl IntoView {
     }
 }
 
+/// The form to register a Source Set; `on_added` gets its name.
 #[component]
-fn Register(on_added: Callback<String>) -> impl IntoView {
+pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
     let roots = LocalResource::new(|| api::get::<Vec<Root>>("/roots"));
     let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
     let defaults = LocalResource::new(|| api::get::<PathTemplateDefaults>("/path-templates"));

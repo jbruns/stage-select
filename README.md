@@ -415,7 +415,10 @@ the service needs before it starts are flags and environment variables instead; 
 A root is a folder Title Select may read: the source sets in it, the play library folders it builds into, an ingest
 folder, or the additions sets. Title Select reads none of your folders until you register a root for them. You
 register, edit and unregister roots under Settings, then Roots, in the workbench; with `title-select root`; or with
-the API (see "HTTP API"). Each root has:
+the API (see "HTTP API"). To help you find the path, the workbench suggests the folders the service can see
+directly under `/data`, `/mnt`, `/media` and `/srv`, and those mount points themselves, and says whether it can
+write to each. It lists at most 50 folders under each, follows no symbolic link, and leaves out the roots you've
+registered. Each root has:
 
 - **A name**, fixed once registered: everything you register in the root refers to it by name. It can't be empty,
   hold a `/` or a control character, or begin or end with a space.
@@ -1861,6 +1864,7 @@ What these versions promise you:
 | `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it or a plan under way writes to it, naming them |
 | `POST /api/v1/roots/{name}/unregistration`         | unregister a root, touching no file; `204`, or `409` naming what is registered in it |
 | `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at"}`, `action` being `registered`, `edited` or `unregistered`, and `after` the root as it left it |
+| `GET /api/v1/folder-suggestions`                   | the folders you could register as roots: `{"folders": [{"path", "writable"}], "more"?}`, each of `/data`, `/mnt`, `/media` and `/srv` that exists and the folders directly in it, sorted, leaving out hidden folders, symbolic links and your roots; at most 50 under each, `more` being `true` when it left some out |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision, each with `blockers`: what stops you deleting it, empty when nothing does |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `source_url`?, `file`; its provider, name and metadata come from the DAT |
@@ -2296,6 +2300,11 @@ finished job shows what it read and wrote and its average.
 
 Its screens:
 
+- **Set up**, at `/welcome`, is where the workbench opens while you have no roots; once you have one, it opens on
+  Source sets. It takes you to your first audit in steps, each saying what it does: register a root, choosing from
+  the folders the service can see (see "Roots") or typing a path; import a DAT, or fetch one on DATs; register a
+  source set in a read-only root; audit it; and, once you have a writable root, make a library folder. Each step
+  waits for the one it needs, and you can skip any of them and take it later from the screen it names.
 - **Source sets** lists each source set with its status (running, repair open, needs review, stale, resting on
   claims, verified or never audited); a stale status carries an icon for each cause, files changed or a newer DAT
   revision, and a set whose latest audit matched entries only on claims

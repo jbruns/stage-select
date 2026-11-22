@@ -223,6 +223,7 @@ impl Env {
             romm_scan_timing: None,
             calibration_limits: None,
             notify_backoff: Some([Duration::ZERO; 2]),
+            mount_points: None,
         })
         .unwrap()
     }

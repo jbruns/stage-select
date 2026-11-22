@@ -178,3 +178,21 @@ pub struct RootChange {
     pub changed_by: String,
     pub changed_at: String,
 }
+
+/// The folders `GET /folder-suggestions` suggests registering as Roots: each common mount point the Service can see,
+/// and the folders directly in it, but for those already registered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderSuggestions {
+    pub folders: Vec<FolderSuggestion>,
+    /// Some mount point held more than the listing reads, so some of its folders aren't suggested.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub more: bool,
+}
+
+/// A folder to register as a Root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderSuggestion {
+    pub path: String,
+    /// Whether the Service can write to it now, as it would check when the Root is registered writable.
+    pub writable: bool,
+}

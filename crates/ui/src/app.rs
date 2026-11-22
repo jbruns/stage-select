@@ -17,10 +17,11 @@ use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
 use crate::screens::{
-    About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
+    About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, Home, IngestFolderScreen,
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
     NewLibraryFolder, NewProfile, NewSelection, Operations, ProfileScreen, Profiles, Roots,
-    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, provide_planner,
+    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, Welcome,
+    provide_planner,
 };
 use crate::shell::{SeenJobs, needing_attention, waiting_on_decision};
 
@@ -50,7 +51,8 @@ pub fn App() -> impl IntoView {
             </header>
             <main id="main" tabindex="-1">
                 <Routes fallback=|| view! { <NotFound /> }>
-                    <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" options=replace() /> } />
+                    <Route path=path!("/") view=Home />
+                    <Route path=path!("/welcome") view=Welcome />
                     <Route path=path!("/source-sets") view=SourceSets />
                     <Route path=path!("/source-sets/:name") view=SourceSet />
                     <Route path=path!("/dats") view=DatRevisions />

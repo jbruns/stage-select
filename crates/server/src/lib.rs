@@ -62,6 +62,10 @@ pub struct Settings {
     /// The wait before the second and third attempt at a webhook event, so tests needn't wait seconds.
     #[doc(hidden)]
     pub notify_backoff: Option<[std::time::Duration; 2]>,
+    /// The mount points whose folders the workbench suggests registering as Roots, instead of the common ones, so
+    /// tests needn't read the Host's.
+    #[doc(hidden)]
+    pub mount_points: Option<Vec<PathBuf>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -100,6 +104,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         romm_scan_timing,
         calibration_limits,
         notify_backoff,
+        mount_points,
     } = settings;
     let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
@@ -242,6 +247,14 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             fetch_endpoints.unwrap_or_else(Endpoints::official),
         )),
         coverage: Arc::default(),
+        mount_points: mount_points
+            .unwrap_or_else(|| {
+                title_select_store::roots::MOUNT_POINTS
+                    .iter()
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .into(),
     };
     let app = routes::router(state.clone(), Arc::new(auth), ui.as_deref());
     Ok(Prepared {

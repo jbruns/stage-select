@@ -823,8 +823,9 @@ fn revision_detail(item: RevisionItem) -> AnyView {
     .into_any()
 }
 
+/// The form to import a DAT file.
 #[component]
-fn Upload(on_done: Callback<()>) -> impl IntoView {
+pub(crate) fn Upload(on_done: Callback<()>) -> impl IntoView {
     let form = NodeRef::<Form>::new();
     let outcome = RwSignal::new(None::<Result<ImportedDatRevision, String>>);
     let busy = RwSignal::new(false);

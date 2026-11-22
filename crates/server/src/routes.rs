@@ -33,7 +33,7 @@ use title_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
     RommTestRequest,
 };
-use title_select_api::roots::{RootChange, RootEdited, RootSpec};
+use title_select_api::roots::{FolderSuggestions, RootChange, RootEdited, RootSpec};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::settings::{SettingsUpdate, SettingsView};
 use title_select_api::storage::StoragePolicy;
@@ -74,6 +74,8 @@ pub struct AppState {
     pub previews: Arc<Previews>,
     pub fetcher: Arc<Fetcher>,
     pub coverage: Arc<coverage::Tallies>,
+    /// The mount points whose folders are suggested as Roots.
+    pub mount_points: Arc<[std::path::PathBuf]>,
 }
 
 impl AppState {
@@ -95,6 +97,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/roots/{name}", put(edit_root))
         .route("/roots/{name}/unregistration", post(unregister_root))
         .route("/roots/{name}/changes", get(root_changes))
+        .route("/folder-suggestions", get(folder_suggestions))
         .route("/dats", get(dats))
         .route(
             "/dat-revisions",
@@ -429,6 +432,17 @@ async fn health() -> Json<Health> {
 /// Every registered Root, as it is now.
 async fn roots(State(state): State<AppState>) -> Json<Vec<Root>> {
     Json(state.store.roots_view())
+}
+
+/// The folders of the mount points to suggest registering as Roots. Read off the async workers, as a mount point
+/// may be a slow share.
+async fn folder_suggestions(State(state): State<AppState>) -> ApiResult<Json<FolderSuggestions>> {
+    let mount_points = state.mount_points.clone();
+    blocking(&state, move |store| {
+        Ok(store.folder_suggestions(&mount_points))
+    })
+    .await
+    .map(Json)
 }
 
 /// Registers a Root. Refused unless its folder exists, and can be written when it's declared writable, and unless
@@ -2549,6 +2563,7 @@ mod tests {
                 "http://127.0.0.1:9",
             ))),
             coverage: Arc::default(),
+            mount_points: Arc::new([]),
         }
     }
 
