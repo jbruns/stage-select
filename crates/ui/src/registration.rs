@@ -1,4 +1,4 @@
-//! The source set registration form's pure logic: the path a Path Template proposes for a DAT, the live preview
+//! The Source Set registration form's pure logic: the path a Path Template proposes for a DAT, the live preview
 //! of the folder the registration would use, and whether the DAT takes a Coverage.
 
 use title_select_api::Dat;

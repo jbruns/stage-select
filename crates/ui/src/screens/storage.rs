@@ -743,8 +743,8 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
 mod tests {
     use super::*;
 
-    /// The set layout help keeps one line in view and names each layout as you choose it, says when a repair sets a ZIP
-    /// aside, and calls disks a merged CHD set, beneath it.
+    /// The Set Layout help keeps one line in view and names each layout as the Operator chooses it, says when a Repair
+    /// sets a ZIP aside, and calls Disks a merged CHD set, beneath it.
     #[test]
     fn the_set_layout_help_names_each_layout_and_when_a_zip_is_set_aside() {
         assert!(

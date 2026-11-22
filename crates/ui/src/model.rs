@@ -1736,7 +1736,7 @@ mod tests {
     #[test]
     fn a_games_disks_are_those_the_audit_counted_for_it_and_those_absent_with_any_chd_named_for_them()
      {
-        // blaster/blaster.chd counts for the parent's disk, and for its clone's under its own name and another.
+        // blaster/blaster.chd counts for the parent's Disk, and for its clone's under its own name and another.
         let entries = rows(vec![
             disk(
                 "blaster/blaster.chd",
@@ -1785,7 +1785,7 @@ mod tests {
         kinst2.disks = vec!["kinst2.chd".into()];
         kinst2.missing_roms = vec!["kinst2.chd".into(), "u98.l2".into()];
         let absent = disks.of_game(&kinst2);
-        assert_eq!(absent.len(), 1, "only a disk the DAT lists is a disk");
+        assert_eq!(absent.len(), 1, "only a Disk the DAT lists is a Disk");
         assert_eq!(absent[0].name, "kinst2.chd");
         assert!(absent[0].held.is_none() && absent[0].needed);
         assert!(absent[0].notes.is_empty());
