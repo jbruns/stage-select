@@ -4,7 +4,7 @@
 //! payload, so that consuming them loses nothing. A file the Source Set doesn't hold, such as a disc's `.m3u` or SBI
 //! file, is written into the folder as before. Every other release is copied as before, and the plan's notes say why.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 
 use title_select_api::DatFormat;
@@ -28,6 +28,8 @@ const UNCHECKED: &str = "its files here weren't all found as they were built, so
                          set's files";
 const MIXED: &str = "some of its files are built here already and others aren't";
 const NOT_BUILT: &str = "not every file of it can be built here";
+const READ_ELSEWHERE: &str = "another game's file is written from its ZIP in the source set too, so that ZIP stays \
+                              there";
 const NOT_SELF_CONTAINED: &str = "its ZIP in the source set doesn't yet hold every ROM it needs, so it is written from \
                                   other games' ZIPs too, which stay there";
 
@@ -115,11 +117,25 @@ pub(super) fn place(
             releases.entry(release_of(&item.game)).or_default().push(i);
         }
     }
+    // Each Source Set file a copy or a repack reads, by the releases that read it: placing it would take it out from
+    // under another release, so only a release that alone reads a file may consume it.
+    let mut readers: HashMap<String, HashSet<String>> = HashMap::new();
+    for item in items
+        .iter()
+        .filter(|i| matches!(i.kind, ItemKind::Copy | ItemKind::Repack))
+    {
+        for source in &item.sources {
+            readers
+                .entry(source.path.clone())
+                .or_default()
+                .insert(release_of(&item.game));
+        }
+    }
     let mut copied: BTreeMap<&'static str, usize> = BTreeMap::new();
     let (mut renamed, mut copies, mut converted, mut built) = (0, 0, 0, 0);
     let mut chds = 0;
     let (mut freed, mut written) = (0u64, 0u64);
-    for (_, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
+    for (name, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
         // A Disk is always copied, never placed: one family's folder of Disks may serve several Games.
         let placing: Vec<usize> = members
             .iter()
@@ -142,6 +158,15 @@ pub(super) fn place(
             }
             Err(None) => continue,
         };
+        let read_elsewhere = planned.iter().flat_map(|f| &f.originals).any(|o| {
+            readers
+                .get(&o.path)
+                .is_some_and(|by| by.iter().any(|r| r != name))
+        });
+        if read_elsewhere {
+            *copied.entry(READ_ELSEWHERE).or_default() += 1;
+            continue;
+        }
         let how = match (
             planned.iter().all(|f| f.built),
             planned.iter().any(|f| f.built),

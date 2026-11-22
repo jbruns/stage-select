@@ -1402,8 +1402,9 @@ A library folder of a MAME ListXML holds each selected game ready to play, as MA
   merged one it is repacked from the family's ZIPs and its dependencies' ZIPs, and checked against the DAT, as any
   repack is. Both give the same bytes.
 - `<game>/<disk>.chd` for each of its disks, copied from where your source set keeps them, normally the family's
-  folder, `<parent>/`, and checked: the copy must be the same bytes as the CHD the latest audit verified, and its
-  header must record the disk's SHA-1. A clone's disks go in the clone's own folder.
+  folder, `<parent>/`, and checked: `chdman verify` must prove the copy's data hashes to the SHA-1 its header records,
+  and that SHA-1 must be the disk's. A CHD damaged since the latest audit fails its build item, and nothing of its game
+  is put in place. A clone's disks go in the clone's own folder.
 
 A game whose own ROMs are all there, but not every ROM of a dependency, such as a device's, isn't built: its plan item
 has no source and names the dependency, and the folder is incomplete as **missing dependency**. So is one lacking a
@@ -1443,8 +1444,9 @@ How a game moves depends on where the folders are:
 For a MAME ListXML, single copy places a game only from a non-merged source set, where its ZIP is the game's own: a
 split or merged ZIP holds more than one game's ROMs, so under those set layouts nothing is placed, each game is copied,
 and the plan says why; the storage policy says single copy has no effect for the system. A game whose ZIP doesn't
-yet hold every ROM it needs, before a repair has repacked it, is copied too. A game's disks are always copied, never
-placed, as one family's disk folder may serve several games.
+yet hold every ROM it needs, before a repair has repacked it, is copied too, and so is one whose ZIP another game in
+the plan is written from, such as the only ZIP holding a device's ROM: the ZIP stays in the source set for that game. A
+game's disks are always copied, never placed, as one family's disk folder may serve several games.
 
 Renames need one mount. A deployment that binds the source set and the library folder as two separate mounts, such
 as two volumes of one container, sees two filesystems even when they share a disk, so its games are copied, read

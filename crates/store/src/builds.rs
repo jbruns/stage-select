@@ -916,7 +916,7 @@ fn stage(
         return stage_from_placed_chd((item, seq), file, placed, chd, built_at);
     }
     if item.disk {
-        return stage_disk(item, file, set_fd, chd, built_at);
+        return stage_disk((item, seq), file, staged, set_fd, chd, built_at);
     }
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
@@ -1082,12 +1082,14 @@ fn stage(
     })
 }
 
-/// Copies `item`, a Disk of an Arcade DAT's Game, to `file`, new in the staging directory, from the CHD its Source Set
-/// keeps, opened by descriptor while it is the file the plan found there, as the Audit's `chdman verify` proved it. The
-/// copy is the Disk when it is that file byte for byte, by their SHA-256s, and its header records the Disk's SHA-1.
+/// Copies `item`, the Build's item `seq`, a Disk of an Arcade DAT's Game, to `file`, new in the staging directory at
+/// `staged`, from the CHD its Source Set keeps, opened by descriptor. The copy is the Disk once `chdman verify` proves
+/// its data hashes to the SHA-1 its header records, and that SHA-1 is the DAT's: as a ZIP's members are checked against
+/// the DAT, never against the source's bytes, which may have changed since the Audit read them.
 fn stage_disk(
-    item: &PlanItem,
+    (item, seq): (&PlanItem, i64),
     file: &mut File,
+    staged: &Path,
     set: &std::result::Result<FolderDir, String>,
     chd: &ChdWork,
     built_at: SystemTime,
@@ -1097,36 +1099,15 @@ fn stage_disk(
             "a disk is copied from one CHD for its one disk".into(),
         ));
     };
-    let staged =
-        |e: io::Error| Failure::Folder(format!("the staged file for {}: {e}", item.target));
+    let staged_err = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
     let from = open_either(set, &chd.placed, source).map_err(Failure::Item)?;
-    let before = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
     copy_chunked(&from, &chd.from, file, &chd.to)
         .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
     chd.from.file_read();
     chd.to.file_written();
-    file.sync_all().map_err(staged)?;
-    let (read, _) =
-        sha256_of(&from, &chd.from).map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
-    let after = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
-    if file_stat(&after) != file_stat(&before)
-        || crate::folder_dir::ctime_ns(&after) != crate::folder_dir::ctime_ns(&before)
-    {
-        return Err(Failure::Item(format!(
-            "{} changed while it was read",
-            source.path
-        )));
-    }
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
-        .map_err(staged)?;
-    let (sha256, size) = sha256_of(file, &chd.to).map_err(staged)?;
-    if sha256 != read || size != source.file.size {
-        return Err(Failure::Item(format!(
-            "{} does not verify: it is not a copy of {}",
-            item.target, source.path
-        )));
-    }
+        .map_err(staged_err)?;
     let header =
         chd::header(file).map_err(|why| Failure::Item(format!("{}: {why}", item.target)))?;
     if rom.sha1.as_deref() != Some(header.sha1.as_str()) {
@@ -1135,6 +1116,27 @@ fn stage_disk(
             item.target, header.sha1
         )));
     }
+    let chdman = Chdman {
+        deadline: chd.limits.for_bytes(header.logical_bytes),
+        ..chd.chdman.clone().map_err(Failure::Item)?
+    };
+    let dir = chd_dir(&chd.tmp, chd.build, seq);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| Failure::Item(format!("{}: {e}", dir.display())))?;
+    let _scratch = Scratch(dir.clone());
+    let input = std::path::absolute(staged).map_err(staged_err)?;
+    match chdman.verify_in_place(&dir, &input, chd.cancelled) {
+        Ok(()) => {}
+        Err(_) if (chd.cancelled)() => return Err(Failure::Cancelled),
+        Err(why) => {
+            return Err(Failure::Item(format!(
+                "{} does not verify: {}",
+                item.target,
+                why.why()
+            )));
+        }
+    }
+    let (sha256, size) = sha256_of(file, &chd.to).map_err(staged_err)?;
     Ok(Staged {
         sha256,
         size,
@@ -2419,7 +2421,7 @@ impl Store {
         let chd_work = ChdWork {
             // A return extracts any CHD it takes home, and an item read from a placed CHD reads it so.
             chdman: match work.iter().any(|w| {
-                (w.item.chd && !w.item.disk)
+                w.item.chd
                     || w.item
                         .sources
                         .iter()

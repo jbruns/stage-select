@@ -1,7 +1,7 @@
 //! Building an arcade Selection into a MAME Library Folder (ADR 0026): each selected Game is `<shortname>.zip`,
 //! non-merged with its Dependencies' ROMs inside, copied from a non-merged Source Set or repacked from a split or merged
 //! one, and its Disks are copied into `<shortname>/`. A Library Folder lacking a Dependency is Incomplete, and Single
-//! Copy places only a non-merged Source Set's ZIPs, never a Disk.
+//! Copy places only a non-merged Source Set's ZIPs that no other Game is written from, never a Disk.
 //!
 //! The tests with Disks make their CHDs with chdman, found as the store finds it. Where it is missing they are skipped,
 //! except in CI, where they fail.
@@ -11,15 +11,15 @@ use std::path::{Path, PathBuf};
 
 use crate::common::noise;
 use title_select_api::build::{
-    AddLibraryFolder, FileOutcome, FolderCheck, IncompleteReason, ItemKind, LibraryFolder, Plan,
-    PlanItem,
+    AddLibraryFolder, BuildItem, FileOutcome, FolderCheck, IncompleteReason, ItemKind, ItemState,
+    LibraryFolder, Plan, PlanItem,
 };
 use title_select_api::selection::{
     CoverageDrift, Dependency, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, Winner,
 };
 use title_select_api::storage::{SetLayout, SystemStorage};
-use title_select_api::{AuditEvidence, JobKind, JobState};
+use title_select_api::{AuditEvidence, Job, JobKind, JobState};
 use title_select_engine::torrentzip;
 use title_select_store::config::Config;
 use title_select_store::{Store, Workers};
@@ -344,8 +344,8 @@ impl Env {
         self.store.latest_check(self.folder.id).unwrap().unwrap()
     }
 
-    /// Approves `plan`, then claims and runs its Build Job, which succeeds.
-    fn build(&self, plan: &Plan) {
+    /// Approves `plan`, then claims and runs its Build Job, which succeeds; returns the ended Job.
+    fn build(&self, plan: &Plan) -> Job {
         assert!(
             plan.content.blockers.is_empty(),
             "{:#?}",
@@ -361,6 +361,18 @@ impl Env {
             .run_build_job(&self.config, job.id, None)
             .unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        ended
+    }
+
+    /// The Build of the ended Job `job`'s item for `target`.
+    fn built_item(&self, job: &Job, target: &str) -> BuildItem {
+        let build = self.store.build_of_job(job.id).unwrap().unwrap();
+        let detail = self.store.build(build.id).unwrap();
+        detail
+            .items
+            .into_iter()
+            .find(|i| i.target == target)
+            .unwrap_or_else(|| panic!("no item {target}"))
     }
 }
 
@@ -632,4 +644,100 @@ fn single_copy_places_no_game_whose_zip_isnt_yet_self_contained() {
         files(&env.set()),
         ["acmebios.zip", "acmesnd.zip", "blaster.zip", "blasterj.zip"]
     );
+}
+
+#[test]
+fn a_disk_whose_chd_was_damaged_after_its_audit_is_never_put_in_place() {
+    let Some(env) = with_disk() else { return };
+    env.audit();
+    // A byte of its data changes, and its header, with the SHA-1 it records, doesn't.
+    let chd = env.set().join("blaster/blaster.chd");
+    let mut bytes = std::fs::read(&chd).unwrap();
+    let at = bytes.len() / 2;
+    bytes[at] ^= 0xff;
+    std::fs::write(&chd, bytes).unwrap();
+    let plan = env.plan(env.select(&["blaster"]));
+    let ended = env.build(&plan);
+
+    let disk = env.built_item(&ended, "blaster/blaster.chd");
+    assert_eq!(disk.state, ItemState::Failed, "{disk:?}");
+    let error = disk.error.as_deref().unwrap();
+    assert!(
+        error.contains("blaster/blaster.chd does not verify"),
+        "{error}"
+    );
+    // A game's files are put in place together, so nothing of it is.
+    assert!(files(&env.library()).is_empty());
+    let folder = env
+        .store
+        .library_folder(&env.config, env.folder.id)
+        .unwrap();
+    let counts = folder.incomplete.expect("the folder lacks the game");
+    assert!(counts.get(IncompleteReason::Failed) > 0, "{counts:?}");
+}
+
+#[test]
+fn a_placed_games_disk_is_planned_as_a_copy_of_its_own_when_planned_again() {
+    let Some(env) = with_disk() else { return };
+    env.single_copy();
+    env.audit();
+    let selection = env.select(&["blaster"]);
+    env.build(&env.plan(selection));
+
+    // Its ZIP is placed, and its Disk, a copy, is as built.
+    let again = env.plan(selection);
+    assert_eq!(item(&again, "blaster.zip").kind, ItemKind::Unchanged);
+    let disk = item(&again, "blaster/blaster.chd");
+    assert_eq!(disk.kind, ItemKind::Unchanged, "{disk:#?}");
+
+    // Once the copy is gone, it is copied again from the source set.
+    std::fs::remove_file(env.library().join("blaster/blaster.chd")).unwrap();
+    env.check();
+    let rebuilt = env.plan(selection);
+    let disk = item(&rebuilt, "blaster/blaster.chd");
+    assert_eq!(disk.kind, ItemKind::Copy, "{disk:#?}");
+    env.build(&rebuilt);
+    assert_eq!(
+        std::fs::read(env.library().join("blaster/blaster.chd")).unwrap(),
+        std::fs::read(env.set().join("blaster/blaster.chd")).unwrap()
+    );
+}
+
+#[test]
+fn single_copy_places_no_zip_another_game_is_repacked_from() {
+    let env = Env::with(listxml(None), None);
+    env.layout(SetLayout::NonMerged);
+    env.single_copy();
+    // The parent's ZIP is whole, and the only one to hold the device's ROM, which the clone's lacks.
+    write_zip(
+        &env.set().join("blaster.zip"),
+        &["bios.u1", "gfx.u4", "prog.u3", "snd.u2"],
+    );
+    write_zip(
+        &env.set().join("blasterj.zip"),
+        &["bios.u1", "gfxj.u4", "progj.u3"],
+    );
+    env.audit();
+    let plan = env.plan(env.select(&["blaster", "blasterj"]));
+    let clone = item(&plan, "blasterj.zip");
+    assert_eq!(clone.kind, ItemKind::Repack);
+    assert!(
+        clone.sources.iter().any(|s| s.path == "blaster.zip"),
+        "{clone:#?}"
+    );
+    let parent = item(&plan, "blaster.zip");
+    assert_eq!(parent.kind, ItemKind::Copy, "{parent:#?}");
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "1 game's files are copied rather than placed: another game's file is written from its ZIP in the \
+                source set too, so that ZIP stays there"),
+        "{:#?}",
+        plan.content.notes
+    );
+    env.build(&plan);
+    assert_eq!(
+        members(&env.library().join("blasterj.zip")),
+        ["bios.u1", "gfxj.u4", "progj.u3", "snd.u2"]
+    );
+    assert!(env.set().join("blaster.zip").is_file());
 }

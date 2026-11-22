@@ -2062,7 +2062,8 @@ fn plan_items(
 /// folder: `Ok` when it is one of the game's placed files, at its target and as the plan stores it, and the check made
 /// with the plan found it as it was placed, so in place already; else what the item is and why. It is never written
 /// over or kept aside: a placed file the check found missing or changed is reported, and left as it is. None when
-/// neither is so.
+/// neither is so. A Disk of an Arcade DAT's Game is always the folder's own copy, never placed: only another placed
+/// file at its name stands in its way.
 fn placed_here(
     inputs: &Inputs,
     scan: Option<&Scan>,
@@ -2074,7 +2075,7 @@ fn placed_here(
     let of_game: Vec<&str> = inputs
         .placed
         .iter()
-        .filter(|p| p.game == game)
+        .filter(|p| p.game == game && !item.disk)
         .map(|p| p.path.as_str())
         .collect();
     let set = &inputs.folder.source_set;
