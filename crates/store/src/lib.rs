@@ -375,6 +375,8 @@ pub enum Fault {
     FolderRegistering,
     /// Before a change to what is registered waits for another under way to finish.
     LifecycleWaiting,
+    /// After an edit of a Root takes the lifecycle lock, before it checks and records the edit.
+    RootEditing,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
     /// either folder is synced.
     SourceKeptMoved(i64),

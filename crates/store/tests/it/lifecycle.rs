@@ -535,6 +535,11 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         env.store.forget(RegistrationKind::AdditionsSet, set.id),
         Err(Error::Refused(ref why)) if why.contains("kept files")
     ));
+    let held = env.store.unregister_root("additions", "Operator");
+    assert!(
+        matches!(&held, Err(Error::Conflict(why)) if why.contains("kept additions of the unregistered additions set")),
+        "the root holds the kept files you may still delete: {held:?}"
+    );
 
     let kept = env.store.additions_kept_files_by_id(set.id).unwrap();
     assert_eq!(kept.len(), 1);
@@ -1292,6 +1297,30 @@ fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reu
 
 /// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or once
 /// `act` waits for `call`'s change to what is registered to finish.
+#[test]
+fn a_source_set_is_checked_against_its_root_as_an_edit_under_way_leaves_it() {
+    let env = Env::new();
+    let more = env.tmp.path().join("more");
+    std::fs::create_dir_all(more.join("Beta")).unwrap();
+    crate::register(&env.store, &[RootSpec::new("more", &more)]);
+
+    let (edited, added) = race(
+        &env.store,
+        Fault::RootEditing,
+        || {
+            env.store
+                .edit_root("more", &RootSpec::new("more", &more).writable(), "Operator")
+        },
+        || env.store.add_source_set("more", "Beta", SYSTEM),
+    );
+
+    edited.unwrap();
+    assert!(
+        matches!(&added, Err(Error::Refused(why)) if why.contains("root more is writable")),
+        "{added:?}"
+    );
+}
+
 fn race<A: Send, B: Send>(
     store: &Store,
     fault: Fault,

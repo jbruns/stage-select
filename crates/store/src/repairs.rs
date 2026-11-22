@@ -242,7 +242,7 @@ fn walk_with_placed(
 }
 
 /// The Library Folders holding Placed Games whose files the steps of `content` read, write, rename or keep aside.
-fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
+pub(crate) fn placed_folders(content: &RepairPlanContent) -> BTreeSet<i64> {
     content
         .steps
         .iter()
@@ -1396,6 +1396,7 @@ impl Store {
             return Err(Error::Refused(why));
         }
         self.fault_point(crate::Fault::RepairApproving);
+        let _lifecycle = self.lock_roots_unchanged(roots)?;
         self.write(|tx| {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.

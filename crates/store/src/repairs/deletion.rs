@@ -488,7 +488,9 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
+        let roots = self.roots();
         self.open_owner(owner, set)?.map_err(Error::Refused)?;
+        let lifecycle = self.lock_roots_unchanged(&roots)?;
         self.write(|tx| {
             if let Some(busy) = owner.busy(tx, set)? {
                 return Err(Error::Conflict(busy));
@@ -525,6 +527,7 @@ impl Store {
             }
             Ok(())
         })?;
+        drop(lifecycle);
         if let Err(why) = self.carry_out_kept_deletion(owner, id)? {
             return Err(Error::Refused(why));
         }

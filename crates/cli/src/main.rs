@@ -381,7 +381,8 @@ enum RootCommand {
         #[command(flatten)]
         options: RootOptions,
     },
-    /// Unregister a root; no file is touched. Refused while anything is registered in it.
+    /// Unregister a root; no file is touched. Refused while anything is registered in it, it holds kept files you can
+    /// still delete, or unfinished work reads or writes in it.
     Unregister { name: String },
     /// Show what is registered in a root.
     Holds { name: String },

@@ -1411,6 +1411,8 @@ impl Store {
         }
         let content = &plan.content;
         let folder = content.folder;
+        // Recorded between edits of Roots, so the deletion reads the Roots as they are once it is recorded.
+        let lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(
@@ -1460,6 +1462,7 @@ impl Store {
             )?;
             Ok(())
         })?;
+        drop(lifecycle);
         let outcomes = match self.delete_kept(id, content) {
             Ok(outcomes) => outcomes,
             // A kept file may have been mid-deletion: the deletion stays unfinished, and recovery settles it.

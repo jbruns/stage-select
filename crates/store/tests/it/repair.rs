@@ -3632,6 +3632,35 @@ fn an_approved_fill_holds_its_ingest_folder_against_unregistering() {
 }
 
 #[test]
+fn a_repair_is_refused_when_its_root_is_made_less_writable_while_it_is_being_approved() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let (approved, edited) = race(
+        &env.store,
+        Fault::RepairApproving,
+        || {
+            env.store
+                .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        },
+        || {
+            env.store
+                .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
+        },
+    );
+
+    assert!(edited.unwrap().voided.is_empty());
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("roots changed")),
+        "{approved:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
+}
+
+#[test]
 fn a_fill_is_refused_when_its_ingest_folder_is_registered_anew_while_the_repair_is_being_approved()
 {
     let env = Env::new();
@@ -5114,6 +5143,59 @@ fn a_repair_that_cannot_start_ends_failed_with_why_even_after_a_stop_as_it_is_ab
 
 /// An approved repair, not started, is voided when its source set's folder is taken out of its Root's writable paths:
 /// it ends having changed nothing. While it is approved, the Root's path can't change.
+#[test]
+fn an_approved_fill_holds_the_root_of_the_ingest_folder_it_moves_from() {
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
+    env.store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let moved = env.store.edit_root(
+        "in",
+        &RootSpec::new("in", env.tmp.path().join("dats")).of_kind(RootKind::Ingest),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{moved:?}"
+    );
+    assert!(env.tmp.path().join("in/pong.a26").is_file());
+}
+
+#[test]
+fn a_root_isnt_made_more_writable_while_an_approved_repair_writes_to_it() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let widened = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", &sets).writing(&["Alpha", "Beta"]),
+        "Operator",
+    );
+    assert!(
+        matches!(&widened, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{widened:?}"
+    );
+    assert_eq!(
+        env.store.roots().root("sets").unwrap().writable_paths,
+        ["Alpha"]
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
+}
+
 #[test]
 fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_set() {
     let env = Env::new();

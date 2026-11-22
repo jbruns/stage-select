@@ -436,13 +436,19 @@ What you can't change, and what a change does:
 
 - A root's name can't change. To use another name, register a new root.
 - You can't unregister a root while anything is registered in it, such as a source set, a library folder, an ingest
-  folder or an additions set; you're told what is. Unregister those first. Unregistering a root touches no file.
+  folder or an additions set; while it holds kept files you can still delete, even of something you've unregistered;
+  or while work that hasn't finished reads or writes in it. You're told what holds it. Unregister or finish those
+  first. Unregistering a root touches no file.
 - You can't change its kind while anything is registered in it, nor make a root holding source sets writable.
-- You can't change its path, or whether it's writable, while a job runs on it. You can't change its path while an
+- You can't change its path, or whether it's writable, while a job runs on it. A plan counts wherever it reads or
+  writes: a repair writes to its source set, to each play library folder holding placed games it changes, and to
+  each ingest folder it fills a game from.
+- You can't change its path, or make it more writable (read-only to writable, or by adding a writable path), while an
   approved plan that hasn't finished writes to it.
 - Making a root less writable, from writable to read-only or by removing a writable path, voids each approved plan
   not yet started that would write where it no longer may: its job fails, having changed nothing, and you're told
   which plans. A plan already under way there must finish first. Plan again once the root is as you want it.
+- A plan you approve while a root it uses is being changed is refused, changing nothing: review it again.
 
 ```sh
 title-select root list

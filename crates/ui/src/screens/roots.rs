@@ -332,7 +332,7 @@ fn UnregisterRoot(
     view! {
         <p>
             {format!(
-                "Unregister the root {}? Its files stay where they are, and the service no longer reads or writes there. You can't unregister it while anything is registered in it.",
+                "Unregister the root {}? Its files stay where they are, and the service no longer reads or writes there. You can't unregister it while anything is registered in it, it holds kept files you can still delete, or work that hasn't finished uses it.",
                 root.name
             )}
         </p>

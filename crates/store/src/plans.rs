@@ -3108,6 +3108,7 @@ impl Store {
             )));
         }
         let content = &plan.content;
+        let roots = self.roots();
         let again = self.recompute(content)?;
         if digest(&again.content) != plan.digest {
             let newer = self.write(|tx| insert_plan(tx, &again, None))?;
@@ -3116,6 +3117,7 @@ impl Store {
                 newer.id
             )));
         }
+        let _lifecycle = self.lock_roots_unchanged(&roots)?;
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(

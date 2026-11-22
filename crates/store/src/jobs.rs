@@ -173,6 +173,21 @@ pub(crate) fn finish_running(
     release_holds(tx, id)
 }
 
+/// Ends the Queued Job `id` as `to`, with `error`, and releases its holds, as a Running one's end does. Returns whether
+/// it was still Queued: one that has started is left as it is.
+pub(crate) fn end_queued(tx: &Transaction, id: i64, to: JobState, error: &str) -> Result<bool> {
+    let updated = tx.execute(
+        "UPDATE jobs SET state = ?2, error = ?3, finished_at = ?4, version = version + 1
+         WHERE id = ?1 AND state = 'queued'",
+        params![id, to.as_str(), error, now()],
+    )?;
+    if updated != 1 {
+        return Ok(false);
+    }
+    release_holds(tx, id)?;
+    Ok(true)
+}
+
 /// What holds a Build Job's Selection and Audit from pruning, from its approval until it ends.
 pub(super) fn build_hold(job: i64) -> String {
     format!("build-job:{job}")
@@ -277,6 +292,9 @@ impl Store {
     /// Set is Queued or Running. A Calibration goes ahead of every other Queued Job and runs alone: it is claimed
     /// once no Job is Running, and no other Job is claimed while it is Queued or Running.
     pub fn claim_job(&self) -> Result<Option<Job>> {
+        // A Job claimed reads the Roots as they are once it is Running, when no change to a Root it works on is let
+        // through: a change under way is published before it is claimed.
+        let _lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             let id: Option<i64> = tx
                 .query_row(

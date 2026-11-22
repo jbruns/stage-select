@@ -203,17 +203,17 @@ impl Store {
         dat: &str,
         coverage: Option<&[String]>,
     ) -> Result<SourceSetRecord> {
-        let roots = &*self.roots();
         let coverage = coverage_json(coverage)?;
+        // Held while it is checked and recorded, so that no Library Folder registered, move approved or Root edited
+        // meanwhile comes to overlap it or change the Root it is checked against.
+        let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
         if roots.root(root).is_some_and(|r| r.writable) {
             return Err(Error::Refused(format!(
                 "root {root} is writable, and only library folders go in a writable root; add the source set from a \
                  read-only root"
             )));
         }
-        // Held while it is checked and recorded, so that no Library Folder registered or move approved meanwhile
-        // comes to overlap it.
-        let _lifecycle = self.lifecycle_lock();
         let resolved = resolve(roots, root, rel)?;
         let canonical = resolved
             .path

@@ -6639,6 +6639,42 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
 /// narrowing the source set's Root voids nothing, as both builds only read it; and `play`'s path can't change while
 /// its build is approved.
 #[test]
+fn a_voided_build_no_longer_keeps_its_selection_and_audit_from_pruning() {
+    let env = Env::new();
+    env.store
+        .update_settings(
+            &title_select_api::settings::SettingsUpdate {
+                retention: Some(title_select_api::settings::Retention {
+                    audits_keep: 1,
+                    selections_keep: 1,
+                }),
+                ..Default::default()
+            },
+            "Operator",
+        )
+        .unwrap();
+    env.audit();
+    let first = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari");
+    let plan = env.plan(&folder, first);
+    let audit = plan.content.audit.unwrap();
+    env.store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let voided = env
+        .store
+        .edit_root("play", &RootSpec::new("play", env.play()), "Operator")
+        .unwrap();
+    assert_eq!(voided.voided.len(), 1, "{:?}", voided.voided);
+    env.audit();
+    env.record(&everything(&env.sha256));
+
+    assert!(env.store.selection_record(first).unwrap().pruned);
+    assert!(env.store.audit(audit).unwrap().pruned);
+}
+
+#[test]
 fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_there() {
     let env = Env::new();
     let sets = env.tmp.path().join("roots/sets");

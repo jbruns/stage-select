@@ -159,9 +159,10 @@ impl Store {
         digest: &str,
         actor: &str,
     ) -> Result<FolderMove> {
-        let roots = &*self.roots();
-        // Reserving the destination is serialized with registering Library Folders, which check it.
+        // Reserving the destination is serialized with registering Library Folders, which check it, and with edits
+        // of Roots, so the Roots it reads are those it is recorded under.
         let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
         let planned = self.write(|tx| {
             let row = move_by_id(tx, id)?;
             if row.plan.approved_at.is_some() {

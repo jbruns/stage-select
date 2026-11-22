@@ -890,7 +890,6 @@ impl Store {
     /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
     /// its marker is written before the registration commits.
     pub fn add_library_folder(&self, add: &AddLibraryFolder) -> Result<LibraryFolder> {
-        let roots = &*self.roots();
         let rel = match (&add.path, &add.template) {
             (Some(_), Some(_)) => {
                 return Err(Error::Refused("give a path or a template, not both".into()));
@@ -903,6 +902,7 @@ impl Store {
         // Held from the check of its path until it is recorded, so that nothing registered or reserved meanwhile
         // overlaps the folders it creates.
         let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
         let rel = self.check_library_path(&add.root, &rel)?;
         let root = roots.root(&add.root).expect("a checked root");
         self.read(|c| {

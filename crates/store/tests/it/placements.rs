@@ -685,6 +685,62 @@ fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_neve
 }
 
 #[test]
+fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
+    let env = Env::new();
+    torrentzip(
+        &env.library().join("pong.zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    env.store
+        .record_placement(SET, "Pong (USA)", env.folder.id, &["pong.zip"])
+        .unwrap();
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan(&[]);
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+    let play = env.tmp.path().join("roots/play");
+    let elsewhere = env.tmp.path().join("dats");
+
+    let moved = env.store.edit_root(
+        "play",
+        &RootSpec::new("play", &elsewhere).writable(),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{moved:?}"
+    );
+    let held = env.store.unregister_root("play", "Operator");
+    assert!(
+        matches!(&held, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{held:?}"
+    );
+
+    let edited = env
+        .store
+        .edit_root("play", &RootSpec::new("play", &play), "Operator")
+        .unwrap();
+    assert_eq!(
+        edited.voided,
+        [title_select_api::roots::VoidedPlan {
+            kind: title_select_api::roots::VoidedPlanKind::Repair,
+            plan: plan.id,
+            job,
+            writes_to: "play library folder play/atari".into(),
+        }]
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Failed);
+    assert!(
+        env.library().join("pong.zip").is_file(),
+        "nothing was changed"
+    );
+}
+
+#[test]
 fn a_repair_renames_a_placed_game_where_it_is_placed() {
     let env = Env::new();
     // Pong, placed under a name that isn't its own; Combat, placed as it should be.

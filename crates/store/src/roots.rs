@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use title_select_api::JobState;
 use title_select_api::paths::relative_path;
+use title_select_api::repair::{RepairPlanContent, RepairStep};
 use title_select_api::roots::{RootChange, RootEdited, RootSpec, VoidedPlan, VoidedPlanKind};
 use title_select_api::settings::{MAX_MIB_PER_S, MAX_WORKERS, RootOverrides};
 
@@ -364,7 +366,7 @@ fn record(
 }
 
 /// Each registration still registered in Root `name`, as a hold.
-pub(crate) fn registrations_in(c: &Connection, name: &str) -> Result<Vec<String>> {
+fn registrations_in(c: &Connection, name: &str) -> Result<Vec<String>> {
     let mut holds = Vec::new();
     for sql in [
         "SELECT 'source set ' || name || ' is registered in it'
@@ -382,75 +384,207 @@ pub(crate) fn registrations_in(c: &Connection, name: &str) -> Result<Vec<String>
     Ok(holds)
 }
 
+/// The Kept Files in Root `name` that Title Select still manages though their registration is Unregistered: its
+/// marker stays so that you can delete them, which needs the Root.
+fn managed_kept_in(c: &Connection, name: &str) -> Result<Vec<String>> {
+    let mut holds = Vec::new();
+    for sql in [
+        "SELECT count(*) || ' kept files of unregistered source set ' || s.name || ' are still managed in it'
+         FROM source_kept k JOIN source_sets s ON s.id = k.source_set_id
+         WHERE s.root = ?1 AND s.unregistered_at IS NOT NULL AND k.state IN ('kept', 'deleting')
+         GROUP BY s.id ORDER BY s.name",
+        "SELECT count(*) || ' kept files of unregistered play library folder ' || f.root || '/' || f.path
+                || ' are still managed in it'
+         FROM kept_files k JOIN library_folders f ON f.id = k.folder_id
+         WHERE f.root = ?1 AND f.unregistered_at IS NOT NULL AND k.directory = 0
+           AND k.state IN ('keeping', 'kept', 'deleting', 'quarantined', 'restoring')
+         GROUP BY f.id ORDER BY f.path",
+        "SELECT count(*) || ' kept additions of the unregistered additions set of ' || d.provider || '/' || d.name
+                || ' are still managed in it'
+         FROM additions_kept k JOIN additions_sets s ON s.id = k.additions_set_id JOIN dats d ON d.id = s.dat_id
+         WHERE s.root = ?1 AND s.unregistered_at IS NOT NULL AND k.state IN ('keeping', 'kept', 'deleting')
+         GROUP BY s.id ORDER BY 1",
+    ] {
+        holds.extend(strings(c, sql, [name])?);
+    }
+    Ok(holds)
+}
+
+/// What holds Root `name` from being unregistered: each registration in it, each Kept File it still holds for you to
+/// delete, and every piece of work not yet finished that reads or writes in it.
+pub(crate) fn holds(c: &Connection, name: &str) -> Result<Vec<String>> {
+    let mut holds = registrations_in(c, name)?;
+    holds.extend(managed_kept_in(c, name)?);
+    holds.extend(dependents(c, name)?.into_iter().map(|d| d.what));
+    let mut seen = BTreeSet::new();
+    holds.retain(|h| seen.insert(h.clone()));
+    Ok(holds)
+}
+
 fn strings(c: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<String>> {
     let mut stmt = c.prepare(sql)?;
     let rows = stmt.query_map(params, |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// The Jobs running on Root `name`: reading or writing a folder in it, or measuring it.
-fn running_on(c: &Connection, name: &str) -> Result<Vec<String>> {
-    strings(
-        c,
-        "SELECT DISTINCT replace(j.kind, '_', ' ') || ' job ' || j.id || ' is running on it'
-         FROM jobs j
-         LEFT JOIN source_sets s ON s.id = j.source_set_id
-         LEFT JOIN library_folders f ON f.id = j.library_folder_id
-         LEFT JOIN source_sets fs ON fs.id = f.source_set_id
-         LEFT JOIN additions_sets a ON a.id = j.additions_set_id
-         LEFT JOIN ingest_folders i ON i.id = j.ingest_folder_id
-         WHERE j.state = 'running'
-           AND (j.kind = 'calibration' OR ?1 IN (s.root, f.root, fs.root, a.root, i.root))
-         ORDER BY j.id",
-        [name],
-    )
-}
-
-/// What a piece of approved work writes to in a Root: the Root as a whole, which it must be writable for, or one
-/// Source Set's folder, which `writable_paths` may let it write to.
+/// What a piece of work writes to in a Root: the Root as a whole, which it must be writable for, or one Source Set's
+/// folder, which `writable_paths` may let it write to.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Target {
     Whole,
     Set(String),
 }
 
-/// Approved work that writes to a Root, and how to void it if it hasn't started.
-struct Work {
+/// A piece of work not yet finished that reads or writes in a Root.
+struct Dep {
+    /// What it is, as a hold.
     what: String,
-    target: Target,
+    /// What it writes to in the Root; none when it only reads there.
+    writes: Option<Target>,
+    /// Its Job, while that runs.
+    running: Option<String>,
+    /// How to void it, while it is approved and nothing of it has started.
     voidable: Option<VoidedPlan>,
 }
 
-/// Every piece of approved work not yet finished that writes to Root `name`.
-fn writing_work(c: &Connection, name: &str) -> Result<Vec<Work>> {
-    let mut work = Vec::new();
-    // A Build writes to its Library Folder, and to its Source Set's folder when it places or returns Games.
+/// The Library Folder `id`'s Root and path.
+fn folder_at(c: &Connection, id: i64) -> Result<Option<(String, String)>> {
+    Ok(c.query_row(
+        "SELECT root, path FROM library_folders WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()?)
+}
+
+type BuildRow = (
+    i64,
+    String,
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    bool,
+    Option<String>,
+);
+
+type RepairRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<i64>,
+    Option<i64>,
+    bool,
+);
+
+/// Every piece of work not yet finished that reads or writes in Root `name`: each Job Queued or Running, by every
+/// folder it reads or writes, and each approved plan, by every folder it changes, wherever its registration is and
+/// whether or not that is still registered.
+fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
+    let mut deps = Vec::new();
+    let mut dep =
+        |root: &str, what: String, writes: Option<Target>, running: Option<String>, voidable| {
+            if root == name {
+                deps.push(Dep {
+                    what,
+                    writes,
+                    running,
+                    voidable,
+                });
+            }
+        };
+    let every_root = strings(c, "SELECT name FROM roots ORDER BY name", [])?;
+    // A Job reads its Source Set, Library Folder or Ingest Folder; an Additions Job writes to its Additions Set; a
+    // Calibration measures every Root.
+    let jobs = c
+        .prepare(
+            "SELECT j.id, replace(j.kind, '_', ' '), j.state, s.root, f.root, fs.root, a.root, i.root
+             FROM jobs j
+             LEFT JOIN source_sets s ON s.id = j.source_set_id
+             LEFT JOIN library_folders f ON f.id = j.library_folder_id
+             LEFT JOIN source_sets fs ON fs.id = f.source_set_id
+             LEFT JOIN additions_sets a ON a.id = j.additions_set_id
+             LEFT JOIN ingest_folders i ON i.id = j.ingest_folder_id
+             WHERE j.state IN ('queued', 'running') AND j.kind NOT IN ('build', 'repair')
+             ORDER BY j.id",
+        )?
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                [
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ],
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (job, kind, state, read, additions, ingest) in jobs {
+        let running = (state == "running").then(|| format!("{kind} job {job} is running on it"));
+        let mut reads: BTreeSet<String> = read.into_iter().flatten().chain(ingest).collect();
+        if kind == "calibration" {
+            reads.extend(every_root.iter().cloned());
+        }
+        if let Some(root) = &additions {
+            dep(
+                root,
+                format!("{kind} job {job} is {state}"),
+                Some(Target::Whole),
+                running.clone(),
+                None,
+            );
+            reads.remove(root);
+        }
+        for root in reads {
+            dep(
+                &root,
+                format!("{kind} job {job} is {state} on it"),
+                None,
+                running.clone(),
+                None,
+            );
+        }
+    }
+    // A Build writes to its Library Folder, and to its Source Set's folder when it places or returns Games; it reads
+    // its Source Set and its system's additions.
     let builds = c
         .prepare(
             "SELECT j.id, j.state, j.plan_id, f.root, f.path, fs.root, fs.path, fs.name,
                     EXISTS (SELECT 1 FROM json_each(p.content, '$.items')
                             WHERE json_extract(value, '$.changes_source_set'))
-                    OR COALESCE(json_array_length(p.content, '$.returns'), 0) > 0
+                    OR COALESCE(json_array_length(p.content, '$.returns'), 0) > 0,
+                    (SELECT a.root FROM additions_sets a WHERE a.dat_id = fs.dat_id AND a.unregistered_at IS NULL)
              FROM jobs j JOIN library_folders f ON f.id = j.library_folder_id
              JOIN plans p ON p.id = j.plan_id
              LEFT JOIN source_sets fs ON fs.id = f.source_set_id
-             WHERE j.kind = 'build' AND j.state IN ('queued', 'running') AND ?1 IN (f.root, fs.root)
+             WHERE j.kind = 'build' AND j.state IN ('queued', 'running')
              ORDER BY j.id",
         )?
-        .query_map([name], |r| {
+        .query_map([], |r| {
             Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, Option<String>>(6)?,
-                r.get::<_, Option<String>>(7)?,
-                r.get::<_, bool>(8)?,
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
             ))
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (job, state, plan, root, path, set_root, set_path, set, changes_set) in builds {
+        .collect::<rusqlite::Result<Vec<BuildRow>>>()?;
+    for (job, state, plan, root, path, set_root, set_path, set, changes_set, additions) in builds {
+        let running = (state == "running").then(|| format!("build job {job} is running on it"));
         let void = |writes_to: String| {
             (state == "queued").then_some(VoidedPlan {
                 kind: VoidedPlanKind::Build,
@@ -459,150 +593,307 @@ fn writing_work(c: &Connection, name: &str) -> Result<Vec<Work>> {
                 writes_to,
             })
         };
-        if root == name {
-            let writes_to = format!("play library folder {root}/{path}");
-            work.push(Work {
-                what: format!("build job {job} writes to {writes_to}"),
-                target: Target::Whole,
-                voidable: void(writes_to),
-            });
-        }
-        if let (true, Some(set_root), Some(set_path), Some(set)) =
-            (changes_set, set_root, set_path, set)
-            && set_root == name
-        {
+        let folder = format!("play library folder {root}/{path}");
+        dep(
+            &root,
+            format!("build job {job} writes to {folder}"),
+            Some(Target::Whole),
+            running.clone(),
+            void(folder),
+        );
+        if let (Some(set_root), Some(set_path), Some(set)) = (set_root, set_path, set) {
             let writes_to = format!("source set {set}");
-            work.push(Work {
-                what: format!("build job {job} moves games in {writes_to}"),
-                target: Target::Set(set_path),
-                voidable: void(writes_to),
-            });
+            match changes_set {
+                true => dep(
+                    &set_root,
+                    format!("build job {job} moves games in {writes_to}"),
+                    Some(Target::Set(set_path)),
+                    running.clone(),
+                    void(writes_to),
+                ),
+                false => dep(
+                    &set_root,
+                    format!("build job {job} reads {writes_to}"),
+                    None,
+                    running.clone(),
+                    None,
+                ),
+            }
+        }
+        if let Some(additions) = additions {
+            dep(
+                &additions,
+                format!("build job {job} may read the additions in it"),
+                None,
+                running,
+                None,
+            );
         }
     }
-    // A Build stopped part way writes again when the service settles its folder.
-    for what in strings(
-        c,
-        "SELECT 'build ' || b.id || ' of play library folder ' || f.root || '/' || f.path
-                    || ' stopped before it finished, and is settled when the service next starts'
-         FROM builds b JOIN library_folders f ON f.id = b.folder_id
-         WHERE f.root = ?1
-           AND (b.state = 'running' OR (b.state IN ('failed', 'interrupted') AND b.cleaned_at IS NULL))
-           AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = b.job_id AND j.state IN ('queued', 'running'))",
-        [name],
-    )? {
-        work.push(Work {
-            what,
-            target: Target::Whole,
-            voidable: None,
-        });
-    }
-    // A repair writes to its Source Set's folder; one whose Job hasn't started has changed nothing yet.
-    let repairs = c
+    // A Build stopped part way writes again when the service settles its folder, and puts back what it placed.
+    let stopped = c
         .prepare(
-            "SELECT p.id, s.name, s.path,
-                    (SELECT j.id FROM jobs j WHERE j.repair_plan_id = p.id AND j.state = 'queued'
-                     ORDER BY j.id DESC LIMIT 1),
-                    NOT EXISTS (SELECT 1 FROM repair_steps st WHERE st.plan_id = p.id AND st.state <> 'pending'),
-                    NOT EXISTS (SELECT 1 FROM jobs j WHERE j.repair_plan_id = p.id AND j.state = 'running')
-             FROM repair_plans p JOIN source_sets s ON s.id = p.source_set_id
-             WHERE s.root = ?1 AND p.approved_at IS NOT NULL AND p.finished_at IS NULL
-             ORDER BY p.id",
+            "SELECT b.id, f.root, f.path, fs.root, fs.path, fs.name,
+                    EXISTS (SELECT 1 FROM json_each(p.content, '$.items')
+                            WHERE json_extract(value, '$.changes_source_set'))
+                    OR COALESCE(json_array_length(p.content, '$.returns'), 0) > 0
+             FROM builds b JOIN library_folders f ON f.id = b.folder_id
+             JOIN plans p ON p.id = b.plan_id
+             LEFT JOIN source_sets fs ON fs.id = f.source_set_id
+             WHERE (b.state = 'running' OR (b.state IN ('failed', 'interrupted') AND b.cleaned_at IS NULL))
+               AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = b.job_id AND j.state IN ('queued', 'running'))
+             ORDER BY b.id",
         )?
-        .query_map([name], |r| {
+        .query_map([], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
-                r.get::<_, Option<i64>>(3)?,
-                r.get::<_, bool>(4)?,
-                r.get::<_, bool>(5)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, bool>(6)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (plan, set, path, queued, untouched, not_running) in repairs {
-        let writes_to = format!("source set {set}");
-        let voidable = match (queued, untouched && not_running) {
+    for (build, root, path, set_root, set_path, set, changes_set) in stopped {
+        let what = format!(
+            "build {build} of play library folder {root}/{path} stopped before it finished, and is settled when \
+             the service next starts"
+        );
+        if let (true, Some(set_root), Some(set_path), Some(_)) =
+            (changes_set, set_root, set_path, set)
+        {
+            dep(
+                &set_root,
+                what.clone(),
+                Some(Target::Set(set_path)),
+                None,
+                None,
+            );
+        }
+        dep(&root, what, Some(Target::Whole), None, None);
+    }
+    // A repair writes to its Source Set's folder, to each Library Folder holding Placed Games it changes, and to each
+    // Ingest Folder it fills a game from. One whose Job hasn't started, and that has changed nothing yet, is voidable.
+    let repairs = c
+        .prepare(
+            "SELECT p.id, p.content, s.name, s.root, s.path,
+                    (SELECT j.id FROM jobs j WHERE j.repair_plan_id = p.id AND j.state = 'queued'
+                     ORDER BY j.id DESC LIMIT 1),
+                    (SELECT j.id FROM jobs j WHERE j.repair_plan_id = p.id AND j.state = 'running' LIMIT 1),
+                    NOT EXISTS (SELECT 1 FROM repair_steps st WHERE st.plan_id = p.id
+                                AND NOT (st.state = 'pending'
+                                         OR (st.state = 'moving' AND EXISTS (
+                                             SELECT 1 FROM ingest_moves m WHERE m.id = st.move_id
+                                             AND m.state = 'pending'))))
+             FROM repair_plans p JOIN source_sets s ON s.id = p.source_set_id
+             WHERE p.approved_at IS NOT NULL AND p.finished_at IS NULL
+             ORDER BY p.id",
+        )?
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<RepairRow>>>()?;
+    for (plan, content, set, root, path, queued, running, untouched) in repairs {
+        let content: RepairPlanContent = serde_json::from_str(&content)
+            .map_err(|e| Error::Io(format!("repair plan {plan} does not read: {e}")))?;
+        let running = running.map(|job| format!("repair job {job} is running on it"));
+        let void = |writes_to: String| match (queued, untouched && running.is_none()) {
             (Some(job), true) => Some(VoidedPlan {
                 kind: VoidedPlanKind::Repair,
                 plan,
                 job,
-                writes_to: writes_to.clone(),
+                writes_to,
             }),
             _ => None,
         };
-        work.push(Work {
-            what: format!("repair plan {plan} of {writes_to} is approved and not finished"),
-            target: Target::Set(path),
-            voidable,
-        });
+        let of = format!("repair plan {plan} of source set {set}");
+        dep(
+            &root,
+            format!("{of} is approved and not finished"),
+            Some(Target::Set(path)),
+            running.clone(),
+            void(format!("source set {set}")),
+        );
+        for folder in crate::repairs::placed_folders(&content) {
+            if let Some((root, path)) = folder_at(c, folder)? {
+                let folder = format!("play library folder {root}/{path}");
+                dep(
+                    &root,
+                    format!("{of} changes placed games in {folder}"),
+                    Some(Target::Whole),
+                    running.clone(),
+                    void(folder),
+                );
+            }
+        }
+        let ingest: BTreeSet<&str> = content
+            .steps
+            .iter()
+            .filter_map(|s| match &s.step {
+                RepairStep::Fill { ingest_root, .. } => Some(ingest_root.as_str()),
+                _ => None,
+            })
+            .collect();
+        for root in ingest {
+            dep(
+                root,
+                format!("{of} moves files out of ingest folder {root}"),
+                Some(Target::Whole),
+                running.clone(),
+                void(format!("ingest folder {root}")),
+            );
+        }
     }
-    // Work that is carried out as it is approved, and finished when the service next starts if it was stopped.
-    for (sql, set) in [
+    // A move out of an Ingest Folder, not a repair's, writes to that folder and to where it goes: a Source Set's
+    // folder, which `writable_paths` may let it write to, or another folder of the Root it goes to.
+    let moves = c
+        .prepare(
+            "SELECT m.name, i.root, m.dest_root, m.dest_rel,
+                    EXISTS (SELECT 1 FROM source_sets s WHERE s.root = m.dest_root AND s.path = m.dest_rel)
+             FROM ingest_moves m JOIN ingest_folders i ON i.id = m.folder_id
+             WHERE m.state NOT IN ('done', 'failed')
+               AND NOT EXISTS (SELECT 1 FROM repair_steps st JOIN repair_plans p ON p.id = st.plan_id
+                               WHERE st.move_id = m.id AND p.finished_at IS NULL)
+             ORDER BY m.id",
+        )?
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, bool>(4)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (file, from, dest_root, dest_rel, into_set) in moves {
+        dep(
+            &from,
+            format!("a move of {file} out of ingest folder {from} is not finished"),
+            Some(Target::Whole),
+            None,
+            None,
+        );
+        if let (Some(dest_root), Some(dest_rel)) = (dest_root, dest_rel) {
+            let target = match into_set {
+                true => Target::Set(dest_rel.clone()),
+                false => Target::Whole,
+            };
+            dep(
+                &dest_root,
+                format!(
+                    "a move of {file} from ingest folder {from} into {dest_rel} is not finished"
+                ),
+                Some(target),
+                None,
+                None,
+            );
+        }
+    }
+    // Work carried out as it is approved, and finished when the service next starts if it was stopped; and what an
+    // Addition being added reads.
+    for (sql, set, writes) in [
         (
-            "SELECT 'deletion ' || d.id || ' of kept files of play library folder ' || f.root || '/' || f.path
+            "SELECT f.root, 'deletion ' || d.id || ' of kept files of play library folder ' || f.root || '/' || f.path
                     || ' is not finished', f.path
              FROM kept_deletions d JOIN library_folders f ON f.id = d.folder_id
-             WHERE f.root = ?1 AND d.approved_at IS NOT NULL AND d.finished_at IS NULL",
+             WHERE d.approved_at IS NOT NULL AND d.finished_at IS NULL",
             false,
-        ),
-        (
-            "SELECT 'the move of play library folder ' || root || '/' || from_path || ' to ' || to_path
-                    || ' is not finished', to_path
-             FROM library_folder_moves WHERE root = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
-            false,
-        ),
-        (
-            "SELECT 'deletion ' || d.id || ' of kept files of source set ' || s.name || ' is not finished', s.path
-             FROM source_kept_deletions d JOIN source_sets s ON s.id = d.source_set_id
-             WHERE s.root = ?1 AND d.approved_at IS NOT NULL AND d.finished_at IS NULL",
             true,
         ),
         (
-            "SELECT 'ingest plan ' || p.id || ' is approved and not finished', ''
+            "SELECT f.root, 'the kept file ' || k.name || ' of play library folder ' || f.root || '/' || f.path
+                    || ' is being ' || CASE k.state WHEN 'keeping' THEN 'kept' ELSE 'restored' END, f.path
+             FROM kept_files k JOIN library_folders f ON f.id = k.folder_id
+             WHERE k.state IN ('keeping', 'restoring')",
+            false,
+            true,
+        ),
+        (
+            "SELECT root, 'the move of play library folder ' || root || '/' || from_path || ' to ' || to_path
+                    || ' is not finished', to_path
+             FROM library_folder_moves WHERE approved_at IS NOT NULL AND finished_at IS NULL",
+            false,
+            true,
+        ),
+        (
+            "SELECT s.root, 'deletion ' || d.id || ' of kept files of source set ' || s.name || ' is not finished',
+                    s.path
+             FROM source_kept_deletions d JOIN source_sets s ON s.id = d.source_set_id
+             WHERE d.approved_at IS NOT NULL AND d.finished_at IS NULL",
+            true,
+            true,
+        ),
+        (
+            "SELECT i.root, 'ingest plan ' || p.id || ' is approved and not finished', ''
              FROM ingest_plans p JOIN ingest_folders i ON i.id = p.folder_id
-             WHERE i.root = ?1 AND p.approved_at IS NOT NULL AND p.finished_at IS NULL",
+             WHERE p.approved_at IS NOT NULL AND p.finished_at IS NULL",
             false,
+            true,
         ),
         (
-            "SELECT DISTINCT 'a move of ' || name || ' from an ingest folder into ' || dest_rel
-                    || ' is not finished', dest_rel
-             FROM ingest_moves WHERE dest_root = ?1 AND dest_kind = 'path' AND state NOT IN ('done', 'failed')",
-            false,
-        ),
-        (
-            "SELECT 'the addition ' || a.name || ' is being changed', s.path
+            "SELECT s.root, 'the addition ' || a.name || ' is being changed', s.path
              FROM additions a JOIN additions_sets s ON s.id = a.set_id
-             WHERE s.root = ?1 AND a.state IN ('pending', 'staging', 'retiring', 'restoring')",
+             WHERE a.state IN ('pending', 'staging', 'retiring', 'restoring')",
             false,
+            true,
         ),
         (
-            "SELECT 'additions job ' || j.id || ' is queued', s.path
-             FROM jobs j JOIN additions_sets s ON s.id = j.additions_set_id
-             WHERE s.root = ?1 AND j.state IN ('queued', 'running')",
-            false,
-        ),
-        (
-            "SELECT 'deletion ' || d.id || ' of kept additions is not finished', s.path
+            "SELECT s.root, 'deletion ' || d.id || ' of kept additions is not finished', s.path
              FROM additions_kept_deletions d JOIN additions_sets s ON s.id = d.additions_set_id
-             WHERE s.root = ?1 AND d.approved_at IS NOT NULL AND d.finished_at IS NULL",
+             WHERE d.approved_at IS NOT NULL AND d.finished_at IS NULL",
+            false,
+            true,
+        ),
+        (
+            "SELECT s.root, 'the addition ' || a.name || ' is being added from a kept file of source set ' || s.name,
+                    s.path
+             FROM additions a JOIN repair_plans p ON p.id = a.repair_plan_id
+             JOIN source_sets s ON s.id = p.source_set_id
+             WHERE a.state IN ('pending', 'staging')",
+            true,
+            false,
+        ),
+        (
+            "SELECT f.root, 'the addition ' || a.name || ' is being added from a kept file of play library folder '
+                    || f.root || '/' || f.path, f.path
+             FROM additions a JOIN plans p ON p.id = a.cleanup_plan_id
+             JOIN library_folders f ON f.id = p.folder_id
+             WHERE a.state IN ('pending', 'staging')",
+            false,
             false,
         ),
     ] {
-        for (what, path) in pairs(c, sql, name)? {
-            work.push(Work {
-                what,
-                target: if set { Target::Set(path) } else { Target::Whole },
-                voidable: None,
-            });
+        let rows = c
+            .prepare(sql)?
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (root, what, path) in rows {
+            let target = match set {
+                true => Target::Set(path),
+                false => Target::Whole,
+            };
+            dep(&root, what, writes.then_some(target), None, None);
         }
     }
-    Ok(work)
-}
-
-fn pairs(c: &Connection, sql: &str, name: &str) -> Result<Vec<(String, String)>> {
-    Ok(c.prepare(sql)?
-        .query_map([name], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(deps)
 }
 
 /// Why voided work's Job ended.
@@ -613,22 +904,29 @@ fn void_reason(root: &str) -> String {
     )
 }
 
-/// Ends voidable `plan`'s queued Job, and finishes a repair plan with every step failed, in `tx`.
+/// Ends voidable `plan`'s queued Job as any Job ends, releasing what it held; and finishes a repair plan with every
+/// step failed, and every move out of an Ingest Folder it recorded and had not started failed with it, in `tx`.
 fn void(tx: &Transaction, plan: &VoidedPlan, root: &str) -> Result<()> {
     let why = void_reason(root);
-    let at = now();
-    let ended = tx.execute(
-        "UPDATE jobs SET state = 'failed', error = ?2, finished_at = ?3, version = version + 1
-         WHERE id = ?1 AND state = 'queued'",
-        params![plan.job, why, at],
-    )?;
-    if ended != 1 {
+    if !crate::jobs::end_queued(tx, plan.job, JobState::Failed, &why)? {
         return Err(Error::Conflict(format!(
             "job {} started while root {root} was being changed; nothing was changed",
             plan.job
         )));
     }
     if plan.kind == VoidedPlanKind::Repair {
+        let at = now();
+        tx.execute(
+            "UPDATE ingest_moves SET state = 'failed', error = ?2, blocked = NULL, finished_at = ?3
+             WHERE state = 'pending'
+               AND id IN (SELECT move_id FROM repair_steps WHERE plan_id = ?1 AND state = 'moving')",
+            params![plan.plan, why, at],
+        )?;
+        tx.execute(
+            "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3
+             WHERE plan_id = ?1 AND state = 'moving'",
+            params![plan.plan, why, at],
+        )?;
         Store::void_repair(tx, plan.plan, &why, &at)?;
     }
     Ok(())
@@ -646,6 +944,36 @@ impl Store {
     /// Every registered Root, as it is now. Cheap: a snapshot the last change made.
     pub fn roots(&self) -> Arc<Roots> {
         self.roots.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Takes the lifecycle lock for committing work checked against `seen`, a snapshot read before: refused while
+    /// any Root's path, kind or writability is no longer as it was then. Held until the work is recorded, so no edit
+    /// of a Root falls between the check and the record, and an edit that follows sees the work.
+    pub(crate) fn lock_roots_unchanged(
+        &self,
+        seen: &Roots,
+    ) -> Result<std::sync::MutexGuard<'_, ()>> {
+        let held = self.lifecycle_lock();
+        let places = |roots: &Roots| -> Vec<_> {
+            roots
+                .iter()
+                .map(|r| {
+                    (
+                        r.name.clone(),
+                        r.path.clone(),
+                        r.kind,
+                        r.writable,
+                        r.writable_paths.clone(),
+                    )
+                })
+                .collect()
+        };
+        if places(&self.roots()) != places(seen) {
+            return Err(Error::Conflict(
+                "the roots changed while this was being approved; nothing was changed. Review it again".into(),
+            ));
+        }
+        Ok(held)
     }
 
     /// Every registered Root, by name, as the API shows it.
@@ -724,6 +1052,7 @@ impl Store {
         }
         let root = checked(spec)?;
         let _lifecycle = self.lifecycle_lock();
+        self.fault_point(crate::Fault::RootEditing);
         let was = self
             .read(|c| stored(c, name))?
             .ok_or_else(|| Error::NotFound(format!("There is no root {name}.")))?;
@@ -757,35 +1086,51 @@ impl Store {
             }
             let mut voided = Vec::new();
             if path_changed || writability_changed {
-                let running = running_on(tx, name)?;
+                let deps = dependents(tx, name)?;
+                let change = if path_changed { "path" } else { "writability" };
+                let mut seen = BTreeSet::new();
+                let running: Vec<String> = deps
+                    .iter()
+                    .filter_map(|d| d.running.clone())
+                    .filter(|r| seen.insert(r.clone()))
+                    .collect();
                 if !running.is_empty() {
-                    let change = if path_changed { "path" } else { "writability" };
                     return conflict(name, change, &running);
                 }
-                let work = writing_work(tx, name)?;
-                if path_changed && !work.is_empty() {
-                    let holds: Vec<String> = work.into_iter().map(|w| w.what).collect();
-                    return conflict(name, "path", &holds);
+                let writers: Vec<&Dep> = deps.iter().filter(|d| d.writes.is_some()).collect();
+                let widened = (root.writable && !was.writable)
+                    || root.writable_paths.iter().any(|p| !was.writable_paths.contains(p));
+                if (path_changed || widened) && !writers.is_empty() {
+                    let mut seen = BTreeSet::new();
+                    let holds: Vec<String> = writers
+                        .iter()
+                        .map(|d| d.what.clone())
+                        .filter(|w| seen.insert(w.clone()))
+                        .collect();
+                    return conflict(name, change, &holds);
                 }
                 let after = Root {
                     writable: root.writable,
                     writable_paths: root.writable_paths.clone(),
                     ..was.clone()
                 };
-                let lost: Vec<Work> = work
+                let lost: Vec<&Dep> = writers
                     .into_iter()
-                    .filter(|w| was.allows(&w.target) && !after.allows(&w.target))
+                    .filter(|d| {
+                        let target = d.writes.as_ref().expect("a writer");
+                        was.allows(target) && !after.allows(target)
+                    })
                     .collect();
                 let unvoidable: Vec<String> = lost
                     .iter()
-                    .filter(|w| w.voidable.is_none())
-                    .map(|w| w.what.clone())
+                    .filter(|d| d.voidable.is_none())
+                    .map(|d| d.what.clone())
                     .collect();
                 if !unvoidable.is_empty() {
-                    return conflict(name, "writability", &unvoidable);
+                    return conflict(name, change, &unvoidable);
                 }
                 let mut seen = BTreeSet::new();
-                for plan in lost.into_iter().filter_map(|w| w.voidable) {
+                for plan in lost.into_iter().filter_map(|d| d.voidable.clone()) {
                     if seen.insert((plan.kind == VoidedPlanKind::Repair, plan.plan)) {
                         void(tx, &plan, name)?;
                         voided.push(plan);
@@ -801,19 +1146,19 @@ impl Store {
         })
     }
 
-    /// Unregisters Root `name`, as `actor`: refused, naming what, while anything is registered in it. No file is
-    /// touched.
+    /// Unregisters Root `name`, as `actor`: refused, naming what, while anything is registered in it, it holds Kept
+    /// Files still managed, or work not yet finished reads or writes in it. No file is touched.
     pub fn unregister_root(&self, name: &str, actor: &str) -> Result<()> {
         let _lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             if stored(tx, name)?.is_none() {
                 return Err(Error::NotFound(format!("There is no root {name}.")));
             }
-            let holds = registrations_in(tx, name)?;
+            let holds = holds(tx, name)?;
             if !holds.is_empty() {
                 return Err(Error::Conflict(format!(
-                    "Root {name} can't be unregistered while anything is registered in it: {}. Unregister those \
-                     first.",
+                    "Root {name} can't be unregistered while anything is registered, managed or under way in it: \
+                     {}. Unregister or finish those first.",
                     holds.join("; ")
                 )));
             }

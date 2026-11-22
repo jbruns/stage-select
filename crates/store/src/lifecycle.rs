@@ -476,40 +476,17 @@ impl Store {
         })
     }
 
-    /// What holds the Root `name`: each registration still registered in it. Once nothing does, it can be
-    /// unregistered.
+    /// What holds the Root `name`: each registration still registered in it, each Kept File in it still managed,
+    /// and each piece of work not yet finished that reads or writes in it. Once nothing does, it can be unregistered.
     pub fn root_holds(&self, name: &str) -> Result<Holds> {
         let roots = &*self.roots();
         if roots.root(name).is_none() {
             return Err(Error::NotFound(format!("There is no root {name}.")));
         }
         self.read(|c| {
-            let mut holds = strings(
-                c,
-                "SELECT 'source set ' || name || ' is registered in it'
-                 FROM source_sets WHERE root = ?1 AND unregistered_at IS NULL ORDER BY name",
-                [name],
-            )?;
-            holds.extend(strings(
-                c,
-                "SELECT 'play library folder ' || root || '/' || path || ' is registered in it'
-                 FROM library_folders WHERE root = ?1 AND unregistered_at IS NULL ORDER BY path",
-                [name],
-            )?);
-            holds.extend(strings(
-                c,
-                "SELECT 'the additions set of ' || d.provider || '/' || d.name || ' is registered in it'
-                 FROM additions_sets s JOIN dats d ON d.id = s.dat_id
-                 WHERE s.root = ?1 AND s.unregistered_at IS NULL ORDER BY 1",
-                [name],
-            )?);
-            holds.extend(strings(
-                c,
-                "SELECT 'it is registered as an ingest folder'
-                 FROM ingest_folders WHERE root = ?1 AND unregistered_at IS NULL",
-                [name],
-            )?);
-            Ok(Holds { holds })
+            Ok(Holds {
+                holds: crate::roots::holds(c, name)?,
+            })
         })
     }
 

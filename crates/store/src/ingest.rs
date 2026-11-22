@@ -1468,10 +1468,10 @@ impl Store {
     /// Registers the Ingest Folder of Root `root` and writes its marker; every scan and every change then requires
     /// it. Registering again changes nothing. Refused when the folder has a marker that is not this store's for it.
     pub fn register_ingest_folder(&self, root: &str) -> Result<IngestFolder> {
-        let roots = &*self.roots();
         // Held until its marker is written, so that no Unregistering of it comes in between to leave the marker of an
-        // Unregistered folder behind.
+        // Unregistered folder behind, and no edit of its Root changes where it is.
         let _lifecycle = self.lifecycle_lock();
+        let roots = &*self.roots();
         let dir = open_ingest(roots, root).map_err(Error::Refused)?;
         let store = self.read(store_id)?;
         // Checked for a registration made before too, whose root may since point somewhere else. Registrations
@@ -1567,6 +1567,8 @@ impl Store {
     /// a scan is queued or running. Returns the Job as it ends.
     pub fn scan_ingest_folder(&self, root: &str, actor: &str) -> Result<Job> {
         let job = self.enqueue_ingest_scan(root, actor)?;
+        // Claimed as claim_job claims a Job.
+        let lifecycle = self.lifecycle_lock();
         self.write(|tx| {
             tx.execute(
                 "UPDATE jobs SET state = 'running', started_at = ?2, version = version + 1
@@ -1575,6 +1577,7 @@ impl Store {
             )?;
             Ok(())
         })?;
+        drop(lifecycle);
         self.run_ingest_scan_job(job.id)
     }
 
@@ -2212,6 +2215,7 @@ impl Store {
         if let Err(why) = settle_dir_temps(self, Scope::Ingest(row.id), &dir)? {
             return Err(Error::Refused(why));
         }
+        let lifecycle = self.lock_roots_unchanged(roots)?;
         let approve = |tx: &Transaction| {
             crate::lifecycle::check_live(
                 tx,
@@ -2281,6 +2285,7 @@ impl Store {
             });
         }
         self.write(approve)?;
+        drop(lifecycle);
         let mut outcomes = Vec::new();
         for item in &content.items {
             let mut detail = Vec::new();
