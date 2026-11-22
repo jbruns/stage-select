@@ -1,5 +1,4 @@
-//! The app shell's pure logic: where old workbench paths moved, the navigation badges' counts, and which failed Jobs
-//! the Operator has seen.
+//! The app shell's pure logic: the navigation badges' counts, and which failed Jobs the Operator has seen.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -7,25 +6,6 @@ use std::str::FromStr;
 
 use title_select_api::ingest::{IngestFolder, ItemState};
 use title_select_api::{Job, JobState};
-
-/// The workbench paths from before #71, each with where it moved. A path under an old one moves with it.
-const MOVED: &[(&str, &str)] = &[
-    ("/ingest-folders", "/ingest"),
-    ("/dat-revisions", "/dats"),
-    ("/jobs", "/activity"),
-    ("/storage-policy", "/settings/storage"),
-    ("/about", "/settings/about"),
-];
-
-/// Where a workbench path from before #71 moved, keeping its query and fragment; `None` when it didn't move.
-pub fn moved(path: &str) -> Option<String> {
-    let split = path.find(['?', '#']).unwrap_or(path.len());
-    let (route, rest) = path.split_at(split);
-    MOVED.iter().find_map(|(old, new)| {
-        let tail = route.strip_prefix(old)?;
-        (tail.is_empty() || tail.starts_with('/')).then(|| format!("{new}{tail}{rest}"))
-    })
-}
 
 /// How many items across the Ingest Folders wait on a decision: to plan them out of the folder or dismiss them.
 pub fn waiting_on_decision(folders: &[IngestFolder]) -> u64 {
@@ -140,42 +120,6 @@ impl FromStr for SeenJobs {
 mod tests {
     use super::*;
     use title_select_api::Workers;
-
-    #[test]
-    fn old_paths_move_to_their_new_place() {
-        assert_eq!(moved("/ingest-folders").as_deref(), Some("/ingest"));
-        assert_eq!(
-            moved("/ingest-folders/downloads").as_deref(),
-            Some("/ingest/downloads")
-        );
-        assert_eq!(moved("/dat-revisions").as_deref(), Some("/dats"));
-        assert_eq!(moved("/jobs").as_deref(), Some("/activity"));
-        assert_eq!(
-            moved("/storage-policy").as_deref(),
-            Some("/settings/storage")
-        );
-        assert_eq!(moved("/about").as_deref(), Some("/settings/about"));
-    }
-
-    #[test]
-    fn a_moved_path_keeps_its_query_and_fragment() {
-        assert_eq!(
-            moved("/ingest-folders/My%20Drop?row=3#items").as_deref(),
-            Some("/ingest/My%20Drop?row=3#items")
-        );
-        assert_eq!(
-            moved("/about#default-orders").as_deref(),
-            Some("/settings/about#default-orders")
-        );
-    }
-
-    #[test]
-    fn paths_that_did_not_move_stay() {
-        assert_eq!(moved("/ingest"), None);
-        assert_eq!(moved("/profiles"), None);
-        assert_eq!(moved("/jobsite"), None);
-        assert_eq!(moved("/additions"), None);
-    }
 
     fn folder(counts: Vec<(ItemState, u64)>) -> IngestFolder {
         IngestFolder {
