@@ -11,6 +11,7 @@ use title_select_api::{
 };
 
 use crate::model::needs_review_from_counts;
+use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
 
 /// Why a Source Set takes no Coverage, from the DAT Formats of its DAT's revisions: a MAME ListXML's covers every Game,
 /// as the arcade Selection decides what a Play Library keeps (ADR 0027). `None` for any other.
@@ -20,7 +21,6 @@ pub fn no_coverage(formats: impl IntoIterator<Item = DatFormat>) -> Option<&'sta
         .any(|f| f == DatFormat::Listxml)
         .then_some(ARCADE_COVERAGE_REFUSAL)
 }
-use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
 
 /// What is true of a source set: `running` when a job is queued or running for it. With a coverage, its latest
 /// audit's entries count only as `covered_entries` says.

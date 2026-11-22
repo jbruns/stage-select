@@ -44,6 +44,11 @@ pub fn games_of_status_label(status: GameStatus) -> String {
     }
 }
 
+/// What Nothing to Check means for a Game, and why it is counted apart.
+pub const NOTHING_TO_CHECK_NOTE: &str = "It lists no ROM you need that a file can match, such as a device with no ROMs, \
+so there is nothing to check. It is counted apart from complete, incomplete and missing games, and satisfies any game \
+that needs it.";
+
 /// A Game Status, saying when it rests, for some ROM, on Claim Evidence alone.
 pub fn status_text(status: GameStatus, claimed: bool) -> String {
     if claimed {
@@ -75,7 +80,7 @@ pub fn absent_roms(game: &Game) -> Vec<String> {
             let notes: Vec<String> = [
                 game.not_dumped
                     .contains(rom)
-                    .then(|| "not dumped, so no file can match it".to_owned()),
+                    .then(|| "not dumped: no good dump known, so no file can match it".to_owned()),
                 game.optional_roms
                     .contains(rom)
                     .then(|| "optional".to_owned()),
@@ -105,9 +110,11 @@ pub fn dependency_line(game: &Game, claimed: impl Fn(&str) -> bool) -> Option<St
     needs.summary().map(|line| format!("Needs {line}"))
 }
 
-/// Whether `entry` is a CHD matched as a Disk: only a Disk's Evidence rests on its SHA-1 alone.
+/// Whether `entry` is a CHD matched as a Disk: a `.chd` file whose Evidence rests on its SHA-1 alone, as only a Disk's
+/// does.
 pub fn is_disk(entry: &Entry) -> bool {
     entry.member.is_none()
+        && names_disk(&entry.path)
         && entry
             .evidence
             .as_ref()
@@ -988,6 +995,29 @@ mod tests {
     }
 
     #[test]
+    fn nothing_to_check_says_it_is_counted_apart_and_satisfies_what_needs_it() {
+        for said in [
+            "nothing to check",
+            "counted apart from complete, incomplete and missing games",
+            "satisfies any game that needs it",
+        ] {
+            assert!(NOTHING_TO_CHECK_NOTE.contains(said), "{said}");
+        }
+        // The summary counts them under their own label, beside the other statuses.
+        let labels: Vec<String> = GameStatus::ALL
+            .iter()
+            .map(|s| games_of_status_label(*s))
+            .collect();
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|l| l.contains("nothing to check"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn a_count_of_games_names_their_status() {
         assert_eq!(games_of_status_label(GameStatus::Missing), "Missing games");
         assert_eq!(
@@ -1030,9 +1060,9 @@ mod tests {
         assert_eq!(
             absent_roms(&game),
             [
-                "pal.u1: not dumped, so no file can match it",
+                "pal.u1: not dumped: no good dump known, so no file can match it",
                 "snd.u2: optional",
-                "both.u3: not dumped, so no file can match it; optional",
+                "both.u3: not dumped: no good dump known, so no file can match it; optional",
                 "bad.u4: known bad dump"
             ]
         );

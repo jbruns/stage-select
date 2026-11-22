@@ -132,20 +132,12 @@ pub fn support_files(pins: &ArcadePins) -> Vec<SupportFileLine> {
 /// What the curated list did, when it was on: its commit, and the shortnames it names that the DAT revision lacks.
 pub fn curated_line(curated: &CuratedPin) -> String {
     let commit = curated.commit.get(..7).unwrap_or(&curated.commit);
-    match curated.unmatched.len() {
-        0 => format!(
-            "The curated list, at commit {commit}, kept only the families it names. Every name on it is in this DAT \
-             revision."
-        ),
-        1 => format!(
-            "The curated list, at commit {commit}, kept only the families it names. 1 name on it is not in this DAT \
-             revision, so it matched nothing."
-        ),
-        n => format!(
-            "The curated list, at commit {commit}, kept only the families it names. {n} names on it are not in this \
-             DAT revision, so they matched nothing."
-        ),
-    }
+    let lacking = match curated.unmatched.len() {
+        0 => "Every name on it is in this DAT revision.".to_owned(),
+        1 => "1 name on it is not in this DAT revision, so it matched nothing.".to_owned(),
+        n => format!("{n} names on it are not in this DAT revision, so they matched nothing."),
+    };
+    format!("The curated list, at commit {commit}, kept only the families it names. {lacking}")
 }
 
 /// The systems whose tabs hold the arcade settings in place of the Retool ones: those of the registered Arcade DATs,

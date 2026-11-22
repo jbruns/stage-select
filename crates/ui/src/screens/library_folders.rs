@@ -31,9 +31,9 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    BUILT_FOR_NOTE, FolderTab, Pick, ROMM_EVERYWHERE, ROMM_PER_PLATFORM, ROMM_TWICE, Replan,
-    Replans, built_for, drifted, fresh, live_status, pick, romm_exclusions, selection_under_way,
-    stale_label,
+    BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
+    Replan, Replans, built_for, drifted, fresh, live_status, no_coverage, pick, romm_exclusions,
+    selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::help::Help;
@@ -635,7 +635,10 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Coverage"</dt>
             <dd>
-                <InheritedCoverage name=f.source_set.clone() />
+                {match no_coverage(&f.system) {
+                    Some(why) => why.into_any(),
+                    None => view! { <InheritedCoverage name=f.source_set.clone() /> }.into_any(),
+                }}
             </dd>
             <dt>"Root"</dt>
             <dd>
@@ -1215,7 +1218,7 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
             </p>
             <Help summary="Using RomM? Leave these folders out">
                 <p>
-                    {ROMM_TWICE} " " <code>"exclude.roms.multi_file.names"</code> " " {ROMM_EVERYWHERE}
+                    {ROMM_BEFORE_SETTING} " " <code>"exclude.roms.multi_file.names"</code> " " {ROMM_AFTER_SETTING}
                 </p>
                 <pre>{exclusions}</pre>
                 <p>

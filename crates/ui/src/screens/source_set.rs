@@ -177,6 +177,13 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         })
     });
     let ready = Memo::new(move |_| good.with(Option::is_some));
+    let takes_coverage = Memo::new(move |_| {
+        good.with(|g| {
+            g.as_ref().is_some_and(|(_, revisions)| {
+                no_coverage(revisions.iter().map(|r| r.format)).is_none()
+            })
+        })
+    });
     let said = RwSignal::new(None::<String>);
     let editing = RwSignal::new(query.read_untracked().get("edit").as_deref() == Some("coverage"));
     let coverage =
@@ -310,7 +317,12 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             })
             }).into_any())
         }}
-        <CoverageDrawer name=name.get_value() open=editing coverage refresh said />
+        // A MAME source set takes no coverage, so not even a link opens the editor for it.
+        {move || {
+            takes_coverage
+                .get()
+                .then(|| view! { <CoverageDrawer name=name.get_value() open=editing coverage refresh said /> })
+        }}
     }
 }
 
@@ -424,44 +436,35 @@ fn Overview(
     });
     let coverage = set.coverage.clone();
     let (glyph, kind) = coverage::glyph(coverage.as_deref(), unavailable);
-    let coverage_section = match no_coverage(revisions.iter().map(|r| r.format)) {
-        // A MAME source set covers every game, and offers no control to change that.
-        Some(why) => view! {
-            <section aria-labelledby="coverage-title">
-                <h2 id="coverage-title">"Coverage"</h2>
-                <p>
-                    <Icon glyph label="Every game" />
-                    " "
-                    {why}
-                </p>
-            </section>
-        }
-        .into_any(),
-        None => view! {
-            <section aria-labelledby="coverage-title">
-                <h2 id="coverage-title">"Coverage"</h2>
-                <p>
-                    <Icon glyph label=kind />
-                    " "
-                    {match coverage.as_deref() {
-                        None => regions_line(None),
-                        Some(regions) => format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
-                    }}
-                </p>
-                <div class="actions">
-                    <button type="button" on:click=move |_| editing.set(true)>
-                        "Edit coverage"
-                    </button>
-                </div>
-            </section>
-        }
-        .into_any(),
+    // A MAME source set covers every game, and offers no control to change that.
+    let refused = no_coverage(revisions.iter().map(|r| r.format));
+    let (kind, line) = match (refused, coverage.as_deref()) {
+        (Some(why), _) => ("Every game", why.to_owned()),
+        (None, None) => (kind, regions_line(None)),
+        (None, Some(regions)) => (
+            kind,
+            format!("{}: {}", label(Some(regions)), regions_line(Some(regions))),
+        ),
     };
     view! {
         {stale_lines(&set)}
         {headline}
         <SingleCopy name=set.name.clone() present />
-        {coverage_section}
+        <section aria-labelledby="coverage-title">
+            <h2 id="coverage-title">"Coverage"</h2>
+            <p>
+                <Icon glyph label=kind />
+                " "
+                {line}
+            </p>
+            {refused.is_none().then(|| view! {
+                <div class="actions">
+                    <button type="button" on:click=move |_| editing.set(true)>
+                        "Edit coverage"
+                    </button>
+                </div>
+            })}
+        </section>
         <section aria-labelledby="about-title">
             <h2 id="about-title">"About it"</h2>
             <dl class="facts">

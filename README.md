@@ -2316,8 +2316,8 @@ Its screens:
   profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
   plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
   **Overview**, its facts, with the coverage it has from its source set and a link to edit it there (for a MAME
-  folder, the MAME version it was built for and which emulators run it, its disk folders, and, under **Using RomM?**,
-  the RomM exclusions ready to copy), what it lacks, naming the dependency a game lacks, and the files built into it,
+  folder, why it has none, the MAME version it was built for and which emulators run it, its disk folders, and, under
+  **Using RomM?**, the RomM exclusions ready to copy), what it lacks, naming the dependency a game lacks, and the files built into it,
   each file placed there now marked **Only copy**, or **Not known** while that's being read or can't be;
   **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what

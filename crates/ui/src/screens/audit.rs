@@ -10,8 +10,8 @@ use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
 use title_select_api::build::LibraryFolder;
 use title_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, Finding, Game, GameStatus, HeaderRule, Job,
-    Placements, StartAudit,
+    ALGORITHMS, AuditEvidence, AuditSummary, EvidenceLevel, Finding, Game, GameStatus, HeaderRule,
+    Job, Placements, StartAudit,
 };
 use wasm_bindgen::JsCast;
 
@@ -20,10 +20,11 @@ use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, Derived, Disks, EntryColumn, EntryFilter, GameColumn, GameDisk,
-    GameFilter, Sort, StatusFilter, absent_roms, audit_evidence_label, dependency_line, disk_text,
-    entry_name, evidence_text, finding_label, game_status_label, game_status_text, games_found,
-    games_of_status_label, header_rule_text, header_text, needs_review_from_counts, parse_ndjson,
-    payload_read_text, unneeded, warning_counts, warning_text, when,
+    GameFilter, NOTHING_TO_CHECK_NOTE, Sort, StatusFilter, absent_roms, audit_evidence_label,
+    dependency_line, disk_text, entry_name, evidence_text, finding_label, game_status_label,
+    game_status_text, games_found, games_of_status_label, header_rule_text, header_text,
+    needs_review_from_counts, parse_ndjson, payload_read_text, unneeded, warning_counts,
+    warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::pending::Pending;
@@ -865,7 +866,7 @@ fn disks_view(disks: Vec<GameDisk>) -> Option<AnyView> {
                     let payload = entry
                         .evidence
                         .as_ref()
-                        .is_some_and(|e| e.level == title_select_api::EvidenceLevel::Payload);
+                        .is_some_and(|e| e.level == EvidenceLevel::Payload);
                     view! {
                         " "
                         <StatusBadge status=FindingStatus::of(entry.finding, payload) />
@@ -995,11 +996,6 @@ impl Grid for GameItem {
         }
     }
 }
-
-/// What Nothing to Check means for a Game, and why it is counted apart.
-const NOTHING_TO_CHECK_NOTE: &str = "It lists no ROM you need that a file can match, such as a device with no ROMs, \
-so there is nothing to check. It is counted apart from complete, incomplete and missing games, and satisfies any game \
-that needs it.";
 
 /// Why a past audit shows a review flag it didn't raise.
 const FLAGGED_NOW: &str = "This flag is the game's now, not part of this audit: every audit of the source set \

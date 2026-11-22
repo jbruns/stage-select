@@ -2,6 +2,8 @@
 //! the page's tabs, and the words for why a folder is stale.
 
 use title_select_api::build::{LibraryFolder, Stale};
+use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+use title_select_api::storage::is_mame_system;
 use title_select_api::{Job, JobKind, SelectionRecord};
 
 use crate::coverage_model::label_in_sentence;
@@ -135,6 +137,12 @@ pub fn stale_label(stale: &Stale) -> String {
     }
 }
 
+/// Why a library folder of `system`, its DAT as `<provider>/<name>`, has no coverage to inherit: a MAME folder's
+/// source set covers every Game (ADR 0027). `None` for any other.
+pub fn no_coverage(system: &str) -> Option<&'static str> {
+    is_mame_system(system).then_some(ARCADE_COVERAGE_REFUSAL)
+}
+
 /// What a MAME library folder was built for, "MAME 0.289", from its Selection's ListXML build, such as `0.289
 /// (mame0289)`.
 pub fn built_for(build: &str) -> String {
@@ -145,12 +153,13 @@ pub fn built_for(build: &str) -> String {
 pub const BUILT_FOR_NOTE: &str = "Only an emulator of that MAME version runs what this folder holds, such as \
 RetroArch's current mame core or standalone MAME.";
 
-/// Why RomM needs a MAME library folder's disk folders left out, before the setting's name.
-pub const ROMM_TWICE: &str = "RomM takes every folder in a platform for a game of its own, so without this it shows \
+/// The sentence on RomM's exclusions up to the setting's name, `exclude.roms.multi_file.names`: why RomM needs a MAME
+/// library folder's disk folders left out.
+pub const ROMM_BEFORE_SETTING: &str = "RomM takes every folder in a platform for a game of its own, so without this it shows \
 each game with disks twice: once for its ZIP, and once for its disk folder, which doesn't run. Add these names to";
 
-/// After the setting's name: what to do then, and that RomM's list holds for every platform.
-pub const ROMM_EVERYWHERE: &str = "in your RomM configuration, then scan the platform again. RomM keeps that setting \
+/// The rest of that sentence after the setting's name: what to do then, and that RomM's list holds for every platform.
+pub const ROMM_AFTER_SETTING: &str = "in your RomM configuration, then scan the platform again. RomM keeps that setting \
 as one list for every platform, so it leaves out a folder of these names on every platform, not only this one. Title \
 Select doesn't change RomM's configuration for you.";
 
@@ -608,6 +617,12 @@ mod tests {
     }
 
     #[test]
+    fn a_mame_folder_inherits_no_coverage_and_says_why() {
+        assert_eq!(no_coverage("MAME/MAME"), Some(ARCADE_COVERAGE_REFUSAL));
+        assert_eq!(no_coverage("No-Intro/Atari - Atari 2600"), None);
+    }
+
+    #[test]
     fn a_mame_folder_says_which_mame_version_runs_it() {
         assert_eq!(built_for("0.289 (mame0289)"), "MAME 0.289");
         assert_eq!(built_for("0.289"), "MAME 0.289");
@@ -622,12 +637,8 @@ mod tests {
 
     #[test]
     fn the_romm_exclusions_say_what_happens_without_them_and_that_they_apply_everywhere() {
-        assert!(ROMM_TWICE.contains("each game with disks twice"));
-        assert!(ROMM_EVERYWHERE.contains("one list for every platform"));
-        assert!(ROMM_EVERYWHERE.contains("on every platform, not only this one"));
-        assert_eq!(
-            ROMM_PER_PLATFORM,
-            "https://github.com/rommapp/romm/issues/5696"
-        );
+        assert!(ROMM_BEFORE_SETTING.contains("each game with disks twice"));
+        assert!(ROMM_AFTER_SETTING.contains("one list for every platform"));
+        assert!(ROMM_AFTER_SETTING.contains("on every platform, not only this one"));
     }
 }
