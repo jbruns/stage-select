@@ -250,15 +250,6 @@ pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
     )
 }
 
-/// As [`reorder_revisions`], for a schema from before any revision could be deleted, when import order was id order.
-pub(crate) fn reorder_revisions_before_deletion(c: &Connection, dat_id: i64) -> Result<()> {
-    reorder(
-        c,
-        "SELECT id, version, header_date, id FROM dat_revisions WHERE dat_id = ?1",
-        dat_id,
-    )
-}
-
 fn reorder(c: &Connection, select: &str, dat_id: i64) -> Result<()> {
     let mut stmt = c.prepare(select)?;
     let revisions = stmt

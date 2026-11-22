@@ -395,8 +395,11 @@ first use. Only one Title Select process may have a store open at a time: it hol
   `dats/` that no DAT revision holds, under `cue_packs/` that no cue pack holds, under `sbi_packs/` that no SBI
   pack holds, and under `support_files/` that no support file holds, are deleted each time the store
   opens.
-- Migrations are embedded and forward-only. Before one runs on a store that already has a schema, the database is
-  copied with `VACUUM INTO` to `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused.
+- Migrations are embedded and forward-only, starting from one baseline that marks the database as Title Select's.
+  Before one runs on a store that already has a schema, the database is copied with `VACUUM INTO` to
+  `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused. A store made by a release
+  from before the baseline is refused too, untouched, with "This store was made by an earlier release of Title Select
+  and can't be opened. Start a new store.": point `--store` at a new directory.
 - A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest revision
   of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a

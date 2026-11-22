@@ -76,33 +76,11 @@ pub(crate) fn policy(c: &Connection, scope: StorageScope, system: &str) -> Resul
 /// the default, and that over one that deletes them; the format of the one already under the kept spelling, else the
 /// first by name, unless it sets none; and so the layout, SBI choice and set layout.
 pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
-    // A migration before the disc layout's respells too, before its columns exist.
-    let laid: bool = c.query_row(
-        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'layout'",
-        [],
-        |r| r.get(0),
-    )?;
-    let discs = if laid { "layout, sbi" } else { "NULL, NULL" };
-    let single: bool = c.query_row(
-        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'single_copy'",
-        [],
-        |r| r.get(0),
-    )?;
-    let converted: bool = c.query_row(
-        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'place_converted'",
-        [],
-        |r| r.get(0),
-    )?;
-    let set_laid: bool = c.query_row(
-        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'set_layout'",
-        [],
-        |r| r.get(0),
-    )?;
     let rows = c
-        .prepare(&format!(
-            "SELECT scope, system, format, delete_originals, {discs} FROM storage_policy
-             WHERE system <> '' ORDER BY scope, system"
-        ))?
+        .prepare(
+            "SELECT scope, system, format, delete_originals, layout, sbi FROM storage_policy
+             WHERE system <> '' ORDER BY scope, system",
+        )?
         .query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -122,10 +100,8 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
         type Row = (Option<String>, Option<bool>, Option<String>, Option<bool>);
         let kept: Option<Row> = c
             .query_row(
-                &format!(
-                    "SELECT format, delete_originals, {discs} FROM storage_policy
-                     WHERE scope = ?1 AND system = ?2"
-                ),
+                "SELECT format, delete_originals, layout, sbi FROM storage_policy
+                 WHERE scope = ?1 AND system = ?2",
                 params![scope, canonical],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
@@ -152,43 +128,35 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
                     "UPDATE storage_policy SET format = ?3, delete_originals = ?4 WHERE scope = ?1 AND system = ?2",
                     params![scope, canonical, kept_format.or(format), delete],
                 )?;
-                if laid {
-                    c.execute(
-                        "UPDATE storage_policy SET layout = ?3, sbi = ?4 WHERE scope = ?1 AND system = ?2",
-                        params![scope, canonical, kept_layout.or(layout), kept_sbi.or(sbi)],
-                    )?;
-                }
-                if single {
-                    // Single Copy deletes originals too: as with them, off over following the default over on.
-                    c.execute(
-                        "UPDATE storage_policy SET single_copy = (
-                             SELECT CASE min(CASE single_copy WHEN 0 THEN 0 WHEN 1 THEN 2 ELSE 1 END)
-                                    WHEN 0 THEN 0 WHEN 2 THEN 1 END
-                             FROM storage_policy WHERE scope = ?1 AND system IN (?2, ?3))
-                         WHERE scope = ?1 AND system = ?2",
-                        params![scope, canonical, system],
-                    )?;
-                }
-                if set_laid {
-                    c.execute(
-                        "UPDATE storage_policy SET set_layout = coalesce(set_layout, (
-                             SELECT set_layout FROM storage_policy WHERE scope = ?1 AND system = ?3))
-                         WHERE scope = ?1 AND system = ?2",
-                        params![scope, canonical, system],
-                    )?;
-                }
-                if converted {
-                    // Placing converted games leaves them with no copy in their source set's format: as with single
-                    // copy, off over following the default over on.
-                    c.execute(
-                        "UPDATE storage_policy SET place_converted = (
-                             SELECT CASE min(CASE place_converted WHEN 0 THEN 0 WHEN 1 THEN 2 ELSE 1 END)
-                                    WHEN 0 THEN 0 WHEN 2 THEN 1 END
-                             FROM storage_policy WHERE scope = ?1 AND system IN (?2, ?3))
-                         WHERE scope = ?1 AND system = ?2",
-                        params![scope, canonical, system],
-                    )?;
-                }
+                c.execute(
+                    "UPDATE storage_policy SET layout = ?3, sbi = ?4 WHERE scope = ?1 AND system = ?2",
+                    params![scope, canonical, kept_layout.or(layout), kept_sbi.or(sbi)],
+                )?;
+                // Single Copy deletes originals too: as with them, off over following the default over on.
+                c.execute(
+                    "UPDATE storage_policy SET single_copy = (
+                         SELECT CASE min(CASE single_copy WHEN 0 THEN 0 WHEN 1 THEN 2 ELSE 1 END)
+                                WHEN 0 THEN 0 WHEN 2 THEN 1 END
+                         FROM storage_policy WHERE scope = ?1 AND system IN (?2, ?3))
+                     WHERE scope = ?1 AND system = ?2",
+                    params![scope, canonical, system],
+                )?;
+                c.execute(
+                    "UPDATE storage_policy SET set_layout = coalesce(set_layout, (
+                         SELECT set_layout FROM storage_policy WHERE scope = ?1 AND system = ?3))
+                     WHERE scope = ?1 AND system = ?2",
+                    params![scope, canonical, system],
+                )?;
+                // Placing converted games leaves them with no copy in their source set's format: as with single
+                // copy, off over following the default over on.
+                c.execute(
+                    "UPDATE storage_policy SET place_converted = (
+                         SELECT CASE min(CASE place_converted WHEN 0 THEN 0 WHEN 1 THEN 2 ELSE 1 END)
+                                WHEN 0 THEN 0 WHEN 2 THEN 1 END
+                         FROM storage_policy WHERE scope = ?1 AND system IN (?2, ?3))
+                     WHERE scope = ?1 AND system = ?2",
+                    params![scope, canonical, system],
+                )?;
                 c.execute(
                     "DELETE FROM storage_policy WHERE scope = ?1 AND system = ?2",
                     params![scope, system],
