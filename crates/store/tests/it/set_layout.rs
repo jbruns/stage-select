@@ -1845,8 +1845,8 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_when_th
 /// The parent's ZIP holds a conflicting member, so it is left by default, and a loose file holds the Source Set's only
 /// copy of its graphics. The clone is missing, and an Ingest Folder holds it with its graphics under its own name, the
 /// parent's by `merge=`. The plan fills the clone, and the loose file, a copy of what the fill writes, is left by
-/// default; with `keep_aside`, you chose to keep it aside. The Ingest Folder's ZIP is gone once the plan is approved,
-/// so the fill fails, and the loose file's graphics stay in the Source Set's folder either way.
+/// default; with `keep_aside`, the Operator chose to keep it aside. The Ingest Folder's ZIP is gone once the plan is
+/// approved, so the fill fails, and the loose file's graphics stay in the Source Set's folder either way.
 fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
     layout: SetLayout,
     keep_aside: bool,
@@ -1924,4 +1924,33 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
         ran.outcomes
     );
     assert!(env.set().join("gfx.u4").is_file(), "{at}");
+}
+
+#[test]
+fn a_merged_family_whose_clone_zip_is_misnamed_is_repacked_split_with_the_zip_renamed() {
+    let env = Env::new();
+    env.stored(SetLayout::Merged);
+    // The clone's ZIP as split keeps it, under another name: its ROM is also in the merged ZIP, kept aside before the
+    // Rename, which never needs waiting for, as the file it moves holds the ROM whether it is done or not.
+    env.zip("blasterj (copy).zip", &["progj.u3"]);
+    env.layout(SetLayout::Split);
+    env.audit();
+
+    let plan = env.plan();
+
+    let items = &plan.content.items;
+    for game in ["game:blaster", "game:blasterj"] {
+        let item = (items.iter()).find(|i| i.key == game);
+        assert!(
+            item.is_some_and(|i| i.chosen != RepairChoice::Leave),
+            "{game}: {items:#?}"
+        );
+    }
+    let report = env.approve(&plan);
+    assert_eq!(
+        members(&env.set().join("blaster.zip")),
+        ["gfx.u4", "prog.u3"]
+    );
+    assert_eq!(members(&env.set().join("blasterj.zip")), ["progj.u3"]);
+    verified(&report);
 }

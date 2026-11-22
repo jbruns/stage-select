@@ -152,7 +152,8 @@ const ONLY_COPY: &str =
 
 /// Why a repair leaves an item that would keep a file aside before another item writes the copy that file holds.
 const WAITS_ON_LATER: &str = "left as it is: it would keep aside a copy of a ROM before another item of this repair \
-     writes it, so it couldn't wait for that file to be written and verified. Repair again once this repair is done";
+     writes it, so it couldn't wait for that file to be written and verified; you can repair it once this repair is \
+     done";
 
 /// Why a repair leaves, by default, a file holding only copies of ROMs another file holds or this plan writes.
 const SPARE_COPY: &str = "left as it is: a repair keeps a copy of a ROM aside only when you choose to. If you do, it \
@@ -429,18 +430,27 @@ impl<'a> Preserved<'a> {
         let scope = self.scopes.file(path);
         let mut lost = BTreeSet::new();
         for rom in payloads(&file.entries).flatten() {
-            let kept = self.dat.get(&rom).is_some_and(|r| {
-                let sums = Sums::of(r);
-                let held = self.held.any_where(&sums, |p| {
-                    !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
+            let kept = self.stays_beside(path, &rom)
+                || (self.dat.get(&rom)).is_some_and(|r| {
+                    self.produced
+                        .any_where(&Sums::of(r), |at| at.survives_for(scope))
                 });
-                held || self.produced.any_where(&sums, |at| at.survives_for(scope))
-            });
             if !kept {
                 lost.insert(rom);
             }
         }
         lost
+    }
+
+    /// Whether a file that stays, where a copy survives for the file at `path` ([`Scope::survives_for`]), holds a copy
+    /// of `rom`, as a ROM of whichever Game, under whichever name.
+    fn stays_beside(&self, path: &str, rom: &RomKey) -> bool {
+        let scope = self.scopes.file(path);
+        self.dat.get(rom).is_some_and(|r| {
+            self.held.any_where(&Sums::of(r), |p| {
+                !self.displaced.contains(p) && self.scopes.file(p).survives_for(scope)
+            })
+        })
     }
 }
 
@@ -2843,10 +2853,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         .is_some_and(|file| !preserved.lost(path, file).is_empty())
                 })
         });
+        // An item that would keep aside a copy of a ROM before the only write that covers it is left too, unless a
+        // file that stays holds one.
         let lost = lost.map(|n| (n, ONLY_COPY)).or_else(|| {
             let (_, ungated) = steps_of(i, &proposed);
+            let waits = ungated
+                .into_iter()
+                .find(|u| !preserved.stays_beside(&u.path, &u.rom))?;
             (proposed.iter())
-                .position(|p| ungated.contains(&p.item.key))
+                .position(|p| p.item.key == waits.item)
                 .map(|n| (n, WAITS_ON_LATER))
         });
         let Some((lost, why)) = lost else {
@@ -3041,6 +3056,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         ));
     }
     let (steps, ungated) = steps_of(i, &proposed);
+    let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
+    let ungated: Vec<String> = (ungated.into_iter())
+        .filter(|u| !preserved.stays_beside(&u.path, &u.rom))
+        .map(|u| u.item)
+        .collect();
     // Every Keep of a repair item waits for its cover, as the last-copy loop leaves one that can't; a file kept aside on
     // its own is kept after every write but a conversion's, which never needs waiting for.
     if let Some(item) = ungated.first() {
@@ -3066,9 +3086,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 /// is there. A conversion that shares no file with another item then follows, each in turn: its Builds,
 /// the Keep of what it displaces from its new files' names, its Publishes, the Keep of each original and, when the
 /// Storage Policy deletes originals, the Delete of each original, so that a folder being converted holds at most one
-/// converted Game more than it did at any time. With the steps, the items one of whose Keeps can't wait for the write
-/// that covers what it keeps aside, which the plan leaves.
-fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, BTreeSet<String>) {
+/// converted Game more than it did at any time. With the steps, each Keep that can't wait for the write that covers a
+/// ROM it keeps aside ([`Ungated`]).
+fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, Vec<Ungated>) {
     let applied: Vec<&Proposed> = proposed
         .iter()
         .filter(|p| p.item.chosen != RepairChoice::Leave)
@@ -3324,7 +3344,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, BTreeSet<St
         .filter(|p| !p.converts.is_empty() || p.release.is_some())
         .map(|p| p.item.key.as_str())
         .collect();
-    let mut ungated = BTreeSet::new();
+    let mut ungated = Vec::new();
     let mut extra_needs: Vec<(usize, Vec<u32>)> = Vec::new();
     for (k, s) in steps.iter().enumerate() {
         let RepairStep::Keep { path, needs, .. } = &s.step else {
@@ -3346,9 +3366,14 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, BTreeSet<St
             let others: Vec<u32> = (covers.iter().copied())
                 .filter(|b| !apart.contains(steps[*b as usize].item.as_str()))
                 .collect();
-            // Another item's write that only comes later can't be waited for: the item is left.
+            // Another item's write that only comes later can't be waited for, unless a file that stays holds a copy,
+            // such as one a Rename moves ([`Preserved::stays_beside`]).
             if !own && !others.is_empty() && !others.iter().any(|b| before(*b)) {
-                ungated.insert(s.item.clone());
+                ungated.push(Ungated {
+                    item: s.item.clone(),
+                    path: path.clone(),
+                    rom: (i.dat.games[rom.game].clone(), rom.name.clone()),
+                });
             }
             more.extend(covers);
         }
@@ -3371,6 +3396,14 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> (Vec<PlannedStep>, BTreeSet<St
         }
     }
     (steps, ungated)
+}
+
+/// A Keep of item `item` that can't wait for the write covering ROM `rom` of the file at `path` it keeps aside, as
+/// that write comes later and is another item's.
+struct Ungated {
+    item: String,
+    path: String,
+    rom: RomKey,
 }
 
 /// A kept name for `path` whose [`name_key`] is not yet in `names`, taken.
