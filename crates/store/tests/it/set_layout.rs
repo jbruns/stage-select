@@ -882,8 +882,8 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_where_it_i
     }
 }
 
-/// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds when it is audited;
-/// then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. The Game is stored where it is
+/// The clone of [`listxml_shared`] is placed as a TorrentZip lacking the program ROM, which no file holds when it is
+/// audited; then its ZIP goes or changes as `since` says, and an Ingest Folder holds it whole. The Game is stored where it is
 /// placed as the Audit found it, a TorrentZip, so the fill finds that ZIP in the way: nothing is written into the
 /// Library Folder, where its ROMs would otherwise be written loose.
 fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(since: Since) {
