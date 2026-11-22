@@ -319,10 +319,17 @@ impl Env {
 
     /// Approves `plan` and runs its Repair Job, whatever steps of it fail, returning the plan as it ran.
     fn run(&self, plan: &RepairPlan) -> RepairPlan {
+        self.run_after(plan, || ())
+    }
+
+    /// Approves `plan`, then does `meanwhile`, then runs its Repair Job, whatever steps of it fail, returning the plan
+    /// as it ran.
+    fn run_after(&self, plan: &RepairPlan, meanwhile: impl FnOnce()) -> RepairPlan {
         let approved = self
             .store
             .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
+        meanwhile();
         let job = approved.job.expect("an approved repair has a job");
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
         let ended = self.store.run_repair_job(&self.config, job, None).unwrap();
@@ -1877,10 +1884,39 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
         .find(|i| i.key == "game:blasterj")
         .unwrap_or_else(|| panic!("{at}: {:#?}", plan.content.items));
     assert_eq!(fill.chosen, RepairChoice::Apply, "{at}: {fill:#?}");
-    std::fs::remove_file(env.tmp.path().join("in/blasterj.zip")).unwrap();
+    let steps = &plan.content.steps;
+    let keep = (steps.iter()).find_map(|s| match &s.step {
+        RepairStep::Keep { path, needs, .. } if path == "gfx.u4" => Some(needs),
+        _ => None,
+    });
+    let fill_step = (steps.iter()).position(|s| matches!(s.step, RepairStep::Fill { .. }));
+    match keep_aside {
+        // The Keep waits for the fill that writes the other copy.
+        true => assert!(
+            keep.zip(fill_step)
+                .is_some_and(|(needs, f)| needs.contains(&(f as u32))),
+            "{at}: {steps:#?}"
+        ),
+        false => assert!(keep.is_none(), "{at}: {steps:#?}"),
+    }
 
-    let ran = env.run(&plan);
+    let ran = env.run_after(&plan, || {
+        std::fs::remove_file(env.tmp.path().join("in/blasterj.zip")).unwrap()
+    });
 
+    let outcome = |item: &str| (ran.outcomes.iter()).find(|o| o.item == item);
+    assert!(
+        outcome("game:blasterj").is_some_and(|o| !o.done),
+        "{at}: {:#?}",
+        ran.outcomes
+    );
+    if keep_aside {
+        assert!(
+            outcome("file:gfx.u4").is_some_and(|o| !o.done),
+            "{at}: {:#?}",
+            ran.outcomes
+        );
+    }
     assert!(
         rom_payloads(&env).contains(payload("gfx.u4")),
         "{at}: {:#?}\n{:#?}",

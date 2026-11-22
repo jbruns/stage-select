@@ -1221,18 +1221,18 @@ source sets and for each system whose DAT is an arcade DAT, MAME's ListXML. Soft
 - **Merged**: a parent's ZIP holds what split gives it and each of its clones' own ROMs, and a clone has no ZIP of its
   own.
 
-An audit accepts any layout and counts a game's files as above, so a family audits to the same statuses whichever way
-it is stored, and a layout other than yours is no discrepancy. The next repair proposes repacking each family into
-your layout, every item on by default: it writes each ZIP from the family's ZIPs, filling a ROM a ZIP lacks from a
-sibling ZIP that holds it, and a ZIP another game is written into is read but never set aside by this game's item. A
-ZIP the layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is
-written and verified; if one of them fails, it stays. A repack only writes, renames and fills: a file left holding
-only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to keep it
-aside, and the item says so. A family is repacked whole: leaving one game of it as it is
-leaves the family's other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists
-for it wins, a game's own before its dependencies' and a parent's before its clones', the plan's notes say which ROM
-was left out, and the file that holds it stays where it is. Disks are never moved by the set layout: they stay in a
-folder named for the family's parent.
+An audit accepts any layout and counts a game's files as above, so a family audits to the same statuses whichever way it
+is stored, and a layout other than yours is no discrepancy. The next repair proposes repacking each family into your
+layout, every item on by default: it writes each ZIP from the family's ZIPs, filling a ROM a ZIP lacks from a sibling
+ZIP that holds it, and a ZIP another game is written into is read but never set aside by this game's item. A ZIP the
+layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is written and
+verified; if one of them fails, it stays. By default a repack only builds, renames, fills and converts: a file left
+holding only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to
+keep it aside, and the item says so. A family is repacked whole: leaving one game of it as it is leaves the family's
+other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists for it wins, a game's own
+before its dependencies' and a parent's before its clones', the plan's notes say which ROM was left out, and the file
+that holds it stays where it is. Disks are never moved by the set layout: they stay in a folder named for the family's
+parent.
 
 ### Library folders and builds
 

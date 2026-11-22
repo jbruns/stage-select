@@ -85,5 +85,8 @@ choose to keep it aside. A file holding only Unmatched Entries is still kept asi
 Review found, round after round, a way for a default plan to set aside the last usable copy of a ROM, because what
 made a file spare was a write another item makes, and that write can fail after approval: a Fill whose Ingest Folder
 item is gone, say. So a Keep, chosen or not, needs every earlier step of the plan, in any item, that reads the file or
-writes a payload it holds, and the Publish of each such Build: if one of them fails, the Keep is skipped and the file
-stays. A conversion's Builds come after, but each reads only its own originals, which stay until it is verified.
+writes a payload it holds, and the Publish of each such Build where it comes first: if one of them fails, the Keep is
+skipped and the file stays. A Keep that comes before the only write of another item covering what it holds, such as a
+file in the way of a new one before a later Fill, can't wait for it, so the plan leaves its item. A conversion's writes
+come after, but each reads only its own originals, which stay until it is verified. An item's own Fill still comes
+after the Keep of a file in its way, as it did before this amendment.
