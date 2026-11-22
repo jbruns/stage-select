@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 use title_select_api::Root;
-use title_select_api::roots::{RootEdited, RootKind};
+use title_select_api::roots::{FolderSuggestions, RootEdited, RootKind};
 
 use crate::api;
 use crate::app::Problem;
@@ -177,10 +177,16 @@ fn RootRow(root: Root, show: impl Fn(Open) + Copy + Send + Sync + 'static) -> im
     }
 }
 
-/// The form to register a Root, or to edit `was`.
+/// The form to register a Root, or to edit `was`. `draft` holds the form as typed, when the page fills it in too.
 #[component]
-fn RootForm(was: Option<Root>, done: Callback<(String, Vec<String>)>) -> impl IntoView {
-    let draft = RwSignal::new(was.as_ref().map(RootDraft::of).unwrap_or_default());
+pub(crate) fn RootForm(
+    was: Option<Root>,
+    done: Callback<(String, Vec<String>)>,
+    #[prop(optional)] draft: Option<RwSignal<RootDraft>>,
+) -> impl IntoView {
+    let draft =
+        draft.unwrap_or_else(|| RwSignal::new(was.as_ref().map(RootDraft::of).unwrap_or_default()));
+    let suggested = LocalResource::new(|| api::get::<FolderSuggestions>("/folder-suggestions"));
     let editing = was.is_some();
     let was = StoredValue::new(was);
     let busy = RwSignal::new(false);
@@ -253,12 +259,26 @@ fn RootForm(was: Option<Root>, done: Callback<(String, Vec<String>)>) -> impl In
                 type="text"
                 class="wide"
                 placeholder="/srv/roms"
+                list="root-path-suggestions"
                 prop:value=move || draft.with(|d| d.path.clone())
                 on:input=move |ev| {
                     let value = event_target_value(&ev);
                     draft.update(|d| d.path = value);
                 }
             />
+            <datalist id="root-path-suggestions">
+                {move || {
+                    suggested
+                        .get()
+                        .and_then(Result::ok)
+                        .map(|s| {
+                            s.folders
+                                .into_iter()
+                                .map(|f| view! { <option value=f.path></option> })
+                                .collect_view()
+                        })
+                }}
+            </datalist>
             <p class="note small">"The folder must already exist on the service's host."</p>
             <fieldset>
                 <legend>"Kind"</legend>

@@ -270,3 +270,114 @@ fn a_roots_path_or_writability_doesnt_change_while_a_job_runs_on_it() {
     let root = &env.store.roots_view()[0];
     assert_eq!((root.readers, root.writable), (Some(2), true));
 }
+
+mod suggestions {
+    use std::os::unix::fs::PermissionsExt;
+
+    use title_select_api::roots::{FolderSuggestion, RootSpec};
+    use title_select_store::roots::SUGGESTED_PER_MOUNT;
+
+    use super::Env;
+
+    fn paths(env: &Env, bases: &[std::path::PathBuf]) -> (Vec<String>, bool) {
+        let found = env.store.folder_suggestions(bases);
+        (
+            found.folders.into_iter().map(|f| f.path).collect(),
+            found.more,
+        )
+    }
+
+    #[test]
+    fn each_mount_point_and_the_folders_directly_in_it_are_suggested_in_order_and_nothing_deeper() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        for dir in [
+            "mnt/roms/nested",
+            "mnt/games",
+            "mnt/.hidden",
+            "mnt/lost+found",
+        ] {
+            env.dir(dir);
+        }
+        std::fs::write(mnt.join("a-file"), b"").unwrap();
+        let data = env.dir("data");
+        let bases = [data.clone(), env.tmp.path().join("missing"), mnt.clone()];
+        let (found, more) = paths(&env, &bases);
+        let at = |p: &std::path::Path| p.display().to_string();
+        assert_eq!(
+            found,
+            [
+                at(&data),
+                at(&mnt),
+                at(&mnt.join("games")),
+                at(&mnt.join("roms"))
+            ]
+        );
+        assert!(!more);
+    }
+
+    #[test]
+    fn a_symlink_is_never_followed_out_of_a_mount_point() {
+        let env = Env::new();
+        let outside = env.dir("outside");
+        env.dir("outside/secret");
+        let mnt = env.dir("mnt");
+        env.dir("mnt/roms");
+        std::os::unix::fs::symlink(&outside, mnt.join("escape")).unwrap();
+        let linked = env.tmp.path().join("linked");
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        let (found, _) = paths(&env, &[mnt.clone(), linked]);
+        assert_eq!(
+            found,
+            [
+                mnt.display().to_string(),
+                mnt.join("roms").display().to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_full_mount_point_is_cut_short_and_says_so() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        for n in 0..SUGGESTED_PER_MOUNT + 5 {
+            env.dir(&format!("mnt/{n:03}"));
+        }
+        let (found, more) = paths(&env, &[mnt]);
+        assert_eq!(
+            found.len(),
+            SUGGESTED_PER_MOUNT + 1,
+            "the mount point and its first folders"
+        );
+        assert!(found[1].ends_with("000"), "{found:?}");
+        assert!(more);
+    }
+
+    #[test]
+    fn a_registered_folder_is_left_out_and_each_says_whether_it_can_be_written() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        let sets = env.dir("mnt/sets");
+        let locked = env.dir("mnt/locked");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        env.register(&RootSpec::new("sets", &sets)).unwrap();
+        let found = env
+            .store
+            .folder_suggestions(std::slice::from_ref(&mnt))
+            .folders;
+        let can_lock = rustix::fs::access(&locked, rustix::fs::Access::WRITE_OK).is_err();
+        assert_eq!(
+            found,
+            [
+                FolderSuggestion {
+                    path: mnt.display().to_string(),
+                    writable: true
+                },
+                FolderSuggestion {
+                    path: locked.display().to_string(),
+                    writable: !can_lock
+                },
+            ]
+        );
+    }
+}

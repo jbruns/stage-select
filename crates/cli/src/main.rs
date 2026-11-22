@@ -868,6 +868,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 romm_scan_timing: None,
                 calibration_limits: None,
                 notify_backoff: None,
+                mount_points: None,
             })
             .map_err(|e| e.to_string())
         }

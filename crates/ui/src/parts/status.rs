@@ -1341,6 +1341,66 @@ pub fn StatusIcon<S: Status>(status: S, #[prop(default = true)] tab_stop: bool) 
     }
 }
 
+/// Where a first-run step stands, with Skipped for one you passed over on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StepStatus {
+    Done,
+    Next,
+    Waiting,
+    Skipped,
+}
+
+impl StepStatus {
+    /// The status of a step in `state`; a step you've taken reads Done even if you skipped it.
+    pub fn of(state: crate::welcome_model::State, skipped: bool) -> Self {
+        use crate::welcome_model::State;
+        match (state, skipped) {
+            (State::Done, _) => StepStatus::Done,
+            (_, true) => StepStatus::Skipped,
+            (State::Ready, _) => StepStatus::Next,
+            (State::Waiting(_), _) => StepStatus::Waiting,
+        }
+    }
+}
+
+impl Status for StepStatus {
+    const ALL: &'static [Self] = &[
+        StepStatus::Next,
+        StepStatus::Waiting,
+        StepStatus::Skipped,
+        StepStatus::Done,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            StepStatus::Done => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Done",
+                "You've taken this step.",
+            ),
+            StepStatus::Next => look(
+                Glyph::ArrowRight,
+                Tone::Active,
+                "Next",
+                "You can take this step now.",
+            ),
+            StepStatus::Waiting => look(
+                Glyph::CircleDashed,
+                Tone::Neutral,
+                "Waiting",
+                "You need to take an earlier step first.",
+            ),
+            StepStatus::Skipped => look(
+                Glyph::CircleMinus,
+                Tone::Neutral,
+                "Skipped",
+                "You skipped this step, and can take it later.",
+            ),
+        }
+    }
+}
+
 /// A status as its icon and label, for a detail pane or a summary: its hint is the icon's tooltip.
 #[component]
 pub fn StatusBadge<S: Status>(status: S) -> impl IntoView {
@@ -1386,6 +1446,7 @@ mod tests {
             ("support files", vocabulary::<SupportFileStatus>()),
             ("selection groups", vocabulary::<GroupStatus>()),
             ("calibration", vocabulary::<CalibrationStatus>()),
+            ("first-run steps", vocabulary::<StepStatus>()),
         ]
     }
 

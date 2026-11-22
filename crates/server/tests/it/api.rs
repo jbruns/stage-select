@@ -72,6 +72,7 @@ impl Env {
             romm_scan_timing: None,
             calibration_limits: None,
             notify_backoff: None,
+            mount_points: None,
         }
     }
 
@@ -796,6 +797,28 @@ fn the_api_refuses_to_delete_a_dat_revision_in_use_saying_why_and_deletes_it_onc
     let dats: Vec<title_select_api::Dat> = client.json("/dats");
     assert!(dats.is_empty());
     assert_eq!(delete().status(), 404);
+}
+
+#[test]
+fn the_api_suggests_the_unregistered_folders_of_its_mount_points() {
+    let env = Env::new();
+    let roots = env.tmp.path().join("roots");
+    std::fs::create_dir_all(roots.join("play")).unwrap();
+    let service = title_select_server::spawn(Settings {
+        mount_points: Some(vec![roots.clone()]),
+        ..env.settings()
+    })
+    .unwrap();
+    let found: serde_json::Value = Client::new(&service).json("/folder-suggestions");
+    let at = |p: &std::path::Path| p.display().to_string();
+    assert_eq!(
+        found,
+        serde_json::json!({"folders": [
+            {"path": at(&roots), "writable": true},
+            {"path": at(&roots.join("play")), "writable": true},
+        ]}),
+        "the registered sets are left out"
+    );
 }
 
 #[test]
@@ -3043,6 +3066,7 @@ mod selections {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
             notify_backoff: None,
+            mount_points: None,
             ..env.settings()
         })
         .unwrap();

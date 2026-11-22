@@ -15,12 +15,22 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use title_select_api::JobState;
 use title_select_api::paths::relative_path;
 use title_select_api::repair::{RepairPlanContent, RepairStep};
-use title_select_api::roots::{RootChange, RootEdited, RootSpec, VoidedPlan, VoidedPlanKind};
+use title_select_api::roots::{
+    FolderSuggestion, FolderSuggestions, RootChange, RootEdited, RootSpec, VoidedPlan,
+    VoidedPlanKind,
+};
 use title_select_api::settings::{MAX_MIB_PER_S, MAX_WORKERS, RootOverrides};
 
 pub use title_select_api::roots::RootKind;
 
 use crate::{Error, Result, Store, now};
+
+/// The common mount points whose folders the workbench suggests registering as Roots.
+pub const MOUNT_POINTS: [&str; 4] = ["/data", "/mnt", "/media", "/srv"];
+/// The most entries of a mount point read to suggest the folders in it.
+pub const READ_PER_MOUNT: usize = 1000;
+/// The most folders in a mount point suggested.
+pub const SUGGESTED_PER_MOUNT: usize = 50;
 
 /// A registered Root, as the store holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -996,6 +1006,60 @@ impl Store {
             ));
         }
         Ok(held)
+    }
+
+    /// The folders to suggest registering as Roots: each of `mount_points` that is a folder, then the folders
+    /// directly in it, by name, but for those already registered. The listing is shallow and bounded, as a mount
+    /// point may be a large or slow share: it reads at most [`READ_PER_MOUNT`] entries of each and suggests at most
+    /// [`SUGGESTED_PER_MOUNT`] folders in it, and says when it stopped short. It never follows a symlink, so it never
+    /// suggests a folder outside the mount points, and skips hidden folders and `lost+found`.
+    pub fn folder_suggestions(&self, mount_points: &[PathBuf]) -> FolderSuggestions {
+        let registered: Vec<PathBuf> = self.roots().iter().map(|r| r.path.clone()).collect();
+        let mut out = FolderSuggestions::default();
+        let mut suggest = |path: PathBuf| {
+            if !registered.contains(&path)
+                && let Some(text) = path.to_str()
+            {
+                out.folders.push(FolderSuggestion {
+                    path: text.to_owned(),
+                    writable: rustix::fs::access(&path, rustix::fs::Access::WRITE_OK).is_ok(),
+                });
+            }
+        };
+        for base in mount_points {
+            if !std::fs::symlink_metadata(base).is_ok_and(|m| m.is_dir()) {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(base) else {
+                suggest(base.clone());
+                continue;
+            };
+            let mut names = Vec::new();
+            for (read, entry) in entries.enumerate() {
+                if read == READ_PER_MOUNT {
+                    out.more = true;
+                    break;
+                }
+                let Ok(entry) = entry else { continue };
+                let name = entry.file_name();
+                let shown = name
+                    .to_str()
+                    .is_some_and(|n| !n.starts_with('.') && n != "lost+found");
+                if shown && entry.file_type().is_ok_and(|t| t.is_dir()) {
+                    names.push(name);
+                }
+            }
+            names.sort();
+            if names.len() > SUGGESTED_PER_MOUNT {
+                names.truncate(SUGGESTED_PER_MOUNT);
+                out.more = true;
+            }
+            suggest(base.clone());
+            for name in names {
+                suggest(base.join(name));
+            }
+        }
+        out
     }
 
     /// Every registered Root, by name, as the API shows it.
