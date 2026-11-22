@@ -14,7 +14,6 @@ use title_select_api::roots::{RootKind, RootSpec, VoidedPlanKind};
 use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
-use title_select_store::config::Config;
 use title_select_store::{FixdatScope, ImportOutcome, Store};
 
 /// Audits your source sets against DAT revisions.
@@ -24,9 +23,6 @@ struct Cli {
     /// The store directory: the database and the DAT blobs.
     #[arg(long, global = true, env = "TITLE_SELECT_STORE")]
     store: Option<PathBuf>,
-    /// The configuration file (`title-select.toml`): how the service authenticates you, and the chdman to run.
-    #[arg(long, global = true, env = "TITLE_SELECT_CONFIG")]
-    config: Option<PathBuf>,
     /// The file holding your operator token: the service accepts it, and `audit --server` and `calibrate` send it.
     #[arg(long, global = true, env = "TITLE_SELECT_OPERATOR_TOKEN_FILE")]
     token_file: Option<PathBuf>,
@@ -161,6 +157,22 @@ enum Command {
         /// `/opt/clone-lists`. Without them the service still runs audits.
         #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
+        /// The request header your authenticating reverse proxy names you in, such as `Remote-User`. Needs
+        /// `--trusted-proxies`.
+        #[arg(long, env = title_select_server::IDENTITY_HEADER.1)]
+        identity_header: Option<String>,
+        /// The proxies whose identity header the service trusts, as comma-separated CIDRs such as
+        /// `10.89.0.2/32`. Any peer inside them can claim any identity, so list only your proxy's own address.
+        /// Needs `--identity-header`.
+        #[arg(long, env = title_select_server::TRUSTED_PROXIES.1, value_delimiter = ',')]
+        trusted_proxies: Vec<String>,
+        /// For development: the identity every request with no other credential is taken as. Only allowed when
+        /// `--listen` is a loopback address.
+        #[arg(long, env = title_select_server::DEV_IDENTITY.1)]
+        dev_identity: Option<String>,
+        /// The chdman that builds and checks CHDs. Defaults to `chdman` on the `PATH`.
+        #[arg(long, env = title_select_engine::chd::CHDMAN_ENV)]
+        chdman: Option<PathBuf>,
     },
     /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
     /// as JSON: every group's winner, alternatives and exclusions with the rule responsible for each.
@@ -589,12 +601,18 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
     Ok(store)
 }
 
-/// The configuration file, or the defaults when none is given.
-fn load_config(path: Option<&Path>) -> Result<Config, String> {
-    match path {
-        Some(path) => Config::load(path).map_err(|e| e.to_string()),
-        None => Ok(Config::default()),
-    }
+/// The trusted proxies' CIDRs, such as `10.0.0.0/8`, ignoring whitespace around each and empty ones.
+fn parse_cidrs(cidrs: &[String]) -> Result<Vec<title_select_server::IpNet>, String> {
+    let (flag, env) = title_select_server::TRUSTED_PROXIES;
+    cidrs
+        .iter()
+        .map(|cidr| cidr.trim())
+        .filter(|cidr| !cidr.is_empty())
+        .map(|cidr| {
+            cidr.parse()
+                .map_err(|_| format!("{flag} ({env}): {cidr:?} is not a CIDR, such as 10.0.0.0/8"))
+        })
+        .collect()
 }
 
 fn read_profile(path: &Path) -> Result<SelectionProfile, String> {
@@ -727,7 +745,6 @@ fn payloads_line(report: &Report) -> String {
 
 fn run(cli: Cli) -> Result<(), String> {
     let store = cli.store.as_deref();
-    let config = cli.config.as_deref();
     match cli.command {
         Command::Audit {
             set: Some(set),
@@ -828,11 +845,20 @@ fn run(cli: Cli) -> Result<(), String> {
             listen,
             ui,
             clone_lists,
+            identity_header,
+            trusted_proxies,
+            dev_identity,
+            chdman,
         } => {
             let store = store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
             title_select_server::run(Settings {
                 store: store.to_path_buf(),
-                config: load_config(config)?,
+                auth: title_select_server::AuthSettings {
+                    identity_header,
+                    trusted_proxies: parse_cidrs(&trusted_proxies)?,
+                    dev_identity,
+                },
+                chdman,
                 listen,
                 token_file: cli.token_file,
                 ui,

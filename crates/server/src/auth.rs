@@ -11,7 +11,6 @@ use axum::response::{IntoResponse, Response};
 use ipnet::IpNet;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
-use title_select_store::config;
 
 use crate::StartError;
 use crate::routes::error_response;
@@ -23,6 +22,34 @@ pub struct Actor(pub String);
 /// The actor recorded for a request authenticated by the Operator token.
 pub const TOKEN_ACTOR: &str = "Operator token";
 
+/// The flag naming the request header that carries the Operator's identity, and its environment variable.
+pub const IDENTITY_HEADER: (&str, &str) = ("--identity-header", "TITLE_SELECT_IDENTITY_HEADER");
+/// The flag listing the proxies whose identity header is trusted, and its environment variable.
+pub const TRUSTED_PROXIES: (&str, &str) = ("--trusted-proxies", "TITLE_SELECT_TRUSTED_PROXIES");
+/// The flag giving the development identity, and its environment variable.
+pub const DEV_IDENTITY: (&str, &str) = ("--dev-identity", "TITLE_SELECT_DEV_IDENTITY");
+/// The flag naming the file that holds the Operator token, and its environment variable.
+pub const TOKEN_FILE: (&str, &str) = ("--token-file", "TITLE_SELECT_OPERATOR_TOKEN_FILE");
+
+/// How the Service knows a request comes from the Operator, as `serve`'s flags and their environment variables give
+/// it (ADR 0029). The Operator token, read from [`Settings::token_file`](crate::Settings::token_file), is the other
+/// way. Kept outside the store, so the workbench can't change who reaches it.
+#[derive(Debug, Clone, Default)]
+pub struct AuthSettings {
+    /// The request header carrying the Operator's identity, set by an authenticating reverse proxy.
+    pub identity_header: Option<String>,
+    /// The only peers whose `identity_header` is trusted.
+    pub trusted_proxies: Vec<IpNet>,
+    /// An identity given to every request with no other credential, for development. Only allowed while the
+    /// Service listens on a loopback address.
+    pub dev_identity: Option<String>,
+}
+
+/// A flag as the Operator sees it: `--flag` (`ENV`).
+fn flag((flag, env): (&str, &str)) -> String {
+    format!("{flag} ({env})")
+}
+
 #[derive(Debug)]
 pub struct Auth {
     identity_header: Option<HeaderName>,
@@ -33,38 +60,69 @@ pub struct Auth {
 }
 
 impl Auth {
-    /// Refuses a Service with no way to authenticate the Operator, or with a `dev_identity` off loopback.
+    /// Refuses a Service with no way to authenticate the Operator, an identity header without trusted proxies or
+    /// the other way round, an identity header that isn't a header name, or an empty dev identity or one off
+    /// loopback.
     pub fn new(
-        config: &config::Auth,
+        settings: &AuthSettings,
         token_file: Option<&Path>,
         listen: SocketAddr,
     ) -> Result<Auth, StartError> {
-        let identity_header = config
-            .identity_header
+        let refuse = |why: String| Err(StartError::Auth(why));
+        let identity_header = match (
+            &settings.identity_header,
+            settings.trusted_proxies.is_empty(),
+        ) {
+            (Some(header), false) => Some(HeaderName::try_from(header.as_str()).map_err(|_| {
+                StartError::Auth(format!(
+                    "{} {header:?} is not a header name",
+                    flag(IDENTITY_HEADER)
+                ))
+            })?),
+            (Some(_), true) => {
+                return refuse(format!(
+                    "{} needs {}: the proxies whose identity header you trust",
+                    flag(IDENTITY_HEADER),
+                    flag(TRUSTED_PROXIES)
+                ));
+            }
+            (None, false) => {
+                return refuse(format!(
+                    "{} needs {}: the header those proxies name you in",
+                    flag(TRUSTED_PROXIES),
+                    flag(IDENTITY_HEADER)
+                ));
+            }
+            (None, true) => None,
+        };
+        if settings
+            .dev_identity
             .as_deref()
-            .map(|h| {
-                HeaderName::try_from(h)
-                    .map_err(|e| StartError::Auth(format!("auth.identity_header {h:?}: {e}")))
-            })
-            .transpose()?;
+            .is_some_and(|i| i.trim().is_empty())
+        {
+            return refuse(format!("{} is empty", flag(DEV_IDENTITY)));
+        }
         let token_sha256 = token_file.map(read_token).transpose()?;
-        if identity_header.is_none() && token_sha256.is_none() && config.dev_identity.is_none() {
-            return Err(StartError::Auth(
-                "no way to authenticate requests: set [auth] identity_header and trusted_proxies, or \
-                 TITLE_SELECT_OPERATOR_TOKEN_FILE, or [auth] dev_identity on a loopback address"
-                    .into(),
+        if identity_header.is_none() && token_sha256.is_none() && settings.dev_identity.is_none() {
+            return refuse(format!(
+                "no way to authenticate requests: set {} with {}, or {}, or {} on a loopback address",
+                flag(IDENTITY_HEADER),
+                flag(TRUSTED_PROXIES),
+                flag(TOKEN_FILE),
+                flag(DEV_IDENTITY)
             ));
         }
-        if config.dev_identity.is_some() && !listen.ip().is_loopback() {
-            return Err(StartError::Auth(format!(
-                "auth.dev_identity is only allowed on a loopback listen address, not {listen}"
-            )));
+        if settings.dev_identity.is_some() && !listen.ip().is_loopback() {
+            return refuse(format!(
+                "{} is only allowed on a loopback listen address, not {listen}",
+                flag(DEV_IDENTITY)
+            ));
         }
         Ok(Auth {
             identity_header,
-            trusted_proxies: config.trusted_proxies.clone(),
+            trusted_proxies: settings.trusted_proxies.clone(),
             token_sha256,
-            dev_identity: config.dev_identity.clone(),
+            dev_identity: settings.dev_identity.clone(),
         })
     }
 

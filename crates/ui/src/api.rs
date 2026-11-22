@@ -1,5 +1,5 @@
 //! Requests to the Service's `/api/v1`, same-origin, so the trusted proxy's identity header or the loopback
-//! `dev_identity` authenticates them and no token is kept in the browser.
+//! dev identity authenticates them and no token is kept in the browser.
 
 use gloo_net::http::{Request, Response};
 use serde::Serialize;

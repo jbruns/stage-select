@@ -8,8 +8,7 @@ use title_select_api::{
     AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, GameStatus, ImportOutcome,
     ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
-use title_select_server::{Handle, Settings, StartError, TOKEN_ACTOR};
-use title_select_store::config::Config;
+use title_select_server::{AuthSettings, Handle, Settings, StartError, TOKEN_ACTOR};
 
 const TOKEN: &str = "correct horse battery staple";
 const SET: &str = "Test - System";
@@ -58,15 +57,12 @@ impl Env {
         self.tmp.path().join("store")
     }
 
-    /// The configuration file's `extra`: only auth and chdman are left in it.
-    fn config(&self, extra: &str) -> Config {
-        Config::parse(extra).unwrap()
-    }
-
-    fn settings(&self, extra: &str) -> Settings {
+    /// The settings of a Service that authenticates by the Operator token alone.
+    fn settings(&self) -> Settings {
         Settings {
             store: self.store(),
-            config: self.config(extra),
+            auth: AuthSettings::default(),
+            chdman: None,
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
             ui: None,
@@ -82,11 +78,11 @@ impl Env {
     /// The settings with Root `sets` letting a repair write to the Source Set.
     fn writing_the_set(&self) -> Settings {
         self.reregister(RootSpec::new("sets", self.tmp.path().join("roots/sets")).writing(&[SET]));
-        self.settings("")
+        self.settings()
     }
 
     fn start(&self) -> Handle {
-        title_select_server::spawn(self.settings("")).unwrap()
+        title_select_server::spawn(self.settings()).unwrap()
     }
 
     fn dat(&self) -> Vec<u8> {
@@ -302,40 +298,90 @@ fn status_of(response: Result<ureq::http::Response<ureq::Body>, ureq::Error>) ->
     response.unwrap().status().as_u16()
 }
 
-#[test]
-fn startup_is_refused_with_no_auth_configured() {
-    let env = Env::new();
-    let store = env.tmp.path().join("another store");
-    let settings = Settings {
-        token_file: None,
-        store: store.clone(),
-        ..env.settings("")
-    };
+fn dev(identity: &str) -> AuthSettings {
+    AuthSettings {
+        dev_identity: Some(identity.into()),
+        ..AuthSettings::default()
+    }
+}
 
-    let refused = title_select_server::spawn(settings);
-
-    assert!(
-        matches!(refused, Err(StartError::Auth(_))),
-        "{:?}",
-        refused.err()
-    );
-    assert!(!store.exists(), "nothing is opened before auth is checked");
+fn proxied(header: Option<&str>, proxies: &[&str]) -> AuthSettings {
+    AuthSettings {
+        identity_header: header.map(Into::into),
+        trusted_proxies: proxies.iter().map(|p| p.parse().unwrap()).collect(),
+        ..AuthSettings::default()
+    }
 }
 
 #[test]
-fn startup_is_refused_with_dev_identity_off_loopback() {
+fn startup_is_refused_before_the_store_opens_for_each_unusable_way_to_authenticate() {
     let env = Env::new();
-    let settings = Settings {
-        listen: "0.0.0.0:0".parse().unwrap(),
-        ..env.settings("[auth]\ndev_identity = \"Developer\"\n")
+    let store = env.tmp.path().join("another store");
+    let refusal = |auth: AuthSettings, token: bool, listen: &str| {
+        let refused = title_select_server::spawn(Settings {
+            store: store.clone(),
+            auth,
+            token_file: token.then(|| env.tmp.path().join("token")),
+            listen: listen.parse().unwrap(),
+            ..env.settings()
+        });
+        assert!(!store.exists(), "nothing is opened before auth is checked");
+        match refused {
+            Err(StartError::Auth(message)) => {
+                assert!(!message.contains("[auth]"), "{message}");
+                message
+            }
+            other => panic!("expected a refusal, got {:?}", other.err()),
+        }
     };
+    let loopback = "127.0.0.1:0";
 
-    let refused = title_select_server::spawn(settings);
+    let none = refusal(AuthSettings::default(), false, loopback);
+    let header_alone = refusal(proxied(Some("Remote-User"), &[]), true, loopback);
+    let proxies_alone = refusal(proxied(None, &["10.0.0.0/8"]), true, loopback);
+    let bad_header = refusal(
+        proxied(Some("Remote User"), &["10.0.0.0/8"]),
+        true,
+        loopback,
+    );
+    let empty_dev = refusal(dev(" \t"), true, loopback);
+    let dev_off_loopback = refusal(dev("Developer"), true, "0.0.0.0:0");
 
-    let Err(StartError::Auth(message)) = refused else {
-        panic!("expected a refusal");
-    };
-    assert!(message.contains("loopback"), "{message}");
+    for flag in [
+        "--identity-header (TITLE_SELECT_IDENTITY_HEADER)",
+        "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES)",
+        "--token-file (TITLE_SELECT_OPERATOR_TOKEN_FILE)",
+        "--dev-identity (TITLE_SELECT_DEV_IDENTITY)",
+    ] {
+        assert!(none.contains(flag), "{none}");
+    }
+    assert!(none.starts_with("no way to authenticate"), "{none}");
+    assert!(
+        header_alone.starts_with(
+            "--identity-header (TITLE_SELECT_IDENTITY_HEADER) needs --trusted-proxies \
+             (TITLE_SELECT_TRUSTED_PROXIES)"
+        ),
+        "{header_alone}"
+    );
+    assert!(
+        proxies_alone.starts_with(
+            "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES) needs --identity-header \
+             (TITLE_SELECT_IDENTITY_HEADER)"
+        ),
+        "{proxies_alone}"
+    );
+    assert_eq!(
+        bad_header,
+        "--identity-header (TITLE_SELECT_IDENTITY_HEADER) \"Remote User\" is not a header name"
+    );
+    assert_eq!(
+        empty_dev,
+        "--dev-identity (TITLE_SELECT_DEV_IDENTITY) is empty"
+    );
+    assert_eq!(
+        dev_off_loopback,
+        "--dev-identity (TITLE_SELECT_DEV_IDENTITY) is only allowed on a loopback listen address, not 0.0.0.0:0"
+    );
 }
 
 #[test]
@@ -343,7 +389,8 @@ fn dev_identity_on_loopback_authenticates_requests_with_no_credential() {
     let env = Env::new();
     let settings = Settings {
         token_file: None,
-        ..env.settings("[auth]\ndev_identity = \"Developer\"\n")
+        auth: dev("Developer"),
+        ..env.settings()
     };
     let service = title_select_server::spawn(settings).unwrap();
     let client = Client {
@@ -372,7 +419,7 @@ fn the_workbench_is_served_beside_the_api_without_hiding_its_errors() {
     std::fs::write(ui.join("pkg/title-select.js"), "export default 1;").unwrap();
     let service = title_select_server::spawn(Settings {
         ui: Some(ui),
-        ..env.settings("")
+        ..env.settings()
     })
     .unwrap();
     let page = |path: &str| {
@@ -478,10 +525,10 @@ fn a_missing_or_wrong_token_is_rejected_and_the_correct_one_accepted() {
 #[test]
 fn an_identity_header_is_trusted_only_from_a_trusted_proxy() {
     let env = Env::new();
-    let header = "[auth]\nidentity_header = \"Remote-User\"\n";
     let untrusted = title_select_server::spawn(Settings {
         token_file: None,
-        ..env.settings(&format!("{header}trusted_proxies = [\"192.0.2.0/24\"]\n"))
+        auth: proxied(Some("Remote-User"), &["192.0.2.0/24"]),
+        ..env.settings()
     })
     .unwrap();
     let client = Client {
@@ -497,9 +544,8 @@ fn an_identity_header_is_trusted_only_from_a_trusted_proxy() {
 
     let trusted = title_select_server::spawn(Settings {
         token_file: None,
-        ..env.settings(&format!(
-            "{header}trusted_proxies = [\"127.0.0.0/8\", \"::1/128\"]\n"
-        ))
+        auth: proxied(Some("Remote-User"), &["127.0.0.0/8", "::1/128"]),
+        ..env.settings()
     })
     .unwrap();
     let client = Client {
@@ -1113,7 +1159,7 @@ fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
     let env = Env::new();
     let service = title_select_server::spawn(Settings {
         hold_jobs: true,
-        ..env.settings("")
+        ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);
@@ -1178,7 +1224,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
 #[test]
 fn every_watching_client_hears_that_the_settings_changed_without_their_secrets() {
     let env = Env::new();
-    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let service = title_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let (mut events, _) = client.watch();
 
@@ -1521,7 +1567,7 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
-    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let service = title_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -1635,7 +1681,7 @@ fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
-    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let service = title_select_server::spawn(env.settings()).unwrap();
     Client::new(&service).settle_after("drop", settle_secs);
     let response = Client::new(&service)
         .post("/ingest-folders")
@@ -1796,7 +1842,7 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
         RootSpec::new("drop", &drop).of_kind(RootKind::Ingest),
         RootSpec::new("additions", &additions).of_kind(RootKind::Additions),
     ]);
-    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let service = title_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -2902,7 +2948,7 @@ mod selections {
         let env = Env::new();
         let service = title_select_server::spawn(Settings {
             clone_lists: Some(env.tmp.path().join("no-clone-lists")),
-            ..env.settings("")
+            ..env.settings()
         })
         .unwrap();
         let client = Client::new(&service);
@@ -2933,7 +2979,7 @@ mod selections {
             RootSpec::new("romm", play.join("library")).writable(),
             RootSpec::new("other", &other).writable(),
         ]);
-        let service = title_select_server::spawn(env.settings("")).unwrap();
+        let service = title_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -2997,7 +3043,7 @@ mod selections {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
             notify_backoff: None,
-            ..env.settings("")
+            ..env.settings()
         })
         .unwrap();
         let client = Client::new(&service);
@@ -3280,7 +3326,7 @@ mod selections {
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings("")).unwrap();
+        let service = title_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3385,7 +3431,7 @@ mod selections {
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings("")).unwrap();
+        let service = title_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3544,7 +3590,7 @@ mod selections {
         std::fs::create_dir_all(&play).unwrap();
         env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings("")).unwrap();
+        let service = title_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3989,7 +4035,7 @@ fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
     drop(service);
     let service = title_select_server::spawn(Settings {
         clone_lists: Some(env.tmp.path().join("no-clone-lists")),
-        ..env.settings("")
+        ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);
@@ -4155,7 +4201,7 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
     const ESCAPED: &str = "Test%20-%20System";
     let env = Env::new();
     env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
-    let service = title_select_server::spawn(env.settings("")).unwrap();
+    let service = title_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let (status, body) =
         client.change_settings(serde_json::json!({"ceilings": {"host": {"concurrent": 2}}}));
@@ -4249,7 +4295,7 @@ fn a_calibration_is_queued_and_a_second_is_refused() {
     let env = Env::new();
     let service = title_select_server::spawn(Settings {
         hold_jobs: true,
-        ..env.settings("")
+        ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);
@@ -4288,7 +4334,7 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
             min_bytes: 1,
             ..title_select_server::CalibrationLimits::default()
         }),
-        ..env.settings("")
+        ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);

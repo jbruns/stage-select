@@ -5,7 +5,6 @@ use crate::common::*;
 use title_select_api::roots::RootSpec;
 use title_select_server::{Handle, Settings};
 use title_select_store::Store;
-use title_select_store::config::Config;
 
 const SET: &str = "Test - System";
 const TOKEN: &str = "headless test token";
@@ -26,7 +25,6 @@ impl Env {
             ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
             ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
         ]);
-        let config = Config::default();
         let store = fx.dat_dir.path().join("store");
         {
             let store = Store::open(&store).unwrap();
@@ -42,7 +40,8 @@ impl Env {
         std::fs::write(fx.dat_dir.path().join("wrong"), "not the token").unwrap();
         let service = title_select_server::spawn(Settings {
             store,
-            config,
+            auth: Default::default(),
+            chdman: None,
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(fx.dat_dir.path().join("token")),
             ui: None,
@@ -279,7 +278,8 @@ fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
     std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
     let service = title_select_server::spawn(Settings {
         store: fx.dat_dir.path().join("store"),
-        config: Config::default(),
+        auth: Default::default(),
+        chdman: None,
         listen: "127.0.0.1:0".parse().unwrap(),
         token_file: Some(fx.dat_dir.path().join("token")),
         ui: None,

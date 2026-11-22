@@ -13,7 +13,6 @@ use sha2::Digest;
 use title_select_api::roots::RootSpec;
 use title_select_api::{Job, JobState};
 use title_select_server::{Handle, Settings};
-use title_select_store::config::Config;
 use title_select_store::fetch::Endpoints;
 
 const TOKEN: &str = "correct horse battery staple";
@@ -213,7 +212,8 @@ impl Env {
         drop(store);
         title_select_server::spawn(Settings {
             store: self.tmp.path().join("store"),
-            config: Config::parse("").unwrap(),
+            auth: Default::default(),
+            chdman: None,
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
             ui: None,

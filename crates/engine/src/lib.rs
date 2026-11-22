@@ -150,7 +150,7 @@ impl ChdAudit {
         chdman.verify_in_place(&dir, &input, &|| false)
     }
 
-    /// chdman as [`chd::locate`] finds it without a configuration, with the default limits, its scratch directories in
+    /// chdman as [`chd::locate`] finds it from the environment, with the default limits, its scratch directories in
     /// the system's temporary directory: what an Audit without a store runs.
     pub fn located() -> ChdAudit {
         ChdAudit::verifying(
