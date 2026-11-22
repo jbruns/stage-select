@@ -1009,6 +1009,7 @@ pub enum SupportFileStatus {
     Older,
     Newer,
     NotRead,
+    Uncompared,
     Current,
 }
 
@@ -1017,6 +1018,7 @@ impl Status for SupportFileStatus {
         SupportFileStatus::Older,
         SupportFileStatus::Newer,
         SupportFileStatus::NotRead,
+        SupportFileStatus::Uncompared,
         SupportFileStatus::Current,
     ];
 
@@ -1039,6 +1041,12 @@ impl Status for SupportFileStatus {
                 Tone::Neutral,
                 "Not read",
                 "No file of this kind was read, so the selection did without it.",
+            ),
+            SupportFileStatus::Uncompared => look(
+                Glyph::CircleQuestionMark,
+                Tone::Neutral,
+                "Version not compared",
+                "The DAT revision's MAME version can't be read as a version, so whether this file is for the same MAME is unknown.",
             ),
             SupportFileStatus::Current => look(
                 Glyph::FileCheck,

@@ -102,10 +102,15 @@ pub struct SupportFileImport {
 /// How far into a file its header is looked for: progetto-SNAPS's comes after a short `[FOLDER_SETTINGS]` section.
 const HEADER_WITHIN: usize = 4096;
 
-/// A MAME version, such as `0.289` or the `0.289 (mame0289)` a ListXML's build names, as numbers to compare.
-pub fn version_number(version: &str) -> Option<(u32, u32)> {
+/// A MAME version, such as `0.289`, the `0.289 (mame0289)` a ListXML's build names, or an update release such as
+/// `0.149u1`, as numbers to compare: a release counts as update 0, so `0.149` < `0.149u1` < `0.150`.
+pub fn version_number(version: &str) -> Option<(u32, u32, u32)> {
     let (major, minor) = version.split_whitespace().next()?.split_once('.')?;
-    Some((major.parse().ok()?, minor.parse().ok()?))
+    let (minor, update) = match minor.split_once('u') {
+        Some((minor, update)) => (minor, update.parse().ok()?),
+        None => (minor, 0),
+    };
+    Some((major.parse().ok()?, minor.parse().ok()?, update))
 }
 
 /// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
@@ -154,5 +159,13 @@ mod tests {
     fn versions_compare_as_numbers() {
         assert!(version_number("0.99") < version_number("0.289 (mame0289)"));
         assert_eq!(version_number("mame0289"), None);
+    }
+
+    #[test]
+    fn an_update_release_comes_between_its_release_and_the_next() {
+        assert!(version_number("0.149") < version_number("0.149u1 (mame0149u1)"));
+        assert!(version_number("0.149u1") < version_number("0.149u2"));
+        assert!(version_number("0.149u2") < version_number("0.150"));
+        assert_eq!(version_number("0.149ux"), None);
     }
 }

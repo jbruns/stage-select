@@ -129,8 +129,8 @@ pub fn support_files(pins: &ArcadePins) -> Vec<SupportFileLine> {
         .collect()
 }
 
-/// How a Support File's MAME version compares with the ListXML's `build`; as the selector's drift says when either
-/// can't be read as a version.
+/// How a Support File's MAME version compares with the ListXML's `build`. When either can't be read as a version, the
+/// selector's drift still says Older, and otherwise nothing is claimed.
 fn version_status(file: &SupportFilePin, build: &str) -> SupportFileStatus {
     match (version_number(&file.mame_version), version_number(build)) {
         (Some(file), Some(build)) => match file.cmp(&build) {
@@ -139,7 +139,7 @@ fn version_status(file: &SupportFilePin, build: &str) -> SupportFileStatus {
             Ordering::Greater => SupportFileStatus::Newer,
         },
         _ if file.drift => SupportFileStatus::Older,
-        _ => SupportFileStatus::Current,
+        _ => SupportFileStatus::Uncompared,
     }
 }
 
@@ -732,6 +732,27 @@ mod tests {
         let catver = &support_files(&pins)[0];
         assert_eq!(catver.status, SupportFileStatus::Newer);
         assert_eq!(catver.mame_version.as_deref(), Some("MAME 0.290"));
+    }
+
+    #[test]
+    fn a_support_file_against_an_update_release_or_an_unreadable_build_never_says_same_version() {
+        let pins = |build: &str| ArcadePins {
+            build: build.into(),
+            category: Some(CategorySource::Catver),
+            unavailable: Vec::new(),
+            category_fallbacks: 0,
+            support_files: vec![SupportFilePin {
+                kind: SupportFileKind::Catver,
+                sha256: "c".repeat(64),
+                mame_version: "0.289".into(),
+                drift: false,
+            }],
+            curated: None,
+        };
+        let status = |build: &str| support_files(&pins(build))[0].status;
+        assert_eq!(status("0.149u1 (mame0149u1)"), SupportFileStatus::Newer);
+        assert_eq!(status("0.289u1"), SupportFileStatus::Older);
+        assert_eq!(status("unknown"), SupportFileStatus::Uncompared);
     }
 
     #[test]
