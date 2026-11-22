@@ -3,7 +3,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use title_select_api::DatFormat;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
 use title_select_api::repair::{
@@ -235,9 +234,7 @@ struct LayoutIndex<'a> {
 
 impl<'a> LayoutIndex<'a> {
     fn of(dat: &'a Dat, storage: Storage, placed: &HashMap<String, Located>) -> Self {
-        let layout = storage
-            .set_layout
-            .filter(|_| dat.format == DatFormat::Listxml);
+        let layout = storage.of_dat(dat.format).set_layout;
         LayoutIndex {
             dat,
             layout,

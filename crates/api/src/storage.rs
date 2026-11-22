@@ -329,7 +329,7 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// As it applies to a Source Set of a DAT in `format`: only an Arcade DAT's, a ListXML's, is laid out by its Set
+    /// As it applies to a Source Set of a DAT in `format`: only an Arcade DAT's Source Set is laid out by its Set
     /// Layout and keeps ZIPs; a software list's follows the format, as no Repair lays one out by it (ADR 0027).
     pub fn of_dat(self, format: crate::DatFormat) -> Storage {
         Storage {
@@ -741,8 +741,8 @@ impl Placement {
 /// The one decision of how a Repair stores Game `game`, with ROM names `roms`, in a Source Set under `storage`, with
 /// the note saying why a Game is not stored as the policy says. A loose folder holds any Game whose name and ROM
 /// names are plain file names, each ROM once; every other Game stays TorrentZip, so a Game's ROMs are never split
-/// across formats. A Source Set with a Set Layout ([`Storage::of_dat`]) keeps every Game as TorrentZip, whatever the
-/// format.
+/// across formats. A Source Set with a Set Layout ([`Storage::of_dat`]) keeps every Game as TorrentZip, whatever its
+/// format says.
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
     // A Source Set with a Set Layout, an Arcade DAT's ([`Storage::of_dat`]), keeps each Game as a ZIP (ADR 0026).
     if storage.set_layout.is_some() {
