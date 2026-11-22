@@ -130,7 +130,7 @@ pub fn support_files(pins: &ArcadePins) -> Vec<SupportFileLine> {
 }
 
 /// How a Support File's MAME version compares with the ListXML's `build`. When either can't be read as a version, the
-/// selector's drift still says Older, and otherwise nothing is claimed.
+/// selector's drift still says Older, and otherwise it is Uncompared.
 fn version_status(file: &SupportFilePin, build: &str) -> SupportFileStatus {
     match (version_number(&file.mame_version), version_number(build)) {
         (Some(file), Some(build)) => match file.cmp(&build) {

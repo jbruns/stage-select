@@ -140,13 +140,7 @@ pub fn read_header(
     let version = header
         .rsplit_once("MAME ")
         .and_then(|(_, v)| v.split_whitespace().next())
-        .filter(|v| {
-            v.split_once('.').is_some_and(|(major, minor)| {
-                [major, minor]
-                    .iter()
-                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-            })
-        })
+        .filter(|v| version_number(v).is_some())
         .ok_or_else(|| format!("{file}: its header names no MAME version, such as MAME 0.289"))?;
     Ok((kind, version.to_owned()))
 }

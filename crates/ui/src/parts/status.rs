@@ -1046,7 +1046,7 @@ impl Status for SupportFileStatus {
                 Glyph::CircleQuestionMark,
                 Tone::Neutral,
                 "Version not compared",
-                "The DAT revision's MAME version can't be read as a version, so whether this file is for the same MAME is unknown.",
+                "The DAT revision names no MAME version that can be read, so this file can't be compared with it.",
             ),
             SupportFileStatus::Current => look(
                 Glyph::FileCheck,

@@ -1094,7 +1094,7 @@ pub fn GamesPanel(
         let claimed = (!game.claimed_roms.is_empty()).then(|| {
             view! {
                 <h4>"Present only on claim evidence"</h4>
-                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory, or a disk's SHA-1 from its CHD header, without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
+                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory, or disks' SHA-1s from their CHD headers, without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
                 <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
             }
         });
