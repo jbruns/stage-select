@@ -1648,7 +1648,7 @@ impl Store {
         Ok(match roots.root(root) {
             Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
             Some(_) => Err(format!(
-                "root {root} is not writable now; declare it with writable = true, then restart the service"
+                "root {root} is not writable now; make it writable in your roots"
             )),
             None => Err(format!("there is no root {root}")),
         })

@@ -467,7 +467,7 @@ fn check_folder(
         blockers.push(blocker(
             BlockerKind::ReadOnlyRoot,
             format!(
-                "root {} is not writable; declare it with writable = true to build into it",
+                "root {} is not writable; make it writable in your roots to build into it",
                 folder.root
             ),
         ));

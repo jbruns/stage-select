@@ -528,7 +528,7 @@ pub(super) fn open_writable_folder(
 ) -> std::result::Result<FolderDir, String> {
     if !roots.root(root).is_some_and(|r| r.writable) {
         return Err(format!(
-            "root {root} is not writable now; declare it with writable = true, then restart the service. Nothing \
+            "root {root} is not writable now; make it writable in your roots. Nothing \
              in the folder was changed"
         ));
     }

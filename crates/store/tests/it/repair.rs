@@ -220,7 +220,7 @@ fn a_source_set_its_root_does_not_let_you_write_to_is_refused() {
     let refused = env.store.plan_repair("Gamma", &PlanRepair::default());
 
     match refused {
-        Err(Error::Refused(why)) => assert!(why.contains("writable_paths"), "{why}"),
+        Err(Error::Refused(why)) => assert!(why.contains("writable paths"), "{why}"),
         other => panic!("{other:?}"),
     }
 }

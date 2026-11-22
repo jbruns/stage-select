@@ -68,8 +68,8 @@ pub(crate) enum MarkerRule {
 /// Why a Root does not let a repair write to `path`.
 fn not_writable(set: &str, root: &str, path: &str) -> String {
     format!(
-        "source set {set} is in root {root}, which does not let Title Select write to it. Declare the root writable, \
-         or list \"{path}\" in its writable_paths, then restart the service"
+        "source set {set} is in root {root}, which does not let Title Select write to it. Make the root writable, \
+         or add \"{path}\" to its writable paths, in your roots"
     )
 }
 
