@@ -6738,3 +6738,29 @@ fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_ther
     assert!(voided.error.unwrap().starts_with("voided: root play"));
     assert!(queued(there_job), "a build in another root is left");
 }
+
+#[test]
+fn listing_writable_paths_on_a_root_made_read_only_narrows_it_and_voids_the_builds_there() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let plan = env.plan(&env.folder("atari"), id);
+    let job = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let narrowed = env
+        .store
+        .edit_root(
+            "play",
+            &RootSpec::new("play", env.play()).writing(&["future-set"]),
+            "Operator",
+        )
+        .unwrap();
+    assert_eq!(
+        narrowed.voided.iter().map(|v| v.job).collect::<Vec<_>>(),
+        [job.id]
+    );
+    assert_eq!(env.store.job(job.id).unwrap().state, JobState::Failed);
+}

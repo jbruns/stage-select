@@ -540,6 +540,15 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         matches!(&held, Err(Error::Conflict(why)) if why.contains("kept additions of the unregistered additions set")),
         "the root holds the kept files you may still delete: {held:?}"
     );
+    let general = env.store.edit_root(
+        "additions",
+        &RootSpec::new("additions", env.tmp.path().join("additions")).writable(),
+        "Operator",
+    );
+    assert!(
+        matches!(&general, Err(Error::Conflict(why)) if why.contains("kept additions of the unregistered additions set")),
+        "nor does its kind change while it does: {general:?}"
+    );
 
     let kept = env.store.additions_kept_files_by_id(set.id).unwrap();
     assert_eq!(kept.len(), 1);

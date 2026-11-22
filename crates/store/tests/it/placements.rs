@@ -685,6 +685,27 @@ fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_neve
 }
 
 #[test]
+fn a_running_audit_of_placed_games_holds_their_library_folders_root() {
+    let env = Env::new();
+    env.place("Pong (USA)", &[("Pong (USA).a26", b"pong")]);
+    let job = env
+        .store
+        .enqueue_audit(SET, None, "Operator", WORKERS, AuditEvidence::Full)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+
+    let moved = env.store.edit_root(
+        "play",
+        &RootSpec::new("play", env.tmp.path().join("dats")).writable(),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("audit job {} is running", job.id))),
+        "{moved:?}"
+    );
+}
+
+#[test]
 fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
     let env = Env::new();
     torrentzip(

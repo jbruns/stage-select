@@ -23,7 +23,7 @@ use title_select_api::selection::{
 };
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
 use title_select_engine::torrentzip;
-use title_select_store::{Fault, Store, Workers};
+use title_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "No-Intro/Test - System";
@@ -1160,6 +1160,26 @@ fn a_kept_file_an_addition_is_added_from_is_reserved_until_its_job_ends_and_may_
         b"homebrew",
     );
     assert!(!env.store.check_additions(SYSTEM).unwrap().drifted());
+}
+
+#[test]
+fn an_addition_being_added_from_a_kept_file_holds_its_root_while_its_job_runs() {
+    let env = Env::new();
+    write_file(&env.set().join("Homebrew.a26"), b"homebrew");
+    env.audit();
+    env.repair_only(&env.plan_repair("file:Homebrew.a26", Some(new("Homebrew"))));
+    let job = env.store.claim_job().unwrap().unwrap();
+    assert_eq!(job.kind, JobKind::Additions, "{job:?}");
+
+    let moved = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", env.tmp.path().join("play")).writing(&[SET]),
+        "Operator",
+    );
+    assert!(
+        matches!(&moved, Err(Error::Conflict(why)) if why.contains(&format!("additions job {} is running", job.id))),
+        "{moved:?}"
+    );
 }
 
 /// An active addition `My Hack`, added from the Ingest Folder.

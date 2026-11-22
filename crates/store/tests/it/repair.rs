@@ -5197,6 +5197,32 @@ fn a_root_isnt_made_more_writable_while_an_approved_repair_writes_to_it() {
 }
 
 #[test]
+fn swapping_the_writable_path_an_approved_repair_writes_to_for_another_is_refused() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+    let sets = env.tmp.path().join("roots/sets");
+
+    let swapped = env.store.edit_root(
+        "sets",
+        &RootSpec::new("sets", &sets).writing(&["Beta"]),
+        "Operator",
+    );
+    assert!(
+        matches!(&swapped, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{swapped:?}"
+    );
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
+}
+
+#[test]
 fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_set() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");

@@ -498,11 +498,14 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
             }
         };
     let every_root = strings(c, "SELECT name FROM roots ORDER BY name", [])?;
-    // A Job reads its Source Set, Library Folder or Ingest Folder; an Additions Job writes to its Additions Set; a
-    // Calibration measures every Root.
+    // A Job reads its Source Set, with the Library Folders holding its Placed Games, its Library Folder or its
+    // Ingest Folder; an Additions Job writes to its Additions Set; a Calibration measures every Root.
     let jobs = c
         .prepare(
-            "SELECT j.id, replace(j.kind, '_', ' '), j.state, s.root, f.root, fs.root, a.root, i.root
+            "SELECT j.id, replace(j.kind, '_', ' '), j.state, s.root, f.root, fs.root, a.root, i.root,
+                    (SELECT group_concat(root, char(31)) FROM (
+                         SELECT DISTINCT pf.root FROM placed_files p JOIN library_folders pf ON pf.id = p.folder_id
+                         WHERE p.source_set_id = j.source_set_id))
              FROM jobs j
              LEFT JOIN source_sets s ON s.id = j.source_set_id
              LEFT JOIN library_folders f ON f.id = j.library_folder_id
@@ -524,12 +527,22 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
                 ],
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (job, kind, state, read, additions, ingest) in jobs {
+    for (job, kind, state, read, additions, ingest, placed) in jobs {
         let running = (state == "running").then(|| format!("{kind} job {job} is running on it"));
-        let mut reads: BTreeSet<String> = read.into_iter().flatten().chain(ingest).collect();
+        // Root names hold no control character, so the unit separator joins them unambiguously.
+        let placed = placed
+            .iter()
+            .flat_map(|p| p.split('\u{1f}').map(str::to_owned));
+        let mut reads: BTreeSet<String> = read
+            .into_iter()
+            .flatten()
+            .chain(ingest)
+            .chain(placed)
+            .collect();
         if kind == "calibration" {
             reads.extend(every_root.iter().cloned());
         }
@@ -858,7 +871,9 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
         ),
         (
             "SELECT s.root, 'the addition ' || a.name || ' is being added from a kept file of source set ' || s.name,
-                    s.path
+                    s.path,
+                    (SELECT 'additions job ' || j.id || ' is running on it' FROM jobs j
+                     WHERE j.kind = 'additions' AND j.state = 'running' AND j.additions_set_id = a.set_id LIMIT 1)
              FROM additions a JOIN repair_plans p ON p.id = a.repair_plan_id
              JOIN source_sets s ON s.id = p.source_set_id
              WHERE a.state IN ('pending', 'staging')",
@@ -867,7 +882,9 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
         ),
         (
             "SELECT f.root, 'the addition ' || a.name || ' is being added from a kept file of play library folder '
-                    || f.root || '/' || f.path, f.path
+                    || f.root || '/' || f.path, f.path,
+                    (SELECT 'additions job ' || j.id || ' is running on it' FROM jobs j
+                     WHERE j.kind = 'additions' AND j.state = 'running' AND j.additions_set_id = a.set_id LIMIT 1)
              FROM additions a JOIN plans p ON p.id = a.cleanup_plan_id
              JOIN library_folders f ON f.id = p.folder_id
              WHERE a.state IN ('pending', 'staging')",
@@ -882,15 +899,20 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
+                    // The Job running on it, from the queries that give one.
+                    match r.as_ref().column_count() > 3 {
+                        true => r.get::<_, Option<String>>(3)?,
+                        false => None,
+                    },
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (root, what, path) in rows {
+        for (root, what, path, running) in rows {
             let target = match set {
                 true => Target::Set(path),
                 false => Target::Whole,
             };
-            dep(&root, what, writes.then_some(target), None, None);
+            dep(&root, what, writes.then_some(target), running, None);
         }
     }
     Ok(deps)
@@ -1064,7 +1086,9 @@ impl Store {
         }
         let (saved, voided) = self.write(|tx| {
             if was.kind != root.kind {
-                let holds = registrations_in(tx, name)?;
+                // The same holds as unregistering: a kind change strands whatever is registered, managed or under
+                // way in it just as removing it would.
+                let holds = holds(tx, name)?;
                 if !holds.is_empty() {
                     return conflict(name, "kind", &holds);
                 }
@@ -1098,8 +1122,13 @@ impl Store {
                     return conflict(name, change, &running);
                 }
                 let writers: Vec<&Dep> = deps.iter().filter(|d| d.writes.is_some()).collect();
-                let widened = (root.writable && !was.writable)
-                    || root.writable_paths.iter().any(|p| !was.writable_paths.contains(p));
+                // Compared by what each lets Title Select write, not by its fields: listing paths on a Root that
+                // was wholly writable narrows it. A change can widen and narrow at once (swapping one writable
+                // path for another). While any writer depends on the Root, a change that widens at all is
+                // refused, as a path change is; only a change that solely narrows voids the writers it shuts out.
+                let widened = !was.writable
+                    && (root.writable
+                        || root.writable_paths.iter().any(|p| !was.writable_paths.contains(p)));
                 if (path_changed || widened) && !writers.is_empty() {
                     let mut seen = BTreeSet::new();
                     let holds: Vec<String> = writers
