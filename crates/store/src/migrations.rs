@@ -1,9 +1,10 @@
 //! Embedded, forward-only migrations. Each runs in a transaction, after a `VACUUM INTO` backup of a database
 //! that already has a schema. The first is the baseline (ADR 0028): later ones are appended, never flattened.
 
+use std::io::Read;
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 
 use super::{BACKUPS, Error, Result, io_error};
 
@@ -17,20 +18,29 @@ pub(super) const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_baseline.
 /// What a store made before the baseline is refused with.
 pub(crate) const PRE_BASELINE: &str = "This store was made by an earlier release of Title Select and can't be opened. Start a new store.";
 
-/// Refuses the database at `path` if it has a schema but not the baseline's stamp, before anything opens it to write:
-/// the check reads through a read-only connection, so the file is left as it was. A missing or empty file passes.
-pub(super) fn check_stamp(path: &Path) -> Result<()> {
-    let empty = match std::fs::metadata(path) {
-        Ok(meta) => meta.len() == 0,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+/// Refuses the database at `path` if its header says it has a schema but not the baseline's stamp. It reads the
+/// header's bytes rather than opening the database, as even a read-only SQLite connection may create a WAL's sidecars,
+/// so a refused store is left exactly as it was. A missing or empty file passes, as does one that isn't a SQLite
+/// database: opening it reports that.
+pub(super) fn check_header(path: &Path) -> Result<()> {
+    let mut header = [0; 100];
+    let read = match std::fs::File::open(path) {
+        Ok(file) => file.take(100).read(&mut header),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(io_error(path, e)),
     };
-    if empty {
+    // A short read leaves the rest zero, so a header cut short fails the magic or reads unstamped and unversioned.
+    read.map_err(|e| io_error(path, e))?;
+    if &header[..16] != b"SQLite format 3\0" {
         return Ok(());
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    let id: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let field = |at: usize| u32::from_be_bytes(header[at..at + 4].try_into().unwrap());
+    check_stamp(i64::from(field(60)), field(68) as i32)
+}
+
+/// Refuses a database at schema `version` that isn't stamped `id` with the baseline's. The baseline sets both in one
+/// transaction, so a store can't be seen with one and not the other.
+pub(super) fn check_stamp(version: i64, id: i32) -> Result<()> {
     if version > 0 && id != APPLICATION_ID {
         return Err(Error::Refused(PRE_BASELINE.into()));
     }

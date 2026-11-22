@@ -43,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use rusqlite::config::DbConfig;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
@@ -478,11 +479,20 @@ impl Store {
     }
 
     fn open_with(dir: &Path, migrations: &[&str]) -> Result<Store> {
-        migrations::check_stamp(&dir.join(DATABASE))?;
+        migrations::check_header(&dir.join(DATABASE))?;
         let dats = dir.join(DATS);
         std::fs::create_dir_all(&dats).map_err(|e| io_error(&dats, e))?;
         let lock = lock(dir)?;
         let mut writer = Connection::open(dir.join(DATABASE))?;
+        // The header is the database file's: one whose WAL was never checkpointed holds its schema in the WAL, so the
+        // stamp is checked again through the connection, before anything writes. Reading may have made the WAL's
+        // sidecars by now, but a refusal leaves the database file as it was: closing doesn't checkpoint the WAL.
+        let version: i64 = writer.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        let id: i32 = writer.pragma_query_value(None, "application_id", |r| r.get(0))?;
+        if let Err(refused) = migrations::check_stamp(version, id) {
+            writer.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
+            return Err(refused);
+        }
         configure(&writer)?;
         let mode: String = writer.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         if !mode.eq_ignore_ascii_case("wal") {
@@ -814,20 +824,22 @@ mod tests {
         assert_eq!(stamp(dir.path()), baseline());
     }
 
-    #[test]
-    fn a_store_from_before_the_baseline_is_refused_and_left_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(DATABASE);
-        let conn = Connection::open(&path).unwrap();
+    /// Makes a database in `dir` as a release from before the baseline left it: a schema, no stamp.
+    fn pre_baseline(dir: &Path, wal: bool) -> Connection {
+        let conn = Connection::open(dir.join(DATABASE)).unwrap();
+        if wal {
+            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
+                .unwrap();
+            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        }
         conn.execute_batch(
             "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); PRAGMA user_version = 49;",
         )
         .unwrap();
-        drop(conn);
-        let before = std::fs::read(&path).unwrap();
+        conn
+    }
 
-        let opened = Store::open(dir.path());
-
+    fn assert_pre_baseline_refused(opened: Result<Store>) {
         let Err(Error::Refused(message)) = opened else {
             panic!(
                 "expected a refusal, got {opened:?}",
@@ -838,12 +850,70 @@ mod tests {
             message,
             "This store was made by an earlier release of Title Select and can't be opened. Start a new store."
         );
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        let names: Vec<_> = std::fs::read_dir(dir.path())
+    }
+
+    fn names(dir: &Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(dir)
             .unwrap()
             .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, [DATABASE]);
+            .collect()
+    }
+
+    #[test]
+    fn a_store_from_before_the_baseline_is_refused_and_left_untouched() {
+        for wal in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            // Closing the last connection checkpoints a WAL and deletes its sidecars.
+            drop(pre_baseline(dir.path(), wal));
+            let path = dir.path().join(DATABASE);
+            let before = std::fs::read(&path).unwrap();
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+
+            assert_pre_baseline_refused(Store::open(dir.path()));
+
+            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_from_before_the_baseline_in_a_read_only_directory_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        drop(pre_baseline(dir.path(), true));
+        let mode = |m| std::fs::Permissions::from_mode(m);
+        std::fs::set_permissions(dir.path(), mode(0o555)).unwrap();
+
+        let opened = Store::open(dir.path());
+
+        std::fs::set_permissions(dir.path(), mode(0o755)).unwrap();
+        assert_pre_baseline_refused(opened);
+        assert_eq!(names(dir.path()), [DATABASE]);
+    }
+
+    /// A WAL never checkpointed leaves the database file's header from before its schema; what opening it reads
+    /// through the WAL is refused all the same, before anything is written to the database file.
+    #[test]
+    fn a_store_from_before_the_baseline_with_its_schema_only_in_the_wal_is_refused() {
+        let made = tempfile::tempdir().unwrap();
+        let conn = pre_baseline(made.path(), true);
+        let dir = tempfile::tempdir().unwrap();
+        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
+            std::fs::copy(made.path().join(&name), dir.path().join(&name)).unwrap();
+        }
+        drop(conn);
+        let path = dir.path().join(DATABASE);
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(&before[60..64], &[0, 0, 0, 0]);
+
+        let wal = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
+
+        assert_pre_baseline_refused(Store::open(dir.path()));
+
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let after = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
+        assert_eq!(after, wal);
     }
 
     #[test]
