@@ -2515,7 +2515,10 @@ impl Store {
         }
         // A release placed goes in place right after the files written fresh beside it, and only once they are in
         // place: a Game's Disk is copied and verified before its ZIP is placed, and a cancel doesn't come between them.
-        // No other release reads a file a release placed consumes (the plan places none another reads).
+        // No other release reads a file a release placed consumes (the plan places none another reads). A file
+        // written fresh is a copy: one in place stays when its release's placement then fails, and the folder lacks
+        // the release.
+        // Each release's units sort by where its first one was, its files written fresh before its files placed.
         let mut first: HashMap<String, usize> = HashMap::new();
         for (i, u) in units.iter().enumerate() {
             if u[0].item.addition.is_none() {
@@ -2562,8 +2565,8 @@ impl Store {
             to: &chd_work.to,
             from: &chd_work.from,
         };
-        // The release whose files written fresh were last put in place: its files placed follow them, even once you
-        // cancel.
+        // The release whose files written fresh were last put in place: its files placed follow them, even once the
+        // Operator cancels.
         let mut beside: Option<String> = None;
         for unit in &units {
             if cancelled {
@@ -2597,7 +2600,12 @@ impl Store {
                         &placer,
                         unit,
                         &format!(
-                            "{culprit}, a file of the same game, wasn't put in place, so neither is this one"
+                            "{} {} not put in place, because {culprit} of the same game wasn't",
+                            unit.iter()
+                                .map(|w| w.item.target.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" and "),
+                            if unit.len() == 1 { "was" } else { "were" }
                         ),
                     )?;
                 } else {

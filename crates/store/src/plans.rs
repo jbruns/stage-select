@@ -1867,7 +1867,8 @@ fn plan_items(
                 } else {
                     ItemKind::Repack
                 };
-                // An item read from where a Game is placed reads each of its sources by descriptor.
+                // Only a loose file or a CHD, or a file read in part from where a Game is placed, is written from the
+                // sources the plan found, by descriptor.
                 let by_fd = item.loose
                     || item.chd
                     || chosen
@@ -1884,8 +1885,6 @@ fn plan_items(
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
-                        // Only a loose file or a CHD, or a file read in part from where a Game is placed, is written
-                        // from the sources the plan found, by descriptor.
                         ctime_ns: by_fd.then_some(c.ctime_ns),
                     })
                     .collect();

@@ -810,8 +810,8 @@ fn single_copy_places_no_zip_whose_disk_fails_to_verify() {
     assert_eq!(
         zip.error.as_deref(),
         Some(
-            "blaster/blaster.chd, a file of the same game, wasn't put in place, so neither is this one; blaster \
-             stays in source set mame as it was"
+            "blaster.zip was not put in place, because blaster/blaster.chd of the same game wasn't; blaster stays \
+             in source set mame as it was"
         )
     );
     // The game's ZIP stays in the source set, and nothing of it is in the folder.
@@ -875,7 +875,7 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
         .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
-    // You cancel once the disk is put in place, before its game's ZIP is.
+    // The Operator cancels once the disk is put in place, before its game's ZIP is.
     let (at, published) = std::sync::mpsc::channel::<()>();
     let (go, wait) = std::sync::mpsc::channel::<()>();
     let (at, wait) = (std::sync::Mutex::new(at), std::sync::Mutex::new(wait));
