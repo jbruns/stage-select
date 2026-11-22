@@ -3,13 +3,13 @@
 
 use leptos::prelude::*;
 use title_select_api::Root;
-use title_select_api::roots::{FolderSuggestions, RootEdited, RootKind};
+use title_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
 
 use crate::api;
 use crate::app::Problem;
 use crate::model::when;
 use crate::parts::overlay::Drawer;
-use crate::parts::pending::Pending;
+use crate::parts::pending::{ActionPending, Pending};
 use crate::roots_model::{RootDraft, access, kind_label, kind_note, voided_lines};
 
 /// What the drawer shows: a form to register a Root or edit one, or the confirmation to unregister one.
@@ -189,19 +189,11 @@ pub(crate) fn RootForm(
     let suggested = LocalResource::new(|| api::get::<FolderSuggestions>("/folder-suggestions"));
     let editing = was.is_some();
     let was = StoredValue::new(was);
-    let busy = RwSignal::new(false);
     let problem = RwSignal::new(None::<String>);
-    let save = move |ev: leptos::ev::SubmitEvent| {
-        ev.prevent_default();
-        let spec = match was.with_value(|w| draft.with_untracked(|d| d.spec(w.as_ref()))) {
-            Ok(spec) => spec,
-            Err(message) => return problem.set(Some(message)),
-        };
-        busy.set(true);
-        problem.set(None);
-        let editing = was.get_value().is_some();
-        leptos::task::spawn_local(async move {
-            let outcome = if editing {
+    let request = Action::new_local(move |spec: &RootSpec| {
+        let (spec, editing) = (spec.clone(), editing);
+        async move {
+            if editing {
                 let path = format!("/roots/{}", api::segment(&spec.name));
                 api::put::<_, RootEdited>(&path, &spec).await.map(|edited| {
                     (
@@ -213,13 +205,27 @@ pub(crate) fn RootForm(
                 api::post::<_, Root>("/roots", &spec)
                     .await
                     .map(|root| (format!("Registered the root {}.", root.name), Vec::new()))
-            };
-            busy.set(false);
-            match outcome {
-                Ok(outcome) => done.run(outcome),
-                Err(message) => problem.set(Some(message)),
             }
-        });
+        }
+    });
+    // The effect goes with the form: once the form is gone, an answer still on its way calls no one.
+    Effect::new(move || {
+        if let Some(Ok(outcome)) = request.value().get() {
+            done.run(outcome);
+        }
+    });
+    let save = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        match was.with_value(|w| draft.with_untracked(|d| d.spec(w.as_ref()))) {
+            Ok(spec) => {
+                problem.set(None);
+                request.dispatch_local(spec);
+            }
+            Err(message) => {
+                request.clear();
+                problem.set(Some(message));
+            }
+        }
     };
     let kind_choice = move |kind: RootKind| {
         view! {
@@ -238,6 +244,10 @@ pub(crate) fn RootForm(
         }
     };
     view! {
+        <ActionPending
+            action=request
+            status=if editing { "Saving the root…" } else { "Registering the root…" }
+        >
         <form class="form" on:submit=save>
             <label class="stacked" for="root-name">"Name"</label>
             <input
@@ -266,19 +276,6 @@ pub(crate) fn RootForm(
                     draft.update(|d| d.path = value);
                 }
             />
-            <datalist id="root-path-suggestions">
-                {move || {
-                    suggested
-                        .get()
-                        .and_then(Result::ok)
-                        .map(|s| {
-                            s.folders
-                                .into_iter()
-                                .map(|f| view! { <option value=f.path></option> })
-                                .collect_view()
-                        })
-                }}
-            </datalist>
             <p class="note small">"The folder must already exist on the service's host."</p>
             <fieldset>
                 <legend>"Kind"</legend>
@@ -317,10 +314,24 @@ pub(crate) fn RootForm(
                     "Making it less writable voids each approved plan, not yet started, that would write where it no longer may. You can't change its path or whether it's writable while a job runs on it."
                 </p>
             })}
-            <button type="submit" class="primary" disabled=busy>
+            <button type="submit" class="primary" disabled=request.pending()>
                 {if editing { "Save the root" } else { "Register the root" }}
             </button>
         </form>
+        </ActionPending>
+        <datalist id="root-path-suggestions">
+            {move || {
+                suggested
+                    .get()
+                    .and_then(Result::ok)
+                    .map(|s| {
+                        s.folders
+                            .into_iter()
+                            .map(|f| view! { <option value=f.path></option> })
+                            .collect_view()
+                    })
+            }}
+        </datalist>
         {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
@@ -332,24 +343,27 @@ fn UnregisterRoot(
     done: Callback<(String, Vec<String>)>,
     cancel: impl Fn() + Copy + Send + Sync + 'static,
 ) -> impl IntoView {
-    let name = StoredValue::new(root.name.clone());
-    let busy = RwSignal::new(false);
-    let problem = RwSignal::new(None::<String>);
-    let unregister = move |_| {
-        busy.set(true);
-        problem.set(None);
-        let name = name.get_value();
-        leptos::task::spawn_local(async move {
+    let request = Action::new_local(|name: &String| {
+        let name = name.clone();
+        async move {
             let path = format!("/roots/{}/unregistration", api::segment(&name));
-            let result = api::post_empty(&path, &()).await;
-            busy.set(false);
-            match result {
-                Ok(()) => done.run((format!("Unregistered the root {name}."), Vec::new())),
-                Err(message) => problem.set(Some(message)),
-            }
-        });
+            api::post_empty(&path, &())
+                .await
+                .map(|()| (format!("Unregistered the root {name}."), Vec::new()))
+        }
+    });
+    // As in `RootForm`: the effect goes with the confirmation, so a late answer calls no one.
+    Effect::new(move || {
+        if let Some(Ok(outcome)) = request.value().get() {
+            done.run(outcome);
+        }
+    });
+    let name = StoredValue::new(root.name.clone());
+    let unregister = move |_| {
+        request.dispatch_local(name.get_value());
     };
     view! {
+        <ActionPending action=request status="Unregistering the root…">
         <p>
             {format!(
                 "Unregister the root {}? Its files stay where they are, and the service no longer reads or writes there. You can't unregister it while anything is registered in it, it holds kept files you can still delete, or work that hasn't finished uses it.",
@@ -357,11 +371,11 @@ fn UnregisterRoot(
             )}
         </p>
         <div class="form">
-            <button type="button" class="primary" disabled=busy on:click=unregister>
+            <button type="button" class="primary" disabled=request.pending() on:click=unregister>
                 "Unregister"
             </button>
             <button type="button" on:click=move |_| cancel()>"Cancel"</button>
         </div>
-        {move || problem.get().map(|message| view! { <Problem message /> })}
+        </ActionPending>
     }
 }

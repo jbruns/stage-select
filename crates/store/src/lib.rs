@@ -860,7 +860,9 @@ mod tests {
         assert_eq!(stamp(dir.path()), baseline());
     }
 
-    /// Makes a database in `dir` as a release from before the baseline left it: a schema, no stamp.
+    /// Makes a database in `dir` as the last release before the baseline left it. The baseline is, by construction,
+    /// the schema that release's 49 migrations made (#283), so this applies it without its stamp, sets that release's
+    /// schema version, and adds a few rows.
     fn pre_baseline(dir: &Path, wal: bool) -> Connection {
         let conn = Connection::open(dir.join(DATABASE)).unwrap();
         if wal {
@@ -868,10 +870,22 @@ mod tests {
                 .unwrap();
             conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
         }
+        let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
+        let baseline = migrations::MIGRATIONS[0];
+        assert_eq!(baseline.matches(&stamp).count(), 1);
+        conn.execute_batch(&baseline.replace(&stamp, "")).unwrap();
         conn.execute_batch(
-            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); PRAGMA user_version = 49;",
+            "INSERT INTO roots (name, path, kind, writable, updated_by, updated_at)
+                 VALUES ('roms', '/srv/roms', 'general', 1, 'operator', '2026-01-01T00:00:00Z');
+             INSERT INTO settings (section, value, updated_by, updated_at)
+                 VALUES ('pace', '{}', 'operator', '2026-01-01T00:00:00Z');
+             INSERT INTO dats (id, provider, name) VALUES (1, 'No-Intro', 'Nintendo - Game Boy');
+             INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                 VALUES ('gb', 'roms', 'gb', 1, '2026-01-01T00:00:00Z');
+             PRAGMA user_version = 49;",
         )
         .unwrap();
+        assert_eq!(pragma(&conn, "application_id"), "Integer(0)");
         conn
     }
 
