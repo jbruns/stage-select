@@ -28,7 +28,7 @@ const LAYOUT_NOTE: &str = "In the ES-DE layout, a disc stored as one file, a CHD
 
 const SBI_NOTE: &str = "With this on, a build puts each disc's SBI file, from the system's latest SBI pack, beside its .cue or .chd, named for it. Emulators read it to play discs whose copy protection they otherwise can't.";
 
-const SINGLE_COPY_NOTE: &str = "With this on, a build places each selected game in the library folder that holds your source set's placed games instead of copying it there: each game is kept once, in your library folder, and taken out of your source set. Where your source set and that folder share a filesystem, a game is renamed into place; otherwise it is copied, read back and its original deleted. Its file in your library folder is then the game's only copy: deleting it by hand loses the game, and your own backups are the only other copy. Turning this off later makes the next plan return every placed game to your source set.";
+const SINGLE_COPY_NOTE: &str = "With this on, a build places each selected game in the library folder that holds your source set's placed games instead of copying it there: each game is kept once, in your library folder, and taken out of your source set. Where your source set and that folder share a filesystem, a game is renamed into place; otherwise it is copied, read back and its original deleted. Its file in your library folder is then the game's only copy: deleting it by hand loses the game, and your own backups are the only other copy. Turning this off later makes the next plan return every placed game to your source set. For MAME's ListXML, it places a game's ZIP only from a non-merged source set: a split or merged ZIP holds more than one game's ROMs, so under those layouts every game is copied. A game whose ZIP doesn't yet hold every ROM it needs, or whose ZIP another game is written from, is copied too. A game's disks are always copied, never placed.";
 
 const PLACE_CONVERTED_NOTE: &str = "With this and single copy on, a game your play library stores as CHD, a format your source set doesn't hold, is placed too, instead of copied. The CHD is then the game's only copy, so a full audit extracts it to check each track, which takes longer than reading a file. Title Select keeps the disc's .cue sheet, exactly as the DAT lists it, and writes it back when the game returns to your source set.";
 
@@ -46,7 +46,7 @@ fn PlaceConvertedNote() -> impl IntoView {
     }
 }
 
-const SET_LAYOUT_NOTE: &str = "The set layout says where a MAME source set keeps the ROMs a family shares. Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay in a folder named for the family's parent whatever the layout. It applies to arcade DATs, MAME's ListXML, not to software lists.";
+const SET_LAYOUT_NOTE: &str = "The set layout says where a MAME source set keeps the ROMs a family shares. Non-merged, the default, gives each game one ZIP holding everything it needs, its BIOS and device ROMs included: it takes the most space, and every ZIP can be copied alone. Split keeps what a clone shares with its parent in the parent's ZIP, and BIOS and device ROMs in their own ZIPs. Merged keeps a whole family in its parent's ZIP, and a clone has no ZIP of its own. An audit accepts any of them. The next repair proposes repacking each family into the layout you choose, and sets a ZIP aside only once every copy written from it is verified. Disks stay in a folder named for the family's parent whatever the layout. A build copies a non-merged ZIP as it is into your play library, and repacks a split or merged family into each selected game's own ZIP, with its disks copied into a folder named for it. It applies to arcade DATs, MAME's ListXML, not to software lists.";
 
 fn set_layout_label(layout: SetLayout) -> &'static str {
     match layout {
@@ -631,6 +631,20 @@ fn GlobalSingleCopy(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     }
 }
 
+/// Why single copy places nothing for MAME `system`'s play libraries under `policy`: its source sets use the split or
+/// merged set layout, whose ZIPs each hold more than one game's ROMs. None where it can place games.
+fn single_copy_unavailable(policy: &StoragePolicy, system: &str) -> Option<String> {
+    let layout = policy
+        .of(StorageScope::SourceSets, system)
+        .set_layout
+        .filter(|l| !l.is_self_contained())?;
+    Some(format!(
+        "Single copy has no effect for this system: its source sets use the {} set layout, whose ZIPs each hold more \
+         than one game's ROMs, so every game is copied. Choose non-merged for its source sets to place its games.",
+        layout.label()
+    ))
+}
+
 /// A system's own single copy settings for its play libraries; placing converted games only for a disc system, the
 /// only ones stored as CHD.
 #[component]
@@ -680,7 +694,13 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
             <option value="off">"Off: copy each game"</option>
             <option value="on">"On: place each game as its only copy"</option>
         </select>
-        <p class="note small">{SINGLE_COPY_NOTE}</p>
+        <p class="note small">
+            {move || {
+                policy
+                    .with(|p| single_copy_unavailable(p, &s.get_value()))
+                    .unwrap_or_else(|| SINGLE_COPY_NOTE.to_string())
+            }}
+        </p>
         {is_disc_system(&s.get_value())
             .then(|| {
                 view! {
@@ -726,6 +746,32 @@ mod tests {
             let label = set_layout_label(layout).to_lowercase();
             assert!(label.starts_with(layout.label()), "{label}");
         }
+    }
+
+    /// Single copy says which MAME source sets it places games from, and that disks are always copied.
+    #[test]
+    fn the_single_copy_note_says_it_places_mame_games_only_from_a_non_merged_source_set() {
+        for said in [
+            "only from a non-merged source set",
+            "under those layouts every game is copied",
+            "disks are always copied, never placed",
+        ] {
+            assert!(SINGLE_COPY_NOTE.contains(said), "{said}");
+        }
+    }
+
+    /// A MAME system's single copy has no effect, and says why, while its source sets aren't non-merged.
+    #[test]
+    fn single_copy_has_no_effect_for_mame_unless_its_source_sets_are_non_merged() {
+        let mut policy = StoragePolicy::default();
+        assert_eq!(single_copy_unavailable(&policy, "MAME/MAME"), None);
+        policy.source_sets.set_layout = SetLayout::Merged;
+        let why = single_copy_unavailable(&policy, "MAME/MAME").unwrap();
+        assert!(why.contains("use the merged set layout"), "{why}");
+        assert_eq!(
+            single_copy_unavailable(&policy, "No-Intro/Atari - Atari 2600"),
+            None
+        );
     }
 
     /// Placing converted games makes a CHD the only copy: the note says what a repair does with a damaged one.

@@ -1003,38 +1003,7 @@ impl Dat {
         let unshared = |g: usize| own(g).filter(|&r| self.shared_with(r).is_none());
         let mut left_out = Vec::new();
         let mut gather = |g: usize, from: &mut dyn Iterator<Item = usize>| {
-            let mut held: Vec<usize> = Vec::new();
-            let mut named: HashMap<&str, usize> = HashMap::new();
-            let mut rooted: HashSet<usize> = HashSet::new();
-            for r in from {
-                let rom = &self.roms[r];
-                match named.get(rom.name.as_str()) {
-                    // A nodump ROM gives no checksum, so is alike any ROM of its size; one a file can match stands
-                    // in for it, and is left out only when they differ in size.
-                    Some(&h)
-                        if self.roms[h].status == DumpStatus::NoDump
-                            && rom.status != DumpStatus::NoDump =>
-                    {
-                        if !alike(&self.roms[h], rom) {
-                            left_out.push((g, h));
-                        }
-                        if let Some(at) = held.iter().position(|&x| x == h) {
-                            held[at] = r;
-                        }
-                        named.insert(&rom.name, r);
-                        rooted.insert(roots[r]);
-                    }
-                    Some(&h) if alike(&self.roms[h], rom) => {}
-                    Some(_) => left_out.push((g, r)),
-                    None if rooted.contains(&roots[r]) => {}
-                    None => {
-                        named.insert(&rom.name, r);
-                        rooted.insert(roots[r]);
-                        held.push(r);
-                    }
-                }
-            }
-            held
+            self.gather(g, from, &|r| roots[r], &mut left_out)
         };
         let parents: Vec<Option<usize>> = (0..self.games.len())
             .map(|g| self.family_parent(g))
@@ -1083,6 +1052,63 @@ impl Dat {
         }
     }
 
+    /// The ROMs of `from` one container of Game `g` holds, in order: the first of each name and of each root, each
+    /// ROM `roots` gives the root of ([`Laid::roots`]). Each other ROM of a name held already, but not alike it, is
+    /// pushed to `left_out`, with `g`.
+    fn gather(
+        &self,
+        g: usize,
+        from: &mut dyn Iterator<Item = usize>,
+        roots: &dyn Fn(usize) -> usize,
+        left_out: &mut Vec<(usize, usize)>,
+    ) -> Vec<usize> {
+        let mut held: Vec<usize> = Vec::new();
+        let mut named: HashMap<&str, usize> = HashMap::new();
+        let mut rooted: HashSet<usize> = HashSet::new();
+        for r in from {
+            let rom = &self.roms[r];
+            match named.get(rom.name.as_str()) {
+                // A nodump ROM gives no checksum, so is alike any ROM of its size; one a file can match stands
+                // in for it, and is left out only when they differ in size.
+                Some(&h)
+                    if self.roms[h].status == DumpStatus::NoDump
+                        && rom.status != DumpStatus::NoDump =>
+                {
+                    if !alike(&self.roms[h], rom) {
+                        left_out.push((g, h));
+                    }
+                    if let Some(at) = held.iter().position(|&x| x == h) {
+                        held[at] = r;
+                    }
+                    named.insert(&rom.name, r);
+                    rooted.insert(roots(r));
+                }
+                Some(&h) if alike(&self.roms[h], rom) => {}
+                Some(_) => left_out.push((g, r)),
+                None if rooted.contains(&roots(r)) => {}
+                None => {
+                    named.insert(&rom.name, r);
+                    rooted.insert(roots(r));
+                    held.push(r);
+                }
+            }
+        }
+        held
+    }
+
+    /// The ROMs Game `game`'s self-contained ZIP holds, as a non-merged layout lays it out ([`Dat::laid_out`]): every
+    /// ROM it lists and every ROM of each of its Dependencies, its own first, each name once. No Disk is one.
+    pub fn self_contained(&self, game: usize) -> Vec<usize> {
+        // A DAT lists each Game's ROMs together, Game by Game, in order.
+        let own = |g: usize| {
+            let from = self.roms.partition_point(|rom| rom.game < g);
+            let to = self.roms.partition_point(|rom| rom.game <= g);
+            (from..to).filter(|&r| !self.roms[r].disk)
+        };
+        let mut all = own(game).chain(self.dependencies(game).into_iter().flat_map(own));
+        self.gather(game, &mut all, &|r| self.shared_root(r), &mut Vec::new())
+    }
+
     /// The ROM of the Game ROM `r`'s Game is `romof` that `r` shares (`merge=`): the one of that name, alike.
     pub fn shared_with(&self, r: usize) -> Option<usize> {
         let rom = &self.roms[r];
@@ -1095,7 +1121,7 @@ impl Dat {
     }
 
     /// Where following ROM `r`'s `merge=` up the Games it is `romof` ends: the ROM it is shared from at the top.
-    fn shared_root(&self, r: usize) -> usize {
+    pub fn shared_root(&self, r: usize) -> usize {
         let mut at = r;
         let mut seen = HashSet::from([r]);
         while let Some(up) = self.shared_with(at)

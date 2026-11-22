@@ -4,9 +4,10 @@
 //! payload, so that consuming them loses nothing. A file the Source Set doesn't hold, such as a disc's `.m3u` or SBI
 //! file, is written into the folder as before. Every other release is copied as before, and the plan's notes say why.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 
+use title_select_api::DatFormat;
 use title_select_api::build::{
     FileIdentity, FileOutcome, ItemKind, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, PlanSource,
 };
@@ -27,6 +28,10 @@ const UNCHECKED: &str = "its files here weren't all found as they were built, so
                          set's files";
 const MIXED: &str = "some of its files are built here already and others aren't";
 const NOT_BUILT: &str = "not every file of it can be built here";
+const READ_ELSEWHERE: &str = "another game is written from its ZIP in the source set as well, so that ZIP stays \
+                              there";
+const NOT_SELF_CONTAINED: &str = "its ZIP in the source set doesn't yet hold every ROM it needs, so it is written from \
+                                  other games' ZIPs too, which stay there";
 
 /// How one item of a release is placed, before the release decides how all of them are.
 struct Found {
@@ -81,6 +86,22 @@ pub(super) fn place(
         ));
         return;
     }
+    // An Arcade DAT's Game is placed only as a non-merged ZIP, its Source Set's own, which holds that Game alone (ADR
+    // 0026).
+    let arcade = inputs.revision.format == DatFormat::Listxml;
+    let layout = inputs
+        .set_storage
+        .set_layout
+        .filter(|l| !l.is_self_contained());
+    if let (true, Some(layout)) = (arcade, layout) {
+        notes.push(format!(
+            "single copy is on, but source set {set} uses the {} set layout, so each of its ZIPs holds more than one \
+             game's ROMs: nothing is placed and each game is copied. Single copy places games only from a non-merged \
+             source set",
+            layout.label()
+        ));
+        return;
+    }
     let (Some(folder), Some((set_dir, _))) = (folder, sources.set_dir.clone()) else {
         return;
     };
@@ -96,15 +117,30 @@ pub(super) fn place(
             releases.entry(release_of(&item.game)).or_default().push(i);
         }
     }
+    // Each Source Set file a copy or a repack reads, by the releases that read it: placing it would take it out from
+    // under another release, so only a release that alone reads a file may consume it.
+    let mut readers: HashMap<String, HashSet<String>> = HashMap::new();
+    for item in items
+        .iter()
+        .filter(|i| matches!(i.kind, ItemKind::Copy | ItemKind::Repack))
+    {
+        for source in &item.sources {
+            readers
+                .entry(source.path.clone())
+                .or_default()
+                .insert(release_of(&item.game));
+        }
+    }
     let mut copied: BTreeMap<&'static str, usize> = BTreeMap::new();
     let (mut renamed, mut copies, mut converted, mut built) = (0, 0, 0, 0);
     let mut chds = 0;
     let (mut freed, mut written) = (0u64, 0u64);
-    for (_, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
+    for (name, members) in releases.iter().filter(|(r, _)| !held.contains_key(*r)) {
+        // A Disk is always copied, never placed: one family's folder of Disks may serve several Games.
         let placing: Vec<usize> = members
             .iter()
             .copied()
-            .filter(|&i| items[i].generated.is_none())
+            .filter(|&i| items[i].generated.is_none() && !items[i].disk)
             .collect();
         // Placed already, or nothing of the Source Set's to place.
         if placing.is_empty()
@@ -114,7 +150,7 @@ pub(super) fn place(
         {
             continue;
         }
-        let planned = match release(inputs, folder, sources, items, &placing) {
+        let planned = match release(inputs, folder, sources, items, &placing, arcade) {
             Ok(planned) => planned,
             Err(Some(why)) => {
                 *copied.entry(why).or_default() += 1;
@@ -122,6 +158,15 @@ pub(super) fn place(
             }
             Err(None) => continue,
         };
+        let read_elsewhere = planned.iter().flat_map(|f| &f.originals).any(|o| {
+            readers
+                .get(&o.path)
+                .is_some_and(|by| by.iter().any(|r| r != name))
+        });
+        if read_elsewhere {
+            *copied.entry(READ_ELSEWHERE).or_default() += 1;
+            continue;
+        }
         let how = match (
             planned.iter().all(|f| f.built),
             planned.iter().any(|f| f.built),
@@ -229,6 +274,7 @@ fn release(
     sources: &mut Sources,
     items: &[PlanItem],
     placing: &[usize],
+    arcade: bool,
 ) -> Result<Vec<Found>, Option<&'static str>> {
     let mut found: Vec<Found> = Vec::new();
     for &i in placing {
@@ -244,8 +290,20 @@ fn release(
         }
         found.push(placement(inputs, folder, sources, item)?);
     }
+    // An Arcade DAT's Game is placed only from its own self-contained ZIP: a Game written from its family's or its
+    // Dependencies' ZIPs would consume them.
+    if arcade
+        && placing.iter().zip(&found).any(|(&i, f)| {
+            let own = format!("{}.zip", items[i].game);
+            f.originals.iter().any(|o| o.path != own)
+        })
+    {
+        return Err(Some(NOT_SELF_CONTAINED));
+    }
     // Each Source Set file consumed holds this release alone, every Entry of it matched on its payload and taken by
-    // one of its items: nothing else in it is lost. A file two items are written from is consumed once.
+    // one of its items: nothing else in it is lost. A file two items are written from is consumed once. A
+    // self-contained ZIP of an Arcade DAT's Game holds its Dependencies' ROMs too, which other Games may also be found
+    // to hold: it is the Game's alone while the Game takes every Entry of it.
     let games: HashSet<&str> = placing.iter().map(|&i| items[i].game.as_str()).collect();
     let taken: HashSet<(String, Option<String>)> = found
         .iter()
@@ -271,7 +329,7 @@ fn release(
             }
             let all_ours = entries.iter().all(|e| {
                 !e.roms.is_empty()
-                    && e.roms.iter().all(|r| games.contains(r.game.as_str()))
+                    && (arcade || e.roms.iter().all(|r| games.contains(r.game.as_str())))
                     && taken.contains(&(e.path.clone(), e.member.clone()))
             });
             if entries.is_empty() || !all_ours {

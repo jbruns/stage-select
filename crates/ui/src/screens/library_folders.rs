@@ -31,8 +31,8 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    FolderTab, Pick, Replan, Replans, drifted, fresh, live_status, pick, selection_under_way,
-    stale_label,
+    FolderTab, Pick, Replan, Replans, drifted, fresh, live_status, pick, romm_exclusions,
+    selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
@@ -642,6 +642,10 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
             </dd>
             <dt>"Current build"</dt>
             <dd>{current_build(&f.build)}</dd>
+            {f.built_for.clone().map(|version| view! {
+                <dt>"Built for"</dt>
+                <dd>{format!("MAME {version}. Only that version of MAME runs what this folder holds.")}</dd>
+            })}
             <dt>"Last checked"</dt>
             <dd>{checked}</dd>
             <dt>"Files"</dt>
@@ -1186,7 +1190,36 @@ fn Overview(folder: LibraryFolder) -> impl IntoView {
         {reasons(&folder)}
         {folder_facts(&folder)}
         {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
+        {(!folder.disk_folders.is_empty()).then(|| view! { <DiskFolders folders=folder.disk_folders.clone() /> })}
         <BuiltFiles folder=id />
+    }
+}
+
+/// The folders a build made for its games' disks, and how to keep RomM from listing each as a game of its own.
+#[component]
+fn DiskFolders(folders: Vec<String>) -> impl IntoView {
+    let exclusions = romm_exclusions(&folders);
+    view! {
+        <section aria-labelledby="disk-folders-title">
+            <h2 id="disk-folders-title">"Disk folders"</h2>
+            <p>
+                {match folders.len() {
+                    1 => "1 folder holds the CHDs of the game it is named for. MAME finds them there.".to_owned(),
+                    n => format!("{n} folders: each holds the CHDs of the game it is named for. MAME finds them there."),
+                }}
+            </p>
+            <details>
+                <summary>"Using RomM? Leave these folders out"</summary>
+                <p>
+                    "RomM lists every folder in a play library as a game of its own, so without this it shows each "
+                    "disk folder as a game that doesn't run. Add these names to "
+                    <code>"exclude.roms.multi_file.names"</code>
+                    " in your RomM configuration, then scan the platform again. Title Select doesn't change RomM's "
+                    "configuration for you."
+                </p>
+                <pre>{exclusions}</pre>
+            </details>
+        </section>
     }
 }
 

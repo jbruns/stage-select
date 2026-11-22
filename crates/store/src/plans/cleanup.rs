@@ -102,7 +102,7 @@ struct Adopted {
 /// disc in a layout folder holding its ROM, or an `.m3u` or SBI file holding exactly what a build writes. A CHD is adopted
 /// only once its extraction, when the cleanup runs, gives back the DAT's ROMs.
 fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result<Adopted, String> {
-    if let Some(why) = super::invalid_path(name) {
+    if let Some(why) = super::invalid_path(name, false) {
         return Err(why);
     }
     if !matches!(laid, LaidFile::Chd { .. }) && !laid.holds(probe) {

@@ -59,6 +59,8 @@ pub(super) struct Built {
     pub chd: bool,
     pub chd_sha1: Option<String>,
     pub chd_raw_sha1: Option<String>,
+    /// Whether it is a Disk of an Arcade DAT's Game, `<game>/<disk>.chd`, copied from its Source Set.
+    pub disk: bool,
 }
 
 impl Built {
@@ -96,7 +98,7 @@ fn same_roms(a: &[ExpectedRom], b: &[ExpectedRom]) -> bool {
 pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String, Built>> {
     let mut stmt = c.prepare(
         "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose, chd, chd_sha1,
-                chd_raw_sha1
+                chd_raw_sha1, disk
          FROM built_files
          WHERE folder_id = ?1",
     )?;
@@ -117,6 +119,7 @@ pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String,
                 chd: r.get(9)?,
                 chd_sha1: r.get(10)?,
                 chd_raw_sha1: r.get(11)?,
+                disk: r.get(12)?,
             },
         ))
     })?;
@@ -522,7 +525,12 @@ fn check_folder(
         .filter(|n| crate::checks::is_layout_dir(n))
         .cloned()
         .collect();
-    let mut entries = crate::checks::deepen(&dir, names);
+    // So is each folder of a Game's Disks, as built or as a plan for an Arcade DAT lays them out.
+    let mut disks = crate::checks::disk_dirs(&inputs.built);
+    if dat.is_some_and(|d| d.format == DatFormat::Listxml) {
+        disks.extend(inputs.selected.values().cloned());
+    }
+    let mut entries = crate::checks::deepen(&dir, names, &disks);
     entries.sort();
     for name in entries.iter().chain(&layout_dirs) {
         let Ok(Some(st)) = dir.stat(name) else {
@@ -926,6 +934,11 @@ struct Sources<'a> {
     by_path: HashMap<&'a str, Vec<&'a Entry>>,
     stats: HashMap<&'a str, Option<(FileStat, FileIdentity, i128)>>,
     copyable: HashMap<(&'a str, String), bool>,
+    /// For a selected Game of an Arcade DAT, by the Game and the name of each ROM its self-contained ZIP holds, the
+    /// Games and names an Audit may have found that ROM under: the Game that lists it, a Dependency for a device's ROM,
+    /// and the ROM it shares at the top of its `merge=` chain, which a split or merged set keeps in its parent's or
+    /// BIOS's ZIP (ADR 0026). Any other ROM is found under its Game's own name for it.
+    keys: HashMap<(String, String), Vec<(String, String)>>,
 }
 
 impl<'a> Sources<'a> {
@@ -970,7 +983,36 @@ impl<'a> Sources<'a> {
             by_path,
             stats: HashMap::new(),
             copyable: HashMap::new(),
+            keys: HashMap::new(),
         }
+    }
+
+    /// The Games and names an Audit may have found `game`'s ROM `rom` under ([`Sources::keys`]).
+    fn keys_of(&self, game: &str, rom: &str) -> Vec<(String, String)> {
+        self.keys
+            .get(&(game.to_owned(), rom.to_owned()))
+            .cloned()
+            .unwrap_or_else(|| vec![(game.to_owned(), rom.to_owned())])
+    }
+
+    /// The Entries an Audit read the payload of that hold `game`'s ROM `rom`, under any of its keys, each once.
+    fn entries_of(&self, game: &str, rom: &str) -> Vec<&'a Entry> {
+        let mut out: Vec<&'a Entry> = Vec::new();
+        for key in self.keys_of(game, rom) {
+            for entry in self.by_rom.get(&key).into_iter().flatten() {
+                if !out.iter().any(|e| std::ptr::eq(*e, *entry)) {
+                    out.push(entry);
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether only Claim Evidence holds `game`'s ROM `rom`, under any of its keys.
+    fn only_claimed(&self, game: &str, rom: &str) -> bool {
+        self.keys_of(game, rom)
+            .iter()
+            .any(|key| self.claimed.contains(key))
     }
 
     /// The Placed Game's file at `path`, as its Source Set's Audits name it, opened in the Library Folder holding it
@@ -1042,7 +1084,12 @@ impl<'a> Sources<'a> {
                         .as_ref()
                         .is_some_and(|ev| ev.level == EvidenceLevel::Payload)
                     && e.member.as_deref().is_some_and(|m| {
-                        names.contains(m) && e.roms.iter().any(|r| r.game == game && r.name == m)
+                        names.contains(m) && {
+                            let keys = self.keys_of(game, m);
+                            e.roms
+                                .iter()
+                                .any(|r| keys.iter().any(|(g, n)| *g == r.game && *n == r.name))
+                        }
                     })
             })
             && members
@@ -1083,11 +1130,7 @@ impl<'a> Sources<'a> {
 
     /// Whether an Entry the plan can read from holds `game`'s ROM `rom`, with its payload read.
     fn holds(&mut self, game: &str, rom: &ExpectedRom) -> bool {
-        let entries = self
-            .by_rom
-            .get(&(game.to_owned(), rom.name.clone()))
-            .cloned()
-            .unwrap_or_default();
+        let entries = self.entries_of(game, &rom.name);
         entries.iter().any(|entry| self.file(&entry.path).is_some())
     }
 
@@ -1100,11 +1143,7 @@ impl<'a> Sources<'a> {
         let mut chosen = Vec::new();
         let mut missing = Vec::new();
         for rom in roms {
-            let entries = self
-                .by_rom
-                .get(&(game.to_owned(), rom.name.clone()))
-                .cloned()
-                .unwrap_or_default();
+            let entries = self.entries_of(game, &rom.name);
             let mut candidates: Vec<Candidate> = entries
                 .into_iter()
                 .filter_map(|entry| {
@@ -1374,30 +1413,62 @@ fn plan_items(
         }
     }
     let laid = laid_out(inputs.storage, dat);
-    // Each file the storage policy stores a game as: its target, whether loose, whether a CHD, and which of the
-    // game's ROMs it holds, when it holds one of several.
-    let files_of = |game: &str| -> Vec<(String, bool, bool, Option<usize>)> {
-        match laid.get(game) {
-            Some(l) if l.files.len() > 1 => l
-                .files
-                .iter()
-                .enumerate()
-                .map(|(i, f)| (f.clone(), true, false, Some(i)))
-                .collect(),
-            Some(l) => vec![(
-                l.files[0].clone(),
-                l.format == StorageFormat::Loose,
-                l.format == StorageFormat::Chd,
-                None,
-            )],
-            None => vec![(format!("{game}.zip"), false, false, None)],
+    // An Arcade DAT's Game is built self-contained, whatever the storage policy says (ADR 0026): `<game>.zip` holds
+    // its own ROMs and its Dependencies', and each of its Disks is copied into `<game>/`.
+    let arcade = dat.format == DatFormat::Listxml;
+    let mut contained: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut disks: HashMap<&str, Vec<usize>> = HashMap::new();
+    if arcade {
+        for (_, title) in &winners {
+            if let Some(&g) = games.get(*title) {
+                contained.insert(title, dat.self_contained(g));
+            }
         }
-    };
+        for (r, rom) in dat.roms.iter().enumerate() {
+            let game = dat.games[rom.game].as_str();
+            if rom.disk && contained.contains_key(game) {
+                disks.entry(game).or_default().push(r);
+            }
+        }
+    }
+    // Each file the storage policy stores a game as: its target, whether loose, whether a CHD, and which of the
+    // game's ROMs it holds, when it holds one of several. A Disk of an Arcade DAT's Game is a CHD, and the Disk it
+    // holds is by its index among the Game's Disks.
+    let files_of =
+        |game: &str| -> Vec<(String, bool, bool, Option<usize>)> {
+            if arcade {
+                let zip = (format!("{game}.zip"), false, false, None);
+                let disks = disks.get(game).into_iter().flatten().enumerate();
+                return std::iter::once(zip)
+                    .chain(disks.map(|(k, &r)| {
+                        (format!("{game}/{}", dat.roms[r].name), false, true, Some(k))
+                    }))
+                    .collect();
+            }
+            match laid.get(game) {
+                Some(l) if l.files.len() > 1 => l
+                    .files
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| (f.clone(), true, false, Some(i)))
+                    .collect(),
+                Some(l) => vec![(
+                    l.files[0].clone(),
+                    l.format == StorageFormat::Loose,
+                    l.format == StorageFormat::Chd,
+                    None,
+                )],
+                None => vec![(format!("{game}.zip"), false, false, None)],
+            }
+        };
     // Each selected Multi-disc Game's release, listed by its `.m3u`, with its discs in disc order; and each disc's
     // SBI file, where the system opts in.
-    let playlists = playlists(&laid, winners.iter().map(|(_, title)| *title));
+    let playlists = match arcade {
+        true => BTreeMap::new(),
+        false => playlists(&laid, winners.iter().map(|(_, title)| *title)),
+    };
     let mut sbis: Vec<(&str, &str, String, GeneratedFile)> = Vec::new();
-    for (group, title) in &winners {
+    for (group, title) in winners.iter().filter(|_| !arcade) {
         if let Some((target, file)) = sbi_of(&laid, title, inputs.sbi.as_ref()) {
             sbis.push((group, title, target, file));
         }
@@ -1449,6 +1520,21 @@ fn plan_items(
         }))
         .collect::<Vec<_>>();
     let mut sources = Sources::new(config, inputs);
+    for (title, roms) in &contained {
+        let held = roms.iter().chain(disks.get(title).into_iter().flatten());
+        for &r in held {
+            let rom = &dat.roms[r];
+            let root = &dat.roms[dat.shared_root(r)];
+            let mut keys = vec![(dat.games[rom.game].clone(), rom.name.clone())];
+            let shared = (dat.games[root.game].clone(), root.name.clone());
+            if !keys.contains(&shared) {
+                keys.push(shared);
+            }
+            sources
+                .keys
+                .insert(((*title).to_owned(), rom.name.clone()), keys);
+        }
+    }
     let mut items = Vec::new();
     // The files of selected Games with nothing to build there: no item writes them.
     let mut unbuilt: HashSet<String> = HashSet::new();
@@ -1468,24 +1554,27 @@ fn plan_items(
         let roms: Vec<ExpectedRom> = match addition {
             Some(a) => a.addition.rom.iter().cloned().collect(),
             None => {
-                let all = games
-                    .get(game)
-                    .map(|&i| roms_of[i].clone())
-                    .unwrap_or_default();
-                let listed = match part {
-                    Some(i) => all.into_iter().skip(i).take(1).collect(),
-                    None => all,
+                let held = |r: &usize| (dat.expected(&dat.roms[*r]), dat.roms[*r].needed());
+                let listed: Vec<(ExpectedRom, bool)> = match (contained.get(game), part) {
+                    (Some(_), Some(k)) => disks[game].get(k).map(held).into_iter().collect(),
+                    (Some(roms), None) => roms.iter().map(held).collect(),
+                    (None, _) => {
+                        let all = games
+                            .get(game)
+                            .map(|&i| roms_of[i].clone())
+                            .unwrap_or_default();
+                        match part {
+                            Some(i) => all.into_iter().skip(i).take(1).collect(),
+                            None => all,
+                        }
+                    }
                 };
                 // A ROM the Game doesn't need is built in when the Audit read it, and left out when it found none:
                 // its absence is no gap. One a quick inventory only claims is kept, so the item asks for a read.
                 listed
                     .into_iter()
                     .filter(|(rom, needed)| {
-                        *needed
-                            || sources.holds(game, rom)
-                            || sources
-                                .claimed
-                                .contains(&(game.to_owned(), rom.name.clone()))
+                        *needed || sources.holds(game, rom) || sources.only_claimed(game, &rom.name)
                     })
                     .map(|(rom, _)| rom)
                     .collect()
@@ -1528,6 +1617,8 @@ fn plan_items(
             generated: None,
             place: None,
             changes_source_set: false,
+            disk: arcade && chd,
+            missing_dependencies: Vec::new(),
         };
         if addition.is_none() && unresolved.contains(group) {
             item.kind = ItemKind::Unresolved;
@@ -1588,7 +1679,7 @@ fn plan_items(
             Some(format!("the DAT revision lists no game named {game}"))
         } else if let Some(reason) = invalid_game(game) {
             Some(reason)
-        } else if let Some(reason) = invalid_path(&target) {
+        } else if let Some(reason) = invalid_path(&target, item.disk) {
             Some(reason)
         } else if let Some(reason) = in_the_way(inputs, files, scan, &target, game) {
             Some(reason)
@@ -1716,10 +1807,39 @@ fn plan_items(
         match sources.choose(game, &item.roms) {
             Err(missing) => {
                 item.kind = ItemKind::NoSource;
-                let claimed = missing
-                    .iter()
-                    .any(|rom| sources.claimed.contains(&(game.to_owned(), rom.clone())));
-                item.reason = Some(if claimed {
+                let claimed = missing.iter().any(|rom| sources.only_claimed(game, rom));
+                // A ROM a Dependency lists, a device's, or a BIOS's the Game shares by `merge=`, is the Dependency's:
+                // a Game that lacks no other lacks those Dependencies (ADR 0025).
+                let dependencies: Vec<&str> = match games.get(game) {
+                    Some(&g) if arcade => dat
+                        .dependencies(g)
+                        .into_iter()
+                        .map(|d| dat.games[d].as_str())
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let mut needs: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+                for rom in &missing {
+                    let keys = sources.keys_of(game, rom);
+                    let owner = keys
+                        .iter()
+                        .find(|(g, _)| dependencies.contains(&g.as_str()))
+                        .unwrap_or(&keys[0]);
+                    needs.entry(owner.0.clone()).or_default().push(rom);
+                }
+                if !claimed && !needs.contains_key(game) {
+                    item.missing_dependencies = needs.keys().cloned().collect();
+                }
+                item.reason = Some(if !item.missing_dependencies.is_empty() {
+                    let each: Vec<String> = needs
+                        .iter()
+                        .map(|(dep, roms)| format!("{dep} ({})", roms.join(", ")))
+                        .collect();
+                    format!(
+                        "it needs {}, which the latest audit found no source for, so it can't run",
+                        each.join(" and ")
+                    )
+                } else if claimed {
                     format!(
                         "the latest audit found no payload-verified source for {}: a quick inventory has only \
                          claim evidence for it, so audit the source set incrementally or in full first",
@@ -1741,11 +1861,19 @@ fn plan_items(
                     && chosen
                         .iter()
                         .all(|c| c.copyable && c.entry.path == first.entry.path);
-                item.kind = if copy {
+                // A Disk is the CHD its Source Set keeps, copied as it is.
+                item.kind = if copy || item.disk {
                     ItemKind::Copy
                 } else {
                     ItemKind::Repack
                 };
+                // Only a loose file or a CHD, or a file read in part from where a Game is placed, is written from the
+                // sources the plan found, by descriptor.
+                let by_fd = item.loose
+                    || item.chd
+                    || chosen
+                        .iter()
+                        .any(|c| title_select_api::storage::split_placed(&c.entry.path).is_some());
                 item.sources = chosen
                     .iter()
                     .zip(&item.roms)
@@ -1757,12 +1885,7 @@ fn plan_items(
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
-                        // Only a loose file or a CHD, or a file read from where its Game is placed, is written from
-                        // the source the plan found, by descriptor.
-                        ctime_ns: (item.loose
-                            || item.chd
-                            || title_select_api::storage::split_placed(&c.entry.path).is_some())
-                        .then_some(c.ctime_ns),
+                        ctime_ns: by_fd.then_some(c.ctime_ns),
                     })
                     .collect();
                 item.converts = converts(inputs, files, scan, &item);
@@ -1941,7 +2064,8 @@ fn plan_items(
 /// folder: `Ok` when it is one of the game's placed files, at its target and as the plan stores it, and the check made
 /// with the plan found it as it was placed, so in place already; else what the item is and why. It is never written
 /// over or kept aside: a placed file the check found missing or changed is reported, and left as it is. None when
-/// neither is so.
+/// neither is so. A Disk of an Arcade DAT's Game is always the folder's own copy, never placed: only another placed
+/// file at its name stands in its way.
 fn placed_here(
     inputs: &Inputs,
     scan: Option<&Scan>,
@@ -1950,12 +2074,15 @@ fn placed_here(
     built: Option<&Built>,
     item: &PlanItem,
 ) -> Option<std::result::Result<(), (ItemKind, String)>> {
-    let of_game: Vec<&str> = inputs
-        .placed
-        .iter()
-        .filter(|p| p.game == game)
-        .map(|p| p.path.as_str())
-        .collect();
+    let of_game: Vec<&str> = match item.disk {
+        true => Vec::new(),
+        false => inputs
+            .placed
+            .iter()
+            .filter(|p| p.game == game)
+            .map(|p| p.path.as_str())
+            .collect(),
+    };
     let set = &inputs.folder.source_set;
     if of_game.is_empty() {
         let other = inputs
@@ -2100,7 +2227,7 @@ fn invalid_game(game: &str) -> Option<String> {
 
 /// Why `target`, a path in the folder, cannot be written: why one of its names cannot, or why it is in a folder no
 /// disc layout makes. A disc layout makes only `<game>.cue/` and `<release>.m3u/`, one level deep.
-fn invalid_path(target: &str) -> Option<String> {
+fn invalid_path(target: &str, disk: bool) -> Option<String> {
     let reserved = |name: &str| {
         title_select_api::storage::is_reserved_name(name)
             .then(|| format!("{name} is a name Title Select keeps its own work under"))
@@ -2113,7 +2240,7 @@ fn invalid_path(target: &str) -> Option<String> {
     }
     match target.split('/').collect::<Vec<_>>().as_slice() {
         [_] => None,
-        [dir, _] if crate::checks::is_layout_dir(dir) => None,
+        [dir, _] if disk || crate::checks::is_layout_dir(dir) => None,
         _ => Some(format!("{target} is in a folder no disc layout makes")),
     }
 }
@@ -2256,6 +2383,8 @@ fn generate(
         generated: Some(file),
         place: None,
         changes_source_set: false,
+        disk: false,
+        missing_dependencies: Vec::new(),
     };
     let what = match item.generated.as_ref().map(|g| g.kind) {
         Some(GeneratedKind::Sbi) => "its disc",
@@ -2273,7 +2402,7 @@ fn generate(
     }
     let blocked = if let Some(reason) = invalid_game(game) {
         Some(reason)
-    } else if let Some(reason) = invalid_path(&target) {
+    } else if let Some(reason) = invalid_path(&target, false) {
         Some(reason)
     } else if let Some(reason) = in_the_way(at.inputs, at.files, at.scan, &target, game) {
         Some(reason)
@@ -2540,6 +2669,10 @@ pub(crate) fn laid_files<'a>(
     sbi: Option<&crate::sbi_packs::SbiPack>,
     titles: impl IntoIterator<Item = &'a str>,
 ) -> HashMap<String, LaidFile> {
+    // An Arcade DAT's Games are laid out by no disc layout, whatever the storage policy says.
+    if dat.format == DatFormat::Listxml {
+        return HashMap::new();
+    }
     let laid = laid_out(storage, dat);
     let titles: BTreeSet<&str> = titles.into_iter().collect();
     let mut out = HashMap::new();
@@ -2592,6 +2725,17 @@ pub(crate) fn laid_files<'a>(
 
 /// Why games the storage policy would store loose or as CHD stay TorrentZip, with how many each reason covers.
 fn storage_notes(storage: Storage, dat: Option<&Dat>, items: &[PlanItem]) -> Vec<String> {
+    // An Arcade DAT's Games are self-contained ZIPs, whatever the storage policy says (ADR 0026).
+    if dat.is_some_and(|d| d.format == DatFormat::Listxml) {
+        return match storage.format {
+            StorageFormat::TorrentZip => Vec::new(),
+            _ => vec![
+                "each MAME game is built as one ZIP, with its disks in a folder named for it, whatever format the \
+                 storage policy gives your play libraries: that is what MAME reads"
+                    .into(),
+            ],
+        };
+    }
     let laid = dat.map(|d| laid_out(storage, d)).unwrap_or_default();
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     for item in items

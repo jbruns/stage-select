@@ -135,6 +135,16 @@ pub fn stale_label(stale: &Stale) -> String {
     }
 }
 
+/// What to merge into RomM's `config.yml` so that it leaves out `folders`, a MAME library folder's disk folders, which
+/// it would otherwise list as games of their own: each under `exclude.roms.multi_file.names`, quoted.
+pub fn romm_exclusions(folders: &[String]) -> String {
+    let mut out = String::from("exclude:\n  roms:\n    multi_file:\n      names:\n");
+    for folder in folders {
+        out += &format!("        - '{}'\n", folder.replace('\'', "''"));
+    }
+    out
+}
+
 /// A tab of a Library Folder's page, named in its URL's `tab`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FolderTab {
@@ -241,6 +251,8 @@ mod tests {
             check: None,
             plan_open: false,
             stale: Vec::new(),
+            built_for: None,
+            disk_folders: Vec::new(),
         }
     }
 
@@ -561,6 +573,15 @@ mod tests {
                 latest: Some(asia),
             }),
             "Coverage changed: its source set covers Asia now; its build was selected under every region."
+        );
+    }
+
+    #[test]
+    fn a_mame_folders_disk_folders_are_listed_for_romms_multi_file_exclusions() {
+        let folders = ["blaster".to_owned(), "it's".to_owned()];
+        assert_eq!(
+            romm_exclusions(&folders),
+            "exclude:\n  roms:\n    multi_file:\n      names:\n        - 'blaster'\n        - 'it''s'\n"
         );
     }
 }

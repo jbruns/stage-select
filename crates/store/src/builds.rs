@@ -915,6 +915,9 @@ fn stage(
     {
         return stage_from_placed_chd((item, seq), file, placed, chd, built_at);
     }
+    if item.disk {
+        return stage_disk((item, seq), file, staged, set_fd, chd, built_at);
+    }
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
@@ -1075,6 +1078,71 @@ fn stage(
         mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
+        cue: None,
+    })
+}
+
+/// Copies `item`, the Build's item `seq`, a Disk of an Arcade DAT's Game, to `file`, new in the staging directory at
+/// `staged`, from the CHD its Source Set keeps, opened by descriptor. The copy is the Disk once `chdman verify` proves
+/// its data hashes to the SHA-1 its header records, and that SHA-1 is the DAT's: as a ZIP's members are checked against
+/// the DAT, never against the source's bytes, which may have changed since the Audit read them.
+fn stage_disk(
+    (item, seq): (&PlanItem, i64),
+    file: &mut File,
+    staged: &Path,
+    set: &std::result::Result<FolderDir, String>,
+    chd: &ChdWork,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let ([rom], [source]) = (item.roms.as_slice(), item.sources.as_slice()) else {
+        return Err(Failure::Item(
+            "a disk is copied from one CHD for its one disk".into(),
+        ));
+    };
+    let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
+    let from = open_either(set, &chd.placed, source).map_err(Failure::Item)?;
+    copy_chunked(&from, &chd.from, file, &chd.to)
+        .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+    chd.from.file_read();
+    chd.to.file_written();
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(at)?;
+    let header =
+        chd::header(file).map_err(|why| Failure::Item(format!("{}: {why}", item.target)))?;
+    if rom.sha1.as_deref() != Some(header.sha1.as_str()) {
+        return Err(Failure::Item(format!(
+            "{} does not verify: its CHD header records SHA-1 {}, not the disk's",
+            item.target, header.sha1
+        )));
+    }
+    let chdman = Chdman {
+        deadline: chd.limits.for_bytes(header.logical_bytes),
+        ..chd.chdman.clone().map_err(Failure::Item)?
+    };
+    let dir = chd_dir(&chd.tmp, chd.build, seq);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| Failure::Item(format!("{}: {e}", dir.display())))?;
+    let _scratch = Scratch(dir.clone());
+    let input = std::path::absolute(staged).map_err(at)?;
+    match chdman.verify_in_place(&dir, &input, chd.cancelled) {
+        Ok(()) => {}
+        Err(_) if (chd.cancelled)() => return Err(Failure::Cancelled),
+        Err(why) => {
+            return Err(Failure::Item(format!(
+                "{} does not verify: {}",
+                item.target,
+                why.why()
+            )));
+        }
+    }
+    let (sha256, size) = sha256_of(file, &chd.to).map_err(at)?;
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: Some(header.sha1),
+        chd_raw_sha1: Some(header.raw_sha1),
         cue: None,
     })
 }
@@ -1571,9 +1639,9 @@ fn record_applied(
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
                                   roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
-                                  chd_sha1, chd_raw_sha1)
+                                  chd_sha1, chd_raw_sha1, disk)
          SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
-                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END
+                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END, ?15
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
@@ -1581,7 +1649,8 @@ fn record_applied(
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
              torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id,
-             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1",
+             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1,
+             disk = excluded.disk",
         params![
             folder,
             item.target,
@@ -1596,7 +1665,8 @@ fn record_applied(
             torrentzip && !item.loose && !item.chd,
             item.loose,
             item.addition.as_ref().map(|a| a.id),
-            item.chd
+            item.chd,
+            item.disk
         ],
     )?;
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
@@ -1808,6 +1878,9 @@ fn record_incomplete(
             // Left out, but only complete when the file built before still holds the ROMs the item now expects.
             ItemKind::Unresolved if retained.contains(&item.target) => continue,
             ItemKind::Unresolved => IncompleteReason::Unresolved,
+            ItemKind::NoSource if !item.missing_dependencies.is_empty() => {
+                IncompleteReason::MissingDependency
+            }
             ItemKind::NoSource => IncompleteReason::NoSource,
             ItemKind::Conflict => IncompleteReason::Conflict,
             ItemKind::Blocked => IncompleteReason::Blocked,
@@ -2346,7 +2419,8 @@ impl Store {
             .map(|p| (title_select_api::storage::placed_path(p.folder, &p.path), p))
             .collect();
         let chd_work = ChdWork {
-            // A return extracts any CHD it takes home, and an item read from a placed CHD reads it so.
+            // A CHD is made or verified with chdman, a return extracts any CHD it takes home, and an item read from a
+            // placed CHD reads it so.
             chdman: match work.iter().any(|w| {
                 w.item.chd
                     || w.item
@@ -2439,6 +2513,33 @@ impl Store {
             }
             units.push(vec![w]);
         }
+        // A release placed goes in place right after the files written fresh beside it, and only once they are in
+        // place: a Game's Disk is copied and verified before its ZIP is placed, and a cancel doesn't come between them.
+        // No other release reads a file a release placed consumes (the plan places none another reads). A file
+        // written fresh is a copy: one in place stays when its release's placement then fails, and the folder lacks
+        // the release.
+        // Each release's units sort by where its first one was, its files written fresh before its files placed.
+        let mut first: HashMap<String, usize> = HashMap::new();
+        for (i, u) in units.iter().enumerate() {
+            if u[0].item.addition.is_none() {
+                first
+                    .entry(title_select_api::storage::release_of(&u[0].item.game))
+                    .or_insert(i);
+            }
+        }
+        let mut keyed: Vec<((usize, bool), Vec<&Work>)> = units
+            .into_iter()
+            .enumerate()
+            .map(|(i, u)| {
+                let at = match u[0].item.addition {
+                    None => first[&title_select_api::storage::release_of(&u[0].item.game)],
+                    Some(_) => i,
+                };
+                ((at, u[0].item.kind == ItemKind::Place), u)
+            })
+            .collect();
+        keyed.sort_by_key(|(k, _)| *k);
+        let units: Vec<Vec<&Work>> = keyed.into_iter().map(|(_, u)| u).collect();
         /// A file of a unit, written and verified in the staging directory.
         struct Ready<'w, 'a> {
             w: &'w Work<'a>,
@@ -2464,41 +2565,18 @@ impl Store {
             to: &chd_work.to,
             from: &chd_work.from,
         };
-        // The releases placed here that go home go first, each whole or not at all, before anything is written here.
-        if let Some(set) = &placing
-            && !returning.is_empty()
-        {
-            let set_root = self
-                .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
-                .record
-                .root;
-            let to = meter.tally(Some(&set_root));
-            let returner = returns::Returning {
-                build: id,
-                folder,
-                set: folder_row.source_set_id,
-                set_name: &folder_row.source_set,
-                dir: &dir,
-                config,
-                to: &to,
-                from: &library,
-                chd: Some(&chd_work),
-            };
-            for (seq, r) in &returning {
-                if cancelled || self.cancel_requested(job)? {
-                    cancelled = true;
-                    break;
-                }
-                check_marker(&dir, &expected).map_err(Error::Refused)?;
-                self.return_release(&returner, set, *seq, r, built_at)?;
-                tick(&mut done);
-            }
-        }
+        // The release whose files written fresh were last put in place: its files placed follow them, even once the
+        // Operator cancels.
+        let mut beside: Option<String> = None;
         for unit in &units {
             if cancelled {
                 break;
             }
-            if self.cancel_requested(job)? {
+            let release = title_select_api::storage::release_of(&unit[0].item.game);
+            let follows = unit[0].item.kind == ItemKind::Place && beside.as_ref() == Some(&release);
+            beside = (unit[0].item.kind != ItemKind::Place && unit[0].item.addition.is_none())
+                .then(|| release.clone());
+            if !follows && self.cancel_requested(job)? {
                 cancelled = true;
                 break;
             }
@@ -2506,13 +2584,39 @@ impl Store {
             if let Some(set) = &placing
                 && unit[0].item.kind == ItemKind::Place
             {
-                self.place_unit(
-                    &placer,
-                    set,
-                    unit,
-                    (&staging, &mut staged_ids, built_at),
-                    &chd_work,
-                )?;
+                let mut culprit = None;
+                for w in work.iter().filter(|w| {
+                    w.item.kind != ItemKind::Place
+                        && w.item.addition.is_none()
+                        && title_select_api::storage::release_of(&w.item.game) == release
+                }) {
+                    if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
+                        culprit = Some(&w.item.target);
+                        break;
+                    }
+                }
+                if let Some(culprit) = culprit {
+                    self.fail_unit(
+                        &placer,
+                        unit,
+                        &format!(
+                            "{} {} not put in place, because {culprit} of the same game wasn't",
+                            unit.iter()
+                                .map(|w| w.item.target.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" and "),
+                            if unit.len() == 1 { "was" } else { "were" }
+                        ),
+                    )?;
+                } else {
+                    self.place_unit(
+                        &placer,
+                        set,
+                        unit,
+                        (&staging, &mut staged_ids, built_at),
+                        &chd_work,
+                    )?;
+                }
                 for _ in unit {
                     tick(&mut done);
                 }
@@ -2936,6 +3040,37 @@ impl Store {
                     )?
                 };
                 record_disposal(self, id, *seq, outcome)?;
+                tick(&mut done);
+            }
+        }
+        // The releases placed here that go home go last, each whole or not at all, once every file the plan reads from
+        // their placed files is written.
+        if let Some(set) = &placing
+            && !returning.is_empty()
+        {
+            let set_root = self
+                .read(|c| crate::sets::set_by_id(c, folder_row.source_set_id))?
+                .record
+                .root;
+            let to = meter.tally(Some(&set_root));
+            let returner = returns::Returning {
+                build: id,
+                folder,
+                set: folder_row.source_set_id,
+                set_name: &folder_row.source_set,
+                dir: &dir,
+                config,
+                to: &to,
+                from: &library,
+                chd: Some(&chd_work),
+            };
+            for (seq, r) in &returning {
+                if cancelled || self.cancel_requested(job)? {
+                    cancelled = true;
+                    break;
+                }
+                check_marker(&dir, &expected).map_err(Error::Refused)?;
+                self.return_release(&returner, set, *seq, r, built_at)?;
                 tick(&mut done);
             }
         }

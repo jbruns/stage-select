@@ -77,6 +77,7 @@ pub fn incomplete_reason_label(reason: IncompleteReason) -> &'static str {
         IncompleteReason::Blocked => "blocked",
         IncompleteReason::Missing => "missing",
         IncompleteReason::MissingDisc => "missing disc",
+        IncompleteReason::MissingDependency => "missing dependency",
     }
 }
 
@@ -701,6 +702,8 @@ mod tests {
             generated: None,
             place: None,
             changes_source_set: false,
+            disk: false,
+            missing_dependencies: Vec::new(),
         }
     }
 
@@ -724,6 +727,8 @@ mod tests {
             check: None,
             plan_open: false,
             stale: Vec::new(),
+            built_for: None,
+            disk_folders: Vec::new(),
         }
     }
 

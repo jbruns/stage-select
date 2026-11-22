@@ -203,6 +203,34 @@ fn placement<'a>(w: &Work<'a>) -> Result<&'a PlanPlace> {
         .ok_or_else(|| Error::Io(format!("{} has no placement", w.item.target)))
 }
 
+/// The Source Set files `unit` is written from, each once, and each file it puts at `paths`, as Audits name them,
+/// whose Entries [`crate::placements::rewritten_entries`] writes for a release not placed by a rename or a copy.
+fn rewrites<'a>(
+    unit: &[&Work<'a>],
+    paths: &'a [String],
+) -> Result<(Vec<&'a str>, Vec<Rewritten<'a>>)> {
+    let mut from: Vec<&str> = Vec::new();
+    for w in unit {
+        for o in &placement(w)?.originals {
+            if !from.contains(&o.path.as_str()) {
+                from.push(&o.path);
+            }
+        }
+    }
+    let to = unit
+        .iter()
+        .zip(paths)
+        .map(|(w, path)| Rewritten {
+            path,
+            game: &w.item.game,
+            roms: &w.item.roms,
+            sources: &w.item.sources,
+            loose: w.item.loose,
+        })
+        .collect();
+    Ok((from, to))
+}
+
 /// Where a placing item's file goes in the Library Folder: the folder it goes in, opened from the Library Folder
 /// without following a symbolic link, its name there, and the identity of each folder from the Library Folder down to
 /// it.
@@ -605,8 +633,22 @@ impl Store {
         }
     }
 
+    /// Whether the Audit has, for each ROM `unit` writes, the Entry it is written from, with its Evidence, to carry
+    /// over to the file placed; or why not. Checked before anything of a conversion or a built file is placed, so that
+    /// recording it placed can't fail once it is in place.
+    fn carries(&self, p: &Placing, unit: &[&Work]) -> Result<std::result::Result<(), String>> {
+        let paths: Vec<String> = unit
+            .iter()
+            .map(|w| placed_path(p.folder, &w.item.target))
+            .collect();
+        let (from, to) = rewrites(unit, &paths)?;
+        Ok(self
+            .read(|c| crate::placements::rewritten(c, p.audit, &from, &to))?
+            .map(|_| ()))
+    }
+
     /// Fails every item of `unit` with `why`, its release left in its Source Set as it was.
-    fn fail_unit(&self, p: &Placing, unit: &[&Work], why: &str) -> Result<()> {
+    pub(super) fn fail_unit(&self, p: &Placing, unit: &[&Work], why: &str) -> Result<()> {
         self.write(|tx| {
             for w in unit {
                 set_place_state(tx, p.build, w.seq, None)?;
@@ -1142,6 +1184,9 @@ impl Store {
         (staging, staged_ids, built_at): (&FolderDir, &mut HashMap<String, Identity>, SystemTime),
         chd: &ChdWork,
     ) -> Result<()> {
+        if let Err(why) = self.carries(p, unit)? {
+            return self.fail_unit(p, unit, &why);
+        }
         for w in unit {
             if let Err(why) = self.record_originals(p, set, w)? {
                 return self.fail_unit(p, unit, &why);
@@ -1339,6 +1384,11 @@ impl Store {
                 }
             }
         }
+        if wrong.is_none()
+            && let Err(why) = self.carries(p, unit)?
+        {
+            wrong = Some(why);
+        }
         if let Some(why) = wrong {
             // Nothing of the Source Set's has changed: the release stays there, and what is in the folder is left.
             let key = unit_key(&unit[0].item.game);
@@ -1381,6 +1431,9 @@ impl Store {
         spots: &[Spot],
         chd: &ChdWork,
     ) -> Result<()> {
+        if let Err(why) = self.carries(p, unit)? {
+            return self.fail_unit(p, unit, &why);
+        }
         let mut found = Vec::new();
         for (w, s) in unit.iter().zip(spots) {
             let target = &w.item.target;
@@ -1520,24 +1573,7 @@ impl Store {
                 set_place_state(tx, p.build, w.seq, Some(next))?;
             }
             if !matches!(built, Built::Found) {
-                let mut from: Vec<&str> = Vec::new();
-                for w in unit {
-                    for o in &placement(w)?.originals {
-                        if !from.contains(&o.path.as_str()) {
-                            from.push(&o.path);
-                        }
-                    }
-                }
-                let to: Vec<Rewritten> = unit
-                    .iter()
-                    .zip(&paths)
-                    .map(|(w, path)| Rewritten {
-                        path,
-                        game: &w.item.game,
-                        roms: &w.item.roms,
-                        loose: w.item.loose,
-                    })
-                    .collect();
+                let (from, to) = rewrites(unit, &paths)?;
                 crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, &to)?;
             }
             if let Some(key) = key {

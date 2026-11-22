@@ -220,6 +220,8 @@ fn output_item(f: &ReturnFile) -> PlanItem {
         generated: None,
         place: None,
         changes_source_set: true,
+        disk: false,
+        missing_dependencies: Vec::new(),
     }
 }
 
@@ -739,6 +741,17 @@ impl Store {
         r: &PlanReturn,
         built_at: SystemTime,
     ) -> Result<std::result::Result<(), String>> {
+        // The latest Audit has, for each ROM written home, the placed Entry it is written from, to carry home with its
+        // Evidence: checked before anything is written, so that recording the release home can't fail on it.
+        let carries = self.read(|c| match latest_audit(c, p.set)? {
+            Some(audit) => {
+                crate::placements::returned(c, audit, p.folder, r).map(|c| c.map(|_| ()))
+            }
+            None => Ok(Ok(())),
+        })?;
+        if let Err(why) = carries {
+            return self.fail_return(p, seq, r, &why);
+        }
         // Each placed file that goes is read whole while it holds still, and recorded, before anything is written.
         let mut read = Vec::new();
         for (k, pl) in r.placed.iter().enumerate() {
@@ -1614,8 +1627,8 @@ fn move_back_from(
 }
 
 /// The Source Set's latest finished Audit, which a return makes name the files it put home.
-fn latest_audit(tx: &Transaction, set: i64) -> Result<Option<i64>> {
-    Ok(tx
+fn latest_audit(c: &rusqlite::Connection, set: i64) -> Result<Option<i64>> {
+    Ok(c
         .query_row(
             "SELECT id FROM audits WHERE source_set_id = ?1 AND status = 'finished' AND pruned_at IS NULL
              ORDER BY finish_seq DESC LIMIT 1",
