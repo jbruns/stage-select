@@ -138,7 +138,9 @@ pub fn stale_label(stale: &Stale) -> String {
 }
 
 /// Why a library folder of `system`, its DAT as `<provider>/<name>`, has no coverage to inherit: a MAME folder's
-/// source set covers every Game (ADR 0027). `None` for any other.
+/// source set covers every Game (ADR 0027). `None` for any other. By system, as a folder carries no DAT Format: only a
+/// ListXML's Source Set can be built into a folder (a software list's refuses), so its MAME system means a ListXML, as
+/// [`crate::source_set_model::no_coverage`] tells it by format.
 pub fn no_coverage(system: &str) -> Option<&'static str> {
     is_mame_system(system).then_some(ARCADE_COVERAGE_REFUSAL)
 }
@@ -151,7 +153,7 @@ pub fn built_for(build: &str) -> String {
 
 /// Which emulators run a MAME library folder (ADR 0026).
 pub const BUILT_FOR_NOTE: &str = "Only an emulator of that MAME version runs what this folder holds, such as \
-RetroArch's current mame core or standalone MAME.";
+RetroArch's current MAME core or standalone MAME.";
 
 /// The sentence on RomM's exclusions up to the setting's name, `exclude.roms.multi_file.names`: why RomM needs a MAME
 /// library folder's disk folders left out.
@@ -628,7 +630,7 @@ mod tests {
         assert_eq!(built_for("0.289"), "MAME 0.289");
         for said in [
             "Only an emulator of that MAME version",
-            "RetroArch's current mame core",
+            "RetroArch's current MAME core",
             "standalone MAME",
         ] {
             assert!(BUILT_FOR_NOTE.contains(said), "{said}");

@@ -44,6 +44,10 @@ pub fn games_of_status_label(status: GameStatus) -> String {
     }
 }
 
+/// Why a Game's Dependencies don't change its Game Status.
+pub const DEPENDENCIES_NOTE: &str = "The BIOS and devices it needs to run, each with its own game status. None of them \
+changes this game's status: a play library lacking one is incomplete.";
+
 /// What Nothing to Check means for a Game, and why it is counted apart.
 pub const NOTHING_TO_CHECK_NOTE: &str = "It lists no ROM you need that a file can match, such as a device with no ROMs, \
 so there is nothing to check. It is counted apart from complete, incomplete and missing games, and satisfies any game \

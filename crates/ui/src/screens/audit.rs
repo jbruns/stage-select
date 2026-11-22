@@ -19,12 +19,12 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{
-    AuditEntries, AuditGames, Derived, Disks, EntryColumn, EntryFilter, GameColumn, GameDisk,
-    GameFilter, NOTHING_TO_CHECK_NOTE, Sort, StatusFilter, absent_roms, audit_evidence_label,
-    dependency_line, disk_text, entry_name, evidence_text, finding_label, game_status_label,
-    game_status_text, games_found, games_of_status_label, header_rule_text, header_text,
-    needs_review_from_counts, parse_ndjson, payload_read_text, unneeded, warning_counts,
-    warning_text, when,
+    AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn, EntryFilter,
+    GameColumn, GameDisk, GameFilter, NOTHING_TO_CHECK_NOTE, Sort, StatusFilter, absent_roms,
+    audit_evidence_label, dependency_line, disk_text, entry_name, evidence_text, finding_label,
+    game_status_label, game_status_text, games_found, games_of_status_label, header_rule_text,
+    header_text, needs_review_from_counts, parse_ndjson, payload_read_text, unneeded,
+    warning_counts, warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::pending::Pending;
@@ -847,10 +847,6 @@ fn dependencies_view(game: &Game, games: &AuditGames) -> Option<AnyView> {
         .into_any(),
     )
 }
-
-/// Why a Game's Dependencies don't change its Game Status.
-const DEPENDENCIES_NOTE: &str = "The BIOS and devices it needs to run, each with its own game status. None of them \
-changes this game's status: a play library lacking one is incomplete.";
 
 /// A Game's Disks, each with the CHD that holds it and its evidence, or, when absent, any CHD named for it that
 /// matched no disk, such as a delta CHD.
