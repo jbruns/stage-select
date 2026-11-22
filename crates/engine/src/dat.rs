@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
-use sha2::Digest;
 use title_select_api::HeaderRule;
 use title_select_api::dat::{DatFormat, HeaderClaims, recognise_provider};
 pub use title_select_api::storage::SetLayout;
@@ -381,7 +380,7 @@ impl Dat {
 
     /// Parses the bytes of the DAT file at `path`; the path only labels errors.
     pub fn parse(bytes: &[u8], path: &Path) -> Result<Dat, Error> {
-        let sha256 = crate::hex(&sha2::Sha256::digest(bytes));
+        let sha256 = crate::sha256_hex(bytes);
         let mut reader = quick_xml::Reader::from_reader(bytes);
         let mut buf = Vec::new();
         let mut dat = Dat {

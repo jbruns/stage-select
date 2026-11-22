@@ -13,6 +13,7 @@ use std::time::Duration;
 use title_select_api::build::ExpectedRom;
 use title_select_api::storage::ChdKind;
 
+use crate::hex;
 use crate::meter::{JobMeter, Tally};
 
 /// The environment variable naming the chdman to run; without it, `chdman` on the `PATH`.
@@ -126,10 +127,6 @@ impl HeaderRefusal {
             }
         }
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The v5 header of `file`, read from its first [`V5_HEADER`] bytes alone: its tag, length and version are checked,
@@ -1111,7 +1108,7 @@ pub fn copy_for_chdman(
     }
     fits(&copy, kind, bins).map_err(unfit)?;
     copy.sync_all().map_err(|e| e.to_string())?;
-    Ok(crate::hex(&hasher.finalize()))
+    Ok(hex(&hasher.finalize()))
 }
 
 /// Reads at most [`CUE_MAX`] bytes of the cue sheet `file` from its start.

@@ -2,7 +2,6 @@
 //! Profile's canonical JSON and its SHA-256; saving a Profile identical to its newest version creates none.
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use sha2::{Digest, Sha256};
 use title_select_api::selection::SelectionProfile;
 use title_select_api::{
     Job, ProfileRecord, ProfileVersion, SavedProfile, StartSelectionFor, Workers,
@@ -126,10 +125,7 @@ fn record(c: &Connection, id: i64, name: String, created_at: String) -> Result<P
 /// SHA-256 of the Profile's canonical JSON, and that JSON.
 pub fn canonical(profile: &SelectionProfile) -> (String, String) {
     let json = profile.canonical_json();
-    let sha = Sha256::digest(json.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha = title_select_engine::sha256_hex(json.as_bytes());
     (sha, json)
 }
 
@@ -297,5 +293,24 @@ impl Store {
                 })?;
             record(tx, id, name.to_owned(), created_at)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical;
+
+    #[test]
+    fn a_profile_digest_is_the_sha256_of_its_canonical_json() {
+        let profile = serde_json::from_str(r#"{"region_order":["USA","Europe"]}"#).unwrap();
+        let (sha, json) = canonical(&profile);
+        assert_eq!(
+            json,
+            r#"{"region_order":["USA","Europe"],"language_order":[],"localization_order":[],"video_order":[],"exclude":[],"options":{"prefer_retroachievements":false,"prefer_oldest":false,"prefer_regions":false,"prefer_licensed":false,"prefer_modern_rips":false,"filter_languages":false,"disable_1g1r":false,"compilations":"default"},"overrides":{"exclude":[],"include":[]},"post_filters":[],"systems":{}}"#
+        );
+        assert_eq!(
+            sha,
+            "d61f048eff06bc3271c08ee718de11f0f6d9273ed8f2457615f50587c706a93e"
+        );
     }
 }

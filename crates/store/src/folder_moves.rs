@@ -6,7 +6,6 @@
 use std::io::ErrorKind;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use sha2::{Digest, Sha256};
 use title_select_api::lifecycle::{FolderMove, PlanFolderMove, RegistrationKind};
 
 use super::folder_dir::{FolderDir, Identity};
@@ -54,10 +53,7 @@ fn move_by_id(c: &Connection, id: i64) -> Result<Row> {
 fn digest(folder: i64, root: &str, from: &str, to: &str, identity: Identity) -> String {
     let bytes = serde_json::to_vec(&(folder, root, from, to, identity.to_sql()))
         .expect("a move serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 /// `rel` split into its parent's path and its own name.
@@ -307,5 +303,18 @@ impl Store {
             }
         }
         Ok(left)
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::{Identity, digest};
+
+    #[test]
+    fn a_move_digest_is_the_sha256_of_its_compact_json() {
+        assert_eq!(
+            digest(1, "r", "a/b", "c", Identity::from_sql(2, 3)),
+            "aa68acd7d1afbce3ee7cb6a4c6a231a6234ea55536fe79569e4bb5eb0bfb74db"
+        );
     }
 }

@@ -8,7 +8,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
-use sha2::{Digest, Sha256};
 
 use super::blobs::{remove_blob, write_blob};
 use super::dats::split_dat;
@@ -123,7 +122,7 @@ impl Store {
                 "{dat}: import the DAT before a cue pack for it"
             )));
         }
-        let sha = hex(&Sha256::digest(bytes));
+        let sha = title_select_engine::sha256_hex(bytes);
         let packs = self.dir.join(CUE_PACKS);
         std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;
         let tmp = packs.join(format!(".{sha}.check"));
@@ -299,8 +298,4 @@ impl Store {
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

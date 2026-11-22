@@ -11,6 +11,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use title_select_api::settings::NotifyEvent;
 use title_select_api::{Job, JobKind, JobState, SourceSetStale};
+use title_select_engine::hex;
 use title_select_store::fetch::Http;
 use title_select_store::observe::Observed;
 use title_select_store::settings::Notify;
@@ -381,10 +382,6 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
         .chain_update(inner)
         .finalize()
         .into()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

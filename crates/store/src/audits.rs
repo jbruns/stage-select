@@ -644,11 +644,7 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
             field(Some(format!("available elsewhere {elsewhere}")));
         }
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(title_select_engine::hex(&hasher.finalize()))
 }
 
 /// The Audit `id`'s content SHA-256: as recorded when it finished, or else worked out now.
@@ -1420,6 +1416,30 @@ pub(super) fn check_blob_present(revision: &DatRevisionRecord) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_content_sha256_frames_each_field_by_its_length() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE audits (id INTEGER PRIMARY KEY, dat_revision_id INTEGER NOT NULL);
+             CREATE TABLE audit_entries (audit_id INTEGER, seq INTEGER, path TEXT, member TEXT, finding TEXT,
+                 roms TEXT, named_game TEXT, named_rom TEXT, reason TEXT, header_bytes INTEGER);
+             CREATE TABLE audit_games (audit_id INTEGER, seq INTEGER, name TEXT, status TEXT, missing_roms TEXT,
+                 claimed_roms TEXT, warnings TEXT, available_elsewhere TEXT);
+             INSERT INTO audits VALUES (1, 9);
+             INSERT INTO audit_entries VALUES
+                 (1, 1, 'b.zip', NULL, 'unknown', '[]', NULL, NULL, 'no game has it', NULL),
+                 (1, 0, 'a.zip', 'a.bin', 'matched', '[\"a.bin\"]', 'A', 'a.bin', NULL, 512);
+             INSERT INTO audit_games VALUES
+                 (1, 0, 'A', 'complete', '[]', '[]', '[]', '[]'),
+                 (1, 1, 'B', 'missing', '[\"b.bin\"]', '[]', '[\"w\"]', '[\"e\"]');",
+        )
+        .unwrap();
+        assert_eq!(
+            content_sha256(&c, 1).unwrap(),
+            "25510e73c6aa5cb681352d16f1bf044746b4ff5302d9d1de398cdf15c2803fdd"
+        );
+    }
 
     /// A store with keep = 1 and one Source Set `Test` in a Root, bound to an imported DAT.
     fn store_with_a_set() -> (tempfile::TempDir, Store) {

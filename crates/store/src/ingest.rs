@@ -14,7 +14,6 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
 use title_select_api::ingest::{
     Assessment, FolderEntry, FoundDat, FoundSupportFile, IngestAction, IngestFolder, IngestItem,
@@ -1293,10 +1292,7 @@ fn read_planned(dir: &FolderDir, item: &IngestPlanItem, limit: u64) -> Result<Ve
         .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| Error::Io(e.to_string()))?;
-    let sha: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha = title_select_engine::sha256_hex(&bytes);
     let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
     if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
         return Err(changed());
@@ -1369,10 +1365,7 @@ fn plan_by_id(c: &Connection, id: i64) -> Result<IngestPlan> {
 
 fn digest(content: &IngestPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    title_select_engine::sha256_hex(&bytes)
 }
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<IngestKeptFile> {
@@ -2811,4 +2804,21 @@ fn ingest_record(c: &Connection, name: &str, root: &Root) -> Result<IngestFolder
         next_check_at: None,
         counts,
     })
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn an_ingest_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"ingest_folder":1,"root":"r","action":"discard","generation":2,"items":[],"fingerprint":[]}"#;
+        let content: title_select_api::ingest::IngestPlanContent =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "22f12ecfb78ef4834d880b97241a0c9a29bb890a1b9ec15a91136a98da51f077"
+        );
+    }
 }

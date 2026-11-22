@@ -263,8 +263,23 @@ pub fn is_own_entry(name: &str) -> bool {
     title_select_api::storage::is_reserved_name(name)
 }
 
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+/// `bytes` as lowercase hex, two digits a byte, with no prefix or separator: how every SHA-256, SHA-1 and MD5 is
+/// written down, in reports, plans and the store.
+pub fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(DIGITS[usize::from(b >> 4)] as char);
+        out.push(DIGITS[usize::from(b & 0x0f)] as char);
+    }
+    out
+}
+
+/// The SHA-256 of `bytes`, held whole in memory, as [`hex`]. A file read in pieces goes through a streaming hasher and
+/// [`hex`] instead.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    hex(&sha2::Sha256::digest(bytes))
 }
 
 /// Audits the Source Set at `root` against the DAT Revision at `dat_path`, reading every payload, and verifying each
@@ -1177,5 +1192,26 @@ fn matching_roms(dat: &Dat, known: &Known) -> Vec<usize> {
             .collect(),
         Known::Disk(sha1) => dat.disks_with_sha1(sha1).to_vec(),
         Known::Delta(_) | Known::NoDisk(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hex, sha256_hex};
+
+    #[test]
+    fn hex_writes_each_byte_as_two_lowercase_digits() {
+        let bytes: Vec<u8> = (0..=255).collect();
+        let expected: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex(&bytes), expected);
+        assert_eq!(hex(&[]), "");
+    }
+
+    #[test]
+    fn sha256_hex_is_the_known_digest() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

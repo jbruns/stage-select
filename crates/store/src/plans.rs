@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use sha2::{Digest, Sha256};
 use title_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
     FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
@@ -23,6 +22,7 @@ use title_select_api::storage::{
 use title_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
 use title_select_engine::dat::Dat;
+use title_select_engine::sha256_hex;
 
 use super::audits::{ENTRY_COLUMNS, entry_from_row};
 use super::checks::{Ack, Scan, ScanInput, Seen, read_acks, read_probes, scan, store_check};
@@ -139,10 +139,7 @@ pub(super) fn to_json<T: serde::Serialize>(value: &T) -> String {
 /// The SHA-256 of the plan's canonical JSON: compact, with fields in declaration order and items in plan order.
 pub(super) fn digest(content: &PlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    sha256_hex(&bytes)
 }
 
 /// Nanoseconds since the Unix epoch.
@@ -2206,13 +2203,6 @@ fn whole_releases(items: &mut [PlanItem], held: &BTreeMap<String, String>) {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// Why `game`, a name from the DAT, can't name what a play library lays out for it: it must be one name, not one
 /// Title Select keeps its own work under, as every file and folder the layout makes from it is.
 fn invalid_game(game: &str) -> Option<String> {
@@ -3244,5 +3234,32 @@ impl Store {
             }
             job_by_id(tx, job)
         })
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::digest;
+
+    #[test]
+    fn a_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"folder":1,"generation":2,"selection":3,"audit":4,"dat_revision":"abc","items":[],"blockers":[]}"#;
+        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "2fdd832e813acc66d5552d86218c38bce39e261cc2f85bdaa20782df04f4b33d"
+        );
+    }
+
+    #[test]
+    fn a_cleanup_plan_digest_is_the_sha256_of_its_compact_json() {
+        let json = r#"{"folder":1,"generation":2,"selection":3,"audit":null,"dat_revision":"abc","items":[],"blockers":[],"cleanup":{"build":5,"choices":{"restore":[7]},"entries":[],"fingerprint":"f"}}"#;
+        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "c7098d417e48e7893bb8cf53fb00402f4d86467d67d283904ef39b96ae0e2168"
+        );
     }
 }
