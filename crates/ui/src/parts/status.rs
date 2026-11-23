@@ -593,48 +593,49 @@ impl Status for PlanKind {
     }
 }
 
-/// Where a Source Set's repair is: the icon of its Repair tab.
+/// Where a plan is: the icon of the tab that holds it, such as a Source Set's Repair tab or a Library Folder's Plan
+/// tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RepairState {
+pub enum PlanState {
     Proposing,
     Running,
     Approved,
     Open,
 }
 
-impl Status for RepairState {
+impl Status for PlanState {
     const ALL: &'static [Self] = &[
-        RepairState::Proposing,
-        RepairState::Running,
-        RepairState::Approved,
-        RepairState::Open,
+        PlanState::Proposing,
+        PlanState::Running,
+        PlanState::Approved,
+        PlanState::Open,
     ];
 
     fn look(self) -> Look {
         match self {
-            RepairState::Proposing => look(
+            PlanState::Proposing => look(
                 Glyph::Clock,
                 Tone::Active,
                 "Proposing",
-                "A repair plan is being made.",
+                "A plan is being made.",
             ),
-            RepairState::Running => look(
+            PlanState::Running => look(
                 Glyph::LoaderCircle,
                 Tone::Active,
                 "Running",
-                "The approved repair is being carried out.",
+                "The plan you approved is being carried out.",
             ),
-            RepairState::Approved => look(
+            PlanState::Approved => look(
                 Glyph::Check,
                 Tone::Good,
                 "Approved",
-                "You approved the repair; it hasn't finished.",
+                "You approved the plan; it hasn't finished.",
             ),
-            RepairState::Open => look(
+            PlanState::Open => look(
                 Glyph::ClipboardList,
                 Tone::Review,
                 "Open",
-                "A repair plan waits for your review.",
+                "A plan waits for your review.",
             ),
         }
     }
@@ -1871,7 +1872,7 @@ pub(crate) mod tests {
             ("stale causes", vocabulary::<StaleCause>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),
-            ("repair states", vocabulary::<RepairState>()),
+            ("plan states", vocabulary::<PlanState>()),
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),

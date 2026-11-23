@@ -11,8 +11,10 @@ use stage_select_api::ingest::{
 
 use crate::model::when;
 use crate::parts::icon::Glyph;
-use crate::parts::status::{IngestStatus, Status};
+use crate::parts::status::{IngestStatus, PlanState, Status};
 use crate::screens::additions::new_addition;
+use crate::screens::source_sets::tab_href;
+use crate::source_set_model::PageTab;
 
 /// The checksum to show for an assessed item: a game file's own SHA-256, but none for a DAT, whose SHA-256 is its
 /// DAT Revision's identity and which is shown by name and version instead.
@@ -391,6 +393,18 @@ pub fn shown(only: Option<IngestStatus>, status: IngestStatus) -> bool {
     }
 }
 
+/// The "Repair {source set}" action of an item that matches a source set: its label, and the source set's repair tab,
+/// where a repair that fills from the folder is proposed or reviewed.
+pub fn repair_link(status: IngestStatus, item: &IngestItem) -> Option<(String, String)> {
+    match (status, &item.assessment.proposal) {
+        (IngestStatus::MatchesSourceSet, Some(Proposal::SourceSet { source_set, .. })) => Some((
+            format!("Repair {source_set}"),
+            tab_href(source_set, PageTab::Repair),
+        )),
+        _ => None,
+    }
+}
+
 /// Where one item of a plan stands: waiting for you to approve the plan, being moved, or how its move ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Outcome {
@@ -413,6 +427,27 @@ impl Outcome {
     }
 }
 
+/// Where the folder's plans are, for its Plan tab's icon, from its plans newest first: a plan you approved still
+/// moving items, or else the newest plan waiting for your approval.
+pub fn plan_state(plans: &[IngestPlan]) -> Option<PlanState> {
+    if plans
+        .iter()
+        .any(|p| p.approval.is_some() && p.finished_at.is_none())
+    {
+        Some(PlanState::Running)
+    } else if plans.first().is_some_and(|p| p.approval.is_none()) {
+        Some(PlanState::Open)
+    } else {
+        None
+    }
+}
+
+/// The plan the Plan tab opens: the one the URL names (`wanted`), or else the newest of `plans`, which come newest
+/// first.
+pub fn shown_plan(plans: &[IngestPlan], wanted: Option<i64>) -> Option<i64> {
+    wanted.or_else(|| plans.first().map(|p| p.id))
+}
+
 /// Where the item of `plan` whose outcome, if it has one yet, is `ended` stands.
 pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
     match ended {
@@ -422,6 +457,45 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
         None if plan.approval.is_none() => Outcome::Waiting,
         None if plan.finished_at.is_none() => Outcome::Moving,
         None => Outcome::Left,
+    }
+}
+
+/// The folder page's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderTab {
+    Items,
+    Plan,
+    Kept,
+}
+
+impl FolderTab {
+    pub const ALL: [FolderTab; 3] = [FolderTab::Items, FolderTab::Plan, FolderTab::Kept];
+
+    /// The tab the URL's `tab` names, or else, as an older link has it, the Plan tab when `plan` names a plan.
+    pub fn parse(tab: Option<&str>, plan: Option<&str>) -> Self {
+        match tab {
+            Some("plan") => FolderTab::Plan,
+            Some("kept") => FolderTab::Kept,
+            None if plan.is_some_and(|p| p.parse::<i64>().is_ok()) => FolderTab::Plan,
+            _ => FolderTab::Items,
+        }
+    }
+
+    /// The `tab` URL value; the items, the default, have none.
+    pub fn key(self) -> Option<&'static str> {
+        match self {
+            FolderTab::Items => None,
+            FolderTab::Plan => Some("plan"),
+            FolderTab::Kept => Some("kept"),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FolderTab::Items => "Items",
+            FolderTab::Plan => "Plan",
+            FolderTab::Kept => "Kept files",
+        }
     }
 }
 
@@ -496,6 +570,22 @@ mod tests {
             serde_json::json!({"payloads": [payload()], "proposal": {
                 "kind": "source_set", "source_set": "Atari", "game": "Pong", "need": "missing"}}),
         )
+    }
+
+    #[test]
+    fn an_item_matching_a_source_set_offers_its_repair_tab() {
+        assert_eq!(
+            repair_link(IngestStatus::MatchesSourceSet, &fill(1)),
+            Some((
+                "Repair Atari".to_string(),
+                "/source-sets/Atari?tab=repair".to_string()
+            ))
+        );
+        assert_eq!(repair_link(IngestStatus::Moving, &fill(1)), None);
+        assert_eq!(
+            repair_link(IngestStatus::ImportFile, &homebrew(2, None)),
+            None
+        );
     }
 
     fn dat(id: i64, provider: Option<&str>, imported: bool) -> IngestItem {
@@ -830,6 +920,65 @@ mod tests {
         assert_eq!(
             source_set_match("GB", "Pong (USA)", Need::Missing),
             "Pong (USA) in GB"
+        );
+    }
+
+    fn plan(id: i64, approved: bool, finished: bool) -> IngestPlan {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+            "content": {"ingest_folder": 1, "root": "in", "action": "discard", "generation": 1,
+                        "items": [], "fingerprint": []},
+            "approval": approved.then(|| serde_json::json!({"digest": "d", "actor": "Operator", "at": "t"})),
+            "finished_at": finished.then_some("2026-01-02T00:00:00Z"),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_plan_tab_shows_a_plan_moving_items_or_the_newest_waiting_on_you() {
+        assert_eq!(plan_state(&[]), None);
+        assert_eq!(
+            plan_state(&[plan(2, true, true), plan(1, false, false)]),
+            None
+        );
+        assert_eq!(
+            plan_state(&[plan(2, false, false), plan(1, true, true)]),
+            Some(PlanState::Open)
+        );
+        assert_eq!(
+            plan_state(&[plan(2, false, false), plan(1, true, false)]),
+            Some(PlanState::Running)
+        );
+    }
+
+    #[test]
+    fn the_plan_tab_opens_the_plan_the_url_names_or_else_the_newest() {
+        let plans = [plan(5, false, false), plan(4, true, true)];
+        assert_eq!(shown_plan(&plans, Some(4)), Some(4));
+        assert_eq!(
+            shown_plan(&plans, Some(9)),
+            Some(9),
+            "an older plan than the list holds still opens"
+        );
+        assert_eq!(shown_plan(&plans, None), Some(5));
+        assert_eq!(shown_plan(&[], None), None);
+    }
+
+    #[test]
+    fn an_old_link_to_a_plan_opens_the_plan_tab() {
+        assert_eq!(FolderTab::parse(None, None), FolderTab::Items);
+        assert_eq!(FolderTab::parse(Some("kept"), None), FolderTab::Kept);
+        assert_eq!(FolderTab::parse(Some("plan"), None), FolderTab::Plan);
+        assert_eq!(FolderTab::parse(None, Some("7")), FolderTab::Plan);
+        assert_eq!(
+            FolderTab::parse(None, Some("x")),
+            FolderTab::Items,
+            "only a plan's id names a plan"
+        );
+        assert_eq!(
+            FolderTab::parse(Some("kept"), Some("7")),
+            FolderTab::Kept,
+            "a tab the URL names wins"
         );
     }
 }

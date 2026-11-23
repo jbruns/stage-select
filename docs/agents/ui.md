@@ -86,7 +86,9 @@ pure logic there too.
 | Cell text that may not fit             | `Clip { text }`                                        | `list`      |
 | A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
 | Filter, sort, open/checked rows in URL | `use_list_query()` (`List` uses it already)            | `url_state` |
-| Routed tabs                            | `Tabs { label, tabs: Vec<Tab> }`                       | `layout`    |
+| Tabs on a page, kept in the URL's `tab`| `Tabs { label, tabs }` of `Tab`s, `use_tab()`          | `tabs`      |
+| Tabs that are child routes             | `RouteTabs { label, tabs: Vec<(path, label)> }`        | `tabs`      |
+| The trail to the pages above this one  | `Crumbs { trail: Vec<(href, label)>, here }`           | `layout`    |
 | A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, empty, detail, .. }`    | `plan`      |
 | Current → proposed in a cell           | `Change { current, proposed }`                         | `plan`      |
 | Light/dark override                    | `ThemeToggle` (already in the header)                  | `theme`     |
@@ -106,7 +108,7 @@ is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `Sou
 (a first-run step), `Outcome` (a game's selection outcome), `AvailabilityStatus` (what you have of a game, on claims or
 verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's flags), `Derived` (an audit entry),
 `AdditionState`, `CheckFlag` (a folder check older than the build), `FileOutcome` (a folder check's file), build
-`ItemState` and `Stream` (the live connection).
+`ItemState`, `Stream` (the live connection) and `PlanState` (where a page's plan stands, on its Plan or Repair tab).
 
 - Never colour a status in CSS of its own: every coloured state renders through `StatusIcon`, `StatusBadge` or
   `StatusCount`. `.tag` is for neutral labels that are not a status ("Not in the DAT"). An error's text is a
@@ -270,8 +272,20 @@ then lists the rows unchecked since). Defaults are omitted and other query param
 ### Layout and routes
 
 `List` needs no route for its detail: it renders the open row's `DetailPane` itself, beside the list, and as a
-`Drawer` below 1100px (`list::NARROW`). The open row is in the URL's `row`. `Tabs` are routed: each tab is a child
-route of a `ParentRoute`, as on Activity and Settings.
+`Drawer` below 1100px (`list::NARROW`). The open row is in the URL's `row`.
+
+Every row of tabs is the one part in `parts::tabs`. Tabs are links in a `nav` with `aria-current="page"` on the open
+one, which carries the current edge; the open tab is the row's one tab stop, the arrow keys, Home and End move focus,
+and Enter opens. A tab may carry a status icon (`Tab::new(href, label, current).status(..)`) for something waiting on
+you there. Two forms:
+
+- **On a page**: `use_tab()` reads the URL's `tab` (`current()`, `None` for the default tab) and builds each tab's
+  link (`href(key)`, `None` for the default). A tab's link keeps the page's other query values and drops the list
+  state of the tab you leave (`q`, `sort`, `row`, `sel`, `all`, `kind`) and `plan`. Changing only the query keeps the
+  page mounted, so a draft survives a change of tab; don't read the whole query in a closure that renders the page.
+- **Child routes**: `RouteTabs` over a `ParentRoute`, as on Activity and Settings.
+
+A page below a list starts with `Crumbs`: the list, any page between, then this page's name.
 
 ### Theme and colour
 

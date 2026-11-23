@@ -33,7 +33,7 @@ use crate::source_set_model::{self as model, PageTab};
 
 /// A source set's page.
 pub fn set_href(name: &str) -> String {
-    format!("/source-sets/{}", api::segment(name))
+    format!("/source-sets/{}", encode(name))
 }
 
 /// A tab of a source set's page.

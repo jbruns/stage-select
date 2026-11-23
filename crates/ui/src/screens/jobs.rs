@@ -24,7 +24,6 @@ use crate::events::{Live, Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, when};
 use crate::parts::icon::{Glyph, Svg};
-use crate::parts::layout::{Tab, Tabs};
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
@@ -33,6 +32,7 @@ use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::meter::ProgressMeter;
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
+use crate::parts::tabs::RouteTabs;
 use crate::parts::url_state::{query_string, use_list_query};
 use crate::settings_model::pace_label;
 use crate::shell::unseen_failures;
@@ -79,13 +79,7 @@ pub(crate) fn kind_label(kind: JobKind) -> &'static str {
 pub fn Activity() -> impl IntoView {
     view! {
         <h1>"Activity"</h1>
-        <Tabs
-            label="Activity"
-            tabs=vec![
-                Tab { path: "/activity", label: "Jobs" },
-                Tab { path: "/activity/kept", label: "Kept files" },
-            ]
-        />
+        <RouteTabs label="Activity" tabs=vec![("/activity", "Jobs"), ("/activity/kept", "Kept files")] />
     }
 }
 

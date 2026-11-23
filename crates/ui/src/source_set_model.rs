@@ -11,7 +11,7 @@ use stage_select_api::{
 };
 
 use crate::model::needs_review_from_counts;
-use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
+use crate::parts::status::{PlanState, SourceSetFacts, SourceSetStatus, StaleCause};
 
 /// Why a Source Set takes no Coverage, from the DAT Formats of its DAT's revisions: a MAME ListXML's covers every Game,
 /// as the arcade Selection decides what a Play Library keeps (ADR 0027). `None` for any other.
@@ -128,15 +128,15 @@ pub fn repair_state(
     open: Option<&OpenRepair>,
     job_running: bool,
     proposing: bool,
-) -> Option<RepairState> {
+) -> Option<PlanState> {
     if proposing {
-        return Some(RepairState::Proposing);
+        return Some(PlanState::Proposing);
     }
     let open = open?;
     Some(match (open.approved, job_running) {
-        (true, true) => RepairState::Running,
-        (true, false) => RepairState::Approved,
-        (false, _) => RepairState::Open,
+        (true, true) => PlanState::Running,
+        (true, false) => PlanState::Approved,
+        (false, _) => PlanState::Open,
     })
 }
 
@@ -198,14 +198,6 @@ impl PageTab {
             .find(|t| Some(t.slug()) == tab)
             .unwrap_or(PageTab::Overview)
     }
-}
-
-/// The tabs a source set's page shows: Repair only while a repair is under way, or while you have it open.
-pub fn tabs(repair: Option<RepairState>, open: PageTab) -> Vec<PageTab> {
-    PageTab::ALL
-        .into_iter()
-        .filter(|t| *t != PageTab::Repair || repair.is_some() || open == PageTab::Repair)
-        .collect()
 }
 
 /// What happened to a source set.
@@ -623,27 +615,21 @@ mod tests {
     }
 
     #[test]
-    fn the_repair_tab_shows_while_a_repair_is_under_way_or_open_in_the_url() {
+    fn the_repair_tab_shows_where_the_repair_is_and_the_url_names_the_tab() {
         assert_eq!(repair_state(None, false, false), None);
-        assert_eq!(
-            repair_state(None, false, true),
-            Some(RepairState::Proposing)
-        );
+        assert_eq!(repair_state(None, false, true), Some(PlanState::Proposing));
         assert_eq!(
             repair_state(Some(&open(false)), false, false),
-            Some(RepairState::Open)
+            Some(PlanState::Open)
         );
         assert_eq!(
             repair_state(Some(&open(true)), false, false),
-            Some(RepairState::Approved)
+            Some(PlanState::Approved)
         );
         assert_eq!(
             repair_state(Some(&open(true)), true, false),
-            Some(RepairState::Running)
+            Some(PlanState::Running)
         );
-        assert!(!tabs(None, PageTab::Overview).contains(&PageTab::Repair));
-        assert!(tabs(None, PageTab::Repair).contains(&PageTab::Repair));
-        assert!(tabs(Some(RepairState::Open), PageTab::Games).contains(&PageTab::Repair));
         assert_eq!(PageTab::from_query(Some("kept")), PageTab::Kept);
         assert_eq!(PageTab::from_query(Some("nope")), PageTab::Overview);
         assert_eq!(PageTab::from_query(None), PageTab::Overview);

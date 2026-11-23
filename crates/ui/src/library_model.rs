@@ -7,7 +7,7 @@ use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem}
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
-use crate::parts::status::{LibraryFacts, LibraryStatus};
+use crate::parts::status::{LibraryFacts, LibraryStatus, PlanState};
 
 /// Whether the folder's latest check, made since its current build, found it differs from that build.
 pub fn drifted(folder: &LibraryFolder) -> bool {
@@ -18,6 +18,20 @@ pub fn drifted(folder: &LibraryFolder) -> bool {
     !earlier(&check.at, built)
         && (check.marker.is_some()
             || check.repacked + check.conflict + check.missing + check.unreadable + check.drift > 0)
+}
+
+/// Where the folder's plan is, for its Plan tab's icon: being made while you wait (`planning`), carried out by a build
+/// (`building`), or waiting on your approval (`open`).
+pub fn plan_state(planning: bool, building: bool, open: bool) -> Option<PlanState> {
+    if planning {
+        Some(PlanState::Proposing)
+    } else if building {
+        Some(PlanState::Running)
+    } else if open {
+        Some(PlanState::Open)
+    } else {
+        None
+    }
 }
 
 /// What is true of the folder.
@@ -449,6 +463,14 @@ mod tests {
             Pick::Fresh(3),
             "a source set never audited has no DAT revision to be fresh against"
         );
+    }
+
+    #[test]
+    fn the_plan_tab_shows_a_plan_being_made_built_or_waiting_on_you() {
+        assert_eq!(plan_state(false, false, false), None);
+        assert_eq!(plan_state(false, false, true), Some(PlanState::Open));
+        assert_eq!(plan_state(false, true, false), Some(PlanState::Running));
+        assert_eq!(plan_state(true, false, true), Some(PlanState::Proposing));
     }
 
     #[test]

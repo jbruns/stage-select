@@ -31,7 +31,7 @@ pub fn ArcadeSettingsForm(profile: RwSignal<SelectionProfile>, system: String) -
         profile.update(|p| update_arcade(p, &s.get_value(), f))
     };
     view! {
-        <div class="settings" role="tabpanel" aria-label=format!("Arcade settings for {system}")>
+        <div class="settings" role="region" aria-label=format!("Arcade settings for {system}")>
             <p class="lede">
                 "This system's DAT is an arcade DAT, so the arcade selection chooses one machine per family with these settings. "
                 {move || match source.get() {
