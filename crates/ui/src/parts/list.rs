@@ -315,9 +315,9 @@ pub fn List<T: ListRow>(
     /// For a second list on a page: the prefix of its own URL keys, such as `changes` for `changes-q`, so each list
     /// keeps its own filter, sort and open row.
     #[prop(optional, into)]
-    scope: Option<String>,
+    scope: MaybeProp<String>,
 ) -> impl IntoView {
-    let scope = StoredValue::new(scope);
+    let scope = StoredValue::new(scope.get_untracked());
     let (query, set_query) = use_list_query_in(scope.get_value());
     let query_map = use_query_map();
     let location = use_location();

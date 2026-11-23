@@ -50,7 +50,11 @@ Every plan (repair, build, cleanup, ingest, deleting kept files, setting aside) 
 
 - **One list.** Every list of rows is a `List`: no other table component, and no bulleted list of rows with inline
   actions. A small table of settings (roots, ceilings) may be a plain `<table>`.
-- **One kept-files view**, wherever kept files are shown.
+- **One kept-files view**, wherever kept files are shown: `screens::kept::KeptFiles { place?, scope?, busy?, refresh? }`
+  on a source set's, a library folder's and an ingest folder's Kept tab, under each additions set, and (without
+  `place`) on Activity. Its pure parts (rows, the count and size, the "set aside by" link, the deletion's summary)
+  are in `kept_model`. Deleting is planned from the folder's list and reviewed in place (the plan's id in the URL's
+  `kept-deletion`, or `{scope}-deletion`).
 - **One tab mechanism.** The current tab is always in the URL, so a reload and a shared link keep it. Never hold a
   tab in a signal alone.
 - **Drawer or page.** Creating or confirming something from a list opens a `Drawer`. Only the profile editor and
@@ -108,7 +112,7 @@ nothing is fetched at runtime. The licence ships at `/licences/lucide.txt` and i
 `parts::status` maps every status to a `Look { glyph, tone, label, hint }`. Colour and shape both differ, so no state
 is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `SourceSetStatus`, `LibraryStatus`,
 `PlanKind` (repair plans, `From<RepairKind>`), `BuildKind` (build plans, builds and cleanups, `From<ItemKind>`),
-`IngestStatus`, `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files), `StepStatus`
+`IngestStatus`, `KeptDeletionKind` (a kept file in a deletion plan), `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files), `StepStatus`
 (a first-run step), `Outcome` (a game's selection outcome), `AvailabilityStatus` (what you have of a game, on claims or
 verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's flags), `Derived` (an audit entry),
 `AdditionState`, `CheckFlag` (a folder check older than the build), `FileOutcome` (a folder check's file), build
@@ -224,14 +228,15 @@ A tooltip wraps anywhere, and is placed again for its drawn height, so a tall on
 
 Every plan is reviewed with `parts::plan::PlanReview`, a `List` with a strip of counts by kind above it. Its rows
 implement `PlanRow` (a `ListRow` with `type Kind: Status`): `PlanKind` for repairs, `BuildKind` for builds and
-cleanups, `IngestPlanKind` for ingests. A row that also does something counted on its own, such as a replacement
+cleanups, `IngestPlanKind` for ingests, `KeptDeletionKind` for deleting kept files. A row that also does something counted on its own, such as a replacement
 setting the old file aside, returns that kind from `also`, so the strip agrees with the plan's summary. Each kind's
 count is a filter (`kind` in the URL; add `kind` to the screen's list state so leaving the list clears it). Pass
 `apply` with `plan::apply_to_all` to put an "apply to all" control beside each count; it starts at "no change" and
 goes back to it. Bulk choices are toolbar "Set to …" actions over the checked rows, made with `plan::set_actions`.
 Count what a bulk choice did with `plan_model::apply_choice` and show `BulkOutcome::message` in `message`, so a
 partial application says how many items don't offer the choice. A plan that offers no choices, such as an ingest plan
-approved whole, passes neither `apply` nor `actions`. Rows show `Change { current, proposed }`; reasons and evidence
+approved whole, passes neither `apply` nor `actions`. Pass `scope` for a review that shares its page with another
+list; its URL keys, `kind` included, then take the scope's prefix. Rows show `Change { current, proposed }`; reasons and evidence
 go in `detail`. Keep the plan's own choice rules pure and tested (`repair_model`, `build_model::ConflictChoice`).
 `screens/repair.rs` (`RepairTab`) is the reference; `screens/library_plan.rs` replans on each choice (disabled while
 one is under way, answers to superseded requests dropped), and `screens/ingest_plan.rs` keeps its rows with

@@ -2,7 +2,7 @@
 //! Change Plans, Builds and Jobs over the `/api/v1` JSON API (ADR 0005).
 //!
 //! `activity_model`, `arcade_model`, `coverage_model`, `fetch_model`, `model`, `selection_model`, `build_model`, `library_model`, `repair_model`, `source_set_model`,
-//! `registration`, `settings_model`, `welcome_model` and `jobs` are pure, as is the logic of `parts`, and tested on the host; the rest renders in the
+//! `registration`, `settings_model`, `welcome_model`, `kept_model` and `jobs` are pure, as is the logic of `parts`, and tested on the host; the rest renders in the
 //! browser.
 
 pub mod activity_model;
@@ -16,6 +16,7 @@ pub mod events;
 pub mod fetch_model;
 pub mod ingest_model;
 pub mod jobs;
+pub mod kept_model;
 pub mod library_model;
 pub mod model;
 pub mod parts;

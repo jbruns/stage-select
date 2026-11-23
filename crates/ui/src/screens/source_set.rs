@@ -22,6 +22,7 @@ use crate::app::Loading;
 use crate::build_model::build_state_label;
 use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
+use crate::kept_model::KeptPlace;
 use crate::library_model::live_status;
 use crate::model::{
     Derived, audit_choices, audit_evidence_label, needs_review_from_counts, revision_label,
@@ -48,9 +49,10 @@ use crate::screens::additions::{AdditionsList, SetView};
 use crate::screens::audit::{EntriesPanel, GamesPanel, load};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
+use crate::screens::kept::KeptFiles;
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
-use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
+use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab};
 use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
 };
@@ -288,7 +290,9 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 }
                 PageTab::Additions => view! { <Additions system=summary.set.dat.clone() /> }.into_any(),
                 PageTab::History => view! { <History name=name.get_value() /> }.into_any(),
-                PageTab::Kept => view! { <SourceKept name=name.get_value() /> }.into_any(),
+                PageTab::Kept => {
+                    view! { <KeptFiles place=KeptPlace::SourceSet(name.get_value()) /> }.into_any()
+                }
                 PageTab::Repair => ().into_any(),
             })
             }).into_any())

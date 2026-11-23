@@ -7,16 +7,13 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::NavigateOptions;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_location, use_navigate, use_query_map};
-use stage_select_api::additions::AdditionsSet;
-use stage_select_api::build::{KeptFile, LibraryFolder};
-use stage_select_api::ingest::{IngestFolder, IngestKeptFile};
-use stage_select_api::repair::SourceKeptFile;
+use stage_select_api::build::LibraryFolder;
 use stage_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScan};
-use stage_select_api::{Job, JobKind, JobLoad, JobState, Rates, SourceSetRecord};
+use stage_select_api::{Job, JobKind, JobLoad, JobState, Rates};
 
 use crate::activity_model::{
-    Counts, KeptPlace, KeptRow, Outcome, Subject, average_fact, capped_rate, counts, cpu_label,
-    files_rate, listed, newest_first, opened_failure, throughput_cell, workers_fact,
+    Counts, Outcome, Subject, average_fact, capped_rate, counts, cpu_label, files_rate, listed,
+    opened_failure, throughput_cell, workers_fact,
 };
 use crate::api;
 use crate::app::{Loading, use_seen_jobs};
@@ -25,9 +22,7 @@ use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, when};
 use crate::parts::icon::{Glyph, Svg};
 use crate::parts::legend::{Legend, present};
-use crate::parts::list::{
-    Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
-};
+use crate::parts::list::{Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width};
 use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::meter::ProgressMeter;
 use crate::parts::overlay::Tooltip;
@@ -722,189 +717,4 @@ fn romm_additions_fact(additions: RommAdditions) -> impl IntoView {
                 .map(|detail| view! { <p>{detail}</p> })}
         </dd>
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeptCol {
-    Name,
-    Folder,
-    Reason,
-    Size,
-    Kept,
-}
-
-impl ListRow for KeptRow {
-    type Col = KeptCol;
-    const COLUMNS: &'static [KeptCol] = &[
-        KeptCol::Name,
-        KeptCol::Folder,
-        KeptCol::Reason,
-        KeptCol::Size,
-        KeptCol::Kept,
-    ];
-
-    fn column(col: KeptCol) -> Column {
-        match col {
-            KeptCol::Name => Column::new(
-                "name",
-                "File",
-                Width::Flex {
-                    min: 10.0,
-                    share: 3,
-                },
-            )
-            .sortable(),
-            KeptCol::Folder => Column::new("folder", "Folder", Width::Flex { min: 8.0, share: 2 })
-                .sortable()
-                .hint("The folder it was set aside from"),
-            KeptCol::Reason => {
-                Column::new("reason", "Why", Width::Flex { min: 9.0, share: 2 }).sortable()
-            }
-            KeptCol::Size => Column::new("size", "Bytes", Width::Fixed(7.0))
-                .sortable()
-                .numeric(),
-            KeptCol::Kept => Column::new("kept", "Kept", Width::Fixed(12.0)).sortable(),
-        }
-    }
-
-    fn key(&self) -> String {
-        KeptRow::key(self)
-    }
-
-    fn title(&self) -> String {
-        self.name.clone()
-    }
-
-    fn search(&self) -> String {
-        format!("{} {} {}", self.name, self.place.name(), self.reason)
-    }
-
-    fn cell(&self, col: KeptCol) -> AnyView {
-        match col {
-            KeptCol::Name => view! { <Clip text=self.name.clone() /> }.into_any(),
-            KeptCol::Folder => view! { <Clip text=self.place.name() /> }.into_any(),
-            KeptCol::Reason => view! { <Clip text=self.reason.clone() /> }.into_any(),
-            KeptCol::Size => self.size.to_string().into_any(),
-            KeptCol::Kept => view! { <Clip text=when(&self.kept_at) /> }.into_any(),
-        }
-    }
-
-    fn compare(&self, other: &Self, col: KeptCol) -> Ordering {
-        match col {
-            KeptCol::Name => self.name.cmp(&other.name),
-            KeptCol::Folder => self.place.name().cmp(&other.place.name()),
-            KeptCol::Reason => self.reason.cmp(&other.reason),
-            KeptCol::Size => self.size.cmp(&other.size),
-            KeptCol::Kept => self.kept_at.cmp(&other.kept_at),
-        }
-    }
-}
-
-fn place_link(place: &KeptPlace) -> (Glyph, String) {
-    let name = place.name();
-    match place {
-        KeptPlace::LibraryFolder { .. } => (
-            Glyph::Library,
-            format!("Open the kept files of library folder {name}"),
-        ),
-        KeptPlace::IngestFolder(_) => (Glyph::FolderInput, format!("Open ingest folder {name}")),
-        KeptPlace::SourceSet(_) => (
-            Glyph::Database,
-            format!("Open the kept files of source set {name}"),
-        ),
-        KeptPlace::AdditionsSet(_) => (Glyph::CirclePlus, format!("Open the additions of {name}")),
-    }
-}
-
-/// The kept files of every Library Folder, Ingest Folder, Source Set and Additions Set.
-async fn every_kept_file() -> Result<Vec<KeptRow>, String> {
-    let mut rows = Vec::new();
-    let folders: Vec<LibraryFolder> = api::get("/libraries").await?;
-    for folder in folders {
-        let kept: Vec<KeptFile> = api::get(&format!("/libraries/{}/kept-files", folder.id)).await?;
-        rows.extend(kept.into_iter().map(|f| KeptRow::library(&folder, f)));
-    }
-    let ingest: Vec<IngestFolder> = api::get("/ingest-folders").await?;
-    for folder in ingest.into_iter().filter(|f| f.id.is_some()) {
-        let kept: Vec<IngestKeptFile> = api::get(&format!(
-            "/ingest-folders/{}/kept-files",
-            api::segment(&folder.root)
-        ))
-        .await?;
-        rows.extend(kept.into_iter().map(|f| KeptRow::ingest(&folder.root, f)));
-    }
-    let sets: Vec<SourceSetRecord> = api::get("/source-sets").await?;
-    for set in sets {
-        let kept: Vec<SourceKeptFile> = api::get(&format!(
-            "/source-sets/{}/kept-files",
-            api::segment(&set.name)
-        ))
-        .await?;
-        rows.extend(
-            kept.into_iter()
-                .map(|f| KeptRow::source(KeptPlace::SourceSet(set.name.clone()), f)),
-        );
-    }
-    let additions: Vec<AdditionsSet> = api::get("/additions-sets").await?;
-    for set in additions {
-        rows.extend(
-            set.kept
-                .into_iter()
-                .map(|f| KeptRow::source(KeptPlace::AdditionsSet(set.system.clone()), f)),
-        );
-    }
-    Ok(newest_first(rows))
-}
-
-/// The Kept files tab: every folder's kept files in one list. You delete them from their folder's page.
-#[component]
-pub fn KeptFiles() -> impl IntoView {
-    let live = use_live();
-    let files = LocalResource::new(move || {
-        live.settled.track();
-        every_kept_file()
-    });
-    let rows = last_good_rows(move || files.get());
-    view! {
-        <p class="lede">"Files set aside in every folder. Open a file's folder to delete them."</p>
-        {move || match files.get() {
-            None => view! { <Loading what="the kept files" /> }.into_any(),
-            Some(Err(message)) => view! { <Problem message /> }.into_any(),
-            Some(Ok(_)) => ().into_any(),
-        }}
-        <List
-            id="kept-files"
-            label="Kept files"
-            rows
-            empty="No files are set aside in any folder."
-            placeholder="Filter by file, folder or reason"
-            row_actions=Callback::new(move |row: KeptRow| {
-                let (glyph, label) = place_link(&row.place);
-                vec![RowAction::go(glyph, label, row.place.href())]
-            })
-            detail=Callback::new(kept_detail)
-        />
-    }
-}
-
-fn kept_detail(row: KeptRow) -> AnyView {
-    view! {
-        <dl class="facts">
-            <dt>"Folder"</dt>
-            <dd>
-                <A href=row.place.href()>{row.place.name()}</A>
-            </dd>
-            <dt>"Why"</dt>
-            <dd>{row.reason.clone()}</dd>
-            <dt>"Kept as"</dt>
-            <dd>
-                <code class="path">{format!("{}/{}", row.generation, row.kept_name)}</code>
-            </dd>
-            <dt>"Size"</dt>
-            <dd class="data">{format!("{} bytes", row.size)}</dd>
-            <dt>"Kept"</dt>
-            <dd>{when(&row.kept_at)}</dd>
-        </dl>
-    }
-    .into_any()
 }

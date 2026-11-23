@@ -16,15 +16,16 @@ use stage_select_api::additions::{
 use crate::api;
 use crate::app::Loading;
 use crate::events::use_live;
+use crate::kept_model::KeptPlace;
 use crate::model::{short_sha, when};
 use crate::parts::legend::{LegendStrip, present_looks};
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Problem};
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
+use crate::screens::kept::KeptFiles;
 use crate::screens::lifecycle::{
     AdditionsSetAsideAction, LifecycleSection, Paths, UnregisterAction,
 };
-use crate::screens::repair::KeptFiles;
 
 /// The name suggested for an addition made from the file at `path`: its file name, without folders or extension.
 pub fn suggested_name(path: &str) -> String {
@@ -357,10 +358,6 @@ pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
     };
     let count = set.additions.len();
     let query = format!("?system={}", api::segment(&set.system));
-    let (kept_path, plan_path) = (
-        format!("/additions-set/kept-files{query}"),
-        format!("/additions-set/kept-deletions{query}"),
-    );
     let (aside_system, unregister_what) = (
         set.system.clone(),
         format!("the additions set of {}", set.system),
@@ -403,15 +400,8 @@ pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
             {found}
             {move || problem.get().map(|message| view! { <Problem message /> })}
             {leftovers}
-            <KeptFiles
-                files_path=kept_path
-                plan_path=plan_path
-                approval_prefix="/additions-kept-deletions"
-                kept_by="addition"
-                title="Kept files"
-                lede="Files of additions you retired, kept in the additions set. Builds and checks do not read them. \
-                    Restore an addition to move its file back. Nothing here is deleted until you approve deleting it."
-            />
+            <h3>"Kept files"</h3>
+            <KeptFiles place=KeptPlace::AdditionsSet(set.system.clone()) scope=format!("kept-{}", set.id) />
             <LifecycleSection>
                 <AdditionsSetAsideAction system=aside_system refresh />
                 <UnregisterAction

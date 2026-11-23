@@ -10,6 +10,7 @@ mod fetching;
 mod ingest_folders;
 mod ingest_plan;
 mod jobs;
+pub mod kept;
 mod library_folders;
 mod library_plan;
 mod library_romm;
@@ -31,7 +32,8 @@ pub use audit::AuditScreen;
 pub use bench::Bench;
 pub use dats::DatRevisions;
 pub use ingest_folders::{IngestFolderScreen, IngestFolders};
-pub use jobs::{Activity, Jobs, KeptFiles};
+pub use jobs::{Activity, Jobs};
+pub use kept::KeptFiles;
 pub use library_folders::{
     BuildScreen, Libraries, LibrariesPages, LibraryFolderScreen, NewLibraryFolder, PlanABuild,
     provide_planner, use_planner,

@@ -12,10 +12,9 @@ use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
-    AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemState,
-    KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
-    PlanKeptDeletion, RETENTION,
+    AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
+    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemState, KeptFile,
+    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup, RETENTION,
 };
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -26,9 +25,10 @@ use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
     build_files, build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label,
-    folders_for, incomplete_counts, incomplete_reason_label, keep_reason_label, unfinished_label,
+    folders_for, incomplete_counts, incomplete_reason_label, unfinished_label,
 };
 use crate::events::{Live, use_live};
+use crate::kept_model::KeptPlace;
 use crate::library_model::{
     BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
     Replan, Replans, built_for, checked_in, drifted, fresh, live_status, location, no_coverage,
@@ -55,6 +55,7 @@ use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, onl
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
+use crate::screens::kept::KeptFiles;
 use crate::screens::library_plan::LibraryPlan;
 use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
@@ -1195,7 +1196,10 @@ fn FolderPage(
                 }
                 .into_any()
             }
-            FolderTab::Kept => view! { <KeptFiles folder=id busy refresh /> }.into_any(),
+            FolderTab::Kept => {
+                let path = folder.with_value(|f| f.path.clone());
+                view! { <KeptFiles place=KeptPlace::LibraryFolder { id, path } busy refresh /> }.into_any()
+            }
             FolderTab::Romm => view! { <RommTab folder=id /> }.into_any(),
         }}
     }
@@ -2866,212 +2870,5 @@ pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
             }
             .into_any()
         }}
-    }
-}
-
-/// The files builds kept aside in the folder's retention area, by generation, and deleting the ones you pick by
-/// approving a plan that lists them.
-#[component]
-fn KeptFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
-    let live = use_live();
-    let files = LocalResource::new(move || {
-        live.settled.track();
-        refresh.track();
-        async move { api::get::<Vec<KeptFile>>(&format!("/libraries/{folder}/kept-files")).await }
-    });
-    let picked = RwSignal::new(Vec::<i64>::new());
-    let plan = RwSignal::new(None::<KeptDeletion>);
-    let problem = RwSignal::new(None::<String>);
-    let working = RwSignal::new(false);
-    let planning = Action::new_local(move |body: &PlanKeptDeletion| {
-        let body = body.clone();
-        async move {
-            api::post::<_, KeptDeletion>(&format!("/libraries/{folder}/kept-deletions"), &body)
-                .await
-        }
-    });
-    Effect::new(move || {
-        if let Some(Ok(p)) = planning.value().get() {
-            plan.set(Some(p));
-        }
-    });
-    let request = move |all: bool| {
-        problem.set(None);
-        planning.dispatch(PlanKeptDeletion {
-            ids: if all {
-                Vec::new()
-            } else {
-                picked.get_untracked()
-            },
-            all,
-        });
-    };
-    let approve = move |_| {
-        let Some(p) = plan.get_untracked() else {
-            return;
-        };
-        working.set(true);
-        let body = ApprovePlan {
-            digest: p.digest.clone(),
-        };
-        leptos::task::spawn_local(async move {
-            let done =
-                api::post::<_, KeptDeletion>(&format!("/kept-deletions/{}/approval", p.id), &body)
-                    .await;
-            working.set(false);
-            match done {
-                Ok(p) => {
-                    picked.set(Vec::new());
-                    plan.set(Some(p));
-                    refresh.update(|n| *n += 1);
-                }
-                Err(message) => problem.set(Some(message)),
-            }
-        });
-    };
-    let list = move || match files.get() {
-        None => view! { <Loading what="the kept files" /> }.into_any(),
-        Some(Err(message)) => view! { <Problem message /> }.into_any(),
-        Some(Ok(files)) if files.is_empty() => {
-            view! { <p class="note">"No files are set aside."</p> }.into_any()
-        }
-        Some(Ok(files)) => {
-            let mut generations: Vec<(u64, Vec<KeptFile>)> = Vec::new();
-            for f in files {
-                match generations.last_mut() {
-                    Some((g, list)) if *g == f.generation => list.push(f),
-                    _ => generations.push((f.generation, vec![f])),
-                }
-            }
-            view! {
-                {generations
-                    .into_iter()
-                    .map(|(generation, files)| {
-                        view! {
-                            <h3>{format!("Kept by generation {generation}")}</h3>
-                            <ul class="plain">
-                                {files
-                                    .into_iter()
-                                    .map(|f| {
-                                        let id = f.id;
-                                        let checked = move || picked.with(|p| p.contains(&id));
-                                        view! {
-                                            <li>
-                                                <label>
-                                                    <input
-                                                        type="checkbox"
-                                                        prop:checked=checked
-                                                        on:change=move |_| {
-                                                            picked.update(|p| {
-                                                                if let Some(at) = p.iter().position(|x| *x == id) {
-                                                                    p.remove(at);
-                                                                } else {
-                                                                    p.push(id);
-                                                                }
-                                                            })
-                                                        }
-                                                    />
-                                                    " "
-                                                    <code>{f.name.clone()}</code>
-                                                </label>
-                                                {format!(
-                                                    " as {RETENTION}/{}/{}: {}, {} bytes",
-                                                    f.generation,
-                                                    f.kept_name,
-                                                    keep_reason_label(f.reason),
-                                                    f.file.size,
-                                                )}
-                                                {f.game.clone().map(|g| format!(", {g}"))}
-                                            </li>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </ul>
-                        }
-                    })
-                    .collect_view()}
-                <div class="form">
-                    <button
-                        type="button"
-                        disabled=move || busy.get() || planning.pending().get() || picked.with(Vec::is_empty)
-                        on:click=move |_| request(false)
-                    >
-                        "Plan deleting the files you picked"
-                    </button>
-                    <button type="button" disabled=move || busy.get() || planning.pending().get() on:click=move |_| request(true)>
-                        "Plan deleting every kept file"
-                    </button>
-                </div>
-            }
-            .into_any()
-        }
-    };
-    let review = move || {
-        plan.get().map(|p| {
-            let open = p.approval.is_none();
-            view! {
-                <h3>{format!("Deleting kept files, plan #{}", p.id)}</h3>
-                <p>
-                    "Digest " <code class="hash">{p.digest.clone()}</code>
-                </p>
-                <ul class="plain">
-                    {p
-                        .content
-                        .files
-                        .iter()
-                        .map(|f| {
-                            let outcome = p.outcomes.iter().find(|o| o.id == f.id).map(|o| match (
-                                o.deleted,
-                                &o.detail,
-                            ) {
-                                (true, _) => ": deleted".to_string(),
-                                (false, Some(d)) => format!(": {d}"),
-                                (false, None) => ": left as it is".to_string(),
-                            });
-                            // Deleted only while it still reads as this; otherwise its outcome says it changed.
-                            let read = p.content.reviewed.iter().find(|r| r.id == f.id).map(|r| {
-                                view! { ", read as SHA-256 " <code class="hash">{r.sha256.clone()}</code> }
-                            });
-                            view! {
-                                <li>
-                                    <code>{format!("{RETENTION}/{}/{}", f.generation, f.kept_name)}</code>
-                                    {read}
-                                    {outcome}
-                                </li>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-                {open
-                    .then(|| {
-                        view! {
-                            <div class="form">
-                                <button
-                                    type="button"
-                                    class="primary"
-                                    disabled=move || busy.get() || working.get()
-                                    on:click=approve
-                                >
-                                    {format!("Approve and delete {} kept files", p.content.files.len())}
-                                </button>
-                            </div>
-                        }
-                    })}
-            }
-        })
-    };
-    view! {
-        <section aria-labelledby="kept-title">
-            <h2 id="kept-title">"Kept files"</h2>
-            <p class="lede">
-                "Files builds moved aside instead of deleting: removed, replaced, or conflicts you chose to set aside. \
-                Nothing here is deleted until you approve it."
-            </p>
-            <ActionPending action=planning status="Making the deletion plan…">
-                {list}
-            </ActionPending>
-            {review}
-            {move || problem.get().map(|message| view! { <Problem message /> })}
-        </section>
     }
 }

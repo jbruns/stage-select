@@ -854,6 +854,45 @@ impl Status for IngestPlanKind {
     }
 }
 
+/// Where a kept file a deletion covers stands: still to delete, deleted, or left kept, which leads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeptDeletionKind {
+    Left,
+    Delete,
+    Deleted,
+}
+
+impl Status for KeptDeletionKind {
+    const ALL: &'static [Self] = &[
+        KeptDeletionKind::Left,
+        KeptDeletionKind::Delete,
+        KeptDeletionKind::Deleted,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            KeptDeletionKind::Left => look(
+                Glyph::TriangleAlert,
+                Tone::Failed,
+                "Left kept",
+                "Not deleted: it stays in the folder's kept files, and the row says why.",
+            ),
+            KeptDeletionKind::Delete => look(
+                Glyph::Trash2,
+                Tone::Review,
+                "Delete",
+                "Deletes it once you approve, if it still reads as it did when you planned this.",
+            ),
+            KeptDeletionKind::Deleted => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Deleted",
+                "Deleted from the folder's kept files.",
+            ),
+        }
+    }
+}
+
 /// Where an Ingest Folder item stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IngestStatus {
@@ -1892,6 +1931,7 @@ pub(crate) mod tests {
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
+            ("kept file deletions", vocabulary::<KeptDeletionKind>()),
             ("jobs", vocabulary::<JobState>()),
             ("RomM scans", vocabulary::<RommScanOutcome>()),
             ("RomM additions", vocabulary::<RommAdditionsOutcome>()),
