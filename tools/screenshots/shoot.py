@@ -106,7 +106,12 @@ SCREENS = {
     "ingest-folder": "/ingest/drop",
     "activity": "/activity",
     "activity-running": "/activity",
+    "welcome": "/welcome",
     "roots": "/settings/roots",
+    "storage": "/settings/storage",
+    "operations": "/settings/operations",
+    "operations-calibration": "/settings/operations?tab=calibration",
+    "unregistered": "/settings/unregistered",
     "about": "/settings/about",
     "row-states": "/dats",
     "messages": "/source-sets/{findings_set}?tab=repair",
@@ -170,6 +175,14 @@ def messages(page):
 DRIVEN = {"row-states": row_states, "messages": messages}
 
 RUNNING = {"activity-running"}
+
+# Screens that show only what the seed made, besides any whose route names `{…}`: a job to run, DAT rows to drive, a
+# profile or an ingest folder by its seeded name. `--empty` leaves them out.
+SEEDED = {"activity-running", "row-states", "profile", "ingest-folder"}
+
+
+def needs_seed(name, route):
+    return name in SEEDED or "{" in route
 
 # Records each EventSource the workbench opens, so RUN can hand it events.
 RECORD_EVENTS = """
@@ -697,6 +710,9 @@ def main():
                         help="add or replace a screen; PATH may name {findings_set}, {audit}, {selection}, "
                              "{library}, {pending_library}, {build} or {additions_set}")
     parser.add_argument("--list", action="store_true", help="list the screens and stop")
+    parser.add_argument("--empty", action="store_true",
+                        help="seed nothing, to capture the screens as a first run sees them; leaves out the screens "
+                             "that show what the seed made")
     args = parser.parse_args()
 
     screens = dict(SCREENS)
@@ -714,7 +730,12 @@ def main():
         unknown = [s for s in wanted if s not in screens]
         if unknown:
             parser.error(f"unknown screens: {', '.join(unknown)}; see --list")
+        seeded = [s for s in wanted if args.empty and needs_seed(s, screens[s])]
+        if seeded:
+            parser.error(f"--empty seeds nothing, and these screens show what the seed made: {', '.join(seeded)}")
         screens = {s: screens[s] for s in wanted}
+    elif args.empty:
+        screens = {s: route for s, route in screens.items() if not needs_seed(s, route)}
 
     label = args.label or (re.sub(r"[^A-Za-z0-9._-]+", "-", args.ref).lstrip(".") if args.ref else "after")
     if not is_name(label):
@@ -733,7 +754,7 @@ def main():
         binary = build(ROOT, site, Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve())
 
     with serving(binary, site, work) as url:
-        made, failures = seed(Api(url), work / "data")
+        made, failures = ({}, []) if args.empty else seed(Api(url), work / "data")
         routes = {}
         for name, route in screens.items():
             try:

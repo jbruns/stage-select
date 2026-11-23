@@ -3,6 +3,7 @@
 //! restart; the webhook's URL and secret and the RomM token are write-only.
 
 use leptos::prelude::*;
+use leptos_router::components::A;
 use stage_select_api::calibration::Calibration;
 use stage_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
 use stage_select_api::settings::{Ceiling, NotifyEvent, Pace, SecretUpdate, SettingsView};
@@ -12,11 +13,14 @@ use crate::api;
 use crate::app::Loading;
 use crate::calibration_model;
 use crate::events::use_live;
+use crate::parts::help::Help;
 use crate::parts::legend::{Legend, present};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StatusIcon};
+use crate::parts::tabs::{Tab, Tabs, use_tab};
+use crate::screens::fetching::{FETCHING_STATUS, FOLLOWING, scroll_when_named};
 use crate::settings_model::{
     CadenceDraft, CeilingField, CeilingKey, Draft, Refreshed, archive_memory, at_pace, ceiling,
     ceiling_curve, ceiling_keys, pace_label, refreshed, romm_check_lines, romm_platform_label,
@@ -34,20 +38,39 @@ fn event_label(event: NotifyEvent) -> &'static str {
     }
 }
 
+/// The `tab` of Operations' calibration; its settings are the first tab.
+const CALIBRATION_TAB: &str = "calibration";
+
 #[component]
 pub fn Operations() -> impl IntoView {
     let loaded = LocalResource::new(|| api::get::<SettingsView>("/settings"));
+    let url_tab = use_tab();
+    let calibrating = Memo::new(move |_| url_tab.current().as_deref() == Some(CALIBRATION_TAB));
+    let tabs = Signal::derive(move || {
+        vec![
+            Tab::new(url_tab.href(None), "Settings", !calibrating.get()),
+            Tab::new(
+                url_tab.href(Some(CALIBRATION_TAB)),
+                "Calibration",
+                calibrating.get(),
+            ),
+        ]
+    });
     view! {
         <h1>"Operations"</h1>
-        <p class="lede">
-            "How hard jobs work, what is kept, how folders are named, what is checked, fetched and sent, and how to reach RomM. Each change applies as soon as you save it, without a restart."
-        </p>
-        {move || match loaded.get() {
-            None => view! { <Loading what="your settings" /> }.into_any(),
-            Some(Err(message)) => view! { <Problem message /> }.into_any(),
-            Some(Ok(saved)) => view! { <Editor saved /> }.into_any(),
-        }}
-        <CalibrationSection />
+        <p class="lede">"How jobs run, and what is kept, checked, fetched and sent. A change applies once you save it."</p>
+        <Tabs label="Operations" tabs />
+        // Hidden rather than unmounted, so your unsaved changes survive a look at the calibration.
+        <div hidden=calibrating>
+            {move || match loaded.get() {
+                None => view! { <Loading what="your settings" /> }.into_any(),
+                Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                Some(Ok(saved)) => view! { <Editor saved /> }.into_any(),
+            }}
+        </div>
+        <Show when=move || calibrating.get()>
+            <CalibrationSection />
+        </Show>
     }
 }
 
@@ -72,17 +95,17 @@ fn CalibrationSection() -> impl IntoView {
         async move { api::post::<_, Job>(&path, &serde_json::json!({})).await }
     });
     view! {
-        <section class="staged" aria-labelledby="calibration-title">
+        <section aria-labelledby="calibration-title">
             <h2 id="calibration-title">"Calibration"</h2>
-            <p class="note small">
-                "Calibration measures how fast the host hashes as hash workers are added, and how fast each root reads as payload readers are added, on files you audited. It only reads; it never writes to a root. It waits for running jobs to finish, and no other job starts until it ends. It's never run again by itself: when the host or a root changes, its results are stale and still apply until you calibrate again."
-            </p>
-            <details class="note small">
-                <summary>"Calibrate after a quiet period"</summary>
+            <p class="note">"Calibration measures how fast the host hashes and each root reads, to suggest their ceilings."</p>
+            <Help summary="How calibration works">
                 <p>
-                    "A filesystem that caches what it reads, such as ZFS with its ARC, can make a root look faster than it is. Calibrate when little has been read lately, and each file is read at most once in a calibration."
+                    "Calibration measures how fast the host hashes as hash workers are added, and how fast each root reads as payload readers are added, on files you audited. It only reads; it never writes to a root. It waits for running jobs to finish, and no other job starts until it ends. It's never run again by itself: when the host or a root changes, its results are stale and still apply until you calibrate again."
                 </p>
-            </details>
+                <p>
+                    "A filesystem that caches what it reads, such as ZFS with its ARC, can make a root look faster than it is. Calibrate after a quiet period, when little has been read lately; each file is read at most once in a calibration."
+                </p>
+            </Help>
             <ActionPending action=start status="Starting calibration…">
                 <ActionPending action=cancel status="Cancelling calibration…">
                     <div class="actions">
@@ -204,6 +227,8 @@ fn Editor(saved: SettingsView) -> impl IntoView {
     let saves = RwSignal::new(0u64);
     let refetch = RwSignal::new(0u64);
     let live = use_live();
+    scroll_when_named("fetching", || true);
+    scroll_when_named("job-pace", || true);
     Effect::watch(
         move || (live.settings.get(), refetch.get()),
         move |_, _, _| {
@@ -295,10 +320,15 @@ fn Editor(saved: SettingsView) -> impl IntoView {
                     set=|d, v| d.check_every_minutes = v
                 />
             </fieldset>
-            <fieldset class="setting">
+            <fieldset class="setting" id="fetching">
                 <legend>"Fetching DAT revisions"</legend>
                 <p class="note small">
-                    "With fetching from a provider on, the service fetches newer DAT revisions for the systems you follow, at most once a day each. Turning one on takes effect within the hour."
+                    "With fetching from a provider on, the service fetches newer DAT revisions for the DATs your source sets follow, at most once a day each. Turning one on takes effect within the hour."
+                </p>
+                <p class="note small">
+                    <A href=FETCHING_STATUS>"Where fetching stands, and fetch now, on the DATs screen"</A>
+                    " · "
+                    <A href=FOLLOWING>"Choose what is fetched: follow a source set's DAT on its page"</A>
                 </p>
                 <p>
                     <label class="inline">
@@ -339,7 +369,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
             <WebhookSection saved draft />
             <RommSection saved draft />
         </div>
-        <section class="staged" aria-labelledby="save-title">
+        <section class="staged save-bar" aria-labelledby="save-title">
             <h2 id="save-title">"Save"</h2>
             <div class="actions">
                 <button
@@ -393,7 +423,7 @@ fn PaceSection(
     newer: RwSignal<Option<SettingsView>>,
 ) -> impl IntoView {
     view! {
-        <fieldset class="setting">
+        <fieldset class="setting" id="job-pace">
             <legend>"Job pace"</legend>
             <p class="note small">
                 "The pace is a share of each ceiling, shared by every job running at once. A new pace reaches running jobs at each worker's next file; a lower one never stops a running job."

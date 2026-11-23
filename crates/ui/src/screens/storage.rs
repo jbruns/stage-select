@@ -158,9 +158,7 @@ pub fn StoragePolicyScreen() -> impl IntoView {
     });
     view! {
         <h1>"Storage policy"</h1>
-        <p class="lede">
-            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; as a loose folder, a folder named for the game holding each of its ROMs loose; or, for a disc system's play libraries, as one CHD per disc. A disc system's play libraries lay out its discs' files as their disc layout says. Source sets and play libraries each have a global setting, and you can set a system differently."
-        </p>
+        <p class="lede">"How each folder stores a game: set globally, and differently for a system if you choose."</p>
         {move || match loaded.get() {
             None => view! { <Loading what="the storage policy" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -235,9 +233,12 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
         }}
         <section class="staged" aria-labelledby="save-title">
             <h2 id="save-title">"Save"</h2>
-            <p class="note">
-                "Saving changes no file. The next plan for each folder whose format changed proposes converting its games, and the next plan for each folder whose single copy setting changed proposes placing or returning them, and the next repair of each MAME source set whose set layout changed proposes repacking its families. Nothing is converted, repacked, placed or returned until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
-            </p>
+            <p class="note">"Saving changes no file: each folder's next plan proposes what your change needs."</p>
+            <Help summary="What the next plans propose">
+                <p>
+                    "The next plan for each folder whose format changed proposes converting its games, and the next plan for each folder whose single copy setting changed proposes placing or returning them, and the next repair of each MAME source set whose set layout changed proposes repacking its families. Nothing is converted, repacked, placed or returned until you approve that plan. Each original goes to kept files unless delete originals after conversion is on."
+                </p>
+            </Help>
             <div class="actions">
                 <button
                     type="button"
@@ -263,6 +264,11 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
                 _ => ().into_any(),
             }}
         </section>
+        <Help summary="The formats">
+            <p>
+                "A folder stores a game as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; as a loose folder, a folder named for the game holding each of its ROMs loose; or, for a disc system's play libraries, as one CHD per disc. A disc system's play libraries lay out its discs' files as their disc layout says. Source sets and play libraries each have a global setting, and you can set a system differently."
+            </p>
+        </Help>
     }
 }
 
@@ -270,9 +276,12 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
 fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     view! {
         <div class="settings" role="region" aria-label="Global storage settings">
-            <p class="lede">
-                "These apply to every system you haven't set differently. Stored loose, a game with more than one ROM stays TorrentZip, and a plan says so. Source sets of disc systems, those whose DAT Redump publishes, are stored as loose folders unless you set the system differently."
-            </p>
+            <p class="lede">"These apply to every system you haven't set differently."</p>
+            <Help summary="Loose games and disc systems">
+                <p>
+                    "Stored loose, a game with more than one ROM stays TorrentZip, and a plan says so. Source sets of disc systems, those whose DAT Redump publishes, are stored as loose folders unless you set the system differently."
+                </p>
+            </Help>
             {SCOPES
                 .iter()
                 .map(|&(scope, legend)| {

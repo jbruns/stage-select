@@ -15,6 +15,7 @@ use crate::api;
 use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{imported_message, revision_named, when};
+use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -341,12 +342,7 @@ pub fn DatRevisions() -> impl IntoView {
 
     view! {
         <h1>"DATs"</h1>
-        <p class="lede">
-            "Each import of a DAT file is a DAT revision, shown as its header describes it. Newest import first within \
-             each DAT. When the header doesn't show who publishes the DAT, its provider is unknown. \
-             Import a cue pack, a ZIP of a disc system's cue sheets, and a repair can fill a missing cue sheet, or \
-             replace one that doesn't match, from it."
-        </p>
+        <p class="lede">"Each import of a DAT file is a DAT revision, newest first within each DAT."</p>
         {move || match items.get() {
             None => view! { <Loading what="the DAT revisions" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -363,6 +359,16 @@ pub fn DatRevisions() -> impl IntoView {
             detail=Callback::new(revision_detail)
             legend=move || view! { <Legend statuses list="dat-revisions" /> }
         />
+        <Help summary="About DAT revisions and cue packs">
+            <p>
+                "Each revision is shown as its header describes it. When the header doesn't show who publishes the \
+                 DAT, its provider is unknown."
+            </p>
+            <p>
+                "Import a cue pack, a ZIP of a disc system's cue sheets, and a repair can fill a missing cue sheet, \
+                 or replace one that doesn't match, from it."
+            </p>
+        </Help>
         <super::fetching::Fetching />
         <Drawer open=importing title="Import a DAT">
             <Upload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />

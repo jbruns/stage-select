@@ -18,6 +18,7 @@ use crate::api;
 use crate::app::{Loading, navigator};
 use crate::events::use_live;
 use crate::model::when;
+use crate::parts::help::Help;
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::status::StatusBadge;
@@ -231,10 +232,8 @@ pub fn Unregistered() -> impl IntoView {
     });
     let rows = last_good_rows(move || records.get());
     view! {
-        <p class="lede">
-            "What you unregistered. Its audits, selections, builds and jobs stay readable here until you forget it; \
-            forgetting removes that history from the store and touches no file."
-        </p>
+        <h1>"Unregistered"</h1>
+        <p class="lede">"What you unregistered, whose history you can read until you forget it."</p>
         {move || match records.get() {
             None => view! { <Loading what="what you unregistered" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -248,6 +247,12 @@ pub fn Unregistered() -> impl IntoView {
             placeholder="Filter by kind, name or path"
             detail=Callback::new(move |row: Row| detail(row, refresh))
         />
+        <Help summary="What forgetting does">
+            <p>
+                "An unregistered folder's audits, selections, builds and jobs stay readable here until you forget it. \
+                 Forgetting removes that history from the store and touches no file."
+            </p>
+        </Help>
     }
 }
 

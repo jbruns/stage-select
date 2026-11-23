@@ -2,6 +2,7 @@
 //! now, and what each waits on. Every step is worked out from what the store holds, so none is remembered: once a
 //! Root exists the home screen no longer leads here.
 
+use stage_select_api::fetch::{FetchProviderStatus, FetchStatus};
 use stage_select_api::roots::RootKind;
 use stage_select_api::{Root, SourceSetSummary};
 
@@ -30,7 +31,7 @@ impl Step {
     pub fn title(self) -> &'static str {
         match self {
             Step::Root => "Register a root",
-            Step::Dat => "Import or fetch a DAT",
+            Step::Dat => "Import a DAT",
             Step::SourceSet => "Register a source set",
             Step::Audit => "Audit a source set",
             Step::Library => "Make a library folder",
@@ -105,7 +106,7 @@ impl Facts {
             Step::SourceSet if self.read_only_roots == 0 => {
                 Some("Register a read-only root first.")
             }
-            Step::SourceSet if self.dats == 0 => Some("Import or fetch a DAT first."),
+            Step::SourceSet if self.dats == 0 => Some("Import a DAT first."),
             Step::SourceSet => None,
             Step::Audit if self.source_sets == 0 => Some("Register a source set first."),
             Step::Audit => None,
@@ -140,6 +141,38 @@ impl LoadState {
     }
 }
 
+/// What fetching can do for the DAT step, besides importing a DAT, which always works.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fetching {
+    /// No Source Set follows a DAT a DAT Provider fetches, so fetching has nothing to fetch: on an empty store, and
+    /// until fetching's status loads. Your first DAT is one you import.
+    NothingToFetch,
+    /// A Source Set follows a DAT a DAT Provider fetches, but fetching from it is off: turn it on under Operations.
+    Off,
+    /// Fetching is on for a DAT a Source Set follows: the DATs screen shows where it stands and fetches now.
+    On,
+}
+
+/// What fetching can do, from where it stands; `None` while that hasn't loaded.
+pub fn fetching(status: Option<&FetchStatus>) -> Fetching {
+    let fetchable: Vec<&FetchProviderStatus> = status
+        .iter()
+        .flat_map(|s| &s.providers)
+        .filter(|p| {
+            p.systems
+                .iter()
+                .any(|s| s.system.is_some() && !s.source_sets.is_empty())
+        })
+        .collect();
+    if fetchable.is_empty() {
+        Fetching::NothingToFetch
+    } else if fetchable.iter().any(|p| p.enabled) {
+        Fetching::On
+    } else {
+        Fetching::Off
+    }
+}
+
 /// A name for a Root at `path`: its last folder's name.
 pub fn root_name(path: &str) -> String {
     path.trim_end_matches('/')
@@ -152,6 +185,8 @@ pub fn root_name(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use stage_select_api::fetch::{FetchProvider, FetchSystem};
+
     use super::*;
 
     fn root(name: &str, kind: RootKind, writable: bool) -> Root {
@@ -210,7 +245,7 @@ mod tests {
         let facts = Facts::of(&both, 0, &[], 0);
         assert_eq!(
             facts.state(Step::SourceSet),
-            State::Waiting("Import or fetch a DAT first.")
+            State::Waiting("Import a DAT first.")
         );
         assert_eq!(
             facts.state(Step::Library),
@@ -265,6 +300,70 @@ mod tests {
             state(false, Some("HTTP 500"), true)
         );
         assert_eq!(LoadState::of(true, true, None), state(false, None, true));
+    }
+
+    fn provider(enabled: bool, systems: Vec<FetchSystem>) -> FetchProviderStatus {
+        FetchProviderStatus {
+            provider: FetchProvider::Redump,
+            enabled,
+            running: false,
+            release: None,
+            systems,
+            support: None,
+        }
+    }
+
+    fn followed(system: Option<&str>) -> FetchSystem {
+        FetchSystem {
+            system: system.map(str::to_owned),
+            dat: "Redump/Sony - PlayStation".into(),
+            source_sets: vec!["PSX".into()],
+            artifacts: Vec::new(),
+        }
+    }
+
+    fn fetching_with(providers: Vec<FetchProviderStatus>) -> Fetching {
+        fetching(Some(&FetchStatus { providers }))
+    }
+
+    #[test]
+    fn on_an_empty_store_fetching_has_nothing_to_fetch_whether_on_or_off() {
+        assert_eq!(fetching(None), Fetching::NothingToFetch);
+        assert_eq!(
+            fetching_with(vec![provider(false, Vec::new())]),
+            Fetching::NothingToFetch
+        );
+        assert_eq!(
+            fetching_with(vec![provider(true, Vec::new())]),
+            Fetching::NothingToFetch
+        );
+        // A followed DAT the provider has no system for can't be fetched either.
+        assert_eq!(
+            fetching_with(vec![provider(true, vec![followed(None)])]),
+            Fetching::NothingToFetch
+        );
+    }
+
+    #[test]
+    fn a_followed_dat_is_fetched_once_its_provider_is_turned_on() {
+        assert_eq!(
+            fetching_with(vec![provider(false, vec![followed(Some("psx"))])]),
+            Fetching::Off
+        );
+        assert_eq!(
+            fetching_with(vec![
+                provider(false, vec![followed(Some("psx"))]),
+                provider(true, Vec::new()),
+            ]),
+            Fetching::Off
+        );
+        assert_eq!(
+            fetching_with(vec![
+                provider(false, Vec::new()),
+                provider(true, vec![followed(Some("psx"))]),
+            ]),
+            Fetching::On
+        );
     }
 
     #[test]

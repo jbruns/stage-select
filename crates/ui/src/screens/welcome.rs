@@ -1,16 +1,19 @@
 //! The first run: the home screen leads a store with no Roots here, through registering a Root, importing a DAT and
 //! registering a Source Set, to a first Audit and a Library Folder. Each step reuses the form of the screen it
-//! belongs to. Nothing here is remembered: once a Root exists, the home screen opens the Source Sets instead.
+//! belongs to. Nothing here is remembered: once a Root exists, the home screen opens the Source Sets instead, and
+//! Settings › About links back here.
 
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
 use leptos_router::components::{A, Redirect};
 use stage_select_api::build::LibraryFolder;
+use stage_select_api::fetch::FetchStatus;
 use stage_select_api::roots::FolderSuggestions;
 use stage_select_api::{Dat, Root, SourceSetSummary};
 
 use crate::api;
 use crate::events::use_live;
+use crate::parts::help::Help;
 use crate::parts::message::{Live, Message, MessageKind};
 use crate::parts::outcome::JobOutcome;
 use crate::parts::overlay::Drawer;
@@ -18,10 +21,11 @@ use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StepStatus};
 use crate::roots_model::RootDraft;
 use crate::screens::dats::Upload;
+use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
 use crate::screens::roots::RootForm;
 use crate::screens::source_sets::{Register, new_library_href, queue_audit, set_href};
 use crate::source_set_model::running;
-use crate::welcome_model::{Facts, LoadState, State, Step, root_name};
+use crate::welcome_model::{Facts, Fetching, LoadState, State, Step, fetching, root_name};
 
 /// The home screen: the first-run steps while there are no Roots, else the Source Sets.
 #[component]
@@ -48,6 +52,8 @@ struct Held {
     dats: Vec<Dat>,
     sets: Vec<SourceSetSummary>,
     libraries: usize,
+    /// Where fetching stands; `None` when it couldn't be read, which leaves only importing to offer.
+    fetch: Option<FetchStatus>,
 }
 
 impl Held {
@@ -62,6 +68,7 @@ async fn held() -> Result<Held, String> {
         dats: api::get("/dats").await?,
         sets: api::get("/source-set-summaries").await?,
         libraries: api::get::<Vec<LibraryFolder>>("/libraries").await?.len(),
+        fetch: api::get("/fetch").await.ok(),
     })
 }
 
@@ -98,10 +105,7 @@ pub fn Welcome() -> impl IntoView {
     let skipped = RwSignal::new(Vec::<Step>::new());
     view! {
         <h1>"Set up Stage Select"</h1>
-        <p class="lede">
-            "Stage Select reads only the folders you register. These steps take you from here to your first audit. \
-             You can skip any step, and take it later from the screen it names."
-        </p>
+        <p class="lede">"These steps take you from here to your first audit, and you can skip any of them."</p>
         <Pending
             pending=Signal::derive(move || load.with(|l| l.pending))
             status="Loading what you've set up…"
@@ -121,10 +125,16 @@ pub fn Welcome() -> impl IntoView {
                 </ol>
             </Show>
         </Pending>
-        <p>
-            <A href="/source-sets">"Go to your source sets"</A>
-            <span class="note">" You can come back to these steps at /welcome."</span>
-        </p>
+        <Help summary="About these steps">
+            <p>
+                "Stage Select reads only the folders you register. A step you skip, you can take later from the screen \
+                 it names. You can come back to these steps from Settings, then About."
+            </p>
+        </Help>
+        {move || {
+            last.with(|h| h.as_ref().is_some_and(|h| !h.sets.is_empty()))
+                .then(|| view! { <p><A href="/source-sets">"Go to your source sets"</A></p> })
+        }}
     }
 }
 
@@ -159,7 +169,6 @@ fn StepPanel(
                     " "
                     {move || view! { <StatusBadge status=status() /> }}
                 </h2>
-                <p>{explanation(step)}</p>
                 {move || match (state.get(), is_skipped.get()) {
                     (State::Done, _) => view! { <Done step last changed /> }.into_any(),
                     (_, true) => {
@@ -174,55 +183,92 @@ fn StepPanel(
                         }
                             .into_any()
                     }
-                    (State::Waiting(why), _) => {
-                        view! {
-                            <p class="note">{why}</p>
-                            <p>
-                                <button type="button" class="small" on:click=skip>"Skip this step"</button>
-                            </p>
-                        }
-                            .into_any()
+                    (State::Waiting(why), _) => view! { <p class="note">{why}</p> }.into_any(),
+                    (State::Ready, _) => view! { <Ready step last changed /> }.into_any(),
+                }}
+                {
+                    let (summary, more) = explanation(step);
+                    view! {
+                        <Help summary>
+                            <p>{more}</p>
+                        </Help>
                     }
-                    (State::Ready, _) => {
-                        view! {
-                            <Ready step last changed />
-                            <p>
-                                <button type="button" class="small" on:click=skip>"Skip this step"</button>
-                            </p>
-                        }
-                            .into_any()
-                    }
+                }
+                {move || {
+                    (!matches!(state.get(), State::Done) && !is_skipped.get())
+                        .then(|| {
+                            view! {
+                                <p>
+                                    <button type="button" class="small" on:click=skip>"Skip this step"</button>
+                                </p>
+                            }
+                        })
                 }}
             </section>
         </li>
     }
 }
 
-/// What a step is for and what taking it does.
-fn explanation(step: Step) -> &'static str {
+/// What a step is for, in one sentence, and the rest of what taking it does.
+fn explanation(step: Step) -> (&'static str, &'static str) {
     match step {
-        Step::Root => {
-            "A root is a folder Stage Select may work in. Register a read-only root for the folders that hold your \
-             games, and a writable root for the library folders it builds. It reads nothing until you register a \
-             root, and writes only where you let it: in a writable root, and in the paths of a read-only root you let \
-             repairs write to."
-        }
-        Step::Dat => {
-            "A DAT lists every file a set of games should have; an audit checks your files against it. Import a DAT \
-             file you have, or fetch the latest from a provider on the DATs screen."
-        }
-        Step::SourceSet => {
-            "A source set is a folder in a read-only root holding the games of one DAT. Registering it reads no file \
-             yet."
-        }
-        Step::Audit => {
-            "An audit reads each file of a source set and checks it against its DAT. It never changes your files."
-        }
-        Step::Library => {
-            "A library folder is where Stage Select builds the games you select, for your front end to play. It \
-             needs a writable root. Your source set stays as it is."
-        }
+        Step::Root => (
+            "A root is a folder Stage Select may work in.",
+            "Register a read-only root for the folders that hold your games, and a writable root for the library \
+             folders it builds. It reads nothing until you register a root, and writes only where you let it: in a \
+             writable root, and in the paths of a read-only root you let repairs write to.",
+        ),
+        Step::Dat => (
+            "A DAT lists every file a set of games should have.",
+            "An audit checks your files against it. Import a DAT file you have. Once a source set follows its DAT \
+             and you turn fetching on, Stage Select can fetch newer revisions of it from Redump or MAME. No-Intro \
+             DATs are never fetched: download them yourself.",
+        ),
+        Step::SourceSet => (
+            "A source set is a folder in a read-only root holding the games of one DAT.",
+            "Registering it reads no file yet.",
+        ),
+        Step::Audit => (
+            "An audit reads each file of a source set and checks it against its DAT.",
+            "It never changes your files.",
+        ),
+        Step::Library => (
+            "A library folder is where Stage Select builds the games you select, for your front end to play.",
+            "It needs a writable root. Your source set stays as it is.",
+        ),
     }
+}
+
+/// What fetching can do for you now, under the DAT step: nothing yet, which says to import a DAT first; turning it on;
+/// or fetching now.
+#[component]
+fn FetchNote(fetching: Fetching) -> impl IntoView {
+    match fetching {
+        Fetching::NothingToFetch => view! {
+            <p class="note">
+                "Fetching only brings newer revisions of DATs your source sets follow, so import your first DAT."
+            </p>
+        }
+        .into_any(),
+        Fetching::Off => view! {
+            <p class="note">
+                "Fetching is off. " <A href=FETCHING_SETTING>"Turn it on under Settings, then Operations"</A>
+                " to get newer revisions of the DATs your source sets follow."
+            </p>
+        }
+        .into_any(),
+        Fetching::On => view! {
+            <p>
+                <A href=FETCHING_STATUS>"Fetch newer DAT revisions now, on the DATs screen"</A>
+            </p>
+        }
+        .into_any(),
+    }
+}
+
+/// What fetching can do, from the last load.
+fn fetched(last: RwSignal<Option<Held>>) -> Fetching {
+    last.with(|h| fetching(h.as_ref().and_then(|h| h.fetch.as_ref())))
 }
 
 /// A step you can take now: its form, or a link to the screen that takes it.
@@ -244,9 +290,7 @@ fn Ready(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> imp
         Step::Root => view! { <RegisterRoot changed /> }.into_any(),
         Step::Dat => view! {
             <Upload on_done=changed />
-            <p>
-                <A href="/dats">"Fetch DATs from a provider on the DATs screen"</A>
-            </p>
+            {move || view! { <FetchNote fetching=fetched(last) /> }}
         }
         .into_any(),
         Step::SourceSet => view! { <RegisterSet changed /> }.into_any(),
@@ -383,6 +427,10 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
                     format!("Your DATs: {dats}.")
                 })}
             </Message>
+            {move || {
+                let fetching = fetched(last);
+                (fetching != Fetching::NothingToFetch).then(|| view! { <FetchNote fetching /> })
+            }}
         }
         .into_any(),
         Step::SourceSet => view! {
