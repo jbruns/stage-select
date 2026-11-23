@@ -18,7 +18,7 @@ use crate::ingest_model::{self, Outcome};
 use crate::model::{short_sha, when};
 use crate::parts::list::{Column, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
-use crate::parts::outcome::Link;
+use crate::parts::outcome::{Link, Made};
 use crate::parts::pending::ActionPending;
 use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
 use crate::parts::plan_model::Approval;
@@ -121,9 +121,9 @@ fn rows(plan: &IngestPlan) -> Vec<IngestRow> {
             let outcome = plan.outcomes.iter().find(|o| o.item == item.item).cloned();
             IngestRow {
                 result: ingest_model::outcome(plan, outcome.as_ref()),
-                made: outcome
-                    .as_ref()
-                    .and_then(|o| ingest_model::made_link(plan.content.action, o)),
+                made: outcome.as_ref().and_then(|o| {
+                    ingest_model::made_link(plan.content.action, item.addition.as_ref(), o)
+                }),
                 item: item.clone(),
                 kind,
                 outcome,
@@ -245,15 +245,20 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let approve = move || {
         latest.get().map(|p| {
             let n = p.content.items.len();
+            // Once finished, what the plan made is one click away.
             let state = match (&p.approval, &p.finished_at) {
                 (None, _) => None,
-                (Some(a), None) => Some(format!(
-                    "You approved it {}. It's moving the items now.",
-                    when(&a.at)
-                )),
-                (Some(_), Some(at)) => Some(format!("Finished {}.", when(at))),
+                (Some(a), None) => Some(view! {
+                    <Message kind=MessageKind::NOTICE live=Live::Off>
+                        {format!("You approved it {}. It's moving the items now.", when(&a.at))}
+                    </Message>
+                }
+                .into_any()),
+                (Some(_), Some(at)) => Some(view! {
+                    <Made text=format!("Finished {}.", when(at)) link=ingest_model::plan_made_link(&p) />
+                }
+                .into_any()),
             };
-            let made = ingest_model::plan_made_link(&p);
             let label = if n == 1 {
                 "Approve and move 1 item".to_string()
             } else {
@@ -271,12 +276,7 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 }
             });
             view! {
-                {state.map(|s| view! {
-                    <Message kind=MessageKind::DONE live=Live::Off>
-                        {s}
-                        {made.clone().map(|l| view! { " " <A href=l.href>{l.label}</A> })}
-                    </Message>
-                })}
+                {state}
                 {approve}
             }
         })

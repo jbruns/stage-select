@@ -113,6 +113,8 @@ SCREENS = {
     "ingest-kept": "/ingest/drop?tab=kept",
     "source-set-kept": "/source-sets/{findings_set}?tab=kept",
     "ingest-plan": "/ingest/drop?tab=plan",
+    "ingest-addition-plan": "/ingest/drop?tab=plan&plan={addition_plan}",
+    "source-set-no-repair": "/source-sets/{incomplete_set}?tab=repair",
     "activity": "/activity",
     "activity-kept": "/activity/kept",
     "activity-running": "/activity",
@@ -422,7 +424,8 @@ def seed(api, data):
         return job
 
     for system in (ATARI, MEGA_DRIVE, PC_ENGINE):
-        step(f"audit {system}", lambda s=system: audit(s))
+        if step(f"audit {system}", lambda s=system: audit(s)) and system == MEGA_DRIVE:
+            made["incomplete_set"] = urllib.parse.quote(MEGA_DRIVE)
     job = step(f"full audit {GAME_BOY}", lambda: audit(GAME_BOY, "full"))
     if job:
         made["findings_set"] = urllib.parse.quote(GAME_BOY)
@@ -516,6 +519,7 @@ def seed(api, data):
                 "parent": "Pocket Ranger (USA)"}},
         })
         api.post(f"/ingest-plans/{plan['id']}/approval", {"digest": plan["digest"]})
+        made["addition_plan"] = plan["id"]
         for _ in range(120):
             sets = api.get("/additions-sets")
             if any(a["additions"] for a in sets):

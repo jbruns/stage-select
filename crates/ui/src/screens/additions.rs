@@ -18,6 +18,7 @@ use crate::app::Loading;
 use crate::events::use_live;
 use crate::kept_model::KeptPlace;
 use crate::model::{short_sha, when};
+use crate::parts::help::Help;
 use crate::parts::legend::{LegendStrip, present_looks};
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Problem};
@@ -144,19 +145,20 @@ pub fn Additions() -> impl IntoView {
     });
     view! {
         <h1>"Additions"</h1>
-        <p class="lede">
-            "Files no DAT knows that you chose to keep, each known by its own hashes and a name you give it, in an \
-            additions set per system. A selection profile that opts in for a system builds them alongside the \
-            source set. Add one from an ingest folder, a repair of a source set or a cleanup of a library folder. \
-            An additions job publishes each one after you approve it, and moves the file of one you retire into \
-            the additions set's kept files."
-        </p>
         {move || match sets.get() {
             None => view! { <Loading what="the additions sets" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
         <AdditionsList additions refresh />
+        <Help summary="Files no DAT knows that you chose to keep, in an additions set per system">
+            <p>
+                "Each addition is known by its own hashes and a name you give it. A selection profile that opts in \
+                for a system builds them alongside the source set. Add one from an ingest folder, a repair of a \
+                source set or a cleanup of a library folder. An additions job publishes each one after you approve \
+                it, and moves the file of one you retire into the additions set's kept files."
+            </p>
+        </Help>
         {move || {
             sets.get()
                 .and_then(Result::ok)
