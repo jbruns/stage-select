@@ -23,13 +23,15 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     CellTip, Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
-use crate::parts::message::{Problem, Said};
+use crate::parts::message::Problem;
 use crate::parts::meter::GamesMeter;
+use crate::parts::outcome::{Link, Report, Reports, ShowReports};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
 use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::tabs::tab_link;
 use crate::parts::url_state::encode;
 use crate::registration;
 use crate::screens::coverage::{self, CoverageEditor, UNAVAILABLE};
@@ -42,7 +44,7 @@ pub fn set_href(name: &str) -> String {
 
 /// A tab of a source set's page.
 pub fn tab_href(name: &str, tab: PageTab) -> String {
-    format!("{}?tab={}", set_href(name), tab.slug())
+    tab_link(&set_href(name), Some(tab.slug()), &[])
 }
 
 /// Where you preview a selection of the source set.
@@ -55,14 +57,10 @@ pub fn new_library_href(name: &str) -> String {
     format!("/libraries/new?source_set={}", encode(name))
 }
 
-/// Queues an incremental audit of `name` against its default DAT revision, and says how that went in `said`.
-pub fn start_audit(name: String, said: RwSignal<Option<Result<String, String>>>) {
+/// Queues an incremental audit of `name` against its default DAT revision, and reports the job or its refusal.
+pub fn start_audit(name: String, reports: Reports) {
     leptos::task::spawn_local(async move {
-        let message = match queue_audit(&name).await {
-            Ok(job) => Ok(format!("Queued audit job #{} for {name}.", job.id)),
-            Err(problem) => Err(format!("Couldn't audit {name}: {problem}")),
-        };
-        said.set(Some(message));
+        reports.started(queue_audit(&name).await, &format!("Couldn't audit {name}"));
     });
 }
 
@@ -76,15 +74,12 @@ pub async fn queue_audit(name: &str) -> Result<Job, String> {
     api::post("/audits", &request).await
 }
 
-/// Queues a check of `name` for files changed since its latest audit, and says how that went in `said`.
-pub fn start_check(name: String, said: RwSignal<Option<Result<String, String>>>) {
+/// Queues a check of `name` for files changed since its latest audit, and reports the job or its refusal.
+pub fn start_check(name: String, reports: Reports) {
     leptos::task::spawn_local(async move {
         let path = format!("{}/stat-walks", set_href(&name));
-        let message = match api::post::<_, Job>(&path, &()).await {
-            Ok(job) => Ok(format!("Queued check #{} of {name} for changes.", job.id)),
-            Err(problem) => Err(format!("Couldn't check {name} for changes: {problem}")),
-        };
-        said.set(Some(message));
+        let started = api::post::<_, Job>(&path, &()).await;
+        reports.started(started, &format!("Couldn't check {name} for changes"));
     });
 }
 
@@ -311,7 +306,7 @@ impl ListRow for SetRow {
 /// What a list action reports to, and what it changes.
 #[derive(Clone, Copy)]
 struct Ctx {
-    said: RwSignal<Option<Result<String, String>>>,
+    said: Reports,
     proposing: RwSignal<Vec<String>>,
     refresh: RwSignal<u64>,
 }
@@ -327,35 +322,33 @@ impl Ctx {
             return;
         }
         self.proposing.update(|p| p.extend(names.iter().cloned()));
+        self.said.clear();
         leptos::task::spawn_local(async move {
-            let (mut proposed, mut failed) = (Vec::new(), Vec::new());
             for name in names {
                 let path = format!("{}/repairs", set_href(&name));
                 let made = api::post::<_, RepairPlan>(&path, &PlanRepair::default()).await;
-                match made {
-                    Ok(plan) => proposed.push(format!(
-                        "Proposed repair #{} of {name}: {} items to review on its Repair tab.",
-                        plan.id,
-                        plan.content.items.len()
-                    )),
+                self.said.add(match made {
+                    Ok(plan) => Report::Made {
+                        text: format!(
+                            "Proposed repair #{} of {name}: {} items to review.",
+                            plan.id,
+                            plan.content.items.len()
+                        ),
+                        link: Some(Link::new(
+                            tab_link(
+                                &set_href(&name),
+                                Some(PageTab::Repair.slug()),
+                                &[("plan", &plan.id.to_string())],
+                            ),
+                            "Open the repair",
+                        )),
+                    },
                     Err(problem) => {
-                        failed.push(format!("Couldn't propose a repair of {name}: {problem}"))
+                        Report::Refused(format!("Couldn't propose a repair of {name}: {problem}"))
                     }
-                }
+                });
                 self.proposing.update(|p| p.retain(|n| *n != name));
             }
-            // A failure leads, and makes the whole message a problem.
-            let said = failed
-                .iter()
-                .chain(&proposed)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ");
-            self.said.set(Some(if failed.is_empty() {
-                Ok(said)
-            } else {
-                Err(said)
-            }));
             self.refresh.update(|n| *n += 1);
         });
     }
@@ -366,6 +359,7 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
     let mut actions = vec![{
         let name = name.clone();
         RowAction::run(Glyph::ShieldCheck, format!("Audit {name}"), move || {
+            ctx.said.clear();
             start_audit(name.clone(), ctx.said)
         })
     }];
@@ -374,7 +368,10 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
         actions.push(RowAction::run(
             Glyph::ScanSearch,
             "Check for changes",
-            move || start_check(name.clone(), ctx.said),
+            move || {
+                ctx.said.clear();
+                start_check(name.clone(), ctx.said)
+            },
         ));
     }
     actions.push(match &row.summary.repair {
@@ -570,7 +567,7 @@ pub fn SourceSets() -> impl IntoView {
         })
     });
     let ctx = Ctx {
-        said: RwSignal::new(None),
+        said: Reports::new(),
         proposing: RwSignal::new(Vec::new()),
         refresh,
     };
@@ -580,10 +577,14 @@ pub fn SourceSets() -> impl IntoView {
     let one = move |chosen: Vec<SetRow>, href: fn(&str) -> String| match chosen.as_slice() {
         [row] => go.run(href(row.name())),
         [row, ..] => {
-            ctx.said.set(Some(Ok(format!(
-                "That works on one source set at a time: going on with {}.",
-                row.name()
-            ))));
+            ctx.said.clear();
+            ctx.said.add(Report::Made {
+                text: format!(
+                    "That works on one source set at a time: going on with {}.",
+                    row.name()
+                ),
+                link: None,
+            });
             go.run(href(row.name()));
         }
         [] => {}
@@ -591,11 +592,13 @@ pub fn SourceSets() -> impl IntoView {
     let actions: Vec<ToolAction<SetRow>> = vec![
         ToolAction::page(Glyph::Plus, "Register", move || registering.set(true)),
         ToolAction::<SetRow>::checked(Glyph::ShieldCheck, "Audit", move |chosen| {
+            ctx.said.clear();
             for row in chosen.rows {
                 start_audit(row.name().to_string(), ctx.said);
             }
         }),
         ToolAction::<SetRow>::checked(Glyph::ScanSearch, "Check for changes", move |chosen| {
+            ctx.said.clear();
             for row in chosen.rows {
                 start_check(row.name().to_string(), ctx.said);
             }
@@ -622,7 +625,7 @@ pub fn SourceSets() -> impl IntoView {
         <Show when=move || ctx.proposing.with(|p| !p.is_empty())>
             <PendingStatus status=Signal::derive(move || ctx.proposing.with(|p| proposing_status(p))) />
         </Show>
-        <Said said=ctx.said />
+        <ShowReports reports=ctx.said />
         <List
             id="source-sets"
             label="Source sets"

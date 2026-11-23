@@ -1415,6 +1415,11 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
                         .join("; "),
                 ),
                 error: None,
+                // An item is imported before it is moved out, so a moved one's revision was recorded.
+                dat_revision: (plan.content.action == IngestAction::DatImport
+                    && item.support_file.is_none())
+                .then(|| item.sha256.clone())
+                .flatten(),
             },
             Some((_, error, _)) => IngestOutcome {
                 item: item.item,
@@ -1422,6 +1427,7 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
                 moved: false,
                 detail: None,
                 error: Some(error.unwrap_or_else(|| "it was not moved".into())),
+                dat_revision: None,
             },
             None => IngestOutcome {
                 item: item.item,
@@ -1432,6 +1438,7 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
                     "the service stopped before it was moved; it was left as it is. Plan it again"
                         .into(),
                 ),
+                dat_revision: None,
             },
         });
     }
@@ -2255,6 +2262,7 @@ impl Store {
                                 moved: false,
                                 detail: None,
                                 error: Some(why),
+                                dat_revision: None,
                             });
                         }
                         Err(err) => return Err(err),
@@ -2282,13 +2290,19 @@ impl Store {
         let mut outcomes = Vec::new();
         for item in &content.items {
             let mut detail = Vec::new();
+            let mut dat_revision = None;
             if content.action == IngestAction::DatImport {
                 let imported = match item.support_file {
                     Some(_) => self.import_support_from_ingest(&dir, item),
                     None => self.import_from_ingest(&dir, id, item, actor, workers),
                 };
                 match imported {
-                    Ok(done) => detail.extend(done),
+                    Ok(done) => {
+                        detail.extend(done);
+                        if item.support_file.is_none() {
+                            dat_revision = item.sha256.clone();
+                        }
+                    }
                     Err(err) => {
                         outcomes.push(IngestOutcome {
                             item: item.item,
@@ -2296,6 +2310,7 @@ impl Store {
                             moved: false,
                             detail: None,
                             error: Some(format!("{err}; it was left as it is")),
+                            dat_revision: None,
                         });
                         continue;
                     }
@@ -2332,6 +2347,7 @@ impl Store {
                         moved: true,
                         detail: Some(detail.join("; ")),
                         error: None,
+                        dat_revision,
                     }
                 }
                 Err(why) => IngestOutcome {
@@ -2340,6 +2356,7 @@ impl Store {
                     moved: false,
                     detail: (!detail.is_empty()).then(|| detail.join("; ")),
                     error: Some(why),
+                    dat_revision,
                 },
             });
         }

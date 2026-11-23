@@ -955,6 +955,9 @@ pub struct Job {
     /// The approved plan a Build Job carries out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<i64>,
+    /// The Build a Build Job records, once it has started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<i64>,
     /// How an Audit Job's Audit gets its checksums.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<AuditEvidence>,

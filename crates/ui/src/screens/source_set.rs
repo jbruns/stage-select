@@ -34,6 +34,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::message::{Problem, Said};
 use crate::parts::meter::GamesMeter;
+use crate::parts::outcome::{JobOutcome, Reports, ShowReports};
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
     FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge,
@@ -44,7 +45,7 @@ use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
 use crate::screens::additions::{AdditionsList, SetView};
-use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
+use crate::screens::audit::{EntriesPanel, GamesPanel, load};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
@@ -164,8 +165,15 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     let editing = RwSignal::new(query.read_untracked().get("edit").as_deref() == Some("coverage"));
     let coverage =
         Signal::derive(move || good.with(|g| g.as_ref().map(|(s, _)| s.set.coverage.clone())));
-    let audit_now = move |_| start_audit(name.get_value(), said);
-    let check_now = move |_| start_check(name.get_value(), said);
+    let reports = Reports::new();
+    let audit_now = move |_| {
+        reports.clear();
+        start_audit(name.get_value(), reports)
+    };
+    let check_now = move |_| {
+        reports.clear();
+        start_check(name.get_value(), reports)
+    };
     let audited =
         Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.latest.is_some())));
     let follows = Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.set.follow)));
@@ -237,6 +245,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             </A>
         </div>
         <Said said />
+        <ShowReports reports />
         <Show when=move || desk.proposing().get() && tab.get() != PageTab::Repair>
             <PendingStatus status=MAKING_PLAN />
         </Show>
@@ -785,7 +794,7 @@ fn StartAuditForm(
                 outcome
                     .get()
                     .map(|outcome| match outcome {
-                        Ok(job) => queued(&job).into_any(),
+                        Ok(job) => view! { <JobOutcome job=job.id seed=job /> }.into_any(),
                         Err(message) => view! { <Problem message /> }.into_any(),
                     })
             }}

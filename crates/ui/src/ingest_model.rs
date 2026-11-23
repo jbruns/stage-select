@@ -11,6 +11,7 @@ use stage_select_api::ingest::{
 
 use crate::model::when;
 use crate::parts::icon::Glyph;
+use crate::parts::outcome::Link;
 use crate::parts::status::{IngestStatus, PlanState, Status};
 use crate::screens::additions::new_addition;
 use crate::screens::source_sets::tab_href;
@@ -460,6 +461,34 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
     }
 }
 
+/// Where what an item of a plan of `action` made, as `ended` says, can be seen: the DAT revision a DAT import
+/// recorded, even when moving the file afterwards failed, or the additions an addition moved into.
+pub fn made_link(action: IngestAction, ended: &IngestOutcome) -> Option<Link> {
+    match action {
+        IngestAction::DatImport => ended
+            .dat_revision
+            .as_ref()
+            .map(|sha| Link::new(format!("/dats?row={sha}"), "Open the DAT revision")),
+        IngestAction::Addition => (ended.moved && ended.error.is_none())
+            .then(|| Link::new("/additions", "Open the additions")),
+        IngestAction::Discard => None,
+    }
+}
+
+/// Where what `plan` made can be seen, once it made anything: the one DAT revision or additions an item made, or
+/// every DAT revision when it imported several.
+pub fn plan_made_link(plan: &IngestPlan) -> Option<Link> {
+    let mut made = plan
+        .outcomes
+        .iter()
+        .filter_map(|o| made_link(plan.content.action, o));
+    let first = made.next()?;
+    match (plan.content.action, made.next()) {
+        (IngestAction::DatImport, Some(_)) => Some(Link::new("/dats", "Open the DAT revisions")),
+        _ => Some(first),
+    }
+}
+
 /// The folder page's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FolderTab {
@@ -863,6 +892,7 @@ mod tests {
             moved,
             detail: None,
             error: error.map(Into::into),
+            dat_revision: None,
         };
         assert_eq!(outcome(&plan, None), Outcome::Waiting);
         plan.approval = serde_json::from_value(
@@ -878,6 +908,58 @@ mod tests {
         );
         plan.finished_at = Some("t".into());
         assert_eq!(outcome(&plan, None), Outcome::Left, "never reached");
+    }
+
+    #[test]
+    fn a_moved_item_links_to_what_it_made() {
+        let ended = |moved: bool, dat_revision: Option<&str>| IngestOutcome {
+            item: 1,
+            name: "x".into(),
+            moved,
+            detail: None,
+            error: None,
+            dat_revision: dat_revision.map(Into::into),
+        };
+        assert_eq!(
+            made_link(IngestAction::DatImport, &ended(true, Some("abc"))),
+            Some(Link::new("/dats?row=abc", "Open the DAT revision"))
+        );
+        assert_eq!(
+            made_link(IngestAction::DatImport, &ended(true, None)),
+            None,
+            "a support file makes no DAT revision"
+        );
+        let mut unmoved = ended(false, Some("abc"));
+        unmoved.error = Some("the move failed".into());
+        assert_eq!(
+            made_link(IngestAction::DatImport, &unmoved),
+            Some(Link::new("/dats?row=abc", "Open the DAT revision")),
+            "a DAT recorded before its move failed is still imported"
+        );
+        assert_eq!(
+            made_link(IngestAction::Addition, &ended(true, None)),
+            Some(Link::new("/additions", "Open the additions"))
+        );
+        assert_eq!(made_link(IngestAction::Addition, &ended(false, None)), None);
+        assert_eq!(made_link(IngestAction::Discard, &ended(true, None)), None);
+
+        let mut plan: IngestPlan = serde_json::from_value(serde_json::json!({
+            "id": 3, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+            "content": {"ingest_folder": 1, "root": "in", "action": "dat_import", "generation": 1,
+                        "items": [], "fingerprint": []},
+        }))
+        .unwrap();
+        assert_eq!(plan_made_link(&plan), None, "nothing moved yet");
+        plan.outcomes = vec![ended(false, None), ended(true, Some("abc"))];
+        assert_eq!(
+            plan_made_link(&plan),
+            Some(Link::new("/dats?row=abc", "Open the DAT revision"))
+        );
+        plan.outcomes.push(ended(true, Some("def")));
+        assert_eq!(
+            plan_made_link(&plan),
+            Some(Link::new("/dats", "Open the DAT revisions"))
+        );
     }
 
     #[test]

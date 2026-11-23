@@ -28,7 +28,8 @@ use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::Problem;
+use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::status::{
     AvailabilityStatus, FindingStatus, GameFlag, Placement, Status, StatusBadge, StatusCount,
@@ -40,6 +41,7 @@ use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
 };
+use crate::source_set_model::PageTab;
 
 /// An audit's entries and game statuses, as its panels show them.
 #[derive(Clone)]
@@ -192,7 +194,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             .collect::<Vec<_>>()
     });
     let set_href = format!("/source-sets/{}", api::segment(&audit.source_set));
-    let repair_href = format!("{set_href}?tab=repair");
+    let repair_href = tabs::tab_link(&set_href, Some(PageTab::Repair.slug()), &[]);
     let findings = audit.findings.clone();
     let games = audit.games.clone();
     let needs_review = needs_review_from_counts(&findings);
@@ -396,27 +398,10 @@ impl ReAudit {
     pub fn outcome(self) -> impl IntoView {
         move || {
             self.outcome.get().map(|outcome| match outcome {
-                Ok(job) => queued(&job).into_any(),
+                Ok(job) => view! { <JobOutcome job=job.id seed=job /> }.into_any(),
                 Err(message) => view! { <Problem message /> }.into_any(),
             })
         }
-    }
-}
-
-/// Says that a Job was queued, with the way to follow it.
-pub fn queued(job: &Job) -> impl IntoView + use<> {
-    let said = format!(
-        "Job #{} is queued to audit {} against ",
-        job.id, job.source_set
-    );
-    let sha256 = job.dat_revision.clone();
-    view! {
-        <Message kind=MessageKind::DONE>
-            {said}
-            <super::dats::RevisionName sha256 />
-            ". "
-            <A href="/activity">"Follow it in Activity"</A>
-        </Message>
     }
 }
 

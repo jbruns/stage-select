@@ -55,6 +55,17 @@ pub fn tab_href<'a>(
     format!("{path}{}", query_string(&pairs))
 }
 
+/// A link from elsewhere to the tab `tab` of the page at `path` (its segments already encoded), showing what `state` names there, such as the plan
+/// a repair carries out: `[("plan", "9")]`. `None` is the page's first tab.
+pub fn tab_link(path: &str, tab: Option<&str>, state: &[(&str, &str)]) -> String {
+    let pairs: Vec<(String, String)> = tab
+        .map(|t| ("tab".to_string(), t.to_string()))
+        .into_iter()
+        .chain(state.iter().map(|(k, v)| (k.to_string(), v.to_string())))
+        .collect();
+    format!("{path}{}", query_string(&pairs))
+}
+
 /// Where a key moves the focus from the tab at `at` of `len`: the arrow keys to the one before or after, wrapping
 /// around, and Home and End to the first and last. `None` for any other key.
 pub fn step(at: usize, len: usize, key: &str) -> Option<usize> {
@@ -221,6 +232,23 @@ mod tests {
             tab_href("/profiles/Mine", [], Some("Nintendo - NES & Famicom")),
             "/profiles/Mine?tab=Nintendo%20-%20NES%20%26%20Famicom"
         );
+    }
+
+    #[test]
+    fn a_link_to_a_tab_from_elsewhere_carries_what_the_tab_shows() {
+        assert_eq!(
+            tab_link(
+                "/source-sets/Atari%202600",
+                Some("repair"),
+                &[("plan", "9")]
+            ),
+            "/source-sets/Atari%202600?tab=repair&plan=9"
+        );
+        assert_eq!(
+            tab_link("/libraries/7", Some("builds"), &[]),
+            "/libraries/7?tab=builds"
+        );
+        assert_eq!(tab_link("/libraries/7", None, &[]), "/libraries/7");
     }
 
     #[test]

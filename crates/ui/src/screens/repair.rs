@@ -10,7 +10,6 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_router::params::ParamsMap;
-use stage_select_api::Job;
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
 use stage_select_api::repair::{
@@ -26,9 +25,10 @@ use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Column, ListRow, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, Change, PlanReview, PlanRow};
-use crate::parts::status::{PlanKind, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
     ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
@@ -36,7 +36,6 @@ use crate::repair_model::{
     steps_by_item, suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
-use crate::screens::jobs::progress_view;
 use crate::screens::source_sets::tab_href;
 use crate::source_set_model::PageTab;
 
@@ -829,12 +828,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
             Some(note) => Some(view! { <Message kind=MessageKind::NOTICE live=Live::Off>{note}</Message> }.into_any()),
             None => p.recovery_error.clone().map(|e| view! { <Problem message=e live=Live::Off /> }.into_any()),
         }}
-        {p.audit_job.map(|job| view! {
-            <p>
-                "An incremental audit was queued: "
-                <A href=format!("/activity?row={job}")>{format!("job {job}")}</A>
-            </p>
-        })}
+        {p.audit_job.map(|job| view! { <JobOutcome job /> })}
         {p.audit_owed.then(|| view! {
             <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
         })}
@@ -908,14 +902,13 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
     }
 }
 
-/// The repair's job, live: its state and progress, a way to cancel it while it runs, and the plan fetched again
-/// with its outcomes once it ends.
+/// The repair's job, live: its outcome, a way to cancel it while it runs, and the plan fetched again with its
+/// outcomes once it ends.
 #[component]
 fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
     let (shown, fetched) = (desk.plan, desk.fetched);
     let live = use_live();
     let problem = RwSignal::new(None::<String>);
-    let cancelling = RwSignal::new(false);
     Effect::new(move |_| {
         let ended = live
             .book
@@ -945,58 +938,8 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
             });
         }
     });
-    let cancel = move |_| {
-        cancelling.set(true);
-        leptos::task::spawn_local(async move {
-            let done =
-                api::post::<_, Job>(&format!("/jobs/{job}/cancellation"), &serde_json::json!({}))
-                    .await;
-            cancelling.set(false);
-            match done {
-                Ok(_) => problem.set(None),
-                Err(message) => problem.set(Some(message)),
-            }
-        });
-    };
     view! {
-        <Message kind=MessageKind::NOTICE>
-            {format!("Repair job #{job} ")}
-            {move || match live.book.with(|b| b.get(job).cloned()) {
-                Some(l) if l.job.state.is_final() => {
-                    let outcome = match &l.job.error {
-                        Some(error) => format!("ended: {error}"),
-                        None => "ended.".to_string(),
-                    };
-                    view! { <StatusBadge status=l.job.state /> " " <span>{outcome}</span> }.into_any()
-                }
-                Some(l) => {
-                    let asked = l.job.cancel_requested_at.is_some();
-                    view! {
-                        <StatusBadge status=l.job.state />
-                        " "
-                        {progress_view(&l)}
-                        {if asked {
-                            view! {
-                                <span class="note">
-                                    " You cancelled it: the change it started finishes, and the rest are skipped."
-                                </span>
-                            }
-                            .into_any()
-                        } else {
-                            view! {
-                                " "
-                                <button type="button" disabled=move || cancelling.get() on:click=cancel>
-                                    "Cancel the repair"
-                                </button>
-                            }
-                            .into_any()
-                        }}
-                    }
-                    .into_any()
-                }
-                None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
-            }}
-        </Message>
+        <JobOutcome job cancel=true />
         {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }

@@ -649,6 +649,10 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
 
     assert!(applied.outcomes[0].moved, "{applied:?}");
     assert_eq!(env.store.dat_revisions().unwrap().len(), revisions + 1);
+    assert_eq!(
+        applied.outcomes[0].dat_revision, plan.content.items[0].sha256,
+        "the outcome names the revision it imported"
+    );
     let jobs = env.store.jobs(10).unwrap();
     let audits: Vec<&str> = jobs
         .iter()

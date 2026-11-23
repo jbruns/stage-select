@@ -12,6 +12,7 @@ use stage_select_api::{Dat, Root, SourceSetSummary};
 use crate::api;
 use crate::events::use_live;
 use crate::parts::message::{Live, Message, MessageKind};
+use crate::parts::outcome::JobOutcome;
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StepStatus};
@@ -285,13 +286,12 @@ fn AuditSets(names: Signal<Vec<String>>) -> impl IntoView {
         let name = name.clone();
         async move {
             let job = queue_audit(&name).await?;
-            let message = format!("Queued audit job #{} for {name}.", job.id);
             // The stream's event for the job may come after this response: until it does, the book wouldn't know the
             // source set is busy, and the button would come back on.
             live.book.update(|b| {
-                b.accept(job);
+                b.accept(job.clone());
             });
-            Ok(message)
+            Ok::<_, String>(job)
         }
     });
     view! {
@@ -327,12 +327,10 @@ fn AuditSets(names: Signal<Vec<String>>) -> impl IntoView {
                     .value()
                     .get()
                     .and_then(Result::ok)
-                    .map(|message| {
+                    .map(|job| {
                         view! {
-                            <Message kind=MessageKind::DONE>
-                                {message}
-                                " This step is done once the audit finishes. You can follow it under Activity."
-                            </Message>
+                            <JobOutcome job=job.id seed=job />
+                            <p class="note">"This step is done once the audit finishes."</p>
                         }
                     })
             }}

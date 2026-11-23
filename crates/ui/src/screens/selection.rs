@@ -17,7 +17,6 @@ use stage_select_api::{
 use crate::api;
 use crate::app::Loading;
 use crate::arcade_model::{self, Needs};
-use crate::events::use_live;
 use crate::model::{game_status_label, when};
 use crate::parts::help::Help;
 use crate::parts::icon::{Glyph, Svg};
@@ -25,6 +24,7 @@ use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, RowAction, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::outcome::JobOutcome;
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{
     AvailabilityStatus, GameFlag, GroupStatus, SelectionFlag, Status, StatusBadge, StatusCount,
@@ -41,39 +41,6 @@ use crate::selection_model::{
     group_status, includable, include_and_check, kept_need_review, left_out_text, listed,
     rule_text, staged_changes, toggle, unresolved_explanation,
 };
-
-/// Says that a Job was queued to make a Selection, and links to the Selection once it is made.
-#[component]
-pub fn SelectionQueued(job: i64) -> impl IntoView {
-    let live = use_live();
-    let made = Memo::new(move |_| {
-        live.book.with(|b| {
-            b.get(job)
-                .map(|l| (l.job.state, l.job.selection, l.job.error.clone()))
-        })
-    });
-    let queued = move |selection: Option<i64>| {
-        view! {
-            <Message kind=MessageKind::DONE>
-                {format!("Job #{job} is queued to make a selection. ")}
-                {match selection {
-                    Some(selection) => {
-                        view! { <A href=format!("/selections/{selection}")>"Open the new selection"</A> }
-                            .into_any()
-                    }
-                    None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
-                }}
-            </Message>
-        }
-    };
-    move || match made.get() {
-        Some((state, None, Some(error))) if state.is_final() => {
-            let message = format!("Job #{job} to make a selection failed: {error}");
-            view! { <Problem message /> }.into_any()
-        }
-        made => queued(made.and_then(|(_, selection, _)| selection)).into_any(),
-    }
-}
 
 /// A release in a Selection's list, by its index.
 #[derive(Clone)]
@@ -559,7 +526,7 @@ pub fn NewSelection() -> impl IntoView {
             outcome
                 .get()
                 .map(|outcome| match outcome {
-                    Ok(job) => view! { <SelectionQueued job=job.id /> }.into_any(),
+                    Ok(job) => view! { <JobOutcome job=job.id seed=job /> }.into_any(),
                     Err(message) => view! { <Problem message /> }.into_any(),
                 })
         }}
@@ -965,7 +932,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             newer
                 .get()
                 .map(|outcome| match outcome {
-                    Ok(job) => view! { <SelectionQueued job=job.id /> }.into_any(),
+                    Ok(job) => view! { <JobOutcome job=job.id seed=job /> }.into_any(),
                     Err(message) => view! { <Problem message /> }.into_any(),
                 })
         }}
@@ -1828,7 +1795,7 @@ fn StagedChoices(
                                 {saved
                                     .jobs
                                     .into_iter()
-                                    .map(|job| view! { <SelectionQueued job=job.id /> })
+                                    .map(|job| view! { <JobOutcome job=job.id seed=job /> })
                                     .collect_view()}
                             }
                                 .into_any()

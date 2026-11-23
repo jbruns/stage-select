@@ -437,6 +437,9 @@ pub struct IngestOutcome {
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The SHA-256 of the DAT revision a DAT import of the item recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dat_revision: Option<String>,
 }
 
 /// A plan for items of an Ingest Folder.

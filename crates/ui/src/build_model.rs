@@ -5,14 +5,14 @@ use std::collections::BTreeMap;
 
 use stage_select_api::SelectionRecord;
 use stage_select_api::build::{
-    BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
-    IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, PlaceHow,
-    PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval, PlanSummary, RemovalKind,
-    RestoreKind, ReturnHow, UnfinishedBuild,
+    BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry, DriftKind,
+    FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
+    LibraryFolder, PlaceHow, PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval,
+    PlanSummary, RemovalKind, RestoreKind, ReturnHow, UnfinishedBuild,
 };
 
 use crate::activity_model::bytes;
-use crate::parts::status::BuildKind;
+use crate::parts::status::{BuildKind, Status};
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
     match kind {
@@ -602,6 +602,44 @@ pub fn item_state_label(state: ItemState) -> &'static str {
     }
 }
 
+/// A build's files as its page shows them: its counts, then its files, failures first and written last.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildFiles {
+    /// Failed, uncertain and writing (each only when a file is), not written, and written, with how many files.
+    pub counts: Vec<(ItemState, u64)>,
+    /// Each file with its place in the build, in the order the page lists them.
+    pub rows: Vec<(usize, BuildItem)>,
+}
+
+pub fn build_files(detail: &BuildDetail) -> BuildFiles {
+    let b = &detail.build;
+    let mut counts = vec![(ItemState::Failed, b.failed)];
+    if b.uncertain > 0 {
+        counts.push((ItemState::Uncertain, b.uncertain));
+    }
+    let writing = publishing(detail);
+    if writing > 0 {
+        counts.push((ItemState::Publishing, writing));
+    }
+    counts.extend([
+        (ItemState::Pending, b.pending),
+        (ItemState::Applied, b.applied),
+    ]);
+    let rank = |state: ItemState| ItemState::ALL.iter().position(|s| *s == state);
+    let mut rows: Vec<(usize, BuildItem)> = detail.items.iter().cloned().enumerate().collect();
+    rows.sort_by_key(|(_, i)| rank(i.state));
+    BuildFiles { counts, rows }
+}
+
+/// How many of a build's files are still being put in place, which its summary doesn't count.
+pub fn publishing(detail: &BuildDetail) -> u64 {
+    detail
+        .items
+        .iter()
+        .filter(|i| i.state == ItemState::Publishing)
+        .count() as u64
+}
+
 /// The plan's items by kind, the ones a build writes first, leaving out kinds with none.
 pub fn by_kind(items: &[PlanItem]) -> Vec<(ItemKind, Vec<&PlanItem>)> {
     ItemKind::ALL
@@ -644,8 +682,95 @@ fn url_component(text: &str) -> String {
 mod tests {
     use super::*;
     use stage_select_api::ProfileVersionRef;
-    use stage_select_api::build::{Cleanup, KeepAside};
+    use stage_select_api::build::{BuildSummary, Cleanup, KeepAside};
     use stage_select_api::selection::{SelectionPins, SelectionSummary};
+
+    #[test]
+    fn a_build_leads_with_its_counts_and_its_failures() {
+        let item = |target: &str, state: ItemState| BuildItem {
+            target: target.into(),
+            game: target.into(),
+            kind: ItemKind::Copy,
+            state,
+            error: None,
+        };
+        let mut detail = BuildDetail {
+            build: BuildSummary {
+                id: 4,
+                folder: 7,
+                plan: 9,
+                job: 12,
+                state: BuildState::Failed,
+                generation: 0,
+                selection: 2,
+                audit: 3,
+                dat_revision: "abc".into(),
+                started_at: "t".into(),
+                finished_at: Some("t".into()),
+                applied: 2,
+                failed: 1,
+                pending: 1,
+                uncertain: 0,
+                planned: PlanSummary::default(),
+            },
+            items: vec![
+                item("a.zip", ItemState::Applied),
+                item("b.zip", ItemState::Pending),
+                item("c.zip", ItemState::Failed),
+                item("d.zip", ItemState::Applied),
+            ],
+        };
+        let files = build_files(&detail);
+        assert_eq!(
+            files.counts,
+            vec![
+                (ItemState::Failed, 1),
+                (ItemState::Pending, 1),
+                (ItemState::Applied, 2)
+            ],
+            "uncertain and writing show only when a file is"
+        );
+        let order = |files: &BuildFiles| {
+            files
+                .rows
+                .iter()
+                .map(|(i, f)| (*i, f.target.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(&files),
+            [
+                (2, "c.zip".to_string()),
+                (1, "b.zip".to_string()),
+                (0, "a.zip".to_string()),
+                (3, "d.zip".to_string())
+            ],
+            "failures first, written last, each keeping its place in the build"
+        );
+
+        detail.build.uncertain = 1;
+        detail.items.push(item("e.zip", ItemState::Uncertain));
+        detail.items.push(item("f.zip", ItemState::Publishing));
+        let files = build_files(&detail);
+        assert_eq!(
+            files.counts,
+            vec![
+                (ItemState::Failed, 1),
+                (ItemState::Uncertain, 1),
+                (ItemState::Publishing, 1),
+                (ItemState::Pending, 1),
+                (ItemState::Applied, 2)
+            ],
+            "a file still being put in place is counted, not dropped"
+        );
+        assert_eq!(
+            order(&files)
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect::<Vec<_>>(),
+            ["c.zip", "e.zip", "f.zip", "b.zip", "a.zip", "d.zip"]
+        );
+    }
 
     fn drift(kind: DriftKind, game: Option<&str>, conflict: bool) -> DriftEntry {
         DriftEntry {
