@@ -1772,6 +1772,133 @@ impl Status for ItemState {
     }
 }
 
+/// What became of one item of a plan once it was applied, whatever the plan: failures lead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ItemOutcome {
+    Failed,
+    Uncertain,
+    NotDone,
+    Done,
+}
+
+impl Status for ItemOutcome {
+    const ALL: &'static [Self] = &[
+        ItemOutcome::Failed,
+        ItemOutcome::Uncertain,
+        ItemOutcome::NotDone,
+        ItemOutcome::Done,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            ItemOutcome::Failed => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Failed",
+                "Applying it failed, so it's as it was before; open it to see why.",
+            ),
+            ItemOutcome::Uncertain => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Uncertain",
+                "It stopped part way, so check what's there now before you plan again.",
+            ),
+            ItemOutcome::NotDone => look(
+                Glyph::CircleDashed,
+                Tone::Neutral,
+                "Not done",
+                "The plan stopped before it got to this item, so it's as it was before.",
+            ),
+            ItemOutcome::Done => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Done",
+                "It was done as planned.",
+            ),
+        }
+    }
+}
+
+/// What one candidate of a cleanup plan is: an entry Stage Select did not build, by what the latest check found it to
+/// be, a built file that is not TorrentZip, or a kept file. Conflicts at a selected game's file lead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CleanupKind {
+    Conflict,
+    NotBuilt,
+    Renamed,
+    Unselected,
+    Unknown,
+    Directory,
+    Repack,
+    Kept,
+}
+
+impl Status for CleanupKind {
+    const ALL: &'static [Self] = &[
+        CleanupKind::Conflict,
+        CleanupKind::NotBuilt,
+        CleanupKind::Renamed,
+        CleanupKind::Unselected,
+        CleanupKind::Unknown,
+        CleanupKind::Directory,
+        CleanupKind::Repack,
+        CleanupKind::Kept,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            CleanupKind::Conflict => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "In the way",
+                "It's at a selected game's file, so the folder is incomplete until you set it aside or adopt it.",
+            ),
+            CleanupKind::NotBuilt => look(
+                Glyph::FileX,
+                Tone::Review,
+                "Not built here",
+                "It holds a selected game that Stage Select didn't build, so you can adopt it.",
+            ),
+            CleanupKind::Renamed => look(
+                Glyph::PencilLine,
+                Tone::Review,
+                "Renamed",
+                "It holds a game the DAT lists under another name.",
+            ),
+            CleanupKind::Unselected => look(
+                Glyph::CircleMinus,
+                Tone::Neutral,
+                "Not selected",
+                "It holds a game the DAT lists that your selection doesn't select.",
+            ),
+            CleanupKind::Unknown => look(
+                Glyph::FileQuestionMark,
+                Tone::Review,
+                "Unknown file",
+                "No DAT knows it: a hack, homebrew or junk, so you can add it as an addition.",
+            ),
+            CleanupKind::Directory => look(
+                Glyph::FolderTree,
+                Tone::Neutral,
+                "Directory",
+                "It's a directory, which is never opened, so you can only set it aside whole or acknowledge it.",
+            ),
+            CleanupKind::Repack => look(
+                Glyph::Package,
+                Tone::Neutral,
+                "Needs repacking",
+                "A built file that isn't TorrentZip: repacking rewrites it and sets the file as it is aside.",
+            ),
+            CleanupKind::Kept => look(
+                Glyph::Archive,
+                Tone::Neutral,
+                "Kept file",
+                "A file a build set aside, which you can put back.",
+            ),
+        }
+    }
+}
+
 /// The workbench's live connection to the Service.
 impl Status for Stream {
     const ALL: &'static [Self] = &[Stream::Reconnecting, Stream::Connecting, Stream::Live];
@@ -1951,6 +2078,8 @@ pub(crate) mod tests {
             ("folder checks", vocabulary::<CheckFlag>()),
             ("checked files", vocabulary::<FileOutcome>()),
             ("build items", vocabulary::<ItemState>()),
+            ("plan outcomes", vocabulary::<ItemOutcome>()),
+            ("cleanup candidates", vocabulary::<CleanupKind>()),
             ("the stream", vocabulary::<Stream>()),
         ]
     }

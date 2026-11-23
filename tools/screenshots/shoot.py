@@ -31,9 +31,10 @@ target/screenshots/.work/<label>/:
   Activity lists a failed job;
 - a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets, and a choice for a game
   group the Atari DAT lacks, so the Atari selection has a stale choice;
-- two library folders: play/atari-2600, its plan approved and built (so READY shows), then one built file changed and
-  a stray file added and the folder checked, so its drift tab has drift; and play/game-boy, its plan waiting for
-  approval;
+- three library folders: play/atari-2600, its plan approved and built (so READY shows), then one built file changed and
+  a stray file added and the folder checked, so its drift tab has drift; play/game-boy, its plan waiting for
+  approval; and play/atari-2600-cleanup, built, then given a stray file and checked, and a cleanup planned
+  that sets the stray file aside, so its plan tab shows a cleanup plan;
 - the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows;
 - the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan;
 - kept files: play/atari-2600-spare, built, then two strays set aside from it by an approved cleanup, with a plan to
@@ -103,6 +104,7 @@ SCREENS = {
     "library-drift": "/libraries/{library}?tab=drift",
     "library-kept": "/libraries/{kept_library}?tab=kept",
     "kept-deletion": "/libraries/{kept_library}?tab=kept&kept-deletion={kept_deletion}",
+    "library-cleanup": "/libraries/{cleanup_library}?tab=plan",
     "build": "/builds/{build}",
     "additions": "/additions",
     "source-set-additions": "/source-sets/{additions_set}?tab=additions",
@@ -110,6 +112,7 @@ SCREENS = {
     "ingest-folder": "/ingest/drop",
     "ingest-kept": "/ingest/drop?tab=kept",
     "source-set-kept": "/source-sets/{findings_set}?tab=kept",
+    "ingest-plan": "/ingest/drop?tab=plan",
     "activity": "/activity",
     "activity-kept": "/activity/kept",
     "activity-running": "/activity",
@@ -474,6 +477,19 @@ def seed(api, data):
     if pending:
         made["pending_library"] = pending[0]
 
+    def cleanup():
+        folder, _ = library(ATARI, "atari-2600-cleanup", True)
+        (data / "play" / "atari-2600-cleanup" / "Stray Disk (USA).zip").write_bytes(payload("a stray"))
+        job = api.follow(api.post(f"/libraries/{folder}/checks"))
+        if job["state"] != "succeeded":
+            raise RuntimeError(f"the check {job['state']}")
+        api.post(f"/libraries/{folder}/cleanups", {"entries": {"Stray Disk (USA).zip": "keep_aside"}})
+        return folder
+
+    cleanup_library = step("library folder play/atari-2600-cleanup, a cleanup planned", cleanup)
+    if cleanup_library:
+        made["cleanup_library"] = cleanup_library
+
     def ingest():
         api.call("PATCH", "/settings", {"ingest_folders": {"drop": {"settle_secs": 0}}})
         api.post("/ingest-folders", {"root": "drop"})
@@ -752,7 +768,7 @@ def main():
     parser.add_argument("--screens", help="comma-separated screen names to capture; by default every one")
     parser.add_argument("--route", action="append", default=[], metavar="NAME=PATH",
                         help="add or replace a screen; PATH may name {findings_set}, {audit}, {selection}, "
-                             "{library}, {pending_library}, {build} or {additions_set}")
+                             "{library}, {pending_library}, {cleanup_library}, {build} or {additions_set}")
     parser.add_argument("--list", action="store_true", help="list the screens and stop")
     parser.add_argument("--empty", action="store_true",
                         help="seed nothing, to capture the screens as a first run sees them; leaves out the screens "

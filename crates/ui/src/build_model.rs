@@ -12,7 +12,8 @@ use stage_select_api::build::{
 };
 
 use crate::activity_model::bytes;
-use crate::parts::status::{BuildKind, Status};
+use crate::parts::plan_model::{self, Does};
+use crate::parts::status::{BuildKind, ItemOutcome, Status};
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
     match kind {
@@ -317,6 +318,43 @@ pub fn plan_kinds(content: &PlanContent) -> Vec<(BuildKind, Option<BuildKind>)> 
         .iter()
         .map(|_| (BuildKind::Repack, Some(BuildKind::SetAside)));
     entries.chain(restores).chain(repacks).collect()
+}
+
+/// What a plan does to its rows of `kind`, for its summary line.
+fn does(kind: BuildKind) -> Does {
+    match kind {
+        BuildKind::Copy => Does::new("builds", "file", "files"),
+        BuildKind::Repack => Does::new("repacks", "file", "files"),
+        BuildKind::Place => Does::new("places", "game", "games"),
+        BuildKind::Return => Does::new("returns", "game", "games"),
+        BuildKind::Adopt => Does::new("adopts", "file", "files"),
+        BuildKind::Unchanged => Does::new("keeps", "file as it is", "files as they are"),
+        BuildKind::NoSource => Does::new("has no source for", "game", "games"),
+        BuildKind::Conflict => Does::new("finds", "file in the way", "files in the way"),
+        BuildKind::Unresolved => Does::new("waits on", "unresolved group", "unresolved groups"),
+        BuildKind::Blocked => Does::new("can't build", "blocked game", "blocked games"),
+        BuildKind::Remove => Does::new("removes", "file", "files"),
+        BuildKind::SetAside => Does::new("sets aside", "file", "files"),
+        BuildKind::Acknowledge => Does::new("acknowledges", "entry", "entries"),
+        BuildKind::Restore => Does::new("puts back", "kept file", "kept files"),
+    }
+}
+
+/// A build plan's one-line summary in numbers: its rows by what each does, in the order of their kinds.
+pub fn plan_line(content: &PlanContent) -> String {
+    let mut kinds: Vec<BuildKind> = plan_kinds(content).into_iter().map(|(k, _)| k).collect();
+    kinds.sort_by_key(|k| k.rank());
+    plan_model::plan_line(kinds.into_iter().map(|k| (does(k), 1)), "Changes nothing")
+}
+
+/// What became of a build's item, by its state.
+pub fn item_outcome(state: ItemState) -> ItemOutcome {
+    match state {
+        ItemState::Applied => ItemOutcome::Done,
+        ItemState::Failed => ItemOutcome::Failed,
+        ItemState::Uncertain => ItemOutcome::Uncertain,
+        ItemState::Pending | ItemState::Publishing => ItemOutcome::NotDone,
+    }
 }
 
 /// How a plan places a game, for its detail.
@@ -1347,6 +1385,27 @@ mod tests {
             summary_of(&plan, BuildKind::Return) as u64,
             plan.summary().returned,
             "one row per game, as the summary counts them"
+        );
+    }
+
+    #[test]
+    fn the_summary_line_counts_a_build_plans_rows_by_what_they_do() {
+        let plan = content(
+            vec![
+                item("Pong", ItemKind::Unchanged),
+                item("Combat", ItemKind::Copy),
+                item("Outlaw", ItemKind::Conflict),
+                item("Air", ItemKind::Copy),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(
+            plan_line(&plan),
+            "Builds 2 files, keeps 1 file as it is, finds 1 file in the way"
+        );
+        assert_eq!(
+            plan_line(&content(Vec::new(), Vec::new())),
+            "Changes nothing"
         );
     }
 }

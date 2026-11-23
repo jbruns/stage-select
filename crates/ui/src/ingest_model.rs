@@ -12,7 +12,8 @@ use stage_select_api::ingest::{
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::outcome::Link;
-use crate::parts::status::{IngestStatus, PlanState, Status};
+use crate::parts::plan_model::{self, Does};
+use crate::parts::status::{IngestStatus, ItemOutcome, PlanState, Status};
 use crate::screens::additions::new_addition;
 use crate::screens::source_sets::tab_href;
 use crate::source_set_model::PageTab;
@@ -426,6 +427,26 @@ impl Outcome {
             Outcome::Failed => "Failed",
         }
     }
+
+    /// The outcome every plan shows for it: none until its move ends.
+    pub fn item_outcome(self) -> Option<ItemOutcome> {
+        match self {
+            Outcome::Waiting | Outcome::Moving => None,
+            Outcome::Moved => Some(ItemOutcome::Done),
+            Outcome::Left => Some(ItemOutcome::NotDone),
+            Outcome::Failed => Some(ItemOutcome::Failed),
+        }
+    }
+}
+
+/// A plan's one-line summary in numbers: what it does with its `n` items.
+pub fn plan_line(action: IngestAction, n: usize) -> String {
+    let does = match action {
+        IngestAction::Discard => Does::new("sets aside", "item", "items"),
+        IngestAction::DatImport => Does::new("imports", "file", "files"),
+        IngestAction::Addition => Does::new("adds", "addition", "additions"),
+    };
+    plan_model::plan_line([(does, n)], "Moves nothing")
 }
 
 /// Where the folder's plans are, for its Plan tab's icon, from its plans newest first: a plan you approved still
@@ -1062,5 +1083,19 @@ mod tests {
             FolderTab::Kept,
             "a tab the URL names wins"
         );
+    }
+
+    #[test]
+    fn an_ingest_plan_says_what_it_does_in_numbers_and_each_ended_move_is_an_outcome() {
+        use crate::parts::status::ItemOutcome;
+        assert_eq!(plan_line(IngestAction::Discard, 3), "Sets aside 3 items");
+        assert_eq!(plan_line(IngestAction::DatImport, 1), "Imports 1 file");
+        assert_eq!(plan_line(IngestAction::Addition, 2), "Adds 2 additions");
+        assert_eq!(plan_line(IngestAction::Addition, 0), "Moves nothing");
+        assert_eq!(Outcome::Waiting.item_outcome(), None);
+        assert_eq!(Outcome::Moving.item_outcome(), None);
+        assert_eq!(Outcome::Moved.item_outcome(), Some(ItemOutcome::Done));
+        assert_eq!(Outcome::Left.item_outcome(), Some(ItemOutcome::NotDone));
+        assert_eq!(Outcome::Failed.item_outcome(), Some(ItemOutcome::Failed));
     }
 }

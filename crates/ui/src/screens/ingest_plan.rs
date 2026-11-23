@@ -1,6 +1,7 @@
-//! An ingest plan, for you to review and approve, with the shared plan review (`parts::plan`): what it does with each
-//! item, as rows reading item → destination with the kind of move beside them, and each item's reason and outcome in
-//! its detail. A plan does one thing with every item and you approve it whole, so it offers no choices to set.
+//! An ingest plan, for you to review and approve, in the shared plan shape (`parts::plan`): what it does with each
+//! item, as rows reading item → destination with the kind of move beside them and its outcome once moved, and each
+//! item's reason and result in its detail. A plan does one thing with every item and you approve it whole, so it
+//! offers no choices to set.
 
 use std::cmp::Ordering;
 
@@ -19,8 +20,9 @@ use crate::parts::list::{Column, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::outcome::Link;
 use crate::parts::pending::ActionPending;
-use crate::parts::plan::{Change, PlanReview, PlanRow};
-use crate::parts::status::{IngestPlanKind, Status, StatusBadge, StatusIcon};
+use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
+use crate::parts::plan_model::Approval;
+use crate::parts::status::{IngestPlanKind, ItemOutcome, Status, StatusBadge, StatusIcon};
 
 /// One item of the plan under review, with how its move ended once you approved the plan.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +38,7 @@ struct IngestRow {
 enum PlanCol {
     Kind,
     Change,
-    Result,
+    Outcome,
 }
 
 impl PlanRow for IngestRow {
@@ -44,11 +46,15 @@ impl PlanRow for IngestRow {
     fn kind(&self) -> IngestPlanKind {
         self.kind
     }
+
+    fn outcome(&self) -> Option<ItemOutcome> {
+        self.result.item_outcome()
+    }
 }
 
 impl ListRow for IngestRow {
     type Col = PlanCol;
-    const COLUMNS: &'static [PlanCol] = &[PlanCol::Kind, PlanCol::Change, PlanCol::Result];
+    const COLUMNS: &'static [PlanCol] = &[PlanCol::Kind, PlanCol::Change, PlanCol::Outcome];
 
     fn column(col: PlanCol) -> Column {
         match col {
@@ -64,9 +70,7 @@ impl ListRow for IngestRow {
                 },
             )
             .sortable(),
-            PlanCol::Result => Column::new("result", "Result", Width::Fixed(11.0))
-                .sortable()
-                .hint("How the item's move ended, once you approve the plan"),
+            PlanCol::Outcome => plan::outcome_column(),
         }
     }
 
@@ -95,7 +99,7 @@ impl ListRow for IngestRow {
                 <Change current=self.item.name.clone() proposed=self.item.destination.clone() />
             }
             .into_any(),
-            PlanCol::Result => self.result.label().into_any(),
+            PlanCol::Outcome => plan::outcome_cell(self.outcome()),
         }
     }
 
@@ -103,7 +107,7 @@ impl ListRow for IngestRow {
         match col {
             PlanCol::Kind => self.kind.rank().cmp(&other.kind.rank()),
             PlanCol::Change => self.item.name.cmp(&other.item.name),
-            PlanCol::Result => self.result.cmp(&other.result),
+            PlanCol::Outcome => plan::compare_outcome(self.outcome(), other.outcome()),
         }
     }
 }
@@ -230,7 +234,15 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
     });
     let list_rows = last_good_rows(move || loaded.get().map(|p| p.map(|p| rows(&p))));
 
-    let header = move || {
+    let summary = Signal::derive(move || {
+        latest.with(|p| {
+            p.as_ref().map_or_else(String::new, |p| {
+                ingest_model::plan_line(p.content.action, p.content.items.len())
+            })
+        })
+    });
+    // Approve sits above the list; once approved, where the moves stand takes its place.
+    let approve = move || {
         latest.get().map(|p| {
             let n = p.content.items.len();
             let state = match (&p.approval, &p.finished_at) {
@@ -250,33 +262,37 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
             let approve = p.approval.is_none().then(|| {
                 let p = p.clone();
                 view! {
-                    <button
-                        type="button"
-                        class="primary"
-                        disabled=move || approving.pending().get()
-                        on:click=move |_| { approving.dispatch_local(p.clone()); }
-                    >
-                        {label.clone()}
-                    </button>
+                    <ApproveBar
+                        label
+                        approval=Approval::default()
+                        busy=approving.pending()
+                        on_approve=Callback::new(move |()| { approving.dispatch_local(p.clone()); })
+                    />
                 }
             });
             view! {
-                <p>{action_text(p.content.action)}</p>
-                <p class="small">
-                    "Digest " <code class="hash">{short_sha(&p.digest).to_string()}</code>
-                    {format!(
-                        " · it binds the {} entries of the folder as they are now; if anything there changes before \
-                         you approve, plan again",
-                        p.content.fingerprint.len()
-                    )}
-                </p>
                 {state.map(|s| view! {
                     <Message kind=MessageKind::DONE live=Live::Off>
                         {s}
                         {made.clone().map(|l| view! { " " <A href=l.href>{l.label}</A> })}
                     </Message>
                 })}
-                <div class="form">{approve}</div>
+                {approve}
+            }
+        })
+    };
+    let help = move || {
+        latest.get().map(|p| {
+            view! {
+                <p>{action_text(p.content.action)}</p>
+                <p>
+                    "Digest " <code class="hash">{short_sha(&p.digest).to_string()}</code>
+                    {format!(
+                        ". It binds the {} entries of the folder as they are now; if anything there changes before \
+                         you approve, plan again.",
+                        p.content.fingerprint.len()
+                    )}
+                </p>
             }
         })
     };
@@ -289,16 +305,20 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 _ => ().into_any(),
             }}
-            <ActionPending action=approving status="Approving…">
-                {header}
-            </ActionPending>
             <PlanReview
                 id="ingest-plan"
                 label=format!("Plan #{plan}")
                 rows=list_rows
                 empty="The plan moves nothing."
+                summary
                 placeholder="Filter by item, destination or result"
                 detail=Callback::new(row_detail)
+                approve=move || view! {
+                    <ActionPending action=approving status="Approving…">
+                        {approve}
+                    </ActionPending>
+                }
+                help
             />
         </section>
     }

@@ -17,18 +17,21 @@ use stage_select_api::storage::{Storage, StorageFormat};
 
 use crate::api;
 use crate::events::use_live;
+use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Column, ListRow, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
-use crate::parts::plan::{self, Change, PlanReview, PlanRow};
-use crate::parts::status::{PlanKind, Status, StatusIcon};
+use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
+use crate::parts::plan_model::Approval;
+use crate::parts::status::{ItemOutcome, PlanKind, Status, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
     ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
-    fetch_after, kind_choices, may_propose, place, proposed, repair_to_show, requested,
-    steps_by_item, suggested_addition, to_add, unfinished_note, unplanned,
+    fetch_after, item_outcome, kind_choices, may_propose, place, plan_line, proposed,
+    repair_to_show, requested, steps_by_item, suggested_addition, to_add, unfinished_note,
+    unplanned,
 };
 use crate::screens::additions::AdditionFields;
 use crate::screens::source_sets::tab_href;
@@ -400,6 +403,7 @@ struct RepairRow {
     proposed: String,
     open: bool,
     outcome: Option<String>,
+    done: Option<ItemOutcome>,
     desk: RepairDesk,
 }
 
@@ -409,6 +413,7 @@ impl PartialEq for RepairRow {
             && self.proposed == other.proposed
             && self.open == other.open
             && self.outcome == other.outcome
+            && self.done == other.done
     }
 }
 
@@ -417,6 +422,7 @@ enum RepairCol {
     Kind,
     Change,
     Choice,
+    Outcome,
 }
 
 impl PlanRow for RepairRow {
@@ -424,11 +430,20 @@ impl PlanRow for RepairRow {
     fn kind(&self) -> PlanKind {
         PlanKind::from(self.item.kind)
     }
+
+    fn outcome(&self) -> Option<ItemOutcome> {
+        self.done
+    }
 }
 
 impl ListRow for RepairRow {
     type Col = RepairCol;
-    const COLUMNS: &'static [RepairCol] = &[RepairCol::Kind, RepairCol::Change, RepairCol::Choice];
+    const COLUMNS: &'static [RepairCol] = &[
+        RepairCol::Kind,
+        RepairCol::Change,
+        RepairCol::Choice,
+        RepairCol::Outcome,
+    ];
 
     fn column(col: RepairCol) -> Column {
         match col {
@@ -447,6 +462,7 @@ impl ListRow for RepairRow {
             RepairCol::Choice => Column::new("choice", "Choice", Width::Fixed(11.0))
                 .sortable()
                 .hint("What you choose to do with it"),
+            RepairCol::Outcome => plan::outcome_column(),
         }
     }
 
@@ -480,6 +496,7 @@ impl ListRow for RepairRow {
             }
             RepairCol::Choice if self.open => choice_select(&self.item, self.desk),
             RepairCol::Choice => self.item.chosen.label().into_any(),
+            RepairCol::Outcome => plan::outcome_cell(self.done),
         }
     }
 
@@ -488,41 +505,28 @@ impl ListRow for RepairRow {
             RepairCol::Kind => self.kind().rank().cmp(&other.kind().rank()),
             RepairCol::Change => self.place.cmp(&other.place),
             RepairCol::Choice => self.item.chosen.label().cmp(other.item.chosen.label()),
+            RepairCol::Outcome => plan::compare_outcome(self.done, other.done),
         }
     }
 }
 
-/// The choice of one item, as a `<select>` at the end of its row.
+/// The choice of one item, as the plan's shared `<select>`.
 fn choice_select(item: &RepairItem, desk: RepairDesk) -> AnyView {
     let key = StoredValue::new(item.key.clone());
     let planned = StoredValue::new(item.clone());
-    let now = move || desk.picked.with(|p| planned.with_value(|i| current(i, p)));
-    let offered = item.choices.clone();
-    let planned_choice = item.chosen;
-    view! {
-        <select
-            class="choice"
-            class:changed=move || now() != planned_choice
-            aria-label=format!("What to do with {}", place(item))
-            prop:value=move || now().label()
-            on:change=move |ev| {
-                let value = event_target_value(&ev);
-                if let Some(c) = offered.iter().find(|c| c.label() == value) {
-                    let c = *c;
-                    desk.picked.update(|m| {
-                        m.insert(key.get_value(), c);
-                    });
-                }
-            }
-        >
-            {item
-                .choices
-                .iter()
-                .map(|c| view! { <option value=c.label()>{c.label()}</option> })
-                .collect_view()}
-        </select>
-    }
-    .into_any()
+    let now = Signal::derive(move || desk.picked.with(|p| planned.with_value(|i| current(i, p))));
+    plan::choice_select(
+        format!("What to do with {}", place(item)),
+        item.choices.clone(),
+        item.chosen,
+        now,
+        RepairChoice::label,
+        Callback::new(move |c| {
+            desk.picked.update(|m| {
+                m.insert(key.get_value(), c);
+            })
+        }),
+    )
 }
 
 /// Why and how: the item's summary, the plan's note on it, its steps, what it is added as, and its outcome.
@@ -684,12 +688,6 @@ pub fn RepairTab(
     });
     view! {
         <section aria-label="Repair">
-            <p class="lede">
-                "A repair is proposed from the source set's latest audit and from items in ingest folders. Set a \
-                choice for every item of a kind, for the rows you check, or one row at a time, then plan again to \
-                review what it changes. Nothing changes until you approve, and nothing is deleted: what a repair \
-                replaces or sets aside goes to kept files."
-            </p>
             {move || {
                 let shown = desk
                     .plan
@@ -748,6 +746,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                 ),
                 open,
                 outcome: outcomes.get(item.key.as_str()).map(|o| outcome_text(o)),
+                done: item_outcome(&p, item),
                 item: item.clone(),
                 desk,
             })
@@ -763,7 +762,12 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
         .count();
     let count = p.content.steps.len();
     let changed = move || desk.changed();
-    let held = move || desk.working.get() || desk.proposal.pending().get() || changed() != 0;
+    let busy = Signal::derive(move || desk.working.get() || desk.proposal.pending().get());
+    let approval = Signal::derive(move || Approval {
+        changed: changed(),
+        blocked: count == 0,
+    });
+    let summary = plan_line(&p);
     // Only the choices some item offers are offered in bulk.
     let all_keys: Vec<String> = p.content.items.iter().map(|i| i.key.clone()).collect();
     let offered = if open {
@@ -803,32 +807,75 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
             </Message>
         }
     });
+    let audit = p.content.audit;
+    let binding = p.content.fingerprint.len();
+    let marker = p.content.creates_marker;
+    let storage = storage_line(&p.content.storage);
+    let help = move || {
+        view! {
+            <p>
+                "A repair is proposed from the source set's latest audit and from items in ingest folders. Set a \
+                choice for every item of a kind, for the rows you check, or one row at a time, then plan again to \
+                review what it changes. Nothing changes until you approve, and nothing is deleted: what a repair \
+                replaces or sets aside goes to kept files."
+            </p>
+            <p>
+                "It's planned from " <A href=audit_href.clone()>{format!("audit #{audit}")}</A>
+                {format!(
+                    ". It binds the {binding} entries of the source set as they are now: anything changing there, \
+                     or another audit, before you approve means planning again."
+                )}
+                {marker.then_some(
+                    " It's this source set's first repair, so it writes the source set's marker, .stage-select/marker.",
+                )}
+            </p>
+            <p>{storage.clone()}</p>
+        }
+    };
+    let job = p.job;
+    let unfinished = unfinished_note(&p);
+    let recovery_error = p.recovery_error.clone();
+    let audit_job = p.audit_job;
+    let audit_owed = p.audit_owed;
+    let plan_id = p.id;
+    // Approve sits above the list; once approved, the repair's job and what it queued take its place.
+    let approve = move || {
+        if open {
+            view! {
+                <ApproveBar
+                    label=format!("Approve and make {count} changes")
+                    approval
+                    busy
+                    on_approve=Callback::new(move |()| desk.approve())
+                    on_plan_again=Callback::new(move |()| desk.propose())
+                />
+            }
+            .into_any()
+        } else {
+            view! {
+                {job.map(|job| view! { <RepairProgress job plan=plan_id desk /> })}
+                {match (unfinished.clone(), recovery_error.clone()) {
+                    (Some(note), _) => Some(view! { <Message kind=MessageKind::NOTICE live=Live::Off>{note}</Message> }.into_any()),
+                    (None, e) => e.map(|e| view! { <Problem message=e live=Live::Off /> }.into_any()),
+                }}
+                {audit_job.map(|job| view! { <JobOutcome job /> })}
+                {audit_owed.then(|| view! {
+                    <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
+                })}
+            }
+            .into_any()
+        }
+    };
     view! {
         <h2>{format!("Repair plan #{}", p.id)}</h2>
         {replaced_note}
-        <p class="note">
-            "From " <A href=audit_href>{format!("audit #{}", p.content.audit)}</A>
-            {format!(
-                ". It binds the {} entries of the source set as they are now: anything changing there, or another \
-                 audit, before you approve means planning again.",
-                p.content.fingerprint.len()
-            )}
-            {p.content.creates_marker.then_some(
-                " It is this source set's first repair, so it writes the source set's marker, .stage-select/marker.",
-            )}
-            " " {storage_line(&p.content.storage)}
-        </p>
-        {p.job.map(|job| view! { <RepairProgress job plan=p.id desk /> })}
-        {match unfinished_note(&p) {
-            Some(note) => Some(view! { <Message kind=MessageKind::NOTICE live=Live::Off>{note}</Message> }.into_any()),
-            None => p.recovery_error.clone().map(|e| view! { <Problem message=e live=Live::Off /> }.into_any()),
-        }}
-        {p.audit_job.map(|job| view! { <JobOutcome job /> })}
-        {p.audit_owed.then(|| view! {
-            <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
-        })}
         {if p.content.items.is_empty() {
-            view! { <p class="note">"Nothing to repair."</p> }.into_any()
+            view! {
+                {approve()}
+                <p class="note">"Nothing to repair."</p>
+                <Help summary="About this plan">{help()}</Help>
+            }
+                .into_any()
         } else {
             view! {
                 <PlanReview
@@ -836,49 +883,18 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                     label="Repair items"
                     rows=Signal::derive(move || rows.clone())
                     empty="Nothing to repair."
+                    summary
                     placeholder="Filter by file, game, kind or choice"
                     detail=Callback::new(move |row: RepairRow| repair_detail(row, detail_steps.clone()))
                     actions
                     apply=Callback::new(move |kind: PlanKind| if open { apply_to_all(desk, kind) } else { ().into_any() })
+                    approve=approve
                     message=desk.said
+                    help=help
                 />
             }
                 .into_any()
         }}
-        {open.then(|| view! {
-            {move || {
-                let n = changed();
-                (n > 0).then(|| view! {
-                    <Message kind=MessageKind::NOTICE>
-                        {format!(
-                            "You changed {n} {} since this plan was made. Plan again with your choices to review \
-                             and approve them; approving now would approve the plan as shown.",
-                            if n == 1 { "item" } else { "items" }
-                        )}
-                    </Message>
-                })
-            }}
-            <div class="actions">
-                <button
-                    type="button"
-                    class:primary=move || changed() != 0
-                    disabled=move || desk.working.get() || desk.proposal.pending().get()
-                    on:click=move |_| desk.propose()
-                >
-                    "Plan again with your choices"
-                </button>
-                {(count > 0).then(|| view! {
-                    <button
-                        type="button"
-                        class:primary=move || changed() == 0
-                        disabled=held
-                        on:click=move |_| desk.approve()
-                    >
-                        {format!("Approve and make {count} changes")}
-                    </button>
-                })}
-            </div>
-        })}
         <details>
             <summary>{format!("Every change, in order ({count}; {removals} set aside)")}</summary>
             <ul class="plain">

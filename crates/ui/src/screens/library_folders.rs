@@ -3,18 +3,16 @@
 //! `library_plan`.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
-use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
     AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemState, KeptFile,
-    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup, RETENTION,
+    ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, ItemState, LibraryFolder,
+    PlacedFile, Plan, PlanBuild, PlanChoices,
 };
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -24,8 +22,8 @@ use stage_select_api::{
 use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
-    build_files, build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label,
-    folders_for, incomplete_counts, incomplete_reason_label, unfinished_label,
+    build_files, build_state_label, drift_kind_label, folders_for, incomplete_counts,
+    incomplete_reason_label, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
@@ -53,10 +51,9 @@ use crate::parts::status::{
 use crate::parts::tabs::{Tab, Tabs, tab_link, use_tab};
 use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
-use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
 use crate::screens::kept::KeptFiles;
-use crate::screens::library_plan::LibraryPlan;
+use crate::screens::library_plan::{CleanupDraft, LibraryPlan};
 use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
     LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
@@ -178,8 +175,6 @@ pub struct Planner {
     folder: RwSignal<Option<i64>>,
     /// An older selection the last plan could build instead, offered once making a fresh one failed.
     older: RwSignal<Option<OlderSelection>>,
-    /// What the last choice set in bulk did, and in which folder: the plan it replaced is gone.
-    pub(crate) said: RwSignal<Option<(i64, String)>>,
     replans: StoredValue<Replans>,
     /// Bumped when the answer to a superseded request lands, so that the pages show the plan as the server holds it.
     dropped: RwSignal<u64>,
@@ -241,7 +236,6 @@ impl Planner {
             status,
             folder: RwSignal::new(None),
             older,
-            said: RwSignal::new(None),
             replans,
             dropped,
         }
@@ -250,7 +244,6 @@ impl Planner {
     pub(crate) fn start(self, folder: i64, selection: Option<i64>, choices: PlanChoices) {
         self.folder.set(Some(folder));
         self.older.set(None);
-        self.said.set(None);
         self.status.set("Making plan…".into());
         let replan = self
             .replans
@@ -262,15 +255,6 @@ impl Planner {
             selection,
             choices,
         });
-    }
-
-    /// What the last choice set in bulk did in the folder.
-    pub(crate) fn said(self, folder: i64) -> Signal<Option<String>> {
-        Signal::derive(move || {
-            self.said
-                .get()
-                .and_then(|(f, s)| (f == folder).then_some(s))
-        })
     }
 
     /// Subscribes to the plans made, and to answers dropped for a later request's.
@@ -1189,10 +1173,9 @@ fn FolderPage(
             FolderTab::Plan => view! { <PlanTab folder=id latest refresh /> }.into_any(),
             FolderTab::Builds => view! { <Builds folder=id /> }.into_any(),
             FolderTab::Drift => {
-                let source_set = folder.with_value(|f| f.source_set.clone());
                 view! {
                     <CheckPanel folder=id busy refresh reports=checks />
-                    <CleanupForm folder=id source_set busy refresh />
+                    <CleanupStart folder=id busy refresh />
                 }
                 .into_any()
             }
@@ -1817,259 +1800,19 @@ fn drift_detail(row: DriftRow) -> AnyView {
     .into_any()
 }
 
-/// Plans a cleanup of what the latest check found: what to do with each entry Stage Select did not build that you
-/// choose, the kept files to put back, and the built files to repack as TorrentZip. Nothing changes until you
-/// approve the plan.
+/// A cleanup of what the latest check found, in the plan shape: every entry Stage Select did not build, built file
+/// that is not TorrentZip and kept file, left as it is until you choose. Once planned, it opens on the Plan tab for
+/// you to review and approve.
 #[component]
-fn CleanupForm(
-    folder: i64,
-    source_set: String,
-    busy: Signal<bool>,
-    refresh: RwSignal<u64>,
-) -> impl IntoView {
-    let live = use_live();
-    // An entry added as an addition is suggested its source set's DAT as its system.
-    let system = LocalResource::new(move || {
-        let path = format!("/source-sets/{}", api::segment(&source_set));
-        async move { api::get::<SourceSetRecord>(&path).await.ok().map(|s| s.dat) }
-    });
-    let loaded = LocalResource::new(move || {
-        live.settled.track();
-        refresh.track();
-        async move {
-            let check = api::get::<FolderCheck>(&format!("/libraries/{folder}/check"))
-                .await
-                .ok();
-            let kept = api::get::<Vec<KeptFile>>(&format!("/libraries/{folder}/kept-files"))
-                .await
-                .unwrap_or_default();
-            (check, kept)
-        }
-    });
-    let request = RwSignal::new(PlanCleanup::default());
-    // What each entry you choose to add as an addition is added as, by name.
-    let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
+fn CleanupStart(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
     let go = navigator();
-    let planning = Action::new_local(move |body: &PlanCleanup| {
-        let body = body.clone();
-        async move { api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await }
+    let on_planned = Callback::new(move |()| {
+        refresh.update(|n| *n += 1);
+        go.run(tab_href(folder, FolderTab::Plan));
     });
-    Effect::new(move || {
-        if let Some(Ok(_)) = planning.value().get() {
-            request.set(PlanCleanup::default());
-            refresh.update(|n| *n += 1);
-            go.run(tab_href(folder, FolderTab::Plan));
-        }
-    });
-    let plan = move |_| {
-        let mut body = request.get_untracked();
-        body.additions = adding.with_untracked(|adding| {
-            body.entries
-                .iter()
-                .filter(|(_, a)| **a == CleanupAction::AddAddition)
-                .filter_map(|(name, _)| adding.get(name).map(|a| (name.clone(), a.get_untracked())))
-                .collect()
-        });
-        planning.dispatch(body);
-    };
-    let toggle = |list: &mut Vec<String>, name: &str| match list.iter().position(|x| x == name) {
-        Some(at) => {
-            list.remove(at);
-        }
-        None => list.push(name.to_string()),
-    };
-    let form = move || {
-        loaded.get().map(|(check, kept)| {
-            let drift = check.as_ref().map(|c| c.drift.clone()).unwrap_or_default();
-            let repackable: Vec<String> = check
-                .map(|c| {
-                    c.files
-                        .into_iter()
-                        .filter(|f| {
-                            !f.torrentzip
-                                && matches!(
-                                    f.outcome,
-                                    FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
-                                )
-                        })
-                        .map(|f| f.target)
-                        .collect()
-                })
-                .unwrap_or_default();
-            if drift.is_empty() && repackable.is_empty() && kept.is_empty() {
-                return view! {
-                    <p class="note">
-                        "Nothing to clean up: the latest check found nothing Stage Select did not build, every built \
-                        file is TorrentZip, and no files are set aside."
-                    </p>
-                }
-                .into_any();
-            }
-            view! {
-                {(!drift.is_empty()).then(|| view! {
-                    <h3>"Not built here"</h3>
-                    <ul class="plain">
-                        {drift
-                            .into_iter()
-                            .map(|d| {
-                                let name = StoredValue::new(d.name.clone());
-                                let current = move || {
-                                    request.with(|r| {
-                                        name.with_value(|n| r.entries.get(n).map(|a| a.as_str()).unwrap_or(""))
-                                            .to_string()
-                                    })
-                                };
-                                let choose = move |ev| {
-                                    let value = event_target_value(&ev);
-                                    let action = cleanup_actions_all().into_iter().find(|a| a.as_str() == value);
-                                    request.update(|r| {
-                                        let n = name.get_value();
-                                        match action {
-                                            Some(a) => {
-                                                r.entries.insert(n, a);
-                                            }
-                                            None => {
-                                                r.entries.remove(&n);
-                                            }
-                                        }
-                                    });
-                                };
-                                let addable = cleanup_actions(&d).contains(&CleanupAction::AddAddition).then(|| {
-                                    let n = d.name.clone();
-                                    adding.with_untracked(|a| a.get(&n).copied()).unwrap_or_else(|| {
-                                        let suggested = system.get_untracked().flatten();
-                                        let fields = RwSignal::new(new_addition(&n, suggested.as_deref()));
-                                        adding.update_untracked(|a| {
-                                            a.insert(n, fields);
-                                        });
-                                        fields
-                                    })
-                                });
-                                let adds = move || {
-                                    request.with(|r| {
-                                        name.with_value(|n| r.entries.get(n) == Some(&CleanupAction::AddAddition))
-                                    })
-                                };
-                                view! {
-                                    <li>
-                                        <label>
-                                            <code>{d.name.clone()}</code>
-                                            {format!(": {} ", drift_kind_label(d.kind))}
-                                            <select prop:value=current on:change=choose>
-                                                <option value="">"Leave it"</option>
-                                                {cleanup_actions(&d)
-                                                    .into_iter()
-                                                    .map(|a| view! { <option value=a.as_str()>{cleanup_action_label(a)}</option> })
-                                                    .collect_view()}
-                                            </select>
-                                        </label>
-                                        {addable.map(|value| view! {
-                                            <Show when=adds>
-                                                <p>"Add it as: " <AdditionFields value /></p>
-                                            </Show>
-                                        })}
-                                    </li>
-                                }
-                            })
-                            .collect_view()}
-                    </ul>
-                })}
-                {(!repackable.is_empty()).then(|| view! {
-                    <h3>"Built files that are not TorrentZip"</h3>
-                    <ul class="plain">
-                        {repackable
-                            .into_iter()
-                            .map(|target| {
-                                let t = StoredValue::new(target.clone());
-                                view! {
-                                    <li>
-                                        <label>
-                                            <input
-                                                type="checkbox"
-                                                prop:checked=move || request.with(|r| t.with_value(|t| r.repack.contains(t)))
-                                                on:change=move |_| request.update(|r| t.with_value(|t| toggle(&mut r.repack, t)))
-                                            />
-                                            " Repack "
-                                            <code>{target}</code>
-                                            " as TorrentZip, setting the file as it is aside"
-                                        </label>
-                                    </li>
-                                }
-                            })
-                            .collect_view()}
-                    </ul>
-                })}
-                {(!kept.is_empty()).then(|| view! {
-                    <h3>"Kept files"</h3>
-                    <ul class="plain">
-                        {kept
-                            .into_iter()
-                            .map(|k| {
-                                let id = k.id;
-                                let what = if k.directory { "folder" } else { "file" };
-                                view! {
-                                    <li>
-                                        <label>
-                                            <input
-                                                type="checkbox"
-                                                prop:checked=move || request.with(|r| r.restore.contains(&id))
-                                                on:change=move |_| request.update(|r| match r.restore.iter().position(|x| *x == id) {
-                                                    Some(at) => {
-                                                        r.restore.remove(at);
-                                                    }
-                                                    None => r.restore.push(id),
-                                                })
-                                            />
-                                            {format!(" Put back the kept {what} ")}
-                                            <code>{k.name.clone()}</code>
-                                        </label>
-                                    </li>
-                                }
-                            })
-                            .collect_view()}
-                    </ul>
-                })}
-                <div class="form">
-                    <button
-                        type="button"
-                        disabled=move || busy.get() || planning.pending().get() || request.with(PlanCleanup::is_empty)
-                        on:click=plan
-                    >
-                        "Plan the cleanup"
-                    </button>
-                </div>
-            }
-            .into_any()
-        })
-    };
-    view! {
-        <section aria-labelledby="cleanup-title">
-            <h2 id="cleanup-title">"Clean up the folder"</h2>
-            <p class="lede">
-                {format!(
-                    "Choose what to do with what the latest check found. Set an entry aside, and it is moved, whole, \
-                     into {RETENTION}; adopt a file that holds a selected game, and it is recorded as built under that \
-                     game's file name; acknowledge an entry, and it is no longer reported until it changes; add a file \
-                     no DAT knows as an addition, and it is set aside and copied into its system's \
-                     additions set. Anything \
-                     you do not choose is left as it is, and nothing changes until you approve the plan."
-                )}
-            </p>
-            <ActionPending action=planning status="Making the cleanup plan…">
-                {form}
-            </ActionPending>
-        </section>
-    }
+    view! { <CleanupDraft folder refresh busy on_planned /> }
 }
 
-fn cleanup_actions_all() -> [CleanupAction; 4] {
-    [
-        CleanupAction::KeepAside,
-        CleanupAction::Adopt,
-        CleanupAction::Acknowledge,
-        CleanupAction::AddAddition,
-    ]
-}
 /// Plans building one of the bound selection profile's selections of the source set.
 #[component]
 fn PlanForm(folder: LibraryFolder) -> impl IntoView {
