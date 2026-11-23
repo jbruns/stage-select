@@ -949,7 +949,7 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
                             if count == 1 { "game" } else { "games" },
                         )}
                     </p>
-                    <ChangesTable id="preview-changes" changes />
+                    {(count > 0).then(|| view! { <ChangesTable id="preview-changes" changes /> })}
                 }
                     .into_any()
             }

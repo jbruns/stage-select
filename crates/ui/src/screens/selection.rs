@@ -1022,7 +1022,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             <A href=format!("/selections/{}", diff.from)>{format!("selection #{}", diff.from)}</A>
                             {format!(": {count} {} changed outcome.", if count == 1 { "game" } else { "games" })}
                         </p>
-                        <ChangesTable id="changes" changes=diff.changes />
+                        {(count > 0).then(|| view! { <ChangesTable id="changes" changes=diff.changes /> })}
                     </section>
                 }
                     .into_any()
