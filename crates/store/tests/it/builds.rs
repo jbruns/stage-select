@@ -6400,7 +6400,11 @@ fn a_profile_names_its_library_folders_and_the_version_each_was_built_with() {
     env.store
         .save_profile(PROFILE, &changed, Some(1), "Operator", &[], WORKERS)
         .unwrap();
-    assert_eq!(uses()[0].2, Some(1), "built with version 1, now behind version 2");
+    assert_eq!(
+        uses()[0].2,
+        Some(1),
+        "built with version 1, now behind version 2"
+    );
     assert_eq!(env.store.profiles().unwrap()[0].library_folders.len(), 2);
 }
 

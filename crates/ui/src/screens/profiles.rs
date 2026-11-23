@@ -11,8 +11,9 @@ use stage_select_api::selection::{
     Category, Compilations, Outcome, SelectionOptions, SelectionProfile, SystemSettings,
 };
 use stage_select_api::{
-    Preview, PreviewRequest, ProfileCheck, ProfileFolder, ProfileRecord, ProfileVersion, SaveProfile,
-    SavedProfile, SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelectionFor, Vocabulary,
+    Preview, PreviewRequest, ProfileCheck, ProfileFolder, ProfileRecord, ProfileVersion,
+    SaveProfile, SavedProfile, SelectionRecord, SourceSetRecord, SourceSetSystem,
+    StartSelectionFor, Vocabulary,
 };
 
 use crate::api;
@@ -32,8 +33,8 @@ use crate::parts::tabs::{Tab, Tabs, use_tab, use_tab_keyed};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionForm};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, preview_set,
-    reset_global, reset_system, system_tabs, use_global_settings,
+    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, on_newest,
+    preview_set, reset_global, reset_system, system_tabs, use_global_settings,
 };
 
 /// How long the editor waits after an edit before checking it and previewing it.
@@ -77,6 +78,8 @@ struct ProfileItem(ProfileRecord);
 enum ProfileCol {
     Name,
     Version,
+    Folders,
+    OnNewest,
     Saved,
     SavedBy,
 }
@@ -86,6 +89,8 @@ impl ListRow for ProfileItem {
     const COLUMNS: &'static [ProfileCol] = &[
         ProfileCol::Name,
         ProfileCol::Version,
+        ProfileCol::Folders,
+        ProfileCol::OnNewest,
         ProfileCol::Saved,
         ProfileCol::SavedBy,
     ];
@@ -105,6 +110,14 @@ impl ListRow for ProfileItem {
                 .numeric()
                 .sortable()
                 .hint("Its newest version"),
+            ProfileCol::Folders => Column::new("folders", "Library folders", Width::Fixed(8.5))
+                .numeric()
+                .sortable()
+                .hint("The library folders that use it"),
+            ProfileCol::OnNewest => Column::new("on-newest", "On newest", Width::Fixed(7.5))
+                .numeric()
+                .sortable()
+                .hint("The library folders last built with its newest version"),
             ProfileCol::Saved => Column::new("saved", "Saved", Width::Fixed(11.0)).sortable(),
             ProfileCol::SavedBy => {
                 Column::new("saved-by", "Saved by", Width::Flex { min: 8.0, share: 1 }).sortable()
@@ -139,6 +152,14 @@ impl ListRow for ProfileItem {
             ProfileCol::Version => latest
                 .map_or("—".to_string(), |v| v.version.to_string())
                 .into_any(),
+            ProfileCol::Folders => self.0.library_folders.len().to_string().into_any(),
+            ProfileCol::OnNewest => {
+                if self.0.library_folders.is_empty() {
+                    "—".into_any()
+                } else {
+                    on_newest(&self.0).to_string().into_any()
+                }
+            }
             ProfileCol::Saved => latest
                 .map(|v| view! { <Clip text=when(&v.saved_at) /> })
                 .into_any(),
@@ -153,6 +174,12 @@ impl ListRow for ProfileItem {
         match col {
             ProfileCol::Name => self.0.name.to_lowercase().cmp(&other.0.name.to_lowercase()),
             ProfileCol::Version => a.map(|v| v.version).cmp(&b.map(|v| v.version)),
+            ProfileCol::Folders => self
+                .0
+                .library_folders
+                .len()
+                .cmp(&other.0.library_folders.len()),
+            ProfileCol::OnNewest => on_newest(&self.0).cmp(&on_newest(&other.0)),
             ProfileCol::Saved => a.map(|v| &v.saved_at).cmp(&b.map(|v| &v.saved_at)),
             ProfileCol::SavedBy => a.map(|v| &v.saved_by).cmp(&b.map(|v| &v.saved_by)),
         }
@@ -208,15 +235,16 @@ pub fn Profiles() -> impl IntoView {
         )
     });
     view! {
-        <h1>"Selection profiles"</h1>
-        <p class="lede">
-            "A selection profile holds your settings for choosing one version per game, and your choices where you want something else. Every save is kept as a new version."
-        </p>
-        <div class="actions">
-            <A href="/new-profile" attr:class="button">
-                "New selection profile"
-            </A>
-        </div>
+        <header class="page-head">
+            <div class="page-title">
+                <h1>"Selection profiles"</h1>
+            </div>
+            <div class="page-actions">
+                <A href="/new-profile" attr:class="button primary">
+                    "New selection profile"
+                </A>
+            </div>
+        </header>
         {move || match profiles.get() {
             None => view! { <Loading what="the selection profiles" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -238,6 +266,13 @@ pub fn Profiles() -> impl IntoView {
             placeholder="Filter by name or who saved it"
             detail=Callback::new(profile_detail)
         />
+        <Help summary="What a selection profile is">
+            <p>
+                "A selection profile holds your settings for choosing one version per game, and your choices where \
+                you want something else. Every save is kept as a new version. A library folder built with an older \
+                version isn't on the newest until you plan and run its next build."
+            </p>
+        </Help>
     }
 }
 
@@ -265,7 +300,8 @@ pub fn ProfileScreen() -> impl IntoView {
         let version = q.get("saved")?.parse::<u32>().ok()?;
         Some((version, q.get("job").and_then(|j| j.parse::<i64>().ok())))
     });
-    move || match record.get() {
+    move || {
+        match record.get() {
         None => view! { <Loading what="the selection profile" /> }.into_any(),
         Some(Err(message)) => view! {
             <h1>"Selection profile"</h1>
@@ -288,6 +324,7 @@ pub fn ProfileScreen() -> impl IntoView {
             }
             .into_any()
         }
+    }
     }
 }
 
@@ -403,7 +440,10 @@ fn built_with(built: Option<u32>, newest: Option<u32>) -> String {
 fn folder_detail(row: FolderRow) -> AnyView {
     let (f, newest) = (row.0, row.1);
     let note = match (f.built_version, newest) {
-        (None, _) => "Not built yet: plan a build from the folder to build this profile's selection.".to_string(),
+        (None, _) => {
+            "Not built yet: plan a build from the folder to build this profile's selection."
+                .to_string()
+        }
         (Some(v), Some(n)) if v < n => format!(
             "Built with version {v}. Version {n} is newer: plan a build from the folder to build with it."
         ),

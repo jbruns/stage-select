@@ -3120,7 +3120,10 @@ mod selections {
         client.add_set();
         save(&client, json!({}));
         assert!(
-            client.json::<Value>("/profiles/Everyday").get("library_folders").is_none(),
+            client
+                .json::<Value>("/profiles/Everyday")
+                .get("library_folders")
+                .is_none(),
             "no folder uses it yet"
         );
         let (status, folder) = send(

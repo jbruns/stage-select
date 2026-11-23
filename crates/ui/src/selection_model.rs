@@ -7,13 +7,26 @@ use stage_select_api::GameStatus;
 use stage_select_api::arcade::same_name;
 use stage_select_api::selection::{
     ChoiceStatus, LeftOutGame, Outcome, ReleaseRow, Rule, Selection, SelectionGroup,
-    SelectionOptions, SelectionProfile, SystemSettings,
+    SelectionOptions, SelectionProfile, SelectionSummary, SystemSettings,
 };
 
 use crate::arcade_model::update_arcade;
 use crate::model::{Sort, status_text};
-use crate::parts::status::{GroupStatus, SelectionFlag};
+use crate::parts::status::{AvailabilityStatus, GroupStatus, SelectionFlag};
 use crate::placement_model::FlagsNow;
+
+/// How many of a Profile's Library Folders were last built with its newest version. A folder not built yet, or built
+/// with an older version, isn't on it.
+pub fn on_newest(record: &stage_select_api::ProfileRecord) -> usize {
+    let Some(newest) = record.latest.as_ref().map(|v| v.version) else {
+        return 0;
+    };
+    record
+        .library_folders
+        .iter()
+        .filter(|f| f.built_version == Some(newest))
+        .count()
+}
 
 /// The source set the Profile editor should preview against now, if it should change from `current`: the open system
 /// tab's (`tab`) source set, once the systems are known (`registered`, `None` while loading); or else, if you haven't
@@ -437,6 +450,11 @@ impl GroupAvailability {
         }
     }
 
+    /// The worst status as a status of its own, for counting and filtering groups by it; none before an Audit.
+    pub fn kind(&self) -> Option<AvailabilityStatus> {
+        self.status.map(|s| AvailabilityStatus::of(s, self.claimed))
+    }
+
     /// The worst status, saying how many kept releases share it when they differ.
     pub fn label(&self) -> String {
         let label = availability_label(self.status, self.claimed);
@@ -560,6 +578,18 @@ pub fn group_status(group: &SelectionGroup) -> GroupStatus {
         Some(c) if c.status == ChoiceStatus::Applied => GroupStatus::YourChoice,
         _ if group.kept.is_empty() => GroupStatus::Excluded,
         _ => GroupStatus::Chosen,
+    }
+}
+
+/// A Selection's status as its page's badge shows it: the worst any of its groups has, from its summary, which a
+/// pruned Selection keeps too.
+pub fn selection_status(summary: &SelectionSummary) -> GroupStatus {
+    if summary.stale + summary.conflicting > 0 {
+        GroupStatus::ChoiceToReview
+    } else if summary.unresolved > 0 {
+        GroupStatus::Unresolved
+    } else {
+        GroupStatus::Chosen
     }
 }
 
@@ -815,6 +845,44 @@ pub fn lines(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_selection_shows_the_worst_status_its_summary_names() {
+        let mut summary = SelectionSummary::default();
+        assert_eq!(selection_status(&summary), GroupStatus::Chosen);
+        summary.unresolved = 2;
+        assert_eq!(selection_status(&summary), GroupStatus::Unresolved);
+        summary.conflicting = 1;
+        assert_eq!(selection_status(&summary), GroupStatus::ChoiceToReview);
+    }
+
+    #[test]
+    fn only_folders_last_built_with_the_newest_version_are_on_it() {
+        let folder = |id, built_version| stage_select_api::ProfileFolder {
+            id,
+            root: "library".into(),
+            path: format!("folder-{id}"),
+            built_version,
+        };
+        let version = |version| stage_select_api::ProfileVersion {
+            name: "Everyday".into(),
+            version,
+            sha256: String::new(),
+            saved_at: String::new(),
+            saved_by: String::new(),
+            profile: SelectionProfile::default(),
+        };
+        let mut record = stage_select_api::ProfileRecord {
+            name: "Everyday".into(),
+            created_at: String::new(),
+            latest: Some(version(3)),
+            retired_at: None,
+            library_folders: vec![folder(1, Some(3)), folder(2, Some(2)), folder(3, None)],
+        };
+        assert_eq!(on_newest(&record), 1);
+        record.latest = None;
+        assert_eq!(on_newest(&record), 0);
+    }
     use stage_select_api::arcade::ArcadeSettings;
     use stage_select_api::selection::{
         Category, CloneGame, CoverageDrift, Dependency, GroupChoice, KeptGame, LeftOutGame, Rule,
