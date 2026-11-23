@@ -19,8 +19,9 @@ page, edit in bulk with "no change" as the default, and keep a legend strip unde
 ## Decision
 
 - **The Source Set is the hub.** Audit, Repair, Additions, its Library Folders and their history hang off it. Top
-  navigation is Source Sets · Libraries · Ingest · DATs · Profiles · Activity · Settings, with badges for waiting
-  work. A Library Folder links back to its Source Set, and the Source Set links forward to its Library Folders.
+  navigation is Source Sets · Library folders · Ingest · DATs · Profiles · Activity · Settings, with badges for
+  waiting work. A Library Folder links back to its Source Set, and the Source Set links forward to its Library
+  Folders.
 - **One list pattern.** A checkbox column selects rows, and a toolbar at the top acts on the selection. Clicking a
   row opens it in a detail pane beside the list, which stacks as a drawer on narrow screens. One or two frequent
   actions also appear as icons at the end of the row. Plan items use the same pattern as entity lists.

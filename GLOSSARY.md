@@ -14,7 +14,7 @@ The structure used to express a DAT, such as Logiqx XML, MAME ListXML or a MAME 
 establish its DAT Provider.
 
 **Arcade DAT**:
-A DAT of arcade machines, such as MAME's ListXML, whose Selections choose one Game per family from what the DAT says
+A DAT of arcade machines, such as MAME's ListXML, whose Selections keep one Game per family from what the DAT says
 of each machine, rather than from release names.
 
 **DAT Provider**:
@@ -40,10 +40,10 @@ _Avoid_: Missing list, wanted list
 **Game**:
 An entry in a DAT Revision: one release, or in a MAME DAT one machine or software item, made of the ROMs it lists.
 The product says Game; Title is an accepted synonym in conversation, and machine for an entry of a MAME ListXML DAT.
-_Avoid_: set
+_Avoid_: set, release (when meaning an entry)
 
 **Multi-disc Game**:
-The Games of a DAT Revision that are the numbered discs of one release, such as `Title (USA) (Disc 1)` and
+The Games of a DAT Revision that are the numbered discs of one game, such as `Title (USA) (Disc 1)` and
 `Title (USA) (Disc 2)`. A Selection takes it whole or not at all, and a Library Folder lacking one of its discs is
 Incomplete.
 _Avoid_: Disc Set, multi-disc set
@@ -59,7 +59,7 @@ _Avoid_: CHD (when meaning the DAT's entry)
 
 **Dependency**:
 A Game that another Game needs in order to run, such as the BIOS or a device a MAME machine names. It has its own Game
-Status, and a Selection can include it without ever choosing it as a release.
+Status, and a Selection can include it without it ever being the kept Game of a Game Group.
 _Avoid_: BIOS set (when meaning any Dependency), required set
 
 ## Collections
@@ -223,15 +223,26 @@ the Game's own, not another Game's: merged and split sets keep shared files ther
 ## Selection and change
 
 **Selection Profile**:
-The Operator's rules for including or excluding releases and choosing preferred releases of a Game: global settings
+The Operator's rules for leaving Games out and choosing which Game of each Game Group to keep: global settings
 with per-system settings. It holds no DAT content and is reusable across DATs. Each saved version is immutable.
 Profile is its short form.
 _Avoid_: Filtered DAT (when meaning the rules)
 
 **Selection**:
-The exact releases chosen from a particular DAT Revision using a Selection Profile and any explicit Operator
+The exact Games kept from a particular DAT Revision using a Selection Profile and any explicit Operator
 overrides, each with the rule responsible.
-_Avoid_: Profile (when meaning the chosen releases), Filtered DAT
+_Avoid_: Profile (when meaning the kept Games), Filtered DAT
+
+**Game Group**:
+The Games of a DAT Revision that are versions of one game, such as its regional versions and revisions. A Selection
+decides each Game Group as a whole.
+_Avoid_: group (alone), clone set, P/C group
+
+**Selection Outcome**:
+What a Selection decided for a Game in its Game Group: _kept_ (chosen), _clone_ (another version of a kept Game,
+passed over for it) or _left out_ (removed by a rule of the Selection Profile). A clone here is an outcome, not the
+DAT's `cloneof`: a Game the DAT names a clone may be the one kept.
+_Avoid_: Role, winner, alternative, exclusion
 
 **Change Plan**:
 A proposed set of changes that the Operator approves before a Source Set is repaired or a Selection is built into a
@@ -264,9 +275,9 @@ Folder at registration. It only proposes: a registered path never moves when a t
 _Avoid_: Naming scheme
 
 **Incomplete**:
-A Library Folder whose current Build lacks a selected Game, because its group was unresolved and skipped, had no
-source, failed, or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its group
-left that disc out; or lacks a Dependency or Disk of a selected Game. Title Select shows why and how many.
+A Library Folder whose current Build lacks a selected Game, because its Game Group was unresolved and skipped, had no
+source, failed, or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its Game
+Group left that disc out; or lacks a Dependency or Disk of a selected Game. Title Select shows why and how many.
 
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
@@ -288,7 +299,7 @@ Game as CHD, one `<game>.chd` per disc, where its system's own setting says so; 
 holds its Disks as the CHDs its DAT lists. It has two scopes, Source Sets and Play Libraries, each with a global default and
 per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere, except loose folder for disc
 systems' Source Sets. Only a Game with one ROM can be stored loose; a Game with more stays TorrentZip or a loose
-folder, and the plan says why. The Games of one release share one format. Every write of a Game into a folder, by a
+folder, and the plan says why. The discs of a Multi-disc Game share one format. Every write of a Game into a folder, by a
 Repair, a Build or a fill, follows it.
 _Avoid_: Format setting, compression
 

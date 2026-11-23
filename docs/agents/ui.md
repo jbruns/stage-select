@@ -1,7 +1,7 @@
 # Workbench UI
 
 The workbench (`crates/ui`) is icon-first: lists of rows, a detail pane, one legend per list. This page holds the
-copy rules and the shared parts in `crates/ui/src/parts/` that every screen builds on. The User-facing text rules in
+copy rules, the shape of a page and of a plan, and the shared parts in `crates/ui/src/parts/` that every screen builds on. The User-facing text rules in
 `AGENTS.md` apply to every string below.
 
 ## Copy rules
@@ -19,6 +19,42 @@ copy rules and the shared parts in `crates/ui/src/parts/` that every screen buil
 - **One legend strip per list.** It shows only the statuses present in that list.
 - **Status labels** are sentence case, glossary terms lowercase ("Repair open", "Matches source set"). Hints are one
   sentence addressed to "you".
+
+## Page shape
+
+Every screen reads in this order. A reviewer checks a screen against it.
+
+1. **Title, status badge, and at most one primary action.** The action is the usual next step ("Audit", "Plan
+   build"); everything else is a plain button, a row action or a menu item.
+2. **A strip of counts** by status or kind. Each count filters the list below.
+3. **The list**, with reasons in the detail pane.
+4. **Explanations in `Help`.** One line stays in view. No paragraph sits above the list.
+5. **Rare and destructive actions last**, collapsed.
+
+A screen leads with what needs a decision: integrity, unresolved review items and failures come before facts, and a
+fact is shown once. Whatever starts a Job shows its state where it was started, and becomes a link to the result
+when the Job ends; a failure shows first, with its count.
+
+## Plan shape
+
+Every plan (repair, build, cleanup, ingest, deleting kept files, setting aside) is a `PlanReview` in this order:
+
+1. **One line saying what the plan will do**, in numbers ("Renames 12 entries, fills 3 games, sets aside 2 files").
+2. **Counts by kind**, each a filter, with "apply to all" where the plan offers choices.
+3. **Approve, above the list**, labelled with what it does ("Approve and make 17 changes").
+4. **The list**: kind, current → proposed, choice.
+5. **After it applies, counts by outcome**, failures first, each a filter. A row's outcome is a column.
+6. What the plan binds, and how the storage policy shaped it, go in `Help`.
+
+## One of each
+
+- **One list.** Every list of rows is a `List`: no other table component, and no bulleted list of rows with inline
+  actions. A small table of settings (roots, ceilings) may be a plain `<table>`.
+- **One kept-files view**, wherever kept files are shown.
+- **One tab mechanism.** The current tab is always in the URL, so a reload and a shared link keep it. Never hold a
+  tab in a signal alone.
+- **Drawer or page.** Creating or confirming something from a list opens a `Drawer`. Only the profile editor and
+  the settings screens are pages of their own.
 
 ## Shared parts
 
@@ -44,7 +80,6 @@ pure logic there too.
 | Cell text that may not fit             | `Clip { text }`                                        | `list`      |
 | A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
 | Filter, sort, open/checked rows in URL | `use_list_query()` (`List` uses it already)            | `url_state` |
-| List beside a routed detail            | `SplitView` + `DetailPane` under a `ParentRoute`       | `layout`    |
 | Routed tabs                            | `Tabs { label, tabs: Vec<Tab> }`                       | `layout`    |
 | A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, empty, detail, .. }`    | `plan`      |
 | Current → proposed in a cell           | `Change { current, proposed }`                         | `plan`      |
@@ -183,10 +218,9 @@ then lists the rows unchecked since). Defaults are omitted and other query param
 
 ### Layout and routes
 
-Screens with a list and a detail use a `ParentRoute` whose view is the list wrapped in `SplitView`; the child route
-renders a `DetailPane` into its `<Outlet/>`. Below 60rem the pane becomes a drawer. `List` needs no route of its
-own: it renders the open row's `DetailPane` itself, as a `Drawer` below 1100px (`list::NARROW`). `/source-sets/:name` is already
-a `ParentRoute` (bare `Outlet` view) for #74 to fill.
+`List` needs no route for its detail: it renders the open row's `DetailPane` itself, beside the list, and as a
+`Drawer` below 1100px (`list::NARROW`). The open row is in the URL's `row`. `Tabs` are routed: each tab is a child
+route of a `ParentRoute`, as on Activity and Settings.
 
 ### Theme and colour
 

@@ -4,7 +4,7 @@ Date: 2026-11-20
 
 ## Status
 
-Accepted
+Accepted. Amended by ADR 0030: the promise restarts at 0.13.0.
 
 ## Context
 
