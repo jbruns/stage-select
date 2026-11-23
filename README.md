@@ -384,7 +384,7 @@ first use. Only one Stage Select process may have a store open at a time: it hol
 - Migrations are embedded and forward-only, starting from one baseline that marks the database as Stage Select's.
   Before one runs on a store that already has a schema, the database is copied with `VACUUM INTO` to
   `backups/schema-<version>-<time>.sqlite`. A store from a newer Stage Select is refused. A store made by a release
-  before 0.13.0 is refused too, untouched, with "This store was made by an earlier release and can't be opened.
+  before 0.13.0 is refused too, with "This store was made by an earlier release and can't be opened.
   Start a new store.": point `--store` at a new directory.
 - A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest revision
   of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so

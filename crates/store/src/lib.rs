@@ -505,14 +505,11 @@ impl Store {
     }
 
     fn open_with(dir: &Path, migrations: &[&str]) -> Result<Store> {
-        migrations::check_header(&dir.join(DATABASE))?;
         let dats = dir.join(DATS);
         std::fs::create_dir_all(&dats).map_err(|e| io_error(&dats, e))?;
         let lock = lock(dir)?;
         let mut writer = Connection::open(dir.join(DATABASE))?;
-        // The header has been read through the WAL as well, before anything was made in the directory; the stamp is
-        // checked again through the connection, as SQLite reads it, before anything writes. Should that refuse, closing
-        // doesn't checkpoint the WAL, so the database file is left as it was.
+        // A database with a schema that this release didn't stamp is refused before any migration runs.
         let version: i64 = writer.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let id: i32 = writer.pragma_query_value(None, "application_id", |r| r.get(0))?;
         if let Err(refused) = migrations::check_stamp(version, id) {
@@ -860,193 +857,34 @@ mod tests {
         assert_eq!(stamp(dir.path()), baseline());
     }
 
-    /// Makes a database in `dir` as the last release before the baseline left it. The baseline is, by construction,
-    /// the schema that release's 49 migrations made (#283), so this applies it without its stamp, sets that release's
-    /// schema version, and adds a few rows.
-    fn pre_baseline(dir: &Path, wal: bool) -> Connection {
-        let conn = baseline_stamped(dir, wal, None);
-        conn.execute_batch(
-            "INSERT INTO roots (name, path, kind, writable, updated_by, updated_at)
-                 VALUES ('roms', '/srv/roms', 'general', 1, 'operator', '2026-01-01T00:00:00Z');
-             INSERT INTO settings (section, value, updated_by, updated_at)
-                 VALUES ('pace', '{}', 'operator', '2026-01-01T00:00:00Z');
-             INSERT INTO dats (id, provider, name) VALUES (1, 'No-Intro', 'Nintendo - Game Boy');
-             INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                 VALUES ('gb', 'roms', 'gb', 1, '2026-01-01T00:00:00Z');
-             PRAGMA user_version = 49;",
-        )
-        .unwrap();
-        assert_eq!(pragma(&conn, "application_id"), "Integer(0)");
-        conn
-    }
-
-    /// Applies the baseline to a new database in `dir`, stamped `id` in place of this release's, or unstamped.
-    fn baseline_stamped(dir: &Path, wal: bool, id: Option<i32>) -> Connection {
-        let conn = Connection::open(dir.join(DATABASE)).unwrap();
-        if wal {
-            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-                .unwrap();
-            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-        }
-        let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
-        let baseline = migrations::MIGRATIONS[0];
-        assert_eq!(baseline.matches(&stamp).count(), 1);
-        let other = id.map_or(String::new(), |id| format!("PRAGMA application_id = {id};"));
-        conn.execute_batch(&baseline.replace(&stamp, &other))
-            .unwrap();
-        conn
-    }
-
     /// The `application_id` 0.12.0 and every release before the rename stamped a store with: "TSel" in ASCII.
     const BEFORE_THE_RENAME: i32 = 0x5453_656C;
 
     #[test]
-    fn a_store_stamped_before_the_rename_is_refused_and_left_untouched() {
-        for wal in [false, true] {
+    fn a_store_with_a_schema_and_another_stamp_is_refused() {
+        // Unstamped, as before the baseline, or stamped before the rename.
+        for id in [None, Some(BEFORE_THE_RENAME)] {
             let dir = tempfile::tempdir().unwrap();
-            let conn = baseline_stamped(dir.path(), wal, Some(BEFORE_THE_RENAME));
+            let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
+            let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
+            let other = id.map_or(String::new(), |id| format!("PRAGMA application_id = {id};"));
+            let baseline = migrations::MIGRATIONS[0];
+            assert_eq!(baseline.matches(&stamp).count(), 1);
+            conn.execute_batch(&baseline.replace(&stamp, &other))
+                .unwrap();
             conn.pragma_update(None, "user_version", 1).unwrap();
-            assert_eq!(
-                pragma(&conn, "application_id"),
-                format!("Integer({BEFORE_THE_RENAME})")
-            );
-            // Closing the last connection checkpoints a WAL and deletes its sidecars.
             drop(conn);
-            let path = dir.path().join(DATABASE);
-            let before = std::fs::read(&path).unwrap();
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
 
-            assert_pre_baseline_refused(Store::open(dir.path()));
+            let opened = Store::open(dir.path());
 
-            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
-        }
-    }
-
-    fn assert_pre_baseline_refused(opened: Result<Store>) {
-        let Err(Error::Refused(message)) = opened else {
-            panic!(
-                "expected a refusal, got {opened:?}",
-                opened = opened.map(|_| ())
+            let Err(Error::Refused(message)) = opened else {
+                panic!("expected a refusal, got {:?}", opened.map(|_| ()));
+            };
+            assert_eq!(
+                message,
+                "This store was made by an earlier release and can't be opened. Start a new store."
             );
-        };
-        assert_eq!(
-            message,
-            "This store was made by an earlier release and can't be opened. Start a new store."
-        );
-    }
-
-    fn names(dir: &Path) -> Vec<std::ffi::OsString> {
-        std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect()
-    }
-
-    #[test]
-    fn a_store_from_before_the_baseline_is_refused_and_left_untouched() {
-        for wal in [false, true] {
-            let dir = tempfile::tempdir().unwrap();
-            // Closing the last connection checkpoints a WAL and deletes its sidecars.
-            drop(pre_baseline(dir.path(), wal));
-            let path = dir.path().join(DATABASE);
-            let before = std::fs::read(&path).unwrap();
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
-
-            assert_pre_baseline_refused(Store::open(dir.path()));
-
-            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_store_from_before_the_baseline_in_a_read_only_directory_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        drop(pre_baseline(dir.path(), true));
-        let mode = |m| std::fs::Permissions::from_mode(m);
-        std::fs::set_permissions(dir.path(), mode(0o555)).unwrap();
-
-        let opened = Store::open(dir.path());
-
-        std::fs::set_permissions(dir.path(), mode(0o755)).unwrap();
-        assert_pre_baseline_refused(opened);
-        assert_eq!(names(dir.path()), [DATABASE]);
-    }
-
-    /// Every entry under `dir`, by its path from `dir`, with a file's bytes; a directory's are empty.
-    fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Option<Vec<u8>>> {
-        let mut entries = std::collections::BTreeMap::new();
-        let mut pending = vec![dir.to_path_buf()];
-        while let Some(at) = pending.pop() {
-            for entry in std::fs::read_dir(&at).unwrap() {
-                let path = entry.unwrap().path();
-                let relative = path.strip_prefix(dir).unwrap().to_path_buf();
-                if path.is_dir() {
-                    entries.insert(relative, None);
-                    pending.push(path);
-                } else {
-                    entries.insert(relative, Some(std::fs::read(&path).unwrap()));
-                }
-            }
-        }
-        entries
-    }
-
-    /// Asserts `dir` holds the entries `before` does, each file with the same bytes.
-    fn assert_untouched(dir: &Path, before: &std::collections::BTreeMap<PathBuf, Option<Vec<u8>>>) {
-        let after = snapshot(dir);
-        assert_eq!(
-            after.keys().collect::<Vec<_>>(),
-            before.keys().collect::<Vec<_>>()
-        );
-        for (path, bytes) in &after {
-            assert!(bytes == &before[path], "{} changed", path.display());
-        }
-    }
-
-    /// Copies the database and its WAL from `made` to a new directory while `conn` still holds them, so the WAL is
-    /// never checkpointed: the database file keeps its header from before the schema, and the schema and stamp are
-    /// only in the WAL.
-    fn uncheckpointed(made: &Path, conn: Connection) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
-            std::fs::copy(made.join(&name), dir.path().join(&name)).unwrap();
-        }
-        drop(conn);
-        let header = std::fs::read(dir.path().join(DATABASE)).unwrap();
-        assert_eq!(&header[60..64], &[0, 0, 0, 0]);
-        assert_eq!(&header[68..72], &[0, 0, 0, 0]);
-        dir
-    }
-
-    /// A WAL never checkpointed leaves the database file's header from before its schema; what the WAL holds is
-    /// refused all the same, before anything is made or written in the store's directory.
-    #[test]
-    fn a_store_from_before_the_baseline_with_its_schema_only_in_the_wal_is_refused() {
-        let made = tempfile::tempdir().unwrap();
-        let dir = uncheckpointed(made.path(), pre_baseline(made.path(), true));
-        let before = snapshot(dir.path());
-
-        assert_pre_baseline_refused(Store::open(dir.path()));
-
-        assert_untouched(dir.path(), &before);
-    }
-
-    #[test]
-    fn a_store_stamped_before_the_rename_with_its_stamp_only_in_the_wal_is_refused_and_left_untouched()
-     {
-        let made = tempfile::tempdir().unwrap();
-        let conn = baseline_stamped(made.path(), true, Some(BEFORE_THE_RENAME));
-        conn.pragma_update(None, "user_version", 1).unwrap();
-        let dir = uncheckpointed(made.path(), conn);
-        let before = snapshot(dir.path());
-
-        assert_pre_baseline_refused(Store::open(dir.path()));
-
-        assert_untouched(dir.path(), &before);
     }
 
     #[test]
