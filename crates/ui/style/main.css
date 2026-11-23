@@ -1,15 +1,26 @@
 /* The workbench's styles. The brand kit's tokens are the source of truth: assets/stage-select-tokens.css links to
    them, and they hold both themes and the status tones. The page follows the system's light or dark setting; the
    theme toggle's choice, as the root's data-theme, overrides it. `parts::theme`'s test checks that text and the
-   status tones meet 4.5:1 on every list surface, and a primary button's label on its fill, in both themes. */
+   status tones meet 4.5:1 on every list surface, and a primary button's label on its fill, in both themes.
+
+   Each interaction state has its own look (the style guide's "Interaction states"), so a row can be in several at
+   once: hover is the --color-hover surface, checked the --color-checked wash and its checkbox, the keyboard cursor
+   four corner brackets, open an edge on the leading side and a bolder name, and current (the screen, the tab, a
+   pressed filter) an edge along the bottom. */
 @import "/stage-select-tokens.css";
 
-/* Until the interaction states replace them, the selected row and the current tab keep a wash and an edge of their
-   own. */
+/* The keyboard cursor's four corner brackets, as background layers over a box. */
 :root {
-  --color-selected: var(--color-checked);
-  --color-selected-text: var(--color-text);
-  --color-selected-edge: var(--color-cursor);
+  --cursor-brackets:
+    linear-gradient(var(--color-cursor), var(--color-cursor)) left top / var(--cursor-bracket) var(--focus-width),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) left top / var(--focus-width) var(--cursor-bracket),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) right top / var(--cursor-bracket) var(--focus-width),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) right top / var(--focus-width) var(--cursor-bracket),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) left bottom / var(--cursor-bracket) var(--focus-width),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) left bottom / var(--focus-width) var(--cursor-bracket),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) right bottom / var(--cursor-bracket) var(--focus-width),
+    linear-gradient(var(--color-cursor), var(--color-cursor)) right bottom / var(--focus-width) var(--cursor-bracket);
+  --current-edge: inset 0 calc(-1 * var(--focus-width)) 0 var(--color-current-edge);
 }
 
 /* The fonts, served with the workbench under the SIL Open Font License (fonts/*-OFL.txt), subset to Latin and Latin
@@ -166,12 +177,11 @@ code,
 }
 
 .bar nav a:hover {
-  background: var(--color-canvas);
+  background: var(--color-hover);
 }
 
 .bar nav a[aria-current="page"] {
-  background: var(--color-selected);
-  box-shadow: inset 0 calc(-1 * var(--focus-width)) 0 var(--color-selected-edge);
+  box-shadow: var(--current-edge);
 }
 
 .stream {
@@ -290,7 +300,7 @@ button,
 
 button:hover,
 .button:hover {
-  background: var(--color-selected);
+  background: var(--color-hover);
 }
 
 button.primary {
@@ -470,9 +480,7 @@ input[type="file"] {
 }
 
 .counter[aria-pressed="true"] {
-  background: var(--color-selected);
-  border-color: var(--color-selected-edge);
-  box-shadow: inset 0 0 0 1px var(--color-selected-edge);
+  box-shadow: var(--current-edge);
 }
 
 /* Tabs */
@@ -577,8 +585,14 @@ input[type="file"] {
   min-width: var(--list-min);
 }
 
+/* The grid's focus is drawn around the scroller, clear of the rows, so it never merges with a row's open edge. */
 .list-grid:focus-visible {
-  outline-offset: calc(-1 * var(--focus-width));
+  outline: none;
+}
+
+.list-scroll:has(.list-grid:focus-visible) {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .list-head,
@@ -615,7 +629,8 @@ input[type="file"] {
 }
 
 .list-head .sort:hover {
-  background: var(--color-selected);
+  background: var(--color-hover);
+  text-decoration: underline;
 }
 
 .list-head .list-cell {
@@ -635,29 +650,47 @@ input[type="file"] {
   will-change: transform;
 }
 
+/* The states compose: the open edge and the hover ring are layers of one box-shadow, and the cursor's brackets are
+   the one row's ::after, so the virtualized list gains no elements. */
 .list-row {
+  --open-mark: 0 0 transparent;
+  --hover-mark: 0 0 transparent;
+  position: relative;
   box-sizing: border-box;
   border-bottom: var(--border-width) solid var(--color-divider);
+  box-shadow: var(--open-mark), var(--hover-mark);
   cursor: pointer;
 }
 
 .list-row:hover {
-  background: var(--color-canvas);
+  background: var(--color-hover);
 }
 
-.list-row.checked,
+.list-row.checked {
+  background: var(--color-checked);
+}
+
+/* A checked row keeps its wash under the pointer, and the pointer shows as a ring instead. */
+.list-row.checked:hover {
+  --hover-mark: inset 0 0 0 var(--border-width) var(--color-control-border);
+}
+
 .list-row.open {
-  background: var(--color-selected);
-  color: var(--color-selected-text);
+  --open-mark: inset var(--open-edge-width) 0 0 var(--color-open-edge);
+  font-weight: 600;
 }
 
-.list-row.open {
-  box-shadow: inset var(--space-1) 0 0 var(--color-selected-edge);
+.list-grid:focus-visible .list-row.cursor::after {
+  content: "";
+  position: absolute;
+  inset: var(--space-1);
+  background: var(--cursor-brackets);
+  background-repeat: no-repeat;
+  pointer-events: none;
 }
 
-.list-grid:focus-visible .list-row.cursor {
-  outline: var(--focus-width) solid var(--color-focus);
-  outline-offset: calc(-1 * var(--focus-width));
+.list-grid:focus-visible .list-row.cursor.open::after {
+  left: calc(var(--open-edge-width) + var(--space-1));
 }
 
 .list-cell {
@@ -736,8 +769,7 @@ input[type="file"] {
 }
 
 .tabs [role="tab"][aria-selected="true"] {
-  background: var(--color-selected);
-  border-bottom-color: var(--color-selected-edge);
+  border-bottom-color: var(--color-current-edge);
   font-weight: 600;
 }
 
@@ -763,8 +795,7 @@ input[type="file"] {
 }
 
 .kind-count.active {
-  background: var(--color-selected);
-  border-color: var(--color-selected-edge);
+  box-shadow: var(--current-edge);
 }
 
 .kind-filter {
@@ -855,7 +886,8 @@ thead th .label {
 }
 
 thead th .sort:hover {
-  background: var(--color-selected);
+  background: var(--color-hover);
+  text-decoration: underline;
 }
 
 .sort-mark {
@@ -890,16 +922,14 @@ tbody td {
 }
 
 tbody tr:hover {
-  background: var(--color-canvas);
+  background: var(--color-hover);
 }
 
+/* The older table's selected row is its keyboard cursor, which a click moves too: the brackets show whether or not
+   the table has focus. */
 tbody tr.selected {
-  background: var(--color-selected);
-  color: var(--color-selected-text);
-}
-
-tbody tr.selected td:first-child {
-  box-shadow: inset var(--space-1) 0 0 var(--color-selected-edge);
+  background-image: var(--cursor-brackets);
+  background-repeat: no-repeat;
 }
 
 tbody tr.loading td {
@@ -1057,7 +1087,7 @@ textarea.lines {
 .staged {
   margin: var(--space-6) 0;
   padding: var(--space-3) var(--space-4);
-  border: var(--border-width) solid var(--color-selected-edge);
+  border: var(--border-width) solid var(--color-action);
   border-left-width: var(--space-1);
   border-radius: var(--radius-control);
   background: var(--color-surface);
@@ -1095,8 +1125,9 @@ textarea.lines {
 }
 
 .order li.dragging {
-  background: var(--color-selected);
-  border-color: var(--color-selected-edge);
+  background: var(--color-hover);
+  border-style: dashed;
+  border-color: var(--color-control-border);
 }
 
 .order .grip {
@@ -1246,8 +1277,7 @@ a.icon-button {
 }
 
 .ingest-count[aria-pressed="true"] {
-  background: var(--color-selected);
-  border-color: var(--color-selected-edge);
+  box-shadow: var(--current-edge);
 }
 
 .ingest-count .tally {
@@ -1476,7 +1506,7 @@ details.kept > summary {
 }
 
 .tabs a[aria-current="page"] {
-  box-shadow: inset 0 calc(-1 * var(--focus-width)) 0 var(--color-selected-edge);
+  box-shadow: var(--current-edge);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1749,7 +1779,8 @@ nav.tabs {
 }
 
 select.choice.changed {
-  border-color: var(--color-selected-edge);
+  border-color: var(--color-action);
+  box-shadow: inset 0 0 0 var(--border-width) var(--color-action);
 }
 
 details.dependencies {

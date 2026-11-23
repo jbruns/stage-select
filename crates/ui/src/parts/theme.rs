@@ -235,14 +235,13 @@ mod tests {
         Rgb::parse(value).unwrap_or_else(|| panic!("{value} is a hex colour"))
     }
 
-    /// Every list surface the tokens name: the canvas and surface a row sits on, a hovered row, a checked row, and
-    /// the selected row and current tab, which keep their own wash until the interaction states replace it.
-    const LIST_SURFACES: [&str; 5] = [
+    /// Every surface a row can show: the canvas and surface it sits on, and the hovered and checked surfaces, each
+    /// checked on its own. No other state changes a row's surface.
+    const LIST_SURFACES: [&str; 4] = [
         "--color-canvas",
         "--color-surface",
         "--color-hover",
         "--color-checked",
-        "--color-selected",
     ];
 
     /// Status colours are text as well as icons, so they meet text contrast (4.5:1), above the 3:1 icons need, on
@@ -260,6 +259,33 @@ mod tests {
                     assert!(
                         ratio >= 4.5,
                         "{fg} on {bg} is {ratio:.2}:1 in the {} theme",
+                        if dark { "dark" } else { "light" }
+                    );
+                }
+            }
+        }
+    }
+
+    /// The marks that tell the other states apart (the cursor's brackets, the open and current edges, the focus
+    /// outline, and the ring a checked row shows under the pointer) meet the 3:1 a control's edge needs on every
+    /// surface a row can show, in both themes.
+    #[test]
+    fn state_marks_meet_non_text_contrast_in_both_themes() {
+        let map = properties();
+        let get = |name: &str, dark: bool| resolve(&map, &map[name], dark);
+        for dark in [false, true] {
+            for bg in LIST_SURFACES {
+                for mark in [
+                    "--color-cursor",
+                    "--color-open-edge",
+                    "--color-current-edge",
+                    "--color-focus",
+                    "--color-control-border",
+                ] {
+                    let ratio = contrast(get(mark, dark), get(bg, dark));
+                    assert!(
+                        ratio >= 3.0,
+                        "{mark} on {bg} is {ratio:.2}:1 in the {} theme",
                         if dark { "dark" } else { "light" }
                     );
                 }

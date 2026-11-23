@@ -234,9 +234,25 @@ route of a `ParentRoute`, as on Activity and Settings.
 The theme follows `prefers-color-scheme`; `ThemeToggle` cycles system → light → dark and stores the override in
 localStorage (`stage-select.theme`), applied before load by `assets/boot.js`. The colours, type and focus come from
 the brand kit's `docs/brand-kit/stage-select-tokens.css`, which `assets/` links to and `style/main.css` imports;
-`main.css` adds only workbench aliases (`--color-selected*`). Change a colour in the tokens file, in both themes, and
-keep the contrast test in `theme.rs` passing: every tone, text, secondary text and action colour at least 4.5:1 on
-canvas, surface, hover, checked and selected rows, and the primary button's label on its fill and hover fill.
+`main.css` declares no colours of its own. Change a colour in the tokens file, in both themes, and keep the contrast
+tests in `theme.rs` passing: every tone, text, secondary text and action colour at least 4.5:1 on canvas, surface,
+hover and checked rows, each surface on its own; the state marks (cursor, open and current edges, focus, the
+control border) at least 3:1 on the same surfaces; and the primary button's label on its fill and hover fill.
+
+Each interaction state has its own look, from the style guide's "Interaction states", so a row can be hovered,
+checked, under the cursor and open at once and show all four:
+
+| State | Look | Where |
+| --- | --- | --- |
+| Hover | `--color-hover` surface; on a checked row, a ring in `--color-control-border` | `:hover` |
+| Checked | `--color-checked` wash, and its checkbox | `.list-row.checked` |
+| Keyboard cursor | Four corner brackets (`--cursor-brackets`), only while the grid has keyboard focus | `.list-row.cursor::after` |
+| Open | `--color-open-edge` inset on the leading side, and weight 600 | `.list-row.open` |
+| Current | `--current-edge`, an edge along the bottom | `aria-current`, a selected tab, a pressed filter |
+| Focus | A 2 px outline, 3 px off | `:focus-visible` |
+
+The open edge and the hover ring are layers of one `box-shadow` (`--open-mark`, `--hover-mark`), so set those
+properties rather than `box-shadow` on a row. Never mark a state with a colour alone.
 
 `button.primary` is the action fill (`--color-action-fill`, hovering `--color-action-fill-hover`), as the brand
 kit's style guide says. The fonts are Chakra Petch 700 for `h1` and `h2` (`--font-display`), and Stage Sans 400 and

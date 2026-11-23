@@ -91,7 +91,24 @@ SCREENS = {
     "activity": "/activity",
     "roots": "/settings/roots",
     "about": "/settings/about",
+    "row-states": "/dats",
 }
+
+# Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
+# as the list alone, not the full page, so the pointer stays where it was put. They are captured wide only: below
+# 1100px the open row's detail is a drawer over the list.
+def row_states(page):
+    """The DATs list's second row hovered, checked, under the keyboard cursor and open at once, its fourth checked."""
+    rows = page.locator(".list-row")
+    rows.nth(3).locator("input[type=checkbox]").click()
+    rows.nth(1).locator(".list-cell").last.click()
+    page.keyboard.press(" ")
+    rows.nth(1).locator(".list-cell").first.hover()
+    page.wait_for_timeout(300)
+    return page.locator(".list-split")
+
+
+DRIVEN = {"row-states": row_states}
 
 ATARI = "Atari - 2600"
 GAME_BOY = "Nintendo - Game Boy"
@@ -497,6 +514,8 @@ def capture(url, screens, label, work):
                 page = context.new_page()
                 page.on("request", request)
                 for name, route in screens.items():
+                    if name in DRIVEN and width < 1100:
+                        continue
                     page.goto(url + route, wait_until="load")
                     try:
                         page.wait_for_function(SETTLED, timeout=15000)
@@ -505,7 +524,10 @@ def capture(url, screens, label, work):
                     page.wait_for_timeout(500)
                     page.evaluate(MASK, [str(work), SHOWN_AS])
                     path = inside(out / f"{name}-{theme}-{width}.png", OUT)
-                    page.screenshot(path=str(path), full_page=True)
+                    if name in DRIVEN:
+                        DRIVEN[name](page).screenshot(path=str(path))
+                    else:
+                        page.screenshot(path=str(path), full_page=True)
                     print(path.relative_to(ROOT), flush=True)
                 context.close()
         browser.close()
