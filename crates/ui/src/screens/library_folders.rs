@@ -32,8 +32,8 @@ use crate::build_model::{
 use crate::events::{Live, use_live};
 use crate::library_model::{
     BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
-    Replan, Replans, build_finished, built_for, drifted, fresh, live_status, no_coverage, pick,
-    plan_state, romm_exclusions, selection_under_way, stale_label,
+    Replan, Replans, build_finished, built_for, checked_in, drifted, fresh, live_status, location,
+    no_coverage, pick, plan_state, romm_exclusions, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::help::Help;
@@ -41,10 +41,12 @@ use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
-    Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
+    Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem, Said};
 use crate::parts::pending::{ActionPending, Pending, action_problem};
+use crate::parts::plan::{KindCounts, use_status_filter};
+use crate::parts::plan_model::kind_counts;
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
 };
@@ -62,10 +64,6 @@ use crate::screens::lifecycle::{
 
 fn folder_href(id: i64) -> String {
     format!("/libraries/{id}")
-}
-
-fn location(folder: &LibraryFolder) -> String {
-    format!("{}: {}", folder.root, folder.path)
 }
 
 fn current_build(build: &Option<BuildSummary>) -> AnyView {
@@ -173,7 +171,7 @@ struct MakePlan {
 /// Makes build plans for the Libraries pages, so that a plan started from the list or a new folder shows as under way
 /// in the folder's Plan tab.
 #[derive(Clone, Copy)]
-pub(crate) struct Planner {
+pub struct Planner {
     action: Action<MakePlan, Result<Plan, String>>,
     status: RwSignal<String>,
     folder: RwSignal<Option<i64>>,
@@ -275,7 +273,7 @@ impl Planner {
     }
 
     /// Subscribes to the plans made, and to answers dropped for a later request's.
-    fn track(self) {
+    pub fn track(self) {
         self.action.version().track();
         self.dropped.track();
     }
@@ -310,7 +308,7 @@ pub fn provide_planner() {
     provide_context(Planner::new());
 }
 
-pub(crate) fn use_planner() -> Planner {
+pub fn use_planner() -> Planner {
     expect_context::<Planner>()
 }
 
@@ -676,16 +674,23 @@ pub fn Libraries() -> impl IntoView {
         let jobs = jobs.get();
         folders.get().map(|r| {
             r.map(|f| {
-                f.into_iter()
-                    .map(|f| {
-                        let now = live_status(&f, &jobs);
-                        FolderRow(f, now)
-                    })
+                checked_in(&f, &jobs)
+                    .into_iter()
+                    .map(|(now, f)| FolderRow(f, now))
                     .collect::<Vec<_>>()
             })
         })
     });
     let statuses = Signal::derive(move || present(rows.get().iter().map(|r| r.1)));
+    let (only, show_only) = use_status_filter::<LibraryStatus>("status");
+    let counts = Signal::derive(move || rows.with(|r| kind_counts(r.iter().map(|r| r.1))));
+    let keep = Signal::derive(move || -> Keep<FolderRow> {
+        only.get().map(|status| {
+            let keep: Arc<dyn Fn(&FolderRow) -> bool + Send + Sync> =
+                Arc::new(move |r: &FolderRow| r.1 == status);
+            keep
+        })
+    });
     let said = RwSignal::new(None::<Result<String, String>>);
     let go = navigator();
     let actions = vec![
@@ -717,7 +722,7 @@ pub fn Libraries() -> impl IntoView {
 
     view! {
         <h1>"Library folders"</h1>
-        <p class="lede">"Folders you build a source set's selections into, for your front end to play from."</p>
+        <KindCounts counts active=only on_filter=show_only label="Library folders by status" />
         {move || match folders.get() {
             None => view! { <Loading what="the library folders" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -734,8 +739,16 @@ pub fn Libraries() -> impl IntoView {
             row_actions
             quick=2
             detail=Callback::new(folder_detail)
+            keep
             legend=move || view! { <Legend statuses list="libraries" /> }
         />
+        <Help summary="What a library folder is">
+            <p>
+                "A library folder is where you build a source set's selections, for your front end to play from. \
+                The list shows those that need a look first, then the rest by where they are; choose a column to \
+                sort by it instead."
+            </p>
+        </Help>
     }
 }
 

@@ -26,7 +26,8 @@ target/screenshots/.work/<label>/:
 - roots: `sets` (read-only, but repairs may write to the Game Boy source set), `play` (writable) and `drop` (ingest);
 - four DATs and four source sets: Atari - 2600, complete; Nintendo - Game Boy, with a misnamed file, a missing game,
   a file of wrong content and an unknown file, given a full audit and a repair proposal; Sega - Mega Drive - Genesis,
-  missing two games and holding one of a two-ROM game's ROMs, so that game is incomplete; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
+  missing two games, holding one of a two-ROM game's ROMs, so that game is incomplete, and an unknown file, so it
+  needs review; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
   Activity lists a failed job;
 - a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets;
 - two library folders: play/atari-2600, its plan approved and built (so READY shows), and play/game-boy, its plan
@@ -318,6 +319,8 @@ def write_set(folder, system):
         write_zip(folder / f"{name}.zip", rom, content)
     if system == GAME_BOY:
         (folder / "readme.txt").write_text("Notes kept beside the set.\n")
+    if system == MEGA_DRIVE:
+        (folder / "cover-scans.txt").write_text("Not a game: an unknown file to review.\n")
 
 
 class Api:

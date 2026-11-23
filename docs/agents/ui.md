@@ -69,6 +69,7 @@ pure logic there too.
 | A row's status in a cell               | `StatusIcon { status, tab_stop? }`                     | `status`    |
 | A status with its words (detail pane)  | `StatusBadge { status }`                               | `status`    |
 | A count of one status (summary tile)   | `StatusCount { status, what?, children }` in `.counts` | `status`    |
+| Counts by status that filter a list    | `KindCounts { counts, active, on_filter, label }` with `use_status_filter(key)` | `plan` |
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
 | A job's progress, beside its counts    | `ProgressMeter { done, total, unit }`                  | `meter`     |
@@ -116,6 +117,13 @@ verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's fla
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.
+- A status needs a look when its tone is `Review` or `Failed` (`needs_a_look`). The Source sets and Library folders
+  lists open in that order, by rank then name (`by_attention`, through `source_set_model::checked_in` and
+  `library_model::checked_in`), and their navigation badges count the same rows (`needing_a_look`). A sort in the URL
+  still wins. The badges fetch again on settled Jobs and on `api::writes()`, which every accepted write bumps, since
+  some writes change a status without a Job.
+- `KindCounts` keeps the active kind in its strip at zero (`plan_model::with_active`), so a filter whose rows have all
+  gone can still be turned off.
 - To add a vocabulary, implement `Status` (`ALL` in precedence order, `look`). The tests in `status.rs` check label
   length, case, unique glyphs and labels; add the new type to them.
 - In a cell that isn't a tab stop of its own (the shared list's rows, which the arrow keys move through), pass

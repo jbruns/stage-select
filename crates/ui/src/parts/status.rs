@@ -89,6 +89,22 @@ pub fn highest<S: Status>(applying: impl IntoIterator<Item = S>) -> Option<S> {
     applying.into_iter().min_by_key(|s| s.rank())
 }
 
+/// Whether a row of `status` needs a look from the Operator, or has failed: its tone is Review or Failed. The
+/// navigation badges count these, and a list's default order puts them ahead of settled rows by rank.
+pub fn needs_a_look<S: Status>(status: S) -> bool {
+    matches!(status.look().tone, Tone::Review | Tone::Failed)
+}
+
+/// How many of `statuses` need a look: a navigation badge's count.
+pub fn needing_a_look<S: Status>(statuses: impl IntoIterator<Item = S>) -> u64 {
+    statuses.into_iter().filter(|s| needs_a_look(*s)).count() as u64
+}
+
+/// A check-in list's default order: by status rank, so what needs attention leads, then by name.
+pub fn by_attention<S: Status>(a: (S, &str), b: (S, &str)) -> std::cmp::Ordering {
+    a.0.rank().cmp(&b.0.rank()).then_with(|| a.1.cmp(b.1))
+}
+
 const fn look(glyph: Glyph, tone: Tone, label: &'static str, hint: &'static str) -> Look {
     Look {
         glyph,

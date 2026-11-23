@@ -14,7 +14,7 @@ use super::icon::{Glyph, Svg};
 use super::legend::{Legend, present};
 use super::list::{Clip, Keep, List, ListRow, RowAction, Selected, ToolAction};
 use super::message::{Message, MessageKind};
-use super::plan_model::{kind_counts, kind_from_slug, kind_slug};
+use super::plan_model::{kind_counts, kind_from_slug, kind_slug, with_active};
 use super::status::{Status, StatusIcon};
 use super::url_state::use_query_edit;
 
@@ -36,15 +36,20 @@ pub trait PlanRow: ListRow {
 
 /// The kind the URL's `kind` filters a plan review by, and a way to change it.
 pub fn use_kind_filter<K: Status>() -> (Signal<Option<K>>, Callback<Option<K>>) {
+    use_status_filter("kind")
+}
+
+/// The status the URL's `key` filters a list by, and a way to change it: for a strip of counts that filter.
+pub fn use_status_filter<K: Status>(key: &'static str) -> (Signal<Option<K>>, Callback<Option<K>>) {
     let query = use_query_map();
     // A memo, so the rest of the query changing (checking every matching row sets `all`) leaves the kind, and the
     // list's filter by it, as they are: a new filter would clear the matching rows just checked.
-    let kind = Memo::new(move |_| query.with(|q| q.get("kind").and_then(|s| kind_from_slug(&s))));
+    let kind = Memo::new(move |_| query.with(|q| q.get(key).and_then(|s| kind_from_slug(&s))));
     let edit = use_query_edit();
     let set = Callback::new(move |k: Option<K>| {
         // Another kind shows other rows, so the open row and the checked rows go.
         edit.run(vec![
-            ("kind", k.map(kind_slug)),
+            (key, k.map(kind_slug)),
             ("row", None),
             ("sel", None),
             ("all", None),
@@ -124,20 +129,21 @@ pub fn set_actions<R: ListRow, C: Copy + PartialEq + Send + Sync + 'static>(
         .collect()
 }
 
-/// The counts of a plan's items by kind. Each count filters the list to its kind, or back to every kind; `apply`
-/// gives the control beside it that sets one choice for every item of the kind.
+/// The counts of a plan's items by kind, or of a list's rows by status. Each count filters the list to its kind, or
+/// back to every kind; the kind filtered on stays, at zero, once none are left. `apply` gives the control beside it that sets one choice for every item of the kind. `label`
+/// names the strip, "Items by kind" unless given.
 #[component]
 pub fn KindCounts<K: Status>(
     #[prop(into)] counts: Signal<Vec<(K, usize)>>,
     #[prop(into)] active: Signal<Option<K>>,
     on_filter: Callback<Option<K>>,
     #[prop(optional)] apply: Option<Callback<K, AnyView>>,
+    #[prop(optional)] label: Option<&'static str>,
 ) -> impl IntoView {
     view! {
-        <ul class="kind-counts" aria-label="Items by kind">
+        <ul class="kind-counts" aria-label=label.unwrap_or("Items by kind")>
             {move || {
-                counts
-                    .get()
+                with_active(counts.get(), active.get())
                     .into_iter()
                     .map(|(kind, n)| {
                         let look = kind.look();

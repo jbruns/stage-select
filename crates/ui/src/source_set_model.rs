@@ -11,7 +11,7 @@ use stage_select_api::{
 };
 
 use crate::model::needs_review_from_counts;
-use crate::parts::status::{PlanState, SourceSetFacts, SourceSetStatus, StaleCause};
+use crate::parts::status::{PlanState, SourceSetFacts, SourceSetStatus, StaleCause, by_attention};
 
 /// Why a Source Set takes no Coverage, from the DAT Formats of its DAT's revisions: a MAME ListXML's covers every Game,
 /// as the arcade Selection decides what a Play Library keeps (ADR 0027). `None` for any other.
@@ -88,6 +88,20 @@ pub const STALE: SourceSetStatus = SourceSetStatus::Stale;
 
 pub fn status(summary: &SourceSetSummary, running: bool) -> SourceSetStatus {
     SourceSetStatus::of(facts(summary, running))
+}
+
+/// Every source set with its row status, `running` naming those a job is under way for, in the list's default order:
+/// what needs attention first, then by name. The Source sets badge counts the same statuses.
+pub fn checked_in(
+    summaries: &[SourceSetSummary],
+    running: &[String],
+) -> Vec<(SourceSetStatus, SourceSetSummary)> {
+    let mut rows: Vec<(SourceSetStatus, SourceSetSummary)> = summaries
+        .iter()
+        .map(|s| (status(s, running.contains(&s.set.name)), s.clone()))
+        .collect();
+    rows.sort_by(|(a, x), (b, y)| by_attention((*a, &x.set.name), (*b, &y.set.name)));
+    rows
 }
 
 /// What a check counted, leaving out what it found none of: "2 changed, 1 added".
@@ -476,6 +490,7 @@ mod tests {
     use stage_select_api::{Finding, SourceSetRecord};
 
     use super::*;
+    use crate::parts::status::needing_a_look;
 
     fn audit(id: i64, at: &str, sha: &str, review: usize) -> AuditSummary {
         AuditSummary {
@@ -524,6 +539,57 @@ mod tests {
             approved,
             job: approved.then_some(9),
         }
+    }
+
+    fn named(name: &str, review: usize) -> SourceSetSummary {
+        let mut s = summary(Some(audit(1, "t", "b", review)), None);
+        s.set.name = name.into();
+        s
+    }
+
+    #[test]
+    fn the_one_source_set_needing_review_comes_first_and_is_the_one_counted() {
+        let sets = [
+            named("Atari 2600", 0),
+            named("Game Boy", 0),
+            summary(None, None),
+            named("NES", 3),
+            named("SNES", 0),
+        ];
+        let rows = checked_in(&sets, &[]);
+        let order: Vec<(&str, SourceSetStatus)> = rows
+            .iter()
+            .map(|(s, r)| (r.set.name.as_str(), *s))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("NES", SourceSetStatus::NeedsReview),
+                ("Atari 2600", SourceSetStatus::Verified),
+                ("Game Boy", SourceSetStatus::Verified),
+                ("SNES", SourceSetStatus::Verified),
+                ("GB", SourceSetStatus::NeverAudited),
+            ]
+        );
+        assert_eq!(needing_a_look(rows.iter().map(|(s, _)| *s)), 1);
+    }
+
+    #[test]
+    fn a_running_source_set_shows_running_and_leaves_the_count() {
+        let sets = [named("NES", 3), named("SNES", 2)];
+        let rows = checked_in(&sets, &["NES".to_string()]);
+        let order: Vec<(&str, SourceSetStatus)> = rows
+            .iter()
+            .map(|(s, r)| (r.set.name.as_str(), *s))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("NES", SourceSetStatus::Running),
+                ("SNES", SourceSetStatus::NeedsReview)
+            ]
+        );
+        assert_eq!(needing_a_look(rows.iter().map(|(s, _)| *s)), 1);
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub use ingest_folders::{IngestFolderScreen, IngestFolders};
 pub use jobs::{Activity, Jobs, KeptFiles};
 pub use library_folders::{
     BuildScreen, Libraries, LibrariesPages, LibraryFolderScreen, NewLibraryFolder, PlanABuild,
-    provide_planner,
+    provide_planner, use_planner,
 };
 pub use lifecycle::Unregistered;
 pub use operations::Operations;
