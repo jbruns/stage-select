@@ -4,7 +4,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use stage_select_api::selection::SelectionProfile;
 use stage_select_api::{
-    Job, ProfileRecord, ProfileVersion, SavedProfile, StartSelectionFor, Workers,
+    Job, ProfileFolder, ProfileRecord, ProfileVersion, SavedProfile, StartSelectionFor, Workers,
 };
 
 use super::{Error, Result, Store, now};
@@ -119,7 +119,30 @@ fn record(c: &Connection, id: i64, name: String, created_at: String) -> Result<P
         retired_at: c.query_row("SELECT retired_at FROM profiles WHERE id = ?1", [id], |r| {
             r.get(0)
         })?,
+        library_folders: folders(c, id)?,
     })
+}
+
+/// The registered Library Folders bound to the Profile `id`, each with the version of it its current Build used.
+fn folders(c: &Connection, id: i64) -> Result<Vec<ProfileFolder>> {
+    let mut stmt = c.prepare(
+        "SELECT f.id, f.root, f.path, v.version
+         FROM library_folders f
+         LEFT JOIN builds b ON b.id = f.current_build_id
+         LEFT JOIN selections s ON s.id = b.selection_id
+         LEFT JOIN profile_versions v ON v.id = s.profile_version_id AND v.profile_id = f.profile_id
+         WHERE f.profile_id = ?1 AND f.unregistered_at IS NULL
+         ORDER BY f.root, f.path",
+    )?;
+    let rows = stmt.query_map([id], |r| {
+        Ok(ProfileFolder {
+            id: r.get(0)?,
+            root: r.get(1)?,
+            path: r.get(2)?,
+            built_version: r.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// SHA-256 of the Profile's canonical JSON, and that JSON.
