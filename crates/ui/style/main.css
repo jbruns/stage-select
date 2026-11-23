@@ -293,15 +293,15 @@ button:hover,
   background: var(--color-hover);
 }
 
-button.primary,
-.button.primary {
+.button.primary,
+button.primary {
   background: var(--color-action-fill);
   border-color: var(--color-action-fill);
   color: var(--color-on-action);
 }
 
-button.primary:hover,
-.button.primary:hover {
+.button.primary:hover,
+button.primary:hover {
   background: var(--color-action-fill-hover);
   border-color: var(--color-action-fill-hover);
 }
