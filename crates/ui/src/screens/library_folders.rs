@@ -23,7 +23,7 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem, navigator};
+use crate::app::{Loading, navigator};
 use crate::build_model::{
     build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label, file_outcome_label,
     folders_for, incomplete_counts, incomplete_reason_label, item_kind_label, item_state_label,
@@ -42,6 +42,7 @@ use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
+use crate::parts::message::{Message, MessageKind, Problem, Said};
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
@@ -477,15 +478,6 @@ fn check(folder: i64, what: String, said: RwSignal<Option<Result<String, String>
     });
 }
 
-fn said_view(said: RwSignal<Option<Result<String, String>>>) -> impl IntoView {
-    move || {
-        said.get().map(|said| match said {
-            Ok(text) => view! { <p class="done" role="status">{text}</p> }.into_any(),
-            Err(message) => view! { <Problem message /> }.into_any(),
-        })
-    }
-}
-
 /// The jobs the live job book holds, so a folder shows Running as soon as a job for it starts, wherever it was started.
 pub(crate) fn live_jobs(live: Live) -> Vec<Job> {
     live.book
@@ -752,7 +744,7 @@ pub fn Libraries() -> impl IntoView {
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        {said_view(said)}
+        <Said said />
         <List
             id="libraries"
             label="Library folders"
@@ -1165,7 +1157,7 @@ fn FolderPage(
                 </button>
             </div>
         </header>
-        {said_view(said)}
+        <Said said />
         <nav class="tabs" aria-label="Library folder">
             {FolderTab::ALL
                 .into_iter()
@@ -1352,16 +1344,18 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
                             .items
                             .into_iter()
                             .map(|i| {
-                                let class = if i.reason == stage_select_api::build::IncompleteReason::Failed {
-                                    "failed"
-                                } else {
-                                    ""
-                                };
+                                let failed = i.reason == stage_select_api::build::IncompleteReason::Failed;
                                 view! {
                                     <li>
                                         <code>{i.target}</code>
                                         {format!(": {}", incomplete_reason_label(i.reason))}
-                                        {i.detail.map(|d| view! { <span class=class>{format!(": {d}")}</span> })}
+                                        {i.detail.map(|d| {
+                                            if failed {
+                                                view! { <Problem message=d /> }.into_any()
+                                            } else {
+                                                format!(": {d}").into_any()
+                                            }
+                                        })}
                                     </li>
                                 }
                             })
@@ -1440,7 +1434,7 @@ fn check_view(check: FolderCheck) -> impl IntoView {
         .collect();
     view! {
         <p class="note">{by}</p>
-        {marker.map(|m| view! { <div class="notice" role="status"><p>{format!("The marker does not match: {m}")}</p></div> })}
+        {marker.map(|m| view! { <Message kind=MessageKind::NOTICE><p>{format!("The marker does not match: {m}")}</p></Message> })}
         <ul class="counts">
             {outcomes
                 .into_iter()
@@ -1795,7 +1789,7 @@ pub(crate) fn BuildProgress(job: i64) -> impl IntoView {
         });
     };
     view! {
-        <p class="notice" role="status">
+        <Message kind=MessageKind::NOTICE>
             {format!("Job #{job} ")}
             {move || match live.book.with(|b| b.get(job).cloned()) {
                 Some(l) if l.job.state.is_final() => {
@@ -1838,7 +1832,7 @@ pub(crate) fn BuildProgress(job: i64) -> impl IntoView {
                 }
                 None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
             }}
-        </p>
+        </Message>
         {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
@@ -2398,7 +2392,7 @@ fn build_item_line(item: BuildItem) -> impl IntoView {
                 item_kind_label(item.kind).to_lowercase(),
                 item_state_label(item.state).to_lowercase(),
             )}
-            {item.error.map(|e| view! { <span class="failed">{format!(": {e}")}</span> })}
+            {item.error.map(|message| view! { <Problem message /> })}
         </li>
     }
 }

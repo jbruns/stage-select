@@ -230,19 +230,6 @@ main:focus {
   line-height: var(--line-meta);
 }
 
-.problem {
-  padding: var(--space-2) var(--space-3);
-  border: var(--border-width) solid var(--color-failed);
-  border-left-width: var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-failed);
-}
-
-.done {
-  color: var(--color-verified);
-}
-
 /* Facts */
 
 .facts {
@@ -438,10 +425,6 @@ input[type="file"] {
   line-height: var(--line-meta);
   color: var(--color-text-secondary);
   white-space: nowrap;
-}
-
-.failed {
-  color: var(--color-failed);
 }
 
 .progress {
@@ -1030,15 +1013,6 @@ tbody td button.small {
   white-space: nowrap;
 }
 
-.notice {
-  padding: var(--space-2) var(--space-3);
-  border: var(--border-width) solid var(--color-review);
-  border-left-width: var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  margin: 0 0 var(--space-4);
-}
-
 .plain {
   list-style: none;
   margin: 0 0 var(--space-4);
@@ -1297,6 +1271,36 @@ a.icon-button {
 .tone-neutral {
   --tone: var(--tone-neutral);
   color: var(--tone-neutral);
+}
+
+/* Messages (parts::message): an outcome, a problem or a notice. The tone draws the glyph and the edge; the text
+   keeps the text colour. These are the only rules that colour a message. */
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--tone);
+  border-left-width: var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.message > .icon {
+  margin-top: calc((var(--line-body) - 1rem) / 2);
+  color: var(--tone);
+}
+
+.message-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.message-text > :last-child {
+  margin-bottom: 0;
 }
 
 /* Ingest: the strip of items by status, the banner of a plan moving items, and the kept files */

@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 use leptos_use::use_interval_fn;
 
-use crate::app::Problem;
+use super::message::Problem;
 
 /// Time elapsed, for a pending status: "4 s", "1 min 05 s", "1 h 02 min".
 pub fn elapsed(ms: f64) -> String {

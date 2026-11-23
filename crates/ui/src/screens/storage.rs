@@ -13,8 +13,9 @@ use stage_select_api::storage::{
 use stage_select_api::{Dat, DatFormat};
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::parts::help::Help;
+use crate::parts::message::{Message, MessageKind, Problem};
 
 const SCOPES: [(StorageScope, &str); 2] = [
     (StorageScope::SourceSets, "Source sets"),
@@ -250,7 +251,7 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
             </div>
             {move || match outcome.get() {
                 Some(Ok(())) if !dirty.get() => {
-                    view! { <p class="done" role="status">"Saved the storage policy."</p> }.into_any()
+                    view! { <Message kind=MessageKind::DONE>"Saved the storage policy."</Message> }.into_any()
                 }
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 _ => ().into_any(),

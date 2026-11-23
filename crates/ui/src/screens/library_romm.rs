@@ -10,12 +10,12 @@ use stage_select_api::romm::{
 };
 
 use crate::api;
-use crate::app::Problem;
 use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Clip, Column, List, ListRow, RowAction, Width, last_good_rows};
+use crate::parts::message::Problem;
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{StatusBadge, StatusCount, StatusIcon, highest};
 

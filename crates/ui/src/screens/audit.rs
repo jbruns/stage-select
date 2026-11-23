@@ -16,7 +16,7 @@ use stage_select_api::{
 use wasm_bindgen::JsCast;
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn, EntryFilter,
@@ -27,6 +27,7 @@ use crate::model::{
     warning_counts, warning_text, when,
 };
 use crate::parts::help::Help;
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusCount, StatusIcon};
 use crate::placement_model::{
@@ -408,13 +409,18 @@ impl ReAudit {
 
 /// Says that a Job was queued, with the way to follow it.
 pub fn queued(job: &Job) -> impl IntoView + use<> {
+    let said = format!(
+        "Job #{} is queued to audit {} against ",
+        job.id, job.source_set
+    );
+    let sha256 = job.dat_revision.clone();
     view! {
-        <p class="done" role="status">
-            {format!("Job #{} is queued to audit {} against ", job.id, job.source_set)}
-            <super::dats::RevisionName sha256=job.dat_revision.clone() />
+        <Message kind=MessageKind::DONE>
+            {said}
+            <super::dats::RevisionName sha256 />
             ". "
             <A href="/activity">"Follow it in Activity"</A>
-        </p>
+        </Message>
     }
 }
 

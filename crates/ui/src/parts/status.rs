@@ -1852,7 +1852,7 @@ pub fn StatusCount<S: Status>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashSet;
 
     use super::*;
@@ -1861,7 +1861,7 @@ mod tests {
         S::ALL.iter().map(|s| s.look()).collect()
     }
 
-    fn every_vocabulary() -> Vec<(&'static str, Vec<Look>)> {
+    pub(crate) fn every_vocabulary() -> Vec<(&'static str, Vec<Look>)> {
         vec![
             ("findings", vocabulary::<FindingStatus>()),
             ("game status", vocabulary::<GameStatus>()),

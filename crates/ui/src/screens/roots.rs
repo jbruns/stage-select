@@ -6,8 +6,8 @@ use stage_select_api::Root;
 use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
 
 use crate::api;
-use crate::app::Problem;
 use crate::model::when;
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::roots_model::{RootDraft, access, kind_label, kind_note, voided_lines};
@@ -68,7 +68,7 @@ pub fn Roots() -> impl IntoView {
             said.get()
                 .map(|(message, voided)| {
                     view! {
-                        <p class="done" role="status">{message}</p>
+                        <Message kind=MessageKind::DONE>{message}</Message>
                         {(!voided.is_empty())
                             .then(|| {
                                 view! {

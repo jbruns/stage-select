@@ -5,6 +5,7 @@ use leptos_router::hooks::use_location;
 
 use crate::app::Loading;
 use crate::model::is_plain_text;
+use crate::parts::message::{Message, MessageKind};
 
 const RETOOL: &str = "https://github.com/unexpectedpanda/retool";
 const CLONE_LISTS: &str = "https://github.com/unexpectedpanda/retool-clonelists-metadata";
@@ -177,13 +178,13 @@ fn LicenceText(licence: &'static Licence) -> impl IntoView {
                 Some(Some(text)) => view! { <pre class="licence-text">{text}</pre> }.into_any(),
                 Some(None) => {
                     view! {
-                        <p class="problem" role="alert">
+                        <Message kind=MessageKind::PROBLEM>
                             "This build does not include this licence text. "
                             {match licence.upstream {
                                 Some(url) => view! { "Read it at " <a href=url>{url}</a> "." }.into_any(),
                                 None => "It is the LICENSE file at the root of Stage Select's source.".into_any(),
                             }}
-                        </p>
+                        </Message>
                     }
                         .into_any()
                 }

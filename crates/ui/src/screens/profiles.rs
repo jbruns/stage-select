@@ -17,10 +17,11 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem, navigator};
+use crate::app::{Loading, navigator};
 use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcade};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
@@ -205,7 +206,7 @@ pub fn ProfileScreen() -> impl IntoView {
                 {just_saved()
                     .map(|(version, job)| {
                         view! {
-                            <p class="done" role="status">{format!("Saved version {version}.")}</p>
+                            <Message kind=MessageKind::DONE>{format!("Saved version {version}.")}</Message>
                             {job.map(|job| view! { <SelectionQueued job /> })}
                         }
                     })}
@@ -634,10 +635,10 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
             (!problems.is_empty())
                 .then(|| {
                     view! {
-                        <div class="problem" role="alert">
+                        <Message kind=MessageKind::PROBLEM>
                             <p>"These settings can't be used yet:"</p>
                             <ul>{problems.into_iter().map(|p| view! { <li>{p}</li> }).collect_view()}</ul>
-                        </div>
+                        </Message>
                     }
                 })
         }}
@@ -721,7 +722,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                                 )
                             };
                             view! {
-                                <p class="done" role="status">{message}</p>
+                                <Message kind=MessageKind::DONE>{message}</Message>
                                 {done
                                     .jobs
                                     .into_iter()
