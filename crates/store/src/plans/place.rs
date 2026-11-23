@@ -246,7 +246,7 @@ pub(super) fn place(
     for (why, n) in copied {
         notes.push(match n {
             1 => format!("1 game's files are copied rather than placed: {why}"),
-            n => format!("{n} releases' files are copied rather than placed, each because {why}"),
+            n => format!("{n} games' files are copied rather than placed, each because {why}"),
         });
     }
 }

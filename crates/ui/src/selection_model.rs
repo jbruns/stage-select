@@ -34,8 +34,8 @@ pub fn outcome_hint(outcome: Outcome) -> &'static str {
     }
 }
 
-/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message, "Your
-/// choice", or, for a Game its source set's coverage leaves out, that alone.
+/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message in the
+/// glossary's words, "Your choice", or, for a Game its source set's coverage leaves out, that alone.
 pub fn rule_text(rule: &Rule) -> String {
     if rule.is_choice() {
         "Your choice".to_string()
@@ -47,7 +47,7 @@ pub fn rule_text(rule: &Rule) -> String {
             "Exclusions" => "Left out",
             other => crate::arcade_model::stage_label(other).unwrap_or(other),
         };
-        format!("{stage}: {}", rule.message)
+        format!("{stage}: {}", crate::rule_words::explanation(&rule.message))
     }
 }
 
@@ -57,7 +57,11 @@ pub fn left_out_text(exclusion: &LeftOutGame) -> String {
     if exclusion.rule.is_coverage() {
         rule_text(&exclusion.rule)
     } else {
-        format!("{}: {}", exclusion.reason, rule_text(&exclusion.rule))
+        format!(
+            "{}: {}",
+            crate::rule_words::explanation(&exclusion.reason),
+            rule_text(&exclusion.rule)
+        )
     }
 }
 
@@ -1417,5 +1421,14 @@ mod tests {
             message: "Demos".into(),
         };
         assert_eq!(rule_text(&left_out), "Left out: Demos");
+        let sole = Rule {
+            stage: "Parent selection".into(),
+            reference: None,
+            message: "No other release competed".into(),
+        };
+        assert_eq!(
+            rule_text(&sole),
+            "Parent selection: No other version competed"
+        );
     }
 }

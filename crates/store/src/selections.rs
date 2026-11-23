@@ -326,7 +326,7 @@ pub(super) fn read_selection(c: &Connection, id: i64) -> Result<Selection> {
     for row in read_rows(c, id)? {
         let Some(&i) = index.get(&row.group) else {
             return Err(Error::Io(format!(
-                "selection {id}: release {} names no group",
+                "selection {id}: game {} names no game group",
                 row.title
             )));
         };

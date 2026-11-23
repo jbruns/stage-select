@@ -2194,7 +2194,7 @@ fn whole_releases(items: &mut [PlanItem], held: &BTreeMap<String, String>) {
         if let Some(why) = stopped.get(&release_of(&item.game)) {
             item.kind = ItemKind::Blocked;
             item.reason = Some(format!(
-                "{} goes in place only with every file of its release, and {why}",
+                "{} goes in place only with every file of its game, and {why}",
                 item.target
             ));
             item.keep = None;
