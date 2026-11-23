@@ -1953,6 +1953,9 @@ What these versions promise you:
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
 | `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans set aside                                |
+| `POST /api/v1/ingest-folders/{root}/kept-deletions` | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`    |
+| `GET /api/v1/ingest-kept-deletions/{id}`           | a plan to delete an ingest folder's kept files               |
+| `POST /api/v1/ingest-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
 | `POST /api/v1/ingest-folders/{root}/dismissals`    | dismiss several of its items until they change: `{"items": [id]}`; all of them or none |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |

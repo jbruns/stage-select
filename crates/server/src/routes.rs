@@ -207,6 +207,15 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/ingest-folders/{root}/kept-files", get(ingest_kept_files))
         .route(
+            "/ingest-folders/{root}/kept-deletions",
+            post(plan_ingest_kept_deletion),
+        )
+        .route("/ingest-kept-deletions/{id}", get(ingest_kept_deletion))
+        .route(
+            "/ingest-kept-deletions/{id}/approval",
+            post(approve_ingest_kept_deletion),
+        )
+        .route(
             "/ingest-folders/{root}/dismissals",
             post(dismiss_ingest_items),
         )
@@ -1236,6 +1245,48 @@ async fn ingest_kept_files(
     let Path(root) = root?;
     Ok(Json(
         blocking(&state, move |store| store.ingest_kept_files(&root)).await?,
+    ))
+}
+
+/// Plans deleting kept files of the Ingest Folder; nothing is deleted until the plan is approved.
+async fn plan_ingest_kept_deletion(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+    body: Result<Json<PlanKeptDeletion>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
+    let Path(root) = root?;
+    let Json(request) = body?;
+    let plan = blocking(&state, move |store| {
+        store.plan_ingest_kept_deletion(&root, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn ingest_kept_deletion(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_kept_deletion(id)).await?,
+    ))
+}
+
+/// Approves deleting kept files of an Ingest Folder with the digest you reviewed, and deletes them before it answers.
+async fn approve_ingest_kept_deletion(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApprovePlan>, JsonRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.approve_ingest_kept_deletion(id, &approve.digest, &actor)
+        })
+        .await?,
     ))
 }
 

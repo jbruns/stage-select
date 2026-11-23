@@ -1582,10 +1582,11 @@ fn the_service_holds_the_store_lock() {
 /// An Ingest Folder registered, scanned by a Job, its items assessed against the audited Source Set, and an item
 /// discarded only through an approved plan.
 #[test]
-fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_plan() {
+fn the_api_scans_an_ingest_folder_discards_an_item_and_deletes_it_only_through_approved_plans() {
     use stage_select_api::ingest::{
         IngestFolder, IngestItem, IngestKeptFile, IngestPlan, ItemState, Need, Proposal,
     };
+    use stage_select_api::repair::SourceKeptDeletion;
     let env = Env::new();
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
@@ -1689,6 +1690,33 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let kept: Vec<IngestKeptFile> = client.json("/ingest-folders/drop/kept-files");
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].name, "mystery.bin");
+    let mut response = client
+        .post("/ingest-folders/drop/kept-deletions")
+        .send_json(serde_json::json!({"all": true}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let deletion: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    assert_eq!(deletion.content.files.len(), 1);
+    let fetched: SourceKeptDeletion =
+        client.json(&format!("/ingest-kept-deletions/{}", deletion.id));
+    assert_eq!(fetched, deletion);
+    let approval = format!("/ingest-kept-deletions/{}/approval", deletion.id);
+    let wrong = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": "0".repeat(64)}));
+    assert_eq!(status_of(wrong), 409);
+    let mut response = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": deletion.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let deleted: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
+    assert!(
+        client
+            .json::<Vec<IngestKeptFile>>("/ingest-folders/drop/kept-files")
+            .is_empty()
+    );
     let item: IngestItem = client.json(&format!("/ingest-items/{}", mystery.id));
     assert_eq!(item.state, ItemState::Moved);
     let moved = item.last_move.expect("its move is listed");

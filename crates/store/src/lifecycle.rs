@@ -526,7 +526,7 @@ impl Store {
         if kind == RegistrationKind::IngestFolder {
             let kept: i64 = self.read(|c| {
                 Ok(c.query_row(
-                    "SELECT count(*) FROM ingest_kept WHERE folder_id = ?1",
+                    "SELECT count(*) FROM ingest_kept WHERE folder_id = ?1 AND state IN ('kept', 'deleting')",
                     [id],
                     |r| r.get(0),
                 )?)

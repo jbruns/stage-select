@@ -117,6 +117,60 @@ fn registered(c: &Connection, root: &str) -> Result<IngestRow> {
     })
 }
 
+/// The id of the registered Ingest Folder of Root `root`.
+pub(crate) fn registered_id(c: &Connection, root: &str) -> Result<i64> {
+    Ok(registered(c, root)?.id)
+}
+
+/// Opens Ingest Folder `id` and checks its marker.
+pub(crate) fn open_by_id(
+    store: &Store,
+    roots: &crate::roots::Roots,
+    id: i64,
+) -> Result<std::result::Result<FolderDir, String>> {
+    let row = store.read(|c| ingest_by_id(c, id))?;
+    open_checked(store, roots, &row)
+}
+
+/// Why kept files of Ingest Folder `folder` cannot be deleted now: a plan of it is approved and still moving its
+/// items. `None` when nothing is under way.
+pub(crate) fn ingest_busy(c: &Connection, folder: i64) -> Result<Option<String>> {
+    let plan: Option<Option<i64>> = c
+        .query_row(
+            "SELECT id FROM ingest_plans WHERE folder_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL
+             UNION ALL
+             SELECT plan_id FROM ingest_moves WHERE folder_id = ?1 AND state NOT IN ('done', 'failed')
+             LIMIT 1",
+            [folder],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(plan.map(|plan| match plan {
+        Some(plan) => format!(
+            "plan {plan} of the ingest folder is still moving its items; wait for it to finish"
+        ),
+        None => "an item of the ingest folder is still being moved; wait for it to finish".into(),
+    }))
+}
+
+/// Why no plan of Ingest Folder `folder` can be approved now: a deletion of its kept files is unfinished.
+fn kept_deletion_unfinished(c: &Connection, folder: i64) -> Result<Option<String>> {
+    let id: Option<i64> = c
+        .query_row(
+            "SELECT id FROM ingest_kept_deletions
+             WHERE folder_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+            [folder],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(id.map(|id| {
+        format!(
+            "deletion {id} of kept files of the ingest folder is not finished; the service finishes it when it next \
+             starts"
+        )
+    }))
+}
+
 /// The Root `root`, refused unless it is an Ingest Folder.
 fn ingest_root<'a>(
     roots: &'a crate::roots::Roots,
@@ -2222,6 +2276,9 @@ impl Store {
                 stage_select_api::lifecycle::RegistrationKind::IngestFolder,
                 row.id,
             )?;
+            if let Some(why) = kept_deletion_unfinished(tx, row.id)? {
+                return Err(Error::Conflict(why));
+            }
             let advanced = tx.execute(
                 "UPDATE ingest_folders SET generation = ?2 WHERE id = ?1 AND generation = ?3",
                 params![row.id, content.generation as i64, row.generation as i64],
@@ -2597,7 +2654,7 @@ impl Store {
             let row = registered(c, root)?;
             let mut stmt = c.prepare(
                 "SELECT id, generation, name, kept_name, reason, plan_id, sha256, size, mtime_ns, kept_at
-                 FROM ingest_kept WHERE folder_id = ?1 ORDER BY generation, kept_name",
+                 FROM ingest_kept WHERE folder_id = ?1 AND state = 'kept' ORDER BY generation, kept_name",
             )?;
             Ok(stmt
                 .query_map([row.id], kept_from_row)?

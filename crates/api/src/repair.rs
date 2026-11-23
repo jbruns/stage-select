@@ -343,9 +343,10 @@ pub struct PlanRepair {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceKeptFile {
     pub id: i64,
-    /// The Source Set it was kept in; for a kept file of an Additions Set, that Additions Set.
+    /// The Source Set it was kept in; for a kept file of an Additions Set or an Ingest Folder, that set or folder.
     pub source_set: i64,
-    /// The repair that kept it; for a kept file of an Additions Set, the Addition retired. None when a Build kept it.
+    /// The repair that kept it; for a kept file of an Additions Set, the Addition retired; for one of an Ingest Folder,
+    /// the plan that kept it. None when a Build kept it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<i64>,
     /// The Build that kept it: an original a Build placing its Game could not prove unchanged (Single Copy, ADR 0023).
@@ -364,9 +365,10 @@ pub struct SourceKeptFile {
 }
 
 /// What deleting kept files of a Source Set covers: each file as the store recorded it, and as it was read when
-/// the deletion was planned.
+/// the deletion was planned. A deletion of kept files of an Additions Set or an Ingest Folder has the same shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceKeptDeletionContent {
+    /// The Source Set; for an Additions Set or an Ingest Folder, its id.
     pub source_set: i64,
     pub files: Vec<SourceKeptFile>,
     #[serde(default)]
