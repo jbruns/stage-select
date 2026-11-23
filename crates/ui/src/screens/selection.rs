@@ -423,14 +423,30 @@ pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoV
     }
 }
 
-/// Makes a preview, a Selection a Profile's Selection from a Source Set that no Library Folder uses yet. Opened from a
-/// Profile (`?profile=`, pick a Source Set) or from a Source Set (`?source_set=`, pick a Profile).
+/// Makes a preview, a Profile's Selection from a Source Set that no Library Folder uses yet, on a page of its own.
+/// Opened from a Source Set (`?source_set=`, pick a Profile) or a Profile (`?profile=`, pick a Source Set).
 #[component]
 pub fn NewSelection() -> impl IntoView {
     let query = use_query_map();
     let given = |key: &'static str| query.read_untracked().get(key).filter(|v| !v.is_empty());
-    let source_set = RwSignal::new(given("source_set").unwrap_or_default());
-    let profile = RwSignal::new(given("profile").unwrap_or_default());
+    let back = match (given("profile"), given("source_set")) {
+        (Some(p), _) => Some((format!("/profiles/{}", api::segment(&p)), p)),
+        (None, Some(s)) => Some((format!("/source-sets/{}", api::segment(&s)), s)),
+        (None, None) => None,
+    };
+    view! {
+        <h1>"Preview a selection"</h1>
+        {back.map(|(href, name)| view! { <p><A href=href>{format!("Back to {name}")}</A></p> })}
+        <SelectionForm profile=given("profile") source_set=given("source_set") />
+    }
+}
+
+/// The form that makes a preview, starting at `profile` and `source_set` when given, and the outcome of its job,
+/// which links to the selection once made. In a drawer, or on its page.
+#[component]
+pub fn SelectionForm(profile: Option<String>, source_set: Option<String>) -> impl IntoView {
+    let source_set = RwSignal::new(source_set.unwrap_or_default());
+    let profile = RwSignal::new(profile.unwrap_or_default());
     let sets = LocalResource::new(|| api::get::<Vec<SourceSetRecord>>("/source-sets"));
     let profiles = LocalResource::new(|| api::get::<Vec<ProfileRecord>>("/profiles"));
     let outcome = RwSignal::new(None::<Result<Job, String>>);
@@ -450,18 +466,8 @@ pub fn NewSelection() -> impl IntoView {
         });
     };
     let ready = move || !source_set.get().is_empty() && !profile.get().is_empty() && !busy.get();
-    let back = match (given("profile"), given("source_set")) {
-        (Some(p), _) => Some((format!("/profiles/{}", api::segment(&p)), p)),
-        (None, Some(s)) => Some((format!("/source-sets/{}", api::segment(&s)), s)),
-        (None, None) => None,
-    };
 
     view! {
-        <h1>"Preview a selection"</h1>
-        <p class="lede">
-            "A preview is a selection that shows what a selection profile would keep from a source set, without changing any library folder. It's listed on its profile until a library folder uses it."
-        </p>
-        {back.map(|(href, name)| view! { <p><A href=href>{format!("Back to {name}")}</A></p> })}
         <form class="form" on:submit=submit>
             <label>
                 "Source set"
@@ -530,6 +536,12 @@ pub fn NewSelection() -> impl IntoView {
                     Err(message) => view! { <Problem message /> }.into_any(),
                 })
         }}
+        <Help summary="A preview changes no library folder">
+            <p>
+                "A preview is a selection that shows what a selection profile would keep from a source set, \
+                without changing any library folder. It's listed on its profile until a library folder uses it."
+            </p>
+        </Help>
     }
 }
 

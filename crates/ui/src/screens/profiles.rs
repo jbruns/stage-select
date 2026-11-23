@@ -11,7 +11,7 @@ use stage_select_api::selection::{
     Category, Compilations, Outcome, SelectionOptions, SelectionProfile, SystemSettings,
 };
 use stage_select_api::{
-    Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, SaveProfile,
+    Preview, PreviewRequest, ProfileCheck, ProfileFolder, ProfileRecord, ProfileVersion, SaveProfile,
     SavedProfile, SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelectionFor, Vocabulary,
 };
 
@@ -20,15 +20,17 @@ use crate::app::{Loading, navigator};
 use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcade};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
+use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::outcome::JobOutcome;
+use crate::parts::overlay::Drawer;
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
-use crate::parts::tabs::{Tab, Tabs, use_tab};
+use crate::parts::tabs::{Tab, Tabs, use_tab, use_tab_keyed};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
-use crate::screens::selection::{ChangesTable, ReleasesPanel};
+use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionForm};
 use crate::selection_model::{
     SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, preview_set,
     reset_global, reset_system, system_tabs, use_global_settings,
@@ -271,7 +273,6 @@ pub fn ProfileScreen() -> impl IntoView {
         }
         .into_any(),
         Some(Ok(record)) => {
-            let name = record.name.clone();
             view! {
                 {move || just_saved
                     .get()
@@ -282,12 +283,156 @@ pub fn ProfileScreen() -> impl IntoView {
                         }
                     })}
                 <Editor name=Some(record.name.clone()) initial=record.latest.clone() />
-                <Previews name=name.clone() />
-                <Versions name />
+                <Uses record=record.clone() />
                 <Retirement record refresh />
             }
             .into_any()
         }
+    }
+}
+
+/// What uses the profile, in tabs beside its editor: the library folders bound to it, its previews and its versions.
+/// The tabs live in the URL's `uses`, so that opening one leaves the editor's own tab and its draft in place.
+#[component]
+fn Uses(record: ProfileRecord) -> impl IntoView {
+    let uses = use_tab_keyed("uses");
+    let open = Memo::new(move |_| uses.current());
+    let folders = record.library_folders.len();
+    let tabs = Signal::derive(move || {
+        let open = open.get();
+        [
+            (None, format!("Library folders ({folders})")),
+            (Some("previews"), "Previews".to_string()),
+            (Some("versions"), "Versions".to_string()),
+        ]
+        .into_iter()
+        .map(|(key, label)| Tab::new(uses.href(key), label, open.as_deref() == key))
+        .collect::<Vec<_>>()
+    });
+    let record = StoredValue::new(record);
+    view! {
+        <section class="uses" aria-label="What uses this profile">
+            <Tabs label="What uses this profile" tabs />
+            {move || {
+                let name = record.with_value(|r| r.name.clone());
+                match open.get().as_deref() {
+                    Some("previews") => view! { <Previews name /> }.into_any(),
+                    Some("versions") => view! { <Versions name /> }.into_any(),
+                    _ => view! { <Folders record=record.get_value() /> }.into_any(),
+                }
+            }}
+        </section>
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderCol {
+    Folder,
+    Built,
+}
+
+/// A library folder bound to the profile, and the profile's newest version.
+#[derive(Clone, PartialEq)]
+struct FolderRow(ProfileFolder, Option<u32>);
+
+impl ListRow for FolderRow {
+    type Col = FolderCol;
+    const COLUMNS: &'static [FolderCol] = &[FolderCol::Folder, FolderCol::Built];
+
+    fn column(col: FolderCol) -> Column {
+        match col {
+            FolderCol::Folder => Column::new(
+                "folder",
+                "Library folder",
+                Width::Flex {
+                    min: 14.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            FolderCol::Built => Column::new("built", "Built with", Width::Fixed(8.0))
+                .sortable()
+                .hint("The version of this profile its current build used"),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.id.to_string()
+    }
+
+    fn title(&self) -> String {
+        folder_location(&self.0)
+    }
+
+    fn search(&self) -> String {
+        folder_location(&self.0)
+    }
+
+    fn cell(&self, col: FolderCol) -> AnyView {
+        match col {
+            FolderCol::Folder => view! { <Clip text=folder_location(&self.0) /> }.into_any(),
+            FolderCol::Built => built_with(self.0.built_version, self.1).into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: FolderCol) -> std::cmp::Ordering {
+        match col {
+            FolderCol::Folder => folder_location(&self.0).cmp(&folder_location(&other.0)),
+            FolderCol::Built => self.0.built_version.cmp(&other.0.built_version),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(format!("/libraries/{}", self.0.id))
+    }
+}
+
+fn folder_location(f: &ProfileFolder) -> String {
+    format!("{}: {}", f.root, f.path)
+}
+
+/// The version a folder's current build used, terse, saying when it is the newest.
+fn built_with(built: Option<u32>, newest: Option<u32>) -> String {
+    match built {
+        None => "Not built".to_string(),
+        Some(v) if Some(v) == newest => format!("{v}, newest"),
+        Some(v) => format!("Version {v}"),
+    }
+}
+
+fn folder_detail(row: FolderRow) -> AnyView {
+    let (f, newest) = (row.0, row.1);
+    let note = match (f.built_version, newest) {
+        (None, _) => "Not built yet: plan a build from the folder to build this profile's selection.".to_string(),
+        (Some(v), Some(n)) if v < n => format!(
+            "Built with version {v}. Version {n} is newer: plan a build from the folder to build with it."
+        ),
+        (Some(v), _) => format!("Built with version {v}, the newest."),
+    };
+    view! { <p>{note}</p> }.into_any()
+}
+
+/// The library folders bound to the profile.
+#[component]
+fn Folders(record: ProfileRecord) -> impl IntoView {
+    let newest = record.latest.as_ref().map(|v| v.version);
+    let rows = Signal::stored(Arc::new(
+        record
+            .library_folders
+            .into_iter()
+            .map(|f| FolderRow(f, newest))
+            .collect::<Vec<_>>(),
+    ));
+    view! {
+        <List
+            id="profile-folders"
+            label="Library folders"
+            rows
+            empty="No library folder uses this profile yet. Make one from a selection or a source set."
+            placeholder="Filter by library folder"
+            detail=Callback::new(folder_detail)
+            scope="folders"
+        />
     }
 }
 
@@ -332,12 +477,12 @@ fn Retirement(record: ProfileRecord, refresh: RwSignal<u64>) -> impl IntoView {
         ),
     };
     view! {
-        <section aria-labelledby="retire-title">
-            <h2 id="retire-title">"Retire"</h2>
-            <p class="lede">{lede}</p>
+        <details class="lifecycle">
+            <summary>{label}</summary>
+            <p>{lede}</p>
             <button type="button" on:click=act>{label}</button>
             {move || problem.get().map(|message| view! { <Problem message /> })}
-        </section>
+        </details>
     }
 }
 
@@ -479,17 +624,13 @@ fn Previews(name: String) -> impl IntoView {
             )
         })
     });
-    let new_href = format!("/selections/new?profile={}", api::segment(&name));
+    let previewing = RwSignal::new(false);
     view! {
-        <section aria-labelledby="previews-title">
-            <h2 id="previews-title">"Previews"</h2>
-            <p class="lede">
-                "Selections of this profile that no library folder uses: previews of what it would keep from a source set. Open one to review it, or to create a library folder from it."
-            </p>
+        <section aria-label="Previews">
             <div class="actions">
-                <A href=new_href attr:class="button">
+                <button type="button" on:click=move |_| previewing.set(true)>
                     "Preview a selection"
-                </A>
+                </button>
             </div>
             {move || match selections.get() {
                 None => view! { <Loading what="the previews" /> }.into_any(),
@@ -505,6 +646,15 @@ fn Previews(name: String) -> impl IntoView {
                 detail=Callback::new(preview_detail)
                 scope="previews"
             />
+            <Help summary="What a preview is">
+                <p>
+                    "Selections of this profile that no library folder uses: previews of what it would keep from a \
+                    source set. Open one to review it, or to create a library folder from it."
+                </p>
+            </Help>
+            <Drawer open=previewing title="Preview a selection">
+                <SelectionForm profile=Some(name.clone()) source_set=None />
+            </Drawer>
         </section>
     }
 }
@@ -607,9 +757,7 @@ fn Versions(name: String) -> impl IntoView {
         loaded.with(|v| Arc::new(v.iter().cloned().map(VersionRow).collect::<Vec<_>>()))
     });
     view! {
-        <section aria-labelledby="versions-title">
-            <h2 id="versions-title">"Versions"</h2>
-            <p class="lede">"Newest first. Versions are never changed or deleted."</p>
+        <section aria-label="Versions">
             {move || match versions.get() {
                 None => view! { <Loading what="the versions" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -624,6 +772,12 @@ fn Versions(name: String) -> impl IntoView {
                 detail=Callback::new(version_detail)
                 scope="versions"
             />
+            <Help summary="Newest first. Versions are never changed or deleted.">
+                <p>
+                    "Every save is kept as a new version. A selection names the version it was made with, so \
+                    you can always see which settings chose it."
+                </p>
+            </Help>
         </section>
     }
 }

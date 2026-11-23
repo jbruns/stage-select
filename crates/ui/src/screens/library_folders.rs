@@ -42,6 +42,7 @@ use crate::parts::list::{
 };
 use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::outcome::{JobOutcome, Reports, ShowReports, job_href};
+use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
@@ -675,10 +676,9 @@ pub fn Libraries() -> impl IntoView {
     });
     let said = Reports::new();
     let go = navigator();
+    let creating = RwSignal::new(false);
     let actions = vec![
-        ToolAction::page(Glyph::Plus, "New library folder", move || {
-            go.run("/libraries/new".to_string())
-        }),
+        ToolAction::page(Glyph::Plus, "New library folder", move || creating.set(true)),
         ToolAction::checked(
             Glyph::FileCheck,
             "Check",
@@ -733,6 +733,9 @@ pub fn Libraries() -> impl IntoView {
                 sort by it instead."
             </p>
         </Help>
+        <Drawer open=creating title="New library folder">
+            <LibraryFolderForm source_set=None selection=None />
+        </Drawer>
     }
 }
 
@@ -744,6 +747,25 @@ pub fn NewLibraryFolder() -> impl IntoView {
     let from_set = query.with_untracked(|q| q.get("source_set"));
     let from_selection =
         query.with_untracked(|q| q.get("selection").and_then(|s| s.parse::<i64>().ok()));
+    let trail = match &from_set {
+        Some(name) => vec![
+            ("/source-sets".to_string(), "Source sets".to_string()),
+            (set_href(name), name.clone()),
+        ],
+        None => vec![("/libraries".to_string(), "Library folders".to_string())],
+    };
+    view! {
+        <Crumbs trail here="New library folder" />
+        <h1>"New library folder"</h1>
+        <LibraryFolderForm source_set=from_set selection=from_selection />
+    }
+}
+
+/// The form that makes a library folder, of `source_set` or of the selection `selection` when given, then plans its
+/// first build and opens the plan. In a drawer, or on its page.
+#[component]
+pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> impl IntoView {
+    let (from_set, from_selection) = (source_set, selection);
     let planner = use_planner();
     let go = navigator();
     let chosen = LocalResource::new(move || async move {
@@ -892,16 +914,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
         });
     };
 
-    let trail = match &from_set {
-        Some(name) => vec![
-            ("/source-sets".to_string(), "Source sets".to_string()),
-            (set_href(name), name.clone()),
-        ],
-        None => vec![("/libraries".to_string(), "Library folders".to_string())],
-    };
     view! {
-        <Crumbs trail here="New library folder" />
-        <h1>"New library folder"</h1>
         {move || match roots.get() {
             Some(Ok(_)) if writable().is_empty() => view! {
                 <p class="note">
