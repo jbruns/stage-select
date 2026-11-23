@@ -14,9 +14,9 @@ use super::url_state::{edited, query_string};
 
 /// The query string's keys that belong to one tab's content, such as its list's filter: a link to another tab leaves
 /// them behind. Besides the shared list's own, `finding`, `state`, `algorithm` (an audit's Entries), `status`,
-/// `availability` and `flag` (a selection's groups, an ingest folder's Items) filter one tab's list, and `plan` names
-/// the plan one tab shows; no page keeps any of them across its tabs.
-const TAB_STATE: [&str; 14] = [
+/// `availability` and `flag` (a selection's groups, an ingest folder's Items) and `outcome` (a plan's items once
+/// applied) filter one tab's list, and `plan` names the plan one tab shows; no page keeps any of them across its tabs.
+const TAB_STATE: [&str; 15] = [
     "tab",
     "q",
     "sort",
@@ -31,11 +31,14 @@ const TAB_STATE: [&str; 14] = [
     "status",
     "availability",
     "flag",
+    "outcome",
 ];
 
 /// A scoped list's own keys, such as `changes-q`, which a second list on a page uses, and the kind its review filters
 /// by and the deletion it shows: they go with the tab too.
-const LIST_KEYS: [&str; 7] = ["q", "sort", "row", "sel", "all", "kind", "deletion"];
+const LIST_KEYS: [&str; 8] = [
+    "q", "sort", "row", "sel", "all", "kind", "outcome", "deletion",
+];
 
 fn is_tab_state(key: &str) -> bool {
     TAB_STATE.contains(&key)

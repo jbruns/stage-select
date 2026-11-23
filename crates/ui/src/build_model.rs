@@ -5,14 +5,15 @@ use std::collections::BTreeMap;
 
 use stage_select_api::SelectionRecord;
 use stage_select_api::build::{
-    BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry, DriftKind,
-    FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
+    Blocker, BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry,
+    DriftKind, FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
     LibraryFolder, PlaceHow, PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval,
     PlanSummary, RemovalKind, RestoreKind, ReturnHow, UnfinishedBuild,
 };
 
 use crate::activity_model::bytes;
-use crate::parts::status::{BuildKind, Status};
+use crate::parts::plan_model::{self, Does, PlanBlocker};
+use crate::parts::status::{BuildKind, ItemOutcome, Status};
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
     match kind {
@@ -317,6 +318,64 @@ pub fn plan_kinds(content: &PlanContent) -> Vec<(BuildKind, Option<BuildKind>)> 
         .iter()
         .map(|_| (BuildKind::Repack, Some(BuildKind::SetAside)));
     entries.chain(restores).chain(repacks).collect()
+}
+
+/// What a plan does to its rows of `kind`, for its summary line.
+fn does(kind: BuildKind) -> Does {
+    match kind {
+        BuildKind::Copy => Does::new("builds", "file", "files"),
+        BuildKind::Repack => Does::new("repacks", "file", "files"),
+        BuildKind::Place => Does::new("places", "game", "games"),
+        BuildKind::Return => Does::new("returns", "game", "games"),
+        BuildKind::Adopt => Does::new("adopts", "file", "files"),
+        BuildKind::Unchanged => Does::new("keeps", "file as it is", "files as they are"),
+        BuildKind::NoSource => Does::new("has no source for", "game", "games"),
+        BuildKind::Conflict => Does::new("finds", "file in the way", "files in the way"),
+        BuildKind::Unresolved => Does::new("waits on", "unresolved group", "unresolved groups"),
+        BuildKind::Blocked => Does::new("can't build", "blocked game", "blocked games"),
+        BuildKind::Remove => Does::new("removes", "file", "files"),
+        BuildKind::SetAside => Does::new("sets aside", "file", "files"),
+        BuildKind::Acknowledge => Does::new("acknowledges", "entry", "entries"),
+        BuildKind::Restore => Does::new("puts back", "kept file", "kept files"),
+    }
+}
+
+/// A build plan's one-line summary in numbers: its rows by what each does, in the order of their kinds.
+pub fn plan_line(content: &PlanContent) -> String {
+    let mut kinds: Vec<BuildKind> = plan_kinds(content).into_iter().map(|(k, _)| k).collect();
+    kinds.sort_by_key(|k| k.rank());
+    plan_model::plan_line(kinds.into_iter().map(|k| (does(k), 1)), "Changes nothing")
+}
+
+/// What became of a build's item, by its state.
+pub fn item_outcome(state: ItemState) -> ItemOutcome {
+    match state {
+        ItemState::Applied => ItemOutcome::Done,
+        ItemState::Failed => ItemOutcome::Failed,
+        ItemState::Uncertain => ItemOutcome::Uncertain,
+        ItemState::Pending | ItemState::Publishing => ItemOutcome::NotDone,
+    }
+}
+
+/// The build item a plan's row is carried out as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Built {
+    /// A file it writes or skips, by its target.
+    Item(String),
+    /// A built file it removes, by its target.
+    Removal(String),
+    /// A placed game it returns, by its release: a return's item is its release's.
+    Return(String),
+}
+
+/// What became of the row `built` in the build `detail`: none until the build has its item.
+pub fn built_outcome(built: &Built, detail: &BuildDetail) -> Option<ItemOutcome> {
+    let is = |i: &&BuildItem| match built {
+        Built::Item(t) => i.target == *t && !matches!(i.kind, ItemKind::Remove | ItemKind::Return),
+        Built::Removal(t) => i.target == *t && i.kind == ItemKind::Remove,
+        Built::Return(release) => i.target == *release && i.kind == ItemKind::Return,
+    };
+    detail.items.iter().find(is).map(|i| item_outcome(i.state))
 }
 
 /// How a plan places a game, for its detail.
@@ -663,6 +722,43 @@ pub fn folders_for<'a>(
 /// Where you confirm an unresolved group: its selection, opened at the group.
 pub fn group_href(selection: i64, group: &str) -> String {
     format!("/selections/{selection}?group={}", url_component(group))
+}
+
+/// What to do about a blocker of the kind `kind`.
+fn blocker_fix(kind: BlockerKind) -> &'static str {
+    match kind {
+        BlockerKind::NoAudit => "Audit the source set, then plan again.",
+        BlockerKind::RevisionMismatch => {
+            "Audit the source set against the selection's DAT revision, then plan again."
+        }
+        BlockerKind::Unresolved => {
+            "Confirm a choice for the group, or build the resolved game groups only."
+        }
+        BlockerKind::ReadOnlyRoot => "Make the root writable, then plan again.",
+        BlockerKind::FolderMissing => "Put the folder back, then plan again.",
+        BlockerKind::Marker | BlockerKind::Recovery => "Do as it says, then plan again.",
+        BlockerKind::Cleanup => {
+            "Choose something else for it, or check the folder again, then plan again."
+        }
+        BlockerKind::Space => "Free space in the source set's root, then plan again.",
+    }
+}
+
+/// A plan's `blockers`, in the plan shape; an unresolved group links to its choice in the selection `selection`.
+pub fn plan_blockers(blockers: &[Blocker], selection: i64) -> Vec<PlanBlocker> {
+    blockers
+        .iter()
+        .map(|b| PlanBlocker {
+            what: blocker_label(b.kind).to_string(),
+            item: b.target.clone().or_else(|| b.group.clone()),
+            why: b.message.clone(),
+            fix: blocker_fix(b.kind).to_string(),
+            link: b
+                .group
+                .as_ref()
+                .map(|g| (group_href(selection, g), "Confirm a choice".to_string())),
+        })
+        .collect()
 }
 
 /// Percent-encodes everything but unreserved characters, as `encodeURIComponent` does.
@@ -1018,6 +1114,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn each_blocker_names_what_it_blocks_on_and_what_to_do() {
+        let blockers: Vec<Blocker> = serde_json::from_value(serde_json::json!([
+            { "kind": "cleanup", "message": "it changed since the check", "target": "notes.txt" },
+            { "kind": "unresolved", "message": "Pong has two releases", "group": "Pong & co" },
+            { "kind": "read_only_root", "message": "the root is read-only" },
+        ]))
+        .unwrap();
+        let shown = plan_blockers(&blockers, 7);
+        let items: Vec<_> = shown.iter().map(|b| b.item.as_deref()).collect();
+        assert_eq!(items, [Some("notes.txt"), Some("Pong & co"), None]);
+        assert_eq!(shown[0].what, "Cleanup");
+        assert_eq!(shown[0].why, "it changed since the check");
+        assert!(shown.iter().all(|b| !b.fix.is_empty()), "{shown:?}");
+        assert_eq!(
+            shown[1].link,
+            Some((
+                "/selections/7?group=Pong%20%26%20co".to_string(),
+                "Confirm a choice".to_string()
+            ))
+        );
+        assert_eq!(shown[2].link, None);
+    }
+
     /// The kinds counted from a plan's rows, as `kind_counts` counts them for the review's strip.
     fn counted(content: &PlanContent) -> Vec<(BuildKind, usize)> {
         let kinds = plan_kinds(content);
@@ -1347,6 +1467,63 @@ mod tests {
             summary_of(&plan, BuildKind::Return) as u64,
             plan.summary().returned,
             "one row per game, as the summary counts them"
+        );
+    }
+
+    #[test]
+    fn a_return_takes_the_outcome_of_its_releases_item_and_never_a_files() {
+        let detail: BuildDetail = serde_json::from_value(serde_json::json!({
+            "build": {
+                "id": 1, "folder": 1, "plan": 1, "job": 1, "state": "succeeded", "generation": 2,
+                "selection": 1, "audit": 1, "dat_revision": "r", "started_at": "now", "finished_at": null,
+                "applied": 0, "failed": 0, "pending": 0, "uncertain": 0,
+                "planned": serde_json::to_value(stage_select_api::build::PlanSummary::default()).unwrap(),
+            },
+            "items": [
+                { "target": "Combat (USA).zip", "game": "Combat", "kind": "copy", "state": "failed" },
+                { "target": "Combat (USA).zip", "game": "Combat", "kind": "remove", "state": "uncertain" },
+                { "target": "Combat (USA)", "game": "Combat", "kind": "return", "state": "applied" },
+            ],
+        }))
+        .unwrap();
+        let of = |built: Built| built_outcome(&built, &detail);
+        assert_eq!(
+            of(Built::Return("Combat (USA)".into())),
+            Some(ItemOutcome::Done)
+        );
+        assert_eq!(
+            of(Built::Item("Combat (USA).zip".into())),
+            Some(ItemOutcome::Failed)
+        );
+        assert_eq!(
+            of(Built::Removal("Combat (USA).zip".into())),
+            Some(ItemOutcome::Uncertain)
+        );
+        assert_eq!(
+            of(Built::Return("Combat (USA).zip".into())),
+            None,
+            "a placed file's name is not its release"
+        );
+    }
+
+    #[test]
+    fn the_summary_line_counts_a_build_plans_rows_by_what_they_do() {
+        let plan = content(
+            vec![
+                item("Pong", ItemKind::Unchanged),
+                item("Combat", ItemKind::Copy),
+                item("Outlaw", ItemKind::Conflict),
+                item("Air", ItemKind::Copy),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(
+            plan_line(&plan),
+            "Builds 2 files, keeps 1 file as it is, finds 1 file in the way"
+        );
+        assert_eq!(
+            plan_line(&content(Vec::new(), Vec::new())),
+            "Changes nothing"
         );
     }
 }

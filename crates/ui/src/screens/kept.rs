@@ -30,10 +30,11 @@ use crate::parts::icon::Glyph;
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
-use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::ActionPending;
-use crate::parts::plan::{PlanReview, PlanRow};
-use crate::parts::status::{KeptDeletionKind, Status, StatusBadge, StatusIcon};
+use crate::parts::plan::{self, ApproveBar, PlanReview, PlanRow};
+use crate::parts::plan_model::Approval;
+use crate::parts::status::{ItemOutcome, KeptDeletionKind, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::{intern, scoped, use_query_edit};
 
 /// What one place's kept files say about themselves, under the count.
@@ -625,6 +626,7 @@ enum DeletionCol {
     Kind,
     Name,
     Size,
+    Outcome,
 }
 
 impl PlanRow for DeletionItem {
@@ -632,12 +634,19 @@ impl PlanRow for DeletionItem {
     fn kind(&self) -> KeptDeletionKind {
         self.0.kind
     }
+    fn outcome(&self) -> Option<ItemOutcome> {
+        self.0.outcome()
+    }
 }
 
 impl ListRow for DeletionItem {
     type Col = DeletionCol;
-    const COLUMNS: &'static [DeletionCol] =
-        &[DeletionCol::Kind, DeletionCol::Name, DeletionCol::Size];
+    const COLUMNS: &'static [DeletionCol] = &[
+        DeletionCol::Kind,
+        DeletionCol::Name,
+        DeletionCol::Size,
+        DeletionCol::Outcome,
+    ];
 
     fn column(col: DeletionCol) -> Column {
         match col {
@@ -656,6 +665,7 @@ impl ListRow for DeletionItem {
             DeletionCol::Size => Column::new("size", "Size", Width::Fixed(7.0))
                 .sortable()
                 .numeric(),
+            DeletionCol::Outcome => plan::outcome_column(),
         }
     }
 
@@ -683,6 +693,7 @@ impl ListRow for DeletionItem {
             }
             DeletionCol::Name => view! { <Clip text=self.0.name.clone() /> }.into_any(),
             DeletionCol::Size => size(self.0.size).into_any(),
+            DeletionCol::Outcome => plan::outcome_cell(self.outcome()),
         }
     }
 
@@ -691,6 +702,7 @@ impl ListRow for DeletionItem {
             DeletionCol::Kind => self.0.kind.rank().cmp(&other.0.kind.rank()),
             DeletionCol::Name => self.0.name.cmp(&other.0.name),
             DeletionCol::Size => self.0.size.cmp(&other.0.size),
+            DeletionCol::Outcome => plan::compare_outcome(self.outcome(), other.outcome()),
         }
     }
 }
@@ -764,7 +776,10 @@ fn DeletionReview(
             .get()
             .map(|d| d.map(|d| d.rows.into_iter().map(DeletionItem).collect()))
     });
-    let header = move || {
+    let summary = Signal::derive(move || {
+        latest.with(|d| d.as_ref().map(Deletion::summary).unwrap_or_default())
+    });
+    let approve = move || {
         latest.get().map(|d| {
             let here = place.with_value(|p| d.belongs_to(p));
             let elsewhere = (!here).then(|| {
@@ -780,58 +795,40 @@ fn DeletionReview(
                 }
             });
             let approve = (!d.approved && here).then(|| {
-                let (label, shown) = (d.approve_label(), d.clone());
+                let shown = StoredValue::new(d.clone());
                 view! {
-                    <div class="form">
-                        <button
-                            type="button"
-                            class="primary"
-                            disabled=move || busy.get() || approving.pending().get()
-                            on:click=move |_| {
-                                approving.dispatch_local(shown.clone());
-                            }
-                        >
-                            {label}
-                        </button>
-                    </div>
+                    <ApproveBar
+                        label=d.approve_label()
+                        approval=Approval::default()
+                        on_approve=Callback::new(move |()| {
+                            approving.dispatch_local(shown.get_value());
+                        })
+                        busy=Signal::derive(move || busy.get() || approving.pending().get())
+                    />
                 }
             });
-            let left = d.rows.iter().any(|r| r.kind == KeptDeletionKind::Left);
-            let said = d.summary();
-            let state = match (d.approved, d.finished) {
-                (false, _) => None,
-                (true, false) => {
-                    let said = said.clone();
-                    Some(view! {
-                        <Message kind=MessageKind::NOTICE live=Live::Off>{said}</Message>
-                    }.into_any())
-                }
-                (true, true) => {
-                    let kind = if left { MessageKind::NOTICE } else { MessageKind::DONE };
-                    let said = said.clone();
-                    Some(view! { <Message kind>{said}</Message> }.into_any())
-                }
-            };
-            let binds = format!(
-                "Digest {}: approving binds these files as they read now.",
-                short_sha(&d.digest)
-            );
             let recovery = d.recovery_error.clone().map(|message| view! { <Problem message /> });
             view! {
                 {elsewhere}
-                {(!d.approved).then(|| view! { <p class="lede">{said}</p> })}
-                {state}
                 {recovery}
-                <Help summary=binds>
-                    <p>
-                        "A file is deleted only while it still reads as it did when you planned this. One that \
-                        changed since is left kept, and its row says why."
-                    </p>
-                    <p>
-                        "Digest " <code class="hash">{d.digest.clone()}</code>
-                    </p>
-                </Help>
                 {approve}
+            }
+        })
+    };
+    let help = move || {
+        latest.get().map(|d| {
+            view! {
+                <p>
+                    {format!(
+                        "Digest {}: approving binds these files as they read now. ",
+                        short_sha(&d.digest),
+                    )}
+                    "A file is deleted only while it still reads as it did when you planned this. One that \
+                    changed since is left kept, and its row says why."
+                </p>
+                <p>
+                    "Digest " <code class="hash">{d.digest.clone()}</code>
+                </p>
             }
         })
     };
@@ -849,9 +846,6 @@ fn DeletionReview(
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             _ => ().into_any(),
         }}
-        <ActionPending action=approving status="Deleting the kept files…">
-            {header}
-        </ActionPending>
         <PlanReview
             id=list_id
             label=format!("Deleting kept files, plan #{id}")
@@ -859,6 +853,13 @@ fn DeletionReview(
             empty="The deletion covers no files."
             placeholder="Filter by file or outcome"
             detail=Callback::new(deletion_detail)
+            summary
+            approve=move || view! {
+                <ActionPending action=approving status="Deleting the kept files…">
+                    {approve}
+                </ActionPending>
+            }
+            help=help
             scope
         />
     }

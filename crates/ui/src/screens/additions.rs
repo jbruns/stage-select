@@ -58,7 +58,12 @@ pub fn finding_label(finding: AdditionsFinding) -> &'static str {
 
 /// The system, name and parent game to add a file as an addition under, edited in place.
 #[component]
-pub fn AdditionFields(value: RwSignal<NewAddition>) -> impl IntoView {
+pub fn AdditionFields(
+    value: RwSignal<NewAddition>,
+    /// Holds the fields as they are, such as while the plan they belong to is approved.
+    #[prop(optional, into)]
+    held: Signal<bool>,
+) -> impl IntoView {
     let dats = LocalResource::new(|| async { api::get::<Vec<Dat>>("/dats").await });
     let list = format!("systems-{}", js_sys::Math::random().to_bits());
     let options = move || {
@@ -79,7 +84,12 @@ pub fn AdditionFields(value: RwSignal<NewAddition>) -> impl IntoView {
                     required
                     placeholder="provider/DAT name"
                     prop:value=move || value.with(|v| v.system.clone())
-                    on:input=move |ev| value.update(|v| v.system = event_target_value(&ev))
+                    disabled=held
+                    on:input=move |ev| {
+                        if !held.get_untracked() {
+                            value.update(|v| v.system = event_target_value(&ev))
+                        }
+                    }
                 />
                 <datalist id=list>{options}</datalist>
             </label>
@@ -90,7 +100,12 @@ pub fn AdditionFields(value: RwSignal<NewAddition>) -> impl IntoView {
                     type="text"
                     required
                     prop:value=move || value.with(|v| v.name.clone())
-                    on:input=move |ev| value.update(|v| v.name = event_target_value(&ev))
+                    disabled=held
+                    on:input=move |ev| {
+                        if !held.get_untracked() {
+                            value.update(|v| v.name = event_target_value(&ev))
+                        }
+                    }
                 />
             </label>
             " "
@@ -99,7 +114,11 @@ pub fn AdditionFields(value: RwSignal<NewAddition>) -> impl IntoView {
                 <input
                     type="text"
                     prop:value=move || value.with(|v| v.parent.clone().unwrap_or_default())
+                    disabled=held
                     on:input=move |ev| {
+                        if held.get_untracked() {
+                            return;
+                        }
                         let parent = event_target_value(&ev);
                         value.update(|v| v.parent = (!parent.trim().is_empty()).then_some(parent))
                     }

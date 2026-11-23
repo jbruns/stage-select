@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use stage_select_api::additions::NewAddition;
 use stage_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
 
-use crate::parts::plan_model::{self, BulkOutcome};
-use crate::parts::status::PlanKind;
+use crate::parts::plan_model::{self, BulkOutcome, Does};
+use crate::parts::status::{ItemOutcome, PlanKind, Status};
 use crate::screens::additions::new_addition;
 
 /// The loads of the plan to show, in the order they were asked for. One rule keeps the screen true to the server:
@@ -311,6 +311,57 @@ pub fn apply_to_keys(
         choice,
         picked,
     )
+}
+
+/// What a repair does to an item of `kind`, for the plan's summary line.
+fn does(kind: PlanKind) -> Does {
+    match kind {
+        PlanKind::Rename => Does::new("renames", "entry", "entries"),
+        PlanKind::Repack => Does::new("repacks", "entry", "entries"),
+        PlanKind::Fill => Does::new("fills", "game", "games"),
+        PlanKind::Replace => Does::new("replaces", "entry", "entries"),
+        PlanKind::SetAside => Does::new("sets aside", "file", "files"),
+        PlanKind::Convert => Does::new("converts", "entry", "entries"),
+    }
+}
+
+/// The plan's one-line summary in numbers: what each item is chosen to do, in the order of the kinds, then the
+/// additions it adds and the items it leaves as they are.
+pub fn plan_line(plan: &RepairPlan) -> String {
+    let others = PlanKind::ALL.len();
+    let mut doing: Vec<(usize, Does)> = plan
+        .content
+        .items
+        .iter()
+        .map(|item| match item.chosen {
+            RepairChoice::Apply => {
+                let kind = PlanKind::from(item.kind);
+                (kind.rank(), does(kind))
+            }
+            RepairChoice::KeepAside => (PlanKind::SetAside.rank(), does(PlanKind::SetAside)),
+            RepairChoice::AddAddition => (others, Does::new("adds", "addition", "additions")),
+            RepairChoice::Leave => (
+                others + 1,
+                Does::new("leaves", "item as it is", "items as they are"),
+            ),
+        })
+        .collect();
+    doing.sort_by_key(|(rank, _)| *rank);
+    plan_model::plan_line(doing.into_iter().map(|(_, d)| (d, 1)), "Changes nothing")
+}
+
+/// What became of `item` of `plan` once approved: its outcome as the repair recorded it; or, once the repair
+/// finished without one, not done. An item left as it is has none.
+pub fn item_outcome(plan: &RepairPlan, item: &RepairItem) -> Option<ItemOutcome> {
+    match plan.outcomes.iter().find(|o| o.item == item.key) {
+        Some(o) if o.error.is_some() => Some(ItemOutcome::Failed),
+        Some(o) if o.done => Some(ItemOutcome::Done),
+        Some(_) => Some(ItemOutcome::NotDone),
+        None if plan.finished_at.is_some() && item.chosen != RepairChoice::Leave => {
+            Some(ItemOutcome::NotDone)
+        }
+        None => None,
+    }
 }
 
 /// Where `item` is now: its file, and the member in it; or, for a game it lacks, the game.
@@ -916,6 +967,78 @@ mod tests {
                 ("c.txt".into(), "kept files".into()),
                 ("d.zip".into(), "left as it is".into()),
                 ("Echo (missing)".into(), "left as it is".into()),
+            ]
+        );
+    }
+
+    fn kinded(key: &str, kind: &str, chosen: &str) -> stage_select_api::repair::RepairItem {
+        serde_json::from_value(serde_json::json!({
+            "key": key, "kind": kind, "summary": "s",
+            "choices": ["apply", "leave", "keep_aside", "add_addition"], "default": "apply", "chosen": chosen,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_summary_line_reads_what_each_item_is_chosen_to_do() {
+        let mut p = plan(1, false, false, None);
+        assert_eq!(plan_line(&p), "Changes nothing");
+        p.content.items = vec![
+            kinded("a", "rename", "apply"),
+            kinded("b", "conflict", "apply"),
+            kinded("c", "fill", "apply"),
+            kinded("d", "rename", "keep_aside"),
+            kinded("e", "keep_aside", "apply"),
+            kinded("f", "rename", "leave"),
+            kinded("g", "rename", "add_addition"),
+        ];
+        assert_eq!(
+            plan_line(&p),
+            "Renames 2 entries, fills 1 game, sets aside 2 files, adds 1 addition, leaves 1 item as it is"
+        );
+    }
+
+    #[test]
+    fn a_finished_repair_says_what_became_of_every_item_it_changes() {
+        use stage_select_api::repair::RepairOutcome;
+        let mut p = plan(1, true, false, None);
+        p.content.items = vec![
+            kinded("done", "rename", "apply"),
+            kinded("failed", "rename", "apply"),
+            kinded("skipped", "rename", "apply"),
+            kinded("left", "rename", "leave"),
+        ];
+        let outcome = |item: &str, done: bool, error: Option<&str>| RepairOutcome {
+            item: item.into(),
+            done,
+            detail: Vec::new(),
+            error: error.map(Into::into),
+        };
+        p.outcomes = vec![
+            outcome("done", true, None),
+            outcome("failed", false, Some("x")),
+        ];
+        let of = |p: &RepairPlan| -> Vec<Option<ItemOutcome>> {
+            p.content.items.iter().map(|i| item_outcome(p, i)).collect()
+        };
+        assert_eq!(
+            of(&p),
+            [
+                Some(ItemOutcome::Done),
+                Some(ItemOutcome::Failed),
+                None,
+                None
+            ],
+            "still running"
+        );
+        p.finished_at = Some("t".into());
+        assert_eq!(
+            of(&p),
+            [
+                Some(ItemOutcome::Done),
+                Some(ItemOutcome::Failed),
+                Some(ItemOutcome::NotDone),
+                None
             ]
         );
     }

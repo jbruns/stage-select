@@ -10,7 +10,7 @@ use stage_select_api::repair::{KeptFileReviewed, SourceKeptDeletion, SourceKeptF
 
 use crate::build_model::keep_reason_label;
 use crate::ingest_model::size;
-use crate::parts::status::KeptDeletionKind;
+use crate::parts::status::{ItemOutcome, KeptDeletionKind};
 use crate::parts::tabs::tab_href;
 use crate::parts::url_state::encode;
 
@@ -312,6 +312,15 @@ pub struct DeletionRow {
 impl DeletionRow {
     pub fn kept_path(&self) -> String {
         format!("{RETENTION}/{}/{}", self.generation, self.kept_name)
+    }
+
+    /// What became of the file once the deletion was carried out: none while it is still to delete.
+    pub fn outcome(&self) -> Option<ItemOutcome> {
+        match self.kind {
+            KeptDeletionKind::Delete => None,
+            KeptDeletionKind::Deleted => Some(ItemOutcome::Done),
+            KeptDeletionKind::Left => Some(ItemOutcome::NotDone),
+        }
     }
 }
 
@@ -799,6 +808,25 @@ mod tests {
             vec![outcome(1, true, None), outcome(2, true, None)],
         ));
         assert_eq!(every.summary(), "Deleted 2 kept files.");
+    }
+
+    #[test]
+    fn a_deleted_file_is_done_and_one_left_kept_was_not_done_while_one_still_to_delete_has_no_outcome()
+     {
+        let planned = Deletion::from(source_deletion(true, vec![]));
+        assert_eq!(planned.rows[0].outcome(), None);
+        let done = Deletion::from(source_deletion(
+            true,
+            vec![
+                outcome(1, true, None),
+                outcome(2, false, Some("it changed since you reviewed its deletion")),
+            ],
+        ));
+        let outcomes: Vec<_> = done.rows.iter().map(DeletionRow::outcome).collect();
+        assert_eq!(
+            outcomes,
+            [Some(ItemOutcome::Done), Some(ItemOutcome::NotDone)]
+        );
     }
 
     #[test]

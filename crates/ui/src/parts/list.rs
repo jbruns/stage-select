@@ -207,6 +207,8 @@ pub struct ToolAction<T: 'static> {
     glyph: Glyph,
     label: String,
     run: ToolRun<T>,
+    /// While true, the action is disabled.
+    held: Option<Signal<bool>>,
 }
 
 impl<T: Clone + Send + Sync + 'static> ToolAction<T> {
@@ -219,6 +221,7 @@ impl<T: Clone + Send + Sync + 'static> ToolAction<T> {
             glyph,
             label: label.into(),
             run: ToolRun::Page(Callback::new(move |()| run())),
+            held: None,
         }
     }
 
@@ -231,7 +234,18 @@ impl<T: Clone + Send + Sync + 'static> ToolAction<T> {
             glyph,
             label: label.into(),
             run: ToolRun::Checked(Callback::new(run)),
+            held: None,
         }
+    }
+
+    /// Disables the action while `held` is true, such as while what it changes is being approved.
+    pub fn held_while(mut self, held: Signal<bool>) -> Self {
+        self.held = Some(held);
+        self
+    }
+
+    fn is_held(&self) -> bool {
+        self.held.is_some_and(|h| h.get())
     }
 }
 
@@ -1125,6 +1139,9 @@ fn toolbar<T: ListRow>(
         let Some(action) = actions.with_value(|a| a.get(i).cloned()) else {
             return;
         };
+        if action.held.is_some_and(|h| h.get_untracked()) {
+            return;
+        }
         match action.run {
             ToolRun::Page(run) => run.run(()),
             ToolRun::Checked(run) => run.run(selected_rows()),
@@ -1146,7 +1163,7 @@ fn toolbar<T: ListRow>(
                     class="tool"
                     node_ref=node
                     hidden=move || { i >= fits.get() }
-                    disabled=move || { needs && none_checked() }
+                    disabled=move || { (needs && none_checked()) || actions.with_value(|a| a[i].is_held()) }
                     on:click=move |_| run(i)
                 >
                     <LabelledIcon glyph label=text />
@@ -1173,7 +1190,9 @@ fn toolbar<T: ListRow>(
                                     <MenuItem
                                         label=text
                                         glyph
-                                        disabled=Signal::derive(move || needs && none_checked())
+                                        disabled=Signal::derive(move || {
+                                            (needs && none_checked()) || actions.with_value(|a| a[i].is_held())
+                                        })
                                         on_select=move |()| run(i)
                                     />
                                 }

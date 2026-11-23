@@ -11,6 +11,7 @@ pub mod app;
 pub mod arcade_model;
 pub mod build_model;
 pub mod calibration_model;
+pub mod cleanup_model;
 pub mod coverage_model;
 pub mod events;
 pub mod fetch_model;

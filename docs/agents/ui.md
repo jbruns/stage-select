@@ -39,12 +39,18 @@ when the Job ends; a failure shows first, with its count.
 
 Every plan (repair, build, cleanup, ingest, deleting kept files, setting aside) is a `PlanReview` in this order:
 
-1. **One line saying what the plan will do**, in numbers ("Renames 12 entries, fills 3 games, sets aside 2 files").
+1. **One line saying what the plan will do**, in numbers ("Renames 12 entries, fills 3 games, sets aside 2 files"),
+   from `plan_model::plan_line`.
 2. **Counts by kind**, each a filter, with "apply to all" where the plan offers choices.
-3. **Approve, above the list**, labelled with what it does ("Approve and make 17 changes").
-4. **The list**: kind, current → proposed, choice.
-5. **After it applies, counts by outcome**, failures first, each a filter. A row's outcome is a column.
+3. **Approve, above the list**, labelled with what it does ("Approve and make 17 changes"), with "Plan again" beside
+   it once you change a choice or while the plan may be stale: an `ApproveBar`. What blocks it is listed just above it, each blocker with its item
+   and what to do. Once approved, the plan's job takes its place.
+4. **After it applies, counts by outcome** (`ItemOutcome`), failures first, each a filter, with the line from
+   `plan_model::outcome_line` ("4 of 6 done: 1 failed, 1 not done.").
+5. **The list**: kind, current → proposed, choice, and last the Outcome column, empty until the plan is applied.
 6. What the plan binds, and how the storage policy shaped it, go in `Help`.
+
+Approve is never below the list, and no paragraph sits above it.
 
 ## One of each
 
@@ -97,8 +103,10 @@ pure logic there too.
 | A link to a tab from another page      | `tab_link(path, tab, state)`                           | `tabs`      |
 | Tabs that are child routes             | `RouteTabs { label, tabs: Vec<(path, label)> }`        | `tabs`      |
 | The trail to the pages above this one  | `Crumbs { trail: Vec<(href, label)>, here }`           | `layout`    |
-| A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, empty, detail, .. }`    | `plan`      |
+| A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, summary, detail, .. }`  | `plan`      |
 | Current → proposed in a cell           | `Change { current, proposed }`                         | `plan`      |
+| Approve and "Plan again" above a plan  | `ApproveBar { label, approval, on_approve, .. }`       | `plan`      |
+| An item's choice, in its cell and detail | `plan::choice_select(label, offers, planned, now, ..)` | `plan`      |
 | Light/dark override                    | `ThemeToggle` (already in the header)                  | `theme`     |
 
 ### Icons
@@ -116,7 +124,8 @@ is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `Sou
 (a first-run step), `Outcome` (a game's selection outcome), `AvailabilityStatus` (what you have of a game, on claims or
 verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's flags), `Derived` (an audit entry),
 `AdditionState`, `CheckFlag` (a folder check older than the build), `FileOutcome` (a folder check's file), build
-`ItemState`, `Stream` (the live connection) and `PlanState` (where a page's plan stands, on its Plan or Repair tab).
+`ItemState`, `ItemOutcome` (what became of a plan's item once applied), `CleanupKind` (a cleanup's candidates),
+`Stream` (the live connection) and `PlanState` (where a page's plan stands, on its Plan or Repair tab).
 
 - Never colour a status in CSS of its own: every coloured state renders through `StatusIcon`, `StatusBadge` or
   `StatusCount`. `.tag` is for neutral labels that are not a status ("Not in the DAT"). An error's text is a
@@ -227,20 +236,43 @@ A tooltip wraps anywhere, and is placed again for its drawn height, so a tall on
 ### Plan review
 
 Every plan is reviewed with `parts::plan::PlanReview`, a `List` with a strip of counts by kind above it. Its rows
-implement `PlanRow` (a `ListRow` with `type Kind: Status`): `PlanKind` for repairs, `BuildKind` for builds and
-cleanups, `IngestPlanKind` for ingests, `KeptDeletionKind` for deleting kept files. A row that also does something counted on its own, such as a replacement
-setting the old file aside, returns that kind from `also`, so the strip agrees with the plan's summary. Each kind's
-count is a filter (`kind` in the URL; add `kind` to the screen's list state so leaving the list clears it). Pass
-`apply` with `plan::apply_to_all` to put an "apply to all" control beside each count; it starts at "no change" and
-goes back to it. Bulk choices are toolbar "Set to …" actions over the checked rows, made with `plan::set_actions`.
-Count what a bulk choice did with `plan_model::apply_choice` and show `BulkOutcome::message` in `message`, so a
-partial application says how many items don't offer the choice. A plan that offers no choices, such as an ingest plan
-approved whole, passes neither `apply` nor `actions`. Pass `scope` for a review that shares its page with another
-list; its URL keys, `kind` included, then take the scope's prefix. Rows show `Change { current, proposed }`; reasons and evidence
-go in `detail`. Keep the plan's own choice rules pure and tested (`repair_model`, `build_model::ConflictChoice`).
-`screens/repair.rs` (`RepairTab`) is the reference; `screens/library_plan.rs` replans on each choice (disabled while
-one is under way, answers to superseded requests dropped), and `screens/ingest_plan.rs` keeps its rows with
-`last_good_rows`.
+implement `PlanRow` (a `ListRow` with `type Kind: Status`): `PlanKind` for repairs, `BuildKind` for builds,
+`CleanupKind` for cleanups, `IngestPlanKind` for ingests, `KeptDeletionKind` for deleting kept files. A row that also
+does something counted on its own, such as a replacement setting the old file aside, returns that kind from `also`, so
+the strip agrees with the plan's summary. Each kind's count is a filter (`kind` in the URL; add `kind` to the screen's
+list state so leaving the list clears it). Pass the summary line in `summary`, Approve in `approve`, what blocks it in
+`blockers` (`plan_model::PlanBlocker`: what, the item, why, what to do and where; `build_model::plan_blockers` for a
+build or cleanup, `PlanBlocker::nothing_to_change` for a plan that changes nothing), and the plan's notes in `help`.
+Never disable Approve without a blocker saying why. Pass `scope` for a review that shares its page with
+another list; its URL keys, `kind` and `outcome` included, then take the scope's prefix.
+
+The choice control is the same in every plan: `plan::choice_select` in the row's Choice cell and in its detail;
+toolbar "Set to …" actions over the checked rows, or every row the filter shows, made with `plan::set_actions`; and
+`apply` with `plan::apply_to_all` to put an "apply to all" control beside each count. Choices are staged in a
+`plan_model::Picks` until you plan again, since approving approves the plan as shown: `Picks::set` counts what a bulk
+choice did (show `BulkOutcome::message` in `message`, so a partial application says how many items don't offer the
+choice), `Picks::changed` feeds `Approval`, and `ApproveBar` holds Approve while choices differ and offers "Plan
+again". Set `Approval::stale` whenever the plan may no longer be approvable as it is (approving was refused, a blocker
+may be fixed elsewhere, or the screen can't tell, as for every open repair), so "Plan again" is always the way out. A plan that offers no choices, such as an ingest plan approved whole, passes neither `apply` nor `actions`.
+
+While a plan is approved or planned again, your choices are held as they are: pass the same `held` signal to
+`choice_select`, `set_actions`, `apply_to_all` and `AdditionFields`, which disable their controls and ignore input
+while it's true (`ToolAction::held_while` for any other toolbar action). Keep staged choices, addition fields and
+the approving state out of the view a reload makes again: a screen whose page is rebuilt as each job settles keeps
+them in a stable owner keyed by plan (library folders: `library_plan::provide_staging`, a `Stage` per plan or
+cleanup draft; repairs: `RepairDesk`), and reconciles reloaded rows with `Picks::reconcile`, which drops only picks
+an item no longer offers.
+
+Once the plan is applied, each row's `PlanRow::outcome` fills the Outcome column (`plan::outcome_column`,
+`outcome_cell`, `compare_outcome`) and the strip of counts by outcome (`outcome` in the URL). Take it from that row's
+own job item (`build_model::built_outcome`, `cleanup_model::item_outcome`), with its error in `detail`: a row with no
+item once the job ends is Uncertain, never Done. Rows show
+`Change { current, proposed }`; reasons and evidence go in `detail`. Keep the plan's own choice rules pure and tested
+(`repair_model`, `build_model::ConflictChoice`, `cleanup_model`). `screens/repair.rs` (`RepairTab`) is the reference;
+`screens/library_plan.rs` reviews build and cleanup plans, and `screens/ingest_plan.rs` keeps its rows with
+`last_good_rows`. A plan the server can't store until you choose something, such as a cleanup, starts as a draft in
+the same shape (`CleanupDraft` on the Drift tab): every candidate left as it is, and "Plan the cleanup" in Approve's
+place until you choose.
 
 ### Lists
 

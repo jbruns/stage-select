@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::status::Status;
+use super::status::{ItemOutcome, Status};
 
 /// How many items of each kind a plan holds, in the vocabulary's order, leaving out kinds it has none of.
 pub fn kind_counts<K: Status>(kinds: impl IntoIterator<Item = K>) -> Vec<(K, usize)> {
@@ -131,6 +131,200 @@ pub fn offered_by_any<'a, C: Copy + Eq + 'a>(offers: impl IntoIterator<Item = &'
     any
 }
 
+/// What a plan does to items of one kind, for its summary line: the verb, and what it does it to, one and many.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Does {
+    pub verb: &'static str,
+    pub one: &'static str,
+    pub many: &'static str,
+}
+
+impl Does {
+    pub const fn new(verb: &'static str, one: &'static str, many: &'static str) -> Self {
+        Does { verb, one, many }
+    }
+}
+
+/// A plan's one-line summary in numbers ("Renames 12 entries, fills 3 games"): what it does, each in the order first
+/// met, with the counts of the same doing added up; `nothing` when it does nothing.
+pub fn plan_line(doing: impl IntoIterator<Item = (Does, usize)>, nothing: &str) -> String {
+    let mut totals: Vec<(Does, usize)> = Vec::new();
+    for (does, n) in doing {
+        match totals.iter_mut().find(|(d, _)| *d == does) {
+            Some((_, total)) => *total += n,
+            None => totals.push((does, n)),
+        }
+    }
+    let line = totals
+        .into_iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(d, n)| format!("{} {n} {}", d.verb, if n == 1 { d.one } else { d.many }))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut chars = line.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => nothing.to_string(),
+    }
+}
+
+/// What a plan's items came to once it was applied, from their counts by outcome: how many were done, then the rest,
+/// failures first.
+pub fn outcome_line(counts: &[(ItemOutcome, usize)]) -> String {
+    let total: usize = counts.iter().map(|(_, n)| n).sum();
+    let done = counts
+        .iter()
+        .find(|(o, _)| *o == ItemOutcome::Done)
+        .map_or(0, |(_, n)| *n);
+    if total == 0 {
+        return "Nothing to do.".to_string();
+    }
+    if done == total {
+        return format!("All {total} done.");
+    }
+    let rest = counts
+        .iter()
+        .filter(|(o, n)| *o != ItemOutcome::Done && *n > 0)
+        .map(|(o, n)| format!("{n} {}", o.look().label.to_lowercase()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{done} of {total} done: {rest}.")
+}
+
+/// The choices you picked on a plan since it was shown, by item key: staged until you plan again, since approving
+/// approves the plan as shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picks<C> {
+    picked: BTreeMap<String, C>,
+}
+
+impl<C> Default for Picks<C> {
+    fn default() -> Self {
+        Picks {
+            picked: BTreeMap::new(),
+        }
+    }
+}
+
+impl<C: Copy + Eq> Picks<C> {
+    /// The choice the item `key` takes now: your pick, or else `planned`, what the plan shown gives it.
+    pub fn now(&self, key: &str, planned: C) -> C {
+        self.picked.get(key).copied().unwrap_or(planned)
+    }
+
+    pub fn pick(&mut self, key: &str, choice: C) {
+        self.picked.insert(key.to_string(), choice);
+    }
+
+    /// Sets `choice` for every one of `items` that offers it: each item's key, the choice the plan gives it and the
+    /// choices it offers.
+    pub fn set<'a>(
+        &mut self,
+        items: impl IntoIterator<Item = (&'a str, C, &'a [C])>,
+        choice: C,
+    ) -> BulkOutcome
+    where
+        C: 'a,
+    {
+        apply_choice(items, choice, &mut self.picked)
+    }
+
+    /// Keeps, as the plan's items are loaded again, each pick its item (key, choices offered) still offers; a pick of
+    /// an item no longer listed, or of a choice it no longer offers, is dropped.
+    pub fn reconcile<'a>(&mut self, items: impl IntoIterator<Item = (&'a str, &'a [C])>)
+    where
+        C: 'a,
+    {
+        let offers: BTreeMap<&str, &[C]> = items.into_iter().collect();
+        self.picked
+            .retain(|key, c| offers.get(key.as_str()).is_some_and(|o| o.contains(c)));
+    }
+
+    /// How many of `planned` (each item's key and the choice the plan gives it) you picked otherwise.
+    pub fn changed<'a>(&self, planned: impl IntoIterator<Item = (&'a str, C)>) -> usize {
+        planned
+            .into_iter()
+            .filter(|(key, c)| self.now(key, *c) != *c)
+            .count()
+    }
+
+    /// The choices to plan again with: every item's choice now, from `planned`, where it isn't `default`, the choice an
+    /// item takes when none is asked for.
+    pub fn requested<'a>(
+        &self,
+        planned: impl IntoIterator<Item = (&'a str, C)>,
+        default: C,
+    ) -> BTreeMap<String, C> {
+        planned
+            .into_iter()
+            .map(|(key, c)| (key, self.now(key, c)))
+            .filter(|(_, c)| *c != default)
+            .map(|(key, c)| (key.to_string(), c))
+            .collect()
+    }
+}
+
+/// What blocks approving a plan, in the plan shape: what it is, the item it is about, why, and what to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanBlocker {
+    pub what: String,
+    pub item: Option<String>,
+    pub why: String,
+    pub fix: String,
+    /// Where to do it, and the link's text.
+    pub link: Option<(String, String)>,
+}
+
+impl PlanBlocker {
+    /// What blocks approving a plan that leaves every item as it is.
+    pub fn nothing_to_change() -> Self {
+        PlanBlocker {
+            what: "Nothing to change".to_string(),
+            item: None,
+            why: "the plan leaves every item as it is".to_string(),
+            fix: "Choose what to do with at least one item, then plan again.".to_string(),
+            link: None,
+        }
+    }
+}
+
+/// Where approving a plan stands: how many of its choices you changed since it was shown, and whether something
+/// blocks it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Approval {
+    pub changed: usize,
+    pub blocked: bool,
+    /// What the plan was made from may have changed since: approving it was refused, what blocks it may be fixed
+    /// elsewhere, or the screen can't tell.
+    pub stale: bool,
+}
+
+impl Approval {
+    /// Approving approves the plan as shown, so it waits while choices differ from it.
+    pub fn may_approve(self) -> bool {
+        self.changed == 0 && !self.blocked
+    }
+
+    /// "Plan again" is offered once you change a choice, and while the plan may be stale, so a plan that can't be
+    /// approved as it is still has a way out.
+    pub fn plan_again(self) -> bool {
+        self.changed > 0 || self.stale
+    }
+
+    pub fn notice(self) -> Option<String> {
+        match self.changed {
+            0 => None,
+            1 => Some(
+                "You changed 1 choice. Plan again to see what it does: approving approves the plan as shown."
+                    .to_string(),
+            ),
+            n => Some(format!(
+                "You changed {n} choices. Plan again to see what they do: approving approves the plan as shown."
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +417,187 @@ mod tests {
         assert_eq!(offered_by_all(offers), [2, 3]);
         assert_eq!(offered_by_any(offers), [1, 2, 3]);
         assert!(offered_by_all::<u8>([]).is_empty());
+    }
+
+    const RENAMES: Does = Does::new("renames", "entry", "entries");
+    const FILLS: Does = Does::new("fills", "game", "games");
+    const SETS_ASIDE: Does = Does::new("sets aside", "file", "files");
+
+    #[test]
+    fn the_summary_line_reads_what_the_plan_does_in_numbers() {
+        let line = plan_line(
+            [(RENAMES, 12), (FILLS, 3), (SETS_ASIDE, 1), (FILLS, 1)],
+            "Changes nothing",
+        );
+        assert_eq!(line, "Renames 12 entries, fills 4 games, sets aside 1 file");
+    }
+
+    #[test]
+    fn the_summary_line_leaves_out_what_it_does_none_of_and_says_when_it_does_nothing() {
+        assert_eq!(
+            plan_line([(RENAMES, 0), (SETS_ASIDE, 2)], "Changes nothing"),
+            "Sets aside 2 files"
+        );
+        assert_eq!(
+            plan_line([(RENAMES, 0)], "Changes nothing"),
+            "Changes nothing"
+        );
+    }
+
+    #[test]
+    fn outcomes_count_with_failures_first_and_say_how_many_were_done() {
+        use crate::parts::status::ItemOutcome::{Done, Failed, NotDone, Uncertain};
+        let counts = kind_counts([Done, NotDone, Failed, Done]);
+        assert_eq!(counts, [(Failed, 1), (NotDone, 1), (Done, 2)]);
+        assert_eq!(outcome_line(&counts), "2 of 4 done: 1 failed, 1 not done.");
+        assert_eq!(outcome_line(&[(Done, 3)]), "All 3 done.");
+        assert_eq!(
+            outcome_line(&[(Uncertain, 1), (NotDone, 2)]),
+            "0 of 3 done: 1 uncertain, 2 not done."
+        );
+        assert_eq!(outcome_line(&[]), "Nothing to do.");
+    }
+
+    fn rows() -> [(&'static str, u8, &'static [u8]); 3] {
+        [("a", 0, &[0, 1, 2]), ("b", 0, &[0, 1]), ("c", 1, &[0, 1])]
+    }
+
+    #[test]
+    fn a_pick_is_what_an_item_takes_now_and_counts_as_changed_while_it_differs_from_the_plan() {
+        let mut picks = Picks::default();
+        assert_eq!(picks.now("a", 0), 0);
+        assert_eq!(picks.changed(rows().map(|(k, c, _)| (k, c))), 0);
+        picks.pick("a", 2);
+        picks.pick("c", 1);
+        assert_eq!(picks.now("a", 0), 2);
+        assert_eq!(picks.changed(rows().map(|(k, c, _)| (k, c))), 1);
+        picks.pick("a", 0);
+        assert_eq!(picks.changed(rows().map(|(k, c, _)| (k, c))), 0);
+    }
+
+    #[test]
+    fn setting_many_rows_sets_those_that_offer_the_choice() {
+        let mut picks = Picks::default();
+        let outcome = picks.set(rows(), 2);
+        assert_eq!(
+            outcome,
+            BulkOutcome {
+                asked: 3,
+                offered: 1,
+                changed: 1
+            }
+        );
+        assert_eq!(picks.now("a", 0), 2);
+        assert_eq!(picks.now("b", 0), 0);
+    }
+
+    #[test]
+    fn planning_again_asks_for_every_choice_that_isnt_the_default() {
+        let mut picks = Picks::default();
+        picks.pick("a", 1);
+        picks.pick("c", 0);
+        // b keeps what the plan gave it, which isn't the default.
+        let planned = [("a", 0), ("b", 2), ("c", 1)];
+        assert_eq!(
+            picks.requested(planned, 0),
+            BTreeMap::from([("a".to_string(), 1), ("b".to_string(), 2)])
+        );
+    }
+
+    #[test]
+    fn approving_waits_while_choices_differ_from_the_plan_shown() {
+        let ready = Approval {
+            changed: 0,
+            blocked: false,
+            stale: false,
+        };
+        assert!(ready.may_approve());
+        assert!(!ready.plan_again());
+        assert_eq!(ready.notice(), None);
+        let changed = Approval {
+            changed: 2,
+            blocked: false,
+            stale: false,
+        };
+        assert!(!changed.may_approve());
+        assert!(changed.plan_again());
+        assert_eq!(
+            changed.notice().as_deref(),
+            Some(
+                "You changed 2 choices. Plan again to see what they do: approving approves the plan as shown."
+            )
+        );
+        let one = Approval {
+            changed: 1,
+            blocked: false,
+            stale: false,
+        };
+        assert_eq!(
+            one.notice().as_deref(),
+            Some(
+                "You changed 1 choice. Plan again to see what it does: approving approves the plan as shown."
+            )
+        );
+        let blocked = Approval {
+            changed: 0,
+            blocked: true,
+            stale: false,
+        };
+        assert!(!blocked.may_approve());
+        assert!(!blocked.plan_again());
+    }
+
+    #[test]
+    fn plan_again_shows_for_a_plan_that_may_be_stale_with_no_choice_changed() {
+        let stale = Approval {
+            changed: 0,
+            blocked: false,
+            stale: true,
+        };
+        assert!(stale.plan_again());
+        assert!(stale.may_approve());
+        assert_eq!(stale.notice(), None);
+        let empty = Approval {
+            changed: 0,
+            blocked: true,
+            stale: true,
+        };
+        assert!(empty.plan_again());
+        assert!(!empty.may_approve());
+    }
+
+    #[test]
+    fn a_reload_keeps_each_pick_its_item_still_offers() {
+        use crate::parts::status::PlanKind as C;
+        let mut picks = Picks::default();
+        picks.pick("a", C::SetAside);
+        picks.pick("b", C::Rename);
+        picks.pick("gone", C::SetAside);
+        let (offers_both, offers_one) = ([C::Rename, C::SetAside], [C::Rename]);
+        picks.reconcile([
+            ("a", &offers_both[..]),
+            ("b", &offers_one[..]),
+            ("c", &offers_both[..]),
+        ]);
+        assert_eq!(
+            picks.now("a", C::Rename),
+            C::SetAside,
+            "still offered: kept"
+        );
+        assert_eq!(
+            picks.now("b", C::SetAside),
+            C::Rename,
+            "still offered: kept"
+        );
+        picks.reconcile([("a", &offers_one[..]), ("b", &offers_one[..])]);
+        assert_eq!(
+            picks.now("a", C::Rename),
+            C::Rename,
+            "no longer offered: the plan's own choice again"
+        );
+        assert_eq!(
+            picks.changed([("a", C::Rename), ("b", C::Rename), ("gone", C::Rename)]),
+            0
+        );
     }
 }
