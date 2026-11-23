@@ -108,6 +108,12 @@ jobs:
             # The curated list's Unlicense gives it to the public domain, so it says copyright in lowercase.
             grep -qi 'copyright' "$RUNNER_TEMP/$licence.txt"
           done
+          # So are the fonts' licences, beside the fonts.
+          for licence in ChakraPetch-OFL IBMPlex-OFL; do
+            curl -fsS -D - -o "$RUNNER_TEMP/$licence.txt" "localhost:8080/fonts/$licence.txt" \
+              | grep -qi '^content-type: text/plain'
+            grep -q 'SIL Open Font License' "$RUNNER_TEMP/$licence.txt"
+          done
       # A Selection runs offline on the image's clone lists, writing nothing.
       - name: select smoke test
         run: |

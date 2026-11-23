@@ -4,8 +4,8 @@ Identity v2.0 · 15 November 2026
 
 **ROM organizer**
 
-This kit replaces the v1.1 identity. The product ships under the new name but still in the old look; #162 tracks the
-workbench's adoption of this kit.
+This kit replaces the v1.1 identity. The workbench links its tokens, and serves its small emblem and READY
+lettering, from this folder.
 
 ## Files
 
@@ -18,8 +18,6 @@ workbench's adoption of this kit.
 - `…-on-dark.svg` beside each of the four: the same artwork for a dark ground.
 - `stage-select-ready.svg`: the READY lettering.
 - `make-artwork.py`: writes every SVG above. Run `python3 docs/brand-kit/make-artwork.py` after changing it.
-- `title-select-tokens.css`: the v1.1 tokens, kept only because the workbench links them until #162 lands. Don't
-  build anything new on them.
 
 ## What changed from v1.1
 
@@ -35,5 +33,5 @@ workbench's adoption of this kit.
   and the packaging grid are gone.
 - The kit no longer keeps its own product vocabulary; `GLOSSARY.md` is the source.
 
-Font files are not bundled. All artwork is original and drawn by the script; the style guide says what the
+Font files are not in this kit: the workbench serves its own subset copies, which `tools/fonts/subset.py` writes. All artwork is original and drawn by the script; the style guide says what the
 identity may and may not borrow from the games that inspired the name.

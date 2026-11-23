@@ -5,7 +5,10 @@
 !crates/
 crates/*/tests/
 crates/ui/bench/
-!docs/brand-kit/title-select-tokens.css
+# The brand kit's tokens, emblem and READY lettering, which the workbench's assets link to.
+!docs/brand-kit/stage-select-tokens.css
+!docs/brand-kit/stage-select-emblem-small.svg
+!docs/brand-kit/stage-select-ready.svg
 # Stage Select's licence, for the workbench's About page.
 !LICENSE
 # The clone-list pins, which the binary embeds, and the script that fetches what they pin.

@@ -4,9 +4,7 @@
 
 Identity v2.0 · 15 November 2026
 
-> **Status.** This identity replaces the v1.1 identity. The product ships under the new name but still in the old
-> look: #162 tracks the workbench's adoption of this kit. Until #162 lands, the workbench links
-> `title-select-tokens.css`, which stays in this folder for that reason only.
+> **Status.** This identity replaces the v1.1 identity, and the workbench wears it.
 
 ## Position
 

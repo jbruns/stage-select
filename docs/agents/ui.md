@@ -225,6 +225,30 @@ route of a `ParentRoute`, as on Activity and Settings.
 ### Theme and colour
 
 The theme follows `prefers-color-scheme`; `ThemeToggle` cycles system → light → dark and stores the override in
-localStorage (`stage-select.theme`), applied before load by `assets/boot.js`. Semantic colours in `style/main.css`
-use `light-dark()`. A new text or tone colour must be added to both themes, and the contrast test in `theme.rs`
-(≥ 4.5:1 on canvas, surface and selected rows) must pass.
+localStorage (`stage-select.theme`), applied before load by `assets/boot.js`. The colours, type and focus come from
+the brand kit's `docs/brand-kit/stage-select-tokens.css`, which `assets/` links to and `style/main.css` imports;
+`main.css` adds only workbench aliases (`--color-selected*`). Change a colour in the tokens file, in both themes, and
+keep the contrast test in `theme.rs` passing: every tone, text, secondary text and action colour at least 4.5:1 on
+canvas, surface, hover, checked and selected rows, and the primary button's label on its fill and hover fill.
+
+`button.primary` is the action fill (`--color-action-fill`, hovering `--color-action-fill-hover`), as the brand
+kit's style guide says. The fonts are Chakra Petch 700 for `h1` and `h2` (`--font-display`), IBM Plex Sans 400 and
+600 and IBM Plex Mono 400: subset WOFF2 files in `assets/fonts/` with their licences beside them, all served by the
+Service. Use weight 600, never 700, outside headings: no other weight ships. To change the fonts or their coverage,
+edit and rerun `tools/fonts/subset.py`; never hand-edit the files.
+
+### Screenshots
+
+A PR that changes a screen shows each affected screen before and after, in both themes, wide and below 1100px.
+`tools/screenshots/shoot.py` takes them over a synthetic store (its docstring says what it seeds and what not):
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwright install chromium   # once
+.venv/bin/python tools/screenshots/shoot.py --list                                # the screens it knows
+.venv/bin/python tools/screenshots/shoot.py --ref main --screens source-sets,activity   # before
+.venv/bin/python tools/screenshots/shoot.py --screens source-sets,activity              # after
+```
+
+Each run writes `target/screenshots/<label>/<screen>-<theme>-<width>.png`, light and dark at 1440 and 1000px; the
+label is `after`, or the ref's name with `--ref`. `--route name=/path` adds a screen. The `github-pr-media` skill
+uploads the files into the PR body; never commit them.

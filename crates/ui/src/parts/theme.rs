@@ -182,7 +182,7 @@ mod tests {
 
     /// Every custom property the tokens and the workbench's stylesheet declare, the stylesheet's winning.
     fn properties() -> HashMap<String, String> {
-        let tokens = include_str!("../../../../docs/brand-kit/title-select-tokens.css");
+        let tokens = include_str!("../../../../docs/brand-kit/stage-select-tokens.css");
         let main = include_str!("../../style/main.css");
         let mut map = HashMap::new();
         for css in [tokens, main] {
@@ -235,6 +235,16 @@ mod tests {
         Rgb::parse(value).unwrap_or_else(|| panic!("{value} is a hex colour"))
     }
 
+    /// Every list surface the tokens name: the canvas and surface a row sits on, a hovered row, a checked row, and
+    /// the selected row and current tab, which keep their own wash until the interaction states replace it.
+    const LIST_SURFACES: [&str; 5] = [
+        "--color-canvas",
+        "--color-surface",
+        "--color-hover",
+        "--color-checked",
+        "--color-selected",
+    ];
+
     /// Status colours are text as well as icons, so they meet text contrast (4.5:1), above the 3:1 icons need, on
     /// every background a list shows them on, in both themes.
     #[test]
@@ -244,7 +254,7 @@ mod tests {
         let mut foregrounds: Vec<&str> = Tone::ALL.iter().map(|t| t.token()).collect();
         foregrounds.extend(["--color-text", "--color-text-secondary", "--color-action"]);
         for dark in [false, true] {
-            for bg in ["--color-canvas", "--color-surface", "--color-selected"] {
+            for bg in LIST_SURFACES {
                 for fg in &foregrounds {
                     let ratio = contrast(get(fg, dark), get(bg, dark));
                     assert!(
@@ -254,8 +264,51 @@ mod tests {
                     );
                 }
             }
-            let on_action = contrast(get("--color-on-action", dark), get("--color-action", dark));
-            assert!(on_action >= 4.5, "a primary button is {on_action:.2}:1");
+        }
+    }
+
+    /// The declarations of the stylesheet's rule for `selector`.
+    fn rule<'a>(css: &'a str, selector: &str) -> &'a str {
+        let start = css
+            .find(&format!("\n{selector} {{"))
+            .unwrap_or_else(|| panic!("{selector} has a rule"));
+        let body = &css[start..];
+        &body[body.find('{').unwrap() + 1..body.find('}').unwrap()]
+    }
+
+    /// A primary button's label meets 4.5:1 on its fill, and under the pointer it moves to the fill's hover step,
+    /// which it meets too: it stays the same button rather than turning to the text colour.
+    #[test]
+    fn a_primary_button_keeps_its_hue_and_label_under_the_pointer() {
+        let map = properties();
+        let main = include_str!("../../style/main.css");
+        let background = |selector: &str| {
+            rule(main, selector)
+                .split(';')
+                .find_map(|d| d.trim().strip_prefix("background:"))
+                .unwrap_or_else(|| panic!("{selector} sets a background"))
+                .trim()
+                .to_string()
+        };
+        for dark in [false, true] {
+            let label = resolve(&map, "var(--color-on-action)", dark);
+            for (selector, token) in [
+                ("button.primary", "--color-action-fill"),
+                ("button.primary:hover", "--color-action-fill-hover"),
+            ] {
+                let fill = resolve(&map, &background(selector), dark);
+                assert_eq!(
+                    fill,
+                    resolve(&map, &map[token], dark),
+                    "{selector} is {token}"
+                );
+                let ratio = contrast(label, fill);
+                assert!(
+                    ratio >= 4.5,
+                    "{selector}'s label is {ratio:.2}:1 in the {} theme",
+                    if dark { "dark" } else { "light" }
+                );
+            }
         }
     }
 }

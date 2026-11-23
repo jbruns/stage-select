@@ -1,63 +1,46 @@
-/* The workbench's styles. The brand kit's tokens are the source of truth: assets/title-select-tokens.css links to them. */
-@import "/title-select-tokens.css";
+/* The workbench's styles. The brand kit's tokens are the source of truth: assets/stage-select-tokens.css links to
+   them, and they hold both themes and the status tones. The page follows the system's light or dark setting; the
+   theme toggle's choice, as the root's data-theme, overrides it. `parts::theme`'s test checks that text and the
+   status tones meet 4.5:1 on every list surface, and a primary button's label on its fill, in both themes. */
+@import "/stage-select-tokens.css";
 
-/* Themes. The page follows the system's light or dark setting; the theme toggle's choice, as the root's
-   data-theme, overrides it. Each colour is light-dark(light, dark), and `parts::theme`'s test checks that the
-   status tones and text meet 4.5:1 on the canvas, surface and selection in both. The tones' lowest ratios there:
-   light good 5.1, review 5.4, failed 6.2, active 6.3, neutral 5.4; dark good 7.2, review 7.0, failed 6.2,
-   active 6.5, neutral 6.3. */
+/* Until the interaction states replace them, the selected row and the current tab keep a wash and an edge of their
+   own. */
 :root {
-  color-scheme: light dark;
-  --color-canvas: light-dark(var(--title-select-paper), #121419);
-  --color-surface: light-dark(var(--title-select-white), #1c1f27);
-  --color-surface-subtle: light-dark(var(--title-select-grey), #2b303b);
-  --color-text: light-dark(var(--title-select-carbon), #e9ebf0);
-  --color-text-secondary: light-dark(var(--title-select-muted), #a9b0bd);
-  --color-action: light-dark(var(--title-select-cobalt), #93b1ff);
-  --color-on-action: light-dark(var(--title-select-white), #10131a);
-  --color-focus: light-dark(var(--title-select-cobalt), #93b1ff);
-  --color-selected: light-dark(var(--title-select-blue-wash), #232d45);
-  --color-selected-text: light-dark(var(--title-select-carbon), #e9ebf0);
-  --color-selected-edge: light-dark(var(--title-select-cobalt), #93b1ff);
-  --color-divider: light-dark(var(--title-select-divider), #3b414d);
-  --color-control-border: light-dark(var(--title-select-muted), #8b93a2);
-  --color-verified: light-dark(var(--title-select-verified), #6fcf97);
-  --color-review: light-dark(var(--title-select-review), #e3b341);
-  --color-failed: light-dark(var(--title-select-failure), #ff8f85);
-  --tone-good: var(--color-verified);
-  --tone-review: var(--color-review);
-  --tone-failed: var(--color-failed);
-  --tone-active: var(--color-action);
-  --tone-neutral: var(--color-text-secondary);
+  --color-selected: var(--color-checked);
+  --color-selected-text: var(--color-text);
+  --color-selected-edge: var(--color-cursor);
 }
 
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-}
-
+/* The fonts, served with the workbench under the SIL Open Font License (fonts/*-OFL.txt), subset to Latin and Latin
+   Extended by tools/fonts/subset.py; text in other scripts falls back to the system font. */
 @font-face {
-  font-family: "Liberation Sans";
-  src: url("/fonts/LiberationSans-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Liberation Sans";
-  src: url("/fonts/LiberationSans-Bold.ttf") format("truetype");
+  font-family: "Chakra Petch";
+  src: url("/fonts/ChakraPetch-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "Liberation Mono";
-  src: url("/fonts/LiberationMono-Regular.ttf") format("truetype");
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -80,6 +63,12 @@ body {
   margin: 0;
   font-size: var(--type-body);
   line-height: var(--line-body);
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: var(--font-display-weight);
 }
 
 h1 {
@@ -158,7 +147,7 @@ code,
   align-items: center;
   gap: var(--space-2);
   color: var(--color-action);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -201,7 +190,7 @@ code,
   gap: var(--space-1);
   font-size: var(--type-meta);
   line-height: var(--line-meta);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -320,14 +309,14 @@ button:hover,
 }
 
 button.primary {
-  background: var(--color-action);
-  border-color: var(--color-action);
+  background: var(--color-action-fill);
+  border-color: var(--color-action-fill);
   color: var(--color-on-action);
 }
 
 button.primary:hover {
-  background: var(--color-text);
-  border-color: var(--color-text);
+  background: var(--color-action-fill-hover);
+  border-color: var(--color-action-fill-hover);
 }
 
 button:disabled {
@@ -659,7 +648,7 @@ input[type="file"] {
   z-index: 1;
   background: var(--color-surface-subtle);
   border-bottom: var(--border-width) solid var(--color-divider);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .list-head .sort,
@@ -674,7 +663,7 @@ input[type="file"] {
   border: none;
   border-radius: 0;
   background: transparent;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -802,7 +791,7 @@ input[type="file"] {
 .tabs [role="tab"][aria-selected="true"] {
   background: var(--color-selected);
   border-bottom-color: var(--color-selected-edge);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Plan review: counts by kind, and rows reading current → proposed */
@@ -841,7 +830,7 @@ input[type="file"] {
 
 .kind-count .n {
   font-family: var(--font-data);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .kind-count select {
@@ -899,7 +888,7 @@ thead th.data {
   background: var(--color-surface-subtle);
   border-bottom: var(--border-width) solid var(--color-divider);
   text-align: left;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 thead th .sort,
@@ -914,7 +903,7 @@ thead th .label {
   border: none;
   border-radius: 0;
   background: transparent;
-  font-weight: 700;
+  font-weight: 600;
   text-align: left;
 }
 
@@ -1043,7 +1032,7 @@ tbody td button.small {
 
 .outcome-kept {
   color: var(--color-verified);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .outcome-clone {
@@ -1102,7 +1091,7 @@ fieldset.setting {
 fieldset.releases legend,
 fieldset.setting legend {
   padding: 0 var(--space-1);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 fieldset.releases ul,
@@ -1369,7 +1358,7 @@ details.kept {
 
 details.kept > summary {
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .legend {
@@ -1594,12 +1583,23 @@ details.kept > summary {
   min-width: 1.25rem;
   padding: 0 var(--space-1);
   border-radius: 999px;
-  background: var(--color-action);
+  background: var(--color-action-fill);
   color: var(--color-on-action);
   font-size: var(--type-meta);
   line-height: 1.25rem;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
+}
+
+/* READY, beside the message that a build finished: the kit's lettering at twice its size, on the emblem's plaque so
+   it reads in both themes. */
+.ready {
+  vertical-align: middle;
+  box-sizing: content-box;
+  padding: 3px 4px;
+  border-radius: var(--radius-control);
+  background: var(--emblem-plaque);
+  image-rendering: pixelated;
 }
 
 /* A page heading with its page-level actions beside it */
@@ -1822,7 +1822,7 @@ nav.tabs {
 
 .finding-badge .n {
   font-family: var(--font-data);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 select.choice.changed {
