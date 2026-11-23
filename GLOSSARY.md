@@ -14,7 +14,7 @@ The structure used to express a DAT, such as Logiqx XML, MAME ListXML or a MAME 
 establish its DAT Provider.
 
 **Arcade DAT**:
-A DAT of arcade machines, such as MAME's ListXML, whose Selections choose one Game per family from what the DAT says
+A DAT of arcade machines, such as MAME's ListXML, whose Selections keep one Game per family from what the DAT says
 of each machine, rather than from release names.
 
 **DAT Provider**:
@@ -43,7 +43,7 @@ The product says Game; Title is an accepted synonym in conversation, and machine
 _Avoid_: set, release (when meaning an entry)
 
 **Multi-disc Game**:
-The Games of a DAT Revision that are the numbered discs of one release, such as `Title (USA) (Disc 1)` and
+The Games of a DAT Revision that are the numbered discs of one game, such as `Title (USA) (Disc 1)` and
 `Title (USA) (Disc 2)`. A Selection takes it whole or not at all, and a Library Folder lacking one of its discs is
 Incomplete.
 _Avoid_: Disc Set, multi-disc set
@@ -59,7 +59,7 @@ _Avoid_: CHD (when meaning the DAT's entry)
 
 **Dependency**:
 A Game that another Game needs in order to run, such as the BIOS or a device a MAME machine names. It has its own Game
-Status, and a Selection can include it without ever choosing it as a release.
+Status, and a Selection can include it without it ever being the kept Game of a Game Group.
 _Avoid_: BIOS set (when meaning any Dependency), required set
 
 ## Collections
@@ -236,7 +236,7 @@ _Avoid_: Profile (when meaning the kept Games), Filtered DAT
 **Game Group**:
 The Games of a DAT Revision that are versions of one game, such as its regional versions and revisions. A Selection
 decides each Game Group as a whole.
-_Avoid_: group (alone), family, clone set, P/C group
+_Avoid_: group (alone), clone set, P/C group
 
 **Selection Outcome**:
 What a Selection decided for a Game in its Game Group: _kept_ (chosen), _clone_ (another version of a kept Game,
@@ -299,7 +299,7 @@ Game as CHD, one `<game>.chd` per disc, where its system's own setting says so; 
 holds its Disks as the CHDs its DAT lists. It has two scopes, Source Sets and Play Libraries, each with a global default and
 per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere, except loose folder for disc
 systems' Source Sets. Only a Game with one ROM can be stored loose; a Game with more stays TorrentZip or a loose
-folder, and the plan says why. The Games of one release share one format. Every write of a Game into a folder, by a
+folder, and the plan says why. The discs of a Multi-disc Game share one format. Every write of a Game into a folder, by a
 Repair, a Build or a fill, follows it.
 _Avoid_: Format setting, compression
 
