@@ -9,17 +9,20 @@
    pressed filter) an edge along the bottom. */
 @import "/stage-select-tokens.css";
 
-/* The keyboard cursor's four corner brackets, as background layers over a box. */
+/* The keyboard cursor's four corner brackets, as background layers over a box: an image, a position and a size per
+   layer, set as background-image, -position and -size so a row's own background colour stays underneath. */
 :root {
-  --cursor-brackets:
-    linear-gradient(var(--color-cursor), var(--color-cursor)) left top / var(--cursor-bracket) var(--focus-width),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) left top / var(--focus-width) var(--cursor-bracket),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) right top / var(--cursor-bracket) var(--focus-width),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) right top / var(--focus-width) var(--cursor-bracket),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) left bottom / var(--cursor-bracket) var(--focus-width),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) left bottom / var(--focus-width) var(--cursor-bracket),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) right bottom / var(--cursor-bracket) var(--focus-width),
-    linear-gradient(var(--color-cursor), var(--color-cursor)) right bottom / var(--focus-width) var(--cursor-bracket);
+  --cursor-line: linear-gradient(var(--color-cursor), var(--color-cursor));
+  --cursor-brackets-image:
+    var(--cursor-line), var(--cursor-line), var(--cursor-line), var(--cursor-line),
+    var(--cursor-line), var(--cursor-line), var(--cursor-line), var(--cursor-line);
+  --cursor-brackets-position:
+    left top, left top, right top, right top, left bottom, left bottom, right bottom, right bottom;
+  --cursor-brackets-size:
+    var(--cursor-bracket) var(--focus-width), var(--focus-width) var(--cursor-bracket),
+    var(--cursor-bracket) var(--focus-width), var(--focus-width) var(--cursor-bracket),
+    var(--cursor-bracket) var(--focus-width), var(--focus-width) var(--cursor-bracket),
+    var(--cursor-bracket) var(--focus-width), var(--focus-width) var(--cursor-bracket);
   --current-edge: inset 0 calc(-1 * var(--focus-width)) 0 var(--color-current-edge);
 }
 
@@ -663,11 +666,11 @@ input[type="file"] {
 }
 
 .list-row:hover {
-  background: var(--color-hover);
+  background-color: var(--color-hover);
 }
 
 .list-row.checked {
-  background: var(--color-checked);
+  background-color: var(--color-checked);
 }
 
 /* A checked row keeps its wash under the pointer, and the pointer shows as a ring instead. */
@@ -684,7 +687,9 @@ input[type="file"] {
   content: "";
   position: absolute;
   inset: var(--space-1);
-  background: var(--cursor-brackets);
+  background-image: var(--cursor-brackets-image);
+  background-position: var(--cursor-brackets-position);
+  background-size: var(--cursor-brackets-size);
   background-repeat: no-repeat;
   pointer-events: none;
 }
@@ -922,13 +927,15 @@ tbody td {
 }
 
 tbody tr:hover {
-  background: var(--color-hover);
+  background-color: var(--color-hover);
 }
 
-/* The older table's selected row is its keyboard cursor, which a click moves too: the brackets show whether or not
-   the table has focus. */
-tbody tr.selected {
-  background-image: var(--cursor-brackets);
+/* The older table's selected row is its keyboard cursor. The table takes focus itself, and the brackets show, as in
+   the shared list, only while it has keyboard focus. */
+table:focus-visible tbody tr.selected {
+  background-image: var(--cursor-brackets-image);
+  background-position: var(--cursor-brackets-position);
+  background-size: var(--cursor-brackets-size);
   background-repeat: no-repeat;
 }
 

@@ -246,7 +246,7 @@ checked, under the cursor and open at once and show all four:
 | --- | --- | --- |
 | Hover | `--color-hover` surface; on a checked row, a ring in `--color-control-border` | `:hover` |
 | Checked | `--color-checked` wash, and its checkbox | `.list-row.checked` |
-| Keyboard cursor | Four corner brackets (`--cursor-brackets`), only while the grid has keyboard focus | `.list-row.cursor::after` |
+| Keyboard cursor | Four corner brackets (`--cursor-brackets-image`, `-position`, `-size`), only while the grid has keyboard focus | `.list-row.cursor::after`; the older table's `table:focus-visible tr.selected` |
 | Open | `--color-open-edge` inset on the leading side, and weight 600 | `.list-row.open` |
 | Current | `--current-edge`, an edge along the bottom | `aria-current`, a selected tab, a pressed filter |
 | Focus | A 2 px outline, 3 px off | `:focus-visible` |

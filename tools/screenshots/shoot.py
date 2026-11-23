@@ -38,8 +38,11 @@ DAT fetch, kept files from an approved repair or ingest plan, or a running or in
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-One screen, row-states, isn't a route alone: it checks the DATs list's fourth row, then opens, checks, puts the
-keyboard cursor on and hovers its second row, and captures only the list and its detail, at 1440px only.
+Two screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row,
+then opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail.
+table-states moves the keyboard cursor in the audit's entries table and captures the table. Each fails the run if
+its cursor row's brackets (their computed background-image) are missing while the grid has keyboard focus, and
+table-states also if they show without it.
 """
 
 import argparse
@@ -95,11 +98,32 @@ SCREENS = {
     "roots": "/settings/roots",
     "about": "/settings/about",
     "row-states": "/dats",
+    "table-states": "/audits/{audit}?tab=entries",
 }
 
 # Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
 # as the list alone, not the full page, so the pointer stays where it was put. They are captured wide only: below
 # 1100px the open row's detail is a drawer over the list.
+class CursorHidden(Exception):
+    """A cursor row draws no brackets while its grid has keyboard focus, or draws them without it."""
+
+
+# The background-image a cursor row's brackets are drawn with, or "none".
+BRACKETS = """
+([selector, pseudo]) => {
+  const row = document.querySelector(selector);
+  return row ? getComputedStyle(row, pseudo).backgroundImage : 'no row';
+}
+"""
+
+
+def brackets(page, selector, pseudo, focused):
+    image = page.evaluate(BRACKETS, [selector, pseudo])
+    if (image == "none") == focused or image == "no row":
+        state = "with" if focused else "without"
+        raise CursorHidden(f"{selector}{pseudo or ''} {state} keyboard focus has background-image {image!r}")
+
+
 def row_states(page):
     """The DATs list's second row hovered, checked, under the keyboard cursor and open at once, its fourth checked."""
     rows = page.locator(".list-row")
@@ -108,10 +132,28 @@ def row_states(page):
     page.keyboard.press(" ")
     rows.nth(1).locator(".list-cell").first.hover()
     page.wait_for_timeout(300)
+    brackets(page, ".list-row.cursor", "::after", True)
     return page.locator(".list-split")
 
 
-DRIVEN = {"row-states": row_states}
+def table_states(page):
+    """The older table's cursor: the brackets show on its selected row only while the table has keyboard focus."""
+    page.locator("table[role=grid]").first.focus()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
+    brackets(page, "tbody tr.selected", None, True)
+    page.evaluate("() => document.activeElement.blur()")
+    brackets(page, "tbody tr.selected", None, False)
+    page.locator("table[role=grid]").first.focus()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowUp")
+    page.wait_for_timeout(300)
+    brackets(page, "tbody tr.selected", None, True)
+    return page.locator(".table-scroll").first
+
+
+DRIVEN = {"row-states": row_states, "table-states": table_states}
 
 ATARI = "Atari - 2600"
 GAME_BOY = "Nintendo - Game Boy"
