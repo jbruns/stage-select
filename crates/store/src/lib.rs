@@ -510,9 +510,9 @@ impl Store {
         std::fs::create_dir_all(&dats).map_err(|e| io_error(&dats, e))?;
         let lock = lock(dir)?;
         let mut writer = Connection::open(dir.join(DATABASE))?;
-        // The header is the database file's: one whose WAL was never checkpointed holds its schema in the WAL, so the
-        // stamp is checked again through the connection, before anything writes. Reading may have made the WAL's
-        // sidecars by now, but a refusal leaves the database file as it was: closing doesn't checkpoint the WAL.
+        // The header has been read through the WAL as well, before anything was made in the directory; the stamp is
+        // checked again through the connection, as SQLite reads it, before anything writes. Should that refuse, closing
+        // doesn't checkpoint the WAL, so the database file is left as it was.
         let version: i64 = writer.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let id: i32 = writer.pragma_query_value(None, "application_id", |r| r.get(0))?;
         if let Err(refused) = migrations::check_stamp(version, id) {
@@ -976,28 +976,77 @@ mod tests {
         assert_eq!(names(dir.path()), [DATABASE]);
     }
 
-    /// A WAL never checkpointed leaves the database file's header from before its schema; what opening it reads
-    /// through the WAL is refused all the same, before anything is written to the database file.
+    /// Every entry under `dir`, by its path from `dir`, with a file's bytes; a directory's are empty.
+    fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Option<Vec<u8>>> {
+        let mut entries = std::collections::BTreeMap::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(at) = pending.pop() {
+            for entry in std::fs::read_dir(&at).unwrap() {
+                let path = entry.unwrap().path();
+                let relative = path.strip_prefix(dir).unwrap().to_path_buf();
+                if path.is_dir() {
+                    entries.insert(relative, None);
+                    pending.push(path);
+                } else {
+                    entries.insert(relative, Some(std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        entries
+    }
+
+    /// Asserts `dir` holds the entries `before` does, each file with the same bytes.
+    fn assert_untouched(dir: &Path, before: &std::collections::BTreeMap<PathBuf, Option<Vec<u8>>>) {
+        let after = snapshot(dir);
+        assert_eq!(
+            after.keys().collect::<Vec<_>>(),
+            before.keys().collect::<Vec<_>>()
+        );
+        for (path, bytes) in &after {
+            assert!(bytes == &before[path], "{} changed", path.display());
+        }
+    }
+
+    /// Copies the database and its WAL from `made` to a new directory while `conn` still holds them, so the WAL is
+    /// never checkpointed: the database file keeps its header from before the schema, and the schema and stamp are
+    /// only in the WAL.
+    fn uncheckpointed(made: &Path, conn: Connection) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
+            std::fs::copy(made.join(&name), dir.path().join(&name)).unwrap();
+        }
+        drop(conn);
+        let header = std::fs::read(dir.path().join(DATABASE)).unwrap();
+        assert_eq!(&header[60..64], &[0, 0, 0, 0]);
+        assert_eq!(&header[68..72], &[0, 0, 0, 0]);
+        dir
+    }
+
+    /// A WAL never checkpointed leaves the database file's header from before its schema; what the WAL holds is
+    /// refused all the same, before anything is made or written in the store's directory.
     #[test]
     fn a_store_from_before_the_baseline_with_its_schema_only_in_the_wal_is_refused() {
         let made = tempfile::tempdir().unwrap();
-        let conn = pre_baseline(made.path(), true);
-        let dir = tempfile::tempdir().unwrap();
-        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
-            std::fs::copy(made.path().join(&name), dir.path().join(&name)).unwrap();
-        }
-        drop(conn);
-        let path = dir.path().join(DATABASE);
-        let before = std::fs::read(&path).unwrap();
-        assert_eq!(&before[60..64], &[0, 0, 0, 0]);
-
-        let wal = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
+        let dir = uncheckpointed(made.path(), pre_baseline(made.path(), true));
+        let before = snapshot(dir.path());
 
         assert_pre_baseline_refused(Store::open(dir.path()));
 
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        let after = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
-        assert_eq!(after, wal);
+        assert_untouched(dir.path(), &before);
+    }
+
+    #[test]
+    fn a_store_stamped_before_the_rename_with_its_stamp_only_in_the_wal_is_refused_and_left_untouched()
+     {
+        let made = tempfile::tempdir().unwrap();
+        let conn = baseline_stamped(made.path(), true, Some(BEFORE_THE_RENAME));
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        let dir = uncheckpointed(made.path(), conn);
+        let before = snapshot(dir.path());
+
+        assert_pre_baseline_refused(Store::open(dir.path()));
+
+        assert_untouched(dir.path(), &before);
     }
 
     #[test]
