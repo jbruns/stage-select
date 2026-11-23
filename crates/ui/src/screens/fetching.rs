@@ -1,6 +1,8 @@
 //! Where fetching newer DAT revisions from Redump and MAME stands, per provider and system, with a way to fetch now.
 
 use leptos::prelude::*;
+use leptos_router::components::A;
+use leptos_router::hooks::use_location;
 use stage_select_api::fetch::{FetchProviderStatus, FetchStatus, FetchSupport, FetchSystem};
 
 use crate::api;
@@ -10,8 +12,33 @@ use crate::fetch_model::{
     support_next, support_state, system_state,
 };
 use crate::model::when;
+use crate::parts::help::Help;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StatusIcon};
+
+/// Where you turn fetching from each provider on or off.
+pub(crate) const FETCHING_SETTING: &str = "/settings/operations#fetching";
+/// Where fetching stands, and where you fetch now.
+pub(crate) const FETCHING_STATUS: &str = "/dats#fetching";
+/// Where you choose what is fetched: each source set's "Follow its DAT".
+pub(crate) const FOLLOWING: &str = "/source-sets";
+
+/// Scrolls to the element `id` once `drawn`, when the link that opened the page named it (`#id`). The browser can't
+/// do it itself: the link arrives before the element exists.
+pub(crate) fn scroll_when_named(id: &'static str, drawn: impl Fn() -> bool + 'static) {
+    let hash = use_location().hash;
+    let scrolled = StoredValue::new(false);
+    Effect::new(move || {
+        if drawn() && !scrolled.get_value() && hash.get_untracked() == format!("#{id}") {
+            scrolled.set_value(true);
+            request_animation_frame(move || {
+                if let Some(element) = document().get_element_by_id(id) {
+                    element.scroll_into_view();
+                }
+            });
+        }
+    });
+}
 
 fn provider_name(p: &FetchProviderStatus) -> &'static str {
     p.provider.dat_provider()
@@ -50,11 +77,15 @@ pub fn Fetching() -> impl IntoView {
         }
     });
     let problem = Signal::derive(move || status.get().and_then(Result::err));
+    scroll_when_named("fetching", move || status.with(Option::is_some));
     view! {
         <section aria-labelledby="fetching">
             <h2 id="fetching">"Fetching"</h2>
-            <details>
-                <summary>"How fetching works"</summary>
+            <p class="note">
+                "You turn fetching on under " <A href=FETCHING_SETTING>"Settings, then Operations"</A>
+                ", and it fetches the DATs your " <A href=FOLLOWING>"source sets"</A> " follow."
+            </p>
+            <Help summary="How fetching works">
                 <p>
                     "For the systems your source sets follow, the service can fetch newer DAT revisions from Redump and from MAME's releases, and Redump's cue and SBI packs. Each provider is off until you turn it on under Settings, then Operations. Each system is fetched at most once a day, even when you fetch by hand. A fetch that fails keeps the last good DAT revision. A newer DAT revision makes the following source sets stale; fetching never starts an audit."
                 </p>
@@ -64,7 +95,7 @@ pub fn Fetching() -> impl IntoView {
                 <p>
                     "No-Intro DATs are never fetched: download them yourself and drop them into an ingest folder, or import them here."
                 </p>
-            </details>
+            </Help>
             <ActionPending action=fetch status="Fetching…".to_string()>
                 <Pending
                     pending=Signal::derive(move || status.get().is_none())
@@ -102,10 +133,16 @@ fn ProviderPanel(
             .and_then(|a| a.release)
             .map(|tag| format!("Latest release found: {tag}."))
     });
+    let off = (!provider.enabled).then(|| {
+        view! {
+            <p>
+                "Off. To turn it on, go to " <A href=FETCHING_SETTING>"Settings, then Operations"</A>
+                {format!(", and turn on fetching from {name}.")}
+            </p>
+        }
+    });
     let note = if !provider.enabled {
-        Some(format!(
-            "Off. To turn it on, go to Settings, then Operations, and turn on fetching from {name}."
-        ))
+        None
     } else if provider.systems.is_empty() && provider.support.is_some() {
         Some(format!(
             "No source set follows a {name} DAT, so only the support files are fetched."
@@ -141,6 +178,7 @@ fn ProviderPanel(
                 {format!("Fetch from {name} now")}
             </button>
             {release.map(|r| view! { <p>{r}</p> })}
+            {off}
             {note.map(|n| view! { <p>{n}</p> })}
             {(!provider.systems.is_empty())
                 .then(move || {

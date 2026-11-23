@@ -1044,6 +1044,14 @@ textarea.lines {
   margin-top: 0;
 }
 
+/* A long form's Save, kept in view at the bottom of the window while you scroll its sections. */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-bottom: 0;
+}
+
 .order {
   margin: 0 0 var(--space-2);
   padding: 0;

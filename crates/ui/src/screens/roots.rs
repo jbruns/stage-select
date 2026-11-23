@@ -2,15 +2,20 @@
 //! once, without a restart.
 
 use leptos::prelude::*;
+use leptos_router::components::A;
 use stage_select_api::Root;
 use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
 
 use crate::api;
 use crate::model::when;
+use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::roots_model::{RootDraft, access, kind_label, kind_note, voided_lines};
+
+/// Where each root's ceilings are set: the job pace, under Operations.
+pub(crate) const CEILINGS: &str = "/settings/operations#job-pace";
 
 /// What the drawer shows: a form to register a Root or edit one, or the confirmation to unregister one.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +64,8 @@ pub fn Roots() -> impl IntoView {
     view! {
         <h1>"Roots"</h1>
         <p class="lede">
-            "The folders the service works in. Register a root before you register anything in it. A change applies at once. You set each root's ceilings under operations."
+            "The folders the service works in. You set each root's ceilings under "
+            <A href=CEILINGS>"Operations"</A> "."
         </p>
         <div class="actions">
             <button type="button" on:click=move |_| show(Open::Register)>"Register a root…"</button>
@@ -125,6 +131,13 @@ pub fn Roots() -> impl IntoView {
                     })
             }}
         </Pending>
+        <Help summary="What a root is">
+            <p>
+                "A root is a folder the service may work in. Register a root before you register anything in it: a \
+                 read-only root for the folders that hold your games, and a writable root for the library folders \
+                 it builds. A change applies at once, without a restart."
+            </p>
+        </Help>
         <Drawer open=drawer title=Signal::derive(move || open.with(|o| o.as_ref().map(Open::title).unwrap_or_default()))>
             {move || match open.get() {
                 Some(Open::Register) => view! { <RootForm was=None done /> }.into_any(),

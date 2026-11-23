@@ -47,6 +47,7 @@ use crate::placement_model::{
 use crate::screens::additions::{AdditionsList, SetView};
 use crate::screens::audit::{EntriesPanel, GamesPanel, load};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
+use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
 use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
@@ -441,6 +442,12 @@ fn Overview(
             <dl class="facts">
                 <dt>"DAT"</dt>
                 <dd>{set.dat.clone()}</dd>
+                <dt>"Fetching its DAT"</dt>
+                <dd>
+                    <A href=FETCHING_STATUS>"Where it stands"</A>
+                    " · "
+                    <A href=FETCHING_SETTING>"Turn it on or off"</A>
+                </dd>
                 <dt>"Root and path"</dt>
                 <dd>
                     <code class="path">{format!("{}: {}", set.root, set.path)}</code>

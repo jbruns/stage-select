@@ -90,6 +90,9 @@ pub fn About() -> impl IntoView {
         <p class="lede">
             "Stage Select audits your source sets against DAT files and records exactly what was verified, and against which DAT revision."
         </p>
+        <p>
+            <A href="/welcome">"Set up Stage Select: the first-run steps"</A>
+        </p>
         <section aria-labelledby="selection-title">
             <h2 id="selection-title">"Where selection comes from"</h2>
             <p>

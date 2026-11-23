@@ -514,7 +514,8 @@ a restart, and is kept in the store, so a backup of the store keeps it too.
 | Webhook | the URL events are posted to, the secret they are signed with, which events, and your workbench's address for their links; see "Notifications and metrics" | off |
 | RomM | whether to use RomM, its address, a RomM token, and the root RomM's library is in; see "RomM" | off |
 
-Below the settings, the page also starts a calibration and shows its results; see "Calibration".
+Its Calibration tab starts a calibration and shows its results; see "Calibration". The Save button stays at the
+bottom of the window while you scroll the settings.
 
 The webhook's URL and secret are write-only: once saved, the workbench and the API say only whether each is set, and
 you can replace or clear it, but not read it.
@@ -957,7 +958,8 @@ number of selections your retention setting keeps are pruned to their summary; t
 ### Calibration
 
 A calibration measures what this computer and your roots can do, so you can see how many workers are worth running.
-It is a job of kind `calibration`, started from the workbench (Settings, then Operations), through the API, or with:
+It is a job of kind `calibration`, started from the workbench (Settings, then Operations, then Calibration), through
+the API, or with:
 
 ```sh
 stage-select calibrate --server <url>
@@ -2307,9 +2309,11 @@ Its screens:
 
 - **Set up**, at `/welcome`, is where the workbench opens while you have no roots; once you have one, it opens on
   Source sets. It takes you to your first audit in steps, each saying what it does: register a root, choosing from
-  the folders the service can see (see "Roots") or typing a path; import a DAT, or fetch one on DATs; register a
+  the folders the service can see (see "Roots") or typing a path; import a DAT (fetching only brings newer revisions
+  of DATs your source sets follow, so the step links to fetching once there is one to fetch); register a
   source set in a read-only root; audit it; and, once you have a writable root, make a library folder. Each step
-  waits for the one it needs, and you can skip any of them and take it later from the screen it names.
+  waits for the one it needs, and you can skip any of them and take it later from the screen it names. Settings, then
+  About, links back to these steps.
 - **Source sets** lists each source set with its status (running, repair open, needs review, stale, resting on
   claims, verified or never audited), in that order and then by name unless you sort by a column, under a strip of
   counts by status, each showing only those rows when you choose it; a stale status carries an icon for each cause, files changed or a newer DAT
