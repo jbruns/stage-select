@@ -1087,7 +1087,7 @@ impl Store {
                     }
                     Err(e) => {
                         return Ok(Aside::Left(format!(
-                            "it could not be kept aside ({e}); {}",
+                            "it could not be set aside ({e}); {}",
                             left()
                         )));
                     }
@@ -1121,7 +1121,7 @@ impl Store {
                     let kept = KeptRow {
                         generation,
                         kept_name: aside.clone(),
-                        reason: format!("found in place of {name} as it was kept aside"),
+                        reason: format!("found in place of {name} as it was set aside"),
                         identity: Identity::of(&st),
                         file: file_stat(&st),
                         sha256: None,
@@ -1129,11 +1129,11 @@ impl Store {
                     self.write(|tx| insert_kept(tx, m, &kept).map(|_| ()))?;
                 }
                 return Ok(Aside::Ended(format!(
-                    "another file was moved in its place as it was kept aside, and was kept as {aside}"
+                    "another file was moved in its place as it was set aside, and was kept as {aside}"
                 )));
             }
             Some(_) => {
-                let why = "another entry, not a file, was moved in its place as it was kept aside";
+                let why = "another entry, not a file, was moved in its place as it was set aside";
                 if let Err(e) = retention.rename_new(&aside, dir, name) {
                     return Ok(Aside::Ended(format!(
                         "{why}, and could not be put back ({e}); it was left at {aside} in the kept files"
@@ -2029,7 +2029,7 @@ impl Store {
                 return Ok(Ok((
                     None,
                     Some(format!(
-                        "the {made} is in place, but {} could not be kept aside ({e}), so it was left in the folder",
+                        "the {made} is in place, but {} could not be set aside ({e}), so it was left in the folder",
                         m.name
                     )),
                 )));
@@ -2065,7 +2065,7 @@ impl Store {
             // Another file was renamed in place of the original: recorded kept under its own identity, as the move
             // ends, or, when not a regular file, put back; never left in the kept files unrecorded.
             let note = format!(
-                "{} was replaced by another file as it was kept aside; the {made} is in place",
+                "{} was replaced by another file as it was set aside; the {made} is in place",
                 m.name
             );
             if FolderDir::kind(&st) != FileType::RegularFile {
@@ -2089,7 +2089,7 @@ impl Store {
                 Some(KeptRow {
                     generation,
                     kept_name: kept.clone(),
-                    reason: format!("found in place of {} as it was kept aside", m.name),
+                    reason: format!("found in place of {} as it was set aside", m.name),
                     identity: Identity::of(&st),
                     file: file_stat(&st),
                     sha256: None,
@@ -3243,7 +3243,7 @@ mod tests {
                 "failed",
             ),
             (
-                "rename kept aside",
+                "rename set aside",
                 Fault::IngestSetAside,
                 |base, fault| {
                     swap(base, fault);

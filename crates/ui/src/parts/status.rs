@@ -827,7 +827,7 @@ impl Status for IngestPlanKind {
                 Glyph::Archive,
                 Tone::Review,
                 "Discard",
-                "Keeps it aside in the folder's kept files.",
+                "Sets it aside in the folder's kept files.",
             ),
         }
     }

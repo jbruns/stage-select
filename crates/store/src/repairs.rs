@@ -3208,7 +3208,7 @@ impl Store {
                 self.fail_step(
                     step,
                     "failed",
-                    format!("{path} could not be kept aside: {e}; it was left as it is"),
+                    format!("{path} could not be set aside: {e}; it was left as it is"),
                 )?;
                 return Ok(Ok(None));
             }
@@ -3372,7 +3372,7 @@ impl Store {
                 self.fail_step(
                     step,
                     "failed",
-                    format!("{path} could not be kept aside: {why}; it was left as it is"),
+                    format!("{path} could not be set aside: {why}; it was left as it is"),
                 )?;
                 return Ok(Ok(None));
             }
@@ -3462,12 +3462,12 @@ impl Store {
                     parent.sync_holding(name).map_err(io_err)?;
                     generation.sync().map_err(io_err)?;
                     format!(
-                        "{path} was replaced by something else as it was kept aside; that was put back as {path}, \
+                        "{path} was replaced by something else as it was set aside; that was put back as {path}, \
                          which was left as it is"
                     )
                 }
                 Err(e) => format!(
-                    "{path} was replaced by something else as it was kept aside, which could not be put back ({e}); \
+                    "{path} was replaced by something else as it was set aside, which could not be put back ({e}); \
                      it was left at {kept} in the kept files"
                 ),
             };
@@ -3478,7 +3478,7 @@ impl Store {
         let (dev, ino) = found.to_sql();
         let file = file_stat(st);
         let why = format!(
-            "{path} was replaced by another file as it was kept aside; that file was kept as {kept} instead, and {path} \
+            "{path} was replaced by another file as it was set aside; that file was kept as {kept} instead, and {path} \
              left as it is"
         );
         let settled = self.write(|tx| {
@@ -3508,7 +3508,7 @@ impl Store {
                             content.generation as i64,
                             path,
                             kept,
-                            format!("found in place of {path} as it was kept aside"),
+                            format!("found in place of {path} as it was set aside"),
                             file.size as i64,
                             file.mtime_ns.to_string(),
                             dev,
@@ -4133,7 +4133,7 @@ impl Store {
                         step,
                         "failed",
                         format!(
-                            "{why}; another file was found at {staged_name}, which could not be kept aside ({e}) \
+                            "{why}; another file was found at {staged_name}, which could not be set aside ({e}) \
                              and was left there"
                         ),
                     );
@@ -4143,7 +4143,7 @@ impl Store {
                 match generation.stat(kept).map_err(io_err)? {
                     Some(st) => settle(&st),
                     None => Ok(Err(format!(
-                        "{kept} was moved from the kept files as it was kept aside"
+                        "{kept} was moved from the kept files as it was set aside"
                     ))),
                 }
             }
@@ -4219,7 +4219,7 @@ impl Store {
         let failed = |tx: &Transaction, _: i64| -> Result<()> {
             tx.execute(
                 "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3 WHERE id = ?1",
-                params![step.id, format!("{why}; it was kept aside as {kept}"), now()],
+                params![step.id, format!("{why}; it was set aside as {kept}"), now()],
             )?;
             Ok(())
         };
@@ -4267,7 +4267,7 @@ impl Store {
             return self.step_failed(
                 step,
                 "skipped",
-                format!("{path} was not deleted, since it was not kept aside"),
+                format!("{path} was not deleted, since it was not set aside"),
             );
         };
         let (state, kept_ctime, error): (String, Option<String>, Option<String>) =

@@ -42,7 +42,7 @@ pub fn item_kind_note(kind: ItemKind) -> &'static str {
         ItemKind::NoSource => "No audited file holds every ROM, so these are skipped.",
         ItemKind::Conflict => {
             "A file the store did not build, or one changed since it was built, is at the target. It is never \
-             overwritten, so these are skipped unless you choose to keep the file aside and rebuild."
+             overwritten, so these are skipped unless you choose to set the file aside and rebuild."
         }
         ItemKind::Blocked => "These cannot be built as planned, so they are skipped.",
         ItemKind::Adopt => {

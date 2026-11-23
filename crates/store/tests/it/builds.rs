@@ -2036,7 +2036,7 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
         b"theirs",
         "the folder put in its place is left as it is"
     );
-    assert_eq!(names(&dir), before, "nothing was kept aside");
+    assert_eq!(names(&dir), before, "nothing was set aside");
     assert!(env.store.kept_files(folder.id).unwrap().is_empty());
     let (env, _) = env.restart();
     let next = env.plan(&folder, plan.content.selection);

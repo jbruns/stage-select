@@ -224,7 +224,7 @@ impl RepairStep {
             }
             RepairStep::Keep {
                 path, kept_name, ..
-            } => format!("keep {path} aside as {kept_name}"),
+            } => format!("set {path} aside as {kept_name}"),
             RepairStep::Rename { from, to, .. } => format!("rename {from} to {to}"),
             RepairStep::Publish { target, .. } => format!("put the new {target} in place"),
             RepairStep::Fill {

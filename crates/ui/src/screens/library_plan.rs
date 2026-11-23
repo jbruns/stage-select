@@ -244,7 +244,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
         ItemRow::new(&kept, game, &r.target).fact("Does", restore_kind_label(r.kind).to_string())
     });
     let repacks = cleanup.repacks.iter().map(|r| {
-        let does = "Repack as TorrentZip, keeping the file as it is aside";
+        let does = "Repack as TorrentZip, setting the file as it is aside";
         ItemRow::new(&r.target, &r.game, &r.target).fact("Does", does.to_string())
     });
     with_kinds(content, entries.chain(restores).chain(repacks))

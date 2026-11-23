@@ -653,7 +653,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
     let after = files(&env.set());
     assert!(
         after.iter().all(|f| f.starts_with(".stage-select/")),
-        "every file is kept aside in place: {after:?}"
+        "every file is set aside in place: {after:?}"
     );
     assert_eq!(after.len(), 3, "two kept files and the marker: {after:?}");
 

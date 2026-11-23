@@ -1684,7 +1684,7 @@ fn CleanupForm(
                                             />
                                             " Repack "
                                             <code>{target}</code>
-                                            " as TorrentZip, keeping the file as it is aside"
+                                            " as TorrentZip, setting the file as it is aside"
                                         </label>
                                     </li>
                                 }
@@ -1740,7 +1740,7 @@ fn CleanupForm(
             <h2 id="cleanup-title">"Clean up the folder"</h2>
             <p class="lede">
                 {format!(
-                    "Choose what to do with what the latest check found. Keep an entry aside, and it is moved, whole, \
+                    "Choose what to do with what the latest check found. Set an entry aside, and it is moved, whole, \
                      into {RETENTION}; adopt a file that holds a selected game, and it is recorded as built under that \
                      game's file name; acknowledge an entry, and it is no longer reported until it changes; add a file \
                      no DAT knows as an addition, and it is set aside and copied into its system's \

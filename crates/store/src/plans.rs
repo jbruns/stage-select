@@ -793,7 +793,7 @@ fn removals(
             }) {
                 removal.kind = RemovalKind::Keep;
                 removal.reason = format!(
-                    "{target} was converted to {}, which is in place; it is kept aside{}",
+                    "{target} was converted to {}, which is in place; it is set aside{}",
                     item.target,
                     match inputs.storage.delete_originals {
                         true => format!(", then deleted once {} is verified", item.target),
@@ -814,7 +814,7 @@ fn removals(
                 // Another file for the game, not a conversion of this one: it is replaced, and only ever kept.
                 removal.kind = RemovalKind::Keep;
                 removal.reason = format!(
-                    "{target} is replaced by {}; it is kept aside once {} is in place",
+                    "{target} is replaced by {}; it is set aside once {} is in place",
                     item.target, item.target
                 );
                 removal.keep = Some(keep_of(
@@ -882,7 +882,7 @@ fn removals(
         }) {
             removal.kind = RemovalKind::Keep;
             removal.reason =
-                format!("{gone}; {target} is kept aside in the folder's retention area");
+                format!("{gone}; {target} is set aside in the folder's retention area");
             removal.keep = Some(keep_of(
                 if replaced {
                     KeepReason::Replacement
@@ -1764,7 +1764,7 @@ fn plan_items(
             } else if item.adoptable {
                 format!(
                     "{name} is in the folder and was not built by Stage Select, but holds the ROMs the DAT expects \
-                     there; leave it, adopt it as built, or keep it aside and rebuild"
+                     there; leave it, adopt it as built, or set it aside and rebuild"
                 )
             } else {
                 format!("{name} is in the folder and was not built by Stage Select")
@@ -1933,7 +1933,7 @@ fn plan_items(
                     "{title} has nothing to build at {at}, and {from}, built for it before, is still there"
                 );
                 notes.push(format!(
-                    "{release} is left as it is: {why}. Nothing of {release} is written, moved or kept aside until an \
+                    "{release} is left as it is: {why}. Nothing of {release} is written, moved or set aside until an \
                      audit finds a ROM of {title}, or you move {from} out of the folder to build {release} without \
                      {title}"
                 ));
@@ -2473,7 +2473,7 @@ fn generate(
         } else if item.adoptable {
             format!(
                 "{} is in the folder and was not built by Stage Select, but is exactly the file a build writes \
-                 there; leave it, adopt it as built, or keep it aside and rebuild",
+                 there; leave it, adopt it as built, or set it aside and rebuild",
                 found.name
             )
         } else {
@@ -2772,7 +2772,7 @@ fn conflict(
     }
     item.reason = Some(if keep {
         format!(
-            "{why}; you chose to keep it aside, but it is not a regular file, so it is never moved. It is left as it is"
+            "{why}; you chose to set it aside, but it is not a regular file, so it is never moved. It is left as it is"
         )
     } else {
         format!("{why}; it is never overwritten")
@@ -2791,7 +2791,7 @@ fn unkeep(item: &mut PlanItem) {
         KeepReason::Conflict => {
             item.kind = ItemKind::Conflict;
             item.reason = Some(format!(
-                "you chose to keep {} aside and rebuild, but there is nothing to build it from ({why}); it is left \
+                "you chose to set {} aside and rebuild, but there is nothing to build it from ({why}); it is left \
                  as it is",
                 keep.name
             ));
@@ -3028,7 +3028,7 @@ impl Store {
             .find(|t| choices.adopt.contains(t))
         {
             return Err(Error::Refused(format!(
-                "you chose both to adopt {both} and to keep it aside; choose one"
+                "you chose both to adopt {both} and to set it aside; choose one"
             )));
         }
         let planned = self.compute_plan(folder, request.selection, &choices)?;

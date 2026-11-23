@@ -2370,7 +2370,7 @@ fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_st
             && pong
                 .error
                 .as_deref()
-                .is_some_and(|e| e.contains("kept aside as Pong (USA).zip.kept")),
+                .is_some_and(|e| e.contains("set aside as Pong (USA).zip.kept")),
         "{pong:?}"
     );
     assert_eq!(

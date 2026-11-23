@@ -1225,7 +1225,7 @@ game's files and names the folder, so you can move it.
 
 A disc system's own setting can also put each disc's SBI file beside it: with "Put SBI files beside discs" on, a build
 writes each disc's `.sbi` from the system's latest fetched SBI pack, named for and beside its `.cue` or `.chd`. A disc
-the pack has no SBI file for gets none. Turning it off keeps the SBI files aside in your kept files. A plan records
+the pack has no SBI file for gets none. Turning it off sets the SBI files aside in your kept files. A plan records
 the SBI pack it uses: if a newer pack arrives before you run it, the plan is out of date and you review a new one.
 
 A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say CHD,
@@ -1249,7 +1249,7 @@ checked file and anything set aside are held, the folder takes no new build, and
 game when the service next starts, once that disc can go in place. When the new CHDs replace a game's earlier files, an
 earlier file is deleted, if you chose that, only while its CHD is still the file that was checked: the same size and
 modification time, and, read whole again just before, the same SHA-256. Otherwise it stays in your kept files. A plan
-never adopts a CHD a build didn't write, or one put back from kept files: it keeps it aside and builds the disc again,
+never adopts a CHD a build didn't write, or one put back from kept files: it sets it aside and builds the disc again,
 unless a cleanup adopts it first (see below).
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
@@ -1351,7 +1351,7 @@ neither confirmed a choice nor chosen to build resolved game groups only, the ro
 marker or its retention area is wrong. It shows what changed since the current build, and whether your settings,
 your choices or the DAT revision caused it.
 
-A plan never deletes a file. A built file whose game is no longer selected is a removal: the plan keeps it aside when
+A plan never deletes a file. A built file whose game is no longer selected is a removal: the plan sets it aside when
 a check finds it as built, forgets its record when it is gone already, and leaves it when it changed since it was
 built. A built file the plan writes again from other ROMs, as when a newer DAT revision changes the game, is a
 replacement: the old file is set aside and the new one written in the same build. Setting a file aside moves it, by
@@ -1390,14 +1390,14 @@ Select's own entries are never drift. Drift is a warning: only a conflict at a s
 incomplete.
 
 A cleanup acts on what a check found, only as you choose, entry by entry (`POST /libraries/{id}/cleanups`):
-keep an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
+set an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
 a selected game's ROMs under the current DAT revision, renamed to that game's file name when it is not already, and
 recorded as built; or acknowledge an entry, which writes nothing to the folder and stops reporting it until its
 identity, size or modification time changes; or add a file that holds one ROM no DAT knows as an addition,
-which keeps it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
+which sets it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
 free and, for a file holding a selected game, that game's file name; a kept file holding a selected game under
 another name is adopted under that game's file name instead, and one whose name is taken is refused. It repacks a
-built file flagged not TorrentZip from its own contents, in one read, keeping the file as it was aside; if the
+built file flagged not TorrentZip from its own contents, in one read, setting the file as it was aside; if the
 service stops after the old file is set aside and before the new one is in place, a selected game is reported failed, so
 the folder shows as incomplete until you put the kept copy back or build again. A kept folder is put back
 as it was, never adopted or deleted by Stage Select. A disc layout you laid out yourself, the way a build lays out
@@ -1662,7 +1662,7 @@ Discarding an item moves it into the folder's kept files, `.stage-select/retaine
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
 audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
-file keeps it as `support-file import` would, then keeps the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
+file keeps it as `support-file import` would, then sets the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
 arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
 meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
 The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is
@@ -1692,7 +1692,7 @@ approving approves the plan as it was made, so it waits while you have changes y
   written out together in one read of it:
   always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
   original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
-  converted file's name is taken, the original stays where it is, unless you chose to keep what is there aside: it
+  converted file's name is taken, the original stays where it is, unless you chose to set what is there aside: it
   is set aside before the converted file is put in place;
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
@@ -1707,8 +1707,8 @@ approving approves the plan as it was made, so it waits while you have changes y
   and the plan says which ROMs;
 - a MAME game's missing disk is filed from an ingest folder's CHD that `chdman verify` proved, into its family's folder,
   `<parent>/<disk>.chd`, as a merged CHD set keeps it: the folder of the furthest of its parent and BIOS that lists it
-  too, under that one's name for it, replacing a CHD there that can match no disk and keeping that one aside. A disk the
-  audit matched stays where it is: a repair never keeps it aside, and never packs a CHD into a game's ZIP;
+  too, under that one's name for it, replacing a CHD there that can match no disk and setting that one aside. A disk the
+  audit matched stays where it is: a repair never sets it aside, and never packs a CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, set it aside or leave it;
 - unmatched entries and extra members of a game's ZIP are set aside by default;
@@ -1770,9 +1770,9 @@ You add one from three places, each through a plan you approve:
   what was written is exactly the addition's ROM. A loose file is deleted then; a ZIP original is kept in the ingest
   folder's kept files;
 - an entry of a source set that matched nothing and holds one ROM, by choosing "add to additions" for it in
-  a repair. The repair keeps it aside as it would otherwise, and the addition is copied from that kept file;
+  a repair. The repair sets it aside as it would otherwise, and the addition is copied from that kept file;
 - drift in a library folder, by choosing "add to additions" for an entry not built there in a cleanup. The
-  cleanup keeps it aside, and the addition is copied from that kept file.
+  cleanup sets it aside, and the addition is copied from that kept file.
 
 The plan records each addition's hashes when it is made, read from the file through a descriptor it holds, and you
 approve those hashes with the plan. An additions job, one per additions set and subject to `jobs.concurrent` like any

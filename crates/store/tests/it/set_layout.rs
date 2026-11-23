@@ -1828,7 +1828,7 @@ fn a_rom_whose_other_copy_a_fill_would_write_stays_out_of_the_kept_files_under(
     layout: SetLayout,
     keep_aside: bool,
 ) {
-    let at = format!("{layout:?}, keep aside {keep_aside}");
+    let at = format!("{layout:?}, set aside {keep_aside}");
     let env = Env::with(listxml_aliased(false));
     env.zip("acmevga.zip", &["vga.bin"]);
     // The member is named for the parent's program, but holds the graphics device's ROM.
