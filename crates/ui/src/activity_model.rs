@@ -1,10 +1,10 @@
 //! The Activity screen's pure logic: the counters over its Jobs, where each Job links, and the kept files of every
 //! folder as one list.
 
-use title_select_api::build::{KeptFile, LibraryFolder};
-use title_select_api::ingest::IngestKeptFile;
-use title_select_api::repair::SourceKeptFile;
-use title_select_api::{Job, JobLoad, JobState, JobThroughput, Rates};
+use stage_select_api::build::{KeptFile, LibraryFolder};
+use stage_select_api::ingest::IngestKeptFile;
+use stage_select_api::repair::SourceKeptFile;
+use stage_select_api::{Job, JobLoad, JobState, JobThroughput, Rates};
 
 use crate::build_model::keep_reason_label;
 use crate::jobs::{JobBook, LiveJob};
@@ -124,7 +124,7 @@ pub fn opened_failure<'a>(
         .map(|j| j.id)
 }
 
-/// Where a kept file is kept: each folder Title Select keeps files aside in.
+/// Where a kept file is kept: each folder Stage Select keeps files aside in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeptPlace {
     LibraryFolder {
@@ -317,7 +317,7 @@ pub fn average_fact(t: &JobThroughput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::Workers;
+    use stage_select_api::Workers;
 
     fn job(id: i64, state: JobState) -> Job {
         Job {
@@ -582,7 +582,7 @@ mod tests {
         let load = JobLoad {
             job: 1,
             rates: Rates::default(),
-            caps: title_select_api::ByteCaps::default(),
+            caps: stage_select_api::ByteCaps::default(),
             readers: 2,
             hashers: 3,
             allowance: Workers {

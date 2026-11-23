@@ -3,8 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use title_select_api::SelectionRecord;
-use title_select_api::build::{
+use stage_select_api::SelectionRecord;
+use stage_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
     IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, PlaceHow,
     PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval, PlanSummary, RemovalKind,
@@ -643,9 +643,9 @@ fn url_component(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::ProfileVersionRef;
-    use title_select_api::build::{Cleanup, KeepAside};
-    use title_select_api::selection::{SelectionPins, SelectionSummary};
+    use stage_select_api::ProfileVersionRef;
+    use stage_select_api::build::{Cleanup, KeepAside};
+    use stage_select_api::selection::{SelectionPins, SelectionSummary};
 
     fn drift(kind: DriftKind, game: Option<&str>, conflict: bool) -> DriftEntry {
         DriftEntry {

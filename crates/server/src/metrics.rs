@@ -3,7 +3,7 @@
 
 use std::fmt::Write;
 
-use title_select_store::observe::Metrics;
+use stage_select_store::observe::Metrics;
 
 /// The content type of the text exposition format.
 pub const CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -41,19 +41,19 @@ pub fn render(metrics: &Metrics) -> String {
     let mut out = String::new();
     header(
         &mut out,
-        "title_select_build_info",
+        "stage_select_build_info",
         "gauge",
-        "The running version of Title Select.",
+        "The running version of Stage Select.",
     );
     let _ = writeln!(
         out,
-        "title_select_build_info{{version=\"{}\"}} 1",
+        "stage_select_build_info{{version=\"{}\"}} 1",
         label(env!("CARGO_PKG_VERSION"))
     );
 
     header(
         &mut out,
-        "title_select_jobs_total",
+        "stage_select_jobs_total",
         "counter",
         "Jobs that ended, by kind and outcome.",
     );
@@ -72,7 +72,7 @@ pub fn render(metrics: &Metrics) -> String {
                 .unwrap_or(0);
             let _ = writeln!(
                 out,
-                "title_select_jobs_total{{kind=\"{}\",outcome=\"{outcome}\"}} {count}",
+                "stage_select_jobs_total{{kind=\"{}\",outcome=\"{outcome}\"}} {count}",
                 label(kind)
             );
         }
@@ -80,31 +80,31 @@ pub fn render(metrics: &Metrics) -> String {
 
     header(
         &mut out,
-        "title_select_jobs_running",
+        "stage_select_jobs_running",
         "gauge",
         "Jobs running now.",
     );
-    let _ = writeln!(out, "title_select_jobs_running {}", metrics.jobs_running);
+    let _ = writeln!(out, "stage_select_jobs_running {}", metrics.jobs_running);
 
     header(
         &mut out,
-        "title_select_source_sets_stale",
+        "stage_select_source_sets_stale",
         "gauge",
         "Source sets that are stale.",
     );
     let stale = metrics.source_sets.iter().filter(|s| s.stale).count();
-    let _ = writeln!(out, "title_select_source_sets_stale {stale}");
+    let _ = writeln!(out, "stage_select_source_sets_stale {stale}");
 
     header(
         &mut out,
-        "title_select_source_set_stale",
+        "stage_select_source_set_stale",
         "gauge",
         "1 if the source set is stale, else 0.",
     );
     for set in &metrics.source_sets {
         let _ = writeln!(
             out,
-            "title_select_source_set_stale{{source_set=\"{}\"}} {}",
+            "stage_select_source_set_stale{{source_set=\"{}\"}} {}",
             label(&set.name),
             u8::from(set.stale)
         );
@@ -112,7 +112,7 @@ pub fn render(metrics: &Metrics) -> String {
 
     header(
         &mut out,
-        "title_select_source_set_last_audit_timestamp_seconds",
+        "stage_select_source_set_last_audit_timestamp_seconds",
         "gauge",
         "When the source set's latest audit finished, in seconds since the Unix epoch.",
     );
@@ -120,7 +120,7 @@ pub fn render(metrics: &Metrics) -> String {
         if let Some(at) = set.last_audit {
             let _ = writeln!(
                 out,
-                "title_select_source_set_last_audit_timestamp_seconds{{source_set=\"{}\"}} {at}",
+                "stage_select_source_set_last_audit_timestamp_seconds{{source_set=\"{}\"}} {at}",
                 label(&set.name)
             );
         }
@@ -128,14 +128,14 @@ pub fn render(metrics: &Metrics) -> String {
 
     header(
         &mut out,
-        "title_select_fetch_last_timestamp_seconds",
+        "stage_select_fetch_last_timestamp_seconds",
         "gauge",
         "When the latest fetch of a provider's system finished, in seconds since the Unix epoch.",
     );
     for fetch in &metrics.fetches {
         let _ = writeln!(
             out,
-            "title_select_fetch_last_timestamp_seconds{{provider=\"{}\",system=\"{}\"}} {}",
+            "stage_select_fetch_last_timestamp_seconds{{provider=\"{}\",system=\"{}\"}} {}",
             label(&fetch.provider),
             label(&fetch.system),
             fetch.finished_at
@@ -144,14 +144,14 @@ pub fn render(metrics: &Metrics) -> String {
 
     header(
         &mut out,
-        "title_select_fetch_last_result",
+        "stage_select_fetch_last_result",
         "gauge",
         "1 for the outcome of the latest fetch of a provider's system: added, unchanged or failed.",
     );
     for fetch in &metrics.fetches {
         let _ = writeln!(
             out,
-            "title_select_fetch_last_result{{provider=\"{}\",system=\"{}\",outcome=\"{}\"}} 1",
+            "stage_select_fetch_last_result{{provider=\"{}\",system=\"{}\",outcome=\"{}\"}} 1",
             label(&fetch.provider),
             label(&fetch.system),
             label(&fetch.outcome)
@@ -160,14 +160,14 @@ pub fn render(metrics: &Metrics) -> String {
 
     header(
         &mut out,
-        "title_select_library_folder_drift",
+        "stage_select_library_folder_drift",
         "gauge",
-        "Entries Title Select did not build that the latest check of a play library folder found.",
+        "Entries Stage Select did not build that the latest check of a play library folder found.",
     );
     for folder in &metrics.library_folders {
         let _ = writeln!(
             out,
-            "title_select_library_folder_drift{{library_folder=\"{}\",root=\"{}\",source_set=\"{}\"}} {}",
+            "stage_select_library_folder_drift{{library_folder=\"{}\",root=\"{}\",source_set=\"{}\"}} {}",
             folder.id,
             label(&folder.root),
             label(&folder.source_set),

@@ -4,8 +4,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::common::*;
-use title_select_engine::payload::Checksums;
-use title_select_engine::{
+use stage_select_engine::payload::Checksums;
+use stage_select_engine::{
     AuditEvidence, EvidenceLevel, FileStamp, Finding, GameStatus, ONE_WORKER_EACH, Options,
     PayloadRead, PayloadReads, Report, Reuse, audit_with,
 };
@@ -116,7 +116,7 @@ impl PayloadReads for Reads {
 
 /// The checksums of `payload`, as an earlier read would have recorded them.
 fn sums_of(payload: &[u8]) -> Checksums {
-    let mut hasher = title_select_engine::payload::Hasher::new();
+    let mut hasher = stage_select_engine::payload::Hasher::new();
     hasher.update(payload);
     hasher.finish()
 }

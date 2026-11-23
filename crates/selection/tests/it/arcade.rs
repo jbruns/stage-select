@@ -5,14 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use title_select_api::selection::{
+use stage_select_api::selection::{
     CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
     SelectionProfile, SystemSettings,
 };
-use title_select_api::support::SupportFileKind;
-use title_select_api::{DatSystem, SourceSetSystem};
-use title_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
-use title_select_selection::{Engine, Outcome};
+use stage_select_api::support::SupportFileKind;
+use stage_select_api::{DatSystem, SourceSetSystem};
+use stage_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
+use stage_select_selection::{Engine, Outcome};
 
 use crate::support;
 
@@ -273,7 +273,7 @@ fn offered_filters_drop_what_they_name_and_keep_machines_that_dont_say() {
 
     // Unknown driver status keeps mystery under the quality filter.
     let quality = dropped(ArcadeSettings {
-        minimum_driver_status: Some(title_select_engine::dat::DriverStatus::Good),
+        minimum_driver_status: Some(stage_select_engine::dat::DriverStatus::Good),
         ..ArcadeSettings::default()
     });
     assert_eq!(quality["proto"], "quality");
@@ -431,7 +431,7 @@ fn the_election_runs_your_steps_in_your_order() {
 fn an_arcade_selection_pins_no_clone_lists_or_trace_schema() {
     let selection = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
     assert!(selection.pins.retool.is_none());
-    assert!(selection.pins.title_select_version.is_some());
+    assert!(selection.pins.stage_select_version.is_some());
 }
 
 #[test]
@@ -496,7 +496,7 @@ fn selection_refuses_a_software_list_and_names_listxml_systems_mame() {
 
 #[test]
 fn coverage_is_refused_for_an_arcade_dat() {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         coverage: Some(vec!["USA".into()]),
         ..support::options()
     };
@@ -733,7 +733,7 @@ fn support_files(kinds: &[&str]) -> Vec<PathBuf> {
 }
 
 fn run_supported(engine: &Engine, kinds: &[&str], settings: &ArcadeSettings) -> Outcome {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(kinds),
         ..support::options()
     };
@@ -842,7 +842,7 @@ fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
     });
     let engine = engine();
     engine.check(&profile, &[]).unwrap();
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: vec![languages],
         ..support::options()
     };
@@ -997,7 +997,7 @@ fn the_include_list_keeps_a_family_the_rating_filter_would_drop_and_the_trace_sa
 /// A curated list at the pinned commit, naming `names`.
 fn curated_list(names: &[&str]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let pinned = title_select_selection::curated_list().unwrap();
+    let pinned = stage_select_selection::curated_list().unwrap();
     std::fs::write(dir.path().join("commit"), format!("{}\n", pinned.commit)).unwrap();
     std::fs::write(dir.path().join("ROMSET"), names.join("\n") + "\n").unwrap();
     dir
@@ -1015,7 +1015,7 @@ fn the_curated_list_keeps_only_its_families_and_prefers_the_machine_it_names() {
     };
     let outcome = run_supported(&engine, &[], &settings);
     // The golden names no commit, so that a new pin doesn't change it.
-    let pinned = title_select_selection::curated_list().unwrap();
+    let pinned = stage_select_selection::curated_list().unwrap();
     let mut masked = outcome.clone();
     for group in &mut masked.selection.groups {
         let rules = group
@@ -1089,7 +1089,7 @@ fn the_curated_list_at_another_commit_is_refused() {
 
 #[test]
 fn two_support_files_of_one_kind_are_refused() {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(&["catver", "catver"]),
         ..support::options()
     };
@@ -1105,7 +1105,7 @@ fn two_support_files_of_one_kind_are_refused() {
 
 #[test]
 fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
-    let dir = std::env::var_os(title_select_selection::CURATED_LIST_ENV).map_or_else(
+    let dir = std::env::var_os(stage_select_selection::CURATED_LIST_ENV).map_or_else(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.curated-list"),
         PathBuf::from,
     );
@@ -1146,7 +1146,7 @@ fn a_profiles_rating_settings_reach_the_selector() {
         r#"{"systems":{"MAME":{"arcade":{"minimum_rating":70,"drop_unrated":true}}}}"#,
     )
     .unwrap();
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(&["bestgames"]),
         ..support::options()
     };

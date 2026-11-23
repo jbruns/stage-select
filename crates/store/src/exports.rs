@@ -1,12 +1,12 @@
 //! Exports of what a Source Set lacks, from its latest Audit: the Fixdat and the have/miss CSV. They only read; a
-//! Fixdat names what to acquire, and Title Select never acquires it.
+//! Fixdat names what to acquire, and Stage Select never acquires it.
 
 use std::collections::HashSet;
 
-use title_select_api::AuditSummary;
-use title_select_api::selection::Role;
-use title_select_engine::dat::Dat;
-use title_select_engine::fixdat::{Lacking, Scope};
+use stage_select_api::AuditSummary;
+use stage_select_api::selection::Role;
+use stage_select_engine::dat::Dat;
+use stage_select_engine::fixdat::{Lacking, Scope};
 
 use super::sets::set_by_name;
 use super::{Error, Result, Store};

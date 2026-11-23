@@ -4,9 +4,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
-use title_select_engine::dat::Dat;
-use title_select_engine::fixdat::{Lacking, Scope};
-use title_select_engine::{Report, audit};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::fixdat::{Lacking, Scope};
+use stage_select_engine::{Report, audit};
 
 /// A Source Set with one Complete, one Missing and one Incomplete Game, and a Missing Game whose name needs escaping
 /// and whose ROM the DAT lists with SHA-1 only.

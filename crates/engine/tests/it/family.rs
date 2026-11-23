@@ -2,7 +2,7 @@
 //! own, and a BIOS or device it needs has a Game Status of its own, which never changes the Game's.
 
 use crate::common::*;
-use title_select_engine::{
+use stage_select_engine::{
     AvailableElsewhere, Dependency, Finding, Game, GameStatus, Report, audit,
 };
 
@@ -450,7 +450,7 @@ fn write_machines(f: &Fixture, machines: &[(&str, &str, Vec<String>)]) -> std::p
     path
 }
 
-fn entry<'r>(report: &'r Report, member: &str) -> &'r title_select_engine::Entry {
+fn entry<'r>(report: &'r Report, member: &str) -> &'r stage_select_engine::Entry {
     report
         .entries
         .iter()
@@ -485,7 +485,7 @@ fn a_nodump_rom_whose_name_is_in_its_parents_zip_never_matches() {
     let report = audit(&dat, f.set.path()).unwrap();
 
     let pal = entry(&report, "pal.u1");
-    assert_eq!(pal.finding, title_select_engine::Finding::Mismatched);
+    assert_eq!(pal.finding, stage_select_engine::Finding::Mismatched);
     assert!(pal.roms.is_empty());
     let named = pal.named_rom.as_ref().unwrap();
     assert_eq!(
@@ -637,7 +637,7 @@ fn a_mismatched_entry_is_named_for_the_holding_games_own_rom_then_a_clones_then_
         let e = entry(&report, "x.u9");
         assert_eq!(
             e.finding,
-            title_select_engine::Finding::Mismatched,
+            stage_select_engine::Finding::Mismatched,
             "case {i}"
         );
         let named = e.named_rom.as_ref().unwrap();

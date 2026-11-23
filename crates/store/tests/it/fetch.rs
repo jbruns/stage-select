@@ -1,25 +1,25 @@
 //! Fetching newer DAT Revisions for Following Source Sets (ADR 0012), against a fake DAT Provider on a local port.
 //! No test sends a request anywhere else.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
-use title_select_api::roots::RootSpec;
 
-use title_select_api::fetch::{
+use stage_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger, SUPPORT_SYSTEM,
 };
-use title_select_api::settings::{FetchSettings, SettingsUpdate};
-use title_select_api::support::{SupportFileKind, SupportFileOrigin};
-use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
-use title_select_engine::cap::Clock;
-use title_select_store::fetch::{
+use stage_select_api::settings::{FetchSettings, SettingsUpdate};
+use stage_select_api::support::{SupportFileKind, SupportFileOrigin};
+use stage_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
+use stage_select_engine::cap::Clock;
+use stage_select_store::fetch::{
     Allowed, Endpoints, FetchClock, FetchError, Fetcher, Http, MIN_GAP,
 };
-use title_select_store::{Error, Store};
-use title_select_test_fixtures::zip_bytes;
+use stage_select_store::{Error, Store};
+use stage_select_test_fixtures::zip_bytes;
 
 /// What the fake provider answers a path with.
 #[derive(Clone)]
@@ -152,7 +152,7 @@ fn a_redirect_to_a_no_intro_host_is_refused_before_it_is_followed() {
 }
 
 #[test]
-fn a_request_names_title_select_and_follows_an_allowed_redirect() {
+fn a_request_names_stage_select_and_follows_an_allowed_redirect() {
     let fake = FakeProvider::start();
     fake.reply("/a", Reply::Redirect(format!("{}/b", fake.url)));
     fake.reply("/b", Reply::Body(b"payload".to_vec()));
@@ -168,7 +168,7 @@ fn a_request_names_title_select_and_follows_an_allowed_redirect() {
     let seen = fake.seen();
     assert_eq!(seen.len(), 2);
     let agent = seen[0].user_agent.clone().unwrap();
-    assert!(agent.starts_with("title-select/"), "{agent}");
+    assert!(agent.starts_with("stage-select/"), "{agent}");
 }
 
 #[test]
@@ -435,14 +435,14 @@ impl Env {
     }
 
     fn audits(&self) -> i64 {
-        let db = rusqlite::Connection::open(self.store.dir().join("title-select.sqlite")).unwrap();
+        let db = rusqlite::Connection::open(self.store.dir().join("stage-select.sqlite")).unwrap();
         db.query_row("SELECT count(*) FROM audits", [], |r| r.get(0))
             .unwrap()
     }
 
     /// Moves every recorded request back by `hours`.
     fn backdate(&self, hours: i64) {
-        let db = rusqlite::Connection::open(self.store.dir().join("title-select.sqlite")).unwrap();
+        let db = rusqlite::Connection::open(self.store.dir().join("stage-select.sqlite")).unwrap();
         let mut rows = db.prepare("SELECT id, started_at FROM fetches").unwrap();
         let rows: Vec<(i64, String)> = rows
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -509,7 +509,7 @@ fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_
             s.user_agent
                 .as_deref()
                 .unwrap()
-                .starts_with("title-select/")
+                .starts_with("stage-select/")
         );
     }
 
@@ -543,7 +543,7 @@ fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_
 impl Env {
     /// Records a request to `provider`'s system `other` that finished `ago` before now, as an earlier Service would.
     fn record_request(&self, provider: &str, ago: Duration) {
-        let db = rusqlite::Connection::open(self.store.dir().join("title-select.sqlite")).unwrap();
+        let db = rusqlite::Connection::open(self.store.dir().join("stage-select.sqlite")).unwrap();
         let at = self.pace.wall() - jiff::SignedDuration::try_from(ago).unwrap();
         db.execute(
             "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at, outcome)
@@ -1313,7 +1313,7 @@ fn a_new_listxml_brings_the_support_files_at_the_mirrors_commit_once_and_not_aga
     assert!(
         agents
             .iter()
-            .all(|a| a.as_deref().is_some_and(|a| a.starts_with("title-select/"))),
+            .all(|a| a.as_deref().is_some_and(|a| a.starts_with("stage-select/"))),
         "{agents:?}"
     );
 
@@ -1456,7 +1456,7 @@ fn add_second_listxml(env: &Env, build: &str) -> String {
         .store
         .import_dat_bytes(&listxml(build), &format!("{build}.xml"), None)
         .unwrap();
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "INSERT INTO dats (provider, name) VALUES ('MAME', 'MAME Second')",
         [],
@@ -1848,7 +1848,7 @@ fn the_commit_is_not_checked_while_any_support_file_waits_out_its_day() {
     env.backdate(25);
     env.add_arcade("mame0290");
     // A request for catver.ini recorded since, as another Service could.
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at, outcome)
          VALUES ('mame', ?1, 'catver', 'manual', 'Operator', 'x', ?2, ?2, 'failed')",

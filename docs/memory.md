@@ -1,6 +1,6 @@
 # Memory
 
-How much memory Title Select uses, and how to measure it again. The Host's memory limit is set from these peaks: twice
+How much memory Stage Select uses, and how to measure it again. The Host's memory limit is set from these peaks: twice
 the largest, rounded up.
 
 ## Method
@@ -45,7 +45,7 @@ split: at rest after these measurements, 14 MiB was anonymous memory and 20 MiB 
 ### 0.4.0
 
 Measured on version 0.4.0, with a 512M limit and one CPU, when selection ran Retool in Python, in a child process
-inside the container. Selection now runs inside Title Select, so the selection rows below no longer apply: see the
+inside the container. Selection now runs inside Stage Select, so the selection rows below no longer apply: see the
 PlayStation measurements that follow. The Atari 2600 source set has 802 files and its DAT describes 872 games. The Game Boy Advance source set has 3,559 ZIPs, and the build wrote 961 games (3.3 GB).
 
 | Job or request                      | Atari 2600 | Game Boy Advance |
@@ -97,7 +97,7 @@ window. The other memory 7z needs is small and fixed: members stream through the
   `crates/engine/tests/sevenz_memory.rs` shows that the peak allocation for a refused 1.5 GiB dictionary stays under
   1 MiB and does not grow with the dictionary.
 - The header is bounded before the 7z crate parses it. A raw or decoded header over 8 MiB is refused unread, and
-  Title Select walks the header itself to read its counts of files, blocks, packed streams and substreams; any over
+  Stage Select walks the header itself to read its counts of files, blocks, packed streams and substreams; any over
   4096 is refused before the crate allocates an entry for each. A compressed header is decoded under the same
   dictionary check. The header phase holds at most three copies of the header (raw, decoded, the crate's), so 24 MiB,
   plus at most 4096 entries. `sevenz_memory.rs` shows that a header listing millions of entries and one too large

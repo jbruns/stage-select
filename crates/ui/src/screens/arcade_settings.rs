@@ -4,11 +4,11 @@
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
-use title_select_api::arcade::{
+use stage_select_api::arcade::{
     ArcadeSettings, CONTROL_TYPES, Category, DriverStatus, ElectionStep, LANGUAGES, Orientation,
     REGIONS, Range, Variant,
 };
-use title_select_api::selection::SelectionProfile;
+use stage_select_api::selection::SelectionProfile;
 
 use crate::arcade_model::{
     ArcadeSource, category_label, driver_status_label, reset_arcade, update_arcade,

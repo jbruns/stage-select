@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use title_select_api::selection::SelectionProfile;
+use stage_select_api::selection::SelectionProfile;
 
 use crate::Error;
 
@@ -143,7 +143,7 @@ fn check_system_name(name: &str) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::SystemSettings;
+    use stage_select_api::selection::SystemSettings;
 
     fn vocabulary() -> Vocabulary {
         Vocabulary {

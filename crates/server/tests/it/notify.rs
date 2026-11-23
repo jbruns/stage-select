@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 use crate::common::*;
 use serde_json::{Value, json};
 use sha2::Digest;
-use title_select_api::roots::RootSpec;
-use title_select_api::{Job, JobState};
-use title_select_server::{Handle, Settings};
-use title_select_store::fetch::Endpoints;
+use stage_select_api::roots::RootSpec;
+use stage_select_api::{Job, JobState};
+use stage_select_server::{Handle, Settings};
+use stage_select_store::fetch::Endpoints;
 
 const TOKEN: &str = "correct horse battery staple";
 const SECRET: &str = "webhook secret";
@@ -199,7 +199,7 @@ impl Env {
 
     /// A Service fetching from `provider`, with no webhook set.
     fn spawn(&self, provider: &Fake) -> Handle {
-        let store = title_select_store::Store::open(&self.tmp.path().join("store")).unwrap();
+        let store = stage_select_store::Store::open(&self.tmp.path().join("store")).unwrap();
         for root in [
             RootSpec::new("sets", self.tmp.path().join("roots/sets")),
             RootSpec::new("play", self.tmp.path().join("roots/play")).writable(),
@@ -210,7 +210,7 @@ impl Env {
             }
         }
         drop(store);
-        title_select_server::spawn(Settings {
+        stage_select_server::spawn(Settings {
             store: self.tmp.path().join("store"),
             auth: Default::default(),
             chdman: None,
@@ -289,7 +289,7 @@ impl Client {
     }
 
     fn upload(&self, file: &str, bytes: &[u8]) {
-        let boundary = "title-select-test-boundary";
+        let boundary = "stage-select-test-boundary";
         let mut body = format!(
             "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file}\"\r\n\
              Content-Type: application/xml\r\n\r\n"
@@ -394,7 +394,7 @@ fn fetched(service: &Handle) -> BTreeMap<String, f64> {
         let after = samples(&metrics(service).1);
         if after
             .keys()
-            .any(|k| k.starts_with("title_select_fetch_last_result"))
+            .any(|k| k.starts_with("stage_select_fetch_last_result"))
         {
             return after;
         }
@@ -490,7 +490,7 @@ fn each_event_reaches_the_webhook_signed_with_the_documented_payload() {
         assert_eq!(s.path, "/hook");
         assert_eq!(s.headers["content-type"], "application/json");
         assert_eq!(
-            s.headers["x-title-select-signature"],
+            s.headers["x-stage-select-signature"],
             format!("sha256={}", hmac_hex(SECRET.as_bytes(), &s.body)),
             "signed with the secret, trimmed"
         );
@@ -653,15 +653,15 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     let before = samples(&text);
     assert_eq!(
         before[&format!(
-            "title_select_build_info{{version=\"{}\"}}",
+            "stage_select_build_info{{version=\"{}\"}}",
             env!("CARGO_PKG_VERSION")
         )],
         1.0
     );
-    assert_eq!(before["title_select_jobs_running"], 0.0);
-    assert_eq!(before["title_select_source_sets_stale"], 0.0);
+    assert_eq!(before["stage_select_jobs_running"], 0.0);
+    assert_eq!(before["stage_select_source_sets_stale"], 0.0);
     assert_eq!(
-        before["title_select_jobs_total{kind=\"audit\",outcome=\"succeeded\"}"],
+        before["stage_select_jobs_total{kind=\"audit\",outcome=\"succeeded\"}"],
         0.0
     );
     drop(service);
@@ -670,25 +670,25 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     let after = fetched(&service);
     let text = metrics(&service).1;
     assert_eq!(
-        after["title_select_jobs_total{kind=\"audit\",outcome=\"succeeded\"}"],
+        after["stage_select_jobs_total{kind=\"audit\",outcome=\"succeeded\"}"],
         2.0
     );
     assert_eq!(
-        after["title_select_jobs_total{kind=\"check\",outcome=\"succeeded\"}"],
+        after["stage_select_jobs_total{kind=\"check\",outcome=\"succeeded\"}"],
         1.0
     );
     assert_eq!(
-        after["title_select_jobs_total{kind=\"check\",outcome=\"failed\"}"],
+        after["stage_select_jobs_total{kind=\"check\",outcome=\"failed\"}"],
         1.0
     );
-    assert_eq!(after["title_select_jobs_running"], 0.0);
-    assert_eq!(after["title_select_source_sets_stale"], 1.0);
+    assert_eq!(after["stage_select_jobs_running"], 0.0);
+    assert_eq!(after["stage_select_source_sets_stale"], 1.0);
     assert_eq!(
-        after[&format!("title_select_source_set_stale{{source_set=\"{SET}\"}}")],
+        after[&format!("stage_select_source_set_stale{{source_set=\"{SET}\"}}")],
         1.0
     );
     assert_eq!(
-        after["title_select_source_set_stale{source_set=\"PSX\"}"],
+        after["stage_select_source_set_stale{source_set=\"PSX\"}"],
         0.0
     );
     let audited: Job = serde_json::from_value(
@@ -703,23 +703,23 @@ fn metrics_are_served_without_a_token_and_follow_jobs_stale_drift_and_fetches() 
     )
     .unwrap();
     let last_audit = after
-        [&format!("title_select_source_set_last_audit_timestamp_seconds{{source_set=\"{SET}\"}}")];
+        [&format!("stage_select_source_set_last_audit_timestamp_seconds{{source_set=\"{SET}\"}}")];
     let finished: jiff::Timestamp = audited.finished_at.unwrap().parse().unwrap();
     assert!(
         (last_audit - finished.as_second() as f64).abs() < 2.0,
         "{last_audit}"
     );
     assert_eq!(
-        after["title_select_fetch_last_result{provider=\"redump\",system=\"psx\",outcome=\"failed\"}"],
+        after["stage_select_fetch_last_result{provider=\"redump\",system=\"psx\",outcome=\"failed\"}"],
         1.0
     );
     assert!(
-        after["title_select_fetch_last_timestamp_seconds{provider=\"redump\",system=\"psx\"}"]
+        after["stage_select_fetch_last_timestamp_seconds{provider=\"redump\",system=\"psx\"}"]
             > 1.7e9
     );
     assert_eq!(
         after[&format!(
-            "title_select_library_folder_drift{{library_folder=\"1\",root=\"play\",source_set=\"{SET}\"}}"
+            "stage_select_library_folder_drift{{library_folder=\"1\",root=\"play\",source_set=\"{SET}\"}}"
         )],
         1.0
     );

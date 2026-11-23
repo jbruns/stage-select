@@ -3,7 +3,7 @@
 //! one row per Game. A missing ROM that is Available Elsewhere is still missing: the CSV names it in its own column
 //! too.
 //!
-//! The Fixdat lists a missing Disk as a Logiqx `<disk>`, which the tools it is for read. Title Select reads Disks only
+//! The Fixdat lists a missing Disk as a Logiqx `<disk>`, which the tools it is for read. Stage Select reads Disks only
 //! from ListXML (ADR 0026's amendment), so a Fixdat read back as a DAT lists none of its Disks: a Game that lacks only
 //! Disks reads back with no ROMs, and audits Nothing to Check against it.
 //!
@@ -102,7 +102,7 @@ impl Lacking<'_> {
             ("description", description.as_str()),
             ("version", version.as_str()),
             ("date", self.date().as_str()),
-            ("author", "Title Select"),
+            ("author", "Stage Select"),
         ] {
             put(Event::Start(BytesStart::new(tag)));
             put(Event::Text(BytesText::new(text)));
@@ -140,7 +140,7 @@ impl Lacking<'_> {
             put(Event::End(BytesEnd::new("description")));
             for rom in roms {
                 // A Disk is written as the DAT lists it: by the CHD's name less `.chd` and its SHA-1, with no size.
-                // Other tools read it; Title Select's own Logiqx reader doesn't (see the module's doc).
+                // Other tools read it; Stage Select's own Logiqx reader doesn't (see the module's doc).
                 if rom.disk {
                     let mut attrs = vec![("name", rom.listed_name())];
                     attrs.extend(rom.sha1.as_deref().map(|sha1| ("sha1", sha1)));

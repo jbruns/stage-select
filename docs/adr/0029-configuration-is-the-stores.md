@@ -8,7 +8,7 @@ Accepted. Amends ADR 0008 and ADR 0022.
 
 ## Context
 
-`title-select.toml` declares the Roots, auth, the Host's and each Root's Ceilings (where a value set there locks it in
+`stage-select.toml` declares the Roots, auth, the Host's and each Root's Ceilings (where a value set there locks it in
 the workbench, ADR 0022), the 7z archive limits and the path to chdman. Everything else is already a setting in the
 store, edited in the workbench. The file is optional, but without it there are no Roots, so in practice the Operator
 has to write it, deploy it next to the container and restart the Service for every change. Most Operators won't keep
@@ -18,10 +18,10 @@ a deployed file the way this project's own deployment does.
 
 - **Outside the store is only what's needed before the store opens, or what the workbench can't safely change.** That
   is the store path, the listen address, the workbench's files, the clone lists, chdman, and auth. Each is a flag with
-  a matching `TITLE_SELECT_*` environment variable. Auth is `TITLE_SELECT_IDENTITY_HEADER`,
-  `TITLE_SELECT_TRUSTED_PROXIES` (comma-separated CIDRs), `TITLE_SELECT_DEV_IDENTITY` and the existing
-  `TITLE_SELECT_OPERATOR_TOKEN_FILE`, with the same refusals at startup as now: no way to authenticate, or a dev
-  identity off loopback. There is no configuration file: `--config`, `TITLE_SELECT_CONFIG` and `title-select.toml`
+  a matching `STAGE_SELECT_*` environment variable. Auth is `STAGE_SELECT_IDENTITY_HEADER`,
+  `STAGE_SELECT_TRUSTED_PROXIES` (comma-separated CIDRs), `STAGE_SELECT_DEV_IDENTITY` and the existing
+  `STAGE_SELECT_OPERATOR_TOKEN_FILE`, with the same refusals at startup as now: no way to authenticate, or a dev
+  identity off loopback. There is no configuration file: `--config`, `STAGE_SELECT_CONFIG` and `stage-select.toml`
   are removed.
 - **Roots are registered in the workbench**, and changes take effect without a restart. Each change records who made it.
   - A Root's name is fixed once it's registered, because records refer to it.
@@ -32,14 +32,14 @@ a deployed file the way this project's own deployment does.
   - Its path or its writability can't be changed while a Job runs on it or while an approved, unapplied plan writes to
     it. Making it less writable voids the approved plans that write where it no longer may.
 - **The container's mounts are the trust boundary** (ADR 0006). The workbench can register any folder the container
-  can see. Mounting read-only what Title Select must never write is how the Operator bounds it.
+  can see. Mounting read-only what Stage Select must never write is how the Operator bounds it.
 - **Every Ceiling and the 7z archive limits are workbench settings.** A Ceiling comes from the Operator's value, then the
   Calibration, then the CPU count. There's no file tier, and nothing is locked. `max_dictionary_mib` is shown with the
   memory it costs.
 
 ## Considered Options
 
-- **Keeping Roots in the file as the bound on the workbench**: rejected; the mounts already bound what Title Select
+- **Keeping Roots in the file as the bound on the workbench**: rejected; the mounts already bound what Stage Select
   can reach, and the file makes a first run need hand-written configuration.
 - **Allowed base paths in the environment, with Roots registered beneath them**: rejected as a second boundary that
   adds a concept for little gain over the mounts.
@@ -53,5 +53,5 @@ a deployed file the way this project's own deployment does.
 - A first run has no Roots, so the workbench leads the Operator through registering one, then Source Sets and Library
   Folders.
 - ADR 0008: an Ingest Folder is a Root of kind `ingest` registered as writable in the workbench, not declared in
-  `title-select.toml`.
+  `stage-select.toml`.
 - ADR 0022: a Ceiling's sources lose the configuration file; the workbench value is first.

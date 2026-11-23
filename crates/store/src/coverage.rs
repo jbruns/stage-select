@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use title_select_api::SourceSetRecord;
+use stage_select_api::SourceSetRecord;
 
 use crate::{Error, Result, Store};
 
@@ -28,7 +28,7 @@ impl Covering {
         let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         *seen
             .entry(game.to_owned())
-            .or_insert_with(|| title_select_api::coverage::covered(&regions(game), Some(coverage)))
+            .or_insert_with(|| stage_select_api::coverage::covered(&regions(game), Some(coverage)))
     }
 }
 

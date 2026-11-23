@@ -4,11 +4,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::support;
-use title_select_api::DatSystem;
-use title_select_api::selection::{
+use stage_select_api::DatSystem;
+use stage_select_api::selection::{
     Category, Selection, SelectionOptions, SelectionProfile, SystemSettings,
 };
-use title_select_selection::{Engine, Error};
+use stage_select_selection::{Engine, Error};
 
 fn rom(name: &str) -> String {
     format!(
@@ -44,11 +44,11 @@ fn data_dir(root: &Path) -> PathBuf {
 fn a_fail_safe_tie_is_unresolved_and_keeps_retools_pick() {
     let work = tempfile::tempdir().unwrap();
     let data = data_dir(work.path());
-    let name = "Title Select - Fail-safe tie";
+    let name = "Stage Select - Fail-safe tie";
     std::fs::write(
         data.join("clonelists").join(format!("{name}.json")),
         r#"{
-  "description": {"name": "Title Select - Fail-safe tie", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "description": {"name": "Stage Select - Fail-safe tie", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
   "variants": [
     {"group": "Tie Alpha", "titles": [{"searchTerm": "Tie Alpha"}, {"searchTerm": "Tie Beta"}]}
   ]
@@ -92,7 +92,7 @@ fn a_selection_without_clone_lists_selects_without_them_and_says_so() {
     let empty = work.path().join("empty");
     std::fs::create_dir(&empty).unwrap();
     let path = work.path().join("solo.dat");
-    dat(&path, "Title Select - No data", &["Solo (Europe)"]);
+    dat(&path, "Stage Select - No data", &["Solo (Europe)"]);
 
     let selection = support::engine()
         .with_data_dir(&empty)
@@ -120,7 +120,7 @@ fn a_games_regions_are_read_from_its_name_as_a_selection_reads_them() {
 fn every_coverage_preset_names_only_regions_the_engine_knows() {
     let known = support::engine().names().unwrap().regions;
 
-    let presets = title_select_api::coverage::PRESETS;
+    let presets = stage_select_api::coverage::PRESETS;
     assert_eq!(
         presets.iter().map(|p| p.name).collect::<Vec<_>>(),
         [
@@ -146,8 +146,8 @@ fn every_coverage_preset_names_only_regions_the_engine_knows() {
     }
 }
 
-fn covering(regions: &[&str]) -> title_select_selection::RunOptions {
-    title_select_selection::RunOptions {
+fn covering(regions: &[&str]) -> stage_select_selection::RunOptions {
+    stage_select_selection::RunOptions {
         coverage: Some(regions.iter().map(|r| (*r).to_owned()).collect()),
         ..support::options()
     }
@@ -172,7 +172,7 @@ fn a_selection_chooses_only_among_the_games_its_coverage_covers() {
     let path = work.path().join("covered.dat");
     dat(
         &path,
-        "Title Select - Coverage",
+        "Stage Select - Coverage",
         &["Title (USA)", "Title (Europe)"],
     );
     let engine = support::engine().with_data_dir(&empty);
@@ -208,7 +208,7 @@ fn a_group_its_coverage_covers_none_of_is_shown_excluded_and_a_world_release_is_
     let path = work.path().join("covered.dat");
     dat(
         &path,
-        "Title Select - Coverage",
+        "Stage Select - Coverage",
         &[
             "Only Japan (Japan)",
             "Only Japan (Japan) (Rev 1)",
@@ -244,11 +244,11 @@ fn a_clone_list_group_keeps_its_covered_releases_and_an_include_cannot_bring_bac
 {
     let work = tempfile::tempdir().unwrap();
     let data = data_dir(work.path());
-    let name = "Title Select - Coverage clone list";
+    let name = "Stage Select - Coverage clone list";
     std::fs::write(
         data.join("clonelists").join(format!("{name}.json")),
         r#"{
-  "description": {"name": "Title Select - Coverage clone list", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "description": {"name": "Stage Select - Coverage clone list", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
   "variants": [
     {"group": "Merged", "titles": [{"searchTerm": "Merged"}, {"searchTerm": "Other Name"}]},
     {"group": "Far Away", "titles": [{"searchTerm": "Far Away"}, {"searchTerm": "Far Off"}]}
@@ -307,7 +307,7 @@ fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_no
     let path = work.path().join("discs.dat");
     dat(
         &path,
-        "Title Select - Coverage discs",
+        "Stage Select - Coverage discs",
         &["Saga (Europe) (Disc 1)", "Saga (USA) (Disc 2)"],
     );
     let engine = support::engine().with_data_dir(&empty);
@@ -339,7 +339,7 @@ fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_no
         "half a game must not select as resolved: {saga:#?}"
     );
     assert!(
-        title_select_api::discs::check_picks(saga).is_some(),
+        stage_select_api::discs::check_picks(saga).is_some(),
         "{saga:#?}"
     );
     assert!(
@@ -354,11 +354,11 @@ fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_no
 fn a_clone_list_ignored_title_outside_its_coverage_is_excluded_by_its_coverage() {
     let work = tempfile::tempdir().unwrap();
     let data = data_dir(work.path());
-    let name = "Title Select - Coverage ignore";
+    let name = "Stage Select - Coverage ignore";
     std::fs::write(
         data.join("clonelists").join(format!("{name}.json")),
         r#"{
-  "description": {"name": "Title Select - Coverage ignore", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "description": {"name": "Stage Select - Coverage ignore", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
   "variants": [
     {"group": "Ignored", "titles": [{"searchTerm": "Ignored (USA)", "nameType": "full", "ignore": true}]}
   ]
@@ -388,7 +388,7 @@ fn a_clone_list_ignored_title_outside_its_coverage_is_excluded_by_its_coverage()
 fn a_profile_with_names_the_engine_does_not_know_is_refused() {
     let work = tempfile::tempdir().unwrap();
     let path = work.path().join("solo.dat");
-    dat(&path, "Title Select - Profile", &["Solo (Europe)"]);
+    dat(&path, "Stage Select - Profile", &["Solo (Europe)"]);
     let engine = support::engine();
     let refused =
         |profile: SelectionProfile| match engine.select(&path, &profile, &support::options()) {
@@ -421,7 +421,7 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
     let path = work.path().join("pair.dat");
     dat(
         &path,
-        "Title Select - Patterns",
+        "Stage Select - Patterns",
         &["Solo (Europe)", "Duo (Europe)"],
     );
     let engine = support::engine();
@@ -430,9 +430,9 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
         ..Default::default()
     };
     profile.systems.insert(
-        "Title Select - Patterns".into(),
-        title_select_api::selection::SystemSettings {
-            overrides: title_select_api::selection::Overrides {
+        "Stage Select - Patterns".into(),
+        stage_select_api::selection::SystemSettings {
+            overrides: stage_select_api::selection::Overrides {
                 exclude: vec!["</(>".into()],
                 ..Default::default()
             },
@@ -448,7 +448,7 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
             Err(Error::Patterns(problems)) => {
                 assert_eq!(problems.len(), 2, "{problems:?}");
                 assert!(problems[0].contains("\"/[\" in your global post filters"));
-                assert!(problems[1].contains("\"</(>\" in your Title Select - Patterns exclude"));
+                assert!(problems[1].contains("\"</(>\" in your Stage Select - Patterns exclude"));
             }
             other => panic!("expected the patterns to be refused, got {other:?}"),
         }
@@ -470,7 +470,7 @@ fn a_deeply_nested_or_unbalanced_regular_expression_is_refused_rather_than_crash
     let path = work.path().join("pair.dat");
     dat(
         &path,
-        "Title Select - Patterns",
+        "Stage Select - Patterns",
         &["Test (Europe)", "Duo (Europe)"],
     );
     let engine = support::engine();
@@ -658,16 +658,16 @@ fn relative_install_data_work_and_dat_paths_work() {
                 .unwrap(),
         )
     };
-    let install = PathBuf::from(std::env::var_os("TITLE_SELECT_CLONE_LISTS").unwrap());
+    let install = PathBuf::from(std::env::var_os("STAGE_SELECT_CLONE_LISTS").unwrap());
     let target = workspace.join("target");
     std::fs::create_dir_all(&target).unwrap();
     let work = tempfile::tempdir_in(&target).unwrap();
     let path = work.path().join("solo.dat");
-    dat(&path, "Title Select - Relative", &["Solo (Europe)"]);
+    dat(&path, "Stage Select - Relative", &["Solo (Europe)"]);
     let data = data_dir(work.path());
     std::fs::write(
-        data.join("clonelists/Title Select - Relative.json"),
-        r#"{"description": {"name": "Title Select - Relative", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"}, "variants": []}"#,
+        data.join("clonelists/Stage Select - Relative.json"),
+        r#"{"description": {"name": "Stage Select - Relative", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"}, "variants": []}"#,
     )
     .unwrap();
 
@@ -684,11 +684,11 @@ fn relative_install_data_work_and_dat_paths_work() {
 }
 
 /// The acceptance run on a real DAT, which can't be committed:
-/// `TITLE_SELECT_ATARI_DAT=<path> cargo test -p title-select-selection --test it -- selection::a_real_dat --ignored --nocapture`.
+/// `STAGE_SELECT_ATARI_DAT=<path> cargo test -p stage-select-selection --test it -- selection::a_real_dat --ignored --nocapture`.
 #[test]
-#[ignore = "needs a real DAT in TITLE_SELECT_ATARI_DAT"]
+#[ignore = "needs a real DAT in STAGE_SELECT_ATARI_DAT"]
 fn a_real_dat_gets_a_rule_for_every_group() {
-    let path = std::env::var_os("TITLE_SELECT_ATARI_DAT").expect("set TITLE_SELECT_ATARI_DAT");
+    let path = std::env::var_os("STAGE_SELECT_ATARI_DAT").expect("set STAGE_SELECT_ATARI_DAT");
     let started = std::time::Instant::now();
     let selection = support::engine()
         .select(
@@ -742,7 +742,7 @@ fn a_dats_system_is_named_as_retool_files_its_settings() {
     )
     .unwrap();
     let plain = work.path().join("plain.dat");
-    dat(&plain, "Title Select - Plain", &["Solo (Europe)"]);
+    dat(&plain, "Stage Select - Plain", &["Solo (Europe)"]);
     let unreadable = work.path().join("not-a.dat");
     std::fs::write(&unreadable, "not a DAT").unwrap();
 
@@ -754,7 +754,7 @@ fn a_dats_system_is_named_as_retool_files_its_settings() {
         names,
         [
             Some(DatSystem::retool("Nintendo - Game Boy Advance (No-Intro)")),
-            Some(DatSystem::retool("Title Select - Plain")),
+            Some(DatSystem::retool("Stage Select - Plain")),
             None,
         ]
     );

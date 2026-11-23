@@ -1,9 +1,9 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use title_select_api::build::{LibraryFolder, Stale};
-use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
-use title_select_api::{Job, JobKind, SelectionRecord, SourceSetSystem};
+use stage_select_api::build::{LibraryFolder, Stale};
+use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+use stage_select_api::{Job, JobKind, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
@@ -261,9 +261,9 @@ impl Replans {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::build::{BuildState, BuildSummary, CheckSummary, PlanSummary, Stale};
-    use title_select_api::selection::{SelectionPins, SelectionSummary};
-    use title_select_api::{JobState, ProfileVersionRef, Workers};
+    use stage_select_api::build::{BuildState, BuildSummary, CheckSummary, PlanSummary, Stale};
+    use stage_select_api::selection::{SelectionPins, SelectionSummary};
+    use stage_select_api::{JobState, ProfileVersionRef, Workers};
 
     fn folder() -> LibraryFolder {
         LibraryFolder {
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn a_coverage_change_says_what_the_build_was_selected_under() {
-        let asia: Vec<String> = title_select_api::coverage::preset("Asia")
+        let asia: Vec<String> = stage_select_api::coverage::preset("Asia")
             .unwrap()
             .regions
             .iter()

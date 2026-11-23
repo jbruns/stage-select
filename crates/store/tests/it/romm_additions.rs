@@ -3,28 +3,28 @@
 //! lacking `collections.write`. Against a stub RomM on a local port that keeps collections as RomM 5.4.1 does
 //! (research 0136); no test sends a request to a real RomM.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use sha1::Digest;
-use title_select_api::additions::{EditAddition, NewAddition};
-use title_select_api::build::{AddLibraryFolder, LibraryFolder};
-use title_select_api::ingest::{IngestAction, PlanIngest};
-use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome, RommUpdate};
-use title_select_api::selection::{
+use stage_select_api::additions::{EditAddition, NewAddition};
+use stage_select_api::build::{AddLibraryFolder, LibraryFolder};
+use stage_select_api::ingest::{IngestAction, PlanIngest};
+use stage_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome, RommUpdate};
+use stage_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, SystemSettings, Winner,
 };
-use title_select_api::settings::{IngestCadence, SecretUpdate, SettingsUpdate};
-use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_store::romm::{Released, ScanStop, ScanTiming};
-use title_select_store::{Store, Workers};
+use stage_select_api::settings::{IngestCadence, SecretUpdate, SettingsUpdate};
+use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
+use stage_select_store::romm::{Released, ScanStop, ScanTiming};
+use stage_select_store::{Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "No-Intro/Test - System";

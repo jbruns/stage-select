@@ -1,14 +1,14 @@
 //! MAME Source Sets and the arcade selector (ADR 0027): a software list is audited but never selected or built, a
 //! ListXML Source Set takes no Coverage, and a Selection and an Audit keep their Dependencies.
 
-use title_select_api::build::{AddLibraryFolder, LibraryFolder};
-use title_select_api::roots::RootSpec;
-use title_select_api::selection::{
+use stage_select_api::build::{AddLibraryFolder, LibraryFolder};
+use stage_select_api::roots::RootSpec;
+use stage_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, Dependency, Role, Rule, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
-use title_select_engine::{AuditEvidence, GameStatus};
-use title_select_store::{Error, Store, Workers};
+use stage_select_engine::{AuditEvidence, GameStatus};
+use stage_select_store::{Error, Store, Workers};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -125,12 +125,12 @@ fn a_software_list_is_audited_but_never_selected_or_built() {
 fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_source_sets() {
     let env = Env::writable();
     env.add(SOFTWARE_LIST.as_bytes());
-    title_select_test_fixtures::write_torrentzip(
+    stage_select_test_fixtures::write_torrentzip(
         &env.tmp.path().join("sets/mame/game.zip"),
         &[("game.bin", b"test")],
     );
     let mut policy = env.store.storage_policy().unwrap();
-    policy.source_sets.format = title_select_api::storage::StorageFormat::Loose;
+    policy.source_sets.format = stage_select_api::storage::StorageFormat::Loose;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     env.store
         .audit_source_set("mame", None, AuditEvidence::Full)
@@ -138,7 +138,7 @@ fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_sourc
 
     let plan = env
         .store
-        .plan_repair("mame", &title_select_api::repair::PlanRepair::default())
+        .plan_repair("mame", &stage_select_api::repair::PlanRepair::default())
         .unwrap();
     let kinds: Vec<_> = plan
         .content
@@ -149,7 +149,7 @@ fn a_software_lists_source_set_follows_the_format_the_storage_policy_gives_sourc
     assert_eq!(
         kinds,
         [(
-            title_select_api::repair::RepairKind::Convert,
+            stage_select_api::repair::RepairKind::Convert,
             "convert game.zip to game.bin, stored loose"
         )]
     );
@@ -170,7 +170,7 @@ fn a_stored_audit_keeps_each_games_dependencies_with_their_game_statuses() {
     assert_eq!(pong.game.status, GameStatus::Missing);
     assert_eq!(
         pong.game.dependencies,
-        [title_select_engine::Dependency {
+        [stage_select_engine::Dependency {
             game: "acmebios".into(),
             status: GameStatus::NothingToCheck,
         }]

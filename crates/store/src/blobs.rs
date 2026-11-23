@@ -58,7 +58,7 @@ impl Store {
     /// Keeps the cue sheet `bytes` in the store as the blob named by its SHA-256, written, synced and renamed into
     /// place, its folder synced, before any row refers to it. Returns its SHA-256.
     pub(crate) fn keep_cue(&self, bytes: &[u8]) -> Result<String> {
-        let sha256 = title_select_engine::sha256_hex(bytes);
+        let sha256 = stage_select_engine::sha256_hex(bytes);
         let dir = self.dir.join(CUES);
         std::fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
         write_blob(&dir, &sha256, bytes)?;
@@ -80,12 +80,12 @@ impl Store {
         let file = File::open(&path).map_err(|e| Unkept::Unread(io_error(&path, e).to_string()))?;
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(
-            &mut std::io::Read::take(&file, title_select_engine::chd::CUE_MAX + 1),
+            &mut std::io::Read::take(&file, stage_select_engine::chd::CUE_MAX + 1),
             &mut bytes,
         )
         .map_err(|e| Unkept::Unread(io_error(&path, e).to_string()))?;
-        if bytes.len() as u64 > title_select_engine::chd::CUE_MAX
-            || title_select_engine::sha256_hex(&bytes) != sha256
+        if bytes.len() as u64 > stage_select_engine::chd::CUE_MAX
+            || stage_select_engine::sha256_hex(&bytes) != sha256
         {
             return Err(Unkept::Changed(format!(
                 "the cue sheet kept in the store as {sha256} no longer holds what it was kept as"

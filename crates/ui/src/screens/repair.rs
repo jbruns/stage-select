@@ -10,14 +10,14 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_router::params::ParamsMap;
-use title_select_api::Job;
-use title_select_api::additions::NewAddition;
-use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
-use title_select_api::repair::{
+use stage_select_api::Job;
+use stage_select_api::additions::NewAddition;
+use stage_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
+use stage_select_api::repair::{
     PlanRepair, RepairChoice, RepairItem, RepairPlan, RepairStep, SourceKeptDeletion,
     SourceKeptFile,
 };
-use title_select_api::storage::{Storage, StorageFormat};
+use stage_select_api::storage::{Storage, StorageFormat};
 
 use crate::api;
 use crate::app::{Loading, Problem};
@@ -621,7 +621,7 @@ fn apply_to_all(desk: RepairDesk, kind: PlanKind) -> AnyView {
     })
 }
 
-fn outcome_text(o: &title_select_api::repair::RepairOutcome) -> String {
+fn outcome_text(o: &stage_select_api::repair::RepairOutcome) -> String {
     {
         let what = match (&o.error, o.done) {
             (Some(e), _) => format!("Not done: {e}"),
@@ -819,7 +819,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                 p.content.fingerprint.len()
             )}
             {p.content.creates_marker.then_some(
-                " It is this source set's first repair, so it writes the source set's marker, .title-select/marker.",
+                " It is this source set's first repair, so it writes the source set's marker, .stage-select/marker.",
             )}
             " " {storage_line(&p.content.storage)}
         </p>

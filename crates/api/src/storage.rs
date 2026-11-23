@@ -353,7 +353,7 @@ pub const MULTI_ROM_STAYS_ZIP: &str = "it has more than one ROM, and only a game
 pub const NOT_A_FILE_NAME: &str =
     "its ROM's name is not a plain file name, so it can't be stored loose, and it stays TorrentZip";
 
-/// Whether `name`, an entry anywhere in a folder Title Select writes, is the one it keeps there for itself and an
+/// Whether `name`, an entry anywhere in a folder Stage Select writes, is the one it keeps there for itself and an
 /// Audit passes over: the [`STATE`](crate::build::STATE) directory, which holds its marker, kept files and any file
 /// it is writing under a temporary name. Compared without case, since a folder may be on a filesystem that ignores
 /// it. No Game's file, folder or ROM is ever written under such a name.
@@ -364,7 +364,7 @@ pub fn is_reserved_name(name: &str) -> bool {
 /// What starts the path, in its Source Set's Audits and Repairs, of a file of a Placed Game (ADR 0023): the reserved
 /// [`STATE`](crate::build::STATE) name, which no file of a Source Set has, then `placed/<library folder id>/`. The rest
 /// is the file's path relative to the Library Folder.
-const PLACED: &str = ".title-select/placed/";
+const PLACED: &str = ".stage-select/placed/";
 
 /// The path, in its Source Set's Audits and Repairs, of the file at `rel` in Library Folder `folder`, of a Placed
 /// Game.
@@ -391,7 +391,7 @@ fn is_plain_name(name: &str) -> bool {
 
 /// Why a Game is stored as TorrentZip where the policy says loose or loose folder: its name or a ROM's is one Title
 /// Select keeps its own work under.
-pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Title Select keeps its own work under, \
+pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Stage Select keeps its own work under, \
      so it can't be stored loose, and it stays TorrentZip";
 
 /// Why a Game of an Arcade DAT's Source Set is stored as TorrentZip where the policy says loose or loose folder.
@@ -998,15 +998,15 @@ mod tests {
     }
 
     #[test]
-    fn a_game_or_rom_named_as_title_select_work_is_never_stored_loose() {
+    fn a_game_or_rom_named_as_stage_select_work_is_never_stored_loose() {
         let folder = Storage {
             format: StorageFormat::LooseFolder,
             delete_originals: false,
             ..Default::default()
         };
         for (game, roms) in [
-            (".Title-Select", &["a.bin", "b.bin"][..]),
-            ("Disc", &["a.bin", ".title-select"]),
+            (".Stage-Select", &["a.bin", "b.bin"][..]),
+            ("Disc", &["a.bin", ".stage-select"]),
         ] {
             let (placed, note) = placement(folder, game, roms);
             assert_eq!(
@@ -1016,11 +1016,11 @@ mod tests {
             );
             assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP), "{game}");
         }
-        let (placed, note) = placement(folder, "Solo", &[".TITLE-SELECT"]);
+        let (placed, note) = placement(folder, "Solo", &[".STAGE-SELECT"]);
         assert_eq!(placed, Placement::TorrentZip("Solo.zip".into()));
         assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP));
-        // Everything Title Select keeps lives under .title-select/, so names like these are a game's own.
-        for game in [".deleting", ".title-select-retained"] {
+        // Everything Stage Select keeps lives under .stage-select/, so names like these are a game's own.
+        for game in [".deleting", ".stage-select-retained"] {
             let (placed, note) = placement(folder, game, &["a.bin", "b.bin"]);
             assert!(matches!(placed, Placement::Folder { .. }), "{game}");
             assert_eq!(note, None, "{game}");

@@ -7,11 +7,11 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
-use title_select_api::arcade::same_name;
-use title_select_api::selection::{
+use stage_select_api::arcade::same_name;
+use stage_select_api::selection::{
     Category, Compilations, SelectionOptions, SelectionProfile, SystemSettings,
 };
-use title_select_api::{
+use stage_select_api::{
     Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, SaveProfile,
     SavedProfile, SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelectionFor, Vocabulary,
 };

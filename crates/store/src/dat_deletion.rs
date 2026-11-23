@@ -32,7 +32,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::blobs::remove_blob;
 use super::{Error, Result, Store, now};
-use title_select_api::{DeletedDatRevision, DeletionBlocker, DeletionBlockerKind};
+use stage_select_api::{DeletedDatRevision, DeletionBlocker, DeletionBlockerKind};
 
 /// What still depends on the catalogued DAT Revision `id`, by kind, in [`DeletionBlockerKind`] order; empty when it
 /// may be deleted.

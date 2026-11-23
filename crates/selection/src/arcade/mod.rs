@@ -21,18 +21,18 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::json;
-use title_select_api::selection::{
+use stage_select_api::selection::{
     Alternative, ArcadePins, CategorySource, CuratedPin, DEPENDENCY_STAGE, Dependency, Exclusion,
     Rule, Selection, SelectionGroup, Winner,
 };
-use title_select_api::support::{SupportFileKind, version_number};
-use title_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
+use stage_select_api::support::{SupportFileKind, version_number};
+use stage_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
 
-pub use support::{SupportFiles, Tier};
-pub use title_select_api::arcade::{
+pub use stage_select_api::arcade::{
     ArcadeSettings, Category, ElectionStep, Orientation, Range, Variant, is_arcade_system,
     same_name, takes_arcade_settings,
 };
+pub use support::{SupportFiles, Tier};
 
 use crate::native::UserRegex;
 use crate::{CuratedList, Error};

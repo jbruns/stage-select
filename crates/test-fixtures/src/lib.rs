@@ -9,7 +9,7 @@ use std::io::{Cursor, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use sha1::Digest;
-use title_select_engine::torrentzip;
+use stage_select_engine::torrentzip;
 
 /// A ROM as a DAT lists it: the checksums are computed from `payload` at test time.
 pub struct RomSpec {

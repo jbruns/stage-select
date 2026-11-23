@@ -1,18 +1,18 @@
 //! Set Layouts of MAME Source Sets (ADR 0026): a Repair repacks a family towards the layout the Storage Policy gives,
 //! filling from sibling ZIPs, and keeps a ZIP aside only once every copy written from it is verified.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use title_select_api::roots::{RootKind, RootSpec};
 
-use title_select_api::build::AddLibraryFolder;
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
-use title_select_api::selection::SelectionProfile;
-use title_select_api::storage::{SetLayout, StorageFormat, SystemStorage, split_placed};
-use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
-use title_select_engine::build::is_torrentzip;
-use title_select_store::{Store, Workers};
-use title_select_test_fixtures::{mame_rom_xml, write_torrentzip};
+use stage_select_api::build::AddLibraryFolder;
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use stage_select_api::selection::SelectionProfile;
+use stage_select_api::storage::{SetLayout, StorageFormat, SystemStorage, split_placed};
+use stage_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState};
+use stage_select_engine::build::is_torrentzip;
+use stage_select_store::{Store, Workers};
+use stage_select_test_fixtures::{mame_rom_xml, write_torrentzip};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -240,11 +240,11 @@ impl Env {
         write_zip(&self.tmp.path().join("in").join(zip), members);
         self.store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -265,7 +265,7 @@ impl Env {
         }
     }
 
-    fn audit(&self) -> title_select_api::Report {
+    fn audit(&self) -> stage_select_api::Report {
         let audit = self
             .store
             .audit_source_set("mame", None, AuditEvidence::Full)
@@ -280,7 +280,7 @@ impl Env {
     }
 
     /// Approves `plan` and runs its Repair Job, then the Audit it queues, whose report it returns.
-    fn approve(&self, plan: &RepairPlan) -> title_select_api::Report {
+    fn approve(&self, plan: &RepairPlan) -> stage_select_api::Report {
         let done = self.run(plan);
         assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
         let audit = done.audit_job.expect("a repair queues an audit");
@@ -350,7 +350,7 @@ fn write_zip_of(path: &Path, member: &str, bytes: &[u8]) {
 
 /// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
 fn write_plain_zip(path: &Path, members: &[&str]) {
-    title_select_test_fixtures::write_zip(path, &payloads(members));
+    stage_select_test_fixtures::write_zip(path, &payloads(members));
 }
 
 /// `members` with their payloads.
@@ -395,7 +395,7 @@ fn members(path: &Path) -> Vec<String> {
     names
 }
 
-fn statuses(report: &title_select_api::Report) -> BTreeMap<String, GameStatus> {
+fn statuses(report: &stage_select_api::Report) -> BTreeMap<String, GameStatus> {
     report
         .games
         .iter()
@@ -404,7 +404,7 @@ fn statuses(report: &title_select_api::Report) -> BTreeMap<String, GameStatus> {
 }
 
 /// Every Entry of `report` is Matched on Payload Evidence and every Game is Complete.
-fn verified(report: &title_select_api::Report) {
+fn verified(report: &stage_select_api::Report) {
     for e in &report.entries {
         assert_eq!(e.finding, Finding::Matched, "{e:?}");
         assert_eq!(
@@ -492,8 +492,8 @@ fn a_merged_family_repaired_non_merged_gets_self_contained_zips_before_its_merge
     assert_eq!(
         others,
         [
-            ".title-select/marker",
-            ".title-select/retained/1/blaster.zip.kept"
+            ".stage-select/marker",
+            ".stage-select/retained/1/blaster.zip.kept"
         ]
     );
     for (zip, _) in &zips {
@@ -522,9 +522,9 @@ fn a_non_merged_family_repaired_split_or_merged_keeps_only_what_each_zip_holds_t
         assert_eq!(
             others,
             [
-                ".title-select/marker",
-                ".title-select/retained/1/blaster.zip.kept",
-                ".title-select/retained/1/blasterj.zip.kept"
+                ".stage-select/marker",
+                ".stage-select/retained/1/blaster.zip.kept",
+                ".stage-select/retained/1/blasterj.zip.kept"
             ],
             "{layout:?}"
         );
@@ -586,8 +586,8 @@ fn a_non_merged_zip_is_filled_from_a_siblings_copy_of_a_shared_rom_which_stays()
     assert_eq!(
         others,
         [
-            ".title-select/marker",
-            ".title-select/retained/1/blasterj.zip.kept"
+            ".stage-select/marker",
+            ".stage-select/retained/1/blasterj.zip.kept"
         ]
     );
     verified(&report);
@@ -921,7 +921,7 @@ fn a_placed_game_whose_zip_is_gone_or_changed_since_the_audit_is_left_under(sinc
     let items = &plan.content.items;
     assert!(
         plan.content.notes.iter().any(|n| n
-            == "blasterb is left as it is: .title-select/placed/1/blasterb.zip is in the way, and the audit did \
+            == "blasterb is left as it is: .stage-select/placed/1/blasterb.zip is in the way, and the audit did \
                 not read it as it is now"),
         "{since:?}: {:#?}",
         plan.content.notes
@@ -1680,7 +1680,7 @@ fn rom_payloads(env: &Env) -> BTreeSet<Vec<u8>> {
         for e in walkdir::WalkDir::new(&dir).min_depth(1) {
             let e = e.unwrap();
             let rel = e.path().strip_prefix(&dir).unwrap();
-            if !e.file_type().is_file() || rel.starts_with(".title-select") {
+            if !e.file_type().is_file() || rel.starts_with(".stage-select") {
                 continue;
             }
             let bytes = std::fs::read(e.path()).unwrap();

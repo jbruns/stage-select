@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, params};
-use title_select_api::SourceSetStale;
-use title_select_api::build::CheckSummary;
+use stage_select_api::SourceSetStale;
+use stage_select_api::build::CheckSummary;
 
 use super::{Result, Store};
 

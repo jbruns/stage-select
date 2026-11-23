@@ -1,6 +1,6 @@
 # Retool
 
-Title Select's Selection engine (`crates/selection/src/native/`) is a port of
+Stage Select's Selection engine (`crates/selection/src/native/`) is a port of
 [Retool](https://github.com/unexpectedpanda/retool) at commit `59f169f530580448c055c781cb3166910c7bdba5`, so
 Retool's licence, `LICENSE`, stays beside it.
 

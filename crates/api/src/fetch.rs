@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A DAT Provider Title Select may fetch from, once the Operator turns it on.
+/// A DAT Provider Stage Select may fetch from, once the Operator turns it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FetchProvider {
@@ -181,7 +181,7 @@ pub struct FetchArtifactStatus {
 /// A system of a DAT Provider that a Following Source Set is bound to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FetchSystem {
-    /// The provider's system, as in [`FetchAttempt::system`]; absent when Title Select doesn't know one for the DAT.
+    /// The provider's system, as in [`FetchAttempt::system`]; absent when Stage Select doesn't know one for the DAT.
     pub system: Option<String>,
     /// The DAT, as `<provider>/<name>`.
     pub dat: String,

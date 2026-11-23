@@ -3,19 +3,19 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use title_select_api::additions::NewAddition;
-use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
-use title_select_api::repair::{
+use stage_select_api::additions::NewAddition;
+use stage_select_api::build::{ExpectedRom, invalid_name, kept_name};
+use stage_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep, SeenFile,
 };
-use title_select_api::storage::{
+use stage_select_api::storage::{
     MAME_STAYS_ZIP, MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat,
     is_reserved_name, placed_path, placement_writing, release_of, split_placed,
 };
-use title_select_api::{Entry, EvidenceLevel, Finding, NOT_DUMPED, Report};
-use title_select_engine::dat::{Dat, DumpStatus, Laid, Rom, SetLayout};
-use title_select_engine::payload::Checksums;
-use title_select_engine::{FileStamp, Holders, entry_name};
+use stage_select_api::{Entry, EvidenceLevel, Finding, NOT_DUMPED, Report};
+use stage_select_engine::dat::{Dat, DumpStatus, Laid, Rom, SetLayout};
+use stage_select_engine::payload::Checksums;
+use stage_select_engine::{FileStamp, Holders, entry_name};
 
 use super::{as_read, seen_file};
 use crate::checks::Seen;
@@ -203,7 +203,7 @@ pub(crate) struct CueSheet {
 impl CueSheet {
     /// Whether it is `rom`: its size and every checksum the DAT gives.
     fn is(&self, rom: &ExpectedRom) -> bool {
-        title_select_engine::build::matches(&self.sums, rom)
+        stage_select_engine::build::matches(&self.sums, rom)
     }
 }
 
@@ -457,7 +457,7 @@ impl<'a> Preserved<'a> {
 fn keep_uncovered(
     i: &Inputs,
     by_path: &BTreeMap<&str, Vec<&Entry>>,
-    reported: &HashMap<&str, &title_select_api::report::Game>,
+    reported: &HashMap<&str, &stage_select_api::report::Game>,
     proposed: &mut Vec<Proposed>,
     notes: &mut Vec<String>,
 ) {
@@ -472,7 +472,7 @@ fn keep_uncovered(
                     !(i.covers)(g)
                         && reported
                             .get(g)
-                            .is_some_and(|r| r.status != title_select_api::GameStatus::Missing)
+                            .is_some_and(|r| r.status != stage_select_api::GameStatus::Missing)
                 })
                 .collect();
             (!games.is_empty()).then_some((*path, games))
@@ -1098,7 +1098,7 @@ fn healthy_chd(i: &Inputs, path: &str) -> bool {
         && i.placed_files.get(path).is_some_and(|game| {
             i.report.games.iter().any(|g| {
                 g.name == *game
-                    && g.status == title_select_api::GameStatus::Complete
+                    && g.status == stage_select_api::GameStatus::Complete
                     && g.claimed_roms.is_empty()
             })
         })
@@ -1152,7 +1152,7 @@ fn releases(
                 && i.report
                     .games
                     .iter()
-                    .any(|s| s.name == *g && s.status == title_select_api::GameStatus::Missing)
+                    .any(|s| s.name == *g && s.status == stage_select_api::GameStatus::Missing)
         });
         let damaged = parted
             || freed
@@ -1758,7 +1758,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .filter_map(|(g, p)| Some((g, p.as_ref()?)))
         .flat_map(|(g, (placed, _))| placed.files().into_iter().map(move |f| (f, g)))
         .collect();
-    let reported: HashMap<&str, &title_select_api::report::Game> = i
+    let reported: HashMap<&str, &stage_select_api::report::Game> = i
         .report
         .games
         .iter()
@@ -1844,7 +1844,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         if folder.is_none()
             && let Some(why) = invalid_name(own).or_else(|| {
                 is_reserved_name(own)
-                    .then(|| format!("{own} is a name Title Select keeps its own work under"))
+                    .then(|| format!("{own} is a name Stage Select keeps its own work under"))
             })
         {
             notes.push(format!("{game} is left as it is: {why}"));
@@ -1857,7 +1857,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let withheld = |rom: &str| {
             outside
                 && reported.get(game.as_str()).is_none_or(|g| {
-                    g.status == title_select_api::GameStatus::Missing
+                    g.status == stage_select_api::GameStatus::Missing
                         || g.missing_roms.iter().any(|m| m == rom)
                 })
         };

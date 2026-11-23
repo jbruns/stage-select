@@ -3,8 +3,8 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
-use title_select_api::coverage::PRESETS;
-use title_select_api::{
+use stage_select_api::coverage::PRESETS;
+use stage_select_api::{
     CoveragePreview, GameStatus, RegionCounts, SetCoverage, SourceSetRecord, Vocabulary,
 };
 

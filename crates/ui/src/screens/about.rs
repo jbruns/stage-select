@@ -16,14 +16,14 @@ const CURATED_LIST: &str = "https://github.com/zr00da/curated-mame-arcade-romset
 struct Licence {
     title: &'static str,
     file: &'static str,
-    /// Where to read it when this build does not ship it; Title Select's own is in its source.
+    /// Where to read it when this build does not ship it; Stage Select's own is in its source.
     upstream: Option<&'static str>,
 }
 
 const LICENCES: &[Licence] = &[
     Licence {
-        title: "Title Select: MIT License",
-        file: "/licences/title-select.txt",
+        title: "Stage Select: MIT License",
+        file: "/licences/stage-select.txt",
         upstream: None,
     },
     Licence {
@@ -66,7 +66,7 @@ async fn fetch(file: &'static str) -> Option<String> {
     response.text().await.ok()
 }
 
-/// Where selection comes from, how its default orders work, and the licences of Title Select and of the projects
+/// Where selection comes from, how its default orders work, and the licences of Stage Select and of the projects
 /// it is derived from.
 #[component]
 pub fn About() -> impl IntoView {
@@ -74,37 +74,37 @@ pub fn About() -> impl IntoView {
     request_animation_frame(move || hash.scroll());
     provide_context(hash);
     view! {
-        <h1>"About Title Select"</h1>
+        <h1>"About Stage Select"</h1>
         <p class="lede">
-            "Title Select audits your source sets against DAT files and records exactly what was verified, and against which DAT revision."
+            "Stage Select audits your source sets against DAT files and records exactly what was verified, and against which DAT revision."
         </p>
         <section aria-labelledby="selection-title">
             <h2 id="selection-title">"Where selection comes from"</h2>
             <p>
                 "Selection is derived from " <a href=RETOOL>"Retool"</a>
                 ", with the community-maintained " <a href=CLONE_LISTS>"Retool clone lists and metadata"</a>
-                ". Title Select's selection engine is a port of Retool, built into Title Select: it selects as Retool does, offline, with a pinned copy of the clone lists and metadata, and explains each choice from the trace Retool would print. Both projects are published under the BSD 3-Clause License, shown below."
+                ". Stage Select's selection engine is a port of Retool, built into Stage Select: it selects as Retool does, offline, with a pinned copy of the clone lists and metadata, and explains each choice from the trace Retool would print. Both projects are published under the BSD 3-Clause License, shown below."
             </p>
             <p class="note">
-                "To see the clone-list commit this build is pinned to, run " <code>"title-select --version"</code>
+                "To see the clone-list commit this build is pinned to, run " <code>"stage-select --version"</code>
                 "."
             </p>
         </section>
         <section id="support-files" aria-labelledby="support-files-title">
             <h2 id="support-files-title">"MAME support files"</h2>
             <p>
-                "When you turn on fetching from MAME, Title Select fetches catver.ini, languages.ini and bestgames.ini from "
+                "When you turn on fetching from MAME, Stage Select fetches catver.ini, languages.ini and bestgames.ini from "
                 <a href=PROGETTO_SNAPS>"progetto-SNAPS"</a>
-                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select reads them to select arcade machines. They are fetched from the maintainer's own "
+                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Stage Select reads them to select arcade machines. They are fetched from the maintainer's own "
                 <a href=SUPPORT_MIRROR>"GitHub mirror"</a>
-                ", never shipped with Title Select, and the copyright in them stays with progetto-SNAPS. Our thanks to progetto-SNAPS and its maintainer."
+                ", never shipped with Stage Select, and the copyright in them stays with progetto-SNAPS. Our thanks to progetto-SNAPS and its maintainer."
             </p>
         </section>
         <section id="curated-list" aria-labelledby="curated-list-title">
             <h2 id="curated-list-title">"The curated list of arcade games"</h2>
             <p>
                 "An arcade selection can keep to " <a href=CURATED_LIST>"curated-mame-arcade-romset"</a>
-                ", a hand-picked list of arcade games: when you turn it on, your selection keeps only the families it names, and prefers the machine it names in each. Title Select ships a pinned copy of the list, which its author has released into the public domain under the Unlicense, shown below. Our thanks to its author."
+                ", a hand-picked list of arcade games: when you turn it on, your selection keeps only the families it names, and prefers the machine it names in each. Stage Select ships a pinned copy of the list, which its author has released into the public domain under the Unlicense, shown below. Our thanks to its author."
             </p>
         </section>
         <section id="default-orders" aria-labelledby="default-orders-title">
@@ -116,7 +116,7 @@ pub fn About() -> impl IntoView {
                 "The default region order puts USA first, then the regions whose releases are most often in English, then the rest of the world. The default video order prefers NTSC, then PAL. So the defaults suit English speakers."
             </p>
             <p>
-                "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Title Select uses them as the pinned copy of the clone lists and metadata ships them, and does not change them."
+                "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Stage Select uses them as the pinned copy of the clone lists and metadata ships them, and does not change them."
             </p>
             <p>
                 "To prefer other regions, open a " <A href="/profiles">"selection profile"</A>
@@ -174,7 +174,7 @@ fn LicenceText(licence: &'static Licence) -> impl IntoView {
                             "This build does not include this licence text. "
                             {match licence.upstream {
                                 Some(url) => view! { "Read it at " <a href=url>{url}</a> "." }.into_any(),
-                                None => "It is the LICENSE file at the root of Title Select's source.".into_any(),
+                                None => "It is the LICENSE file at the root of Stage Select's source.".into_any(),
                             }}
                         </p>
                     }

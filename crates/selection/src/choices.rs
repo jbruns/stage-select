@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::selection::{
+use stage_select_api::selection::{
     Alternative, ChoiceStatus, GroupChoice, Rule, Selection, SelectionGroup, Winner,
 };
 
@@ -150,7 +150,7 @@ pub(crate) fn recount(selection: &mut Selection) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::{
+    use stage_select_api::selection::{
         CoverageDrift, Exclusion, Role, SelectionPins, SelectionSummary,
     };
 

@@ -1,4 +1,4 @@
-//! The user's overrides: excludes, includes and post filters (`modules/title_selection/excludes.py`,
+//! The user's overrides: excludes, includes and post filters (`modules/stage_selection/excludes.py`,
 //! `includes.py`, `overrides_post_filters.py`).
 
 use super::clone_lists::{Lookup, key_error};
@@ -251,7 +251,7 @@ pub(crate) fn excludes(run: &mut Run, groups: &mut Groups) -> PyResult<()> {
 
     let mut exclude_titles = Titles::new();
     let flattened: Titles = groups.values().flatten().copied().collect();
-    // Title Select never passes `--no-overrides`.
+    // Stage Select never passes `--no-overrides`.
     let no_overrides = false;
     for &title in &flattened {
         run.limits.check()?;

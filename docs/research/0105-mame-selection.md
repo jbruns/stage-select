@@ -37,7 +37,7 @@ Why:
 - It honours #3: *"Do not apply Retool's No-Intro/Redump model as an invented arcade 1G1R policy."* Every rule is an
   explicit, reviewable filter or election step.
 
-## 1. What Title Select has today
+## 1. What Stage Select has today
 
 | Area | State |
 |---|---|

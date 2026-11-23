@@ -33,8 +33,8 @@ mod stale;
 mod store;
 mod support_files;
 
-use title_select_api::roots::RootSpec;
-use title_select_store::Store;
+use stage_select_api::roots::RootSpec;
+use stage_select_store::Store;
 
 /// Registers each of `roots` in `store`, creating its folder first if it is missing.
 pub(crate) fn register(store: &Store, roots: &[RootSpec]) {
@@ -53,7 +53,7 @@ pub(crate) fn reregister(store: &Store, root: RootSpec) {
 /// Sets whether the Root `root` is writable straight in the closed store at `dir`, past the rules an edit keeps: as
 /// a store restored from a backup taken before an edit might hold it.
 pub(crate) fn force_writable(dir: &std::path::Path, root: &str, writable: bool) {
-    let conn = rusqlite::Connection::open(dir.join(title_select_store::DATABASE)).unwrap();
+    let conn = rusqlite::Connection::open(dir.join(stage_select_store::DATABASE)).unwrap();
     let changed = conn
         .execute(
             "UPDATE roots SET writable = ?2 WHERE name = ?1",

@@ -15,7 +15,7 @@ pub const REQUIRED_SCOPES: [&str; 5] = [
     "tasks.run",
 ];
 
-/// The RomM releases Title Select is tested against, as `major.minor`.
+/// The RomM releases Stage Select is tested against, as `major.minor`.
 pub const TESTED_RELEASES: &str = "5.4";
 
 /// Whether a RomM version is in the tested range ([`TESTED_RELEASES`]): `5.4`, `5.4.1` or `v5.4.2` are, while
@@ -80,7 +80,7 @@ pub struct RommUser {
 pub struct RommCheck {
     /// The version RomM's heartbeat reports.
     pub version: Option<String>,
-    /// Whether that version is one Title Select is tested against.
+    /// Whether that version is one Stage Select is tested against.
     pub version_tested: bool,
     /// Who the token belongs to; absent unless the token may read its own profile (`me.read`).
     pub user: Option<RommUser>,
@@ -127,12 +127,12 @@ pub enum RommScanOutcome {
     Requested,
     /// RomM's task finished.
     Finished,
-    /// Title Select stopped following the scan before it ended: the Service stopped, or RomM was turned off or its
+    /// Stage Select stopped following the scan before it ended: the Service stopped, or RomM was turned off or its
     /// address or root changed meanwhile.
     Stopped,
     /// RomM's task failed, or was stopped or cancelled.
     Failed,
-    /// RomM was still scanning, or still busy with another scan, when Title Select stopped waiting.
+    /// RomM was still scanning, or still busy with another scan, when Stage Select stopped waiting.
     TimedOut,
     /// RomM has no scan worker running (HTTP 503).
     Unavailable,
@@ -206,7 +206,7 @@ pub struct RommScan {
 pub enum RommAdditionsOutcome {
     /// The collection holds exactly the Additions RomM has indexed.
     Synced,
-    /// Title Select stopped before it finished: the Service stopped, or RomM was turned off or its address or root
+    /// Stage Select stopped before it finished: the Service stopped, or RomM was turned off or its address or root
     /// changed meanwhile.
     Stopped,
     /// A request was refused or went unanswered: RomM unreachable, the token refused or lacking a scope, or an
@@ -268,7 +268,7 @@ pub struct RommFolderPlatform {
     pub platform: RommPlatform,
 }
 
-/// A way RomM's view of a file a Build made disagrees with the Build. Title Select only shows these; it never writes
+/// A way RomM's view of a file a Build made disagrees with the Build. Stage Select only shows these; it never writes
 /// identity into RomM (ADR 0020).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,7 +1,7 @@
 //! Where fetching newer DAT revisions from Redump and MAME stands, per provider and system, with a way to fetch now.
 
 use leptos::prelude::*;
-use title_select_api::fetch::{FetchProviderStatus, FetchStatus, FetchSupport, FetchSystem};
+use stage_select_api::fetch::{FetchProviderStatus, FetchStatus, FetchSupport, FetchSystem};
 
 use crate::api;
 use crate::events::use_live;

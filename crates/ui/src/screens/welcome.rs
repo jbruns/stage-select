@@ -5,9 +5,9 @@
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
 use leptos_router::components::{A, Redirect};
-use title_select_api::build::LibraryFolder;
-use title_select_api::roots::FolderSuggestions;
-use title_select_api::{Dat, Root, SourceSetSummary};
+use stage_select_api::build::LibraryFolder;
+use stage_select_api::roots::FolderSuggestions;
+use stage_select_api::{Dat, Root, SourceSetSummary};
 
 use crate::api;
 use crate::events::use_live;
@@ -95,9 +95,9 @@ pub fn Welcome() -> impl IntoView {
     let changed = Callback::new(move |_: ()| refresh.update(|n| *n += 1));
     let skipped = RwSignal::new(Vec::<Step>::new());
     view! {
-        <h1>"Set up Title Select"</h1>
+        <h1>"Set up Stage Select"</h1>
         <p class="lede">
-            "Title Select reads only the folders you register. These steps take you from here to your first audit. \
+            "Stage Select reads only the folders you register. These steps take you from here to your first audit. \
              You can skip any step, and take it later from the screen it names."
         </p>
         <Pending
@@ -200,7 +200,7 @@ fn StepPanel(
 fn explanation(step: Step) -> &'static str {
     match step {
         Step::Root => {
-            "A root is a folder Title Select may work in. Register a read-only root for the folders that hold your \
+            "A root is a folder Stage Select may work in. Register a read-only root for the folders that hold your \
              games, and a writable root for the library folders it builds. It reads nothing until you register a \
              root, and writes only where you let it: in a writable root, and in the paths of a read-only root you let \
              repairs write to."
@@ -217,7 +217,7 @@ fn explanation(step: Step) -> &'static str {
             "An audit reads each file of a source set and checks it against its DAT. It never changes your files."
         }
         Step::Library => {
-            "A library folder is where Title Select builds the games you select, for your front end to play. It \
+            "A library folder is where Stage Select builds the games you select, for your front end to play. It \
              needs a writable root. Your source set stays as it is."
         }
     }

@@ -29,7 +29,7 @@ pub fn present_looks<S: Status>(shown: impl IntoIterator<Item = S>) -> Vec<Look>
 
 /// The local storage key remembering whether the legend of `list` is collapsed.
 pub fn collapsed_key(list: &str) -> String {
-    format!("title-select.legend.{list}.collapsed")
+    format!("stage-select.legend.{list}.collapsed")
 }
 
 /// One legend strip for a list. `statuses` are those its rows show now (see `present`); with none, there's no strip.
@@ -85,7 +85,7 @@ pub fn LegendStrip(#[prop(into)] looks: Signal<Vec<Look>>, list: &'static str) -
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::JobState;
+    use stage_select_api::JobState;
 
     use super::*;
 

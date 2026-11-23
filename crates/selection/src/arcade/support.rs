@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use title_select_api::selection::SupportFilePin;
-use title_select_api::support::{SupportFileKind, read_header};
+use stage_select_api::selection::SupportFilePin;
+use stage_select_api::support::{SupportFileKind, read_header};
 
 use crate::Error;
 
@@ -110,7 +110,7 @@ impl SupportFiles {
         }
         self.pins.push(SupportFilePin {
             kind,
-            sha256: title_select_engine::sha256_hex(&bytes),
+            sha256: stage_select_engine::sha256_hex(&bytes),
             mame_version,
             drift: false,
         });

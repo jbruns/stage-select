@@ -3,8 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use title_select_api::additions::NewAddition;
-use title_select_api::ingest::{
+use stage_select_api::additions::NewAddition;
+use stage_select_api::ingest::{
     Assessment, IngestAction, IngestFolder, IngestItem, IngestOutcome, IngestPlan, IngestPlanItem,
     ItemState, Need, PlanIngest, Proposal,
 };
@@ -428,7 +428,7 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::ingest::ItemMove;
+    use stage_select_api::ingest::ItemMove;
 
     #[test]
     fn a_dat_shows_its_name_not_its_checksum_but_a_game_file_keeps_its_own() {

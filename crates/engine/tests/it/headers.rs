@@ -5,14 +5,14 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::Mutex;
 
-use title_select_api::build::ExpectedRom;
-use title_select_engine::build::{
+use stage_select_api::build::ExpectedRom;
+use stage_select_engine::build::{
     Source, holds_as, probe, probe_under, repack, repack_from, repack_sources, verify,
     verify_loose, write_loose, write_loose_member, write_loose_members,
 };
 
-use title_select_engine::payload::Hasher;
-use title_select_engine::{
+use stage_select_engine::payload::Hasher;
+use stage_select_engine::{
     AuditEvidence, EvidenceLevel, FileStamp, Finding, GameStatus, GameWarning, HeaderRule,
     ONE_WORKER_EACH, Options, PayloadRead, PayloadReads, Report, audit, audit_with,
 };
@@ -30,7 +30,7 @@ fn with_header(header: &[u8], rom: &[u8]) -> Vec<u8> {
     [header, rom].concat()
 }
 
-fn entry<'r>(report: &'r Report, path: &str) -> &'r title_select_engine::Entry {
+fn entry<'r>(report: &'r Report, path: &str) -> &'r stage_select_engine::Entry {
     report.entries.iter().find(|e| e.path == path).unwrap()
 }
 
@@ -126,7 +126,7 @@ fn a_dat_that_names_no_rule_never_skips_a_header_even_for_nes() {
 }
 
 #[test]
-fn a_rule_title_select_does_not_know_is_recorded_and_skips_nothing() {
+fn a_rule_stage_select_does_not_know_is_recorded_and_skips_nothing() {
     let f = Fixture::new();
     let prg = noise(4, 64);
     let dat = write_dat_with_header(
@@ -214,7 +214,7 @@ fn the_json_report_carries_the_header_size_and_the_warning() {
 
     let json = serde_json::to_value(audit(&dat, f.set.path()).unwrap()).unwrap();
 
-    assert_eq!(json["schema"], "title-select.audit/1");
+    assert_eq!(json["schema"], "stage-select.audit/1");
     assert_eq!(
         json["dat_revision"]["header_rule"],
         serde_json::json!({"name": NES, "rule": "nes"})
@@ -647,7 +647,7 @@ fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
 
     let whole = probe(
         &opened(&loose),
-        &title_select_engine::meter::Tally::default(),
+        &stage_select_engine::meter::Tally::default(),
     )
     .unwrap();
     assert!(!holds_as(&whole, std::slice::from_ref(&rom), true));
@@ -655,7 +655,7 @@ fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
     let read = probe_under(
         &opened(&loose),
         Some(HeaderRule::Nes),
-        &title_select_engine::meter::Tally::default(),
+        &stage_select_engine::meter::Tally::default(),
     )
     .unwrap();
     assert!(holds_as(&read, std::slice::from_ref(&rom), true));
@@ -668,7 +668,7 @@ fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
     let read = probe_under(
         &opened(&zipped),
         Some(HeaderRule::Nes),
-        &title_select_engine::meter::Tally::default(),
+        &stage_select_engine::meter::Tally::default(),
     )
     .unwrap();
     assert!(holds_as(&read, std::slice::from_ref(&rom), false));

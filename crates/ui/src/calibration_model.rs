@@ -1,8 +1,8 @@
 //! The calibration results on the Operations page: one row for the Host and one for each configured Root, and where
 //! a Calibration Job that hasn't ended stands.
 
-use title_select_api::calibration::{Calibration, CalibrationStale, CurvePoint, Knee, RootOutcome};
-use title_select_api::{Job, JobKind, JobProgress, JobState};
+use stage_select_api::calibration::{Calibration, CalibrationStale, CurvePoint, Knee, RootOutcome};
+use stage_select_api::{Job, JobKind, JobProgress, JobState};
 
 use crate::parts::status::CalibrationStatus;
 
@@ -185,8 +185,8 @@ pub fn active<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::Workers;
-    use title_select_api::calibration::{HostCalibration, RootCalibration};
+    use stage_select_api::Workers;
+    use stage_select_api::calibration::{HostCalibration, RootCalibration};
 
     fn job(id: i64, kind: JobKind, state: JobState) -> Job {
         Job {

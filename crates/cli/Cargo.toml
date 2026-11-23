@@ -1,5 +1,5 @@
 [package]
-name = "title-select"
+name = "stage-select"
 description = "Audits ROM collections against DAT revisions"
 version.workspace = true
 edition.workspace = true
@@ -8,20 +8,20 @@ license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "title-select"
+name = "stage-select"
 path = "src/main.rs"
 
 [dependencies]
-title-select-api.workspace = true
-title-select-engine.workspace = true
-title-select-selection.workspace = true
-title-select-server.workspace = true
-title-select-store.workspace = true
+stage-select-api.workspace = true
+stage-select-engine.workspace = true
+stage-select-selection.workspace = true
+stage-select-server.workspace = true
+stage-select-store.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ureq = { version = "3.5.0", features = ["json"] }
 
 [dev-dependencies]
-title-select-test-fixtures.workspace = true
+stage-select-test-fixtures.workspace = true
 tempfile.workspace = true

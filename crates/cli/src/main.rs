@@ -7,24 +7,24 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use title_select_api::JobState;
-use title_select_api::ingest::Proposal;
-use title_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
-use title_select_api::roots::{RootKind, RootSpec, VoidedPlanKind};
-use title_select_api::selection::SelectionProfile;
-use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
-use title_select_server::Settings;
-use title_select_store::{FixdatScope, ImportOutcome, Store};
+use stage_select_api::JobState;
+use stage_select_api::ingest::Proposal;
+use stage_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
+use stage_select_api::roots::{RootKind, RootSpec, VoidedPlanKind};
+use stage_select_api::selection::SelectionProfile;
+use stage_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
+use stage_select_server::Settings;
+use stage_select_store::{FixdatScope, ImportOutcome, Store};
 
 /// Audits your source sets against DAT revisions.
 #[derive(Parser)]
 #[command(version = version())]
 struct Cli {
     /// The store directory: the database and the DAT blobs.
-    #[arg(long, global = true, env = "TITLE_SELECT_STORE")]
+    #[arg(long, global = true, env = "STAGE_SELECT_STORE")]
     store: Option<PathBuf>,
     /// The file holding your operator token: the service accepts it, and `audit --server` and `calibrate` send it.
-    #[arg(long, global = true, env = "TITLE_SELECT_OPERATOR_TOKEN_FILE")]
+    #[arg(long, global = true, env = "STAGE_SELECT_OPERATOR_TOKEN_FILE")]
     token_file: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -130,7 +130,7 @@ enum Command {
         #[command(subcommand)]
         command: AdditionsCommand,
     },
-    /// Register, edit, unregister and list your roots: the folders Title Select reads, and writes to where you let it.
+    /// Register, edit, unregister and list your roots: the folders Stage Select reads, and writes to where you let it.
     Root {
         #[command(subcommand)]
         command: RootCommand,
@@ -148,30 +148,30 @@ enum Command {
     /// Run the service: the `/api/v1` JSON API and the audit and selection jobs. It holds the store until it stops.
     Serve {
         /// The address to listen on.
-        #[arg(long, env = "TITLE_SELECT_LISTEN", default_value = "127.0.0.1:8080")]
+        #[arg(long, env = "STAGE_SELECT_LISTEN", default_value = "127.0.0.1:8080")]
         listen: SocketAddr,
         /// The workbench's built bundle (`target/site` after `cargo leptos build`), served at `/`.
-        #[arg(long, env = "TITLE_SELECT_UI")]
+        #[arg(long, env = "STAGE_SELECT_UI")]
         ui: Option<PathBuf>,
         /// The clone lists that `tools/clone-lists/fetch` fetches, for selections and previews. Defaults to
         /// `/opt/clone-lists`. Without them the service still runs audits.
-        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        #[arg(long, env = stage_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
         /// The request header your authenticating reverse proxy names you in, such as `Remote-User`. Needs
         /// `--trusted-proxies`.
-        #[arg(long, env = title_select_server::IDENTITY_HEADER.1)]
+        #[arg(long, env = stage_select_server::IDENTITY_HEADER.1)]
         identity_header: Option<String>,
         /// The proxies whose identity header the service trusts, as comma-separated CIDRs such as
         /// `10.89.0.2/32`. Any peer inside them can claim any identity, so list only your proxy's own address.
         /// Needs `--identity-header`.
-        #[arg(long, env = title_select_server::TRUSTED_PROXIES.1, value_delimiter = ',')]
+        #[arg(long, env = stage_select_server::TRUSTED_PROXIES.1, value_delimiter = ',')]
         trusted_proxies: Vec<String>,
         /// For development: the identity every request with no other credential is taken as. Only allowed when
         /// `--listen` is a loopback address.
-        #[arg(long, env = title_select_server::DEV_IDENTITY.1)]
+        #[arg(long, env = stage_select_server::DEV_IDENTITY.1)]
         dev_identity: Option<String>,
         /// The chdman that builds and checks CHDs. Defaults to `chdman` on the `PATH`.
-        #[arg(long, env = title_select_engine::chd::CHDMAN_ENV)]
+        #[arg(long, env = stage_select_engine::chd::CHDMAN_ENV)]
         chdman: Option<PathBuf>,
     },
     /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
@@ -184,10 +184,10 @@ enum Command {
         #[arg(long)]
         profile: PathBuf,
         /// The clone lists that `tools/clone-lists/fetch` fetches. Defaults to `/opt/clone-lists`.
-        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        #[arg(long, env = stage_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
         /// Seconds the selection engine may run before it is stopped.
-        #[arg(long, default_value_t = title_select_selection::DEFAULT_TIMEOUT.as_secs(), value_parser = clap::value_parser!(u64).range(1..))]
+        #[arg(long, default_value_t = stage_select_selection::DEFAULT_TIMEOUT.as_secs(), value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
         /// Write the selection to this file instead of stdout.
         #[arg(long)]
@@ -317,7 +317,7 @@ enum SetCommand {
         #[arg(long = "coverage-preset", value_name = "PRESET")]
         coverage_presets: Vec<String>,
         /// The clone lists to check region names against. Defaults to `/opt/clone-lists`.
-        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        #[arg(long, env = stage_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
     },
     /// Show a source set's coverage: the regions of its DAT's games it keeps. With `--region` or `--preset`, set
@@ -338,7 +338,7 @@ enum SetCommand {
         #[arg(long, conflicts_with_all = ["regions", "presets"])]
         clear: bool,
         /// The clone lists to check region names against. Defaults to `/opt/clone-lists`.
-        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        #[arg(long, env = stage_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
     },
     /// List the source sets with the DAT revision each was last verified against.
@@ -356,7 +356,7 @@ enum SetCommand {
 enum LibraryCommand {
     /// Show what holds a play library folder registered.
     Holds { id: i64 },
-    /// Unregister a play library folder. What was built in it stays as files Title Select no longer manages.
+    /// Unregister a play library folder. What was built in it stays as files Stage Select no longer manages.
     Unregister { id: i64 },
 }
 
@@ -370,9 +370,9 @@ enum AdditionsCommand {
 
 #[derive(Subcommand)]
 enum RootCommand {
-    /// List your roots: each one's path, kind, where Title Select may write to it, and your ceilings for it.
+    /// List your roots: each one's path, kind, where Stage Select may write to it, and your ceilings for it.
     List,
-    /// Register a folder as a root. Refused unless the folder exists, and unless Title Select can write to it when
+    /// Register a folder as a root. Refused unless the folder exists, and unless Stage Select can write to it when
     /// you make the root writable. There can be only one root of kind `additions`.
     Register {
         /// Its name, fixed once registered: what you register in the root refers to it by name.
@@ -407,10 +407,10 @@ struct RootOptions {
     /// additions sets. An ingest or additions root is writable.
     #[arg(long, value_parser = |s: &str| s.parse::<RootKind>())]
     kind: Option<RootKind>,
-    /// Let Title Select write anywhere in the root: builds into its play library folders.
+    /// Let Stage Select write anywhere in the root: builds into its play library folders.
     #[arg(long, conflicts_with = "read_only")]
     writable: bool,
-    /// Let Title Select write nowhere in the root but its writable paths.
+    /// Let Stage Select write nowhere in the root but its writable paths.
     #[arg(long)]
     read_only: bool,
     /// In a read-only root, a source set's path, relative to the root, that a repair may write to. Repeat it for
@@ -484,7 +484,7 @@ fn parse_ceiling(s: &str) -> Result<CeilingArg, String> {
 const ACTOR: &str = "command line";
 
 /// One root as `root list` prints it.
-fn root_line(root: &title_select_api::Root) -> String {
+fn root_line(root: &stage_select_api::Root) -> String {
     let writes = match (root.writable, root.writable_paths.as_slice()) {
         (true, _) => "writable".to_owned(),
         (false, []) => "read-only".to_owned(),
@@ -541,7 +541,7 @@ enum UnregisteredCommand {
 
 #[derive(Subcommand)]
 enum IngestCommand {
-    /// Register an ingest root as an ingest folder of this store, writing its marker. Title Select scans and
+    /// Register an ingest root as an ingest folder of this store, writing its marker. Stage Select scans and
     /// changes an ingest folder only once it is registered.
     Register {
         /// The root's name; it must be of kind `ingest`.
@@ -568,7 +568,7 @@ enum IngestCommand {
 fn version() -> &'static str {
     static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let package = env!("CARGO_PKG_VERSION");
-        match title_select_selection::clone_lists() {
+        match stage_select_selection::clone_lists() {
             Ok(pinned) => format!(
                 "{package}\nclone lists and metadata: {} at {}",
                 pinned.repository, pinned.commit,
@@ -583,18 +583,18 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("title-select: {message}");
+            eprintln!("stage-select: {message}");
             ExitCode::FAILURE
         }
     }
 }
 
 fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
-    let dir = cli_store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
+    let dir = cli_store.ok_or("no store: pass --store <dir> or set STAGE_SELECT_STORE")?;
     let store = Store::open(dir).map_err(|e| e.to_string())?;
     // Without the clone lists, whatever reads a source set's coverage says so.
     if let Ok(regions) =
-        title_select_selection::Engine::locate(None).and_then(|engine| engine.regions())
+        stage_select_selection::Engine::locate(None).and_then(|engine| engine.regions())
     {
         store.set_regions(move |game| regions.of(game));
     }
@@ -602,8 +602,8 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
 }
 
 /// The trusted proxies' CIDRs, such as `10.0.0.0/8`, ignoring whitespace around each and empty ones.
-fn parse_cidrs(cidrs: &[String]) -> Result<Vec<title_select_server::IpNet>, String> {
-    let (flag, env) = title_select_server::TRUSTED_PROXIES;
+fn parse_cidrs(cidrs: &[String]) -> Result<Vec<stage_select_server::IpNet>, String> {
+    let (flag, env) = stage_select_server::TRUSTED_PROXIES;
     cidrs
         .iter()
         .map(|cidr| cidr.trim())
@@ -621,8 +621,8 @@ fn read_profile(path: &Path) -> Result<SelectionProfile, String> {
 }
 
 /// The shape of the selection `select` prints: its name, then its version, which goes up with each breaking change
-/// (ADR 0028). The audit report carries its own, [`title_select_api::SCHEMA`].
-const SELECTION_SCHEMA: &str = "title-select.selection/1";
+/// (ADR 0028). The audit report carries its own, [`stage_select_api::SCHEMA`].
+const SELECTION_SCHEMA: &str = "stage-select.selection/1";
 
 /// A JSON output with its `schema` first.
 #[derive(serde::Serialize)]
@@ -644,7 +644,7 @@ fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Resu
 }
 
 /// Writes an export to stdout, or to `output`: a file, or a folder to write it into under its own name.
-fn write_export(export: title_select_store::Export, output: Option<PathBuf>) -> Result<(), String> {
+fn write_export(export: stage_select_store::Export, output: Option<PathBuf>) -> Result<(), String> {
     let Some(output) = output else {
         return std::io::stdout()
             .write_all(export.content.as_bytes())
@@ -692,7 +692,7 @@ fn coverage(
     presets: Vec<String>,
     clone_lists: Option<&Path>,
 ) -> Result<Option<Vec<String>>, String> {
-    use title_select_api::coverage;
+    use stage_select_api::coverage;
     if regions.is_empty() && presets.is_empty() {
         return Ok(None);
     }
@@ -707,7 +707,7 @@ fn coverage(
         })?;
         names.extend(preset.regions.iter().map(|r| (*r).to_owned()));
     }
-    let known = title_select_selection::Engine::locate(clone_lists)
+    let known = stage_select_selection::Engine::locate(clone_lists)
         .and_then(|engine| engine.names())
         .map_err(|e| e.to_string())?
         .regions;
@@ -785,20 +785,20 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
                 AuditEvidence::Full => AuditEvidence::Full,
             };
-            let report = title_select_engine::audit_with(
+            let report = stage_select_engine::audit_with(
                 &dat,
                 &source_set,
-                &title_select_engine::Options {
+                &stage_select_engine::Options {
                     file,
                     confine: None,
-                    workers: title_select_engine::ONE_WORKER_EACH,
+                    workers: stage_select_engine::ONE_WORKER_EACH,
                     pools: None,
                     progress: None,
                     evidence,
                     reads: None,
                     tally: Default::default(),
                     placed: &[],
-                    disks: Some(&title_select_engine::ChdAudit::located()),
+                    disks: Some(&stage_select_engine::ChdAudit::located()),
                 },
             )
             .map_err(|e| e.to_string())?;
@@ -850,10 +850,10 @@ fn run(cli: Cli) -> Result<(), String> {
             dev_identity,
             chdman,
         } => {
-            let store = store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
-            title_select_server::run(Settings {
+            let store = store.ok_or("no store: pass --store <dir> or set STAGE_SELECT_STORE")?;
+            stage_select_server::run(Settings {
                 store: store.to_path_buf(),
-                auth: title_select_server::AuthSettings {
+                auth: stage_select_server::AuthSettings {
                     identity_header,
                     trusted_proxies: parse_cidrs(&trusted_proxies)?,
                     dev_identity,
@@ -881,21 +881,21 @@ fn run(cli: Cli) -> Result<(), String> {
             support_files,
         } => {
             let profile = read_profile(&profile)?;
-            let outcome = title_select_selection::Engine::locate(clone_lists.as_deref())
+            let outcome = stage_select_selection::Engine::locate(clone_lists.as_deref())
                 .and_then(|engine| {
                     engine.run(
                         &dat,
                         &profile,
-                        &title_select_selection::RunOptions {
+                        &stage_select_selection::RunOptions {
                             timeout: std::time::Duration::from_secs(timeout),
                             support_files,
-                            ..title_select_selection::RunOptions::new()
+                            ..stage_select_selection::RunOptions::new()
                         },
                     )
                 })
                 .map_err(|e| e.to_string())?;
             for warning in &outcome.warnings {
-                eprintln!("title-select: selection engine warning: {warning}");
+                eprintln!("stage-select: selection engine warning: {warning}");
             }
             write_report(
                 &Versioned {
@@ -1004,11 +1004,11 @@ fn run(cli: Cli) -> Result<(), String> {
             let size = std::fs::metadata(&file)
                 .map_err(|e| format!("{}: {e}", file.display()))?
                 .len();
-            if size > title_select_store::SUPPORT_FILE_LIMIT {
+            if size > stage_select_store::SUPPORT_FILE_LIMIT {
                 return Err(format!(
                     "{}: a support file is at most {} bytes",
                     file.display(),
-                    title_select_store::SUPPORT_FILE_LIMIT
+                    stage_select_store::SUPPORT_FILE_LIMIT
                 ));
             }
             let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -1251,7 +1251,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             if holds.holds.is_empty() {
                 println!(
-                    "nothing is registered in {name}; you can unregister it with `title-select root unregister {name}`"
+                    "nothing is registered in {name}; you can unregister it with `stage-select root unregister {name}`"
                 );
             }
             for hold in holds.holds {
@@ -1264,7 +1264,7 @@ fn run(cli: Cli) -> Result<(), String> {
         } => {
             let roots = open_store(store)?.roots_view();
             if roots.is_empty() {
-                println!("no roots are registered; register one with `title-select root register`");
+                println!("no roots are registered; register one with `stage-select root register`");
             }
             for root in roots {
                 println!("{}", root_line(&root));
@@ -1311,7 +1311,7 @@ fn run(cli: Cli) -> Result<(), String> {
             println!("edited {}", root_line(&edited.root));
             for voided in edited.voided {
                 println!(
-                    "voided {} plan {} (job {}): it wrote to {}, where {name} no longer lets Title Select write",
+                    "voided {} plan {} (job {}): it wrote to {}, where {name} no longer lets Stage Select write",
                     match voided.kind {
                         VoidedPlanKind::Build => "build",
                         VoidedPlanKind::Repair => "repair",

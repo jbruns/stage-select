@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Deserialize;
-use title_select_api::selection::{
+use stage_select_api::selection::{
     Alternative, CoverageDrift, Exclusion, Rule, SELECTION_TRACE_SCHEMA, SelectionGroup,
     SelectionSummary, Winner,
 };

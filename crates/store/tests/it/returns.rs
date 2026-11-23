@@ -7,12 +7,12 @@ use std::path::PathBuf;
 
 use crate::common::{RomSpec, rom, write_torrentzip};
 use crate::single_copy::*;
-use title_select_api::build::{
+use stage_select_api::build::{
     BlockerKind, ItemKind, ItemState, Plan, PlanReturn, RemovalKind, ReturnHow,
 };
-use title_select_api::storage::StorageFormat;
-use title_select_api::{AuditEvidence, Finding, JobState};
-use title_select_store::Fault;
+use stage_select_api::storage::StorageFormat;
+use stage_select_api::{AuditEvidence, Finding, JobState};
+use stage_select_store::Fault;
 
 /// The plan's return of `release`.
 fn returned<'a>(plan: &'a Plan, release: &str) -> &'a PlanReturn {
@@ -105,7 +105,7 @@ fn a_deselected_placed_game_is_converted_back_to_torrentzip_verified_and_returne
     assert!(
         next.entries
             .iter()
-            .all(|e| !e.path.starts_with(".title-select")),
+            .all(|e| !e.path.starts_with(".stage-select")),
         "{:?}",
         next.entries
     );
@@ -398,13 +398,13 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
 
     let audit = env.store.audit_source_set(SET, None, AuditEvidence::Full);
     assert!(
-        matches!(&audit, Err(title_select_store::Error::Conflict(why)) if why.contains("returns them")),
+        matches!(&audit, Err(stage_select_store::Error::Conflict(why)) if why.contains("returns them")),
         "{:?}",
         audit.map(|_| ())
     );
     let holding = env.store.set_holding_folder(SET, Some(env.folder.id));
     assert!(
-        matches!(&holding, Err(title_select_store::Error::Conflict(_))),
+        matches!(&holding, Err(stage_select_store::Error::Conflict(_))),
         "{holding:?}"
     );
     // That plan waits for the return queued: it can't be approved while it is.
@@ -412,7 +412,7 @@ fn a_source_set_is_locked_while_a_build_returning_its_games_is_queued() {
         .store
         .approve_plan(placing.id, &placing.digest, "Operator", WORKERS);
     assert!(
-        matches!(&approved, Err(title_select_store::Error::Conflict(why)) if why.contains("changes source set")),
+        matches!(&approved, Err(stage_select_store::Error::Conflict(why)) if why.contains("changes source set")),
         "{:?}",
         approved.map(|_| ())
     );
@@ -567,7 +567,7 @@ fn build_meddling(
     plan: &Plan,
     at: fn(Fault) -> bool,
     meddle: impl FnOnce() + Send + 'static,
-) -> title_select_api::Job {
+) -> stage_select_api::Job {
     let meddle = std::sync::Mutex::new(Some(meddle));
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -594,7 +594,7 @@ fn copying_pong_home(env: &Env) -> (Vec<u8>, Plan) {
 
 /// Whether Pong is still placed, as `bytes`, as it was before `job` tried to return it, nothing of it home, and its
 /// item failed saying why, with `why` in it.
-fn still_placed(env: &Env, job: &title_select_api::Job, bytes: &[u8], why: &str) {
+fn still_placed(env: &Env, job: &stage_select_api::Job, bytes: &[u8], why: &str) {
     let it = env.item(job.id, "Pong (USA)");
     assert_eq!(it.state, ItemState::Failed, "{it:?}");
     let error = it.error.clone().unwrap_or_default();
@@ -1140,7 +1140,7 @@ fn restart_stopping(
     } = env;
     let path = store.dir().to_path_buf();
     drop(store);
-    let store = title_select_store::Store::open(&path).unwrap();
+    let store = stage_select_store::Store::open(&path).unwrap();
     store.hook_faults(Some(std::sync::Arc::new(move |fault| {
         if stop(fault) {
             panic!("killed at {fault:?}");

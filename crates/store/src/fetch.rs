@@ -19,15 +19,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use title_select_api::fetch::{
+use stage_select_api::fetch::{
     FetchArtifact, FetchArtifactStatus, FetchAttempt, FetchOutcome, FetchProvider,
     FetchProviderStatus, FetchReport, FetchStatus, FetchSupport, FetchSystem, FetchTrigger,
     SUPPORT_SYSTEM,
 };
-use title_select_api::support::{SupportFileKind, SupportFileOrigin};
-use title_select_api::{CuePackOrigin, ImportOutcome};
-use title_select_engine::cap::{Clock, Monotonic};
-use title_select_engine::dat::Dat;
+use stage_select_api::support::{SupportFileKind, SupportFileOrigin};
+use stage_select_api::{CuePackOrigin, ImportOutcome};
+use stage_select_engine::cap::{Clock, Monotonic};
+use stage_select_engine::dat::Dat;
 
 pub use http::{Allowed, FetchError, Fetched, Http, Method, USER_AGENT, refusal, refusal_unnamed};
 
@@ -213,7 +213,7 @@ impl Drop for Running<'_> {
     }
 }
 
-/// A Redump system, as its downloads page lists it, and its DAT's header name, if Title Select knows it.
+/// A Redump system, as its downloads page lists it, and its DAT's header name, if Stage Select knows it.
 #[derive(Debug)]
 struct RedumpSystem {
     code: &'static str,
@@ -983,7 +983,7 @@ impl Store {
         commit: &str,
     ) -> std::result::Result<Brought, String> {
         let file = kind.file_name();
-        let (named, _) = title_select_api::support::read_header(&fetched.bytes, &fetched.url)?;
+        let (named, _) = stage_select_api::support::read_header(&fetched.bytes, &fetched.url)?;
         if named != kind {
             return Err(format!(
                 "{} holds {}, not {file}, so it wasn't kept",
@@ -1278,7 +1278,7 @@ impl Store {
         self.write(|tx| {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = 'failed',
-                 error = 'Title Select stopped before this request finished'
+                 error = 'Stage Select stopped before this request finished'
                  WHERE provider = ?1 AND finished_at IS NULL",
                 params![provider.as_str(), now()],
             )?;
@@ -1381,7 +1381,7 @@ fn push(report: &mut FetchReport, attempt: FetchAttempt) -> bool {
     !failed
 }
 
-/// Why nothing of `provider` can be fetched: no registered Source Set Follows a DAT of it that Title Select knows.
+/// Why nothing of `provider` can be fetched: no registered Source Set Follows a DAT of it that Stage Select knows.
 fn no_followed(provider: &str, followed: &[Followed]) -> String {
     if followed.is_empty() {
         format!(
@@ -1390,7 +1390,7 @@ fn no_followed(provider: &str, followed: &[Followed]) -> String {
     } else {
         let dats: Vec<_> = followed.iter().map(|f| f.dat.as_str()).collect();
         format!(
-            "Title Select can't fetch the {provider} DATs your source sets follow: {}",
+            "Stage Select can't fetch the {provider} DATs your source sets follow: {}",
             dats.join(", ")
         )
     }

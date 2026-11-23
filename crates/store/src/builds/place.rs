@@ -38,12 +38,12 @@ use std::time::SystemTime;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
-use title_select_api::build::{
+use stage_select_api::build::{
     FileIdentity, ItemState, Marker, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, kept_name,
 };
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::{placed_path, release_of};
-use title_select_engine::meter::Tally;
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::storage::{placed_path, release_of};
+use stage_select_engine::meter::Tally;
 
 use super::{
     ChdWork, Failure, Scratch, Staged, Work, chd_dir, dat_cue, is_file, make_parents, open_source,
@@ -125,7 +125,7 @@ fn original_rows(c: &rusqlite::Connection, build: i64, seq: i64) -> Result<Vec<O
             n: r.get(0)?,
             original: PlacedOriginal {
                 path: r.get(1)?,
-                file: title_select_api::build::FileStat {
+                file: stage_select_api::build::FileStat {
                     size: r.get::<_, i64>(2)? as u64,
                     mtime_ns: r.get::<_, i64>(3)? as i128,
                 },
@@ -533,7 +533,7 @@ fn is_regular(st: &Stat, id: Identity) -> bool {
 
 impl Store {
     /// Opens Source Set `set`'s folder for a Build to place its Games from, as a repair opens it: only while it is
-    /// registered, its Root lets Title Select write there, and its marker is this store's, written first if no repair
+    /// registered, its Root lets Stage Select write there, and its marker is this store's, written first if no repair
     /// wrote one. Returns why not.
     pub(super) fn open_placing(&self, set: i64) -> Result<std::result::Result<SetDirs, String>> {
         let roots = &*self.roots();
@@ -2254,7 +2254,7 @@ fn cue_kept(store: &Store, item: &PlanItem, cue: Option<&str>) -> std::result::R
 }
 
 /// The cue sheet among `item`'s ROMs, a CD's.
-fn cue_rom(item: &PlanItem) -> Option<&title_select_api::build::ExpectedRom> {
+fn cue_rom(item: &PlanItem) -> Option<&stage_select_api::build::ExpectedRom> {
     item.roms
         .iter()
         .find(|r| r.name.to_ascii_lowercase().ends_with(".cue"))

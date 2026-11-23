@@ -2,24 +2,24 @@
 //! what holds each, Retiring Selection Profiles, setting whole sets aside, moving Library Folders and forgetting
 //! what an Unregistered registration left in the store, from synthetic DATs, Source Sets and files.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
-use title_select_api::additions::NewAddition;
-use title_select_api::build::{
+use stage_select_api::additions::NewAddition;
+use stage_select_api::build::{
     AddLibraryFolder, ChangeLibraryFolder, LibraryFolder, Plan, PlanKeptDeletion,
 };
-use title_select_api::ingest::{IngestAction, IngestPlan, PlanIngest};
-use title_select_api::lifecycle::{PlanFolderMove, RegistrationKind};
-use title_select_api::repair::RepairStep;
-use title_select_api::selection::{
+use stage_select_api::ingest::{IngestAction, IngestPlan, PlanIngest};
+use stage_select_api::lifecycle::{PlanFolderMove, RegistrationKind};
+use stage_select_api::repair::RepairStep;
+use stage_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, Winner,
 };
-use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "No-Intro/Test - System";
@@ -63,11 +63,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -300,13 +300,13 @@ fn a_source_set_is_held_by_a_library_folder_bound_to_it_until_that_folder_is_unr
     assert_eq!(done.kind, RegistrationKind::LibraryFolder);
     let after = files(&env.play().join("atari"));
     assert!(
-        before.contains(".title-select/marker") && !after.contains(".title-select/marker"),
+        before.contains(".stage-select/marker") && !after.contains(".stage-select/marker"),
         "its own marker goes: {before:?} -> {after:?}"
     );
     assert_eq!(
         before
             .into_iter()
-            .filter(|f| f != ".title-select/marker")
+            .filter(|f| f != ".stage-select/marker")
             .collect::<BTreeSet<_>>(),
         after,
         "every built file is left in place"
@@ -470,7 +470,7 @@ fn an_ingest_folder_is_unregistered_and_its_root_then_holds_nothing() {
 
     env.store.unregister_ingest_folder("in").unwrap();
     assert!(
-        !env.tmp.path().join("in/.title-select/marker").exists(),
+        !env.tmp.path().join("in/.stage-select/marker").exists(),
         "its own marker goes"
     );
     assert!(env.store.root_holds("in").unwrap().holds.is_empty());
@@ -503,7 +503,7 @@ fn an_additions_set_is_unregistered_leaving_its_additions_in_place() {
         files(&dir).contains("My Hack.zip"),
         "the addition is left in place"
     );
-    assert!(!files(&dir).contains(".title-select/marker"));
+    assert!(!files(&dir).contains(".stage-select/marker"));
     assert!(env.store.additions_sets().unwrap().is_empty());
     assert!(matches!(
         env.store.additions_set(SYSTEM),
@@ -528,7 +528,7 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         "{done:?}"
     );
     assert!(
-        files(&dir).contains(".title-select/marker"),
+        files(&dir).contains(".stage-select/marker"),
         "the marker stays"
     );
     assert!(matches!(
@@ -568,7 +568,7 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         .unwrap();
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:#?}");
     assert!(
-        !files(&dir).contains(".title-select/marker"),
+        !files(&dir).contains(".stage-select/marker"),
         "{:?}",
         files(&dir)
     );
@@ -652,7 +652,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
     assert_eq!(kept.len(), 2);
     let after = files(&env.set());
     assert!(
-        after.iter().all(|f| f.starts_with(".title-select/")),
+        after.iter().all(|f| f.starts_with(".stage-select/")),
         "every file is kept aside in place: {after:?}"
     );
     assert_eq!(after.len(), 3, "two kept files and the marker: {after:?}");
@@ -671,7 +671,7 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
         .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
         .unwrap();
     let left = files(&env.set());
-    assert!(!left.contains(".title-select/marker"), "{left:?}");
+    assert!(!left.contains(".stage-select/marker"), "{left:?}");
 }
 
 #[test]
@@ -708,7 +708,7 @@ fn setting_aside_an_additions_set_retires_every_addition_then_unregisters_it() {
     assert_eq!(kept.len(), 3);
     let dir = env.tmp.path().join("additions").join(SET);
     assert!(
-        files(&dir).iter().all(|f| f.starts_with(".title-select/")),
+        files(&dir).iter().all(|f| f.starts_with(".stage-select/")),
         "{:?}",
         files(&dir)
     );
@@ -750,7 +750,7 @@ fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
         "{left:?}"
     );
     assert!(
-        left.contains(".title-select/marker"),
+        left.contains(".stage-select/marker"),
         "the marker stays with the kept files: {left:?}"
     );
     let kept = env.store.kept_files(folder.id).unwrap();
@@ -820,7 +820,7 @@ fn moving_a_library_folder_renames_it_in_place_after_approval() {
     assert!(!old.exists());
     let new = env.play().join("consoles/atari 2600");
     assert!(new.join("Pong (USA).zip").is_file());
-    assert!(new.join(".title-select/marker").is_file());
+    assert!(new.join(".stage-select/marker").is_file());
     let folders = env.store.library_folders().unwrap();
     assert_eq!(folders[0].path, "consoles/atari 2600");
     assert!(matches!(
@@ -853,7 +853,7 @@ fn a_move_stopped_after_the_rename_is_settled_where_the_folder_is_found() {
         .approve_library_folder_move(plan.id, &plan.digest, "Operator")
         .unwrap();
     // As a stop between the rename and its record would leave it.
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "UPDATE library_folder_moves SET finished_at = NULL, outcome = NULL WHERE id = ?1",
         [plan.id],
@@ -1027,7 +1027,7 @@ fn an_approved_move_reserves_its_destination_against_new_registrations() {
         )
         .unwrap();
     // As an approval would leave it just before the rename.
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "UPDATE library_folder_moves SET approved_by = 'Operator', approved_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
         [plan.id],
@@ -1079,7 +1079,7 @@ fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out()
             },
         )
         .unwrap();
-    let marker = env.tmp.path().join("in/.title-select");
+    let marker = env.tmp.path().join("in/.stage-select");
     let saved = env.tmp.path().join("saved-marker");
     copy_all(&marker, &saved);
     env.store.unregister_ingest_folder("in").unwrap();
@@ -1157,7 +1157,7 @@ fn an_unregistered_additions_sets_additions_are_no_longer_changed() {
     );
     let renamed = env.store.edit_addition(
         a.id,
-        &title_select_api::additions::EditAddition {
+        &stage_select_api::additions::EditAddition {
             name: Some("Renamed".into()),
             parent: None,
         },
@@ -1179,7 +1179,7 @@ fn builds_and_new_additions_no_longer_see_an_unregistered_additions_sets_additio
     let mut profile = SelectionProfile::default();
     profile.systems.insert(
         SYSTEM.into(),
-        title_select_api::selection::SystemSettings {
+        stage_select_api::selection::SystemSettings {
             additions: true,
             ..Default::default()
         },
@@ -1213,7 +1213,7 @@ fn builds_and_new_additions_no_longer_see_an_unregistered_additions_sets_additio
         .store
         .edit_addition(
             other.id,
-            &title_select_api::additions::EditAddition {
+            &stage_select_api::additions::EditAddition {
                 name: Some("My Hack".into()),
                 parent: None,
             },
@@ -1377,7 +1377,7 @@ fn atari() -> AddLibraryFolder {
 fn an_ingest_folder_unregistered_while_it_is_being_registered_is_left_without_a_marker() {
     let env = Env::new();
     env.store.unregister_ingest_folder("in").unwrap();
-    let marker = env.tmp.path().join("in/.title-select");
+    let marker = env.tmp.path().join("in/.stage-select");
     assert!(!marker.exists());
 
     let (registered, unregistered) = race(
@@ -1484,7 +1484,7 @@ fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_
         )
         .unwrap();
     // As an approval would leave it just before the rename.
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "UPDATE library_folder_moves SET approved_by = 'Operator', approved_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
         [plan.id],
@@ -1525,7 +1525,7 @@ fn an_ingest_folder_is_refused_where_it_would_overlap_a_source_set() {
         matches!(&refused, Err(Error::Refused(why)) if why.contains("source set")),
         "{refused:?}"
     );
-    assert!(!env.tmp.path().join("in/.title-select/marker").exists());
+    assert!(!env.tmp.path().join("in/.stage-select/marker").exists());
 }
 
 #[test]
@@ -1559,7 +1559,7 @@ fn a_registered_ingest_folder_repointed_at_a_source_set_is_refused_when_register
         "{refused:?}"
     );
     assert!(
-        !env.set().join(".title-select/marker").exists(),
+        !env.set().join(".stage-select/marker").exists(),
         "no marker written"
     );
 }

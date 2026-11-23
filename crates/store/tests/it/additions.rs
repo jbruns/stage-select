@@ -2,28 +2,28 @@
 //! Library Folder's Drift), the Selection Profile opting a system in to its Additions Set for builds, checks of an
 //! Additions Set for Drift, and recovery from a stop at each step of publishing one; from synthetic DATs and files.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use sha2::Digest;
-use title_select_api::additions::{
+use stage_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionsFinding, EditAddition, NewAddition,
 };
-use title_select_api::build::{
+use stage_select_api::build::{
     AddLibraryFolder, CleanupAction, DriftKind, ItemKind, LibraryFolder, Plan, PlanCleanup,
 };
-use title_select_api::build::{PlanKeptDeletion, RETENTION};
-use title_select_api::ingest::{IngestAction, IngestPlan, ItemState, PlanIngest, Proposal};
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairPlan};
-use title_select_api::selection::{
+use stage_select_api::build::{PlanKeptDeletion, RETENTION};
+use stage_select_api::ingest::{IngestAction, IngestPlan, ItemState, PlanIngest, Proposal};
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairPlan};
+use stage_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, SystemSettings, Winner,
 };
-use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_engine::torrentzip;
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
+use stage_select_engine::torrentzip;
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "No-Intro/Test - System";
@@ -67,11 +67,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -472,10 +472,10 @@ fn a_loose_ingest_item_is_added_and_its_original_deleted_once_the_copy_is_exactl
     assert!(env.store.ingest_kept_files("in").unwrap().is_empty());
     assert_eq!(
         files(&env.additions()),
-        BTreeSet::from([".title-select/marker".to_owned(), "My Hack.zip".to_owned()])
+        BTreeSet::from([".stage-select/marker".to_owned(), "My Hack.zip".to_owned()])
     );
     let marker: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(env.additions().join(".title-select/marker")).unwrap(),
+        &std::fs::read(env.additions().join(".stage-select/marker")).unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -947,7 +947,7 @@ fn a_stop_while_an_additions_set_is_created_or_an_addition_published_is_settled_
         assert!(!found.drifted(), "{fault:?}: {found:#?}");
         let leftover: Vec<String> = files(&env.additions())
             .into_iter()
-            .filter(|f| f.starts_with(".title-select/new-"))
+            .filter(|f| f.starts_with(".stage-select/new-"))
             .collect();
         assert!(leftover.is_empty(), "{fault:?}: {leftover:?}");
         assert!(
@@ -1255,7 +1255,7 @@ fn a_retired_addition_moves_into_the_kept_files_from_where_it_is_restored_or_del
     assert!(additions_kept(&env).is_empty());
     assert_eq!(
         files(&env.additions()),
-        BTreeSet::from([".title-select/marker".to_owned()])
+        BTreeSet::from([".stage-select/marker".to_owned()])
     );
     assert!(
         env.store.restore_addition(a.id).is_err(),
@@ -1722,7 +1722,7 @@ fn a_restore_asked_again_while_its_job_runs_is_handed_to_a_fresh_job() {
 
 #[test]
 fn an_addition_is_stored_as_the_storage_policy_says_and_built_in_the_play_librarys_format() {
-    use title_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
+    use stage_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
     let env = Env::new();
     write_file(&env.set().join("Homebrew.a26"), b"homebrew");
     env.audit();
@@ -1804,11 +1804,11 @@ fn an_addition_is_stored_as_the_storage_policy_says_and_built_in_the_play_librar
 }
 
 /// Sets the storage policy of source sets, and so of Additions Sets, for `system` to `format`.
-fn source_sets_store(env: &Env, system: &str, format: title_select_api::storage::StorageFormat) {
+fn source_sets_store(env: &Env, system: &str, format: stage_select_api::storage::StorageFormat) {
     let mut policy = env.store.storage_policy().unwrap();
     policy.source_sets.systems.insert(
         system.into(),
-        title_select_api::storage::SystemStorage {
+        stage_select_api::storage::SystemStorage {
             format: Some(format),
             delete_originals: None,
             ..Default::default()
@@ -1819,7 +1819,7 @@ fn source_sets_store(env: &Env, system: &str, format: title_select_api::storage:
 
 #[test]
 fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_when_asked() {
-    use title_select_api::storage::StorageFormat;
+    use stage_select_api::storage::StorageFormat;
     let env = Env::new();
     env.audit();
     for (file, name) in [("hack.a26", "My Hack"), ("demo.a26", "Demo")] {
@@ -1853,7 +1853,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
         "{:?}",
         plan.content.removals
     );
-    let retained = dir.join(".title-select/retained");
+    let retained = dir.join(".stage-select/retained");
     let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = held.clone();
     let count = move |dir: &Path| -> usize {
@@ -1917,7 +1917,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
 
 #[test]
 fn an_ingest_addition_is_published_only_where_its_plan_said() {
-    use title_select_api::storage::StorageFormat;
+    use stage_select_api::storage::StorageFormat;
     let env = Env::new();
     env.ingest("hack.a26", |p| write_file(p, b"hack"));
     let plan = env.plan_ingest("hack.a26", new("My Hack"));
@@ -1932,7 +1932,7 @@ fn an_ingest_addition_is_published_only_where_its_plan_said() {
         .store
         .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
-        matches!(&refused, Err(title_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
+        matches!(&refused, Err(stage_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
         "{refused:?}"
     );
     assert!(env.settle().is_empty());
@@ -1960,7 +1960,7 @@ fn an_ingest_addition_is_published_only_where_its_plan_said() {
 
 #[test]
 fn a_repair_addition_of_another_system_is_published_only_where_its_plan_said() {
-    use title_select_api::storage::StorageFormat;
+    use stage_select_api::storage::StorageFormat;
     let env = Env::new();
     let dat = write_dat_from(
         &env.tmp.path().join("dats"),
@@ -2000,7 +2000,7 @@ fn a_repair_addition_of_another_system_is_published_only_where_its_plan_said() {
         .store
         .approve_repair(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
-        matches!(&refused, Err(title_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
+        matches!(&refused, Err(stage_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
         "{refused:?}"
     );
     assert!(env.store.claim_job().unwrap().is_none());
@@ -2019,7 +2019,7 @@ fn a_repair_addition_of_another_system_is_published_only_where_its_plan_said() {
 
 #[test]
 fn a_drift_addition_is_published_only_where_its_cleanup_plan_said() {
-    use title_select_api::storage::StorageFormat;
+    use stage_select_api::storage::StorageFormat;
     let env = Env::new();
     env.audit();
     let selection = env.record(&pong(&env.sha256));
@@ -2057,7 +2057,7 @@ fn a_drift_addition_is_published_only_where_its_cleanup_plan_said() {
         .store
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
-        matches!(&refused, Err(title_select_store::Error::Conflict(_))),
+        matches!(&refused, Err(stage_select_store::Error::Conflict(_))),
         "{refused:?}"
     );
     assert!(env.store.claim_job().unwrap().is_none());

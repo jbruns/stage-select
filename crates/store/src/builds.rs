@@ -19,20 +19,20 @@ use std::time::SystemTime;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
-use title_select_api::build::{
+use stage_select_api::build::{
     BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, GeneratedFile,
     GeneratedKind, IncompleteReason, ItemKind, ItemState, Marker, PlanItem, PlanRemoval,
     PlanSource, RemovalKind, STAGING,
 };
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::{ChdKind, chd_of};
-use title_select_api::{Job, JobKind, JobState};
-use title_select_engine::build::{
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::storage::{ChdKind, chd_of};
+use stage_select_api::{Job, JobKind, JobState};
+use stage_select_engine::build::{
     self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
-use title_select_engine::chd::{self, Chdman};
-use title_select_engine::meter::{Interruptible, JobMeter, Meter, Metered, Tally, copy_chunked};
-use title_select_engine::{Progress, hex};
+use stage_select_engine::chd::{self, Chdman};
+use stage_select_engine::meter::{Interruptible, JobMeter, Meter, Metered, Tally, copy_chunked};
+use stage_select_engine::{Progress, hex};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
@@ -643,7 +643,7 @@ fn record_original(
     (dir, tally): (&FolderDir, &Tally),
     folder: i64,
     build: i64,
-    keep: &title_select_api::build::KeepAside,
+    keep: &stage_select_api::build::KeepAside,
     converts_to: &str,
 ) -> Result<std::result::Result<Original, String>> {
     let name = keep.name.as_str();
@@ -704,7 +704,7 @@ fn record_original(
 pub(super) fn conversion_record(
     c: &rusqlite::Connection,
     folder: i64,
-    keep: &title_select_api::build::KeepAside,
+    keep: &stage_select_api::build::KeepAside,
     converts_to: &str,
 ) -> Result<Option<Original>> {
     let (dev, ino) = Identity::from(keep.identity).to_sql();
@@ -766,7 +766,7 @@ fn open_placed_source(
     placed: &HashMap<i64, std::result::Result<FolderDir, String>>,
     source: &PlanSource,
 ) -> std::result::Result<File, String> {
-    let (folder, rel) = title_select_api::storage::split_placed(&source.path)
+    let (folder, rel) = stage_select_api::storage::split_placed(&source.path)
         .ok_or_else(|| format!("{} is not a placed file", source.path))?;
     let dir = match placed.get(&folder) {
         Some(Ok(dir)) => dir,
@@ -801,7 +801,7 @@ fn open_either(
     placed: &HashMap<i64, std::result::Result<FolderDir, String>>,
     source: &PlanSource,
 ) -> std::result::Result<File, String> {
-    match title_select_api::storage::split_placed(&source.path) {
+    match stage_select_api::storage::split_placed(&source.path) {
         Some(_) => open_placed_source(placed, source),
         None => open_source(set, source),
     }
@@ -992,7 +992,7 @@ fn stage(
     if item
         .sources
         .iter()
-        .any(|s| title_select_api::storage::split_placed(&s.path).is_some())
+        .any(|s| stage_select_api::storage::split_placed(&s.path).is_some())
     {
         let open = |source: &PlanSource| open_either(set_fd, &chd.placed, source);
         return stage_by_fd(item, file, &open, (&chd.from, &chd.to), built_at);
@@ -1154,7 +1154,7 @@ fn stage_from_placed_chd(
     work: &ChdWork,
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
-    let path = title_select_api::storage::placed_path(placed.folder, &placed.path);
+    let path = stage_select_api::storage::placed_path(placed.folder, &placed.path);
     if item.sources.iter().any(|s| s.path != path) {
         return Err(Failure::Item(format!(
             "{} is placed as a CHD, and is built from it alone",
@@ -1822,14 +1822,14 @@ fn adopt(
         Some(_) => None,
         None => item.roms.iter().find_map(|rom| rom.header),
     };
-    let probe = title_select_engine::build::probe_under(&file, rule, library)
+    let probe = stage_select_engine::build::probe_under(&file, rule, library)
         .map_err(|e| left(&e.to_string()))?;
     match &item.generated {
         Some(generated) if probe.sha256 != generated.sha256 => {
             return Err(left("it is not exactly the file a build writes there"));
         }
         Some(_) => {}
-        None if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) => {
+        None if !stage_select_engine::build::holds_as(&probe, &item.roms, item.loose) => {
             return Err(left(
                 "it does not hold exactly the ROMs the DAT expects there",
             ));
@@ -2192,14 +2192,14 @@ impl Store {
             .collect();
         // Then the originals of the conversions: each the file built for a game in the other format, kept aside once
         // its game's new file is in place.
-        let conversions: Vec<(i64, &Work, &title_select_api::build::KeepAside)> = work
+        let conversions: Vec<(i64, &Work, &stage_select_api::build::KeepAside)> = work
             .iter()
             .filter_map(|w| w.item.converts.as_ref().map(|k| (w, k)))
             .enumerate()
             .map(|(i, (w, k))| ((all.len() + removals.len() + i) as i64, w, k))
             .collect();
         // Then the releases placed here that go back to their Source Set's folder.
-        let returning: Vec<(i64, &title_select_api::build::PlanReturn)> = content
+        let returning: Vec<(i64, &stage_select_api::build::PlanReturn)> = content
             .returns
             .iter()
             .enumerate()
@@ -2318,12 +2318,12 @@ impl Store {
             check_marker(&dir, &expected).map_err(Error::Refused)?;
             // A file its release's new files replace is kept aside only once every one of them is in place: the
             // release's whole unit committed and finished. If it rolled back, the file stays.
-            let release = title_select_api::storage::release_of(&removal.game);
+            let release = stage_select_api::storage::release_of(&removal.game);
             let mut replacing = None;
             for w in all.iter().filter(|w| {
                 w.item.kind.writes()
                     && w.item.addition.is_none()
-                    && title_select_api::storage::release_of(&w.item.game) == release
+                    && stage_select_api::storage::release_of(&w.item.game) == release
             }) {
                 if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
                     replacing = Some(w);
@@ -2409,7 +2409,7 @@ impl Store {
         let placed_chds: HashMap<String, crate::placements::PlacedChd> = self
             .read(|c| crate::placements::placed_chds_of(c, folder_row.source_set_id))?
             .into_iter()
-            .map(|p| (title_select_api::storage::placed_path(p.folder, &p.path), p))
+            .map(|p| (stage_select_api::storage::placed_path(p.folder, &p.path), p))
             .collect();
         let chd_work = ChdWork {
             // A CHD is made or verified with chdman, a return extracts any CHD it takes home, and an item read from a
@@ -2455,7 +2455,7 @@ impl Store {
                     .iter()
                     .flat_map(|w| &w.item.sources)
                     .filter_map(|s| {
-                        title_select_api::storage::split_placed(&s.path).map(|(f, _)| f)
+                        stage_select_api::storage::split_placed(&s.path).map(|(f, _)| f)
                     })
                     .collect();
                 folders.sort_unstable();
@@ -2495,7 +2495,7 @@ impl Store {
             // under Single Copy are placed together, apart from those written fresh beside them.
             if w.item.addition.is_none() {
                 let release = (
-                    title_select_api::storage::release_of(&w.item.game),
+                    stage_select_api::storage::release_of(&w.item.game),
                     w.item.kind == ItemKind::Place,
                 );
                 if let Some(&u) = releases.get(&release) {
@@ -2516,7 +2516,7 @@ impl Store {
         for (i, u) in units.iter().enumerate() {
             if u[0].item.addition.is_none() {
                 first
-                    .entry(title_select_api::storage::release_of(&u[0].item.game))
+                    .entry(stage_select_api::storage::release_of(&u[0].item.game))
                     .or_insert(i);
             }
         }
@@ -2525,7 +2525,7 @@ impl Store {
             .enumerate()
             .map(|(i, u)| {
                 let at = match u[0].item.addition {
-                    None => first[&title_select_api::storage::release_of(&u[0].item.game)],
+                    None => first[&stage_select_api::storage::release_of(&u[0].item.game)],
                     Some(_) => i,
                 };
                 ((at, u[0].item.kind == ItemKind::Place), u)
@@ -2542,7 +2542,7 @@ impl Store {
             staged: Staged,
             staged_path: PathBuf,
         }
-        let disc_system = title_select_api::storage::is_disc_system(&folder_row.system);
+        let disc_system = stage_select_api::storage::is_disc_system(&folder_row.system);
         let placer = place::Placing {
             build: id,
             folder,
@@ -2565,7 +2565,7 @@ impl Store {
             if cancelled {
                 break;
             }
-            let release = title_select_api::storage::release_of(&unit[0].item.game);
+            let release = stage_select_api::storage::release_of(&unit[0].item.game);
             let follows = unit[0].item.kind == ItemKind::Place && beside.as_ref() == Some(&release);
             beside = (unit[0].item.kind != ItemKind::Place && unit[0].item.addition.is_none())
                 .then(|| release.clone());
@@ -2581,7 +2581,7 @@ impl Store {
                 for w in work.iter().filter(|w| {
                     w.item.kind != ItemKind::Place
                         && w.item.addition.is_none()
-                        && title_select_api::storage::release_of(&w.item.game) == release
+                        && stage_select_api::storage::release_of(&w.item.game) == release
                 }) {
                     if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
                         culprit = Some(&w.item.target);
@@ -2618,7 +2618,7 @@ impl Store {
             // A release of several files, or any disc release, which may clear its other layout or keep an original
             // aside before it goes in place, commits durably: recovery then finishes it rather than drops it.
             let shared = (unit.len() > 1 || (disc_system && unit[0].item.addition.is_none()))
-                .then(|| title_select_api::storage::release_of(&unit[0].item.game));
+                .then(|| stage_select_api::storage::release_of(&unit[0].item.game));
             if let Some(release) = &shared {
                 self.write(|tx| {
                     tx.execute(

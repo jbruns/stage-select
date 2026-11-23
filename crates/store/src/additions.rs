@@ -20,18 +20,18 @@ use std::io;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::additions::{
+use stage_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionTarget, AdditionsCheck, AdditionsEntry,
     AdditionsFinding, AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
 };
-use title_select_api::build::{ExpectedRom, FileStat, MARKER, STATE, invalid_name};
-use title_select_api::lifecycle::{AdditionsSetAside, RegistrationKind};
-use title_select_api::storage::{Storage, StorageScope, target_of};
-use title_select_api::{Job, JobKind, JobState};
-use title_select_engine::build::{
+use stage_select_api::build::{ExpectedRom, FileStat, MARKER, STATE, invalid_name};
+use stage_select_api::lifecycle::{AdditionsSetAside, RegistrationKind};
+use stage_select_api::storage::{Storage, StorageScope, target_of};
+use stage_select_api::{Job, JobKind, JobState};
+use stage_select_engine::build::{
     probe, repack_sources, sole_payload, verify, verify_loose, write_loose,
 };
-use title_select_engine::meter::Tally;
+use stage_select_engine::meter::Tally;
 
 use crate::builds::{sha256_of, still_sha256};
 
@@ -609,7 +609,7 @@ fn finish_addition_plans(tx: &Transaction) -> Result<()> {
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
     for (plan, recorded) in plans {
-        let mut outcomes: Vec<title_select_api::ingest::IngestOutcome> = recorded
+        let mut outcomes: Vec<stage_select_api::ingest::IngestOutcome> = recorded
             .as_deref()
             .and_then(|o| serde_json::from_str(o).ok())
             .unwrap_or_default();
@@ -630,7 +630,7 @@ fn finish_addition_plans(tx: &Transaction) -> Result<()> {
         for (item, name, note, addition) in added {
             let a = addition_by_id(tx, addition)?.addition;
             let active = a.state != AdditionState::Failed;
-            outcomes.push(title_select_api::ingest::IngestOutcome {
+            outcomes.push(stage_select_api::ingest::IngestOutcome {
                 item: item.unwrap_or_default(),
                 name,
                 moved: active,
@@ -827,7 +827,7 @@ fn same_rom(found: &ExpectedRom, recorded: &ExpectedRom) -> bool {
 /// The ROM a file whose one payload is `payload` holds, named as its member, or as `loose` for a file that is not a
 /// ZIP. `None` unless it holds exactly one payload, read whole.
 pub(crate) fn sole_rom(
-    p: &title_select_engine::build::Probe,
+    p: &stage_select_engine::build::Probe,
     loose: &str,
 ) -> Option<(ExpectedRom, Option<String>)> {
     match (p.payloads.as_slice(), &p.error) {
@@ -952,7 +952,7 @@ fn set_aside_of(c: &Connection, set: i64) -> Result<AdditionsSetAside> {
         stmt.query_map([set], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?
     };
-    let digest = title_select_engine::sha256_hex(
+    let digest = stage_select_engine::sha256_hex(
         &serde_json::to_vec(&(set, &additions)).expect("a plan serializes"),
     );
     Ok(AdditionsSetAside {
@@ -1193,7 +1193,7 @@ impl Store {
 
     /// Checks the Additions Set of `system` against its additions' records, which act as its DAT, only reading it:
     /// each file an active addition was published as must still be that file, unchanged, and anything else is drift.
-    /// Title Select's own entries are not drift.
+    /// Stage Select's own entries are not drift.
     pub fn check_additions(&self, system: &str) -> Result<AdditionsCheck> {
         let (set, rows) = self.read(|c| {
             let (dat, _) = dat_of(c, system)?;
@@ -1321,7 +1321,7 @@ impl Store {
         };
         if dir.identity().map_err(io)? != recorded {
             return Ok(Err(format!(
-                "{} is not the folder Title Select created for the additions of {}; it was left as it is",
+                "{} is not the folder Stage Select created for the additions of {}; it was left as it is",
                 dir.path().display(),
                 set.system
             )));
@@ -1437,7 +1437,7 @@ impl Store {
             Ok(temp) => temp,
             Err(why) => {
                 return Ok(Err(format!(
-                    "{} is not the folder Title Select made: {why}; it was left as it is",
+                    "{} is not the folder Stage Select made: {why}; it was left as it is",
                     made.path().display()
                 )));
             }
@@ -1469,7 +1469,7 @@ impl Store {
         if let Err(e) = root.rename_new(&temp_name, &root, &set.path) {
             return Ok(Err(match e.kind() {
                 io::ErrorKind::AlreadyExists => format!(
-                    "{} is taken by something Title Select did not create; move it out of the way. The new folder \
+                    "{} is taken by something Stage Select did not create; move it out of the way. The new folder \
                      was left at {temp_name}",
                     root.path().join(&set.path).display()
                 ),
@@ -1482,7 +1482,7 @@ impl Store {
             Some(st) if Identity::of(&st) == temp => {}
             _ => {
                 return Ok(Err(format!(
-                    "{} is not the folder Title Select put there; it was left as it is",
+                    "{} is not the folder Stage Select put there; it was left as it is",
                     root.path().join(&set.path).display()
                 )));
             }
@@ -2370,7 +2370,7 @@ impl Store {
                 {
                     return self.fail_addition(
                         id,
-                        format!("{at} is not the file Title Select wrote; it was left as it is"),
+                        format!("{at} is not the file Stage Select wrote; it was left as it is"),
                     );
                 }
                 if at != file_name.as_str() {
@@ -2522,7 +2522,7 @@ impl Store {
             return self.fail_addition(
                 row.addition.id,
                 format!(
-                    "{}/{file_name} is not the file Title Select put there; it was left as it is",
+                    "{}/{file_name} is not the file Stage Select put there; it was left as it is",
                     dest.path().display()
                 ),
             );

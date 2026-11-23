@@ -1,15 +1,15 @@
 //! The RomM client, its connection test and the scan a Build requests, against a stub RomM on a local port that
 //! answers as RomM 5.4.1 does (research 0136). No test sends a request to a real RomM.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use title_select_api::roots::RootSpec;
 
-use title_select_api::romm::{RommCheck, RommUser};
-use title_select_store::romm::{RommClient, RommError};
+use stage_select_api::romm::{RommCheck, RommUser};
+use stage_select_store::romm::{RommClient, RommError};
 
 /// A request the stub saw.
 #[derive(Debug, Clone)]
@@ -306,17 +306,17 @@ mod scans {
 
     use super::*;
     use crate::common::*;
-    use title_select_api::build::{AddLibraryFolder, LibraryFolder, PlanCleanup};
-    use title_select_api::romm::{RommPlatform, RommScanOutcome, RommUpdate};
-    use title_select_api::selection::{
+    use stage_select_api::build::{AddLibraryFolder, LibraryFolder, PlanCleanup};
+    use stage_select_api::romm::{RommPlatform, RommScanOutcome, RommUpdate};
+    use stage_select_api::selection::{
         CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
         SelectionSummary, Winner,
     };
-    use title_select_api::settings::{SecretUpdate, SettingsUpdate};
-    use title_select_api::storage::SystemStorage;
-    use title_select_api::{Job, JobKind, JobState};
-    use title_select_store::romm::{ScanStop, ScanTiming};
-    use title_select_store::{Store, Workers};
+    use stage_select_api::settings::{SecretUpdate, SettingsUpdate};
+    use stage_select_api::storage::SystemStorage;
+    use stage_select_api::{Job, JobKind, JobState};
+    use stage_select_store::romm::{ScanStop, ScanTiming};
+    use stage_select_store::{Store, Workers};
 
     const SET: &str = "Test - System";
     const PROFILE: &str = "Mine";
@@ -425,7 +425,7 @@ mod scans {
                 }
             }
             store
-                .audit_source_set(SET, None, title_select_engine::AuditEvidence::Incremental)
+                .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Incremental)
                 .unwrap();
             Env {
                 _tmp: tmp,
@@ -762,7 +762,7 @@ mod scans {
                 None,
                 "Operator",
                 WORKERS,
-                title_select_engine::AuditEvidence::Incremental,
+                stage_select_engine::AuditEvidence::Incremental,
             )
             .unwrap();
         env.store.claim_job().unwrap().unwrap();
@@ -876,7 +876,7 @@ mod scans {
         }
     }
 
-    /// RomM turned off, or its address or root changed, while a scan is followed: Title Select stops following it
+    /// RomM turned off, or its address or root changed, while a scan is followed: Stage Select stops following it
     /// and sends RomM nothing more, the saved token least of all.
     #[test]
     fn turning_romm_off_or_changing_its_address_or_root_stops_following_the_scan() {
@@ -1114,7 +1114,7 @@ mod scans {
         write_stored_zip(&combat, &[("Combat (USA).a26", b"combat")]);
         let blocked = combat.clone();
         env.store.hook_faults(Some(Arc::new(move |f| {
-            if matches!(f, title_select_store::Fault::AfterKeep(_)) && !blocked.exists() {
+            if matches!(f, stage_select_store::Fault::AfterKeep(_)) && !blocked.exists() {
                 std::fs::create_dir(&blocked).unwrap();
             }
         })));
@@ -1144,8 +1144,8 @@ mod scans {
         use super::*;
         use serde_json::{Value, json};
         use sha1::Digest;
-        use title_select_api::romm::{RommFlag, RommReconcileCounts, RommReconciliation};
-        use title_select_api::storage::{DiscLayout, StorageFormat};
+        use stage_select_api::romm::{RommFlag, RommReconcileCounts, RommReconciliation};
+        use stage_select_api::storage::{DiscLayout, StorageFormat};
 
         /// RomM's internal id for the platform the tests map, which isn't its `fs_slug`.
         const PLATFORM: i64 = 7;
@@ -1785,7 +1785,7 @@ mod scans {
             ] {
                 env.romm(true, url, root);
                 let refused = env.store.request_romm_rescan(folder.id, 2).unwrap_err();
-                let title_select_store::Error::Refused(why) = &refused else {
+                let stage_select_store::Error::Refused(why) = &refused else {
                     panic!("{name}: {refused}");
                 };
                 assert!(why.contains("Compare again"), "{name}: {why}");
@@ -1874,13 +1874,13 @@ mod scans {
 
             let not_flagged = env.store.request_romm_rescan(folder.id, 99).unwrap_err();
             assert!(
-                matches!(not_flagged, title_select_store::Error::Refused(_)),
+                matches!(not_flagged, stage_select_store::Error::Refused(_)),
                 "{not_flagged}"
             );
             env.romm(false, &romm.url, "play");
             let off = env.store.request_romm_rescan(folder.id, 2).unwrap_err();
             assert!(
-                matches!(off, title_select_store::Error::Refused(_)),
+                matches!(off, stage_select_store::Error::Refused(_)),
                 "{off}"
             );
             assert_eq!(romm.seen().iter().filter(|r| r.method == "POST").count(), 2);

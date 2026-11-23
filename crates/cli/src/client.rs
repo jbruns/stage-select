@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
-use title_select_api::calibration::Calibration;
-use title_select_api::{
+use stage_select_api::calibration::Calibration;
+use stage_select_api::{
     AuditEvidence, ErrorBody, Finding, GameStatus, Health, Job, JobEvent, JobKind, JobProgress,
     JobState, PREFIX, Report, SSE_KEEP_ALIVE, StartAudit,
 };
@@ -274,7 +274,7 @@ fn show_progress(kind: JobKind, progress: JobProgress, shown: &mut Option<usize>
 
 fn read_token(path: Option<&Path>) -> Result<String, String> {
     let path = path.ok_or(
-        "no operator token: pass --token-file <file> or set TITLE_SELECT_OPERATOR_TOKEN_FILE",
+        "no operator token: pass --token-file <file> or set STAGE_SELECT_OPERATOR_TOKEN_FILE",
     )?;
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let token = text.trim();
@@ -384,9 +384,9 @@ pub fn calibrate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stage_select_api::Workers;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use title_select_api::Workers;
 
     fn job(state: JobState) -> Job {
         Job {

@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 use crate::common::*;
 use serde::de::DeserializeOwned;
-use title_select_api::roots::{RootKind, RootSpec};
-use title_select_api::{
+use stage_select_api::roots::{RootKind, RootSpec};
+use stage_select_api::{
     AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, GameStatus, ImportOutcome,
     ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
-use title_select_server::{AuthSettings, Handle, Settings, StartError, TOKEN_ACTOR};
+use stage_select_server::{AuthSettings, Handle, Settings, StartError, TOKEN_ACTOR};
 
 const TOKEN: &str = "correct horse battery staple";
 const SET: &str = "Test - System";
@@ -38,7 +38,7 @@ impl Env {
 
     /// Registers `roots` in the store, before the Service starts, making each one's folder.
     fn register(&self, roots: &[RootSpec]) {
-        let store = title_select_store::Store::open(&self.store()).unwrap();
+        let store = stage_select_store::Store::open(&self.store()).unwrap();
         for root in roots {
             std::fs::create_dir_all(&root.path).unwrap();
             store.register_root(root, "Operator").unwrap();
@@ -47,7 +47,7 @@ impl Env {
 
     /// Replaces the Root `root`'s registration in the store, before the Service starts.
     fn reregister(&self, root: RootSpec) {
-        let store = title_select_store::Store::open(&self.store()).unwrap();
+        let store = stage_select_store::Store::open(&self.store()).unwrap();
         store
             .edit_root(&root.name.clone(), &root, "Operator")
             .unwrap();
@@ -83,7 +83,7 @@ impl Env {
     }
 
     fn start(&self) -> Handle {
-        title_select_server::spawn(self.settings()).unwrap()
+        stage_select_server::spawn(self.settings()).unwrap()
     }
 
     fn dat(&self) -> Vec<u8> {
@@ -183,7 +183,7 @@ impl Client {
         file: &str,
         bytes: &[u8],
     ) -> (u16, serde_json::Value) {
-        let boundary = "title-select-test-boundary";
+        let boundary = "stage-select-test-boundary";
         let mut body = Vec::new();
         for (name, value) in fields {
             body.extend(format!(
@@ -226,7 +226,7 @@ impl Client {
     }
 
     /// Subscribes to every Job's events, returning once the `resync` sent on connecting has arrived, with its Jobs.
-    fn watch(&self) -> (Events, title_select_api::JobSnapshot) {
+    fn watch(&self) -> (Events, stage_select_api::JobSnapshot) {
         let response = self.get("/events").call().unwrap();
         assert_eq!(response.status(), 200);
         let mut events = Events(Box::new(
@@ -319,7 +319,7 @@ fn startup_is_refused_before_the_store_opens_for_each_unusable_way_to_authentica
     let env = Env::new();
     let store = env.tmp.path().join("another store");
     let refusal = |auth: AuthSettings, token: bool, listen: &str| {
-        let refused = title_select_server::spawn(Settings {
+        let refused = stage_select_server::spawn(Settings {
             store: store.clone(),
             auth,
             token_file: token.then(|| env.tmp.path().join("token")),
@@ -349,39 +349,39 @@ fn startup_is_refused_before_the_store_opens_for_each_unusable_way_to_authentica
     let dev_off_loopback = refusal(dev("Developer"), true, "0.0.0.0:0");
 
     for flag in [
-        "--identity-header (TITLE_SELECT_IDENTITY_HEADER)",
-        "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES)",
-        "--token-file (TITLE_SELECT_OPERATOR_TOKEN_FILE)",
-        "--dev-identity (TITLE_SELECT_DEV_IDENTITY)",
+        "--identity-header (STAGE_SELECT_IDENTITY_HEADER)",
+        "--trusted-proxies (STAGE_SELECT_TRUSTED_PROXIES)",
+        "--token-file (STAGE_SELECT_OPERATOR_TOKEN_FILE)",
+        "--dev-identity (STAGE_SELECT_DEV_IDENTITY)",
     ] {
         assert!(none.contains(flag), "{none}");
     }
     assert!(none.starts_with("no way to authenticate"), "{none}");
     assert!(
         header_alone.starts_with(
-            "--identity-header (TITLE_SELECT_IDENTITY_HEADER) needs --trusted-proxies \
-             (TITLE_SELECT_TRUSTED_PROXIES)"
+            "--identity-header (STAGE_SELECT_IDENTITY_HEADER) needs --trusted-proxies \
+             (STAGE_SELECT_TRUSTED_PROXIES)"
         ),
         "{header_alone}"
     );
     assert!(
         proxies_alone.starts_with(
-            "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES) needs --identity-header \
-             (TITLE_SELECT_IDENTITY_HEADER)"
+            "--trusted-proxies (STAGE_SELECT_TRUSTED_PROXIES) needs --identity-header \
+             (STAGE_SELECT_IDENTITY_HEADER)"
         ),
         "{proxies_alone}"
     );
     assert_eq!(
         bad_header,
-        "--identity-header (TITLE_SELECT_IDENTITY_HEADER) \"Remote User\" is not a header name"
+        "--identity-header (STAGE_SELECT_IDENTITY_HEADER) \"Remote User\" is not a header name"
     );
     assert_eq!(
         empty_dev,
-        "--dev-identity (TITLE_SELECT_DEV_IDENTITY) is empty"
+        "--dev-identity (STAGE_SELECT_DEV_IDENTITY) is empty"
     );
     assert_eq!(
         dev_off_loopback,
-        "--dev-identity (TITLE_SELECT_DEV_IDENTITY) is only allowed on a loopback listen address, not 0.0.0.0:0"
+        "--dev-identity (STAGE_SELECT_DEV_IDENTITY) is only allowed on a loopback listen address, not 0.0.0.0:0"
     );
 }
 
@@ -393,7 +393,7 @@ fn dev_identity_on_loopback_authenticates_requests_with_no_credential() {
         auth: dev("Developer"),
         ..env.settings()
     };
-    let service = title_select_server::spawn(settings).unwrap();
+    let service = stage_select_server::spawn(settings).unwrap();
     let client = Client {
         auth: None,
         ..Client::new(&service)
@@ -417,8 +417,8 @@ fn the_workbench_is_served_beside_the_api_without_hiding_its_errors() {
         "<!doctype html><title>workbench</title>",
     )
     .unwrap();
-    std::fs::write(ui.join("pkg/title-select.js"), "export default 1;").unwrap();
-    let service = title_select_server::spawn(Settings {
+    std::fs::write(ui.join("pkg/stage-select.js"), "export default 1;").unwrap();
+    let service = stage_select_server::spawn(Settings {
         ui: Some(ui),
         ..env.settings()
     })
@@ -451,7 +451,7 @@ fn the_workbench_is_served_beside_the_api_without_hiding_its_errors() {
         (200, true),
         "a screen's URL loads the workbench"
     );
-    assert_eq!(page("/pkg/title-select.js").1, "export default 1;");
+    assert_eq!(page("/pkg/stage-select.js").1, "export default 1;");
 
     for path in ["/api/v1/no-such-thing", "/api/v2/jobs", "/api"] {
         let (status, body, _) = page(path);
@@ -526,7 +526,7 @@ fn a_missing_or_wrong_token_is_rejected_and_the_correct_one_accepted() {
 #[test]
 fn an_identity_header_is_trusted_only_from_a_trusted_proxy() {
     let env = Env::new();
-    let untrusted = title_select_server::spawn(Settings {
+    let untrusted = stage_select_server::spawn(Settings {
         token_file: None,
         auth: proxied(Some("Remote-User"), &["192.0.2.0/24"]),
         ..env.settings()
@@ -543,7 +543,7 @@ fn an_identity_header_is_trusted_only_from_a_trusted_proxy() {
     assert_eq!(status_of(client.get("/jobs").call()), 401);
     drop(untrusted);
 
-    let trusted = title_select_server::spawn(Settings {
+    let trusted = stage_select_server::spawn(Settings {
         token_file: None,
         auth: proxied(Some("Remote-User"), &["127.0.0.0/8", "::1/128"]),
         ..env.settings()
@@ -583,14 +583,14 @@ fn the_api_uploads_a_cue_pack_for_a_dat_and_lists_it() {
         &bytes,
     );
     assert_eq!(status, 201, "{body}");
-    let imported: title_select_api::CuePackImport = serde_json::from_value(body).unwrap();
+    let imported: stage_select_api::CuePackImport = serde_json::from_value(body).unwrap();
     assert_eq!(imported.outcome, ImportOutcome::Added);
     assert_eq!(imported.pack.cues, 1);
     assert_eq!(
         imported.pack.origin,
-        title_select_api::CuePackOrigin::Import
+        stage_select_api::CuePackOrigin::Import
     );
-    let packs: Vec<title_select_api::CuePackRecord> = client.json("/cue-packs");
+    let packs: Vec<stage_select_api::CuePackRecord> = client.json("/cue-packs");
     assert_eq!(packs, [imported.pack]);
 
     let (status, _) = client.upload_form(
@@ -611,15 +611,15 @@ fn the_api_uploads_a_support_file_and_lists_it() {
 
     let (status, body) = client.upload_form("/support-files", &[], "catver.ini", ini);
     assert_eq!(status, 201, "{body}");
-    let imported: title_select_api::support::SupportFileImport =
+    let imported: stage_select_api::support::SupportFileImport =
         serde_json::from_value(body).unwrap();
     assert_eq!(imported.outcome, ImportOutcome::Added);
     assert_eq!(
         imported.file.kind,
-        title_select_api::support::SupportFileKind::Catver
+        stage_select_api::support::SupportFileKind::Catver
     );
     assert_eq!(imported.file.mame_version, "0.289");
-    let files: Vec<title_select_api::support::SupportFileRecord> = client.json("/support-files");
+    let files: Vec<stage_select_api::support::SupportFileRecord> = client.json("/support-files");
     assert_eq!(files, [imported.file]);
 
     let (status, _) = client.upload_form("/support-files", &[], "catver.ini", ini);
@@ -642,7 +642,7 @@ fn an_uploaded_dat_of_no_known_provider_is_kept_by_its_format_and_name_and_a_pro
     assert_eq!(status, 201);
     assert_eq!(uploaded.dat_revision.dat, "unknown-logiqx/Homebrew");
     assert_eq!(uploaded.dat_revision.provider, None);
-    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    let dats: Vec<stage_select_api::Dat> = client.json("/dats");
     assert_eq!(
         (dats[0].dat.as_str(), dats[0].provider.as_deref()),
         ("unknown-logiqx/Homebrew", None)
@@ -668,7 +668,7 @@ fn the_api_downloads_a_dat_revisions_kept_file_byte_for_byte_under_its_recorded_
 <game name="Pong"><rom name="Pong.a26" size="4" crc="00000000"/></game></datafile>"#;
     // The upload form can't carry these names, so they are recorded through the store before the Service starts.
     let (hostile, nameless) = {
-        let store = title_select_store::Store::open(&env.store()).unwrap();
+        let store = stage_select_store::Store::open(&env.store()).unwrap();
         let hostile = store
             .import_dat_bytes(&dat, "..\\up/\"evil\";\r\nname é.dat", None)
             .unwrap()
@@ -716,7 +716,7 @@ fn the_api_downloads_a_dat_revisions_kept_file_byte_for_byte_under_its_recorded_
     );
     let (status, older) = client.upload("older.dat", &std::fs::read(older).unwrap());
     assert_eq!(status, 201);
-    let revisions: Vec<title_select_api::DatRevisionRecord> = client.json("/dat-revisions");
+    let revisions: Vec<stage_select_api::DatRevisionRecord> = client.json("/dat-revisions");
     let kept = |sha: &str| {
         revisions
             .iter()
@@ -775,11 +775,11 @@ fn the_api_refuses_to_delete_a_dat_revision_in_use_saying_why_and_deletes_it_onc
     assert_eq!(
         (blockers[0].kind, blockers[0].names.clone()),
         (
-            title_select_api::DeletionBlockerKind::SourceSet,
+            stage_select_api::DeletionBlockerKind::SourceSet,
             vec![SET.to_string()]
         )
     );
-    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    let dats: Vec<stage_select_api::Dat> = client.json("/dats");
     assert_eq!(dats[0].revisions[0].blockers.as_ref(), Some(&blockers));
 
     let response = client
@@ -792,9 +792,9 @@ fn the_api_refuses_to_delete_a_dat_revision_in_use_saying_why_and_deletes_it_onc
     assert_eq!(response.status(), 200);
     let mut response = delete();
     assert_eq!(response.status(), 200);
-    let deleted: title_select_api::DeletedDatRevision = response.body_mut().read_json().unwrap();
+    let deleted: stage_select_api::DeletedDatRevision = response.body_mut().read_json().unwrap();
     assert!(deleted.dat_removed);
-    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    let dats: Vec<stage_select_api::Dat> = client.json("/dats");
     assert!(dats.is_empty());
     assert_eq!(delete().status(), 404);
 }
@@ -804,7 +804,7 @@ fn the_api_suggests_the_unregistered_folders_of_its_mount_points() {
     let env = Env::new();
     let roots = env.tmp.path().join("roots");
     std::fs::create_dir_all(roots.join("play")).unwrap();
-    let service = title_select_server::spawn(Settings {
+    let service = stage_select_server::spawn(Settings {
         mount_points: Some(vec![roots.clone()]),
         ..env.settings()
     })
@@ -842,14 +842,14 @@ fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
         Some("No-Intro"),
         "read from the DAT's header"
     );
-    let dats: Vec<title_select_api::Dat> = client.json("/dats");
+    let dats: Vec<stage_select_api::Dat> = client.json("/dats");
     assert_eq!(dats.len(), 1);
     assert_eq!(dats[0].dat, "No-Intro/Test - System");
     assert_eq!(
         (dats[0].format, dats[0].provider.as_deref()),
-        (title_select_api::DatFormat::Logiqx, Some("No-Intro"))
+        (stage_select_api::DatFormat::Logiqx, Some("No-Intro"))
     );
-    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert_eq!(roots[0].name, "sets");
 
     let set = client.add_set();
@@ -888,14 +888,14 @@ fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     assert_eq!(summary.findings[&Finding::Matched], 2);
     let history: Vec<AuditSummary> = client.json("/source-sets/Test%20-%20System/history");
     assert_eq!(history, vec![summary.clone()]);
-    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let summaries: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].set.name, set.name);
     assert_eq!(summaries[0].latest.as_ref(), Some(&summary));
     assert_eq!(summaries[0].repair, None);
 
     let report: Report = client.json(&format!("/audits/{audit_id}/report"));
-    assert_eq!(report.schema, title_select_api::SCHEMA);
+    assert_eq!(report.schema, stage_select_api::SCHEMA);
     assert_eq!(report.entries.len(), 3);
 
     let first: Page<EntryRow> = client.json(&format!("/audits/{audit_id}/entries?limit=2"));
@@ -947,7 +947,7 @@ fn a_source_set_registered_without_a_path_takes_the_one_its_template_proposes() 
         )
     };
 
-    let defaults: title_select_api::PathTemplateDefaults = client.json("/path-templates");
+    let defaults: stage_select_api::PathTemplateDefaults = client.json("/path-templates");
     assert_eq!(
         (
             defaults.source_set.as_str(),
@@ -1050,7 +1050,7 @@ fn the_api_exports_a_fixdat_and_a_have_miss_csv_of_what_the_latest_audit_found_m
     );
     let xml = response.into_body().read_to_string().unwrap();
     let fixdat =
-        title_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
+        stage_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
     assert_eq!(fixdat.games, ["Breakout (USA)"]);
 
     let response = client.get(&format!("{base}/have-miss.csv")).call().unwrap();
@@ -1180,7 +1180,7 @@ fn an_audit_is_incremental_unless_you_ask_the_api_for_a_full_one() {
 #[test]
 fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
     let env = Env::new();
-    let service = title_select_server::spawn(Settings {
+    let service = stage_select_server::spawn(Settings {
         hold_jobs: true,
         ..env.settings()
     })
@@ -1207,14 +1207,14 @@ fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
 fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
     let env = Env::new();
     {
-        let store = title_select_store::Store::open(&env.store()).unwrap();
+        let store = stage_select_store::Store::open(&env.store()).unwrap();
         let dat = env.tmp.path().join("in/Test - System.dat");
         std::fs::write(&dat, env.dat()).unwrap();
         store.import_dat(&dat, None).unwrap();
         store
             .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
-        let workers = title_select_store::Workers {
+        let workers = stage_select_store::Workers {
             readers: 1,
             hashers: 1,
         };
@@ -1224,7 +1224,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
                 None,
                 "Operator",
                 workers,
-                title_select_api::AuditEvidence::Incremental,
+                stage_select_api::AuditEvidence::Incremental,
             )
             .unwrap();
         store.claim_job().unwrap();
@@ -1247,7 +1247,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
 #[test]
 fn every_watching_client_hears_that_the_settings_changed_without_their_secrets() {
     let env = Env::new();
-    let service = title_select_server::spawn(env.settings()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let (mut events, _) = client.watch();
 
@@ -1342,8 +1342,8 @@ fn stub_romm_with(status: &'static str) -> String {
 
 #[test]
 fn romm_is_off_until_you_turn_it_on_and_its_token_is_tested_but_never_shown() {
-    use title_select_api::romm::{RommCheck, RommUser};
-    use title_select_api::settings::SettingsView;
+    use stage_select_api::romm::{RommCheck, RommUser};
+    use stage_select_api::settings::SettingsView;
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -1420,7 +1420,7 @@ fn romm_is_off_until_you_turn_it_on_and_its_token_is_tested_but_never_shown() {
 
 #[test]
 fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceilings() {
-    use title_select_api::settings::{CeilingSource, Pace, SettingsView};
+    use stage_select_api::settings::{CeilingSource, Pace, SettingsView};
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -1475,7 +1475,7 @@ fn a_pace_you_choose_applies_without_a_restart_as_a_fraction_of_the_shared_ceili
 
 #[test]
 fn a_ceiling_you_set_applies_at_once_and_one_out_of_range_is_refused() {
-    use title_select_api::settings::{CeilingSource, SettingsView};
+    use stage_select_api::settings::{CeilingSource, SettingsView};
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -1572,25 +1572,25 @@ fn the_service_holds_the_store_lock() {
     let env = Env::new();
     let service = env.start();
 
-    let refused = title_select_store::Store::open(&env.store());
+    let refused = stage_select_store::Store::open(&env.store());
 
     assert!(refused.is_err());
     drop(service);
-    title_select_store::Store::open(&env.store()).unwrap();
+    stage_select_store::Store::open(&env.store()).unwrap();
 }
 
 /// An Ingest Folder registered, scanned by a Job, its items assessed against the audited Source Set, and an item
 /// discarded only through an approved plan.
 #[test]
 fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_plan() {
-    use title_select_api::ingest::{
+    use stage_select_api::ingest::{
         IngestFolder, IngestItem, IngestKeptFile, IngestPlan, ItemState, Need, Proposal,
     };
     let env = Env::new();
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
-    let service = title_select_server::spawn(env.settings()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -1598,7 +1598,7 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     client.add_set();
     let job: Job = client.start_audit().body_mut().read_json().unwrap();
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
-    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert!(
         roots
             .iter()
@@ -1704,7 +1704,7 @@ fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     env.register(&[RootSpec::new("drop", &drop).of_kind(RootKind::Ingest)]);
-    let service = title_select_server::spawn(env.settings()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     Client::new(&service).settle_after("drop", settle_secs);
     let response = Client::new(&service)
         .post("/ingest-folders")
@@ -1720,7 +1720,7 @@ fn next_check_once(
     client: &Client,
     ready: impl Fn(Option<jiff::Timestamp>) -> bool,
 ) -> Option<jiff::Timestamp> {
-    use title_select_api::ingest::IngestFolder;
+    use stage_select_api::ingest::IngestFolder;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
         let folder: IngestFolder = client.json("/ingest-folders/drop");
@@ -1751,7 +1751,7 @@ fn scan_drop(client: &Client) -> Job {
 /// assesses it with no scan started by hand. Only the outcome is awaited, so a slow machine only makes it wait.
 #[test]
 fn the_service_scans_an_ingest_folder_again_once_arriving_items_could_have_settled() {
-    use title_select_api::ingest::{IngestFolder, IngestItem, ItemState};
+    use stage_select_api::ingest::{IngestFolder, IngestItem, ItemState};
     let env = Env::new();
     let (service, drop) = ingest_service(&env, 1);
     let client = Client::new(&service);
@@ -1786,7 +1786,7 @@ fn the_service_scans_an_ingest_folder_again_once_arriving_items_could_have_settl
 /// the test, so no follow-up runs during it.
 #[test]
 fn an_ingest_folder_says_when_its_arriving_items_are_next_checked_and_retries_a_failed_scan() {
-    use title_select_api::ingest::{IngestFolder, IngestItem};
+    use stage_select_api::ingest::{IngestFolder, IngestItem};
     let env = Env::new();
     let (service, drop) = ingest_service(&env, 600);
     let client = Client::new(&service);
@@ -1851,11 +1851,11 @@ fn an_unregistered_ingest_folder_is_not_checked_again() {
 
 #[test]
 fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it() {
-    use title_select_api::JobKind;
-    use title_select_api::additions::{Addition, AdditionState, AdditionsCheck, AdditionsSet};
-    use title_select_api::build::PlanKeptDeletion;
-    use title_select_api::ingest::{IngestItem, IngestPlan, Proposal};
-    use title_select_api::repair::{SourceKeptDeletion, SourceKeptFile};
+    use stage_select_api::JobKind;
+    use stage_select_api::additions::{Addition, AdditionState, AdditionsCheck, AdditionsSet};
+    use stage_select_api::build::PlanKeptDeletion;
+    use stage_select_api::ingest::{IngestItem, IngestPlan, Proposal};
+    use stage_select_api::repair::{SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();
     let drop = env.tmp.path().join("drop");
     let additions = env.tmp.path().join("additions");
@@ -1865,7 +1865,7 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
         RootSpec::new("drop", &drop).of_kind(RootKind::Ingest),
         RootSpec::new("additions", &additions).of_kind(RootKind::Additions),
     ]);
-    let service = title_select_server::spawn(env.settings()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     client.settle_after("drop", 0);
     let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
@@ -2057,7 +2057,7 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
 
 #[test]
 fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_sets_aside() {
-    use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
+    use stage_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
     let full = |client: &Client| {
@@ -2081,9 +2081,9 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     assert_eq!(status_of(refused), 400, "the root is not writable");
     drop(service);
 
-    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
-    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert!(
         roots
             .iter()
@@ -2099,7 +2099,7 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     assert!(set.join("notes.txt").exists(), "planning changes nothing");
     let listed: Vec<RepairPlan> = client.json(repairs);
     assert_eq!(listed.iter().map(|p| p.id).collect::<Vec<_>>(), [plan.id]);
-    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let summaries: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
     assert_eq!(
         summaries[0].repair.as_ref().map(|r| (r.id, r.approved)),
         Some((plan.id, false)),
@@ -2175,11 +2175,11 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
 
 #[test]
 fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_files_are_deleted() {
-    use title_select_api::lifecycle::{Forgotten, Holds, UnregisteredRecord};
-    use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
+    use stage_select_api::lifecycle::{Forgotten, Holds, UnregisteredRecord};
+    use stage_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     let auth = client.auth.clone().unwrap();
     client.upload("Test - System (20260101).dat", &env.dat());
@@ -2224,7 +2224,7 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     assert!(
         set.read_dir()
             .unwrap()
-            .all(|e| e.unwrap().file_name().to_string_lossy() == ".title-select"),
+            .all(|e| e.unwrap().file_name().to_string_lossy() == ".stage-select"),
         "every file is kept in place"
     );
     let gone = client.get("/source-sets/Test%20-%20System").call();
@@ -2233,7 +2233,7 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     assert_eq!(unregistered.len(), 1, "{unregistered:?}");
     let id = unregistered[0].id;
     assert_eq!(unregistered[0].kept_files, 3);
-    let history: title_select_api::lifecycle::RegistrationHistory =
+    let history: stage_select_api::lifecycle::RegistrationHistory =
         client.json(&format!("/unregistered/source_set/{id}/history"));
     assert_eq!(
         (history.record.id, history.audits.len()),
@@ -2289,11 +2289,11 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
 
 #[test]
 fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says() {
-    use title_select_api::repair::{RepairKind, RepairPlan};
-    use title_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
+    use stage_select_api::repair::{RepairKind, RepairPlan};
+    use stage_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service = title_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat());
     client.add_set();
@@ -2386,8 +2386,8 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
 mod selections {
     use super::*;
     use serde_json::{Value, json};
-    use title_select_api::selection::{ChoiceStatus, Role, Selection};
-    use title_select_api::{
+    use stage_select_api::selection::{ChoiceStatus, Role, Selection};
+    use stage_select_api::{
         GameStatus, Preview, ProfileRecord, SavedProfile, SelectionDiff, SelectionRecord,
         SelectionReleaseRow,
     };
@@ -2482,7 +2482,7 @@ mod selections {
     fn group<'a>(
         selection: &'a Selection,
         name: &str,
-    ) -> &'a title_select_api::selection::SelectionGroup {
+    ) -> &'a stage_select_api::selection::SelectionGroup {
         selection.groups.iter().find(|g| g.group == name).unwrap()
     }
 
@@ -2657,10 +2657,10 @@ mod selections {
     fn a_source_sets_system_is_named_before_any_selection_and_selections_list_by_profile() {
         let env = Env::new();
         let (_service, client) = ready(&env);
-        let systems: Vec<title_select_api::SourceSetSystem> = client.json("/systems");
+        let systems: Vec<stage_select_api::SourceSetSystem> = client.json("/systems");
         assert_eq!(
             systems,
-            [title_select_api::SourceSetSystem {
+            [stage_select_api::SourceSetSystem {
                 source_set: SET.into(),
                 system: Some("Test - System".into()),
                 arcade: false,
@@ -2802,7 +2802,7 @@ mod selections {
         assert_eq!(pong.choice.as_ref().unwrap().status, ChoiceStatus::Stale);
         assert_eq!(winners(&made, "pong"), ["Pong (USA)"]);
         assert_eq!(made.summary.stale, 1);
-        let availability: title_select_api::Availability =
+        let availability: stage_select_api::Availability =
             client.json(&format!("/selections/{}/availability", stale.id));
         assert_eq!(
             availability.audit, None,
@@ -2865,7 +2865,7 @@ mod selections {
             check["problems"][0].as_str().unwrap().contains("Atlantis"),
             "{check}"
         );
-        let vocabulary: title_select_api::Vocabulary = client.json("/vocabulary");
+        let vocabulary: stage_select_api::Vocabulary = client.json("/vocabulary");
         assert!(vocabulary.regions.iter().any(|r| r == "USA"));
         assert_eq!(
             vocabulary.default_region_order[..3],
@@ -2887,8 +2887,8 @@ mod selections {
             json!({"profile": profile, "base_version": null}),
         );
         assert_eq!(status, 201, "{body}");
-        let saved: title_select_api::ProfileVersion = client.json(&format!("{PROFILE}/1"));
-        let expected: title_select_api::selection::SelectionProfile =
+        let saved: stage_select_api::ProfileVersion = client.json(&format!("{PROFILE}/1"));
+        let expected: stage_select_api::selection::SelectionProfile =
             serde_json::from_value(profile).unwrap();
         assert_eq!(saved.profile, expected);
         let mame = saved.profile.arcade_settings("MAME");
@@ -2944,7 +2944,7 @@ mod selections {
             json!({"root": "sets", "path": "mame", "dat": uploaded.dat_revision.dat}),
         );
         assert_eq!(status, 201, "{body}");
-        let systems: Vec<title_select_api::SourceSetSystem> = client.json("/systems");
+        let systems: Vec<stage_select_api::SourceSetSystem> = client.json("/systems");
         assert!(
             systems
                 .iter()
@@ -2969,7 +2969,7 @@ mod selections {
     #[test]
     fn without_clone_lists_selections_are_unavailable_and_audits_still_run() {
         let env = Env::new();
-        let service = title_select_server::spawn(Settings {
+        let service = stage_select_server::spawn(Settings {
             clone_lists: Some(env.tmp.path().join("no-clone-lists")),
             ..env.settings()
         })
@@ -2990,7 +2990,7 @@ mod selections {
     /// the RomM root lies inside another Root, and to none when it is outside or nested deeper.
     #[test]
     fn each_library_folder_maps_to_the_romm_platform_its_folder_names_under_the_romm_root() {
-        use title_select_api::romm::{RommFolderPlatform, RommPlatform};
+        use stage_select_api::romm::{RommFolderPlatform, RommPlatform};
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         let other = env.tmp.path().join("roots/other");
@@ -3002,7 +3002,7 @@ mod selections {
             RootSpec::new("romm", play.join("library")).writable(),
             RootSpec::new("other", &other).writable(),
         ]);
-        let service = title_select_server::spawn(env.settings()).unwrap();
+        let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3057,12 +3057,12 @@ mod selections {
     fn built_where_romm_scans(
         env: &Env,
         status: &'static str,
-        timing: title_select_store::romm::ScanTiming,
+        timing: stage_select_store::romm::ScanTiming,
     ) -> (Handle, i64, Events) {
-        use title_select_api::build::{LibraryFolder, Plan};
+        use stage_select_api::build::{LibraryFolder, Plan};
         let play = env.tmp.path().join("roots/play");
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(Settings {
+        let service = stage_select_server::spawn(Settings {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
             notify_backoff: None,
@@ -3105,13 +3105,13 @@ mod selections {
     /// the job, which succeeded, shows how the scan ended.
     #[test]
     fn a_build_into_a_folder_romm_maps_asks_romm_to_scan_it_and_shows_how_the_scan_ended() {
+        use stage_select_api::romm::{RommPlatform, RommScanOutcome};
         use std::time::{Duration, Instant};
-        use title_select_api::romm::{RommPlatform, RommScanOutcome};
         let env = Env::new();
         let (service, id, _) = built_where_romm_scans(
             &env,
             "finished",
-            title_select_store::romm::ScanTiming {
+            stage_select_store::romm::ScanTiming {
                 poll: Duration::from_millis(10),
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
@@ -3146,13 +3146,13 @@ mod selections {
     /// deletes the collection in the background.
     #[test]
     fn turning_romm_off_deletes_the_additions_collection_a_build_made() {
+        use stage_select_api::romm::RommAdditionsOutcome;
         use std::time::{Duration, Instant};
-        use title_select_api::romm::RommAdditionsOutcome;
         let env = Env::new();
         let (service, id, _) = built_where_romm_scans(
             &env,
             "finished",
-            title_select_store::romm::ScanTiming {
+            stage_select_store::romm::ScanTiming {
                 poll: Duration::from_millis(10),
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
@@ -3198,13 +3198,13 @@ mod selections {
     /// with your credential.
     #[test]
     fn a_finished_scan_leads_to_a_comparison_with_romm_you_can_repeat_and_act_on() {
+        use stage_select_api::romm::RommReconciliation;
         use std::time::{Duration, Instant};
-        use title_select_api::romm::RommReconciliation;
         let env = Env::new();
         let (service, id, mut events) = built_where_romm_scans(
             &env,
             "finished",
-            title_select_store::romm::ScanTiming {
+            stage_select_store::romm::ScanTiming {
                 poll: Duration::from_millis(10),
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
@@ -3281,7 +3281,7 @@ mod selections {
             "a ROM no comparison flagged isn't scanned again: {body}"
         );
 
-        let settings: title_select_api::settings::SettingsView = client.json("/settings");
+        let settings: stage_select_api::settings::SettingsView = client.json("/settings");
         let (status, body) = client.change_settings(
             json!({"romm": {"enabled": false, "base_url": settings.romm.base_url}}),
         );
@@ -3301,13 +3301,13 @@ mod selections {
     /// store to open again.
     #[test]
     fn stopping_the_service_stops_following_a_scan_at_once_and_frees_the_store() {
+        use stage_select_api::romm::RommScanOutcome;
         use std::time::{Duration, Instant};
-        use title_select_api::romm::RommScanOutcome;
         let env = Env::new();
         let (service, id, _) = built_where_romm_scans(
             &env,
             "started",
-            title_select_store::romm::ScanTiming {
+            stage_select_store::romm::ScanTiming {
                 poll: Duration::from_millis(10),
                 backoff: Duration::from_millis(10),
                 backoff_max: Duration::from_millis(10),
@@ -3334,7 +3334,7 @@ mod selections {
         });
         stop.recv_timeout(Duration::from_secs(30))
             .expect("the service stopped without waiting on RomM");
-        let store = title_select_store::Store::open(&env.store()).unwrap();
+        let store = stage_select_store::Store::open(&env.store()).unwrap();
         let scan = store.job(id).unwrap().romm_scan.unwrap();
         assert_eq!(scan.outcome, RommScanOutcome::Stopped, "{scan:?}");
         assert!(scan.ended_at.is_some() && scan.detail.is_some(), "{scan:?}");
@@ -3344,13 +3344,13 @@ mod selections {
     /// folders built from the source set that would go stale, saving nothing.
     #[test]
     fn a_coverage_preview_counts_missing_games_and_names_the_library_folders_it_would_make_stale() {
-        use title_select_api::build::{LibraryFolder, Plan};
-        use title_select_api::{CoveragePreview, CoverageStaleFolder};
+        use stage_select_api::build::{LibraryFolder, Plan};
+        use stage_select_api::{CoveragePreview, CoverageStaleFolder};
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings()).unwrap();
+        let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3449,13 +3449,13 @@ mod selections {
     /// job that writes TorrentZips under the DAT's names.
     #[test]
     fn a_selection_is_planned_approved_by_digest_and_built_into_a_library_folder() {
-        use title_select_api::JobKind;
-        use title_select_api::build::{ItemKind, LibraryFolder, Plan};
+        use stage_select_api::JobKind;
+        use stage_select_api::build::{ItemKind, LibraryFolder, Plan};
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings()).unwrap();
+        let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3474,7 +3474,7 @@ mod selections {
         );
         assert_eq!(status, 201, "{folder}");
         let folder: LibraryFolder = serde_json::from_value(folder).unwrap();
-        assert!(play.join("test/.title-select/marker").is_file());
+        assert!(play.join("test/.stage-select/marker").is_file());
         let (status, plan) = send(
             client.post(&format!("/libraries/{}/plans", folder.id)),
             json!({"selection": selection.id}),
@@ -3516,15 +3516,15 @@ mod selections {
 
         for name in ["Pong (USA).zip", "Combat (USA).zip"] {
             let mut file = std::fs::File::open(play.join("test").join(name)).unwrap();
-            title_select_engine::torrentzip::validate(&mut file).unwrap();
+            stage_select_engine::torrentzip::validate(&mut file).unwrap();
         }
-        assert!(!play.join("test/.title-select/staging").exists());
+        assert!(!play.join("test/.stage-select/staging").exists());
         let folder: LibraryFolder = client.json(&format!("/libraries/{}", folder.id));
         let build = folder.build.unwrap();
         assert_eq!((folder.generation, build.applied, build.failed), (1, 2, 0));
         assert!(!folder.plan_open);
         assert!(folder.stale.is_empty());
-        let files: Vec<title_select_api::build::BuiltFile> =
+        let files: Vec<stage_select_api::build::BuiltFile> =
             client.json(&format!("/libraries/{}/files", folder.id));
         assert_eq!(files.len(), 2);
         let (status, _) = send(
@@ -3535,7 +3535,7 @@ mod selections {
 
         // A check job reads the folder and records what it found; the folder is left as it is.
         std::fs::write(play.join("test/notes.txt"), b"mine").unwrap();
-        let planned: title_select_api::build::FolderCheck =
+        let planned: stage_select_api::build::FolderCheck =
             client.json(&format!("/libraries/{}/check", folder.id));
         assert_eq!(planned.summary.job, None, "planning checked the folder");
         let (status, job) = send(
@@ -3550,17 +3550,17 @@ mod selections {
         );
         let (_, job) = client.follow(job.id);
         assert_eq!(job.state, JobState::Succeeded, "{job:?}");
-        let check: title_select_api::build::FolderCheck =
+        let check: stage_select_api::build::FolderCheck =
             client.json(&format!("/libraries/{}/check", folder.id));
         assert_eq!(check.summary.job, Some(job.id));
         assert_eq!((check.files.len(), check.drift.len()), (2, 1));
         assert_eq!(std::fs::read(play.join("test/notes.txt")).unwrap(), b"mine");
-        let incomplete: title_select_api::build::Incomplete =
+        let incomplete: stage_select_api::build::Incomplete =
             client.json(&format!("/libraries/{}/incomplete", folder.id));
         let reasons: Vec<_> = incomplete.items.iter().map(|i| i.reason).collect();
         assert_eq!(
             reasons,
-            [title_select_api::build::IncompleteReason::NoSource],
+            [stage_select_api::build::IncompleteReason::NoSource],
             "drift alone leaves the folder as complete as its build"
         );
 
@@ -3589,7 +3589,7 @@ mod selections {
         let job: Job = serde_json::from_value(job).unwrap();
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
         assert!(!play.join("test/notes.txt").exists());
-        let kept: Vec<title_select_api::build::KeptFile> =
+        let kept: Vec<stage_select_api::build::KeptFile> =
             client.json(&format!("/libraries/{}/kept-files", folder.id));
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "notes.txt");
@@ -3606,15 +3606,15 @@ mod selections {
     /// how many games each folder holds once a build places them.
     #[test]
     fn the_api_names_the_folder_holding_placed_games_and_counts_the_games_placed_in_it() {
-        use title_select_api::build::{BuiltFile, LibraryFolder, PlacedFile, Plan};
-        use title_select_api::storage::StoragePolicy;
-        use title_select_api::{PlacedIn, Placements};
+        use stage_select_api::build::{BuiltFile, LibraryFolder, PlacedFile, Plan};
+        use stage_select_api::storage::StoragePolicy;
+        use stage_select_api::{PlacedIn, Placements};
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
         env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
         env.register(&[RootSpec::new("play", &play).writable()]);
-        let service = title_select_server::spawn(env.settings()).unwrap();
+        let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
         client.add_set();
@@ -3789,7 +3789,7 @@ fn the_api_registers_changes_and_clears_a_source_sets_coverage() {
         "a source set without a coverage reads as before: {cleared}"
     );
 
-    let vocabulary: title_select_api::Vocabulary = client.json("/vocabulary");
+    let vocabulary: stage_select_api::Vocabulary = client.json("/vocabulary");
     let europe = vocabulary
         .coverage_presets
         .iter()
@@ -3892,7 +3892,7 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
     let env = Env::new();
     let (_service, client) = audited_mixed_regions(&env);
     let summary = || {
-        let mut summaries: Vec<title_select_api::SourceSetSummary> =
+        let mut summaries: Vec<stage_select_api::SourceSetSummary> =
             client.json("/source-set-summaries");
         summaries.remove(0)
     };
@@ -3921,7 +3921,7 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
     );
     assert_eq!(
         covered.outside_coverage,
-        Some(title_select_api::OutsideCoverage {
+        Some(stage_select_api::OutsideCoverage {
             games: statuses(3, 0, 2),
             unknown_region: 1,
         }),
@@ -3929,7 +3929,7 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
     );
     assert_eq!(
         covered.covered_entries,
-        Some(title_select_api::CoveredEntries {
+        Some(stage_select_api::CoveredEntries {
             findings: [(Finding::Matched, 2), (Finding::Unmatched, 1)].into(),
             claimed: 0,
         }),
@@ -3949,7 +3949,7 @@ fn a_forgotten_source_set_registered_and_audited_again_is_counted_from_its_new_a
     let auth = client.auth.clone().unwrap();
     put_coverage(&client, serde_json::json!(["Europe"]));
     let summary = || {
-        let mut summaries: Vec<title_select_api::SourceSetSummary> =
+        let mut summaries: Vec<stage_select_api::SourceSetSummary> =
             client.json("/source-set-summaries");
         summaries.remove(0)
     };
@@ -3960,7 +3960,7 @@ fn a_forgotten_source_set_registered_and_audited_again_is_counted_from_its_new_a
         .send_empty()
         .unwrap();
     assert_eq!(response.status(), 200);
-    let unregistered: Vec<title_select_api::lifecycle::UnregisteredRecord> =
+    let unregistered: Vec<stage_select_api::lifecycle::UnregisteredRecord> =
         client.json("/unregistered");
     let forget = agent()
         .delete(format!(
@@ -3995,7 +3995,7 @@ fn a_forgotten_source_set_registered_and_audited_again_is_counted_from_its_new_a
         statuses(0, 1, 3),
         "Golf (USA, Europe) is missing now"
     );
-    let regions: title_select_api::RegionCounts =
+    let regions: stage_select_api::RegionCounts =
         client.json("/source-sets/Test%20-%20System/regions");
     assert_eq!(regions.total, statuses(3, 1, 5));
 }
@@ -4035,14 +4035,14 @@ fn entries_of_games_outside_the_coverage_leave_out_their_claims_and_findings() {
         .unwrap();
     assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
 
-    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let summaries: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
 
     let latest = summaries[0].latest.as_ref().unwrap();
     assert_eq!(latest.findings[&Finding::Misnamed], 1, "Boxing.a26");
     assert_eq!(latest.claimed, Some(1), "Combat (USA).zip, read on claims");
     assert_eq!(
         summaries[0].covered_entries,
-        Some(title_select_api::CoveredEntries {
+        Some(stage_select_api::CoveredEntries {
             findings: [(Finding::Matched, 1)].into(),
             claimed: 0,
         }),
@@ -4057,14 +4057,14 @@ fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
     let (status, body) = put_coverage(&client, serde_json::json!(["Europe"]));
     assert_eq!(status, 200, "{body}");
     drop(service);
-    let service = title_select_server::spawn(Settings {
+    let service = stage_select_server::spawn(Settings {
         clone_lists: Some(env.tmp.path().join("no-clone-lists")),
         ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);
 
-    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let summaries: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
 
     assert!(summaries[0].coverage_unavailable);
     assert_eq!(
@@ -4093,7 +4093,7 @@ fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
 
 #[test]
 fn the_api_counts_the_latest_audit_by_region_overlapping_for_games_of_several_regions() {
-    use title_select_api::{RegionCount, RegionCounts};
+    use stage_select_api::{RegionCount, RegionCounts};
     let env = Env::new();
     let (_service, client) = audited_mixed_regions(&env);
     put_coverage(&client, serde_json::json!(["Europe"]));
@@ -4117,13 +4117,13 @@ fn the_api_counts_the_latest_audit_by_region_overlapping_for_games_of_several_re
         "Golf (USA, Europe) counts under both USA and Europe"
     );
     assert_eq!(counts.total, statuses(4, 1, 4), "each game once");
-    let summary: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let summary: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
     assert_eq!(counts.audit, summary[0].latest.as_ref().unwrap().id);
 }
 
 #[test]
 fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_newer_revision() {
-    use title_select_api::{SourceSetStale, StatWalk};
+    use stage_select_api::{SourceSetStale, StatWalk};
     const ESCAPED: &str = "Test%20-%20System";
     let env = Env::new();
     let service = env.start();
@@ -4206,7 +4206,7 @@ fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_ne
         1,
         "only the changed files remain"
     );
-    let followed: Vec<title_select_api::FollowedRevision> =
+    let followed: Vec<stage_select_api::FollowedRevision> =
         client.json(&format!("/source-sets/{ESCAPED}/followed-revisions"));
     assert_eq!(
         followed
@@ -4225,7 +4225,7 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
     const ESCAPED: &str = "Test%20-%20System";
     let env = Env::new();
     env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
-    let service = title_select_server::spawn(env.settings()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let (status, body) =
         client.change_settings(serde_json::json!({"ceilings": {"host": {"concurrent": 2}}}));
@@ -4234,7 +4234,7 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
     client.add_set();
     let audit: Job = client.start_audit().body_mut().read_json().unwrap();
     assert_eq!(client.follow(audit.id).1.state, JobState::Succeeded);
-    let plan: title_select_api::repair::RepairPlan = client
+    let plan: stage_select_api::repair::RepairPlan = client
         .post(&format!("/source-sets/{ESCAPED}/repairs"))
         .send_json(serde_json::json!({}))
         .unwrap()
@@ -4242,7 +4242,7 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
         .read_json()
         .unwrap();
 
-    let approved: title_select_api::repair::RepairPlan = client
+    let approved: stage_select_api::repair::RepairPlan = client
         .post(&format!("/repairs/{}/approval", plan.id))
         .send_json(serde_json::json!({"digest": plan.digest}))
         .unwrap()
@@ -4273,7 +4273,7 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
 /// request to a DAT Provider.
 #[test]
 fn fetching_reports_its_state_and_refuses_before_any_request() {
-    use title_select_api::fetch::{FetchProvider, FetchStatus};
+    use stage_select_api::fetch::{FetchProvider, FetchStatus};
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -4317,7 +4317,7 @@ fn fetching_reports_its_state_and_refuses_before_any_request() {
 #[test]
 fn a_calibration_is_queued_and_a_second_is_refused() {
     let env = Env::new();
-    let service = title_select_server::spawn(Settings {
+    let service = stage_select_server::spawn(Settings {
         hold_jobs: true,
         ..env.settings()
     })
@@ -4327,7 +4327,7 @@ fn a_calibration_is_queued_and_a_second_is_refused() {
     let mut first = client.post("/calibrations").send_empty().unwrap();
     assert_eq!(first.status(), 202);
     let first: Job = first.body_mut().read_json().unwrap();
-    assert_eq!(first.kind, title_select_api::JobKind::Calibration);
+    assert_eq!(first.kind, stage_select_api::JobKind::Calibration);
     assert_eq!(first.state, JobState::Queued);
 
     let mut second = client.post("/calibrations").send_empty().unwrap();
@@ -4352,17 +4352,17 @@ fn a_calibration_is_queued_and_a_second_is_refused() {
 #[test]
 fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
     let env = Env::new();
-    let service = title_select_server::spawn(Settings {
-        calibration_limits: Some(title_select_server::CalibrationLimits {
+    let service = stage_select_server::spawn(Settings {
+        calibration_limits: Some(stage_select_server::CalibrationLimits {
             step_bytes: 1,
             min_bytes: 1,
-            ..title_select_server::CalibrationLimits::default()
+            ..stage_select_server::CalibrationLimits::default()
         }),
         ..env.settings()
     })
     .unwrap();
     let client = Client::new(&service);
-    let empty: title_select_api::calibration::Calibration = client.json("/calibration");
+    let empty: stage_select_api::calibration::Calibration = client.json("/calibration");
     assert!(empty.host.is_none() && empty.roots.is_empty() && empty.stale.is_empty());
 
     let (mut events, _) = client.watch();
@@ -4384,14 +4384,14 @@ fn a_calibration_measures_the_host_and_each_root_and_reports_them() {
     assert!(heard_settings, "no settings event as the calibration ended");
 
     assert_eq!(ended.state, JobState::Succeeded, "{:?}", ended.error);
-    let measured: title_select_api::calibration::Calibration =
+    let measured: stage_select_api::calibration::Calibration =
         client.json(&format!("/jobs/{}/calibration", started.id));
     let host = measured.host.expect("the host's sweep");
     assert_eq!(host.job, started.id);
     assert!(!host.curve.is_empty() && host.knee.is_some());
     assert_eq!(measured.roots.len(), 1);
     assert_eq!(measured.roots[0].root, "sets");
-    let now: title_select_api::calibration::Calibration = client.json("/calibration");
+    let now: stage_select_api::calibration::Calibration = client.json("/calibration");
     assert_eq!(now.host.map(|h| h.job), Some(started.id));
     assert!(now.stale.is_empty(), "{:?}", now.stale);
 }
@@ -4424,8 +4424,8 @@ fn send_root(
 /// while the Service runs is scanned as an ingest folder without a restart.
 #[test]
 fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restart() {
-    use title_select_api::ingest::IngestItem;
-    use title_select_api::roots::RootChange;
+    use stage_select_api::ingest::IngestItem;
+    use stage_select_api::roots::RootChange;
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -4453,12 +4453,12 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
         Some(spec("drop", &drop, "ingest")),
     );
     assert_eq!(status, 201, "{body}");
-    let registered: title_select_api::Root = serde_json::from_value(body).unwrap();
+    let registered: stage_select_api::Root = serde_json::from_value(body).unwrap();
     assert_eq!(
         (registered.kind, registered.updated_by.as_str()),
         (RootKind::Ingest, TOKEN_ACTOR)
     );
-    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert_eq!(
         roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
         ["drop", "sets"]
@@ -4532,7 +4532,7 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
 
     let (status, body) = send_root(&client, "POST", "/roots/extra/unregistration", None);
     assert_eq!(status, 204, "{body}");
-    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert_eq!(
         roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
         ["drop", "sets"]

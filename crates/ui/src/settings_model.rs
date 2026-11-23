@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use title_select_api::paths::PathTemplate;
-use title_select_api::romm::{RommCheck, RommPlatform, RommUpdate, TESTED_RELEASES};
-use title_select_api::settings::{
+use stage_select_api::paths::PathTemplate;
+use stage_select_api::romm::{RommCheck, RommPlatform, RommUpdate, TESTED_RELEASES};
+use stage_select_api::settings::{
     ArchiveLimits, Ceiling, CeilingSource, CeilingsUpdate, ChdTimeouts, FetchSettings,
     IngestCadence, JobsView, NotifyEvent, NotifyUpdate, Pace, PathTemplates, Retention,
     SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
@@ -127,7 +127,7 @@ pub fn at_pace(pace: Pace, field: CeilingField, ceiling: Option<u64>) -> String 
 /// A Ceiling's measured curve, as its row shows it: a read rate's is its readers', shown on their row.
 pub fn ceiling_curve(
     field: CeilingField,
-    curve: &[title_select_api::calibration::CurvePoint],
+    curve: &[stage_select_api::calibration::CurvePoint],
 ) -> Option<String> {
     (field != CeilingField::ReadMibPerS && !curve.is_empty())
         .then(|| crate::calibration_model::curve(curve))
@@ -456,7 +456,7 @@ pub fn romm_check_lines(check: &RommCheck) -> Vec<(Tone, String)> {
             (
                 Tone::Review,
                 format!(
-                    "RomM {version}, a release not yet tested: title-select is tested with RomM \
+                    "RomM {version}, a release not yet tested: stage-select is tested with RomM \
                      {TESTED_RELEASES}."
                 ),
             )
@@ -467,7 +467,7 @@ pub fn romm_check_lines(check: &RommCheck) -> Vec<(Tone, String)> {
             Some(user) if user.admin => (
                 Tone::Review,
                 format!(
-                    "Signed in as {}, an admin: a user with only the scopes title-select needs is safer.",
+                    "Signed in as {}, an admin: a user with only the scopes stage-select needs is safer.",
                     user.username
                 ),
             ),
@@ -486,7 +486,7 @@ pub fn romm_check_lines(check: &RommCheck) -> Vec<(Tone, String)> {
         if check.missing_scopes.is_empty() {
             lines.push((
                 Tone::Good,
-                "Your token has every scope title-select needs.".into(),
+                "Your token has every scope stage-select needs.".into(),
             ));
         }
     }
@@ -530,8 +530,8 @@ pub fn pace_label(pace: Pace) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::romm::{RommUser, RommView};
-    use title_select_api::settings::{
+    use stage_select_api::romm::{RommUser, RommView};
+    use stage_select_api::settings::{
         HostCeilings, HostCeilingsUpdate, NotifyView, RootCeilings, RootCeilingsUpdate,
     };
 
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn a_ceilings_curve_is_on_its_workers_row_not_its_read_rate() {
-        let curve = [title_select_api::calibration::CurvePoint {
+        let curve = [stage_select_api::calibration::CurvePoint {
             workers: 2,
             bytes: 1 << 20,
             duration_ms: 1000,
@@ -906,11 +906,11 @@ mod tests {
             lines[0],
             (
                 Tone::Review,
-                "RomM 5.5.0, a release not yet tested: title-select is tested with RomM 5.4."
+                "RomM 5.5.0, a release not yet tested: stage-select is tested with RomM 5.4."
                     .into()
             )
         );
-        assert_eq!(lines[1], (Tone::Review, "Signed in as svc, an admin: a user with only the scopes title-select needs is safer.".into()));
+        assert_eq!(lines[1], (Tone::Review, "Signed in as svc, an admin: a user with only the scopes stage-select needs is safer.".into()));
         assert_eq!(
             lines[2],
             (
@@ -936,7 +936,7 @@ mod tests {
                 ),
                 (
                     Tone::Good,
-                    "Your token has every scope title-select needs.".into()
+                    "Your token has every scope stage-select needs.".into()
                 ),
             ]
         );

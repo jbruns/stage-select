@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use title_select_api::selection::SelectionProfile;
-use title_select_selection::{Engine, RunOptions};
+use stage_select_api::selection::SelectionProfile;
+use stage_select_selection::{Engine, RunOptions};
 
 /// Retool's test inputs: DATs under `source/`, configs, clone lists, metadata, MIAs and RetroAchievements, and the
 /// internal config they run under (`config/`).
@@ -14,14 +14,14 @@ pub fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/fixtures")
 }
 
-/// The engine with the clone lists at `TITLE_SELECT_CLONE_LISTS`. Missing clone lists fail the test: it never
+/// The engine with the clone lists at `STAGE_SELECT_CLONE_LISTS`. Missing clone lists fail the test: it never
 /// skips.
 pub fn engine() -> Engine {
     let engine = Engine::locate(None).unwrap_or_else(|e| {
         panic!("{e}\nthe Selection tests need the clone lists: run tools/clone-lists/fetch")
     });
-    let root = std::env::var_os(title_select_selection::CLONE_LISTS_ENV).map_or_else(
-        || title_select_selection::DEFAULT_CLONE_LISTS.into(),
+    let root = std::env::var_os(stage_select_selection::CLONE_LISTS_ENV).map_or_else(
+        || stage_select_selection::DEFAULT_CLONE_LISTS.into(),
         PathBuf::from,
     );
     complete(&root, "run tools/clone-lists/fetch");
@@ -95,7 +95,7 @@ pub fn profile_from_upstream_config(name: &str) -> SelectionProfile {
 
 /// Whether to rewrite goldens instead of comparing against them.
 pub fn regenerating() -> bool {
-    std::env::var_os("TITLE_SELECT_REGENERATE_GOLDENS").is_some()
+    std::env::var_os("STAGE_SELECT_REGENERATE_GOLDENS").is_some()
 }
 
 /// Compares `actual` with the committed golden at `tests/goldens/<name>`, or rewrites it when regenerating.
@@ -110,7 +110,7 @@ pub fn golden(name: &str, actual: &str) {
     }
     let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "{}: {e}\nregenerate with TITLE_SELECT_REGENERATE_GOLDENS=1",
+            "{}: {e}\nregenerate with STAGE_SELECT_REGENERATE_GOLDENS=1",
             path.display()
         )
     });
@@ -122,7 +122,7 @@ pub fn golden(name: &str, actual: &str) {
             .unwrap_or(expected.lines().count().min(actual.lines().count()));
         panic!(
             "{} differs from the golden from line {}:\n  golden: {:?}\n  actual: {:?}\n\
-             if the change is intended, regenerate with TITLE_SELECT_REGENERATE_GOLDENS=1",
+             if the change is intended, regenerate with STAGE_SELECT_REGENERATE_GOLDENS=1",
             path.display(),
             first + 1,
             expected.lines().nth(first),

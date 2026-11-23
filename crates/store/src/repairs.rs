@@ -18,21 +18,21 @@ use std::io;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{Access, AtFlags, FileType};
-use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, Marker, kept_name};
-use title_select_api::ingest::FolderEntry;
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::repair::{
+use stage_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, Marker, kept_name};
+use stage_select_api::ingest::FolderEntry;
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::repair::{
     KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
-use title_select_api::storage::{StorageScope, placed_path, release_of, split_placed};
-use title_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
-use title_select_engine::build::{
+use stage_select_api::storage::{StorageScope, placed_path, release_of, split_placed};
+use stage_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
+use stage_select_engine::build::{
     FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
 };
-use title_select_engine::dat::Dat;
-use title_select_engine::meter::{Interruptible, Tally};
-use title_select_engine::{FileStamp, Progress};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::meter::{Interruptible, Tally};
+use stage_select_engine::{FileStamp, Progress};
 
 use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
@@ -67,7 +67,7 @@ pub(crate) enum MarkerRule {
 /// Why a Root does not let a repair write to `path`.
 fn not_writable(set: &str, root: &str, path: &str) -> String {
     format!(
-        "source set {set} is in root {root}, which does not let Title Select write to it. Make the root writable, \
+        "source set {set} is in root {root}, which does not let Stage Select write to it. Make the root writable, \
          or add \"{path}\" to its writable paths, in your roots"
     )
 }
@@ -100,20 +100,20 @@ fn check_set_marker(
         MarkerFound::Present(marker) if marker == *expected => Ok(()),
         MarkerFound::Absent if rule == MarkerRule::Creating => Ok(()),
         MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
-            "{path}: its .title-select marker is from another store; is this the right folder, or the right mount? \
+            "{path}: its .stage-select marker is from another store; is this the right folder, or the right mount? \
              Nothing in it was changed"
         )),
         MarkerFound::Present(marker) => Err(format!(
-            "{path}: its .title-select marker is for source set {}, not {}; is this the right mount? Nothing in it \
+            "{path}: its .stage-select marker is for source set {}, not {}; is this the right mount? Nothing in it \
              was changed",
             marker.source_set, expected.source_set
         )),
         MarkerFound::Absent => Err(format!(
-            "{path}: its .title-select marker, which its first repair wrote, is gone; is its share mounted? Nothing \
+            "{path}: its .stage-select marker, which its first repair wrote, is gone; is its share mounted? Nothing \
              in it was changed"
         )),
         MarkerFound::Unreadable(e) => Err(format!(
-            "{path}: its .title-select marker cannot be read ({e}); nothing in it was changed"
+            "{path}: its .stage-select marker cannot be read ({e}); nothing in it was changed"
         )),
     }
 }
@@ -140,7 +140,7 @@ pub(crate) fn open_repairable(
     };
     if let Err(e) = rustix::fs::accessat(&dir, ".", Access::WRITE_OK, AtFlags::EACCESS) {
         return Ok(Err(format!(
-            "{}: Title Select cannot write to it ({e}); nothing in it was changed",
+            "{}: Stage Select cannot write to it ({e}); nothing in it was changed",
             dir.path().display()
         )));
     }
@@ -151,7 +151,7 @@ pub(crate) fn open_repairable(
     Ok(check_set_marker(&dir, &expected, rule).map(|()| dir))
 }
 
-/// Every entry under `dir` but Title Select's own, by path relative to it, and the regular files among them as seen.
+/// Every entry under `dir` but Stage Select's own, by path relative to it, and the regular files among them as seen.
 // `st_nlink` is narrower than u64 on some platforms.
 #[allow(clippy::unnecessary_cast)]
 fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
@@ -162,7 +162,7 @@ fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>
         files: &mut BTreeMap<String, Seen>,
     ) -> io::Result<()> {
         for (name, _) in dir.entries()? {
-            if title_select_engine::is_own_entry(&name) {
+            if stage_select_engine::is_own_entry(&name) {
                 continue;
             }
             let Some(st) = dir.stat(&name)? else {
@@ -459,7 +459,7 @@ fn is_file(dir: &FolderDir, name: &str, id: Identity) -> io::Result<bool> {
 
 fn undeleted(dir: &FolderDir, staged_name: &str) -> String {
     format!(
-        "{}/{staged_name}, a file Title Select staged and won't use, could not be deleted; it was left where it is",
+        "{}/{staged_name}, a file Stage Select staged and won't use, could not be deleted; it was left where it is",
         dir.path().display()
     )
 }
@@ -487,7 +487,7 @@ fn io_err(e: io::Error) -> Error {
 
 fn digest(content: &RepairPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    title_select_engine::sha256_hex(&bytes)
+    stage_select_engine::sha256_hex(&bytes)
 }
 
 const PLAN_QUERY: &str = "SELECT id, digest, created_at, content, approved_digest, approved_by, approved_at, \
@@ -957,7 +957,7 @@ impl Store {
                 .unwrap_or(dir)
                 .open_file(name)
                 .is_ok_and(|file| {
-                    title_select_engine::torrentzip::central(&mut io::BufReader::new(file)).is_ok()
+                    stage_select_engine::torrentzip::central(&mut io::BufReader::new(file)).is_ok()
                 })
         };
         let storage =
@@ -1003,7 +1003,7 @@ impl Store {
                     return Ok(None);
                 }
                 // Planned for you, by no Job: no Job's meter counts it.
-                let read = title_select_engine::build::probe(&held, &Tally::default())?;
+                let read = stage_select_engine::build::probe(&held, &Tally::default())?;
                 let after = rustix::fs::fstat(&held)?;
                 if file_stat(&after) != file_stat(&before) || ctime_ns(&after) != ctime_ns(&before)
                 {
@@ -1158,9 +1158,9 @@ impl Store {
                 .find(|kept| !names.contains(&name_key(kept)))
                 .expect("a free name");
             names.insert(name_key(&kept));
-            items.push(title_select_api::repair::RepairItem {
+            items.push(stage_select_api::repair::RepairItem {
                 key: key.clone(),
-                kind: title_select_api::repair::RepairKind::KeepAside,
+                kind: stage_select_api::repair::RepairKind::KeepAside,
                 game: None,
                 path: Some(path.clone()),
                 member: None,
@@ -1885,14 +1885,14 @@ impl Store {
             }
             forget(self)?;
             return Ok(Err(format!(
-                "{path}: a .title-select marker appeared in it before its first repair wrote one; is this the right \
+                "{path}: a .stage-select marker appeared in it before its first repair wrote one; is this the right \
                  folder? Nothing in it was changed"
             )));
         }
         let not_it = |store: &Store| -> Result<std::result::Result<(), String>> {
             forget(store)?;
             Ok(Err(format!(
-                "{path}: {MARKER_NEW} is not the file Title Select was writing its marker to; move it out of the \
+                "{path}: {MARKER_NEW} is not the file Stage Select was writing its marker to; move it out of the \
                  folder, then plan the repair again. Nothing in it was changed"
             )))
         };
@@ -1974,7 +1974,7 @@ impl Store {
         if let Err(e) = dir.rename_new(MARKER_NEW, dir, MARKER) {
             return Ok(Err(match e.kind() {
                 io::ErrorKind::AlreadyExists => format!(
-                    "{path}: a .title-select marker appeared in it while its first repair wrote one; is this the \
+                    "{path}: a .stage-select marker appeared in it while its first repair wrote one; is this the \
                      right folder? Nothing in it was changed"
                 ),
                 _ => format!("{path}: {e}; nothing in it was changed"),
@@ -1998,7 +1998,7 @@ impl Store {
         let path = dir.path().display().to_string();
         if let Err(e) = dir.rename_new(MARKER, dir, MARKER_NEW) {
             return Ok(Err(format!(
-                "{path}: its .title-select marker was replaced as it was written, and what replaced it could not be \
+                "{path}: its .stage-select marker was replaced as it was written, and what replaced it could not be \
                  moved back to {MARKER_NEW} ({e}); move it out of the folder, then plan the repair again"
             )));
         }
@@ -2012,7 +2012,7 @@ impl Store {
             Ok(())
         })?;
         Ok(Err(format!(
-            "{path}: its .title-select marker was replaced as it was written, so what replaced it was moved back to \
+            "{path}: its .stage-select marker was replaced as it was written, so what replaced it was moved back to \
              {MARKER_NEW}; move it out of the folder, then plan the repair again. Nothing else in it was changed"
         )))
     }
@@ -2395,7 +2395,7 @@ impl Store {
                         step,
                         "failed",
                         format!(
-                            "{}/{staged_name} is not the file Title Select was writing; it was left as it is",
+                            "{}/{staged_name} is not the file Stage Select was writing; it was left as it is",
                             dir.path().display()
                         ),
                     );
@@ -2769,7 +2769,7 @@ impl Store {
         })
     }
 
-    /// Deletes a staged file Title Select wrote and will not publish: moved into the private `.deleting` folder
+    /// Deletes a staged file Stage Select wrote and will not publish: moved into the private `.deleting` folder
     /// under a slot recorded on `step` first, and deleted there only while it is still the file `id`. Anything else
     /// found in the slot was swapped in for it and is put back under `staged_name`, never deleted. Resumes from
     /// wherever a stop left the file; the intent is cleared only once the slot is empty and the file is gone from
@@ -2894,8 +2894,8 @@ impl Store {
             Some(_) => {
                 if deleting.rename_new(&slot, dir, staged_name).is_err() {
                     return Ok(Err(format!(
-                        "what was moved to be deleted from {}/{staged_name} is not the file Title Select staged, \
-                         and could not be put back; it was left at .title-select/retained/.deleting/{slot}",
+                        "what was moved to be deleted from {}/{staged_name} is not the file Stage Select staged, \
+                         and could not be put back; it was left at .stage-select/retained/.deleting/{slot}",
                         dir.path().display()
                     )));
                 }
@@ -2971,8 +2971,8 @@ impl Store {
             && let Err(e) = deleting.rename_new(slot, &generation, kept)
         {
             return Ok(Err(format!(
-                "{}/{staged_name}, a file Title Select staged, changed since it was written, and could not be kept \
-                 aside ({e}); it was left at .title-select/retained/.deleting/{slot}",
+                "{}/{staged_name}, a file Stage Select staged, changed since it was written, and could not be kept \
+                 aside ({e}); it was left at .stage-select/retained/.deleting/{slot}",
                 r.dir.path().display()
             )));
         }
@@ -2982,8 +2982,8 @@ impl Store {
             Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
             _ => {
                 return Ok(Err(format!(
-                    "{}/{staged_name}, a file Title Select staged, changed since it was written, and is neither in \
-                     .title-select/retained/.deleting/{slot} nor kept as {kept}",
+                    "{}/{staged_name}, a file Stage Select staged, changed since it was written, and is neither in \
+                     .stage-select/retained/.deleting/{slot} nor kept as {kept}",
                     r.dir.path().display()
                 )));
             }
@@ -3769,7 +3769,7 @@ impl Store {
             return self.step_failed(
                 step,
                 "failed",
-                format!("{target} is not the new file Title Select wrote"),
+                format!("{target} is not the new file Stage Select wrote"),
             );
         };
         match placed {
@@ -4675,7 +4675,7 @@ fn audit_stamps(
 
 /// Whether the file seen as `seen` is still as `stamp` recorded it when its payloads were read.
 fn as_read(seen: &Seen, stamp: &FileStamp) -> bool {
-    let id: title_select_api::build::FileIdentity = seen.identity.into();
+    let id: stage_select_api::build::FileIdentity = seen.identity.into();
     id.dev == stamp.dev
         && id.ino == stamp.ino
         && seen.file
@@ -4723,7 +4723,7 @@ mod digest_tests {
     #[test]
     fn a_repair_plan_digest_is_the_sha256_of_its_compact_json() {
         let json = r#"{"source_set":"Set","set_id":1,"root":"r","path":"p","audit":2,"dat_revision":"abc","generation":3,"creates_marker":true,"folder":{"dev":4,"ino":5},"items":[],"steps":[],"fingerprint":[]}"#;
-        let content: title_select_api::repair::RepairPlanContent =
+        let content: stage_select_api::repair::RepairPlanContent =
             serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(

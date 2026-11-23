@@ -750,8 +750,8 @@ fn read_disk(file: &ToRead, how: How) -> FileRead {
 /// A placed CHD's disc: whether it is a CD or a DVD, and the ROMs its tracks are, in order. Its cue sheet's read, or
 /// why it can't be.
 type Disc<'r> = (
-    title_select_api::storage::ChdKind,
-    Vec<&'r title_select_api::build::ExpectedRom>,
+    stage_select_api::storage::ChdKind,
+    Vec<&'r stage_select_api::build::ExpectedRom>,
 );
 
 fn disc<'r>(chd: &'r crate::PlacedChd) -> Result<Disc<'r>, String> {
@@ -761,7 +761,7 @@ fn disc<'r>(chd: &'r crate::PlacedChd) -> Result<Disc<'r>, String> {
     // Without its cue sheet, which its own member then says can't be read, its tracks are taken in the DAT's order:
     // each is still matched by its payload, or claimed by its size and CRC32.
     let sized: Vec<(&str, u64)> = chd.roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
-    let kind = title_select_api::storage::chd_of(&chd.game, &sized).map_err(str::to_owned)?;
+    let kind = stage_select_api::storage::chd_of(&chd.game, &sized).map_err(str::to_owned)?;
     Ok((
         kind,
         chd.roms.iter().filter(|r| !is_cue(Some(&r.name))).collect(),

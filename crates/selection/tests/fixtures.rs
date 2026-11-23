@@ -5,7 +5,7 @@
 //! There is one golden per DAT under `tests/goldens/fixtures/`, holding all sixteen profiles side by side; see
 //! `render` for the format. A release build checks every DAT, in about a minute of four cores, as each DAT and
 //! profile pair runs on its own; a debug build, which is several times slower, checks only the feature DATs and a few
-//! system DATs (`in_debug_run`). `TITLE_SELECT_REGENERATE_GOLDENS=1` with `--release` rewrites them all, and
+//! system DATs (`in_debug_run`). `STAGE_SELECT_REGENERATE_GOLDENS=1` with `--release` rewrites them all, and
 //! `ONLY_DAT=<file name>` narrows a run to one DAT.
 
 mod support;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use title_select_api::selection::{Category, Rule, Selection, SelectionProfile};
+use stage_select_api::selection::{Category, Rule, Selection, SelectionProfile};
 
 /// Every DAT under the fixtures' `source/`.
 fn fixture_dats() -> Vec<PathBuf> {

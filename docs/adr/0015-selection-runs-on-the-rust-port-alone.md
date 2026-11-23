@@ -22,7 +22,7 @@ in; on the Host, shadow mode found no difference on three real systems.
   BSD-3-Clause licence, because the goldens need them; everything else of Retool goes.
 - The port still reads Retool's clone lists and metadata at a pinned commit, checked by sha256. A POSIX shell script
   fetches them for the image, the tests and CI, and writes the sha256 for a new pin; Renovate still proposes pins.
-- A Selection records the Title Select version and the clone-list commit it was made with. Selections made before
+- A Selection records the Stage Select version and the clone-list commit it was made with. Selections made before
   the cutover keep the Retool commit and patch-set digest they recorded.
 - `[selections] engine`, `shadow` and `shadow_result_mib` are accepted and ignored, with a warning, for one release.
 

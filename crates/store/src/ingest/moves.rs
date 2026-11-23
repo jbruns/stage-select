@@ -25,15 +25,15 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{ExpectedRom, FileStat, Marker, STATE};
-use title_select_api::ingest::IngestMarker;
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_engine::build::{
+use stage_select_api::build::{ExpectedRom, FileStat, Marker, STATE};
+use stage_select_api::ingest::IngestMarker;
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_engine::build::{
     FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose, write_loose_member,
 };
-use title_select_engine::meter::{self, Tally, copy_chunked};
-use title_select_engine::payload::{Checksums, Hasher};
-use title_select_engine::sevenz;
+use stage_select_engine::meter::{self, Tally, copy_chunked};
+use stage_select_engine::payload::{Checksums, Hasher};
+use stage_select_engine::sevenz;
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, kept_leaf, open_ingest};
 use crate::builds::sha256_of;
@@ -46,8 +46,8 @@ use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
 
 /// The name a copy into `dest` meant for `dest_name` is staged under: in the folder's own [`STATE`] directory when
-/// it has one, as a Source Set or Additions Set Title Select manages does, and otherwise beside `dest_name`, so that
-/// nothing is made in a folder Title Select doesn't manage but the hidden staged file itself.
+/// it has one, as a Source Set or Additions Set Stage Select manages does, and otherwise beside `dest_name`, so that
+/// nothing is made in a folder Stage Select doesn't manage but the hidden staged file itself.
 fn staged_in(dest: &FolderDir, dest_name: &str) -> io::Result<String> {
     let (dir, leaf) = match dest_name.rsplit_once('/') {
         Some((dir, leaf)) => (Some(dir), leaf),
@@ -56,7 +56,7 @@ fn staged_in(dest: &FolderDir, dest_name: &str) -> io::Result<String> {
     if dest.stat(STATE)?.is_some() {
         return Ok(staged_name(leaf));
     }
-    let beside = format!(".{leaf}.title-select-new-{}", unique());
+    let beside = format!(".{leaf}.stage-select-new-{}", unique());
     Ok(match dir {
         Some(dir) => format!("{dir}/{beside}"),
         None => beside,
@@ -66,7 +66,7 @@ fn staged_in(dest: &FolderDir, dest_name: &str) -> io::Result<String> {
 /// Where a move puts an entry.
 #[derive(Debug, Clone)]
 pub(crate) enum Destination {
-    /// The folder's own kept files: `.title-select/retained/<generation>/<kept_name>`.
+    /// The folder's own kept files: `.stage-select/retained/<generation>/<kept_name>`.
     Kept {
         generation: u64,
         kept_name: String,
@@ -346,7 +346,7 @@ fn is_seen(dir: &FolderDir, name: &str, seen: &Seen) -> io::Result<bool> {
     })
 }
 
-/// What an entry Title Select has just moved turned out to be.
+/// What an entry Stage Select has just moved turned out to be.
 enum Moving {
     /// The file planned, as it now is, and its SHA-256.
     Planned { file: FileStat, sha256: String },
@@ -357,7 +357,7 @@ enum Moving {
     },
 }
 
-/// Reads back the entry `name` of `dir`, which Title Select has just moved there, to tell whether it is still the
+/// Reads back the entry `name` of `dir`, which Stage Select has just moved there, to tell whether it is still the
 /// file `seen` planned: the same regular file, size and modification time, with no other link, reading as `expect`
 /// when given, and unchanged while it was read. Its change time is not compared with the plan's, since a rename
 /// changes it on most filesystems; reading it whole, with its change time steady meanwhile, stands in. Each byte read
@@ -1348,7 +1348,7 @@ impl Store {
                         .fail_move(
                             m.id,
                             format!(
-                                "{}/{staged_name} is not the copy Title Select was writing; it and {} were left as \
+                                "{}/{staged_name} is not the copy Stage Select was writing; it and {} were left as \
                                  they are",
                                 dest.path().display(),
                                 m.name
@@ -1366,7 +1366,7 @@ impl Store {
             && dest.stat(staged_name).map_err(io)?.is_some()
         {
             return fail(format!(
-                "{}/{staged_name} is not the copy Title Select was writing; it and {} were left as they are",
+                "{}/{staged_name} is not the copy Stage Select was writing; it and {} were left as they are",
                 dest.path().display(),
                 m.name
             ));
@@ -1579,7 +1579,7 @@ impl Store {
             }
         }
         let why = format!(
-            "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
+            "{}/{dest_name} is not the copy Stage Select wrote, so it and {} were left as they are",
             dest.path().display(),
             m.name
         );
@@ -2154,7 +2154,7 @@ fn exactly_repacked(
 
 fn checksums_of(mut file: &std::fs::File, tally: &Tally) -> io::Result<Checksums> {
     file.seek(SeekFrom::Start(0))?;
-    let mut file = title_select_engine::meter::Reading::new(file, tally);
+    let mut file = stage_select_engine::meter::Reading::new(file, tally);
     let mut hasher = Hasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
@@ -2331,10 +2331,10 @@ mod tests {
     use std::io::Write;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    use title_select_engine::sha256_hex;
+    use stage_select_engine::sha256_hex;
 
     use super::*;
-    use title_select_api::build::kept_name;
+    use stage_select_api::build::kept_name;
 
     struct Env {
         tmp: tempfile::TempDir,
@@ -2348,7 +2348,7 @@ mod tests {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
         }
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        use title_select_api::roots::{RootKind, RootSpec};
+        use stage_select_api::roots::{RootKind, RootSpec};
         for spec in [
             RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             RootSpec::new("lib", tmp.path().join("lib")).writable(),
@@ -2412,7 +2412,7 @@ mod tests {
                         .to_string_lossy()
                         .into_owned()
                 })
-                .filter(|p| !p.starts_with("store") && !p.ends_with(".title-select/marker"))
+                .filter(|p| !p.starts_with("store") && !p.ends_with(".stage-select/marker"))
                 .collect();
             found.sort();
             found
@@ -2441,7 +2441,7 @@ mod tests {
 
     /// The ROM `name` whose payload is `bytes`.
     fn rom_of(name: &str, bytes: &[u8]) -> ExpectedRom {
-        let mut hasher = title_select_engine::payload::Hasher::new();
+        let mut hasher = stage_select_engine::payload::Hasher::new();
         hasher.update(bytes);
         let sums = hasher.finish();
         ExpectedRom {
@@ -2474,7 +2474,7 @@ mod tests {
             Fault::IngestMoved,
         );
 
-        assert_eq!(env.listing(), ["in/.title-select/retained/1/pong.a26.kept"]);
+        assert_eq!(env.listing(), ["in/.stage-select/retained/1/pong.a26.kept"]);
         assert_eq!(env.unfinished(), 0);
         let kept = env.store.ingest_kept_files("in").unwrap();
         assert_eq!(kept.len(), 1);
@@ -2498,7 +2498,7 @@ mod tests {
                     .unwrap()
                     .count(),
                 1,
-                "{fault:?}: nothing of Title Select's is left in a folder it doesn't manage"
+                "{fault:?}: nothing of Stage Select's is left in a folder it doesn't manage"
             );
             assert_eq!(
                 std::fs::read(env.tmp.path().join("lib/Atari/Pong (USA).a26")).unwrap(),
@@ -2514,8 +2514,8 @@ mod tests {
     {
         let env = env();
         env.put("pong.a26", b"pong");
-        // A folder Title Select manages, whose copies are staged in its own private folder.
-        let state = env.tmp.path().join("lib/Atari/.title-select");
+        // A folder Stage Select manages, whose copies are staged in its own private folder.
+        let state = env.tmp.path().join("lib/Atari/.stage-select");
         std::fs::create_dir(&state).unwrap();
         std::fs::set_permissions(&state, std::os::unix::fs::PermissionsExt::from_mode(0o700))
             .unwrap();
@@ -2525,14 +2525,14 @@ mod tests {
         let synced = synced_on_recovery(&env, mv, Fault::IngestRenamed, |_, _| {});
         FORCE_COPY.with(|f| f.set(false));
 
-        for dir in ["lib/Atari/.title-select", "lib/Atari"] {
+        for dir in ["lib/Atari/.stage-select", "lib/Atari"] {
             assert!(synced.iter().any(|s| s == dir), "{dir} not in {synced:?}");
         }
         // No change time read after a stop is trusted, so its original is kept.
         assert_eq!(
             env.listing(),
             [
-                "in/.title-select/retained/1/pong.a26.kept",
+                "in/.stage-select/retained/1/pong.a26.kept",
                 "lib/Atari/Pong (USA).a26"
             ]
         );
@@ -2619,7 +2619,7 @@ mod tests {
         assert_eq!(
             env.listing(),
             [
-                "in/.title-select/retained/1/pong.zip.kept",
+                "in/.stage-select/retained/1/pong.zip.kept",
                 "lib/Atari/Pong (USA).zip"
             ]
         );
@@ -2730,7 +2730,7 @@ mod tests {
         let slot = env
             .tmp
             .path()
-            .join("in/.title-select/retained/.deleting/move-1");
+            .join("in/.stage-select/retained/.deleting/move-1");
         // Only its ctime tells: written through a descriptor with what it held, its mtime set back.
         env.store
             .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
@@ -2748,7 +2748,7 @@ mod tests {
         assert!(
             env.listing()
                 .iter()
-                .any(|p| p == "in/.title-select/retained/1/pong.a26.kept"),
+                .any(|p| p == "in/.stage-select/retained/1/pong.a26.kept"),
             "{:?}",
             env.listing()
         );
@@ -2802,7 +2802,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select/retained/1/pong.a26.kept".to_string(),
+                    "in/.stage-select/retained/1/pong.a26.kept".to_string(),
                     format!("lib/Atari/{dest}")
                 ],
                 "{dest}"
@@ -2811,7 +2811,7 @@ mod tests {
                 std::fs::read(
                     env.tmp
                         .path()
-                        .join("in/.title-select/retained/1/pong.a26.kept")
+                        .join("in/.stage-select/retained/1/pong.a26.kept")
                 )
                 .unwrap(),
                 b"pong"
@@ -2874,7 +2874,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select/retained/1/pong.a26.kept".to_string(),
+                    "in/.stage-select/retained/1/pong.a26.kept".to_string(),
                     "lib/Atari/Pong (USA).a26".to_string()
                 ]
             );
@@ -2884,7 +2884,7 @@ mod tests {
 
     #[test]
     fn an_original_being_kept_is_kept_after_a_stop_even_once_its_published_copy_is_gone() {
-        const KEPT: &str = "in/.title-select/retained/1";
+        const KEPT: &str = "in/.stage-select/retained/1";
         for case in [
             "kept from deleting",
             "kept as not exactly a rom",
@@ -2921,7 +2921,7 @@ mod tests {
             env.store
                 .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
                     if fault == Fault::IngestIsolated {
-                        overwrite_in_place(&base.join(".title-select/retained/.deleting/move-1"));
+                        overwrite_in_place(&base.join(".stage-select/retained/.deleting/move-1"));
                     }
                     if fault == Fault::IngestSetAside {
                         panic!("stopped");
@@ -2996,13 +2996,13 @@ mod tests {
             .unwrap()
             .clone()
             .expect("kept instead of deleted");
-        for dir in ["in", "in/.title-select/retained/.deleting"] {
+        for dir in ["in", "in/.stage-select/retained/.deleting"] {
             assert!(synced.iter().any(|s| s == dir), "{dir} not in {synced:?}");
         }
         assert_eq!(
             env.listing(),
             [
-                "in/.title-select/retained/1/pong.a26.kept",
+                "in/.stage-select/retained/1/pong.a26.kept",
                 "lib/Atari/Pong (USA).a26"
             ]
         );
@@ -3041,7 +3041,7 @@ mod tests {
                 Fault::IngestIsolated,
                 isolated_overwritten,
                 b"xxxx",
-                "in/.title-select/retained/1/pong.a26.kept",
+                "in/.stage-select/retained/1/pong.a26.kept",
             ),
         ] {
             let env = env();
@@ -3112,7 +3112,7 @@ mod tests {
         assert_eq!(
             listing,
             [
-                "in/.title-select/retained/1/pong.a26.2.kept",
+                "in/.stage-select/retained/1/pong.a26.2.kept",
                 "in/pong.a26",
                 "in/pong.a26.orig"
             ],
@@ -3140,7 +3140,7 @@ mod tests {
             assert_eq!(
                 env.listing(),
                 [
-                    "in/.title-select/retained/1/pong.a26.kept",
+                    "in/.stage-select/retained/1/pong.a26.kept",
                     "lib/Atari/Pong (USA).a26"
                 ],
                 "{exact:?}"
@@ -3218,8 +3218,8 @@ mod tests {
 
     #[test]
     fn a_stop_after_any_rename_ends_the_move_only_once_both_folders_are_synced() {
-        const KEPT: &str = "in/.title-select/retained/1";
-        const DELETING: &str = "in/.title-select/retained/.deleting";
+        const KEPT: &str = "in/.stage-select/retained/1";
+        const DELETING: &str = "in/.stage-select/retained/.deleting";
         type Case = (
             &'static str,
             Fault,
@@ -3266,7 +3266,7 @@ mod tests {
                 Fault::IngestSetAside,
                 |base, fault| {
                     if fault == Fault::IngestIsolated {
-                        let slot = base.join(".title-select/retained/.deleting/move-1");
+                        let slot = base.join(".stage-select/retained/.deleting/move-1");
                         overwrite_in_place(&slot);
                     }
                 },

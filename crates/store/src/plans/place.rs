@@ -7,12 +7,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 
-use title_select_api::DatFormat;
-use title_select_api::build::{
+use stage_select_api::DatFormat;
+use stage_select_api::build::{
     FileIdentity, FileOutcome, ItemKind, PlaceHow, PlacedOriginal, PlanItem, PlanPlace, PlanSource,
 };
-use title_select_api::report::{EvidenceLevel, Finding};
-use title_select_api::storage::{release_of, split_placed};
+use stage_select_api::report::{EvidenceLevel, Finding};
+use stage_select_api::storage::{release_of, split_placed};
 
 use super::{Folder, Inputs, Sources};
 
@@ -79,7 +79,7 @@ pub(super) fn place(
         .is_some_and(|r| r.may_write(&inputs.set_path));
     if !writable {
         notes.push(format!(
-            "single copy is on, but root {} doesn't let Title Select write to source set {set}'s folder, so \
+            "single copy is on, but root {} doesn't let Stage Select write to source set {set}'s folder, so \
              nothing is placed and each game is copied",
             inputs.set_root
         ));
@@ -235,7 +235,7 @@ pub(super) fn place(
     if chds > 0 {
         notes.push(format!(
             "{} placed as CHD, its game's only copy: each is checked by extracting it before it is placed, and a \
-             CD's cue sheet, which a CHD doesn't hold, is kept in Title Select's store until it goes back to source \
+             CD's cue sheet, which a CHD doesn't hold, is kept in Stage Select's store until it goes back to source \
              set {set}",
             match chds {
                 1 => "1 disc is".to_owned(),

@@ -1,4 +1,4 @@
-//! Ingest Folders: writable folders where new files arrive, the items Title Select finds in them, what assessing each
+//! Ingest Folders: writable folders where new files arrive, the items Stage Select finds in them, what assessing each
 //! one found, and the plans that move items out of them once you approve.
 
 use std::collections::BTreeMap;
@@ -66,7 +66,7 @@ pub enum ItemState {
     Gone,
     /// Every Source Set it matches already holds it.
     AlreadyHeld,
-    /// An archive Title Select does not open: RAR, a nested or whole-set archive, a 7z over the dictionary limit, or
+    /// An archive Stage Select does not open: RAR, a nested or whole-set archive, a 7z over the dictionary limit, or
     /// a folder; or a DAT it cannot import, such as one with no name.
     Unsupported,
     /// You dismissed it; it stays dismissed until it changes.
@@ -234,7 +234,7 @@ pub struct FoundSupportFile {
     pub imported: bool,
 }
 
-/// What an item is to Title Select once assessed.
+/// What an item is to Stage Select once assessed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Proposal {
@@ -423,7 +423,7 @@ pub struct IngestPlanContent {
     /// The kept files generation the plan's items are kept under.
     pub generation: u64,
     pub items: Vec<IngestPlanItem>,
-    /// Every entry of the folder but Title Select's own, by name.
+    /// Every entry of the folder but Stage Select's own, by name.
     pub fingerprint: Vec<FolderEntry>,
 }
 

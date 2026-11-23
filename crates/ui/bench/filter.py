@@ -101,7 +101,7 @@ def bench_service():
         port = s.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
     service = subprocess.Popen(
-        ["target/release/title-select", "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
+        ["target/release/stage-select", "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
          "--ui", str(site), "--dev-identity", "Benchmark"]
     )
     try:

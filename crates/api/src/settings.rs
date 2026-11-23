@@ -322,7 +322,7 @@ impl Default for SourceSetChecks {
     }
 }
 
-/// Which DAT Providers Title Select fetches newer DAT Revisions from (ADR 0012). Each is off until turned on.
+/// Which DAT Providers Stage Select fetches newer DAT Revisions from (ADR 0012). Each is off until turned on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FetchSettings {

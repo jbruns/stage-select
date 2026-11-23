@@ -4,17 +4,17 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::arcade::{
+use stage_select_api::arcade::{
     ArcadeSettings, Category, DriverStatus, ElectionStep, Variant, is_arcade_system,
     takes_arcade_settings,
 };
-use title_select_api::dat::MAME;
-use title_select_api::selection::{
+use stage_select_api::dat::MAME;
+use stage_select_api::selection::{
     ArcadePins, CategorySource, CuratedPin, DEPENDENCY_STAGE, Dependency, Selection,
     SelectionProfile, SupportFilePin,
 };
-use title_select_api::support::{SupportFileKind, version_number};
-use title_select_api::{GameStatus, SourceSetSystem};
+use stage_select_api::support::{SupportFileKind, version_number};
+use stage_select_api::{GameStatus, SourceSetSystem};
 
 use crate::parts::status::SupportFileStatus;
 
@@ -395,7 +395,7 @@ pub fn reset_arcade(profile: &mut SelectionProfile, system: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::{Rule, SelectionGroup, SystemSettings};
+    use stage_select_api::selection::{Rule, SelectionGroup, SystemSettings};
 
     fn dependency(title: &str, needed_by: &[&str]) -> Dependency {
         Dependency {

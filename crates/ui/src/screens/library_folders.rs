@@ -10,14 +10,14 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
-use title_select_api::additions::NewAddition;
-use title_select_api::build::{
+use stage_select_api::additions::NewAddition;
+use stage_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
     ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, KeptDeletion,
     KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
     PlanKeptDeletion, RETENTION,
 };
-use title_select_api::{
+use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
     SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelection,
 };
@@ -795,7 +795,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
             .and_then(Result::ok)
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| r.writable && r.kind != title_select_api::roots::RootKind::Ingest)
+            .filter(|r| r.writable && r.kind != stage_select_api::roots::RootKind::Ingest)
             .collect::<Vec<_>>()
     };
     let existing = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
@@ -1350,7 +1350,7 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
                             .items
                             .into_iter()
                             .map(|i| {
-                                let class = if i.reason == title_select_api::build::IncompleteReason::Failed {
+                                let class = if i.reason == stage_select_api::build::IncompleteReason::Failed {
                                     "failed"
                                 } else {
                                     ""
@@ -1466,7 +1466,7 @@ fn check_view(check: FolderCheck) -> impl IntoView {
         {(!check.drift.is_empty()).then(|| view! {
             <h3>"Not built here"</h3>
             <p class="note small">
-                "Entries Title Select did not build. They are left as they are; only one at a selected game's file \
+                "Entries Stage Select did not build. They are left as they are; only one at a selected game's file \
                 makes the folder incomplete."
             </p>
             <ul class="plain">
@@ -1510,7 +1510,7 @@ fn check_view(check: FolderCheck) -> impl IntoView {
     }
 }
 
-/// Plans a cleanup of what the latest check found: what to do with each entry Title Select did not build that you
+/// Plans a cleanup of what the latest check found: what to do with each entry Stage Select did not build that you
 /// choose, the kept files to put back, and the built files to repack as TorrentZip. Nothing changes until you
 /// approve the plan.
 #[component]
@@ -1592,7 +1592,7 @@ fn CleanupForm(
             if drift.is_empty() && repackable.is_empty() && kept.is_empty() {
                 return view! {
                     <p class="note">
-                        "Nothing to clean up: the latest check found nothing Title Select did not build, every built \
+                        "Nothing to clean up: the latest check found nothing Stage Select did not build, every built \
                         file is TorrentZip, and no files are kept aside."
                     </p>
                 }

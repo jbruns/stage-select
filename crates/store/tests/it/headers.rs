@@ -1,26 +1,26 @@
 //! Headers in the store: a stored Audit keeps what a DAT's Header Rule found (ADR 0016).
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::path::PathBuf;
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use std::collections::BTreeMap;
 
-use title_select_api::additions::AdditionState;
-use title_select_api::additions::NewAddition;
-use title_select_api::build::{
+use stage_select_api::additions::AdditionState;
+use stage_select_api::additions::NewAddition;
+use stage_select_api::build::{
     AddLibraryFolder, CleanupAction, FileOutcome, FolderCheck, PlanCleanup,
 };
-use title_select_api::ingest::{IngestAction, PlanIngest};
-use title_select_api::repair::{PlanRepair, RepairKind};
-use title_select_api::selection::{
+use stage_select_api::ingest::{IngestAction, PlanIngest};
+use stage_select_api::repair::{PlanRepair, RepairKind};
+use stage_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, SystemSettings, Winner,
 };
-use title_select_api::storage::{StorageFormat, SystemStorage};
-use title_select_api::{JobKind, JobState};
-use title_select_engine::{AuditEvidence, Finding, GameWarning, Reuse};
-use title_select_store::{Store, Workers};
+use stage_select_api::storage::{StorageFormat, SystemStorage};
+use stage_select_api::{JobKind, JobState};
+use stage_select_engine::{AuditEvidence, Finding, GameWarning, Reuse};
+use stage_select_store::{Store, Workers};
 
 const SET: &str = "No-Intro/Test - System";
 const WORKERS: Workers = Workers {
@@ -55,11 +55,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "ingest".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -140,7 +140,7 @@ impl Env {
             .unwrap();
     }
 
-    fn audit(&self, evidence: AuditEvidence) -> title_select_store::StoredAudit {
+    fn audit(&self, evidence: AuditEvidence) -> stage_select_store::StoredAudit {
         self.store
             .audit_source_set("Test - System", None, evidence)
             .unwrap()

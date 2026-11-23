@@ -5,11 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use title_select_api::selection::{
+use stage_select_api::selection::{
     Alternative, CoverageDrift, Dependency, Exclusion, GroupChoice, ReleaseRow, Role, Rule,
     Selection, SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
-use title_select_api::{
+use stage_select_api::{
     Availability, DatRevisionRecord, GameStatus, Job, JobKind, JobState, ProfileVersionRef,
     SelectionRecord, SelectionReleaseRow, Workers,
 };

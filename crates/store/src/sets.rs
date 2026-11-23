@@ -7,9 +7,9 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use super::beneath::resolve_beneath;
 use super::dats::split_dat;
 use super::{Error, Result, Store, now};
-use title_select_api::paths::{PathTemplate, TokenValues};
+use stage_select_api::paths::{PathTemplate, TokenValues};
 
-pub use title_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
+pub use stage_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
 
 pub(super) struct SourceSetRow {
     pub id: i64,
@@ -167,7 +167,7 @@ impl Store {
     }
 
     /// Registers a Source Set as `add_source_set` does, with the Coverage `coverage`: engine region names the caller
-    /// checked against the engine's vocabulary (`title_select_api::coverage::canonical`).
+    /// checked against the engine's vocabulary (`stage_select_api::coverage::canonical`).
     pub fn add_source_set_covering(
         &self,
         root: &str,

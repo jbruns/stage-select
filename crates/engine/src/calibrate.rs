@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use title_select_api::calibration::{CurvePoint, Knee};
+use stage_select_api::calibration::{CurvePoint, Knee};
 
 use crate::meter::{JobMeter, Tally};
 use crate::payload::Hasher;

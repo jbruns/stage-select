@@ -223,7 +223,7 @@ CHD's bytes 84..104, so it is also the parent disk's DAT `sha1`, which lets an A
 ## Consequences for the open tickets
 
 - **#236 (set layouts):** merged, one folder per parent, is what is distributed. MAME's search rule (own folder, then
-  ancestors, then a hash match under another name) is what Title Select's Audit must mirror to place a clone's disk.
+  ancestors, then a hash match under another name) is what Stage Select's Audit must mirror to place a clone's disk.
   A loose `<list>/<disk>.chd` is a valid software-list place.
 - **#234 (how dependencies count):** machine `merge=` disks are named in the DAT, but software-list disks shared with a
   parent are shared only by SHA-1 (26 cases in 0.289). 16 non-clone machines share a disk with their BIOS through

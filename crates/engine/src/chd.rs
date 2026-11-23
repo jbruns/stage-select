@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use title_select_api::build::ExpectedRom;
-use title_select_api::storage::ChdKind;
+use stage_select_api::build::ExpectedRom;
+use stage_select_api::storage::ChdKind;
 
 use crate::hex;
 use crate::meter::{JobMeter, Tally};
 
 /// The environment variable naming the chdman to run; without it, `chdman` on the `PATH`.
-pub const CHDMAN_ENV: &str = "TITLE_SELECT_CHDMAN";
+pub const CHDMAN_ENV: &str = "STAGE_SELECT_CHDMAN";
 
 /// The bytes of a CHD v5 header.
 pub const V5_HEADER: usize = 124;
@@ -584,7 +584,7 @@ pub struct Limits {
 impl Default for Limits {
     /// The configuration's defaults.
     fn default() -> Limits {
-        let timeouts = title_select_api::settings::ChdTimeouts::default();
+        let timeouts = stage_select_api::settings::ChdTimeouts::default();
         Limits {
             base: Duration::from_secs(timeouts.seconds),
             per_gib: Duration::from_secs(timeouts.seconds_per_gib),
@@ -1040,7 +1040,7 @@ pub fn disc_of<'r>(
     cue: Option<&[u8]>,
 ) -> Result<(ChdKind, Vec<&'r ExpectedRom>), String> {
     let sized: Vec<(&str, u64)> = roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
-    let kind = title_select_api::storage::chd_of(game, &sized).map_err(str::to_owned)?;
+    let kind = stage_select_api::storage::chd_of(game, &sized).map_err(str::to_owned)?;
     let bins = match (kind, cue) {
         (ChdKind::Cd, Some(cue)) => cue_matches(&cue_tracks(cue)?, roms)?,
         (ChdKind::Cd, None) => return Err("a CD is extracted by its cue sheet".into()),

@@ -15,8 +15,8 @@ use std::fs::File;
 use std::io;
 
 use rustix::fs::{FileType, Stat};
-use title_select_api::build::FileStat;
-use title_select_engine::meter::{Tally, copy_chunked};
+use stage_select_api::build::FileStat;
+use stage_select_engine::meter::{Tally, copy_chunked};
 
 use crate::builds::{sha256_of, still_sha256};
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
@@ -34,7 +34,7 @@ pub(crate) struct Original<'a> {
     pub id: Identity,
     pub file: FileStat,
     pub ctime: Option<i128>,
-    /// What it must read as, when that is known already: a file Title Select wrote.
+    /// What it must read as, when that is known already: a file Stage Select wrote.
     pub sha256: Option<&'a str>,
     /// Its folder's private `.deleting` area, on its filesystem.
     pub deleting: &'a FolderDir,
@@ -44,7 +44,7 @@ pub(crate) struct Original<'a> {
 
 /// Where it is carried.
 pub(crate) struct Dest<'a> {
-    /// The folder Title Select manages that the copy is staged in, on the destination's filesystem.
+    /// The folder Stage Select manages that the copy is staged in, on the destination's filesystem.
     pub root: &'a FolderDir,
     /// The folder it is put in, and its name there.
     pub dir: &'a FolderDir,
@@ -127,7 +127,7 @@ pub(crate) fn copy(
             }
             (Some(_), _) => {
                 return Ok(Err(format!(
-                    "{}/{staged} is not the copy Title Select was making of {}; it was left as it is",
+                    "{}/{staged} is not the copy Stage Select was making of {}; it was left as it is",
                     d.root.path().display(),
                     o.label
                 )));
@@ -170,7 +170,7 @@ pub(crate) fn copy(
         };
         if o.sha256.is_some_and(|want| want != sha) {
             return Ok(Err(format!(
-                "{} no longer reads as the file Title Select wrote",
+                "{} no longer reads as the file Stage Select wrote",
                 o.label
             )));
         }
@@ -212,7 +212,7 @@ pub(crate) fn copy(
     match d.dir.stat(d.name).map_err(io_err)? {
         Some(st) if is_file(&st, id) => Ok(Ok(st)),
         _ => Ok(Err(format!(
-            "what is in place of the copy of {} is not the copy Title Select made",
+            "what is in place of the copy of {} is not the copy Stage Select made",
             o.label
         ))),
     }
@@ -240,7 +240,7 @@ impl Held {
         let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
         if Identity::of(&st) != id {
             return Ok(Err(
-                "what is in place of its copy is not the copy Title Select made".into(),
+                "what is in place of its copy is not the copy Stage Select made".into(),
             ));
         }
         Ok(Ok(Held { file, st }))
@@ -262,7 +262,7 @@ impl Held {
             Some(st) if is_file(&st, Identity::of(&self.st)) => {}
             _ => {
                 return Ok(Err(
-                    "what is in place of its copy is not the copy Title Select made".into(),
+                    "what is in place of its copy is not the copy Stage Select made".into(),
                 ));
             }
         }
@@ -469,7 +469,7 @@ pub(crate) fn dispose_as(
                 Ok(Err(format!("{why}, so it was {kept}")))
             }
             Err(e) => Ok(Err(format!(
-                "{why}, and could not be kept ({e}); it was left at .title-select/retained/.deleting/{slot}"
+                "{why}, and could not be kept ({e}); it was left at .stage-select/retained/.deleting/{slot}"
             ))),
         };
     }
@@ -481,7 +481,7 @@ pub(crate) fn dispose_as(
             Ok(Err(format!("{why}, so it was put back and left as it is")))
         }
         Err(e) => Ok(Err(format!(
-            "{why}, and could not be put back ({e}); it was left at .title-select/retained/.deleting/{slot}"
+            "{why}, and could not be put back ({e}); it was left at .stage-select/retained/.deleting/{slot}"
         ))),
     }
 }

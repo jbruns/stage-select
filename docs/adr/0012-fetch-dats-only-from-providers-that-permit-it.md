@@ -22,7 +22,7 @@ differ:
 
 ## Decision
 
-- Title Select never sends any request to No-Intro, not even a version check. No-Intro DATs arrive only as files the
+- Stage Select never sends any request to No-Intro, not even a version check. No-Intro DATs arrive only as files the
   Operator drops in, and Following recognizes a newer revision from the DAT itself.
 - Fetching is opt-in per DAT Provider, off by default, and limited to Following Source Sets' systems. Redump: at
   most one DAT, one cue pack and one SBI pack per system per day, a descriptive User-Agent, at least a second between
@@ -38,7 +38,7 @@ differ:
 ## Amendment (2026-11-20): MAME support files
 
 The arcade selector (ADR 0027) reads progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`. They carry
-no licence, so they are never shipped in the image; Title Select fetches them from their maintainer's GitHub mirror
+no licence, so they are never shipped in the image; Stage Select fetches them from their maintainer's GitHub mirror
 instead, and credits the maintainer.
 
 - Under the same `[fetch] mame` switch as MAME's DATs, off by default: no request without the Operator's consent.

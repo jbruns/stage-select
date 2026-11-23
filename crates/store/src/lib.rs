@@ -55,14 +55,14 @@ pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
-pub use support_files::{SUPPORT_FILE_LIMIT, SUPPORT_FILES};
-pub use title_select_api::{
+pub use stage_select_api::{
     AuditSummary, DatRevisionRecord, DeletedDatRevision, DeletionBlocker, DeletionBlockerKind,
     ImportOutcome, Job, JobState, LastVerified, SourceSetRecord, Workers,
 };
+pub use support_files::{SUPPORT_FILE_LIMIT, SUPPORT_FILES};
 
 /// The database's file name in the store directory.
-pub const DATABASE: &str = "title-select.sqlite";
+pub const DATABASE: &str = "stage-select.sqlite";
 /// The directory, in the store directory, that holds DAT blobs.
 pub const DATS: &str = "dats";
 /// The directory, in the store directory, that holds the DAT-exact cue sheets of CDs placed as CHD, which a CHD doesn't
@@ -100,16 +100,16 @@ pub enum Error {
     JobActive {
         source_set: String,
         job: i64,
-        kind: title_select_api::JobKind,
+        kind: stage_select_api::JobKind,
     },
     /// A DAT Revision can't be deleted while something still depends on it: `message` says what, for you to read.
     #[error("{message}")]
     RevisionInUse {
         message: String,
-        blockers: Vec<title_select_api::DeletionBlocker>,
+        blockers: Vec<stage_select_api::DeletionBlocker>,
     },
     #[error(transparent)]
-    Audit(#[from] title_select_engine::Error),
+    Audit(#[from] stage_select_engine::Error),
     /// Games' regions can't be read: no reader was set by [`Store::set_regions`], as when the Selection engine's
     /// clone lists aren't available. What needs a Coverage, or regions, can't be worked out until they are.
     #[error("{0}")]
@@ -148,19 +148,19 @@ pub struct Store {
     /// Roots and settings on first use, and again as they or a Calibration change them.
     ceilings: ceilings::Live,
     /// The pace in the settings, which running Jobs read at each file.
-    pace: std::sync::RwLock<title_select_api::settings::Pace>,
+    pace: std::sync::RwLock<stage_select_api::settings::Pace>,
     /// The largest 7z dictionary in the settings, in MiB, which each Job reads as it starts.
     max_dictionary_mib: std::sync::atomic::AtomicU32,
     /// Every registered Root, replaced whole as one changes.
     roots: std::sync::RwLock<std::sync::Arc<roots::Roots>>,
-    /// The chdman the Service was told to run, if any; else `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`.
+    /// The chdman the Service was told to run, if any; else `STAGE_SELECT_CHDMAN`, else `chdman` on the `PATH`.
     chdman: std::sync::RwLock<Option<PathBuf>>,
     /// Held across each settings update's commit and publication, so they happen in the same order.
     settings_update: std::sync::Mutex<()>,
     /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
     regions: std::sync::OnceLock<coverage::RegionReader>,
     /// Counts the bytes and files every Job reads and writes, for each Job, each Root and in total.
-    meter: title_select_engine::meter::Meter,
+    meter: stage_select_engine::meter::Meter,
     /// Whether a repair carries a Placed Game's file between folders by a copy, as across filesystems, though one
     /// rename would do: set by [`Store::copy_across_filesystems`].
     copy_across: std::sync::atomic::AtomicBool,
@@ -215,15 +215,15 @@ pub enum Fault {
     /// After the entry of a cleanup's item with this sequence number is renamed and both folders are synced, before
     /// the store records it moved.
     MoveSynced(i64),
-    /// After a folder Title Select is creating in a Library Folder is made under its temporary name, before it is
+    /// After a folder Stage Select is creating in a Library Folder is made under its temporary name, before it is
     /// opened and checked.
     MadeDir,
-    /// After a folder Title Select is creating in a Library Folder is made and recorded under its temporary name,
+    /// After a folder Stage Select is creating in a Library Folder is made and recorded under its temporary name,
     /// before it is renamed into place.
     BeforePublishDir,
     /// As [`Fault::MadeDir`], for a Build's staging directory.
     MadeStaging,
-    /// After a folder Title Select is creating in a Library Folder is renamed into place, before its parent is
+    /// After a folder Stage Select is creating in a Library Folder is renamed into place, before its parent is
     /// synced and its identity recorded under its name.
     PublishedDir,
     /// As [`Fault::BeforePublishDir`], for a Build's staging directory.
@@ -444,7 +444,7 @@ fn lock(dir: &Path) -> Result<Lock> {
     match file.try_lock() {
         Ok(()) => Ok(Lock(file)),
         Err(TryLockError::WouldBlock) => Err(Error::Refused(format!(
-            "{}: the store is in use by another Title Select process",
+            "{}: the store is in use by another Stage Select process",
             dir.display()
         ))),
         Err(TryLockError::Error(e)) => Err(io_error(&path, e)),
@@ -463,7 +463,7 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 impl Store {
-    /// Runs `program` as chdman from now on, or, when `None`, the program `TITLE_SELECT_CHDMAN` names, else `chdman`
+    /// Runs `program` as chdman from now on, or, when `None`, the program `STAGE_SELECT_CHDMAN` names, else `chdman`
     /// on the `PATH`.
     pub fn use_chdman(&self, program: Option<PathBuf>) {
         *self.chdman.write().unwrap_or_else(|e| e.into_inner()) = program;
@@ -471,7 +471,7 @@ impl Store {
 
     /// The chdman to run, found as [`Store::use_chdman`] says.
     pub(crate) fn chdman(&self) -> std::result::Result<PathBuf, String> {
-        title_select_engine::chd::locate(
+        stage_select_engine::chd::locate(
             self.chdman
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -483,9 +483,9 @@ impl Store {
     /// and the dictionary limit in the settings; its bytes read are counted to `read`.
     pub(crate) fn decoding<'a>(
         &'a self,
-        read: &'a title_select_engine::meter::Tally,
-    ) -> title_select_engine::sevenz::Decoding<'a> {
-        title_select_engine::sevenz::Decoding {
+        read: &'a stage_select_engine::meter::Tally,
+    ) -> stage_select_engine::sevenz::Decoding<'a> {
+        stage_select_engine::sevenz::Decoding {
             gate: self.archive_gate(),
             max_dictionary_mib: self
                 .max_dictionary_mib
@@ -495,7 +495,7 @@ impl Store {
     }
 
     /// The meter that counts what every Job reads and writes.
-    pub fn meter(&self) -> &title_select_engine::meter::Meter {
+    pub fn meter(&self) -> &stage_select_engine::meter::Meter {
         &self.meter
     }
 
@@ -541,13 +541,13 @@ impl Store {
             ceilings: ceilings::Live::default(),
             pace: std::sync::RwLock::default(),
             max_dictionary_mib: std::sync::atomic::AtomicU32::new(
-                title_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB,
+                stage_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB,
             ),
             roots: std::sync::RwLock::default(),
             chdman: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),
-            meter: title_select_engine::meter::Meter::default(),
+            meter: stage_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
             free_space: std::sync::atomic::AtomicU64::new(u64::MAX),
             romm_syncs_waiting: std::sync::Arc::default(),
@@ -585,7 +585,7 @@ impl Store {
         );
     }
 
-    /// The bytes free to Title Select in the filesystem holding the folder `path` of Root `root`.
+    /// The bytes free to Stage Select in the filesystem holding the folder `path` of Root `root`.
     fn free_space(&self, root: &str, path: &str) -> Result<u64> {
         if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
@@ -596,7 +596,7 @@ impl Store {
         Ok(st.f_bavail.saturating_mul(st.f_frsize))
     }
 
-    /// The bytes free to Title Select in the filesystem holding the open folder `dir`, or what a test says.
+    /// The bytes free to Stage Select in the filesystem holding the open folder `dir`, or what a test says.
     fn free_in(&self, dir: impl std::os::fd::AsFd) -> Result<u64> {
         if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
@@ -704,7 +704,7 @@ impl Store {
     /// What `f` notes is handed to the observer once it returns successfully and the writer is released.
     fn with_writer<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         // A Job holding a reader permit may wait for the writer, so nothing holding it waits for one.
-        let _no_waits = title_select_engine::meter::NoReaderWaits::new();
+        let _no_waits = stage_select_engine::meter::NoReaderWaits::new();
         let mut conn = self.writer.lock().unwrap();
         observe::begin(self.observer.get().is_some());
         let out = f(&mut conn);
@@ -817,7 +817,7 @@ mod tests {
                 second = second.map(|_| ())
             );
         };
-        assert!(message.contains("in use by another Title Select process"));
+        assert!(message.contains("in use by another Stage Select process"));
         drop(first);
         Store::open(dir.path()).unwrap();
     }
@@ -898,7 +898,7 @@ mod tests {
         };
         assert_eq!(
             message,
-            "This store was made by an earlier release of Title Select and can't be opened. Start a new store."
+            "This store was made by an earlier release of Stage Select and can't be opened. Start a new store."
         );
     }
 

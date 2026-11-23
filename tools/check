@@ -10,7 +10,7 @@
 #                                                 clippy for X and nextest for X, with ARGS as nextest's filter
 #   tools/check [--dry-run] --ci                  exactly the commands GitHub CI runs (AGENTS.md, Build and test)
 #
-# X is a folder under crates/ (engine) or a package name (title-select-engine). --dry-run prints the commands
+# X is a folder under crates/ (engine) or a package name (stage-select-engine). --dry-run prints the commands
 # without running them. Builds go to /tmp/ts-target-<worktree folder> unless CARGO_TARGET_DIR is set, and through
 # sccache when it is on PATH and RUSTC_WRAPPER is unset. Needs git, jq, cargo-nextest and the POSIX tools.
 set -eu
@@ -107,15 +107,15 @@ fetch_lists() {
     run tools/curated-list/fetch
 }
 
-fixtures_filter="not binary_id(title-select-selection::fixtures)"
+fixtures_filter="not binary_id(stage-select-selection::fixtures)"
 
 wasm_clippy() {
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
-    run cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+    run cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+    run cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
 }
 
 release_fixtures() {
-    run cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+    run cargo nextest run --profile ci --release --locked --package stage-select-selection --test fixtures
 }
 
 if [ "$mode" = ci ]; then
@@ -171,7 +171,7 @@ with_dependents() {
 # Fetches the clone lists and the curated list when the tests of a crate in $1 read them: selection's, and those of
 # every crate that runs a selection.
 lists() {
-    readers=$(with_dependents " title-select-selection")
+    readers=$(with_dependents " stage-select-selection")
     for p in $1; do
         case "$readers " in
         *" $p "*)
@@ -288,14 +288,14 @@ affects() {
 pkg_args=
 for p in $affected; do pkg_args="$pkg_args -p $p"; done
 wasm=
-if affects title-select-api || affects title-select-ui; then
+if affects stage-select-api || affects stage-select-ui; then
     wasm=1
     say "wasm clippy: yes, the workbench is affected"
 else
     say "wasm clippy: no, api and ui are unaffected"
 fi
 fixtures=
-if affects title-select-selection; then
+if affects stage-select-selection; then
     fixtures=1
     say "release fixtures: yes, selection is affected"
 else

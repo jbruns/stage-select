@@ -6,18 +6,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use title_select_api::fetch::{
+use stage_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger, SUPPORT_SYSTEM,
 };
-use title_select_api::romm::{RommReconciled, RommReconciliation};
-use title_select_api::{Job, JobEvent, JobKind, JobProgress, SettingsChanged};
-use title_select_engine::Progress;
-use title_select_engine::calibrate::Limits;
-use title_select_selection::Engine;
-use title_select_store::Store;
-use title_select_store::fetch::Fetcher;
-use title_select_store::romm::Released;
-use title_select_store::romm::{PAGE, ScanStop, ScanTiming};
+use stage_select_api::romm::{RommReconciled, RommReconciliation};
+use stage_select_api::{Job, JobEvent, JobKind, JobProgress, SettingsChanged};
+use stage_select_engine::Progress;
+use stage_select_engine::calibrate::Limits;
+use stage_select_selection::Engine;
+use stage_select_store::Store;
+use stage_select_store::fetch::Fetcher;
+use stage_select_store::romm::Released;
+use stage_select_store::romm::{PAGE, ScanStop, ScanTiming};
 use tokio::sync::{Notify, broadcast};
 
 use crate::follow_ups::{self, FollowUps};
@@ -67,7 +67,7 @@ impl Jobs {
         &self,
         store: &Weak<Store>,
         folder: i64,
-    ) -> title_select_store::Result<Option<RommReconciliation>> {
+    ) -> stage_select_store::Result<Option<RommReconciliation>> {
         let kept =
             Store::reconcile_romm(store, folder, None, PAGE, &self.romm_scan, &self.romm_stop)?;
         if let Some(kept) = &kept {
@@ -89,14 +89,14 @@ impl Jobs {
     pub fn stop_romm_scans(&self, store: &Store) {
         self.romm_stop.stop();
         if let Err(err) = store.recover_romm_scans() {
-            eprintln!("title-select: the RomM scans followed weren't recorded as stopped: {err}");
+            eprintln!("stage-select: the RomM scans followed weren't recorded as stopped: {err}");
         }
     }
 
     /// Announces a Job's new state, and wakes the runner in case it can claim one now: this one, Queued, or one
     /// that waited for this one to end, as a stat walk waits for a Repair or Build of its Source Set.
     pub fn changed(&self, job: Job) {
-        let wake = job.state == title_select_api::JobState::Queued || job.state.is_final();
+        let wake = job.state == stage_select_api::JobState::Queued || job.state.is_final();
         self.notifier.job_changed(&job);
         self.publish(JobEvent::State(Box::new(job)));
         if wake {
@@ -131,7 +131,7 @@ fn request_romm_scan(store: &Arc<Store>, jobs: &Arc<Jobs>, id: i64) {
             }) {
                 Ok(ended) => ended,
                 Err(err) => {
-                    eprintln!("title-select: job {id}: the RomM scan wasn't requested: {err}");
+                    eprintln!("stage-select: job {id}: the RomM scan wasn't requested: {err}");
                     None
                 }
             };
@@ -150,7 +150,7 @@ fn sync_romm_additions(store: &Weak<Store>, jobs: &Arc<Jobs>, id: i64) {
     if let Err(err) = Store::sync_romm_additions(store, id, &timing, &jobs.romm_stop, &mut |job| {
         jobs.changed(job.clone())
     }) {
-        eprintln!("title-select: job {id}: RomM's Additions collection wasn't kept in step: {err}");
+        eprintln!("stage-select: job {id}: RomM's Additions collection wasn't kept in step: {err}");
     }
 }
 
@@ -164,11 +164,11 @@ pub fn delete_released_romm_collection(store: &Arc<Store>) {
                 collection_id,
                 error,
             }) => eprintln!(
-                "title-select: RomM's Additions collection {collection_id} wasn't deleted: {error}. It is tried again \
+                "stage-select: RomM's Additions collection {collection_id} wasn't deleted: {error}. It is tried again \
                  at the next start and before the next sync"
             ),
             Err(err) => {
-                eprintln!("title-select: RomM's Additions collection wasn't deleted: {err}")
+                eprintln!("stage-select: RomM's Additions collection wasn't deleted: {err}")
             }
             Ok(_) => {}
         },
@@ -182,7 +182,7 @@ fn reconcile_romm(store: &Weak<Store>, jobs: &Jobs, job: &Job) {
         Ok(Some(kept)) => jobs.reconciled(&kept),
         Ok(None) => {}
         Err(err) => eprintln!(
-            "title-select: job {}: RomM's view of its library folder wasn't compared: {err}",
+            "stage-select: job {}: RomM's view of its library folder wasn't compared: {err}",
             job.id
         ),
     }
@@ -213,23 +213,23 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>, engine: Option<Arc<Engine>>
                 continue;
             }
             Ok(Err(err)) => {
-                eprintln!("title-select: cannot claim a job: {err}");
+                eprintln!("stage-select: cannot claim a job: {err}");
                 drop(slot);
                 tokio::time::sleep(RETRY).await;
                 continue;
             }
             Err(err) => {
-                eprintln!("title-select: cannot claim a job: {err}");
+                eprintln!("stage-select: cannot claim a job: {err}");
                 drop(slot);
                 tokio::time::sleep(RETRY).await;
                 continue;
             }
         };
         if job.kind == JobKind::Calibration {
-            eprintln!("title-select: job {} started: calibration", job.id);
+            eprintln!("stage-select: job {} started: calibration", job.id);
         } else {
             eprintln!(
-                "title-select: job {} started: {} of {}",
+                "stage-select: job {} started: {} of {}",
                 job.id,
                 job.kind.as_str(),
                 job.ingest_folder.as_deref().unwrap_or(&job.source_set)
@@ -270,7 +270,7 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>, engine: Option<Arc<Engine>>
             // Its throughput was recorded as it ended, in the same write.
             store.end_metering(id);
             if let Some(job) = job {
-                eprintln!("title-select: job {} {}", job.id, job.state.as_str());
+                eprintln!("stage-select: job {} {}", job.id, job.state.as_str());
                 // Set before the scan's end is announced, so that whoever sees it end sees its follow-up too.
                 if job.kind == JobKind::IngestScan {
                     let (store, jobs, job) = (store.clone(), jobs.clone(), job.clone());
@@ -293,12 +293,12 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>, engine: Option<Arc<Engine>>
             match owed {
                 Ok(Ok(owed)) => {
                     for why in owed.failed {
-                        eprintln!("title-select: cannot queue an owed audit: {why}");
+                        eprintln!("stage-select: cannot queue an owed audit: {why}");
                     }
                     owed.queued.into_iter().for_each(|job| jobs.changed(job));
                 }
-                Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
-                Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+                Ok(Err(err)) => eprintln!("stage-select: cannot queue an owed audit: {err}"),
+                Err(err) => eprintln!("stage-select: cannot queue an owed audit: {err}"),
             }
             // An Audit a finished repair owes waits for the Job it met to end too.
             let owed = {
@@ -308,12 +308,12 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>, engine: Option<Arc<Engine>>
             match owed {
                 Ok(Ok(owed)) => {
                     for why in owed.failed {
-                        eprintln!("title-select: cannot queue an owed audit: {why}");
+                        eprintln!("stage-select: cannot queue an owed audit: {why}");
                     }
                     owed.queued.into_iter().for_each(|job| jobs.changed(job));
                 }
-                Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
-                Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+                Ok(Err(err)) => eprintln!("stage-select: cannot queue an owed audit: {err}"),
+                Err(err) => eprintln!("stage-select: cannot queue an owed audit: {err}"),
             }
             // Additions Jobs a Repair or Build Job queued as it ended publish what it kept aside.
             let queued = {
@@ -368,7 +368,7 @@ fn run_one(store: &Store, jobs: &Jobs, kind: JobKind, id: i64, version: u64) -> 
         JobKind::Repair => store.run_repair_job(id, Some(&progress)),
         JobKind::Calibration => store.run_calibration(
             id,
-            &title_select_store::calibration::Calibrating {
+            &stage_select_store::calibration::Calibrating {
                 limits: jobs.calibration,
                 progress: Some(&progress),
                 ..Default::default()
@@ -379,7 +379,7 @@ fn run_one(store: &Store, jobs: &Jobs, kind: JobKind, id: i64, version: u64) -> 
     let ended = match ran {
         Ok(job) => Some(job),
         Err(err) => {
-            eprintln!("title-select: job {id}: {err}");
+            eprintln!("stage-select: job {id}: {err}");
             match store.job(id) {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &err.to_string()).ok(),
@@ -403,7 +403,7 @@ fn run_additions(store: &Store, id: i64) -> Option<Job> {
     match store.run_additions_job(id) {
         Ok(job) => Some(job),
         Err(err) => {
-            eprintln!("title-select: job {id}: {err}");
+            eprintln!("stage-select: job {id}: {err}");
             match store.job(id) {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &err.to_string()).ok(),
@@ -417,7 +417,7 @@ fn run_ingest_scan(store: &Store, id: i64) -> Option<Job> {
     match store.run_ingest_scan_job(id) {
         Ok(job) => Some(job),
         Err(err) => {
-            eprintln!("title-select: job {id}: {err}");
+            eprintln!("stage-select: job {id}: {err}");
             match store.job(id) {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &err.to_string()).ok(),
@@ -431,7 +431,7 @@ fn run_stat_walk(store: &Store, id: i64) -> Option<Job> {
     match store.run_stat_walk_job(id) {
         Ok(job) => Some(job),
         Err(err) => {
-            eprintln!("title-select: job {id}: {err}");
+            eprintln!("stage-select: job {id}: {err}");
             match store.job(id) {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &err.to_string()).ok(),
@@ -462,8 +462,8 @@ pub async fn schedule_stat_walks(store: Arc<Store>, jobs: Arc<Jobs>) {
         .await;
         match queued {
             Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
-            Ok(Err(err)) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
-            Err(err) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
+            Ok(Err(err)) => eprintln!("stage-select: cannot queue scheduled checks: {err}"),
+            Err(err) => eprintln!("stage-select: cannot queue scheduled checks: {err}"),
         }
     }
 }
@@ -486,11 +486,11 @@ pub async fn schedule_fetches(store: Arc<Store>, fetcher: Arc<Fetcher>) {
         let fetch = match settings {
             Ok(Ok(settings)) => settings.fetch,
             Ok(Err(err)) => {
-                eprintln!("title-select: cannot read the settings to fetch: {err}");
+                eprintln!("stage-select: cannot read the settings to fetch: {err}");
                 continue;
             }
             Err(err) => {
-                eprintln!("title-select: cannot read the settings to fetch: {err}");
+                eprintln!("stage-select: cannot read the settings to fetch: {err}");
                 continue;
             }
         };
@@ -504,13 +504,13 @@ pub async fn schedule_fetches(store: Arc<Store>, fetcher: Arc<Fetcher>) {
             })
             .await;
             match fetched {
-                Ok(Ok(_)) | Ok(Err(title_select_store::Error::Conflict(_))) => {}
+                Ok(Ok(_)) | Ok(Err(stage_select_store::Error::Conflict(_))) => {}
                 Ok(Err(err)) => eprintln!(
-                    "title-select: cannot fetch from {}: {err}",
+                    "stage-select: cannot fetch from {}: {err}",
                     provider.dat_provider()
                 ),
                 Err(err) => eprintln!(
-                    "title-select: cannot fetch from {}: {err}",
+                    "stage-select: cannot fetch from {}: {err}",
                     provider.dat_provider()
                 ),
             }
@@ -521,8 +521,8 @@ pub async fn schedule_fetches(store: Arc<Store>, fetcher: Arc<Fetcher>) {
 /// Logs what a fetch brought, and where it stopped if it did.
 pub fn log_fetch(
     provider: FetchProvider,
-    fetched: Result<FetchReport, title_select_store::Error>,
-) -> Result<FetchReport, title_select_store::Error> {
+    fetched: Result<FetchReport, stage_select_store::Error>,
+) -> Result<FetchReport, stage_select_store::Error> {
     if let Ok(report) = &fetched {
         let name = provider.dat_provider();
         for attempt in &report.attempts {
@@ -548,11 +548,11 @@ pub fn log_fetch(
                 } else {
                     format!(" of {}", attempt.system)
                 };
-                eprintln!("title-select: fetched a new {what}{of}{version} from {name}");
+                eprintln!("stage-select: fetched a new {what}{of}{version} from {name}");
             }
         }
         if let Some(why) = &report.stopped {
-            eprintln!("title-select: a fetch from {name} stopped, and kept what it had: {why}");
+            eprintln!("stage-select: a fetch from {name} stopped, and kept what it had: {why}");
         }
     }
     fetched
@@ -576,11 +576,11 @@ pub async fn schedule_ingest_scans(store: Arc<Store>, jobs: Arc<Jobs>) {
         let settings = match settings {
             Ok(Ok(settings)) => settings,
             Ok(Err(err)) => {
-                eprintln!("title-select: cannot read the settings to scan: {err}");
+                eprintln!("stage-select: cannot read the settings to scan: {err}");
                 continue;
             }
             Err(err) => {
-                eprintln!("title-select: cannot read the settings to scan: {err}");
+                eprintln!("stage-select: cannot read the settings to scan: {err}");
                 continue;
             }
         };
@@ -603,10 +603,10 @@ pub async fn schedule_ingest_scans(store: Arc<Store>, jobs: Arc<Jobs>) {
                     .await;
             match queued {
                 Ok(Ok(job)) => jobs.changed(job),
-                Ok(Err(title_select_store::Error::JobActive { .. }))
-                | Ok(Err(title_select_store::Error::Conflict(_))) => {}
-                Ok(Err(err)) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
-                Err(err) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
+                Ok(Err(stage_select_store::Error::JobActive { .. }))
+                | Ok(Err(stage_select_store::Error::Conflict(_))) => {}
+                Ok(Err(err)) => eprintln!("stage-select: cannot queue a scheduled scan: {err}"),
+                Err(err) => eprintln!("stage-select: cannot queue a scheduled scan: {err}"),
             }
         }
     }
@@ -639,7 +639,7 @@ fn run_selection(store: &Arc<Store>, engine: Option<Arc<Engine>>, id: i64) -> Op
     match ended {
         Ok(job) => Some(job),
         Err(message) => {
-            eprintln!("title-select: job {id}: {message}");
+            eprintln!("stage-select: job {id}: {message}");
             match store.job(id) {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &message).ok(),

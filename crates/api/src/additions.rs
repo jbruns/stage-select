@@ -150,7 +150,7 @@ pub struct AdditionsSet {
     pub leftovers: Vec<AdditionsLeftover>,
 }
 
-/// A temporary folder an attempt to create an Additions Set's folder left in the Root `additions`. Title Select never
+/// A temporary folder an attempt to create an Additions Set's folder left in the Root `additions`. Stage Select never
 /// deletes it; you may remove it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdditionsLeftover {

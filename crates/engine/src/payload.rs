@@ -2,7 +2,7 @@
 
 use sha1::Digest;
 
-use title_select_api::HeaderRule;
+use stage_select_api::HeaderRule;
 
 use crate::dat::{DumpStatus, Rom};
 use crate::hex;

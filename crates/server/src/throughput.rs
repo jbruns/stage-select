@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use title_select_api::settings::Pace;
-use title_select_api::{ByteCaps, JobEvent, JobLoad, Rates, RootRates, Throughput};
-use title_select_engine::meter::{Sample, Window};
-use title_select_store::Store;
+use stage_select_api::settings::Pace;
+use stage_select_api::{ByteCaps, JobEvent, JobLoad, Rates, RootRates, Throughput};
+use stage_select_engine::meter::{Sample, Window};
+use stage_select_store::Store;
 
 use crate::jobs::Jobs;
 
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
 
     fn sample(read: u64, jobs: usize) -> Sample {
-        let counted = title_select_engine::meter::Counted {
+        let counted = stage_select_engine::meter::Counted {
             read,
             ..Default::default()
         };
@@ -276,14 +276,14 @@ mod tests {
             total: counted,
             roots: vec![("roms".into(), counted)],
             jobs: (0..jobs)
-                .map(|_| title_select_engine::meter::JobSample {
+                .map(|_| stage_select_engine::meter::JobSample {
                     id: 1,
                     counted,
                     roots: vec![("roms".into(), counted)],
                     readers: 1,
                     hashers: 1,
                     chdman: false,
-                    ceilings: title_select_engine::ONE_WORKER_EACH,
+                    ceilings: stage_select_engine::ONE_WORKER_EACH,
                     allowance: None,
                 })
                 .collect(),
@@ -375,21 +375,21 @@ mod tests {
             write_bytes_per_s: None,
         };
         let caps = BTreeMap::from([("b".to_owned(), capped)]);
-        let read = |n| title_select_engine::meter::Counted {
+        let read = |n| stage_select_engine::meter::Counted {
             read: n,
             ..Default::default()
         };
         let sample = |a, b| Sample {
             total: read(a + b),
             roots: vec![("a".into(), read(a)), ("b".into(), read(b))],
-            jobs: vec![title_select_engine::meter::JobSample {
+            jobs: vec![stage_select_engine::meter::JobSample {
                 id: 1,
                 counted: read(a + b),
                 roots: vec![("a".into(), read(a)), ("b".into(), read(b))],
                 readers: 1,
                 hashers: 1,
                 chdman: false,
-                ceilings: title_select_engine::ONE_WORKER_EACH,
+                ceilings: stage_select_engine::ONE_WORKER_EACH,
                 allowance: None,
             }],
         };

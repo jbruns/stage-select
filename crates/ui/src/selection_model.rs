@@ -3,9 +3,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::GameStatus;
-use title_select_api::arcade::same_name;
-use title_select_api::selection::{
+use stage_select_api::GameStatus;
+use stage_select_api::arcade::same_name;
+use stage_select_api::selection::{
     ChoiceStatus, Exclusion, ReleaseRow, Role, Rule, Selection, SelectionGroup, SelectionOptions,
     SelectionProfile, SystemSettings,
 };
@@ -717,7 +717,7 @@ pub fn add_item(list: &mut Vec<String>, typed: &str) -> bool {
 /// Why an unresolved group needs your decision: its discs, when the selection's picks or your choice leave a
 /// multi-disc game mixed or missing a disc, otherwise a tie-break.
 pub fn unresolved_explanation(group: &SelectionGroup) -> String {
-    match title_select_api::discs::unresolved_reason(group) {
+    match stage_select_api::discs::unresolved_reason(group) {
         Some(reason) => {
             let mut chars = reason.chars();
             let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
@@ -746,8 +746,8 @@ pub fn lines(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::arcade::ArcadeSettings;
-    use title_select_api::selection::{
+    use stage_select_api::arcade::ArcadeSettings;
+    use stage_select_api::selection::{
         Alternative, Category, CoverageDrift, Dependency, Exclusion, GroupChoice, Rule,
         SelectionOptions, SelectionPins, SelectionSummary, Winner,
     };
@@ -1350,9 +1350,9 @@ mod tests {
 
     #[test]
     fn a_group_needs_review_when_a_build_flagged_a_release_it_keeps() {
-        let flag = |game: &str| title_select_api::ReviewFlag {
+        let flag = |game: &str| stage_select_api::ReviewFlag {
             game: game.into(),
-            path: format!(".title-select/placed/7/{game}.zip"),
+            path: format!(".stage-select/placed/7/{game}.zip"),
             reason: "its CRC32 differs from the DAT's".into(),
             build: 3,
             raised_at: "t".into(),
@@ -1383,7 +1383,7 @@ mod tests {
         let outside = Exclusion {
             title: "Pong (Japan)".into(),
             rule: Rule::coverage(),
-            reason: title_select_api::selection::COVERAGE_MESSAGE.into(),
+            reason: stage_select_api::selection::COVERAGE_MESSAGE.into(),
         };
         assert_eq!(
             exclusion_text(&outside),

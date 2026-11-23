@@ -3,10 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
-use title_select_api::build::AddLibraryFolder;
-use title_select_api::roots::RootSpec;
-use title_select_api::selection::SelectionProfile;
-use title_select_store::{Error, Store, Workers};
+use stage_select_api::build::AddLibraryFolder;
+use stage_select_api::roots::RootSpec;
+use stage_select_api::selection::SelectionProfile;
+use stage_select_store::{Error, Store, Workers};
 
 use crate::common::*;
 

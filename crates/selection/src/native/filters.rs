@@ -1,4 +1,4 @@
-//! The language and region filters (`modules/title_selection/filter_languages.py`, `filter_regions.py`).
+//! The language and region filters (`modules/stage_selection/filter_languages.py`, `filter_regions.py`).
 
 use super::node::{COVERAGE_REMOVES, Groups, Run, Titles};
 
@@ -85,7 +85,7 @@ pub(crate) fn filter_coverage(
     coverage: &[String],
 ) -> PyResult<()> {
     for id in 0..run.nodes.len() {
-        if !title_select_api::coverage::covered(&run.n(id).regions, Some(coverage)) {
+        if !stage_select_api::coverage::covered(&run.n(id).regions, Some(coverage)) {
             run.uncovered.insert(id);
         }
     }
@@ -102,7 +102,7 @@ pub(crate) fn filter_coverage(
             .get_mut(CLONE_LIST_IGNORES)
             .expect("a Retool list")
             .shift_remove(&title);
-        run.m(title).exclude_reason = title_select_api::selection::COVERAGE_MESSAGE.into();
+        run.m(title).exclude_reason = stage_select_api::selection::COVERAGE_MESSAGE.into();
         run.remove_into(COVERAGE_REMOVES, title);
     }
     let names: Vec<String> = groups.keys().cloned().collect();
@@ -111,7 +111,7 @@ pub(crate) fn filter_coverage(
         let mut kept = Titles::new();
         for &title in &groups[&group] {
             if run.uncovered.contains(&title) {
-                run.m(title).exclude_reason = title_select_api::selection::COVERAGE_MESSAGE.into();
+                run.m(title).exclude_reason = stage_select_api::selection::COVERAGE_MESSAGE.into();
                 run.remove_into(COVERAGE_REMOVES, title);
             } else {
                 kept.insert(title);

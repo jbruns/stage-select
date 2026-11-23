@@ -263,9 +263,9 @@ pub struct Selection {
 /// port's or the arcade selector's (ADR 0027), never both.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionPins {
-    /// The Title Select version whose engine made the Selection: absent on a Selection made before the cutover.
+    /// The Stage Select version whose engine made the Selection: absent on a Selection made before the cutover.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title_select_version: Option<String>,
+    pub stage_select_version: Option<String>,
     /// What the Retool port chose with: only on a Selection of a DAT other than an Arcade DAT.
     #[serde(flatten)]
     pub retool: Option<RetoolPins>,
@@ -777,10 +777,10 @@ mod tests {
         .unwrap();
         let retool = old.retool.as_ref().unwrap();
         assert_eq!(retool.retool_commit.as_deref(), Some("59f169f"));
-        assert_eq!(old.title_select_version, None);
+        assert_eq!(old.stage_select_version, None);
 
         let new = SelectionPins {
-            title_select_version: Some("0.7.0".into()),
+            stage_select_version: Some("0.7.0".into()),
             retool: Some(RetoolPins {
                 clone_list_commit: "cdeb391".into(),
                 trace_schema: 1,
@@ -790,14 +790,14 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&new).unwrap(),
-            r#"{"title_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
+            r#"{"stage_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
         );
     }
 
     #[test]
     fn arcade_pins_carry_no_retool_pins() {
         let pins = SelectionPins {
-            title_select_version: Some("0.7.0".into()),
+            stage_select_version: Some("0.7.0".into()),
             retool: None,
             arcade: Some(ArcadePins {
                 build: "0.289 (mame0289)".into(),
@@ -811,7 +811,7 @@ mod tests {
         let json = serde_json::to_string(&pins).unwrap();
         assert_eq!(
             json,
-            r#"{"title_select_version":"0.7.0","arcade":{"build":"0.289 (mame0289)","category":"listxml_heuristic"}}"#
+            r#"{"stage_select_version":"0.7.0","arcade":{"build":"0.289 (mame0289)","category":"listxml_heuristic"}}"#
         );
         let read: SelectionPins = serde_json::from_str(&json).unwrap();
         assert_eq!(read, pins);

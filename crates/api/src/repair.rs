@@ -264,7 +264,7 @@ pub struct RepairPlanContent {
     pub folder: FileIdentity,
     pub items: Vec<RepairItem>,
     pub steps: Vec<PlannedStep>,
-    /// Every entry in the Source Set but Title Select's own, by path relative to its folder, as it was when the plan
+    /// Every entry in the Source Set but Stage Select's own, by path relative to its folder, as it was when the plan
     /// was made. Anything changed since refuses the approval.
     pub fingerprint: Vec<FolderEntry>,
     /// What the plan leaves as it is, and why.

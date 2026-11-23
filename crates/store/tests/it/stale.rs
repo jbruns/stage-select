@@ -1,12 +1,12 @@
 //! Stale Source Sets: what a stat walk finds against the latest Audit, and what a newer DAT Revision does to a
 //! Source Set that Follows its DAT, from synthetic DATs and Source Sets.
 
+use stage_select_api::roots::RootSpec;
 use std::path::PathBuf;
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::{AuditEvidence, JobKind, JobState, SourceSetStale};
-use title_select_store::{Error, Store};
+use stage_select_api::{AuditEvidence, JobKind, JobState, SourceSetStale};
+use stage_select_store::{Error, Store};
 
 fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
     vec![
@@ -63,7 +63,7 @@ impl Env {
     }
 
     /// Queues a stat walk of `name`, then claims and runs it.
-    fn walk(&self, name: &str) -> title_select_api::Job {
+    fn walk(&self, name: &str) -> stage_select_api::Job {
         let job = self.store.enqueue_stat_walk(name, "Operator").unwrap();
         assert_eq!(job.kind, JobKind::StatWalk);
         let claimed = self.store.claim_job().unwrap().unwrap();
@@ -198,7 +198,7 @@ fn a_stat_walk_waits_behind_every_other_queued_job() {
             "Beta",
             None,
             "Operator",
-            title_select_store::Workers {
+            stage_select_store::Workers {
                 readers: 1,
                 hashers: 1,
             },
@@ -380,7 +380,7 @@ fn a_stat_walk_the_service_stopped_in_is_never_queued_again() {
 
     let interrupted = env
         .store
-        .recover_jobs(title_select_store::Workers {
+        .recover_jobs(stage_select_store::Workers {
             readers: 1,
             hashers: 1,
         })
@@ -478,7 +478,7 @@ fn each_newer_revision_that_made_a_followed_source_set_stale_stays_in_its_histor
 
 /// Moves the Source Set `name`'s audits and check jobs back in time, `hours` before now.
 fn backdate(env: &Env, name: &str, audits: i64, created: i64, finished: i64) {
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     let ago =
         |hours: i64| (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(hours)).to_string();
     let set = "(SELECT id FROM source_sets WHERE name = ?1)";
@@ -539,7 +539,7 @@ fn a_check_that_waited_long_to_run_is_due_again_an_interval_after_it_finished() 
     env.walk("Alpha");
     // Queued 3 hours ago, it waited behind other jobs and finished a minute ago.
     backdate(&env, "Alpha", 4, 3, 0);
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     let minute_ago = (jiff::Timestamp::now() - jiff::SignedDuration::from_mins(1)).to_string();
     db.execute(
         "UPDATE jobs SET finished_at = ?1 WHERE kind = 'stat_walk'",
@@ -559,7 +559,7 @@ fn a_check_that_waited_long_to_run_is_due_again_an_interval_after_it_finished() 
 /// What the store reported as it happened, kept for a test to read.
 fn observing(
     store: &Store,
-) -> std::sync::Arc<std::sync::Mutex<Vec<title_select_store::observe::Observed>>> {
+) -> std::sync::Arc<std::sync::Mutex<Vec<stage_select_store::observe::Observed>>> {
     let seen: std::sync::Arc<std::sync::Mutex<Vec<_>>> = Default::default();
     let kept = seen.clone();
     store.set_observer(move |o| kept.lock().unwrap().push(o));
@@ -568,7 +568,7 @@ fn observing(
 
 #[test]
 fn each_time_a_source_set_goes_stale_is_reported_once_as_it_is_committed() {
-    use title_select_store::observe::Observed;
+    use stage_select_store::observe::Observed;
     let env = Env::new();
     env.audit("Alpha", AuditEvidence::Incremental);
     env.audit("Beta", AuditEvidence::Incremental);

@@ -48,7 +48,7 @@ the one a Conversion read.
   original is deleted only when:
   - its converted file verifies: a ZIP is canonical as `zipdir` opens it and its members' payloads match the ROMs'
     hashes and sizes exactly; a loose file's hashes match the ROM exactly; and
-  - the original, read back in `.title-select-retained/.deleting` through a descriptor held across the rename,
+  - the original, read back in `.stage-select-retained/.deleting` through a descriptor held across the rename,
     matches the hash, size and stamp of its conversion record, its change time unchanged while it
     was hashed. The change time after the rename is read through that descriptor and recorded before the unlink.
 - **A stamp from a path never authorizes a deletion.** Recovery deletes a file stopped in `.deleting` only when it

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub use title_select_test_fixtures::*;
+pub use stage_select_test_fixtures::*;
 
 pub fn rom_without_sha256(name: &'static str, payload: &[u8]) -> RomSpec {
     RomSpec {

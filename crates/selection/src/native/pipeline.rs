@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use title_select_api::selection::SelectionProfile;
+use stage_select_api::selection::SelectionProfile;
 
 use super::Limits;
 use super::clone_lists::{self, Lookup};

@@ -7,8 +7,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use super::blobs::write_blob;
 use super::{Error, Result, Store, io_error, now};
 
-use title_select_api::ImportOutcome;
-use title_select_api::support::{
+use stage_select_api::ImportOutcome;
+use stage_select_api::support::{
     SupportFileKind, SupportFileOrigin, SupportFileRecord, read_header,
 };
 
@@ -77,7 +77,7 @@ impl Store {
             )));
         }
         let (kind, version) = read_header(bytes, file).map_err(Error::Refused)?;
-        let sha = title_select_engine::sha256_hex(bytes);
+        let sha = stage_select_engine::sha256_hex(bytes);
         let dir = self.dir.join(SUPPORT_FILES);
         let path = dir.join(&sha);
         self.with_writer(|conn| {

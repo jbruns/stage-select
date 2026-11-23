@@ -1,4 +1,4 @@
-//! Title Select's Service: the `/api/v1` JSON API over the store, durable Audit and Selection Jobs, live Selection
+//! Stage Select's Service: the `/api/v1` JSON API over the store, durable Audit and Selection Jobs, live Selection
 //! previews and Operator auth (ADR 0003).
 //!
 //! The Service owns the store, and its lock, for as long as it runs.
@@ -16,12 +16,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use title_select_api::JobKind;
-use title_select_api::calibration::CalibrationStale;
-pub use title_select_engine::calibrate::Limits as CalibrationLimits;
-use title_select_store::Store;
-use title_select_store::fetch::{Endpoints, Fetcher};
-use title_select_store::romm::ScanTiming;
+use stage_select_api::JobKind;
+use stage_select_api::calibration::CalibrationStale;
+pub use stage_select_engine::calibrate::Limits as CalibrationLimits;
+use stage_select_store::Store;
+use stage_select_store::fetch::{Endpoints, Fetcher};
+use stage_select_store::romm::ScanTiming;
 
 pub use auth::{AuthSettings, DEV_IDENTITY, IDENTITY_HEADER, TOKEN_ACTOR, TRUSTED_PROXIES};
 pub use ipnet::IpNet;
@@ -37,14 +37,14 @@ pub struct Settings {
     pub store: PathBuf,
     /// How the Service knows a request comes from the Operator, beside the token.
     pub auth: AuthSettings,
-    /// The chdman to run. When `None`, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
+    /// The chdman to run. When `None`, the program `STAGE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
     pub chdman: Option<PathBuf>,
     pub listen: SocketAddr,
     /// The file holding the Operator token, if the token is enabled.
     pub token_file: Option<PathBuf>,
     /// The workbench's built bundle, served at `/` (ADR 0005).
     pub ui: Option<PathBuf>,
-    /// The clone lists the selection engine reads; by default `$TITLE_SELECT_CLONE_LISTS`, else
+    /// The clone lists the selection engine reads; by default `$STAGE_SELECT_CLONE_LISTS`, else
     /// `/opt/clone-lists`. Without them the Service still starts, and refuses Selections and previews.
     pub clone_lists: Option<PathBuf>,
     /// Leaves queued Jobs queued, so tests can observe them.
@@ -73,7 +73,7 @@ pub enum StartError {
     #[error("refusing to start: {0}")]
     Auth(String),
     #[error(transparent)]
-    Store(#[from] title_select_store::Error),
+    Store(#[from] stage_select_store::Error),
     #[error("cannot listen on {0}: {1}")]
     Listen(SocketAddr, std::io::Error),
     #[error("cannot start the runtime: {0}")]
@@ -106,10 +106,10 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         notify_backoff,
         mount_points,
     } = settings;
-    let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
+    let engine = match stage_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
         Err(err) => {
-            eprintln!("title-select: selections are unavailable: {err}");
+            eprintln!("stage-select: selections are unavailable: {err}");
             None
         }
     };
@@ -119,7 +119,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     if let Some(engine) = &engine {
         match engine.regions() {
             Ok(regions) => store.set_regions(move |game| regions.of(game)),
-            Err(err) => eprintln!("title-select: coverage is unavailable: {err}"),
+            Err(err) => eprintln!("stage-select: coverage is unavailable: {err}"),
         }
     }
     let (notifier, mut delivery) = notify::Notifier::new(&store.settings()?.notify);
@@ -131,86 +131,86 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         let job = &interruption.job;
         match &interruption.requeued {
             Some(again) => eprintln!(
-                "title-select: job {} was interrupted by a stop; queued again as job {}",
+                "stage-select: job {} was interrupted by a stop; queued again as job {}",
                 job.id, again.id
             ),
             None if job.kind == JobKind::Build => eprintln!(
-                "title-select: build job {} was interrupted by a stop; plan again to build the rest",
+                "stage-select: build job {} was interrupted by a stop; plan again to build the rest",
                 job.id
             ),
             None if job.kind == JobKind::Check => eprintln!(
-                "title-select: check job {} was interrupted by a stop; check the folder again",
+                "stage-select: check job {} was interrupted by a stop; check the folder again",
                 job.id
             ),
             None if job.kind == JobKind::Calibration => eprintln!(
-                "title-select: calibration job {} was interrupted by a stop; it kept what it measured. Calibrate \
+                "stage-select: calibration job {} was interrupted by a stop; it kept what it measured. Calibrate \
                  again to measure the rest",
                 job.id
             ),
             None => eprintln!(
-                "title-select: job {} was interrupted by a stop again; it failed",
+                "stage-select: job {} was interrupted by a stop again; it failed",
                 job.id
             ),
         }
     }
     for job in store.recover_romm_scans()? {
         eprintln!(
-            "title-select: job {job}: the RomM scan was still being followed at the last stop; check it in RomM"
+            "stage-select: job {job}: the RomM scan was still being followed at the last stop; check it in RomM"
         );
     }
     for (build, reason) in store.recover_builds()? {
         eprintln!(
-            "title-select: build {build} stopped and its folder was left as it is: {reason}. Plans for the folder are \
+            "stage-select: build {build} stopped and its folder was left as it is: {reason}. Plans for the folder are \
              blocked until it is cleaned up when the service next starts"
         );
     }
     for (deletion, reason) in store.recover_kept_deletions()? {
         eprintln!(
-            "title-select: deletion {deletion} of kept files stopped and was not finished: {reason}. Its kept files \
+            "stage-select: deletion {deletion} of kept files stopped and was not finished: {reason}. Its kept files \
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
     for (id, reason) in store.recover_library_folder_moves()? {
         eprintln!(
-            "title-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \
+            "stage-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \
              stays held until it is settled when the service next starts"
         );
     }
     for (id, reason) in store.recover_ingest_moves()? {
         match id {
-            0 => eprintln!("title-select: after the last stop: {reason}"),
+            0 => eprintln!("stage-select: after the last stop: {reason}"),
             _ => eprintln!(
-                "title-select: a move out of an ingest folder stopped and was not finished: {reason}. It is \
+                "stage-select: a move out of an ingest folder stopped and was not finished: {reason}. It is \
                  tried again when the service next starts"
             ),
         }
     }
     for job in store.recover_repairs()? {
         eprintln!(
-            "title-select: repair {} was not finished; job {} was queued to finish it",
+            "stage-select: repair {} was not finished; job {} was queued to finish it",
             job.repair.unwrap_or_default(),
             job.id
         );
     }
     for (deletion, reason) in store.recover_source_kept_deletions()? {
         eprintln!(
-            "title-select: deletion {deletion} of kept files of a source set stopped and was not finished: {reason}. \
+            "stage-select: deletion {deletion} of kept files of a source set stopped and was not finished: {reason}. \
              It is finished when the service next starts"
         );
     }
     for job in store.recover_additions()? {
         eprintln!(
-            "title-select: the additions of {} were not all settled; job {} was queued to settle them",
+            "stage-select: the additions of {} were not all settled; job {} was queued to settle them",
             job.additions_set.as_deref().unwrap_or_default(),
             job.id
         );
     }
     // Audits owed when the service stopped: queued now, or once the Job they wait for ends.
     for why in store.fulfil_repair_audits()?.failed {
-        eprintln!("title-select: cannot queue an owed audit: {why}");
+        eprintln!("stage-select: cannot queue an owed audit: {why}");
     }
     for why in store.fulfil_ingest_reaudits()?.failed {
-        eprintln!("title-select: cannot queue an owed audit: {why}");
+        eprintln!("stage-select: cannot queue an owed audit: {why}");
     }
     // Only what happens from here on is notified: the store reports each occurrence as it commits.
     let notifier = Arc::new(notifier);
@@ -224,10 +224,10 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         .set_nonblocking(true)
         .map_err(|e| StartError::Listen(listen, e))?;
     // Never calibrated again by itself: Stale results keep applying until you calibrate.
-    let calibration = store.calibration(title_select_store::calibration::cpus())?;
+    let calibration = store.calibration(stage_select_store::calibration::cpus())?;
     if !calibration.stale.is_empty() {
         eprintln!(
-            "title-select: the calibration is stale ({}); calibrate again to measure what changed",
+            "stage-select: the calibration is stale ({}); calibrate again to measure what changed",
             calibration
                 .stale
                 .iter()
@@ -249,7 +249,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         coverage: Arc::default(),
         mount_points: mount_points
             .unwrap_or_else(|| {
-                title_select_store::roots::MOUNT_POINTS
+                stage_select_store::roots::MOUNT_POINTS
                     .iter()
                     .map(PathBuf::from)
                     .collect()
@@ -333,8 +333,8 @@ pub fn run(settings: Settings) -> Result<(), StartError> {
     let (jobs, store) = (prepared.state.jobs.clone(), prepared.state.store.clone());
     let served = runtime.block_on(async {
         eprintln!(
-            "title-select: serving {} on http://{addr}",
-            title_select_api::PREFIX
+            "stage-select: serving {} on http://{addr}",
+            stage_select_api::PREFIX
         );
         tokio::select! {
             served = prepared.serve() => served,
@@ -366,7 +366,7 @@ async fn stop_signal() {
         () = ctrl_c => {}
         () = term => {}
     }
-    eprintln!("title-select: stopping");
+    eprintln!("stage-select: stopping");
 }
 
 /// A Service running on its own runtime thread, stopped when dropped.
@@ -388,7 +388,7 @@ pub fn spawn(settings: Settings) -> Result<Handle, StartError> {
             tokio::select! {
                 served = prepared.serve() => {
                     if let Err(err) = served {
-                        eprintln!("title-select: {err}");
+                        eprintln!("stage-select: {err}");
                     }
                 }
                 _ = stopped => {}

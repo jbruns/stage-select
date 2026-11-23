@@ -1,5 +1,5 @@
 //! MAME Support Files: progetto-SNAPS's `catver.ini`, `languages.ini` and `bestgames.ini`, which the arcade selector
-//! reads (ADR 0027). They carry no licence, so they are never shipped: Title Select fetches them under `[fetch] mame`,
+//! reads (ADR 0027). They carry no licence, so they are never shipped: Stage Select fetches them under `[fetch] mame`,
 //! or the Operator drops them in (ADR 0012's amendment).
 
 use serde::{Deserialize, Serialize};
@@ -62,7 +62,7 @@ impl SupportFileKind {
 pub enum SupportFileOrigin {
     /// The Operator dropped it in.
     Import,
-    /// Title Select fetched it.
+    /// Stage Select fetched it.
     Fetch,
 }
 
@@ -133,7 +133,7 @@ pub fn read_header(
         .find(|k| k.file_name().eq_ignore_ascii_case(named))
         .ok_or_else(|| {
             format!(
-                "{file}: its header names {named}, but Title Select reads only catver.ini, languages.ini and \
+                "{file}: its header names {named}, but Stage Select reads only catver.ini, languages.ini and \
                  bestgames.ini"
             )
         })?;

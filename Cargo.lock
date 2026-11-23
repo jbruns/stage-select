@@ -2518,6 +2518,164 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "stage-select"
+version = "0.12.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "stage-select-api",
+ "stage-select-engine",
+ "stage-select-selection",
+ "stage-select-server",
+ "stage-select-store",
+ "stage-select-test-fixtures",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
+name = "stage-select-api"
+version = "0.12.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "stage-select-engine"
+version = "0.12.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "jiff",
+ "libz-sys",
+ "lzma-rust2",
+ "md-5",
+ "quick-xml",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sevenz-rust2",
+ "sha1",
+ "sha2 0.11.1",
+ "stage-select-api",
+ "stage-select-test-fixtures",
+ "tempfile",
+ "thiserror 2.0.21",
+ "walkdir",
+ "zip",
+ "zstd",
+]
+
+[[package]]
+name = "stage-select-selection"
+version = "0.12.0"
+dependencies = [
+ "fancy-regex",
+ "flate2",
+ "indexmap",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "stage-select-api",
+ "stage-select-engine",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
+name = "stage-select-server"
+version = "0.12.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "ipnet",
+ "jiff",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "stage-select-api",
+ "stage-select-engine",
+ "stage-select-selection",
+ "stage-select-store",
+ "stage-select-test-fixtures",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tower-http",
+ "ureq",
+]
+
+[[package]]
+name = "stage-select-store"
+version = "0.12.0"
+dependencies = [
+ "crc32fast",
+ "jiff",
+ "lzma-rust2",
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sevenz-rust2",
+ "sha1",
+ "sha2 0.11.1",
+ "stage-select-api",
+ "stage-select-engine",
+ "stage-select-selection",
+ "stage-select-test-fixtures",
+ "tempfile",
+ "thiserror 2.0.21",
+ "unicode-normalization",
+ "ureq",
+ "walkdir",
+ "zip",
+ "zstd",
+]
+
+[[package]]
+name = "stage-select-test-fixtures"
+version = "0.12.0"
+dependencies = [
+ "crc32fast",
+ "md-5",
+ "sha1",
+ "sha2 0.11.1",
+ "stage-select-engine",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
+name = "stage-select-ui"
+version = "0.12.0"
+dependencies = [
+ "codee",
+ "gloo-net",
+ "js-sys",
+ "leptos",
+ "leptos-struct-table",
+ "leptos-use",
+ "leptos_router",
+ "reactive_stores",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "stage-select-api",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2707,164 +2865,6 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
-
-[[package]]
-name = "title-select"
-version = "0.12.0"
-dependencies = [
- "clap",
- "serde",
- "serde_json",
- "tempfile",
- "title-select-api",
- "title-select-engine",
- "title-select-selection",
- "title-select-server",
- "title-select-store",
- "title-select-test-fixtures",
- "ureq",
-]
-
-[[package]]
-name = "title-select-api"
-version = "0.12.0"
-dependencies = [
- "jiff",
- "serde",
- "serde_json",
- "unicode-normalization",
-]
-
-[[package]]
-name = "title-select-engine"
-version = "0.12.0"
-dependencies = [
- "crc32fast",
- "flate2",
- "jiff",
- "libz-sys",
- "lzma-rust2",
- "md-5",
- "quick-xml",
- "rustix",
- "serde",
- "serde_json",
- "sevenz-rust2",
- "sha1",
- "sha2 0.11.1",
- "tempfile",
- "thiserror 2.0.21",
- "title-select-api",
- "title-select-test-fixtures",
- "walkdir",
- "zip",
- "zstd",
-]
-
-[[package]]
-name = "title-select-selection"
-version = "0.12.0"
-dependencies = [
- "fancy-regex",
- "flate2",
- "indexmap",
- "quick-xml",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "tempfile",
- "thiserror 2.0.21",
- "title-select-api",
- "title-select-engine",
- "toml",
-]
-
-[[package]]
-name = "title-select-server"
-version = "0.12.0"
-dependencies = [
- "axum",
- "futures-util",
- "ipnet",
- "jiff",
- "rustix",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "subtle",
- "tempfile",
- "thiserror 2.0.21",
- "title-select-api",
- "title-select-engine",
- "title-select-selection",
- "title-select-store",
- "title-select-test-fixtures",
- "tokio",
- "tokio-stream",
- "tower-http",
- "ureq",
-]
-
-[[package]]
-name = "title-select-store"
-version = "0.12.0"
-dependencies = [
- "crc32fast",
- "jiff",
- "lzma-rust2",
- "rusqlite",
- "rustix",
- "serde",
- "serde_json",
- "sevenz-rust2",
- "sha1",
- "sha2 0.11.1",
- "tempfile",
- "thiserror 2.0.21",
- "title-select-api",
- "title-select-engine",
- "title-select-selection",
- "title-select-test-fixtures",
- "unicode-normalization",
- "ureq",
- "walkdir",
- "zip",
- "zstd",
-]
-
-[[package]]
-name = "title-select-test-fixtures"
-version = "0.12.0"
-dependencies = [
- "crc32fast",
- "md-5",
- "sha1",
- "sha2 0.11.1",
- "tempfile",
- "title-select-engine",
- "zip",
-]
-
-[[package]]
-name = "title-select-ui"
-version = "0.12.0"
-dependencies = [
- "codee",
- "gloo-net",
- "js-sys",
- "leptos",
- "leptos-struct-table",
- "leptos-use",
- "leptos_router",
- "reactive_stores",
- "send_wrapper",
- "serde",
- "serde_json",
- "title-select-api",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
 
 [[package]]
 name = "tokio"

@@ -1,4 +1,4 @@
-//! The `title-select.audit/1` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `stage-select.audit/1` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes: its name, then its version, which goes up with each breaking change
 /// (ADR 0028).
-pub const SCHEMA: &str = "title-select.audit/1";
+pub const SCHEMA: &str = "stage-select.audit/1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -201,7 +201,7 @@ impl HeaderRule {
     }
 
     /// The rule a DAT names in `<clrmamepro header="…"/>`, by No-Intro's detector file names, ignoring case; none for
-    /// a name Title Select does not know.
+    /// a name Stage Select does not know.
     pub fn named(detector: &str) -> Option<HeaderRule> {
         let file = detector.rsplit(['/', '\\']).next().unwrap_or(detector);
         match file.to_ascii_lowercase().as_str() {
@@ -252,7 +252,7 @@ pub struct Header {
     pub bytes: u64,
 }
 
-/// The Header Rule a DAT Revision's DAT names: `rule` is absent when Title Select does not know `name`, and then no
+/// The Header Rule a DAT Revision's DAT names: `rule` is absent when Stage Select does not know `name`, and then no
 /// Header is skipped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NamedHeaderRule {

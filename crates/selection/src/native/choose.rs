@@ -1,4 +1,4 @@
-//! Retool's `choose_*` helpers (`modules/title_selection`), which each narrow a set of candidate titles.
+//! Retool's `choose_*` helpers (`modules/stage_selection`), which each narrow a set of candidate titles.
 //!
 //! Each helper takes the set it narrows and changes it in place, as Retool's do. Retool iterates the pairs of a
 //! set with `itertools.combinations` in the set's (address) order; these iterate in insertion order.

@@ -23,13 +23,13 @@ pub struct Actor(pub String);
 pub const TOKEN_ACTOR: &str = "Operator token";
 
 /// The flag naming the request header that carries the Operator's identity, and its environment variable.
-pub const IDENTITY_HEADER: (&str, &str) = ("--identity-header", "TITLE_SELECT_IDENTITY_HEADER");
+pub const IDENTITY_HEADER: (&str, &str) = ("--identity-header", "STAGE_SELECT_IDENTITY_HEADER");
 /// The flag listing the proxies whose identity header is trusted, and its environment variable.
-pub const TRUSTED_PROXIES: (&str, &str) = ("--trusted-proxies", "TITLE_SELECT_TRUSTED_PROXIES");
+pub const TRUSTED_PROXIES: (&str, &str) = ("--trusted-proxies", "STAGE_SELECT_TRUSTED_PROXIES");
 /// The flag giving the development identity, and its environment variable.
-pub const DEV_IDENTITY: (&str, &str) = ("--dev-identity", "TITLE_SELECT_DEV_IDENTITY");
+pub const DEV_IDENTITY: (&str, &str) = ("--dev-identity", "STAGE_SELECT_DEV_IDENTITY");
 /// The flag naming the file that holds the Operator token, and its environment variable.
-pub const TOKEN_FILE: (&str, &str) = ("--token-file", "TITLE_SELECT_OPERATOR_TOKEN_FILE");
+pub const TOKEN_FILE: (&str, &str) = ("--token-file", "STAGE_SELECT_OPERATOR_TOKEN_FILE");
 
 /// How the Service knows a request comes from the Operator, as `serve`'s flags and their environment variables give
 /// it (ADR 0029). The Operator token, read from [`Settings::token_file`](crate::Settings::token_file), is the other

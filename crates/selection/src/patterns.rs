@@ -2,7 +2,7 @@
 //! invalid one with only a warning, which would make a silently different Selection. The engine reads each as
 //! Python's `re` would (`native::userre`) and refuses what it can't read faithfully, so the check is the same.
 
-use title_select_api::selection::{Overrides, SelectionProfile};
+use stage_select_api::selection::{Overrides, SelectionProfile};
 
 use crate::Error;
 use crate::native::user_regex;
@@ -87,7 +87,7 @@ pub(crate) fn check(profile: &SelectionProfile) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::SystemSettings;
+    use stage_select_api::selection::SystemSettings;
 
     #[test]
     fn regexes_are_found_where_retool_reads_them() {

@@ -8,11 +8,11 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
-use title_select_api::selection::{
+use stage_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, ReleaseChange, Role, SelectionGroup,
     SelectionProfile,
 };
-use title_select_api::{
+use stage_select_api::{
     Availability, GameStatus, Job, ProfileRecord, ProfileVersion, SaveProfile, SavedProfile,
     SelectionDiff, SelectionRecord, SourceSetRecord, StartSelection, StartSelectionFor,
 };

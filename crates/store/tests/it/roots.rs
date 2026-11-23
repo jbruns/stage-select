@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use title_select_api::roots::{RootKind, RootSpec};
-use title_select_store::{Error, Store};
+use stage_select_api::roots::{RootKind, RootSpec};
+use stage_select_store::{Error, Store};
 
 struct Env {
     tmp: tempfile::TempDir,
@@ -274,8 +274,8 @@ fn a_roots_path_or_writability_doesnt_change_while_a_job_runs_on_it() {
 mod suggestions {
     use std::os::unix::fs::PermissionsExt;
 
-    use title_select_api::roots::{FolderSuggestion, RootSpec};
-    use title_select_store::roots::SUGGESTED_PER_MOUNT;
+    use stage_select_api::roots::{FolderSuggestion, RootSpec};
+    use stage_select_store::roots::SUGGESTED_PER_MOUNT;
 
     use super::Env;
 

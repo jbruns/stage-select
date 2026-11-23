@@ -26,14 +26,14 @@ use std::time::SystemTime;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
-use title_select_api::build::{
+use stage_select_api::build::{
     ItemKind, ItemState, Marker, PlacedOriginal, PlanItem, PlanReturn, PlanSource, ReturnFile,
     ReturnHow, ReturnPlaced,
 };
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::placed_path;
-use title_select_engine::build::{verify, verify_loose};
-use title_select_engine::meter::Tally;
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::storage::placed_path;
+use stage_select_engine::build::{verify, verify_loose};
+use stage_select_engine::meter::Tally;
 
 use super::place::SetDirs;
 use super::{ChdWork, Failure, remove_layout_dir, set_item, stage_by_fd, still_sha256};
@@ -1205,7 +1205,7 @@ impl Store {
                                 Err(e) => {
                                     return Ok(Err(format!(
                                         "{} changed after it was checked, and could not be put back ({e}); it is \
-                                         left at .title-select/retained/.deleting/{slot}",
+                                         left at .stage-select/retained/.deleting/{slot}",
                                         pl.path
                                     )));
                                 }
@@ -1217,7 +1217,7 @@ impl Store {
                 }
                 Some(_) => {
                     return Ok(Err(format!(
-                        "what is at .title-select/retained/.deleting/{slot} is not {}; it is left as it is",
+                        "what is at .stage-select/retained/.deleting/{slot} is not {}; it is left as it is",
                         pl.path
                     )));
                 }
@@ -1285,7 +1285,7 @@ impl Store {
                         if let Err(e) = move_back_from(p.dir, pl, deleting, slot) {
                             return Ok(Err(format!(
                                 "{why}, and {} could not be put back ({e}); it is left at \
-                                 .title-select/retained/.deleting/{slot} until it can be",
+                                 .stage-select/retained/.deleting/{slot} until it can be",
                                 pl.path
                             )));
                         }

@@ -3,8 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use title_select_api::additions::NewAddition;
-use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
+use stage_select_api::additions::NewAddition;
+use stage_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
 
 use crate::parts::plan_model::{self, BulkOutcome};
 use crate::parts::status::PlanKind;
@@ -134,7 +134,7 @@ pub fn unfinished_note(plan: &RepairPlan) -> Option<String> {
     }
     let why = plan.recovery_error.as_deref()?.trim_end_matches('.');
     Some(format!(
-        "This repair isn't finished. What stopped it: {why}. Title Select tries it again when the service \
+        "This repair isn't finished. What stopped it: {why}. Stage Select tries it again when the service \
          starts, and until it finishes, the source set's audits and builds wait for it. Fix what's blocking it, \
          then restart the service."
     ))
@@ -568,7 +568,7 @@ mod tests {
         choices: &[&str],
         default: &str,
         chosen: &str,
-    ) -> title_select_api::repair::RepairItem {
+    ) -> stage_select_api::repair::RepairItem {
         serde_json::from_value(serde_json::json!({
             "key": key, "kind": "conflict", "summary": "s",
             "choices": choices, "default": default, "chosen": chosen,
@@ -728,7 +728,7 @@ mod tests {
         let mut p = plan(1, false, false, None);
         let kept = |key: &str, choices: &[&str]| {
             let mut i = item(key, choices, "keep_aside", "keep_aside");
-            i.kind = title_select_api::repair::RepairKind::KeepAside;
+            i.kind = stage_select_api::repair::RepairKind::KeepAside;
             i
         };
         p.content.items = vec![
@@ -836,9 +836,9 @@ mod tests {
         assert!(picked.is_empty());
     }
 
-    fn seen() -> title_select_api::repair::SeenFile {
-        use title_select_api::build::{FileIdentity, FileStat};
-        title_select_api::repair::SeenFile {
+    fn seen() -> stage_select_api::repair::SeenFile {
+        use stage_select_api::build::{FileIdentity, FileStat};
+        stage_select_api::repair::SeenFile {
             identity: FileIdentity { dev: 1, ino: 2 },
             file: FileStat {
                 size: 3,
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn a_row_reads_where_the_item_is_and_what_the_plan_makes_of_it() {
-        use title_select_api::repair::PlannedStep;
+        use stage_select_api::repair::PlannedStep;
         let mut p = plan(1, false, false, None);
         let mut renamed = item("entry:a.zip", &["apply", "leave"], "apply", "apply");
         renamed.path = Some("a.zip".into());

@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crate::common::*;
-use title_select_api::roots::RootSpec;
-use title_select_server::{Handle, Settings};
-use title_select_store::Store;
+use stage_select_api::roots::RootSpec;
+use stage_select_server::{Handle, Settings};
+use stage_select_store::Store;
 
 const SET: &str = "Test - System";
 const TOKEN: &str = "headless test token";
@@ -38,7 +38,7 @@ impl Env {
         }
         std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
         std::fs::write(fx.dat_dir.path().join("wrong"), "not the token").unwrap();
-        let service = title_select_server::spawn(Settings {
+        let service = stage_select_server::spawn(Settings {
             store,
             auth: Default::default(),
             chdman: None,
@@ -62,12 +62,12 @@ impl Env {
     }
 
     fn audit(&self, server: &str, token: &Path, extra: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_title-select"))
+        Command::new(env!("CARGO_BIN_EXE_stage-select"))
             .args(["audit", "--server", server, "--set", SET])
             .arg("--token-file")
             .arg(token)
             .args(extra)
-            .env_remove("TITLE_SELECT_STORE")
+            .env_remove("STAGE_SELECT_STORE")
             .output()
             .unwrap()
     }
@@ -85,7 +85,7 @@ fn the_headless_client_runs_an_audit_job_and_prints_the_report() {
 
     assert!(out.status.success(), "{}", stderr(&out));
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["schema"], "title-select.audit/1");
+    assert_eq!(report["schema"], "stage-select.audit/1");
     assert!(report["source_set"].as_str().unwrap().ends_with(SET));
     assert_eq!(report["summary"]["findings"]["matched"], 1);
     assert_eq!(report["summary"]["findings"]["unmatched"], 1);
@@ -167,7 +167,7 @@ fn health(url: &str) -> Output {
 }
 
 fn health_with(url: &str, env: &[(&str, &str)]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_title-select"))
+    Command::new(env!("CARGO_BIN_EXE_stage-select"))
         .args(["health", "--timeout", "1", "--url", url])
         .envs(env.iter().copied())
         .output()
@@ -260,7 +260,7 @@ fn health_exits_1_with_a_one_line_reason_when_the_service_is_not_healthy() {
 
 #[test]
 fn health_refuses_a_timeout_out_of_range() {
-    let out = Command::new(env!("CARGO_BIN_EXE_title-select"))
+    let out = Command::new(env!("CARGO_BIN_EXE_stage-select"))
         .args(["health", "--timeout", "18446744073709551615"])
         .output()
         .unwrap();
@@ -277,7 +277,7 @@ fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
         .register_root(&RootSpec::new("sets", fx.set.path()), "test")
         .unwrap();
     std::fs::write(fx.dat_dir.path().join("token"), TOKEN).unwrap();
-    let service = title_select_server::spawn(Settings {
+    let service = stage_select_server::spawn(Settings {
         store: fx.dat_dir.path().join("store"),
         auth: Default::default(),
         chdman: None,
@@ -289,21 +289,21 @@ fn calibrate_runs_a_calibration_job_and_prints_the_host_and_each_root() {
         fetch_endpoints: None,
         romm_scan_timing: None,
         // What a calibration measures is the store's to test: here each step ends at its first byte, never at its time.
-        calibration_limits: Some(title_select_server::CalibrationLimits {
+        calibration_limits: Some(stage_select_server::CalibrationLimits {
             step_bytes: 1,
             min_bytes: 1,
-            ..title_select_server::CalibrationLimits::default()
+            ..stage_select_server::CalibrationLimits::default()
         }),
         notify_backoff: None,
         mount_points: None,
     })
     .unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_title-select"))
+    let out = Command::new(env!("CARGO_BIN_EXE_stage-select"))
         .args(["calibrate", "--server", &service.url()])
         .arg("--token-file")
         .arg(fx.dat_dir.path().join("token"))
-        .env_remove("TITLE_SELECT_STORE")
+        .env_remove("STAGE_SELECT_STORE")
         .output()
         .unwrap();
 

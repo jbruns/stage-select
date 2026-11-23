@@ -2,8 +2,8 @@
 //! once, without a restart.
 
 use leptos::prelude::*;
-use title_select_api::Root;
-use title_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
+use stage_select_api::Root;
+use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
 
 use crate::api;
 use crate::app::Problem;

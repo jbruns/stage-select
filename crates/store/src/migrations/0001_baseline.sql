@@ -1,7 +1,7 @@
 -- The baseline schema (ADR 0028): everything a store holds, created at once. Later migrations append to it and are
 -- never flattened again. Each table keeps its columns in the order the stores before the baseline had them.
 
--- Marks the file as a Title Select store from the baseline on: crate::migrations::APPLICATION_ID, "TSel".
+-- Marks the file as a Stage Select store from the baseline on: crate::migrations::APPLICATION_ID, "TSel".
 PRAGMA application_id = 1414751596;
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -26,7 +26,7 @@ CREATE TABLE settings (
     updated_at TEXT NOT NULL
 );
 
--- Roots: the folders Title Select may read, registered by the Operator. A Root's name never changes once registered:
+-- Roots: the folders Stage Select may read, registered by the Operator. A Root's name never changes once registered:
 -- every record of a folder in it refers to the Root by name, and keeps doing so after the Root is unregistered.
 -- kind: 'ingest' is an Ingest Folder, which is writable; 'additions' holds the Additions Sets, is writable and has no
 -- writable_paths, and there is at most one.
@@ -381,7 +381,7 @@ CREATE UNIQUE INDEX source_sets_name ON source_sets (name) WHERE unregistered_at
 CREATE UNIQUE INDEX source_sets_folder ON source_sets (root, path) WHERE unregistered_at IS NULL;
 
 -- A Source Set a repair may write to. generation counts approved repairs; each keeps files under its own
--- `.title-select-retained/<generation>/`. marker_at is when its marker was written, by the first approved repair.
+-- `.stage-select-retained/<generation>/`. marker_at is when its marker was written, by the first approved repair.
 CREATE TABLE source_folders (
     source_set_id INTEGER PRIMARY KEY REFERENCES source_sets (id),
     generation INTEGER NOT NULL DEFAULT 0,
@@ -939,7 +939,7 @@ CREATE TABLE built_files (
 CREATE INDEX built_files_by_dat_revision ON built_files (dat_revision_id);
 
 -- What a Build or recovery created in a Library Folder for itself: the staging directory, each file in it (named
--- '.title-select-staging/<file>') and a marker's temp file, by device and inode, committed before it is relied on.
+-- '.stage-select-staging/<file>') and a marker's temp file, by device and inode, committed before it is relied on.
 -- Only an entry found with a recorded identity is ever removed; anything else there is left and blocks the folder.
 CREATE TABLE folder_temps (
     folder_id INTEGER NOT NULL REFERENCES library_folders (id),
@@ -949,7 +949,7 @@ CREATE TABLE folder_temps (
     PRIMARY KEY (folder_id, name)
 );
 
--- The unique temporary name a directory Title Select creates in a Library Folder is about to be made under, committed
+-- The unique temporary name a directory Stage Select creates in a Library Folder is about to be made under, committed
 -- before it is made, so that one a stop left there, before its identity was recorded in folder_temps, is still known
 -- to be this store's: recovery records it, when it is the empty private directory made, and leaves it.
 CREATE TABLE folder_temp_names (
@@ -958,9 +958,9 @@ CREATE TABLE folder_temp_names (
     PRIMARY KEY (folder_id, name)
 );
 
--- The directories Title Select created in a Library Folder that outlive a Build: the retention area
--- ('.title-select-retained'), each generation's folder in it ('.title-select-retained/<generation>') and the private
--- folder kept files are deleted from ('.title-select-retained/.deleting'), by device and inode, committed before
+-- The directories Stage Select created in a Library Folder that outlive a Build: the retention area
+-- ('.stage-select-retained'), each generation's folder in it ('.stage-select-retained/<generation>') and the private
+-- folder kept files are deleted from ('.stage-select-retained/.deleting'), by device and inode, committed before
 -- anything is moved into them. Each is created under a temporary name recorded in folder_temps, then renamed into
 -- place without replacing anything. One found with another identity, or not recorded at all, is never used or removed.
 CREATE TABLE folder_dirs (
@@ -984,7 +984,7 @@ CREATE TABLE folder_checks (
 );
 CREATE INDEX folder_checks_by_folder ON folder_checks (folder_id, id);
 
--- What a check read of an entry Title Select did not build, or of a built file in conflict, by its size and
+-- What a check read of an entry Stage Select did not build, or of a built file in conflict, by its size and
 -- modification time: so that an entry unchanged since is not read again. Probe JSON.
 CREATE TABLE folder_probes (
     folder_id INTEGER NOT NULL REFERENCES library_folders (id),
@@ -998,7 +998,7 @@ CREATE TABLE folder_probes (
     PRIMARY KEY (folder_id, name)
 );
 
--- An entry in a Library Folder Title Select did not build that the Operator acknowledged: a check reports it as
+-- An entry in a Library Folder Stage Select did not build that the Operator acknowledged: a check reports it as
 -- acknowledged rather than as drift while it is the same entry, by name, identity, size and modification time, and
 -- drops the acknowledgement once it is not. Acknowledging writes nothing to the folder.
 CREATE TABLE drift_acks (
@@ -1035,8 +1035,8 @@ CREATE TABLE kept_deletions (
 );
 CREATE INDEX kept_deletions_by_folder ON kept_deletions (folder_id, id);
 
--- A file a Build moved from its Library Folder into '.title-select-retained/<generation>/<kept_name>', with what it
--- was: its name, its SHA-256, size and identity, and, for a file Title Select built, its game, ROMs and provenance.
+-- A file a Build moved from its Library Folder into '.stage-select-retained/<generation>/<kept_name>', with what it
+-- was: its name, its SHA-256, size and identity, and, for a file Stage Select built, its game, ROMs and provenance.
 -- Recorded 'keeping', the intent, before it is moved, and 'kept' once it is found moved; recovery settles a 'keeping'
 -- one from what is in the folder. 'deleting' is the intent to delete it, recorded before it is moved into the private
 -- '.deleting' folder and removed there; 'quarantined' when what was moved there is not the file, until it is moved
@@ -1044,7 +1044,7 @@ CREATE INDEX kept_deletions_by_folder ON kept_deletions (folder_id, id);
 -- carried out. 'restoring' is the intent to move it back into the folder, recorded with its Build's item before it is
 -- moved; 'restored' once it is found there.
 --
--- It may be a directory, moved whole and never read, with no SHA-256; an entry Title Select did not build ('drift'),
+-- It may be a directory, moved whole and never read, with no SHA-256; an entry Stage Select did not build ('drift'),
 -- or a built file a cleanup repacked ('repack'). 'probe' is what reading it found, as a JSON Probe, reused while its
 -- identity, size, modification and status change times are 'probe_ctime_ns' and those recorded.
 CREATE TABLE kept_files (
@@ -1074,7 +1074,7 @@ CREATE TABLE kept_files (
     kept_at TEXT,
     deletion_id INTEGER REFERENCES kept_deletions (id),
     deleted_at TEXT,
-    -- The identity of what was found at '.title-select-retained/.deleting/<id>' when it was not the kept file, while
+    -- The identity of what was found at '.stage-select-retained/.deleting/<id>' when it was not the kept file, while
     -- the state is 'quarantined': it is to be moved back to the kept entry, and the deletion is not finished until it
     -- is.
     quarantine_dev INTEGER,
@@ -1348,7 +1348,7 @@ CREATE TABLE repair_steps (
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');
 CREATE INDEX repair_steps_by_move ON repair_steps (move_id) WHERE move_id IS NOT NULL;
 
--- A file kept aside in a Source Set, at `.title-select-retained/<generation>/<kept_name>`; name is where it was,
+-- A file kept aside in a Source Set, at `.stage-select-retained/<generation>/<kept_name>`; name is where it was,
 -- relative to the Source Set's folder. It is kept by a repair (plan_id) or, an original a placing Build couldn't prove
 -- unchanged, by that Build (build_id): exactly one. The file is the Source Set's, and outlives its Library Folder:
 -- build_id is the id of the Build that kept it, not a reference, so forgetting the folder, which forgets its Builds,
@@ -1404,7 +1404,7 @@ CREATE TABLE source_kept_deletions (
 ------------------------------------------------------------------------------------------------------------------------
 
 -- An Ingest Folder: a Root of kind `ingest`, registered by writing its marker. generation counts the plans applied to
--- the folder, each of which keeps its items under .title-select-retained/<generation>/. Unregistered as a Source Set
+-- the folder, each of which keeps its items under .stage-select-retained/<generation>/. Unregistered as a Source Set
 -- is.
 CREATE TABLE ingest_folders (
     id INTEGER PRIMARY KEY,
@@ -1416,7 +1416,7 @@ CREATE TABLE ingest_folders (
 );
 CREATE UNIQUE INDEX ingest_folders_root ON ingest_folders (root) WHERE unregistered_at IS NULL;
 
--- The directories Title Select created in an Ingest Folder, as folder_dirs, folder_temps and folder_temp_names are
+-- The directories Stage Select created in an Ingest Folder, as folder_dirs, folder_temps and folder_temp_names are
 -- for a Library Folder: the retention area, each generation's folder, and the private .deleting folder.
 CREATE TABLE ingest_dirs (
     folder_id INTEGER NOT NULL REFERENCES ingest_folders (id),
@@ -1486,7 +1486,7 @@ CREATE TABLE ingest_plans (
 );
 CREATE INDEX ingest_plans_by_folder ON ingest_plans (folder_id, id);
 
--- A file kept aside in an Ingest Folder's .title-select-retained/<generation>/, by the plan that moved it there, if a
+-- A file kept aside in an Ingest Folder's .stage-select-retained/<generation>/, by the plan that moved it there, if a
 -- plan did.
 CREATE TABLE ingest_kept (
     id INTEGER PRIMARY KEY,
@@ -1632,7 +1632,7 @@ CREATE UNIQUE INDEX additions_sets_folder ON additions_sets (root, path) WHERE u
 
 -- A temporary folder an attempt to create an Additions Set's folder left behind, by name and, when it was recorded,
 -- identity: recorded before another attempt replaces temp_name, so that it is never forgotten. It is left where it is,
--- for the Operator to remove, and never deleted by Title Select.
+-- for the Operator to remove, and never deleted by Stage Select.
 CREATE TABLE additions_set_leftovers (
     id INTEGER PRIMARY KEY,
     set_id INTEGER NOT NULL REFERENCES additions_sets (id),
@@ -1643,7 +1643,7 @@ CREATE TABLE additions_set_leftovers (
     UNIQUE (set_id, name)
 );
 
--- The directories Title Select created in an Additions Set's folder to keep retired additions' files, and those being
+-- The directories Stage Select created in an Additions Set's folder to keep retired additions' files, and those being
 -- created, as folder_dirs, folder_temps and folder_temp_names record them for a Library Folder.
 CREATE TABLE additions_dirs (
     folder_id INTEGER NOT NULL REFERENCES additions_sets (id),
@@ -1678,7 +1678,7 @@ CREATE TABLE additions_temp_names (
 -- staged file is created, staged_dev and staged_ino once it is, and the staged file is renamed to file_name without
 -- replacing anything.
 --
--- dev, ino, size, mtime_ns, ctime_ns and sha256 are its published file as Title Select wrote and read it back through
+-- dev, ino, size, mtime_ns, ctime_ns and sha256 are its published file as Stage Select wrote and read it back through
 -- the descriptor it held: what a build reads, and what a check compares the folder with.
 CREATE TABLE additions (
     id INTEGER PRIMARY KEY,
@@ -1743,9 +1743,9 @@ CREATE TABLE additions_kept_deletions (
     recovery_error TEXT
 );
 
--- A retired addition's file, kept in its Additions Set at `.title-select-retained/<generation>/<kept_name>`, where
+-- A retired addition's file, kept in its Additions Set at `.stage-select-retained/<generation>/<kept_name>`, where
 -- generation is the addition's id; name is the file name it was published under. A retirement is recorded here as
--- 'keeping', with the published file's identity, size, mtime and SHA-256 that Title Select wrote and read back through
+-- 'keeping', with the published file's identity, size, mtime and SHA-256 that Stage Select wrote and read back through
 -- the descriptor it held, before the file is moved; it is 'kept' once it is found there, and 'restored' once a
 -- restoration moved it back. It is deleted only as source_kept is, once the Operator approves it, and only while it is
 -- still the file recorded, read through a descriptor while it holds still; a stamp read from a path never authorizes

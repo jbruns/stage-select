@@ -2,13 +2,13 @@
 
 use std::io::Cursor;
 
-use title_select_engine::torrentzip::{Writer, compare_names, validate};
+use stage_select_engine::torrentzip::{Writer, compare_names, validate};
 
 /// `tests/data/golden-game.zip` was made once by igir 5.8.0 (`igir copy zip`), which writes TorrentZip with zlib
 /// 1.1.3, from a one-Game DAT listing these synthetic payloads.
 fn golden_members() -> Vec<(&'static str, Vec<u8>)> {
     vec![
-        ("b.bin", b"title-select golden payload ".repeat(64)),
+        ("b.bin", b"stage-select golden payload ".repeat(64)),
         (
             "A.bin",
             (0..1000u32).map(|i| (i * 31 % 251) as u8).collect(),

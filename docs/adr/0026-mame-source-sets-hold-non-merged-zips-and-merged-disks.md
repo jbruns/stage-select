@@ -15,7 +15,7 @@ BIOS and device ROMs inside its ZIP; it offers CHDs merged only, `<parent>/<disk
 ListXML lists a machine's BIOS ROMs with `merge=` but its devices' ROMs only under the devices.
 
 ADR 0013 keeps CHDs out of Source Sets because Redump and No-Intro DATs hash the tracks. A MAME DAT lists each disk by
-the CHD's own SHA-1, so there the CHD is the DAT-exact file. Title Select's aims are a well-kept Source Set and a Play
+the CHD's own SHA-1, so there the CHD is the DAT-exact file. Stage Select's aims are a well-kept Source Set and a Play
 Library that is ready to play.
 
 ## Decision
@@ -38,7 +38,7 @@ Library that is ready to play.
 - **Disks are DAT-exact files**, so a MAME Source Set may hold CHDs, as ADR 0013's amendment allows for any DAT that
   lists compressed images. #228's Evidence rules apply: header SHA-1 as Claim Evidence; `chdman verify`, requiring its
   `Overall SHA1 verification successful!` line and never `-f`, as Payload Evidence; only self-contained CHD v5. A delta
-  CHD is Unreadable, needing its parent; an older CHD is Unmatched, to be updated outside Title Select.
+  CHD is Unreadable, needing its parent; an older CHD is Unmatched, to be updated outside Stage Select.
 - **Wording.** User-facing text calls the layouts non-merged, split and merged, and a disk set "merged CHD set"; a CHD
   that needs its parent is a "delta CHD", never "merged".
 - **A MAME Library Folder holds self-contained Games, flat.** Each selected Game is `<shortname>.zip`, non-merged with
@@ -47,7 +47,7 @@ Library that is ready to play.
   layout doesn't apply. The Library Folder shows the MAME version its Selection was built for, and that only an
   emulator of that version runs it: the Operator chooses which MAME to preserve and deploy by what the Source Set
   Follows.
-- **RomM shows a Disk folder as a separate game.** Its scanner takes every folder as a multi-file game. Title Select
+- **RomM shows a Disk folder as a separate game.** Its scanner takes every folder as a multi-file game. Stage Select
   doesn't write RomM's configuration (ADR 0020), so a MAME Library Folder's page lists its Disk folders for the
   Operator to add to RomM's `exclude.roms.multi_file.names`, and says what happens without them.
 - **Single Copy** is offered for a MAME system only when its Source Sets are non-merged, where a Winner's ZIP is the
@@ -68,7 +68,7 @@ Library that is ready to play.
 
 - A non-merged Source Set repeats every shared ROM; its Full Audit reads each copy.
 - A Full Audit of Disks decompresses each, at about 170 MiB/s on one core; Incremental Audits reuse it.
-- Older emulators, such as MAME 2003-Plus or MAME 2010, need sets Title Select doesn't build.
+- Older emulators, such as MAME 2003-Plus or MAME 2010, need sets Stage Select doesn't build.
 
 ## Amendment (2026-11-20): ListXML Disks only
 

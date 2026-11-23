@@ -5,9 +5,9 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use super::audits::{check_blob_present, choose_revision, delete_audits};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
-use title_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
-use title_select_engine::meter::Meter;
-use title_select_engine::{AuditEvidence, Progress};
+use stage_select_api::{Job, JobKind, JobState, JobThroughput, ProfileVersionRef, Workers};
+use stage_select_engine::meter::Meter;
+use stage_select_engine::{AuditEvidence, Progress};
 
 /// Why a restart Interrupted a Job.
 const INTERRUPTED: &str = "the service stopped while the job was running";

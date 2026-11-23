@@ -6,10 +6,10 @@
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::Stat;
-use title_select_api::build::{FileStat, PlacedFile};
-use title_select_api::paths::relative_path;
-use title_select_api::storage::is_reserved_name;
-use title_select_engine::meter::Tally;
+use stage_select_api::build::{FileStat, PlacedFile};
+use stage_select_api::paths::relative_path;
+use stage_select_api::storage::is_reserved_name;
+use stage_select_engine::meter::Tally;
 
 use crate::builds::sha256_of;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
@@ -224,8 +224,8 @@ pub(crate) fn move_placed(
     tx.execute(
         "UPDATE review_flags SET path = ?2 WHERE path = ?1",
         params![
-            title_select_api::storage::placed_path(folder, from),
-            title_select_api::storage::placed_path(folder, to)
+            stage_select_api::storage::placed_path(folder, from),
+            stage_select_api::storage::placed_path(folder, to)
         ],
     )?;
     Ok(())
@@ -289,7 +289,7 @@ pub(crate) fn place_chd(
     folder: i64,
     path: &str,
     sha1: &str,
-    roms: &[title_select_api::build::ExpectedRom],
+    roms: &[stage_select_api::build::ExpectedRom],
     cue: Option<&str>,
 ) -> Result<()> {
     let roms = serde_json::to_string(roms).map_err(|e| Error::Io(e.to_string()))?;
@@ -307,7 +307,7 @@ pub(crate) struct PlacedChd {
     pub path: String,
     pub game: String,
     pub sha1: String,
-    pub roms: Vec<title_select_api::build::ExpectedRom>,
+    pub roms: Vec<stage_select_api::build::ExpectedRom>,
     pub cue: Option<String>,
     /// The SHA-256 of the file, as placed or last read whole and checked.
     pub sha256: Option<String>,
@@ -352,7 +352,7 @@ pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>>
 /// for. They are found by what each is recorded built for, the release or one of its discs, wherever the layout put
 /// them, the system folder itself included.
 pub(crate) fn laid_beside(c: &Connection, set: i64) -> Result<Vec<(i64, String, String)>> {
-    use title_select_api::storage::release_of;
+    use stage_select_api::storage::release_of;
     let placed: std::collections::HashSet<(i64, String)> = placed_files_of(c, set)?
         .into_iter()
         .map(|p| (p.library_folder, p.path))
@@ -417,7 +417,7 @@ pub(crate) fn forget_placed(tx: &Transaction, folder: i64, path: &str) -> Result
     clear_review_at(
         tx,
         set,
-        &title_select_api::storage::placed_path(folder, path),
+        &stage_select_api::storage::placed_path(folder, path),
     )?;
     drop_unplaced(tx, set, &game)
 }
@@ -503,7 +503,7 @@ impl Store {
     }
 
     /// The Games of Source Set `name` that a Build found need review, by name.
-    pub fn review_flags(&self, name: &str) -> Result<Vec<title_select_api::report::ReviewFlag>> {
+    pub fn review_flags(&self, name: &str) -> Result<Vec<stage_select_api::report::ReviewFlag>> {
         self.read(|c| {
             let set = set_by_name(c, name)?.id;
             let mut stmt = c.prepare(
@@ -511,7 +511,7 @@ impl Store {
                  ORDER BY game",
             )?;
             let rows = stmt.query_map([set], |r| {
-                Ok(title_select_api::report::ReviewFlag {
+                Ok(stage_select_api::report::ReviewFlag {
                     game: r.get(0)?,
                     path: r.get(1)?,
                     reason: r.get(2)?,
@@ -549,7 +549,7 @@ impl Store {
             let rel = relative_path(path).map_err(|e| Error::Refused(format!("{path}: {e}")))?;
             if rel.split('/').any(is_reserved_name) {
                 return Err(Error::Refused(format!(
-                    "{path} is under a name Title Select keeps its own work under"
+                    "{path} is under a name Stage Select keeps its own work under"
                 )));
             }
             files.push((rel.clone(), read(&dir, &rel)?));
@@ -752,7 +752,7 @@ pub(crate) fn check_no_audit_reading(c: &Connection, folder: i64) -> Result<()> 
 }
 
 /// Records, in Source Set `set`'s Audit `audit`, that its file `from`, found as `was`, is now its Placed Game's file
-/// `to`, as Audits name it ([`title_select_api::storage::placed_path`]), statted as `now`: moved by a Build that
+/// `to`, as Audits name it ([`stage_select_api::storage::placed_path`]), statted as `now`: moved by a Build that
 /// didn't change it, renamed or copied and read back. Its Entries follow it with their Evidence, and so does the
 /// payload read an Incremental Audit reuses, but only while it was of the file as `was` found it.
 pub(crate) fn moved_entries(
@@ -760,7 +760,7 @@ pub(crate) fn moved_entries(
     (set, audit): (i64, i64),
     from: &str,
     to: &str,
-    was: &title_select_api::build::PlacedOriginal,
+    was: &stage_select_api::build::PlacedOriginal,
     now: &Stat,
 ) -> Result<()> {
     tx.execute(
@@ -801,8 +801,8 @@ pub(crate) fn moved_entries(
 pub(crate) struct Rewritten<'a> {
     pub path: &'a str,
     pub game: &'a str,
-    pub roms: &'a [title_select_api::build::ExpectedRom],
-    pub sources: &'a [title_select_api::build::PlanSource],
+    pub roms: &'a [stage_select_api::build::ExpectedRom],
+    pub sources: &'a [stage_select_api::build::PlanSource],
     pub loose: bool,
 }
 
@@ -812,8 +812,8 @@ pub(crate) struct Rewritten<'a> {
 pub(crate) struct Carried {
     path: String,
     member: Option<String>,
-    roms: Vec<title_select_api::report::RomRef>,
-    evidence: title_select_api::report::Evidence,
+    roms: Vec<stage_select_api::report::RomRef>,
+    evidence: stage_select_api::report::Evidence,
 }
 
 /// Audit `audit`'s Entries of the file at `path`, in order.
@@ -821,7 +821,7 @@ fn entries_at(
     c: &Connection,
     audit: i64,
     path: &str,
-) -> Result<Vec<title_select_api::report::Entry>> {
+) -> Result<Vec<stage_select_api::report::Entry>> {
     let mut stmt = c.prepare(&format!(
         "SELECT {} FROM audit_entries WHERE audit_id = ?1 AND path = ?2 ORDER BY seq",
         crate::audits::ENTRY_COLUMNS
@@ -838,10 +838,10 @@ fn entries_at(
 /// the matched Entry of `was` that its source in `sources` names, at the path `at` gives the source's; or the first ROM
 /// with no such Entry, or none with Evidence.
 fn carry<'r>(
-    was: &[title_select_api::report::Entry],
+    was: &[stage_select_api::report::Entry],
     (path, loose): (&str, bool),
-    roms: &'r [title_select_api::build::ExpectedRom],
-    sources: &[title_select_api::build::PlanSource],
+    roms: &'r [stage_select_api::build::ExpectedRom],
+    sources: &[stage_select_api::build::PlanSource],
     at: impl Fn(&str) -> String,
 ) -> std::result::Result<Vec<Carried>, &'r str> {
     let mut out = Vec::new();
@@ -851,7 +851,7 @@ fn carry<'r>(
             was.iter().find(|e| {
                 e.path == source
                     && e.member == s.member
-                    && e.finding == title_select_api::report::Finding::Matched
+                    && e.finding == stage_select_api::report::Finding::Matched
                     && !e.roms.is_empty()
             })
         });
@@ -870,7 +870,7 @@ fn carry<'r>(
 
 /// Writes `carried` into Audit `audit`, after its last Entry.
 fn insert_carried(tx: &Transaction, audit: i64, carried: &[Carried]) -> Result<()> {
-    use title_select_api::report::Finding;
+    use stage_select_api::report::Finding;
     let next: i64 = tx.query_row(
         "SELECT coalesce(max(seq), -1) + 1 FROM audit_entries WHERE audit_id = ?1",
         [audit],
@@ -957,9 +957,9 @@ pub(crate) fn returned(
     c: &Connection,
     audit: i64,
     folder: i64,
-    r: &title_select_api::build::PlanReturn,
+    r: &stage_select_api::build::PlanReturn,
 ) -> Result<std::result::Result<Vec<Carried>, String>> {
-    use title_select_api::storage::placed_path;
+    use stage_select_api::storage::placed_path;
     let mut was = Vec::new();
     for p in &r.placed {
         was.extend(entries_at(c, audit, &placed_path(folder, &p.path))?);
@@ -991,9 +991,9 @@ pub(crate) fn returned_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
     folder: i64,
-    r: &title_select_api::build::PlanReturn,
+    r: &stage_select_api::build::PlanReturn,
 ) -> Result<()> {
-    use title_select_api::storage::placed_path;
+    use stage_select_api::storage::placed_path;
     let carried = returned(tx, audit, folder, r)?.map_err(Error::Io)?;
     for f in &r.files {
         if let Some(whole) = &f.from {

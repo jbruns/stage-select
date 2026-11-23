@@ -14,39 +14,39 @@ use axum::routing::{any, delete, get, post, put};
 use axum::{Extension, Json, Router, middleware};
 use futures_util::StreamExt;
 use serde::Deserialize;
-use title_select_api::additions::{
+use stage_select_api::additions::{
     Addition, AdditionsCheck, AdditionsSet, EditAddition, SystemQuery,
 };
-use title_select_api::build::{
+use stage_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeLibraryFolder,
     FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild,
     PlanCleanup, PlanKeptDeletion,
 };
-use title_select_api::calibration::Calibration;
-use title_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
-use title_select_api::ingest::{
+use stage_select_api::calibration::Calibration;
+use stage_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
+use stage_select_api::ingest::{
     DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest,
     RegisterIngestFolder,
 };
-use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
-use title_select_api::romm::{
+use stage_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
+use stage_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
     RommTestRequest,
 };
-use title_select_api::roots::{FolderSuggestions, RootChange, RootEdited, RootSpec};
-use title_select_api::selection::{Role, SelectionProfile, diff_rows};
-use title_select_api::settings::{SettingsUpdate, SettingsView};
-use title_select_api::storage::StoragePolicy;
-use title_select_api::{
+use stage_select_api::roots::{FolderSuggestions, RootChange, RootEdited, RootSpec};
+use stage_select_api::selection::{Role, SelectionProfile, diff_rows};
+use stage_select_api::settings::{SettingsUpdate, SettingsView};
+use stage_select_api::storage::StoragePolicy;
+use stage_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
     ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, PlacedIn, Placements,
     Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, Root, SSE_KEEP_ALIVE,
     SaveProfile, SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow,
     SetHoldingFolder, SettingsChanged, SourceSetSystem, StartAudit, StartSelection, Vocabulary,
 };
-use title_select_selection::Engine;
-use title_select_store::fetch::Fetcher;
-use title_select_store::{Error, Store, Workers};
+use stage_select_selection::Engine;
+use stage_select_store::fetch::Fetcher;
+use stage_select_store::{Error, Store, Workers};
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tower_http::services::{ServeDir, ServeFile};
@@ -269,7 +269,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .merge(operator)
         .fallback(not_found);
     let app = Router::new()
-        .nest(title_select_api::PREFIX, api)
+        .nest(stage_select_api::PREFIX, api)
         .route("/api", any(not_found))
         .route("/api/{*rest}", any(not_found))
         .route("/metrics", get(metrics))
@@ -350,7 +350,7 @@ impl From<Error> for ApiError {
             Error::JobActive { job, .. } => {
                 return ApiError(StatusCode::CONFLICT, err.to_string(), Some(*job));
             }
-            Error::Audit(title_select_engine::Error::Dat(_)) => StatusCode::BAD_REQUEST,
+            Error::Audit(stage_select_engine::Error::Dat(_)) => StatusCode::BAD_REQUEST,
             Error::RegionsUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Error::Sqlite(_) | Error::Io(_) | Error::Audit(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -358,9 +358,9 @@ impl From<Error> for ApiError {
     }
 }
 
-impl From<title_select_selection::Error> for ApiError {
-    fn from(err: title_select_selection::Error) -> ApiError {
-        use title_select_selection::Error as E;
+impl From<stage_select_selection::Error> for ApiError {
+    fn from(err: stage_select_selection::Error) -> ApiError {
+        use stage_select_selection::Error as E;
         let status = match &err {
             E::Profile(_) | E::Patterns(_) | E::Unsupported(_) | E::Refused(_) | E::Dat(_) => {
                 StatusCode::BAD_REQUEST
@@ -528,7 +528,7 @@ async fn dats(State(state): State<AppState>) -> ApiResult<Json<Vec<Dat>>> {
 
 async fn dat_revisions(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<title_select_api::DatRevisionRecord>>> {
+) -> ApiResult<Json<Vec<stage_select_api::DatRevisionRecord>>> {
     Ok(Json(blocking(&state, Store::dat_revisions).await?))
 }
 
@@ -591,7 +591,7 @@ async fn upload_dat(
     })
     .await?;
     let status = match outcome {
-        title_select_api::ImportOutcome::Added => StatusCode::CREATED,
+        stage_select_api::ImportOutcome::Added => StatusCode::CREATED,
         _ => StatusCode::OK,
     };
     Ok((
@@ -605,7 +605,7 @@ async fn upload_dat(
 
 async fn cue_packs(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<title_select_api::CuePackRecord>>> {
+) -> ApiResult<Json<Vec<stage_select_api::CuePackRecord>>> {
     Ok(Json(blocking(&state, Store::cue_packs).await?))
 }
 
@@ -613,7 +613,7 @@ async fn cue_packs(
 async fn upload_cue_pack(
     State(state): State<AppState>,
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::CuePackImport>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::CuePackImport>)> {
     let mut multipart = multipart?;
     let (mut dat, mut source_url, mut file) = (None, None, None);
     while let Some(field) = multipart.next_field().await? {
@@ -643,23 +643,23 @@ async fn upload_cue_pack(
             &name,
             &dat,
             source_url.as_deref(),
-            title_select_api::CuePackOrigin::Import,
+            stage_select_api::CuePackOrigin::Import,
         )
     })
     .await?;
     let status = match outcome {
-        title_select_api::ImportOutcome::Added => StatusCode::CREATED,
+        stage_select_api::ImportOutcome::Added => StatusCode::CREATED,
         _ => StatusCode::OK,
     };
     Ok((
         status,
-        Json(title_select_api::CuePackImport { pack, outcome }),
+        Json(stage_select_api::CuePackImport { pack, outcome }),
     ))
 }
 
 async fn support_files(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<title_select_api::support::SupportFileRecord>>> {
+) -> ApiResult<Json<Vec<stage_select_api::support::SupportFileRecord>>> {
     Ok(Json(blocking(&state, Store::support_files).await?))
 }
 
@@ -669,7 +669,7 @@ async fn upload_support_file(
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
 ) -> ApiResult<(
     StatusCode,
-    Json<title_select_api::support::SupportFileImport>,
+    Json<stage_select_api::support::SupportFileImport>,
 )> {
     let mut multipart = multipart?;
     let (mut source_url, mut file) = (None, None);
@@ -697,12 +697,12 @@ async fn upload_support_file(
     })
     .await?;
     let status = match outcome {
-        title_select_api::ImportOutcome::Added => StatusCode::CREATED,
+        stage_select_api::ImportOutcome::Added => StatusCode::CREATED,
         _ => StatusCode::OK,
     };
     Ok((
         status,
-        Json(title_select_api::support::SupportFileImport { file, outcome }),
+        Json(stage_select_api::support::SupportFileImport { file, outcome }),
     ))
 }
 
@@ -824,13 +824,13 @@ async fn request_romm_rescan(
 
 async fn source_sets(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<title_select_api::SourceSetRecord>>> {
+) -> ApiResult<Json<Vec<stage_select_api::SourceSetRecord>>> {
     Ok(Json(blocking(&state, Store::source_sets).await?))
 }
 
 async fn source_set_summaries(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<title_select_api::SourceSetSummary>>> {
+) -> ApiResult<Json<Vec<stage_select_api::SourceSetSummary>>> {
     let mut summaries = blocking(&state, Store::source_set_summaries).await?;
     let summaries = tokio::task::spawn_blocking(move || {
         state.coverage.apply(&state.store, &mut summaries);
@@ -844,7 +844,7 @@ async fn source_set_summaries(
 async fn add_source_set(
     State(state): State<AppState>,
     body: Result<Json<AddSourceSet>, JsonRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::SourceSetRecord>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::SourceSetRecord>)> {
     let Json(add) = body?;
     let coverage = match &add.coverage {
         Some(regions) => Some(coverage(&state, regions).await?),
@@ -938,7 +938,7 @@ async fn start_check(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Path(id) = id?;
     let job = blocking(&state, move |store| store.enqueue_check(id, &actor)).await?;
     state.jobs.changed(job.clone());
@@ -1007,7 +1007,7 @@ async fn approve_plan(
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
     body: Result<Json<ApprovePlan>, JsonRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Path(id) = id?;
     let Json(approve) = body?;
     let workers = state.workers();
@@ -1113,7 +1113,7 @@ async fn start_ingest_scan(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     root: Result<Path<String>, PathRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Path(root) = root?;
     let job = blocking(&state, move |store| {
         store.enqueue_ingest_scan(&root, &actor)
@@ -1218,7 +1218,7 @@ async fn approve_ingest_plan(
         let queued: Vec<_> = store
             .jobs(100)?
             .into_iter()
-            .filter(|job| job.state == title_select_api::JobState::Queued)
+            .filter(|job| job.state == stage_select_api::JobState::Queued)
             .collect();
         Ok((plan, queued))
     })
@@ -1492,7 +1492,7 @@ async fn build(
 async fn source_set(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
+) -> ApiResult<Json<stage_select_api::SourceSetRecord>> {
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.source_set(&name)).await?,
@@ -1503,8 +1503,8 @@ async fn source_set(
 async fn set_follow(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-    body: Result<Json<title_select_api::SetFollow>, JsonRejection>,
-) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
+    body: Result<Json<stage_select_api::SetFollow>, JsonRejection>,
+) -> ApiResult<Json<stage_select_api::SourceSetRecord>> {
     let Path(name) = name?;
     let Json(request) = body?;
     Ok(Json(
@@ -1569,7 +1569,7 @@ async fn coverage(state: &AppState, regions: &[String]) -> ApiResult<Vec<String>
     let names = tokio::task::spawn_blocking(move || engine.names())
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
-    title_select_api::coverage::canonical(regions, &names.regions)
+    stage_select_api::coverage::canonical(regions, &names.regions)
         .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e, None))
 }
 
@@ -1577,8 +1577,8 @@ async fn coverage(state: &AppState, regions: &[String]) -> ApiResult<Vec<String>
 async fn set_coverage(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-    body: Result<Json<title_select_api::SetCoverage>, JsonRejection>,
-) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
+    body: Result<Json<stage_select_api::SetCoverage>, JsonRejection>,
+) -> ApiResult<Json<stage_select_api::SourceSetRecord>> {
     let Path(name) = name?;
     let Json(request) = body?;
     let coverage = match &request.coverage {
@@ -1598,7 +1598,7 @@ async fn start_stat_walk(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Path(name) = name?;
     let job = blocking(&state, move |store| store.enqueue_stat_walk(&name, &actor)).await?;
     state.jobs.changed(job.clone());
@@ -1609,7 +1609,7 @@ async fn start_stat_walk(
 async fn stat_walks(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<Json<Vec<title_select_api::StatWalk>>> {
+) -> ApiResult<Json<Vec<stage_select_api::StatWalk>>> {
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.stat_walks(&name)).await?,
@@ -1620,7 +1620,7 @@ async fn stat_walks(
 async fn followed_revisions(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<Json<Vec<title_select_api::FollowedRevision>>> {
+) -> ApiResult<Json<Vec<stage_select_api::FollowedRevision>>> {
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.followed_revisions(&name)).await?,
@@ -1649,7 +1649,7 @@ async fn start_fetch(
     let provider = FetchProvider::parse(&provider).ok_or_else(|| {
         ApiError(
             StatusCode::NOT_FOUND,
-            format!("{provider:?} is not a provider Title Select fetches from"),
+            format!("{provider:?} is not a provider Stage Select fetches from"),
             None,
         )
     })?;
@@ -1676,7 +1676,7 @@ async fn start_fetch(
 async fn history(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<Json<Vec<title_select_api::AuditSummary>>> {
+) -> ApiResult<Json<Vec<stage_select_api::AuditSummary>>> {
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.history(&name)).await?,
@@ -1709,7 +1709,7 @@ async fn fixdat(
     name: Result<Path<String>, PathRejection>,
     query: Result<Query<FixdatQuery>, QueryRejection>,
 ) -> ApiResult<Response> {
-    use title_select_store::FixdatScope;
+    use stage_select_store::FixdatScope;
     let (Path(name), Query(query)) = (name?, query?);
     let scope = match (query.scope, query.selection) {
         (Some(_), Some(_)) => {
@@ -1738,7 +1738,7 @@ async fn have_miss(
 }
 
 /// An exported file, to be saved under its name.
-fn download(export: title_select_store::Export, content_type: &'static str) -> Response {
+fn download(export: stage_select_store::Export, content_type: &'static str) -> Response {
     (
         [
             (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
@@ -1851,7 +1851,7 @@ async fn dat_file(
 async fn source_set_ingests(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
-) -> ApiResult<Json<Vec<title_select_api::ingest::IngestPlan>>> {
+) -> ApiResult<Json<Vec<stage_select_api::ingest::IngestPlan>>> {
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.source_set_ingests(&name)).await?,
@@ -1863,7 +1863,7 @@ async fn start_audit(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     body: Result<Json<StartAudit>, JsonRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Json(start) = body?;
     let workers = state.workers();
     let job = blocking(&state, move |store| {
@@ -1883,16 +1883,16 @@ async fn start_audit(
 async fn audit(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<title_select_api::AuditSummary>> {
+) -> ApiResult<Json<stage_select_api::AuditSummary>> {
     let Path(id) = id?;
     Ok(Json(blocking(&state, move |store| store.audit(id)).await?))
 }
 
-/// The full `title-select.audit/1` report.
+/// The full `stage-select.audit/1` report.
 async fn report(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<title_select_api::Report>> {
+) -> ApiResult<Json<stage_select_api::Report>> {
     let Path(id) = id?;
     Ok(Json(blocking(&state, move |store| store.report(id)).await?))
 }
@@ -1939,7 +1939,7 @@ async fn entries(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
     query: Result<Query<EntriesQuery>, QueryRejection>,
-) -> ApiResult<Json<Page<title_select_api::EntryRow>>> {
+) -> ApiResult<Json<Page<stage_select_api::EntryRow>>> {
     let (Path(id), Query(query)) = (id?, query?);
     let (after, limit) = paging(query.cursor.as_deref(), query.limit)?;
     let page = blocking(&state, move |store| {
@@ -1953,7 +1953,7 @@ async fn games(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
     query: Result<Query<GamesQuery>, QueryRejection>,
-) -> ApiResult<Json<Page<title_select_api::GameRow>>> {
+) -> ApiResult<Json<Page<stage_select_api::GameRow>>> {
     let (Path(id), Query(query)) = (id?, query?);
     let (after, limit) = paging(query.cursor.as_deref(), query.limit)?;
     let page = blocking(&state, move |store| {
@@ -1963,7 +1963,7 @@ async fn games(
     Ok(to_page(page))
 }
 
-/// Every Entry of a full Audit, one JSON [`title_select_api::EntryRow`] per line, read in one transaction.
+/// Every Entry of a full Audit, one JSON [`stage_select_api::EntryRow`] per line, read in one transaction.
 async fn entries_ndjson(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
@@ -2010,10 +2010,10 @@ async fn vocabulary(State(state): State<AppState>) -> ApiResult<Json<Vocabulary>
         regions: names.regions,
         languages: names.languages,
         videos: names.videos,
-        categories: title_select_api::selection::Category::ALL.to_vec(),
+        categories: stage_select_api::selection::Category::ALL.to_vec(),
         default_region_order: names.default_region_order,
         default_video_order: names.default_video_order,
-        coverage_presets: title_select_api::CoveragePreset::all(),
+        coverage_presets: stage_select_api::CoveragePreset::all(),
     }))
 }
 
@@ -2038,8 +2038,8 @@ async fn check_profile(
     Ok(Json(ProfileCheck {
         problems: match checked {
             Ok(()) => Vec::new(),
-            Err(title_select_selection::Error::Profile(problem)) => vec![problem],
-            Err(title_select_selection::Error::Patterns(problems)) => problems,
+            Err(stage_select_selection::Error::Profile(problem)) => vec![problem],
+            Err(stage_select_selection::Error::Patterns(problems)) => problems,
             Err(err) => return Err(err.into()),
         },
     }))
@@ -2049,7 +2049,7 @@ async fn check_profile(
 async fn check_against_registered(
     state: &AppState,
     profile: SelectionProfile,
-) -> ApiResult<Result<(), title_select_selection::Error>> {
+) -> ApiResult<Result<(), stage_select_selection::Error>> {
     let engine = state.engine()?;
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || {
@@ -2208,7 +2208,7 @@ async fn start_selection(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     body: Result<Json<StartSelection>, JsonRejection>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let Json(start) = body?;
     state.engine()?;
     let workers = state.workers();
@@ -2260,7 +2260,7 @@ async fn selection_record(
 async fn selection(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<title_select_api::selection::Selection>> {
+) -> ApiResult<Json<stage_select_api::selection::Selection>> {
     let Path(id) = id?;
     Ok(Json(
         blocking(&state, move |store| store.selection(id)).await?,
@@ -2340,19 +2340,19 @@ async fn selection_diff(
     ))
 }
 
-async fn jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_api::Job>>> {
+async fn jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<stage_select_api::Job>>> {
     Ok(Json(blocking(&state, |store| store.jobs(100)).await?))
 }
 
 /// Every Failed Job, however old, so a client can show each failure the Operator hasn't seen.
-async fn failed_jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_api::Job>>> {
+async fn failed_jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<stage_select_api::Job>>> {
     Ok(Json(blocking(&state, |store| store.failed_jobs()).await?))
 }
 
 async fn job(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<title_select_api::Job>> {
+) -> ApiResult<Json<stage_select_api::Job>> {
     let Path(id) = id?;
     Ok(Json(blocking(&state, move |store| store.job(id)).await?))
 }
@@ -2361,7 +2361,7 @@ async fn job(
 async fn start_calibration(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
-) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+) -> ApiResult<(StatusCode, Json<stage_select_api::Job>)> {
     let job = blocking(&state, move |store| store.enqueue_calibration(&actor)).await?;
     state.jobs.changed(job.clone());
     Ok((StatusCode::ACCEPTED, Json(job)))
@@ -2371,7 +2371,7 @@ async fn start_calibration(
 async fn calibration(State(state): State<AppState>) -> ApiResult<Json<Calibration>> {
     Ok(Json(
         blocking(&state, move |store| {
-            store.calibration(title_select_store::calibration::cpus())
+            store.calibration(stage_select_store::calibration::cpus())
         })
         .await?,
     ))
@@ -2392,7 +2392,7 @@ async fn job_calibration(
 async fn cancel_job(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<title_select_api::Job>> {
+) -> ApiResult<Json<stage_select_api::Job>> {
     let Path(id) = id?;
     let job = blocking(&state, move |store| store.cancel_job(id)).await?;
     state.jobs.changed(job.clone());
@@ -2548,7 +2548,7 @@ fn all_job_events(state: AppState) -> mpsc::Receiver<JobEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::JobProgress;
+    use stage_select_api::JobProgress;
 
     fn state(dir: &std::path::Path) -> AppState {
         AppState {
@@ -2559,7 +2559,7 @@ mod tests {
             )),
             engine: None,
             previews: Arc::default(),
-            fetcher: Arc::new(Fetcher::new(title_select_store::fetch::Endpoints::at(
+            fetcher: Arc::new(Fetcher::new(stage_select_store::fetch::Endpoints::at(
                 "http://127.0.0.1:9",
             ))),
             coverage: Arc::default(),
@@ -2603,7 +2603,7 @@ mod tests {
                 None,
                 "Operator",
                 state.workers(),
-                title_select_api::AuditEvidence::Incremental,
+                stage_select_api::AuditEvidence::Incremental,
             )
             .unwrap();
         let running = store.claim_job().unwrap().unwrap();
@@ -2622,7 +2622,7 @@ mod tests {
         };
         state.jobs.publish(JobEvent::Progress(stale));
         let done = store.run_audit_job(running.id, None).unwrap();
-        assert_eq!(done.state, title_select_api::JobState::Succeeded);
+        assert_eq!(done.state, stage_select_api::JobState::Succeeded);
         state.jobs.publish(JobEvent::State(Box::new(done.clone())));
 
         let first = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv());

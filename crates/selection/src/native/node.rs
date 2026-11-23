@@ -104,7 +104,7 @@ pub(crate) const REMOVES: [&str; 27] = [
     COVERAGE_REMOVES,
 ];
 
-/// The titles outside the Source Set's Coverage: Title Select's own list, not Retool's.
+/// The titles outside the Source Set's Coverage: Stage Select's own list, not Retool's.
 pub(crate) const COVERAGE_REMOVES: &str = "coverage_removes";
 
 pub(crate) struct Run {
@@ -240,7 +240,7 @@ impl Run {
             .insert(id);
     }
 
-    /// The region order the run's title selection reads.
+    /// The region order the run's choice among titles reads.
     pub fn region_order(&self) -> Vec<String> {
         self.s.region_order().to_vec()
     }

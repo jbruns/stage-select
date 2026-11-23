@@ -12,8 +12,8 @@ CI runs the same suite through [cargo-nextest](https://nexte.st), one process pe
 `.github/workflows/ci.yaml`):
 
 ```sh
-cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+cargo nextest run --profile ci --locked -E 'not binary_id(stage-select-selection::fixtures)'
+cargo nextest run --profile ci --release --locked --package stage-select-selection --test fixtures
 ```
 
 The debug run leaves out the `fixtures` binary: its goldens are a subset of the ones the release run checks, and the
@@ -23,7 +23,7 @@ nextest runs no doctests, and there are none. The first doctest brings `cargo te
 the debug nextest run, into the Build and test block in `AGENTS.md`, and into `tools/check`.
 
 The CHD tests need chdman. They skip without it, except where `CI` is set, where a missing chdman is a failure;
-`TITLE_SELECT_CHDMAN` names the binary when it isn't on `PATH`.
+`STAGE_SELECT_CHDMAN` names the binary when it isn't on `PATH`.
 
 ## `tools/check`
 

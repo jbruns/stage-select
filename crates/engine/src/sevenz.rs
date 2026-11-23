@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use lzma_rust2::{Lzma2Reader, LzmaReader};
 use sevenz_rust2::{Archive, ArchiveEntry, BlockDecoder, EncoderMethod, Error, Password};
-use title_select_api::build::ExpectedRom;
+use stage_select_api::build::ExpectedRom;
 
 use crate::build::{
     Hashing, NESTED_ENDINGS, Payload, Probe, Probed, ZipLimits, archive_magic, copy_sized,

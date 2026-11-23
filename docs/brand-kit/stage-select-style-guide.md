@@ -4,8 +4,8 @@
 
 Identity v2.0 · 15 November 2026
 
-> **Status.** This identity replaces Title Select v1.1. The product still ships under the old name and look: #161
-> tracks the rename and #162 the workbench's adoption of this kit. Until #162 lands, the workbench links
+> **Status.** This identity replaces the v1.1 identity. The product ships under the new name but still in the old
+> look: #162 tracks the workbench's adoption of this kit. Until #162 lands, the workbench links
 > `title-select-tokens.css`, which stays in this folder for that reason only.
 
 ## Position

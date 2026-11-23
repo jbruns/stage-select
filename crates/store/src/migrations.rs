@@ -16,7 +16,7 @@ pub(crate) const APPLICATION_ID: i32 = 0x5453_656C;
 pub(super) const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_baseline.sql")];
 
 /// What a store made before the baseline is refused with.
-pub(crate) const PRE_BASELINE: &str = "This store was made by an earlier release of Title Select and can't be opened. Start a new store.";
+pub(crate) const PRE_BASELINE: &str = "This store was made by an earlier release of Stage Select and can't be opened. Start a new store.";
 
 /// Refuses the database at `path` if its header says it has a schema but not the baseline's stamp. It reads the
 /// header's bytes rather than opening the database, as even a read-only SQLite connection may create a WAL's sidecars,
@@ -52,7 +52,7 @@ pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) ->
     let applied = usize::try_from(applied).unwrap_or(usize::MAX);
     if applied > migrations.len() {
         return Err(Error::Refused(format!(
-            "{}: the store has schema version {applied}, newer than this Title Select's {}",
+            "{}: the store has schema version {applied}, newer than this Stage Select's {}",
             dir.display(),
             migrations.len()
         )));

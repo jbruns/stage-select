@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::support;
-use title_select_api::discs::{self, DISC_RENAME, normalize};
-use title_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
+use stage_select_api::discs::{self, DISC_RENAME, normalize};
+use stage_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
 
 #[test]
 fn the_disc_rename_table_is_the_pinned_configs() {
     let path = Path::new(
-        &std::env::var_os("TITLE_SELECT_CLONE_LISTS").expect("set in .cargo/config.toml"),
+        &std::env::var_os("STAGE_SELECT_CLONE_LISTS").expect("set in .cargo/config.toml"),
     )
     .join("config/internal-config.json");
     #[derive(serde::Deserialize)]
@@ -73,7 +73,7 @@ fn only_europe_has_disc_2(dir: &Path) -> PathBuf {
 }
 
 fn write_dat(dir: &Path, file: &str, games: &[&str]) -> PathBuf {
-    let name = "Title Select - Discs";
+    let name = "Stage Select - Discs";
     let games: String = games.iter().map(|g| game(g)).collect();
     let path = dir.join(file);
     std::fs::write(

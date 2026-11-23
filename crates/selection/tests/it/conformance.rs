@@ -1,12 +1,12 @@
 //! Conformance: Retool's own synthetic DATs and configs, run through the Selection engine. Each case compares the
-//! Selection and the trace with this crate's goldens (`tests/goldens/`), which `TITLE_SELECT_REGENERATE_GOLDENS=1`
+//! Selection and the trace with this crate's goldens (`tests/goldens/`), which `STAGE_SELECT_REGENERATE_GOLDENS=1`
 //! rewrites. The goldens were made by the bundled Retool, and checked against its own output, until the cutover
 //! (ADR 0015); `tests/fixtures.rs` covers every fixture DAT.
 
 use std::collections::BTreeMap;
 
 use crate::support;
-use title_select_api::selection::{Category, Selection, SelectionProfile};
+use stage_select_api::selection::{Category, Selection, SelectionProfile};
 
 struct Case {
     name: &'static str,
@@ -146,13 +146,13 @@ fn run(case: &Case) -> Selection {
     // it records the Retool port's pins alone.
     assert!(selection.pins.retool.is_some() && selection.pins.arcade.is_none());
     let mut golden = selection.clone();
-    golden.pins = title_select_api::selection::SelectionPins {
+    golden.pins = stage_select_api::selection::SelectionPins {
         retool: Some(Default::default()),
         ..Default::default()
     };
     let mut json = serde_json::to_string_pretty(&golden).unwrap();
     json.push('\n');
-    let trace = title_select_selection::stable_trace(&outcome.trace).unwrap();
+    let trace = stage_select_selection::stable_trace(&outcome.trace).unwrap();
     support::golden(&format!("{}.selection.json", case.name), &json);
     support::golden(&format!("{}.trace.jsonl", case.name), &trace);
     selection
@@ -210,7 +210,7 @@ fn overrides_exclude_and_include_titles_by_name_regex_and_full_name() {
 fn group_rows<'s>(
     selection: &'s Selection,
     name: &str,
-) -> &'s title_select_api::selection::SelectionGroup {
+) -> &'s stage_select_api::selection::SelectionGroup {
     selection
         .groups
         .iter()

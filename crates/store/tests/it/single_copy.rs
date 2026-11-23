@@ -1,22 +1,22 @@
 //! Single Copy (ADR 0023): Builds that place a Source Set's Games in the Library Folder holding them, by a rename, a
 //! copy or a conversion, and recovery from a stop at each step, from synthetic DATs, Source Sets and files.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::build::{
+use stage_select_api::build::{
     AddLibraryFolder, ItemKind, ItemState, LibraryFolder, PlaceHow, Plan, PlanItem,
 };
-use title_select_api::selection::{
+use stage_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, Winner,
 };
-use title_select_api::storage::{StorageFormat, placed_path};
-use title_select_api::{AuditEvidence, EvidenceLevel, Finding, JobKind, JobState, Report};
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::storage::{StorageFormat, placed_path};
+use stage_select_api::{AuditEvidence, EvidenceLevel, Finding, JobKind, JobState, Report};
+use stage_select_store::{Error, Fault, Store, Workers};
 
 pub(crate) const SET: &str = "Alpha";
 pub(crate) const PROFILE: &str = "Mine";
@@ -163,7 +163,7 @@ impl Env {
     }
 
     /// Approves `plan`, then claims and runs its Build Job.
-    pub(crate) fn build(&self, plan: &Plan) -> title_select_api::Job {
+    pub(crate) fn build(&self, plan: &Plan) -> stage_select_api::Job {
         let job = self
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
@@ -223,7 +223,7 @@ impl Env {
     }
 
     /// The Build of `job`'s item for `game`.
-    pub(crate) fn item(&self, job: i64, game: &str) -> title_select_api::build::BuildItem {
+    pub(crate) fn item(&self, job: i64, game: &str) -> stage_select_api::build::BuildItem {
         let build = self.store.build_of_job(job).unwrap().unwrap();
         self.store
             .build(build.id)
@@ -234,7 +234,7 @@ impl Env {
             .unwrap()
     }
 
-    /// The file names in the Source Set's folder and in the Library Folder, leaving out what Title Select keeps for
+    /// The file names in the Source Set's folder and in the Library Folder, leaving out what Stage Select keeps for
     /// itself.
     pub(crate) fn files(&self) -> (Vec<String>, Vec<String>) {
         (names(&self.set()), names(&self.library()))
@@ -257,16 +257,16 @@ pub(crate) fn names(dir: &Path) -> Vec<String> {
     let mut found: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n != ".title-select")
+        .filter(|n| n != ".stage-select")
         .collect();
     found.sort();
     found
 }
 
-/// Every file under the folder Title Select keeps for itself in `dir`, relative to it.
+/// Every file under the folder Stage Select keeps for itself in `dir`, relative to it.
 pub(crate) fn private_files(dir: &Path) -> Vec<String> {
     let mut found = Vec::new();
-    let mut walk = vec![dir.join(".title-select")];
+    let mut walk = vec![dir.join(".stage-select")];
     while let Some(at) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&at) else {
             continue;
@@ -279,7 +279,7 @@ pub(crate) fn private_files(dir: &Path) -> Vec<String> {
             }
         }
     }
-    found.retain(|f| !f.ends_with(".title-select/marker.json") && !f.ends_with("marker"));
+    found.retain(|f| !f.ends_with(".stage-select/marker.json") && !f.ends_with("marker"));
     found.sort();
     found
 }
@@ -570,7 +570,7 @@ fn assert_kept_by_build(env: &Env, job: i64, bytes: Option<&[u8]>) {
     assert_eq!(kept[0].name, "Pong (USA).zip");
     assert_eq!(kept[0].kept_name, "Pong (USA).zip.kept");
     let path = format!(
-        ".title-select/retained/{}/Pong (USA).zip.kept",
+        ".stage-select/retained/{}/Pong (USA).zip.kept",
         kept[0].generation
     );
     assert_eq!(private_files(&env.set()), vec![path.clone()]);
@@ -1161,7 +1161,7 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
         .store
         .plan_source_kept_deletion(
             SET,
-            &title_select_api::build::PlanKeptDeletion {
+            &stage_select_api::build::PlanKeptDeletion {
                 ids: vec![kept[0].id],
                 all: false,
             },
@@ -1184,18 +1184,18 @@ pub(crate) fn replace_with_marked_copy(dir: &Path, library: &Path) {
     let moved = PathBuf::from(format!("{}.moved", dir.display()));
     let was = moved.join(library.strip_prefix(dir).unwrap());
     std::fs::rename(dir, &moved).unwrap();
-    std::fs::create_dir_all(library.join(".title-select")).unwrap();
+    std::fs::create_dir_all(library.join(".stage-select")).unwrap();
     std::fs::set_permissions(
-        library.join(".title-select"),
+        library.join(".stage-select"),
         std::fs::Permissions::from_mode(0o700),
     )
     .unwrap();
-    for entry in std::fs::read_dir(was.join(".title-select")).unwrap() {
+    for entry in std::fs::read_dir(was.join(".stage-select")).unwrap() {
         let entry = entry.unwrap();
         if entry.file_type().unwrap().is_file() {
             std::fs::copy(
                 entry.path(),
-                library.join(".title-select").join(entry.file_name()),
+                library.join(".stage-select").join(entry.file_name()),
             )
             .unwrap();
         }
@@ -1482,7 +1482,7 @@ fn an_original_rewritten_before_it_is_set_aside_goes_to_the_source_sets_kept_fil
 }
 
 /// Approves `repair`, then runs it and the audit it queues.
-fn run_repair(env: &Env, repair: &title_select_api::repair::RepairPlan) {
+fn run_repair(env: &Env, repair: &stage_select_api::repair::RepairPlan) {
     let approved = env
         .store
         .approve_repair(repair.id, &repair.digest, "Operator", WORKERS)
@@ -1499,7 +1499,7 @@ fn run_repair(env: &Env, repair: &title_select_api::repair::RepairPlan) {
 
 #[test]
 fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set() {
-    use title_select_api::lifecycle::RegistrationKind;
+    use stage_select_api::lifecycle::RegistrationKind;
     let env = Env::new();
     pong_zip(&env);
     env.audit(AuditEvidence::Full);
@@ -1548,7 +1548,7 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
         .store
         .plan_source_kept_deletion(
             SET,
-            &title_select_api::build::PlanKeptDeletion {
+            &stage_select_api::build::PlanKeptDeletion {
                 ids: vec![],
                 all: true,
             },

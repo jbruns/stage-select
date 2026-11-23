@@ -4,7 +4,7 @@
 //! and is recorded only once what is at its new name is that identity again.
 //!
 //! The threat model: the Host keeps a Library Folder mode 2750, so only the service's own user can create, rename
-//! or remove entries in it, and the folders Title Select creates inside it are private to that user. A process
+//! or remove entries in it, and the folders Stage Select creates inside it are private to that user. A process
 //! running as that user is out of scope (it can rewrite the store). What another user, or something left over from
 //! before, could have put at a name is never acted on: a cleanup moves an entry only by one rename that never
 //! replaces anything, checks it by identity before and after, records the move as an intent first, and makes both
@@ -19,15 +19,15 @@ use std::time::SystemTime;
 
 use rusqlite::{Transaction, params};
 use rustix::fs::{FileType, Stat};
-use title_select_api::JobState;
-use title_select_api::build::{
+use stage_select_api::JobState;
+use stage_select_api::build::{
     Cleanup, CleanupAction, CleanupEntry, CleanupRepack, CleanupRestore, DriftKind, ItemKind,
     ItemState, KeepAside, KeepReason, Marker, PlanContent, PlanItem, PlanSource, RETENTION,
     STAGING,
 };
-use title_select_engine::Progress;
-use title_select_engine::build::{Probe, holds_as, repack_from, verify};
-use title_select_engine::meter::Tally;
+use stage_select_engine::Progress;
+use stage_select_engine::build::{Probe, holds_as, repack_from, verify};
+use stage_select_engine::meter::Tally;
 
 use super::{
     Publishing, adopted_parent, cited_by, clear_staging, is_file, record_adopted_parent,
@@ -104,7 +104,7 @@ fn steps(cleanup: &Cleanup) -> Vec<Step<'_>> {
 }
 
 /// Whether a cleanup stores `target` as a loose file: one recorded under its one ROM's name, rather than its game's.
-fn stored_loose(target: &str, game: &str, roms: &[title_select_api::build::ExpectedRom]) -> bool {
+fn stored_loose(target: &str, game: &str, roms: &[stage_select_api::build::ExpectedRom]) -> bool {
     roms.len() == 1 && target != format!("{game}.zip") && target != format!("{game}.chd")
 }
 
@@ -114,7 +114,7 @@ fn built_item(
     group: &str,
     game: &str,
     kind: ItemKind,
-    roms: &[title_select_api::build::ExpectedRom],
+    roms: &[stage_select_api::build::ExpectedRom],
     sources: &[PlanSource],
 ) -> PlanItem {
     PlanItem {
@@ -436,7 +436,7 @@ impl Run<'_> {
         seq: i64,
         e: &CleanupEntry,
         probe: &Probe,
-    ) -> Result<std::result::Result<title_select_engine::chd::Header, String>> {
+    ) -> Result<std::result::Result<stage_select_engine::chd::Header, String>> {
         let file = match self.dir.open_file(&e.name) {
             Ok(file) => file,
             Err(err) => return Ok(Err(err.to_string())),
@@ -454,7 +454,7 @@ impl Run<'_> {
             chdman: self
                 .store
                 .chdman()
-                .map(|program| title_select_engine::chd::Chdman {
+                .map(|program| stage_select_engine::chd::Chdman {
                     program,
                     threads,
                     deadline: limits.base,
@@ -1107,7 +1107,7 @@ impl Store {
     /// is the folder as the cleanup left it, to be stored with [`store_refreshed`] before the cleanup's job ends,
     /// while nothing else acts on the folder. Only read; if it cannot be made, the last check stands.
     fn refresh_check(&self, folder: i64) -> Option<Planned> {
-        self.compute_cleanup(folder, &title_select_api::build::PlanCleanup::default())
+        self.compute_cleanup(folder, &stage_select_api::build::PlanCleanup::default())
             .ok()
             .filter(|planned| planned.check.is_some())
     }

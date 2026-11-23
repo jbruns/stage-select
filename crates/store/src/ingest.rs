@@ -14,18 +14,18 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use serde::{Deserialize, Serialize};
-use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
-use title_select_api::ingest::{
+use stage_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
+use stage_select_api::ingest::{
     Assessment, FolderEntry, FoundDat, FoundSupportFile, IngestAction, IngestFolder, IngestItem,
     IngestKeptFile, IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem,
     ItemMatch, ItemMove, ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
 };
-use title_select_api::support::SupportFileKind;
-use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
-use title_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
-use title_select_engine::dat::Dat;
-use title_select_engine::sevenz::{self, Decoding};
-use title_select_engine::{ChdAudit, FileStamp};
+use stage_select_api::support::SupportFileKind;
+use stage_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
+use stage_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::sevenz::{self, Decoding};
+use stage_select_engine::{ChdAudit, FileStamp};
 
 use self::moves::{Destination, Move};
 use super::audits::choose_revision;
@@ -43,7 +43,7 @@ use crate::roots::Root;
 /// Endings of names a download is written under until it finishes.
 const PARTIAL: [&str; 4] = [".part", ".!qB", ".crdownload", ".tmp"];
 
-/// Archive formats Title Select never opens.
+/// Archive formats Stage Select never opens.
 const UNSUPPORTED_ARCHIVES: [&str; 1] = ["rar"];
 
 /// How a 7z refused for its dictionary is refused: raising the limit lets it be read, so it is read again.
@@ -61,7 +61,7 @@ pub(super) fn kept_leaf(name: &str, nth: u32) -> String {
     kept_name(name.rsplit('/').next().unwrap_or(name), nth)
 }
 
-/// Whether a scan passes over `name`: a dotfile, Title Select's own entries among them, or a download not yet
+/// Whether a scan passes over `name`: a dotfile, Stage Select's own entries among them, or a download not yet
 /// finished.
 pub(super) fn is_ignored(name: &str) -> bool {
     name.starts_with('.') || PARTIAL.iter().any(|end| name.ends_with(end))
@@ -166,19 +166,19 @@ pub(super) fn check_ingest_marker(
     match read_ingest_marker(dir) {
         MarkerFound::Present(marker) if marker == *expected => Ok(()),
         MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
-            "{path}: its .title-select marker is from another store; is this the right folder, or the right mount? \
+            "{path}: its .stage-select marker is from another store; is this the right folder, or the right mount? \
              Nothing in it was changed"
         )),
         MarkerFound::Present(marker) => Err(format!(
-            "{path}: its .title-select marker is for ingest folder {}, not {}; is this the right mount? Nothing in \
+            "{path}: its .stage-select marker is for ingest folder {}, not {}; is this the right mount? Nothing in \
              it was changed",
             marker.ingest_folder, expected.ingest_folder
         )),
         MarkerFound::Absent => Err(format!(
-            "{path}: its .title-select marker is gone; is its share mounted? Nothing in it was changed"
+            "{path}: its .stage-select marker is gone; is its share mounted? Nothing in it was changed"
         )),
         MarkerFound::Unreadable(e) => Err(format!(
-            "{path}: its .title-select marker cannot be read ({e}); nothing in it was changed"
+            "{path}: its .stage-select marker cannot be read ({e}); nothing in it was changed"
         )),
     }
 }
@@ -273,8 +273,8 @@ impl DiskRead {
 
 /// Reads the CHD `file`, at `path`, of a folder of Disks: its header, and `chdman verify` as `disks` runs it.
 fn read_disk(file: &std::fs::File, path: &Path, disks: &ChdAudit) -> DiskRead {
-    use title_select_engine::chd::{HeaderRefusal, Unverified};
-    match title_select_engine::chd::read_header(file) {
+    use stage_select_engine::chd::{HeaderRefusal, Unverified};
+    match stage_select_engine::chd::read_header(file) {
         Err(HeaderRefusal::Unread(why)) => DiskRead::Unchecked { why },
         Err(refusal) => DiskRead::NoDisk {
             why: refusal.as_disk(),
@@ -686,7 +686,7 @@ struct AuditIndex {
 
 struct DatIndex {
     dat: Dat,
-    /// The names of the ROMs each Game needs, as [`title_select_engine::dat::Rom::needed`] says: neither optional nor
+    /// The names of the ROMs each Game needs, as [`stage_select_engine::dat::Rom::needed`] says: neither optional nor
     /// nodump. A Disk is not one: it is a CHD of its own, which no ZIP or loose file holds (ADR 0026).
     needed: Vec<Vec<String>>,
     /// The names of the Disks each Game needs, as `needed` has its other ROMs.
@@ -923,11 +923,11 @@ impl Matcher {
             .find(|dat| !dat.disks_with_sha1(parent).is_empty())
             .or_else(|| self.sets.first().map(|set| &self.dats[set.index].dat));
         match dat {
-            Some(dat) => title_select_engine::needs_parent(dat, parent),
+            Some(dat) => stage_select_engine::needs_parent(dat, parent),
             None => format!(
                 "{}, which can't be read without its parent CHD, SHA-1 {parent}; replace it with a self-contained \
                  CHD",
-                title_select_api::report::DELTA_CHD
+                stage_select_api::report::DELTA_CHD
             ),
         }
     }
@@ -1010,7 +1010,7 @@ fn found_dat(c: &Connection, read: &ReadDat, sha256: &str) -> Result<FoundDat> {
         version: read.version.clone(),
         sha256: sha256.to_owned(),
         dat: format!("{provider}/{}", read.name),
-        provider: title_select_api::dat::known_provider(&provider).map(str::to_owned),
+        provider: stage_select_api::dat::known_provider(&provider).map(str::to_owned),
         known,
         imported,
     })
@@ -1224,7 +1224,7 @@ fn read_item(
                 SUPPORT_FILE_LIMIT >> 20
             ));
         } else {
-            match title_select_api::support::read_header(&bytes, name) {
+            match stage_select_api::support::read_header(&bytes, name) {
                 Ok(read) => support = Some(read),
                 Err(why) => refused_support = Some(why),
             }
@@ -1243,7 +1243,7 @@ fn read_item(
             match parsed.check_name(Path::new(name)) {
                 Ok(()) => {
                     dat = Some(ReadDat {
-                        provider: title_select_api::dat::provider_part(
+                        provider: stage_select_api::dat::provider_part(
                             parsed.provider(),
                             parsed.format,
                         ),
@@ -1292,7 +1292,7 @@ fn read_planned(dir: &FolderDir, item: &IngestPlanItem, limit: u64) -> Result<Ve
         .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| Error::Io(e.to_string()))?;
-    let sha = title_select_engine::sha256_hex(&bytes);
+    let sha = stage_select_engine::sha256_hex(&bytes);
     let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
     if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
         return Err(changed());
@@ -1365,7 +1365,7 @@ fn plan_by_id(c: &Connection, id: i64) -> Result<IngestPlan> {
 
 fn digest(content: &IngestPlanContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a plan always serializes");
-    title_select_engine::sha256_hex(&bytes)
+    stage_select_engine::sha256_hex(&bytes)
 }
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<IngestKeptFile> {
@@ -1494,7 +1494,7 @@ impl Store {
                     read_ingest_marker(&dir)
                 {
                     return Err(Error::Refused(format!(
-                        "{}: the folder already has a .title-select marker that is not this store's ingest \
+                        "{}: the folder already has a .stage-select marker that is not this store's ingest \
                          folder; is this the right folder? Nothing in it was changed",
                         dir.path().display()
                     )));
@@ -1646,7 +1646,7 @@ impl Store {
         }
         // chdman verifies each CHD of a folder of Disks before any plan moves it, reading it from the folder's Root.
         let disks = self.disk_audit(
-            title_select_engine::meter::this_thread()
+            stage_select_engine::meter::this_thread()
                 .map_or_else(Default::default, |job| job.tally(Some(&row.root))),
         )?;
         for (name, st, refused) in found {
@@ -1730,7 +1730,7 @@ impl Store {
                 Some(read) => (read, false),
                 None => {
                     self.fault_point(Fault::IngestRead);
-                    let from = title_select_engine::meter::this_thread()
+                    let from = stage_select_engine::meter::this_thread()
                         .map_or_else(Default::default, |job| job.tally(Some(&row.root)));
                     // Only a CHD of a folder of Disks is in a folder.
                     let disks = name.contains('/').then_some(&disks);
@@ -2212,7 +2212,7 @@ impl Store {
         let approve = |tx: &Transaction| {
             crate::lifecycle::check_live(
                 tx,
-                title_select_api::lifecycle::RegistrationKind::IngestFolder,
+                stage_select_api::lifecycle::RegistrationKind::IngestFolder,
                 row.id,
             )?;
             let advanced = tx.execute(
@@ -2813,7 +2813,7 @@ mod digest_tests {
     #[test]
     fn an_ingest_plan_digest_is_the_sha256_of_its_compact_json() {
         let json = r#"{"ingest_folder":1,"root":"r","action":"discard","generation":2,"items":[],"fingerprint":[]}"#;
-        let content: title_select_api::ingest::IngestPlanContent =
+        let content: stage_select_api::ingest::IngestPlanContent =
             serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(

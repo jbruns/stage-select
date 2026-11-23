@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use sevenz_fixtures::*;
-use title_select_engine::build::{Probed, ZipLimits};
-use title_select_engine::sevenz::{self, Decoding, Gate};
+use stage_select_engine::build::{Probed, ZipLimits};
+use stage_select_engine::sevenz::{self, Decoding, Gate};
 
 struct Counting;
 

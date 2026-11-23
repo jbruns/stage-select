@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use title_select_api::DatFormat;
-use title_select_engine::dat::{Dat, DumpStatus, SetLayout, Signal};
+use stage_select_api::DatFormat;
+use stage_select_engine::dat::{Dat, DumpStatus, SetLayout, Signal};
 
 /// The synthetic ListXML of `tests/data/listxml-family.xml`: a BIOS, a device chain, a parent and its clone, and a
 /// mechanical non-clone, with nodump, baddump and optional ROMs and Disks.
@@ -531,7 +531,7 @@ fn header_fields_in_cdata_are_read_like_text_without_unescaping() {
 
 #[test]
 fn a_listxml_machine_gives_its_year_maker_driver_screens_inputs_software_lists_and_features() {
-    use title_select_engine::dat::{Display, Driver, DriverStatus, Feature};
+    use stage_select_engine::dat::{Display, Driver, DriverStatus, Feature};
     let dat = family();
     let blaster = &dat.machines[index(&dat, "blaster")];
     assert_eq!(dat.descriptions[index(&dat, "blaster")], "Blaster (World)");
@@ -622,7 +622,7 @@ fn rom_flags<'a>(
 ) -> Vec<(
     &'a str,
     Option<&'a str>,
-    title_select_engine::dat::DumpStatus,
+    stage_select_engine::dat::DumpStatus,
     bool,
 )> {
     let game = index(dat, game);
@@ -719,7 +719,7 @@ fn a_rom_less_device_is_a_game_with_no_roms() {
 
 #[test]
 fn a_logiqx_dat_without_machine_fields_gives_machines_that_know_nothing_and_good_roms() {
-    use title_select_engine::dat::Machine;
+    use stage_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <datafile>
   <header><name>Atari - Atari 2600</name></header>
@@ -833,7 +833,7 @@ fn a_logiqx_dat_carries_only_the_signals_some_game_of_it_writes() {
 
 #[test]
 fn a_logiqx_game_without_a_display_is_unknown_even_where_another_game_has_one() {
-    use title_select_engine::dat::Display;
+    use stage_select_engine::dat::Display;
     let game = |name: &str, display: &str| {
         format!(
             r#"<game name="{name}"><description>{name}</description>{display}<rom name="{name}.bin" size="4" crc="0f0f0f0f"/></game>"#
@@ -940,7 +940,7 @@ fn a_logiqx_dat_fills_the_machine_fields_it_carries_but_lists_no_disks() {
 
 #[test]
 fn a_software_list_gives_machines_that_know_nothing_and_no_disks() {
-    use title_select_engine::dat::Machine;
+    use stage_select_engine::dat::Machine;
     let xml = br#"<?xml version="1.0"?>
 <softwarelist name="cdi" description="Philips CD-i discs">
   <software name="game" cloneof="parent">

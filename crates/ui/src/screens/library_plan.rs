@@ -9,8 +9,8 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use title_select_api::Job;
-use title_select_api::build::{
+use stage_select_api::Job;
+use stage_select_api::build::{
     ApprovePlan, BlockerKind, CleanupAction, Plan, PlanChoices, PlanContent, RETENTION, RemovalKind,
 };
 

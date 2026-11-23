@@ -1,5 +1,5 @@
-//! The types of Title Select's versioned JSON API (`/api/v1`), shared by the Service, the headless client and the UI
-//! (ADR 0005). Every response body is one of these, or the `title-select.audit/1` [`Report`].
+//! The types of Stage Select's versioned JSON API (`/api/v1`), shared by the Service, the headless client and the UI
+//! (ADR 0005). Every response body is one of these, or the `stage-select.audit/1` [`Report`].
 
 pub mod additions;
 pub mod arcade;
@@ -269,7 +269,7 @@ pub struct CuePackRecord {
 pub enum CuePackOrigin {
     /// You imported it.
     Import,
-    /// Title Select fetched it.
+    /// Stage Select fetched it.
     Fetch,
 }
 

@@ -10,14 +10,14 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use title_select_api::coverage::Tally;
-use title_select_api::report::EvidenceLevel;
-use title_select_api::{
+use stage_select_api::coverage::Tally;
+use stage_select_api::report::EvidenceLevel;
+use stage_select_api::{
     AuditSummary, CoveragePreview, CoverageStaleFolder, GameStatus, RegionCounts, SetCoverage,
     SourceSetSummary,
 };
-use title_select_selection::Engine;
-use title_select_store::{Error, Store};
+use stage_select_selection::Engine;
+use stage_select_store::{Error, Store};
 
 use super::{ApiError, ApiResult, AppState};
 
@@ -155,7 +155,7 @@ impl Tallies {
             }
             if let Err(err) = self.apply_one(store, summary) {
                 eprintln!(
-                    "title-select: source set {}'s coverage couldn't be applied: {err}",
+                    "stage-select: source set {}'s coverage couldn't be applied: {err}",
                     summary.set.name
                 );
                 summary.coverage_unavailable = true;
@@ -304,8 +304,8 @@ async fn preview(
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::AuditEvidence;
-    use title_select_api::roots::RootSpec;
+    use stage_select_api::AuditEvidence;
+    use stage_select_api::roots::RootSpec;
 
     use super::*;
 
@@ -368,7 +368,7 @@ mod tests {
             let mut now = store.source_set_summary(set).unwrap();
             let latest = now.latest.as_mut().unwrap();
             latest.games = [(GameStatus::Missing, 1)].into();
-            now.outside_coverage = Some(title_select_api::OutsideCoverage {
+            now.outside_coverage = Some(stage_select_api::OutsideCoverage {
                 games: [(GameStatus::Missing, 1)].into(),
                 unknown_region: 0,
             });

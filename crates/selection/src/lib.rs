@@ -25,9 +25,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
-use title_select_api::DatSystem;
-use title_select_api::dat::DatFormat;
-use title_select_api::selection::{
+use stage_select_api::DatSystem;
+use stage_select_api::dat::DatFormat;
+use stage_select_api::selection::{
     ARCADE_COVERAGE_REFUSAL, RetoolPins, SELECTION_TRACE_SCHEMA, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionPins, SelectionProfile,
 };
@@ -35,7 +35,7 @@ use title_select_api::selection::{
 pub use trace::stable_trace;
 
 /// The environment variable that points at the clone lists, for `Engine::locate`.
-pub const CLONE_LISTS_ENV: &str = "TITLE_SELECT_CLONE_LISTS";
+pub const CLONE_LISTS_ENV: &str = "STAGE_SELECT_CLONE_LISTS";
 /// Where the image installs the clone lists.
 pub const DEFAULT_CLONE_LISTS: &str = "/opt/clone-lists";
 /// The longest a Selection may run unless the caller says otherwise.
@@ -44,7 +44,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 const PINS: &str = include_str!("../../../third_party/clone-lists/pins.toml");
 
 /// The environment variable that points at the curated list, for `Engine::locate`.
-pub const CURATED_LIST_ENV: &str = "TITLE_SELECT_CURATED_LIST";
+pub const CURATED_LIST_ENV: &str = "STAGE_SELECT_CURATED_LIST";
 /// Where the image installs the curated list.
 pub const DEFAULT_CURATED_LIST: &str = "/opt/curated-list";
 
@@ -151,8 +151,8 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// The clone lists at `explicit`, else at `$TITLE_SELECT_CLONE_LISTS`, else at `/opt/clone-lists`, and the
-    /// curated list at `$TITLE_SELECT_CURATED_LIST`, else at `/opt/curated-list`.
+    /// The clone lists at `explicit`, else at `$STAGE_SELECT_CLONE_LISTS`, else at `/opt/clone-lists`, and the
+    /// curated list at `$STAGE_SELECT_CURATED_LIST`, else at `/opt/curated-list`.
     pub fn locate(explicit: Option<&Path>) -> Result<Self, Error> {
         let root = match explicit {
             Some(path) => path.to_path_buf(),
@@ -287,7 +287,7 @@ impl Engine {
     pub fn check(
         &self,
         profile: &SelectionProfile,
-        registered: &[title_select_api::SourceSetSystem],
+        registered: &[stage_select_api::SourceSetSystem],
     ) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
         let mut problems = match patterns::check(profile) {
@@ -311,7 +311,7 @@ impl Engine {
                 problems.push(format!(
                     "Your {system} settings: arcade settings apply only to {}, whose DATs are arcade DATs. Remove \
                      them from {system}.",
-                    title_select_api::dat::MAME
+                    stage_select_api::dat::MAME
                 ));
             }
         }
@@ -334,7 +334,7 @@ impl Engine {
             .iter()
             .map(|dat| match format_of(dat) {
                 Ok(Some(DatFormat::Listxml)) => Some(DatSystem {
-                    name: title_select_api::dat::MAME.to_owned(),
+                    name: stage_select_api::dat::MAME.to_owned(),
                     arcade: true,
                 }),
                 Ok(Some(DatFormat::SoftwareList)) => None,
@@ -400,7 +400,7 @@ impl Engine {
         if options.coverage.is_some() {
             return Err(Error::Refused(ARCADE_COVERAGE_REFUSAL.to_owned()));
         }
-        let system = title_select_api::dat::MAME;
+        let system = stage_select_api::dat::MAME;
         let scope = match profile
             .systems
             .get(system)
@@ -430,7 +430,7 @@ impl Engine {
             }
         };
         let parsed =
-            title_select_engine::dat::Dat::read(dat).map_err(|e| Error::Dat(e.to_string()))?;
+            stage_select_engine::dat::Dat::read(dat).map_err(|e| Error::Dat(e.to_string()))?;
         if parsed.format != DatFormat::Listxml {
             return Err(Error::Dat(format!(
                 "{} is not a MAME ListXML",
@@ -442,7 +442,7 @@ impl Engine {
         let system = parsed.name.clone();
         let mut selection = Selection {
             pins: SelectionPins {
-                title_select_version: Some(TITLE_SELECT_VERSION.to_owned()),
+                stage_select_version: Some(STAGE_SELECT_VERSION.to_owned()),
                 retool: None,
                 arcade: Some(elected.pins),
             },
@@ -486,7 +486,7 @@ impl Engine {
         let derived = trace::derive(&trace)?;
         let mut selection = Selection {
             pins: SelectionPins {
-                title_select_version: Some(TITLE_SELECT_VERSION.to_owned()),
+                stage_select_version: Some(STAGE_SELECT_VERSION.to_owned()),
                 retool: Some(RetoolPins {
                     coverage: coverage.map(<[String]>::to_vec),
                     ..self.pins.clone()
@@ -503,10 +503,10 @@ impl Engine {
         };
         // Separate passes over the engine's result: before choices, so that a choice settles what the first flags;
         // after, so that a choice that leaves a disc uncovered is flagged again.
-        title_select_api::discs::mark_unresolved(&mut selection);
+        stage_select_api::discs::mark_unresolved(&mut selection);
         let choices = profile.choices.get(&selection.system);
         choices::apply(&mut selection, choices);
-        title_select_api::discs::mark_uncovered_choices(&mut selection);
+        stage_select_api::discs::mark_uncovered_choices(&mut selection);
         Ok(Outcome {
             selection,
             trace,
@@ -573,8 +573,8 @@ pub fn clone_lists() -> Result<Pinned, Error> {
     Ok(pins.clone_lists)
 }
 
-/// The Title Select version every Selection this binary makes records.
-const TITLE_SELECT_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The Stage Select version every Selection this binary makes records.
+const STAGE_SELECT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The pins every Retool Selection this binary makes records, but for its Coverage.
 fn expected_pins() -> Result<RetoolPins, Error> {
@@ -591,7 +591,7 @@ fn expected_pins() -> Result<RetoolPins, Error> {
 /// know, such as a ClrMamePro DAT, which the Retool port reads.
 fn format_of(path: &Path) -> Result<Option<DatFormat>, Error> {
     let file = File::open(path).map_err(io(path.display().to_string()))?;
-    title_select_engine::dat::Dat::format_of(std::io::BufReader::new(file))
+    stage_select_engine::dat::Dat::format_of(std::io::BufReader::new(file))
         .map_err(|e| Error::Dat(format!("{}: {e}", path.display())))
 }
 
@@ -608,5 +608,5 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(title_select_engine::hex(&hasher.finalize()))
+    Ok(stage_select_engine::hex(&hasher.finalize()))
 }

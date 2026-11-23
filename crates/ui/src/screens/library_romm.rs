@@ -1,11 +1,11 @@
 //! A Library Folder's RomM tab: the latest comparison of RomM's view of the folder with what its Builds made (#143),
-//! comparing it again, and asking RomM to scan a flagged ROM again. Title Select never changes what RomM matched.
+//! comparing it again, and asking RomM to scan a flagged ROM again. Stage Select never changes what RomM matched.
 
 use std::cmp::Ordering;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
-use title_select_api::romm::{
+use stage_select_api::romm::{
     RommFlag, RommReconcileRow, RommReconciliation, RommRescan, RommRescanRequest,
 };
 

@@ -10,14 +10,14 @@ Accepted. Amended by ADR 0029: configuration lives in the store, and there is no
 
 Since #139, the `[jobs]` ceilings in the configuration file default to the CPU count, and the Pace (`gentle`,
 `default` or `unthrottled`) is a share of each. A CPU count says nothing about storage. Roots on one Host may sit on
-a seek-bound HDD pool or on an SSD, and on a seek-bound pool more readers can lower throughput. Title Select runs
+a seek-bound HDD pool or on an SSD, and on a seek-bound pool more readers can lower throughput. Stage Select runs
 unprivileged in a container (ADR 0006), so it can't see disks, pools or I/O wait: it sees only its CPUs and its
 Roots. #20 asks for byte-rate caps for each Pace, a display of throughput, and defaults that fit the Host.
 
 ## Decision
 
 - **Ceilings are measured, not assumed.** A Calibration is a Job that the Service runs only when the Operator asks,
-  from the workbench or `title-select calibrate --server <url>`. It queues ahead of every other queued Job, starts
+  from the workbench or `stage-select calibrate --server <url>`. It queues ahead of every other queued Job, starts
   once the running Jobs finish, runs alone, and can be cancelled. It sweeps worker counts 1, 2, 4… and takes the
   knee: the smallest count within 10% of the best throughput, never one past a drop.
   - For the Host, it sweeps hash workers over synthetic data in memory.
@@ -43,13 +43,13 @@ Roots. #20 asks for byte-rate caps for each Pace, a display of throughput, and d
   each worker's next file. Byte caps are token buckets, one for reads and one for writes on each Root, shared by
   every Job. Each picks up the Pace about every 100 ms, so a Pace change slows even a single large file within a
   second.
-- **Observing costs nothing when `unthrottled`.** Bytes are counted on buffers Title Select already handles.
+- **Observing costs nothing when `unthrottled`.** Bytes are counted on buffers Stage Select already handles.
   Copies call `copy_file_range` in 64 MiB chunks: a multiple of every ZFS record size and of Btrfs and XFS block
   sizes, so block sharing is kept. Under `unthrottled`, nothing waits on a bucket, and `chdman` keeps its own
   default of every core.
-- **Copies are capped even when the filesystem clones them.** Title Select can't tell a block clone from a byte
+- **Copies are capped even when the filesystem clones them.** Stage Select can't tell a block clone from a byte
   copy, so under `gentle` and `default` each copy chunk is taken from the Root's write bucket.
-- **`chdman` isn't byte-capped.** It is a subprocess whose reads and writes Title Select can't throttle. Under
+- **`chdman` isn't byte-capped.** It is a subprocess whose reads and writes Stage Select can't throttle. Under
   `gentle` and `default` it gets the Pace's share of the hash workers as `--numprocessors`. Its bytes are counted
   from its input and output sizes, and the workbench says that it isn't byte-capped while it runs.
 - **Calibration is never re-run automatically.** A Calibration becomes Stale when the CPU count changes, a Root is
@@ -61,7 +61,7 @@ Roots. #20 asks for byte-rate caps for each Pace, a display of throughput, and d
   Host, contrary to ADR 0006.
 - **Calibrating automatically at first start.** Rejected: it would load a live Host, possibly busy with other work,
   without the Operator asking.
-- **Synthetic writes to a writable Root.** Rejected: Title Select writes only through approved Change Plans.
+- **Synthetic writes to a writable Root.** Rejected: Stage Select writes only through approved Change Plans.
 - **A separate Pace for each Root, or a continuous dial.** Rejected: the Operator wants one simple control that
   reaches running Jobs.
 - **One byte cap for the whole Host.** Rejected: Roots on one Host can differ by an order of magnitude.
@@ -71,7 +71,7 @@ Roots. #20 asks for byte-rate caps for each Pace, a display of throughput, and d
 
 ## Consequences
 
-- Byte caps limit Title Select's own reads and writes. They don't guarantee bandwidth on a pool that other software
+- Byte caps limit Stage Select's own reads and writes. They don't guarantee bandwidth on a pool that other software
   shares. Caps for each Root are independent: Roots on one pool add up, since detecting a shared device would
   assume things about the Host.
 - A caching filesystem, such as ZFS with its ARC, can overstate a Calibration's throughput, because `posix_fadvise`

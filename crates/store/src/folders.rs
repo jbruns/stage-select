@@ -6,14 +6,14 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
-use title_select_api::DatFormat;
-use title_select_api::build::{
+use stage_select_api::DatFormat;
+use stage_select_api::build::{
     AddLibraryFolder, BuildState, BuildSummary, ChangeLibraryFolder, FileOutcome, Incomplete,
     IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, STATE, Stale,
     UnfinishedBuild,
 };
-use title_select_api::discs;
-use title_select_api::paths::{PathTemplate, TokenValues};
+use stage_select_api::discs;
+use stage_select_api::paths::{PathTemplate, TokenValues};
 
 use super::audits::recorded_content_sha256;
 use super::beneath::{resolve_beneath, resolved};
@@ -435,7 +435,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                 IncompleteReason::Conflict,
                 d.name.clone(),
                 Some(format!(
-                    "{} is in the folder and was not built by Title Select",
+                    "{} is in the folder and was not built by Stage Select",
                     d.name
                 )),
             ));
@@ -537,12 +537,12 @@ pub(super) fn open_writable_folder(
 }
 
 /// The temp file a marker is written to before it is renamed over the marker.
-pub(super) const MARKER_NEW: &str = ".title-select/marker.new";
+pub(super) const MARKER_NEW: &str = ".stage-select/marker.new";
 
 /// The largest marker read.
 pub(super) const MARKER_LIMIT: u64 = 64 << 10;
 
-/// Whether `name`, in a folder's own listing, is the directory holding everything Title Select keeps in the folder
+/// Whether `name`, in a folder's own listing, is the directory holding everything Stage Select keeps in the folder
 /// for itself.
 pub(super) fn is_own(name: &str) -> bool {
     name == STATE
@@ -608,7 +608,7 @@ pub(super) fn read_marker(dir: &FolderDir) -> MarkerState {
 }
 
 /// Why the folder's marker, read through `dir`, does not show it is Library Folder `folder` of store `store` at
-/// `generation`, as a sentence; `None` when it does. `empty` is whether the folder holds nothing but Title Select's
+/// `generation`, as a sentence; `None` when it does. `empty` is whether the folder holds nothing but Stage Select's
 /// own entries.
 pub(super) fn marker_problem(
     dir: &FolderDir,
@@ -623,16 +623,16 @@ pub(super) fn marker_problem(
             "the folder is empty and has no marker, though {generation} builds went into it; is its share mounted?"
         )),
         MarkerState::Absent => Some(
-            "the folder has files but no .title-select marker; is this the right folder, or the right mount?"
+            "the folder has files but no .stage-select marker; is this the right folder, or the right mount?"
                 .to_owned(),
         ),
-        MarkerState::Unreadable(e) => Some(format!("its .title-select marker cannot be read: {e}")),
+        MarkerState::Unreadable(e) => Some(format!("its .stage-select marker cannot be read: {e}")),
         MarkerState::Present(marker) if marker.store != store => Some(
-            "its .title-select marker is from another store; is this a restored store, or the wrong mount?"
+            "its .stage-select marker is from another store; is this a restored store, or the wrong mount?"
                 .to_owned(),
         ),
         MarkerState::Present(marker) if marker.folder != folder => Some(format!(
-            "its .title-select marker is for library folder {}, not {folder}; is this the right mount?",
+            "its .stage-select marker is for library folder {}, not {folder}; is this the right mount?",
             marker.folder
         )),
         MarkerState::Present(marker) => match marker.generation.cmp(&generation) {
@@ -713,7 +713,7 @@ fn overlaps(a: &Path, b: &Path) -> bool {
 }
 
 /// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest Folder, a
-/// relative path, not a registered Library Folder's, and overlapping no folder Title Select reads or writes nor the
+/// relative path, not a registered Library Folder's, and overlapping no folder Stage Select reads or writes nor the
 /// destination of a move under way. Returns it normalized.
 pub(super) fn check_library_path(
     c: &Connection,
@@ -764,7 +764,7 @@ pub(super) fn check_library_path(
     Ok(beneath.rel)
 }
 
-/// What is being registered, which overlaps nothing else Title Select reads or writes.
+/// What is being registered, which overlaps nothing else Stage Select reads or writes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Registering {
     /// May not overlap another one, nor a Source Set or an Ingest Folder.
@@ -844,7 +844,7 @@ impl Store {
     }
 
     /// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest
-    /// Folder, a relative path, not a registered Library Folder's and overlapping no folder Title Select reads or
+    /// Folder, a relative path, not a registered Library Folder's and overlapping no folder Stage Select reads or
     /// writes. Returns it normalized.
     pub(super) fn check_library_path(&self, root_name: &str, rel: &str) -> Result<String> {
         let roots = &*self.roots();

@@ -2,7 +2,7 @@
 //! regions, languages, revision and variant the election reads. ListXML has no structured region, so this is free text
 //! read by MAME's naming conventions (research 0105 §3), and a description that says nothing yields nothing.
 
-use title_select_api::arcade::{LANGUAGES, Variant};
+use stage_select_api::arcade::{LANGUAGES, Variant};
 
 /// Region names as the election orders them by default, `arcade::REGIONS`, each with the spellings MAME descriptions
 /// use.
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn the_regions_read_are_the_ones_a_profile_names() {
         let names: Vec<&str> = REGIONS.iter().map(|(name, _)| *name).collect();
-        assert_eq!(names, title_select_api::arcade::REGIONS);
+        assert_eq!(names, stage_select_api::arcade::REGIONS);
     }
 
     fn regions(description: &str) -> Vec<String> {

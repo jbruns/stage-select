@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use title_select_api::romm::RommReconciled;
-use title_select_api::{
+use stage_select_api::romm::RommReconciled;
+use stage_select_api::{
     Job, JobEvent, JobProgress, JobSnapshot, JobState, SettingsChanged, Throughput,
 };
 
@@ -183,7 +183,7 @@ pub fn state_label(state: JobState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::Workers;
+    use stage_select_api::Workers;
 
     fn job(id: i64, state: JobState, version: u64) -> Job {
         Job {
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(
             settings,
             JobEvent::Settings(SettingsChanged {
-                pace: title_select_api::settings::Pace::Unthrottled
+                pace: stage_select_api::settings::Pace::Unthrottled
             })
         );
         let before = book.clone();
@@ -398,18 +398,18 @@ mod tests {
     #[test]
     fn a_throughput_event_parses_and_leaves_the_jobs_alone() {
         let throughput = Throughput {
-            total: title_select_api::Rates {
+            total: stage_select_api::Rates {
                 read_bytes_per_s: 1024.0,
                 write_bytes_per_s: 0.5,
                 files_per_s: 2.0,
             },
-            caps: title_select_api::ByteCaps {
+            caps: stage_select_api::ByteCaps {
                 read_bytes_per_s: Some(400 << 20),
                 write_bytes_per_s: None,
             },
             roots: vec![],
             jobs: vec![],
-            pace: title_select_api::settings::Pace::Default,
+            pace: stage_select_api::settings::Pace::Default,
             cpu: None,
         };
         let data = serde_json::to_string(&throughput).unwrap();
