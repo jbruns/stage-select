@@ -40,12 +40,11 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Three screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row,
-then opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail.
-table-states moves the keyboard cursor in the audit's entries table and captures the table. Each fails the run if
-its cursor row's brackets (their computed background-image) are missing while the grid has keyboard focus, and
-table-states also if they show without it. messages sets every Repack item of the repair plan to Leave, a draft
-that changes nothing in the store, and captures the page down to that notice.
+Two screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row, then
+opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail. It fails
+the run if its cursor row's brackets (their computed background-image) are missing while the grid has keyboard
+focus. messages sets every Repack item of the repair plan to Leave, a draft that changes nothing in the store, and
+captures the page down to that notice.
 """
 
 import argparse
@@ -103,7 +102,6 @@ SCREENS = {
     "roots": "/settings/roots",
     "about": "/settings/about",
     "row-states": "/dats",
-    "table-states": "/audits/{audit}?tab=entries",
     "messages": "/source-sets/{findings_set}?tab=repair",
 }
 
@@ -142,23 +140,6 @@ def row_states(page):
     return page.locator(".list-split")
 
 
-def table_states(page):
-    """The older table's cursor: the brackets show on its selected row only while the table has keyboard focus."""
-    page.locator("table[role=grid]").first.focus()
-    page.keyboard.press("ArrowDown")
-    page.keyboard.press("ArrowDown")
-    page.wait_for_timeout(300)
-    brackets(page, "tbody tr.selected", None, True)
-    page.evaluate("() => document.activeElement.blur()")
-    brackets(page, "tbody tr.selected", None, False)
-    page.locator("table[role=grid]").first.focus()
-    page.keyboard.press("ArrowDown")
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(300)
-    brackets(page, "tbody tr.selected", None, True)
-    return page.locator(".table-scroll").first
-
-
 class Top:
     """The page from its top down to the bottom of `below`, for a screenshot."""
 
@@ -179,7 +160,7 @@ def messages(page):
     return Top(page, page.get_by_text("since this plan was made"))
 
 
-DRIVEN = {"row-states": row_states, "table-states": table_states, "messages": messages}
+DRIVEN = {"row-states": row_states, "messages": messages}
 
 RUNNING = {"activity-running"}
 

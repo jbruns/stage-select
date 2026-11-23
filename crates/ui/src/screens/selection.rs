@@ -1,16 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::ops::Range;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use leptos::html::Div;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
-use leptos_struct_table::ColumnSort;
 use stage_select_api::selection::{
-    ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, Outcome, ReleaseChange, SelectionGroup,
-    SelectionProfile,
+    ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, Outcome, ReleaseChange, ReleaseRow,
+    SelectionGroup, SelectionProfile,
 };
 use stage_select_api::{
     Availability, GameStatus, Job, ProfileRecord, ProfileVersion, SaveProfile, SavedProfile,
@@ -21,7 +18,7 @@ use crate::api;
 use crate::app::Loading;
 use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
-use crate::model::{Sort, game_status_label, when};
+use crate::model::{game_status_label, when};
 use crate::parts::help::Help;
 use crate::parts::icon::Svg;
 use crate::parts::layout::Crumbs;
@@ -36,14 +33,14 @@ use crate::parts::status::{
 use crate::parts::url_state::use_list_query;
 use crate::placement_model::FlagsNow;
 use crate::screens::PlanABuild;
-use crate::screens::audit::{ReAudit, flags_notice, flags_now, focus, placements_now};
+use crate::screens::audit::url_select;
+use crate::screens::audit::{ReAudit, flags_notice, flags_now, placements_now};
 use crate::selection_model::{
-    AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
-    SelectionIndex, checked, confirm, confirm_unresolved, flag_statuses, group_status, includable,
-    include_and_check, kept_need_review, left_out_text, listed, rule_text, staged_changes, toggle,
-    unresolved_explanation,
+    AVAILABILITY_KEY, FLAG_KEY, FlagFilter, GroupAvailability, OUTCOME_KEY, ReleaseColumn,
+    ReleaseFilter, SelectionIndex, UNKNOWN, checked, confirm, confirm_unresolved, flag_statuses,
+    group_status, includable, include_and_check, kept_need_review, left_out_text, listed,
+    rule_text, staged_changes, toggle, unresolved_explanation,
 };
-use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
 /// Says that a Job was queued to make a Selection, and links to the Selection once it is made.
 #[component]
@@ -78,54 +75,44 @@ pub fn SelectionQueued(job: i64) -> impl IntoView {
     }
 }
 
-/// A release in a Selection's table, by its index.
+/// A release in a Selection's list, by its index.
 #[derive(Clone)]
 pub struct ReleaseItem {
     index: Arc<SelectionIndex>,
     i: u32,
 }
 
-struct ReleaseWindow {
-    index: Arc<SelectionIndex>,
-    shown: Arc<Vec<u32>>,
-}
-
-impl RowSource<ReleaseItem> for ReleaseWindow {
-    fn len(&self) -> usize {
-        self.shown.len()
-    }
-
-    fn rows(&self, range: Range<usize>) -> Vec<ReleaseItem> {
-        self.shown[range]
-            .iter()
-            .map(|&i| ReleaseItem {
-                index: self.index.clone(),
-                i,
-            })
-            .collect()
+// A Selection never changes once indexed, so a row is the same while it points at the same release.
+impl PartialEq for ReleaseItem {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.index, &other.index) && self.i == other.i
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl ReleaseItem {
+    fn row(&self) -> &ReleaseRow {
+        &self.index.rows[self.i as usize]
+    }
+
+    fn availability(&self) -> Option<AvailabilityStatus> {
+        let i = self.i as usize;
+        self.index
+            .availability(i)
+            .map(|s| AvailabilityStatus::of(s, self.index.claimed(i)))
+    }
+
+    fn flags(&self) -> Vec<SelectionFlag> {
+        flag_statuses(self.index.flags(self.i as usize))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseCol {
+    Outcome,
     Group,
     Release,
-    Outcome,
     Availability,
-    Rule,
     Flags,
-}
-
-impl ReleaseCol {
-    fn sort_key(self) -> Option<ReleaseColumn> {
-        match self {
-            ReleaseCol::Group => Some(ReleaseColumn::Group),
-            ReleaseCol::Release => Some(ReleaseColumn::Release),
-            ReleaseCol::Outcome => Some(ReleaseColumn::Outcome),
-            ReleaseCol::Availability => Some(ReleaseColumn::Availability),
-            ReleaseCol::Rule | ReleaseCol::Flags => None,
-        }
-    }
 }
 
 fn outcome_view(outcome: Outcome) -> AnyView {
@@ -141,247 +128,214 @@ fn availability_view(status: Option<GameStatus>, claimed: bool, badge: bool) -> 
     }
 }
 
-impl Grid for ReleaseItem {
+impl ListRow for ReleaseItem {
     type Col = ReleaseCol;
     const COLUMNS: &'static [ReleaseCol] = &[
+        ReleaseCol::Outcome,
         ReleaseCol::Group,
         ReleaseCol::Release,
-        ReleaseCol::Outcome,
         ReleaseCol::Availability,
-        ReleaseCol::Rule,
         ReleaseCol::Flags,
     ];
 
-    fn header(col: ReleaseCol) -> &'static str {
+    fn column(col: ReleaseCol) -> Column {
         match col {
-            ReleaseCol::Group => "Game group",
-            ReleaseCol::Release => "Game",
-            ReleaseCol::Outcome => "Status",
-            ReleaseCol::Availability => "Availability",
-            ReleaseCol::Rule => "Why",
-            ReleaseCol::Flags => "Flags",
+            ReleaseCol::Outcome => Column::new("status", "Status", Width::Fixed(4.5))
+                .sortable()
+                .hint("Whether the selection keeps the game"),
+            ReleaseCol::Group => Column::new(
+                "group",
+                "Game group",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            ReleaseCol::Release => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            ReleaseCol::Availability => Column::new("availability", "Have", Width::Fixed(4.5))
+                .sortable()
+                .hint("What you have of the game, from the latest audit"),
+            ReleaseCol::Flags => Column::new("flags", "Flags", Width::Fixed(6.0))
+                .hint("What needs your attention in its game group"),
         }
     }
 
-    fn class(col: ReleaseCol) -> &'static str {
-        match col {
-            ReleaseCol::Group => "c-group",
-            ReleaseCol::Release => "c-wide",
-            ReleaseCol::Outcome | ReleaseCol::Availability => "c-status",
-            ReleaseCol::Rule => "c-reason",
-            ReleaseCol::Flags => "c-flags",
-        }
+    fn key(&self) -> String {
+        self.row().title.clone()
     }
 
-    fn sortable(col: ReleaseCol) -> bool {
-        col.sort_key().is_some()
+    fn title(&self) -> String {
+        self.row().title.clone()
+    }
+
+    fn search(&self) -> String {
+        self.index.search(self.i as usize).to_string()
     }
 
     fn cell(&self, col: ReleaseCol) -> AnyView {
-        let i = self.i as usize;
-        let row = &self.index.rows[i];
         match col {
-            ReleaseCol::Group => row.group.clone().into_any(),
-            ReleaseCol::Release => row.title.clone().into_any(),
-            ReleaseCol::Outcome => outcome_view(row.outcome),
-            ReleaseCol::Availability => {
-                availability_view(self.index.availability(i), self.index.claimed(i), false)
-            }
-            ReleaseCol::Rule => {
-                let text = rule_text(&row.rule);
-                let title = row.rule.reference.clone().unwrap_or_default();
-                view! { <span title=title>{text}</span> }.into_any()
-            }
-            ReleaseCol::Flags => flag_statuses(self.index.flags(i))
+            ReleaseCol::Outcome => outcome_view(self.row().outcome),
+            ReleaseCol::Group => view! { <Clip text=self.row().group.clone() /> }.into_any(),
+            ReleaseCol::Release => view! { <Clip text=self.row().title.clone() /> }.into_any(),
+            ReleaseCol::Availability => self
+                .availability()
+                .map(|status| view! { <StatusIcon status tab_stop=false /> })
+                .into_any(),
+            ReleaseCol::Flags => self
+                .flags()
                 .into_iter()
                 .map(|status| view! { <StatusIcon status tab_stop=false /> " " })
                 .collect_view()
                 .into_any(),
         }
     }
+
+    fn compare(&self, other: &Self, col: ReleaseCol) -> std::cmp::Ordering {
+        let column = match col {
+            ReleaseCol::Outcome => ReleaseColumn::Outcome,
+            ReleaseCol::Group => ReleaseColumn::Group,
+            ReleaseCol::Release => ReleaseColumn::Release,
+            ReleaseCol::Availability => ReleaseColumn::Availability,
+            ReleaseCol::Flags => return std::cmp::Ordering::Equal,
+        };
+        self.index
+            .compare(column, self.i as usize, other.i as usize)
+    }
 }
 
-/// A Selection's releases with their filters and table. Filtering and sorting run in the browser on every keystroke.
-/// Selecting a release selects its group.
+/// Why a release has its outcome: the rule's words, and where the rule comes from when it says.
+fn rule_view(rule: &stage_select_api::selection::Rule) -> impl IntoView + use<> {
+    let reference = rule.reference.clone();
+    view! {
+        <dt>"Why"</dt>
+        <dd>
+            {rule_text(rule)}
+            {reference.map(|r| view! { <p class="note small">{r}</p> })}
+        </dd>
+    }
+}
+
+fn release_detail(item: &ReleaseItem) -> AnyView {
+    let row = item.row().clone();
+    let flags = item.flags();
+    view! {
+        <dl class="facts">
+            <dt>"Game group"</dt>
+            <dd>{row.group.clone()}</dd>
+            <dt>"Status"</dt>
+            <dd><StatusBadge status=row.outcome /></dd>
+            {rule_view(&row.rule)}
+            {item
+                .availability()
+                .map(|status| view! {
+                    <dt>"What you have"</dt>
+                    <dd><StatusBadge status /></dd>
+                })}
+            {(!flags.is_empty())
+                .then(|| view! {
+                    <dt>"Flags"</dt>
+                    <dd>
+                        {flags
+                            .into_iter()
+                            .map(|status| view! { <StatusBadge status /> " " })
+                            .collect_view()}
+                    </dd>
+                })}
+        </dl>
+    }
+    .into_any()
+}
+
+/// A Selection's releases in the shared list, with filters by status, availability and flag in the URL beside its
+/// text. Filtering and sorting run in the browser on every keystroke.
 #[component]
 pub fn ReleasesPanel(
     index: Arc<SelectionIndex>,
     /// Whether an Audit says which releases are available.
     audited: bool,
-    group: RwSignal<Option<String>>,
-    /// The ID of the element that shows the selected group, focused on Enter.
-    detail_id: &'static str,
 ) -> impl IntoView {
-    let total = index.len();
-    let sorting = RwSignal::new(VecDeque::<(ReleaseCol, ColumnSort)>::new());
-    let filter = RwSignal::new(ReleaseFilter::default());
-    let selected = RwSignal::new(None::<usize>);
-    let panel = NodeRef::<Div>::new();
-
-    let sorted = Memo::new({
-        let index = index.clone();
-        move |_| {
-            let sort = sort_of(&sorting.read()).and_then(|s| {
-                s.column.sort_key().map(|column| Sort {
-                    column,
-                    descending: s.descending,
-                })
-            });
-            Arc::new(index.sorted(sort))
-        }
-    });
-    let shown = Memo::new({
-        let index = index.clone();
-        move |_| filter.with(|f| sorted.with(|order| Arc::new(index.filtered(order, f))))
-    });
-    // The cells show these statuses as icons only, and a preview has no detail pane, so the legend is how you read them.
-    let legend = Memo::new({
-        let index = index.clone();
-        move |_| {
-            shown.with(|shown| {
-                let rows = || shown.iter().map(|&i| i as usize);
-                let mut looks = present_looks(rows().map(|i| index.rows[i].outcome));
-                looks.extend(present_looks(rows().filter_map(|i| {
-                    index
-                        .availability(i)
-                        .map(|s| AvailabilityStatus::of(s, index.claimed(i)))
-                })));
-                looks.extend(present_looks(
-                    rows().flat_map(|i| flag_statuses(index.flags(i))),
-                ));
-                looks
-            })
-        }
-    });
-    let rows = Signal::derive({
-        let index = index.clone();
-        move || {
-            Arc::new(ReleaseWindow {
+    let rows = Arc::new(
+        (0..index.len() as u32)
+            .map(|i| ReleaseItem {
                 index: index.clone(),
-                shown: shown.get(),
-            }) as Rows<ReleaseItem>
-        }
+                i,
+            })
+            .collect::<Vec<_>>(),
+    );
+    let mut looks = present_looks(rows.iter().map(|r| r.row().outcome));
+    looks.extend(present_looks(
+        rows.iter().filter_map(ReleaseItem::availability),
+    ));
+    looks.extend(present_looks(rows.iter().flat_map(ReleaseItem::flags)));
+    let query = use_query_map();
+    let filter = Memo::new(move |_| query.with(|q| ReleaseFilter::from_query(|k| q.get_str(k))));
+    let keep: Signal<Keep<ReleaseItem>> = Signal::derive(move || {
+        let filter = filter.get();
+        (filter != ReleaseFilter::default()).then(|| {
+            Arc::new(move |row: &ReleaseItem| row.index.keeps(row.i as usize, &filter))
+                as Arc<dyn Fn(&ReleaseItem) -> bool + Send + Sync>
+        })
     });
-    Effect::new({
-        let index = index.clone();
-        move || {
-            let Some(at) = selected.get() else {
-                return;
-            };
-            if let Some(&i) = shown.with_untracked(|s| s.get(at).copied()).as_ref() {
-                group.set(Some(index.rows[i as usize].group.clone()));
-            }
-        }
-    });
-
-    let refilter = move |change: Box<dyn FnOnce(&mut ReleaseFilter)>| {
-        filter.update(|f| change(f));
-        selected.set(None);
-        if let Some(scroll) = panel
-            .get_untracked()
-            .and_then(|p| p.query_selector(".table-scroll").ok().flatten())
-        {
-            scroll.set_scroll_top(0);
+    let filters = move || {
+        view! {
+            {url_select(
+                "Status",
+                OUTCOME_KEY,
+                Outcome::ALL.iter().map(|o| (o.as_str(), o.look().label)).collect(),
+                false,
+            )}
+            {url_select(
+                "Availability",
+                AVAILABILITY_KEY,
+                GameStatus::ALL
+                    .iter()
+                    .map(|s| (s.as_str(), game_status_label(*s)))
+                    .chain([(UNKNOWN, "Not in the audit")])
+                    .collect(),
+                !audited,
+            )}
+            {url_select(
+                "Flag",
+                FLAG_KEY,
+                FlagFilter::ALL.iter().map(|f| (f.key(), f.label())).collect(),
+                false,
+            )}
         }
     };
-
     view! {
-        <div class="panel" node_ref=panel>
-            <form class="filters" on:submit=|ev| ev.prevent_default()>
-                <label>
-                    "Filter games"
-                    <input
-                        type="search"
-                        class="filter-text"
-                        placeholder="Game group or game name"
-                        autocomplete="off"
-                        on:input=move |ev| {
-                            let text = event_target_value(&ev);
-                            refilter(Box::new(move |f| f.text = text));
-                        }
-                    />
-                </label>
-                <label>
-                    "Status"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(Box::new(move |f| f.outcome = Outcome::parse(&v)));
-                    }>
-                        <option value="">"Any"</option>
-                        {Outcome::ALL
-                            .iter()
-                            .map(|r| view! { <option value=r.as_str()>{r.look().label}</option> })
-                            .collect_view()}
-                    </select>
-                </label>
-                <label>
-                    "Availability"
-                    <select disabled=!audited on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(
-                            Box::new(move |f| {
-                                f.availability = match v.as_str() {
-                                    "unknown" => Some(AvailabilityFilter::Unknown),
-                                    other => GameStatus::parse(other).map(AvailabilityFilter::Is),
-                                };
-                            }),
-                        );
-                    }>
-                        <option value="">"Any"</option>
-                        {GameStatus::ALL
-                            .iter()
-                            .map(|s| view! { <option value=s.as_str()>{game_status_label(*s)}</option> })
-                            .collect_view()}
-                        <option value="unknown">"Not in the audit"</option>
-                    </select>
-                </label>
-                <label>
-                    "Flag"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(Box::new(move |f| f.flag = FlagFilter::parse(&v)));
-                    }>
-                        <option value="">"Any"</option>
-                        {FlagFilter::ALL
-                            .iter()
-                            .map(|f| view! { <option value=f.key()>{f.label()}</option> })
-                            .collect_view()}
-                    </select>
-                </label>
-            </form>
-            <p
-                class="shown"
-                aria-live="polite"
-                data-query=move || filter.with(|f| f.text.clone())
-                data-shown=move || shown.with(|s| s.len())
-            >
-                {move || format!("{} of {total} games", shown.with(|s| s.len()))}
-            </p>
-            <DataTable
-                id="releases"
-                label="Games".to_string()
-                rows
-                sorting
-                selected
-                on_open=Callback::new(move |_| focus(detail_id))
-                empty="No games match these filters.".to_string()
-            />
-            <LegendStrip looks=legend list="releases" />
-        </div>
+        <List
+            id="releases"
+            label="Games"
+            rows=Signal::stored(rows)
+            empty="This selection lists no games."
+            placeholder="Filter by game group or game name"
+            filters
+            keep
+            legend=move || view! { <LegendStrip looks=Signal::stored(looks.clone()) list="releases" /> }
+            detail=Callback::new(|row: ReleaseItem| release_detail(&row))
+        />
     }
 }
 
-/// A change between two Selections, in a table.
-#[derive(Clone)]
+/// A change between two Selections, in a list.
+#[derive(Clone, PartialEq)]
 struct ChangeItem(ReleaseChange);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChangeCol {
-    Group,
-    Release,
     Before,
     After,
-    Rule,
+    Group,
+    Release,
 }
 
 fn maybe_outcome(outcome: Option<Outcome>) -> AnyView {
@@ -391,63 +345,114 @@ fn maybe_outcome(outcome: Option<Outcome>) -> AnyView {
     }
 }
 
-impl Grid for ChangeItem {
+impl ListRow for ChangeItem {
     type Col = ChangeCol;
     const COLUMNS: &'static [ChangeCol] = &[
-        ChangeCol::Group,
-        ChangeCol::Release,
         ChangeCol::Before,
         ChangeCol::After,
-        ChangeCol::Rule,
+        ChangeCol::Group,
+        ChangeCol::Release,
     ];
 
-    fn header(col: ChangeCol) -> &'static str {
+    fn column(col: ChangeCol) -> Column {
         match col {
-            ChangeCol::Group => "Game group",
-            ChangeCol::Release => "Game",
-            ChangeCol::Before => "Before",
-            ChangeCol::After => "Now",
-            ChangeCol::Rule => "Why",
+            ChangeCol::Before => Column::new("before", "Before", Width::Fixed(8.0))
+                .sortable()
+                .hint("Its status in the selection it is compared with"),
+            ChangeCol::After => Column::new("now", "Now", Width::Fixed(8.0))
+                .sortable()
+                .hint("Its status now"),
+            ChangeCol::Group => Column::new(
+                "group",
+                "Game group",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            ChangeCol::Release => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
         }
     }
 
-    fn class(col: ChangeCol) -> &'static str {
-        match col {
-            ChangeCol::Group => "c-group",
-            ChangeCol::Release => "c-wide",
-            ChangeCol::Before | ChangeCol::After => "c-status",
-            ChangeCol::Rule => "c-reason",
-        }
+    fn key(&self) -> String {
+        self.0.title.clone()
+    }
+
+    fn title(&self) -> String {
+        self.0.title.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{}\n{}", self.0.group, self.0.title)
     }
 
     fn cell(&self, col: ChangeCol) -> AnyView {
         let change = &self.0;
         match col {
-            ChangeCol::Group => change.group.clone().into_any(),
-            ChangeCol::Release => change.title.clone().into_any(),
             ChangeCol::Before => maybe_outcome(change.before),
             ChangeCol::After => maybe_outcome(change.after),
-            ChangeCol::Rule => rule_text(&change.rule).into_any(),
+            ChangeCol::Group => view! { <Clip text=change.group.clone() /> }.into_any(),
+            ChangeCol::Release => view! { <Clip text=change.title.clone() /> }.into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: ChangeCol) -> std::cmp::Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            ChangeCol::Before => a.before.cmp(&b.before),
+            ChangeCol::After => a.after.cmp(&b.after),
+            ChangeCol::Group => a.group.to_lowercase().cmp(&b.group.to_lowercase()),
+            ChangeCol::Release => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         }
     }
 }
 
-/// What changed, release by release, in a table.
+fn change_detail(item: &ChangeItem) -> AnyView {
+    let change = &item.0;
+    let outcome = |o: Option<Outcome>| match o {
+        Some(status) => view! { <StatusBadge status /> }.into_any(),
+        None => "Not in the DAT".into_any(),
+    };
+    view! {
+        <dl class="facts">
+            <dt>"Game group"</dt>
+            <dd>{change.group.clone()}</dd>
+            <dt>"Before"</dt>
+            <dd>{outcome(change.before)}</dd>
+            <dt>"Now"</dt>
+            <dd>{outcome(change.after)}</dd>
+            {rule_view(&change.rule)}
+        </dl>
+    }
+    .into_any()
+}
+
+/// What changed, release by release, in a list whose state lives under the URL's `changes-` keys, beside the page's
+/// own list.
 #[component]
 pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoView {
     let looks = present_looks(changes.iter().flat_map(|c| [c.before, c.after]).flatten());
-    let rows = rows_of(changes.into_iter().map(ChangeItem).collect::<Vec<_>>());
+    let rows = Arc::new(changes.into_iter().map(ChangeItem).collect::<Vec<_>>());
     view! {
-        <DataTable
+        <List
             id
-            label="Changes".to_string()
+            scope="changes"
+            label="Changes"
             rows=Signal::stored(rows)
-            sorting=RwSignal::new(VecDeque::new())
-            selected=RwSignal::new(None)
-            on_open=Callback::new(|_| {})
-            empty="No game changes its outcome.".to_string()
+            empty="No game changes its outcome."
+            placeholder="Filter by game group or game name"
+            legend=move || view! { <LegendStrip looks=Signal::stored(looks.clone()) list=id /> }
+            detail=Callback::new(|row: ChangeItem| change_detail(&row))
         />
-        <LegendStrip looks=Signal::stored(looks) list=id />
     }
 }
 

@@ -1,7 +1,7 @@
-//! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`, or with `&list=1`,
-//! the same Entries in the shared list (`parts::list`), or with `&repair=1` a repair plan of as many items in the
-//! Repair tab's review. With `&list=1&meter=1`, the shared list's rows also show a Games meter (`parts::meter`), to
-//! measure what the meter costs a list.
+//! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`, the Audit screen's
+//! Entries panel, or with `&repair=1` a repair plan of as many items in the Repair tab's review. With `&meter=1`, the
+//! same Entries are a plain shared list whose rows also show a Games meter (`parts::meter`), to measure what the meter
+//! costs a list.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -312,7 +312,6 @@ pub fn Bench() -> impl IntoView {
         .get("entries")
         .and_then(|n| n.parse().ok())
         .unwrap_or(100_000);
-    let list = query.read_untracked().get("list").is_some();
     let meter = query.read_untracked().get("meter").is_some();
     if query.read_untracked().get("repair").is_some() {
         return view! {
@@ -336,7 +335,7 @@ pub fn Bench() -> impl IntoView {
                 "{n} synthetic entries: {verified} verified, {needs_review} need review. Nothing here comes from the service.",
             )}
         </p>
-        {if list && meter {
+        {if meter {
             let rows: Arc<Vec<MeterRow>> = Arc::new(
                 entries.rows.iter().cloned().map(|r| MeterRow(BenchRow(Arc::new(r)))).collect(),
             );
@@ -347,19 +346,6 @@ pub fn Bench() -> impl IntoView {
                     rows=Signal::stored(rows)
                     empty="No entries."
                     detail=Callback::new(|row: MeterRow| row.0.0.entry.path.clone().into_any())
-                />
-            }
-                .into_any()
-        } else if list {
-            let rows: Arc<Vec<BenchRow>> =
-                Arc::new(entries.rows.iter().cloned().map(|r| BenchRow(Arc::new(r))).collect());
-            view! {
-                <List
-                    id="bench"
-                    label="Synthetic entries"
-                    rows=Signal::stored(rows)
-                    empty="No entries."
-                    detail=Callback::new(|row: BenchRow| row.0.entry.path.clone().into_any())
                 />
             }
                 .into_any()

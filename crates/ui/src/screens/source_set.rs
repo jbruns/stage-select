@@ -24,8 +24,8 @@ use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
 use crate::library_model::live_status;
 use crate::model::{
-    Derived, EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts,
-    revision_label, warning_counts, when,
+    Derived, audit_choices, audit_evidence_label, needs_review_from_counts, revision_label,
+    warning_counts, when,
 };
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
@@ -793,10 +793,9 @@ fn StartAuditForm(
     }
 }
 
-/// The latest audit's game statuses, or its entries narrowed by the URL's `q` and `finding`.
+/// The latest audit's game statuses, or its entries, narrowed by the URL as their lists read it.
 #[component]
 fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
-    let query = use_query_map();
     let Some(audit) = latest else {
         return view! { <p class="note">"Not audited yet."</p> }.into_any();
     };
@@ -809,11 +808,6 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
     let id = audit.id;
     let rule = audit.header_rule.as_ref().and_then(|r| r.rule);
     let data = LocalResource::new(move || load(id));
-    let initial = query.with_untracked(|q| EntryFilter {
-        text: q.get("q").unwrap_or_default(),
-        finding: q.get("finding").and_then(|f| Finding::parse(&f)),
-        ..EntryFilter::default()
-    });
     view! {
         <p class="note">
             {format!("From audit #{id}, {}. ", when(&audit.finished_at))}
@@ -827,11 +821,7 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
             }
             Some(Ok(loaded)) => {
                 view! {
-                    <EntriesPanel
-                        entries=loaded.entries
-                        initial=initial.clone()
-                        source_set=audit.source_set.clone()
-                    />
+                    <EntriesPanel entries=loaded.entries source_set=audit.source_set.clone() />
                 }.into_any()
             }
         }}

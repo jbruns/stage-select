@@ -1,7 +1,8 @@
 //! A list's view state in the URL's query string, so a link or a reload keeps it: its filter (`q`), its sort
 //! (`sort`, `-` first when descending), its open row (`row`), its page's tab (`tab`) and its checked rows (`sel`, with
 //! `all=1` when every row matching the filter is checked and `sel` lists those left out). Other query parameters, such
-//! as a plan's id, are kept as they are.
+//! as a plan's id, are kept as they are. A second list on a page takes a scope, such as `changes`, and keeps its state
+//! under its own keys (`changes-q`, `changes-row`, …), leaving the page's `tab` to the page.
 
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
@@ -58,11 +59,38 @@ fn split_keys(value: &str) -> impl Iterator<Item = String> {
     keys.into_iter().filter(|k| !k.is_empty())
 }
 
+/// The state key `key` stands for in a list scoped by `scope`, if it is one of that list's.
+fn own_key<'a>(scope: Option<&str>, key: &'a str) -> Option<&'a str> {
+    let base = match scope {
+        None => key,
+        Some(scope) => key.strip_prefix(scope)?.strip_prefix('-')?,
+    };
+    (KEYS.contains(&base) && (scope.is_none() || base != TAB)).then_some(base)
+}
+
+fn scoped_key(scope: Option<&str>, base: &str) -> String {
+    match scope {
+        None => base.to_string(),
+        Some(scope) => format!("{scope}-{base}"),
+    }
+}
+
 impl ListQuery {
     /// The state a query string's pairs hold; an empty value counts as none.
     pub fn from_pairs<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        Self::from_pairs_in(None, pairs)
+    }
+
+    /// The state of the list scoped by `scope` among a query string's pairs, as `from_pairs` reads it.
+    pub fn from_pairs_in<'a>(
+        scope: Option<&str>,
+        pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
         let mut q = ListQuery::default();
         for (key, value) in pairs {
+            let Some(key) = own_key(scope, key) else {
+                continue;
+            };
             let some = (!value.is_empty()).then(|| value.to_string());
             match key {
                 FILTER => q.filter = value.to_string(),
@@ -115,11 +143,25 @@ impl ListQuery {
         &self,
         others: impl IntoIterator<Item = (&'a str, &'a str)>,
     ) -> Vec<(String, String)> {
+        self.merged_in(None, others)
+    }
+
+    /// As `merged`, for the list scoped by `scope`.
+    pub fn merged_in<'a>(
+        &self,
+        scope: Option<&str>,
+        others: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<(String, String)> {
+        let own = self
+            .to_pairs()
+            .into_iter()
+            .filter(|(k, _)| scope.is_none() || *k != TAB)
+            .map(|(k, v)| (scoped_key(scope, k), v));
         others
             .into_iter()
-            .filter(|(k, _)| !KEYS.contains(k))
+            .filter(|(k, _)| own_key(scope, k).is_none())
             .map(|(k, v)| (k.to_string(), v.to_string()))
-            .chain(self.to_pairs().into_iter().map(|(k, v)| (k.to_string(), v)))
+            .chain(own)
             .collect()
     }
 
@@ -165,9 +207,16 @@ pub fn query_string(pairs: &[(String, String)]) -> String {
 /// The current list state from the URL, and a way to change it. Changing it replaces the history entry rather than
 /// adding one, and doesn't scroll.
 pub fn use_list_query() -> (Memo<ListQuery>, Callback<ListQuery>) {
+    use_list_query_in(None)
+}
+
+/// As `use_list_query`, for the list scoped by `scope`.
+pub fn use_list_query_in(scope: Option<&'static str>) -> (Memo<ListQuery>, Callback<ListQuery>) {
     let query = use_query_map();
     let state = Memo::new(move |_| {
-        query.with(|q| ListQuery::from_pairs(q.latest_values().map(|(k, v)| (k.as_ref(), v))))
+        query.with(|q| {
+            ListQuery::from_pairs_in(scope, q.latest_values().map(|(k, v)| (k.as_ref(), v)))
+        })
     });
     let location = use_location();
     let target = RwSignal::new(None::<String>);
@@ -185,8 +234,9 @@ pub fn use_list_query() -> (Memo<ListQuery>, Callback<ListQuery>) {
         }
     });
     let set = Callback::new(move |next: ListQuery| {
-        let pairs =
-            query.with_untracked(|q| next.merged(q.latest_values().map(|(k, v)| (k.as_ref(), v))));
+        let pairs = query.with_untracked(|q| {
+            next.merged_in(scope, q.latest_values().map(|(k, v)| (k.as_ref(), v)))
+        });
         let path = location.pathname.get_untracked();
         target.set(Some(format!("{path}{}", query_string(&pairs))));
     });
@@ -296,6 +346,35 @@ mod tests {
                 ("q".to_string(), "mario".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn a_scoped_list_keeps_its_state_under_its_own_keys() {
+        let q = ListQuery {
+            filter: "mario".to_string(),
+            selected: Some("7".to_string()),
+            ..Default::default()
+        };
+        let page = [("q", "zelda"), ("tab", "changes"), ("changes-row", "3")];
+        assert_eq!(
+            q.merged_in(Some("changes"), page),
+            vec![
+                ("q".to_string(), "zelda".to_string()),
+                ("tab".to_string(), "changes".to_string()),
+                ("changes-q".to_string(), "mario".to_string()),
+                ("changes-row".to_string(), "7".to_string()),
+            ]
+        );
+        let read = ListQuery::from_pairs_in(
+            Some("changes"),
+            [
+                ("q", "zelda"),
+                ("tab", "x"),
+                ("changes-q", "mario"),
+                ("changes-row", "7"),
+            ],
+        );
+        assert_eq!(read, q);
     }
 
     #[test]

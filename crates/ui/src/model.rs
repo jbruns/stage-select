@@ -245,6 +245,20 @@ pub enum Derived {
 }
 
 impl Derived {
+    /// Its value in the URL's `state`.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Derived::Verified => "verified",
+            Derived::NeedsReview => "needs-review",
+        }
+    }
+
+    pub fn parse(slug: &str) -> Option<Derived> {
+        [Derived::Verified, Derived::NeedsReview]
+            .into_iter()
+            .find(|d| d.slug() == slug)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Derived::Verified => "Verified",
@@ -504,7 +518,13 @@ impl AuditEntries {
         DerivedCounts::of(self.rows.iter().map(|r| &r.entry))
     }
 
-    fn compare(&self, key: EntryColumn, a: usize, b: usize) -> Ordering {
+    /// The lowercase text the filter searches for Entry `i`.
+    pub fn search(&self, i: usize) -> &str {
+        &self.search[i]
+    }
+
+    /// The order of Entries `a` and `b` by `key`, ascending.
+    pub fn compare(&self, key: EntryColumn, a: usize, b: usize) -> Ordering {
         let (ea, eb) = (&self.rows[a].entry, &self.rows[b].entry);
         match key {
             EntryColumn::Name => self.name[a].cmp(&self.name[b]),
@@ -532,25 +552,31 @@ impl AuditEntries {
     /// The Entries of `order` that pass `filter`, in that order.
     pub fn filtered(&self, order: &[u32], filter: &EntryFilter) -> Vec<u32> {
         let text = filter.text.trim().to_lowercase();
-        let algorithm = filter.algorithm.as_deref().map(algorithm_bit);
         order
             .iter()
             .copied()
             .filter(|&i| {
                 let i = i as usize;
-                filter
-                    .finding
-                    .is_none_or(|f| self.rows[i].entry.finding == f)
-                    && filter.state.is_none_or(|s| self.derived[i] == Some(s))
-                    && match filter.game_status {
-                        None => true,
-                        Some(StatusFilter::None) => self.statuses[i] == 0,
-                        Some(StatusFilter::Is(s)) => self.statuses[i] & status_bit(s) != 0,
-                    }
-                    && algorithm.is_none_or(|bit| self.algorithms[i] & bit != 0)
-                    && (text.is_empty() || self.search[i].contains(&text))
+                self.keeps(i, filter) && (text.is_empty() || self.search[i].contains(&text))
             })
             .collect()
+    }
+
+    /// Whether Entry `i` passes every part of `filter` but its text.
+    pub fn keeps(&self, i: usize, filter: &EntryFilter) -> bool {
+        filter
+            .finding
+            .is_none_or(|f| self.rows[i].entry.finding == f)
+            && filter.state.is_none_or(|s| self.derived[i] == Some(s))
+            && match filter.game_status {
+                None => true,
+                Some(StatusFilter::None) => self.statuses[i] == 0,
+                Some(StatusFilter::Is(s)) => self.statuses[i] & status_bit(s) != 0,
+            }
+            && filter
+                .algorithm
+                .as_deref()
+                .is_none_or(|a| self.algorithms[i] & algorithm_bit(a) != 0)
     }
 }
 
@@ -604,6 +630,43 @@ pub struct EntryFilter {
     pub game_status: Option<StatusFilter>,
     /// An algorithm the Evidence compared, such as `sha256`.
     pub algorithm: Option<String>,
+}
+
+/// The URL keys of the Entries' and Game Statuses' filters beside the list's text.
+pub const FINDING: &str = "finding";
+pub const STATE: &str = "state";
+pub const STATUS: &str = "status";
+pub const ALGORITHM: &str = "algorithm";
+/// The `status` that narrows Entries to those counting towards no Game.
+pub const NO_GAME: &str = "none";
+
+impl EntryFilter {
+    /// The filter the URL's keys hold, `get` giving each key's value; the text is the list's own `q`. A value it
+    /// doesn't know narrows nothing.
+    pub fn from_query<'a>(get: impl Fn(&str) -> Option<&'a str>) -> EntryFilter {
+        EntryFilter {
+            text: String::new(),
+            finding: get(FINDING).and_then(Finding::parse),
+            state: get(STATE).and_then(Derived::parse),
+            game_status: get(STATUS).and_then(|v| match v {
+                NO_GAME => Some(StatusFilter::None),
+                v => GameStatus::parse(v).map(StatusFilter::Is),
+            }),
+            algorithm: get(ALGORITHM)
+                .filter(|a| ALGORITHMS.contains(a))
+                .map(str::to_string),
+        }
+    }
+}
+
+impl GameFilter {
+    /// The filter the URL's `status` holds, as `EntryFilter::from_query` reads it.
+    pub fn from_query<'a>(get: impl Fn(&str) -> Option<&'a str>) -> GameFilter {
+        GameFilter {
+            text: String::new(),
+            status: get(STATUS).and_then(GameStatus::parse),
+        }
+    }
 }
 
 /// What the Operator narrowed the Game Statuses to.
@@ -721,21 +784,30 @@ impl AuditGames {
         let mut order: Vec<u32> = (0..self.len() as u32).collect();
         if let Some(sort) = sort {
             order.sort_by(|&a, &b| {
-                let (a, b) = (a as usize, b as usize);
-                let (ga, gb) = (&self.rows[a].game, &self.rows[b].game);
-                let ord = match sort.column {
-                    GameColumn::Name => self.name[a].cmp(&self.name[b]),
-                    GameColumn::Status => ga.status.cmp(&gb.status),
-                    GameColumn::Absent => ga.missing_roms.len().cmp(&gb.missing_roms.len()),
-                    GameColumn::Placement => cmp_none_last(
-                        self.placement(a).map(|p| p.rank()),
-                        self.placement(b).map(|p| p.rank()),
-                    ),
-                };
+                let ord = self.compare(sort.column, a as usize, b as usize);
                 if sort.descending { ord.reverse() } else { ord }
             });
         }
         order
+    }
+
+    /// The order of Games `a` and `b` by `key`, ascending.
+    pub fn compare(&self, key: GameColumn, a: usize, b: usize) -> Ordering {
+        let (ga, gb) = (&self.rows[a].game, &self.rows[b].game);
+        match key {
+            GameColumn::Name => self.name[a].cmp(&self.name[b]),
+            GameColumn::Status => ga.status.cmp(&gb.status),
+            GameColumn::Absent => ga.missing_roms.len().cmp(&gb.missing_roms.len()),
+            GameColumn::Placement => cmp_none_last(
+                self.placement(a).map(|p| p.rank()),
+                self.placement(b).map(|p| p.rank()),
+            ),
+        }
+    }
+
+    /// The lowercase text the filter searches for Game `i`: its name and absent ROMs.
+    pub fn search(&self, i: usize) -> &str {
+        &self.search[i]
     }
 
     pub fn filtered(&self, order: &[u32], filter: &GameFilter) -> Vec<u32> {
@@ -745,10 +817,14 @@ impl AuditGames {
             .copied()
             .filter(|&i| {
                 let i = i as usize;
-                filter.status.is_none_or(|s| self.rows[i].game.status == s)
-                    && (text.is_empty() || self.search[i].contains(&text))
+                self.keeps(i, filter) && (text.is_empty() || self.search[i].contains(&text))
             })
             .collect()
+    }
+
+    /// Whether Game `i` passes `filter`'s status.
+    pub fn keeps(&self, i: usize, filter: &GameFilter) -> bool {
+        filter.status.is_none_or(|s| self.rows[i].game.status == s)
     }
 }
 
@@ -1288,6 +1364,43 @@ mod tests {
             sorted(EntryColumn::Evidence, true)[..2],
             ["Pong (USA).zip", "breakout.zip"],
             "the most algorithms compared first"
+        );
+    }
+
+    #[test]
+    fn entry_and_game_filters_live_in_the_url() {
+        let pairs = [
+            ("q", "usa"),
+            ("finding", "misnamed"),
+            ("state", "needs-review"),
+            ("status", "none"),
+            ("algorithm", "sha256"),
+        ];
+        let get = |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
+        let filter = EntryFilter::from_query(get);
+        assert_eq!(
+            filter,
+            EntryFilter {
+                text: String::new(),
+                finding: Some(Finding::Misnamed),
+                state: Some(Derived::NeedsReview),
+                game_status: Some(StatusFilter::None),
+                algorithm: Some("sha256".into()),
+            },
+            "the list keeps the text itself"
+        );
+        assert_eq!(
+            EntryFilter::from_query(|k| (k == "status").then_some("incomplete")).game_status,
+            Some(StatusFilter::Is(GameStatus::Incomplete))
+        );
+        assert_eq!(
+            EntryFilter::from_query(|_| Some("nonsense")),
+            EntryFilter::default(),
+            "a value it doesn't know narrows nothing"
+        );
+        assert_eq!(
+            GameFilter::from_query(|k| (k == "status").then_some("missing")).status,
+            Some(GameStatus::Missing)
         );
     }
 

@@ -859,10 +859,6 @@ dd.games {
   border-spacing: 0;
 }
 
-.table-scroll table:focus-visible {
-  outline-offset: calc(-1 * var(--focus-width));
-}
-
 thead th,
 thead th.data {
   font-family: var(--font-ui);
@@ -877,7 +873,6 @@ thead th.data {
   font-weight: 600;
 }
 
-thead th .sort,
 thead th .label {
   display: flex;
   align-items: center;
@@ -891,11 +886,6 @@ thead th .label {
   background: transparent;
   font-weight: 600;
   text-align: left;
-}
-
-thead th .sort:hover {
-  background: var(--color-hover);
-  text-decoration: underline;
 }
 
 .sort-mark {
@@ -933,51 +923,6 @@ tbody tr:hover {
   background-color: var(--color-hover);
 }
 
-/* The older table's selected row is its keyboard cursor. The table takes focus itself, and the brackets show, as in
-   the shared list, only while it has keyboard focus. */
-table:focus-visible tbody tr.selected {
-  background-image: var(--cursor-brackets-image);
-  background-position: var(--cursor-brackets-position);
-  background-size: var(--cursor-brackets-size);
-  background-repeat: no-repeat;
-}
-
-tbody tr.loading td {
-  color: var(--color-text-secondary);
-}
-
-.c-id {
-  width: 5rem;
-}
-
-.c-state,
-.c-status,
-.c-finding,
-.c-action {
-  width: 8rem;
-}
-
-.c-actor,
-.c-revision {
-  width: 10rem;
-}
-
-.c-time {
-  width: 15rem;
-}
-
-.c-hash {
-  width: 9rem;
-}
-
-.c-evidence {
-  width: 14rem;
-}
-
-.c-reason {
-  width: 14rem;
-}
-
 tbody td button.small {
   min-height: var(--space-8);
   padding: 0 var(--space-3);
@@ -1004,20 +949,8 @@ tbody td button.small {
   padding: var(--space-1) 0;
 }
 
-.c-group {
-  width: 14rem;
-}
-
-.c-kind {
-  width: 7rem;
-}
-
 section > h3 {
   margin-top: var(--space-4);
-}
-
-.c-flags {
-  width: 12rem;
 }
 
 .panel {

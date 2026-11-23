@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,7 +6,6 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
-use leptos_struct_table::ColumnSort;
 use stage_select_api::arcade::same_name;
 use stage_select_api::selection::{
     Category, Compilations, Outcome, SelectionOptions, SelectionProfile, SystemSettings,
@@ -22,6 +21,7 @@ use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcad
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::layout::Crumbs;
+use crate::parts::list::{Clip, Column, List, ListRow, Width};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
@@ -32,7 +32,6 @@ use crate::selection_model::{
     SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, preview_set,
     reset_global, reset_system, system_tabs, use_global_settings,
 };
-use crate::table::{DataTable, Grid, Rows, rows_of};
 
 /// How long the editor waits after an edit before checking it and previewing it.
 const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -68,10 +67,10 @@ pub fn category_label(category: Category) -> &'static str {
 }
 
 /// The selection profiles, newest version of each.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct ProfileItem(ProfileRecord);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProfileCol {
     Name,
     Version,
@@ -79,7 +78,7 @@ enum ProfileCol {
     SavedBy,
 }
 
-impl Grid for ProfileItem {
+impl ListRow for ProfileItem {
     type Col = ProfileCol;
     const COLUMNS: &'static [ProfileCol] = &[
         ProfileCol::Name,
@@ -88,54 +87,122 @@ impl Grid for ProfileItem {
         ProfileCol::SavedBy,
     ];
 
-    fn header(col: ProfileCol) -> &'static str {
+    fn column(col: ProfileCol) -> Column {
         match col {
-            ProfileCol::Name => "Selection profile",
-            ProfileCol::Version => "Newest version",
-            ProfileCol::Saved => "Saved",
-            ProfileCol::SavedBy => "Saved by",
+            ProfileCol::Name => Column::new(
+                "name",
+                "Selection profile",
+                Width::Flex {
+                    min: 14.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            ProfileCol::Version => Column::new("version", "Version", Width::Fixed(5.5))
+                .numeric()
+                .sortable()
+                .hint("Its newest version"),
+            ProfileCol::Saved => Column::new("saved", "Saved", Width::Fixed(11.0)).sortable(),
+            ProfileCol::SavedBy => {
+                Column::new("saved-by", "Saved by", Width::Flex { min: 8.0, share: 1 }).sortable()
+            }
         }
     }
 
-    fn class(col: ProfileCol) -> &'static str {
-        match col {
-            ProfileCol::Name => "c-wide",
-            ProfileCol::Version => "c-id data",
-            ProfileCol::Saved => "c-time data",
-            ProfileCol::SavedBy => "c-actor",
-        }
+    fn key(&self) -> String {
+        self.0.name.clone()
+    }
+
+    fn title(&self) -> String {
+        self.0.name.clone()
+    }
+
+    fn search(&self) -> String {
+        let saved_by = self.0.latest.as_ref().map(|v| v.saved_by.as_str());
+        format!("{} {}", self.0.name, saved_by.unwrap_or_default())
     }
 
     fn cell(&self, col: ProfileCol) -> AnyView {
         let latest = self.0.latest.as_ref();
         match col {
             ProfileCol::Name => {
-                let name = self.0.name.clone();
-                let retired = self.0.retired_at.is_some().then_some(" (retired)");
-                view! { <A href=profile_href(&name)>{name.clone()}</A> {retired} }.into_any()
+                let retired = self
+                    .0
+                    .retired_at
+                    .is_some()
+                    .then(|| view! { " " <span class="tag">"Retired"</span> });
+                view! { <Clip text=self.0.name.clone() /> {retired} }.into_any()
             }
             ProfileCol::Version => latest
-                .map_or("Not saved yet".to_string(), |v| v.version.to_string())
+                .map_or("—".to_string(), |v| v.version.to_string())
                 .into_any(),
-            ProfileCol::Saved => latest.map(|v| when(&v.saved_at)).into_any(),
-            ProfileCol::SavedBy => latest.map(|v| v.saved_by.clone()).into_any(),
+            ProfileCol::Saved => latest
+                .map(|v| view! { <Clip text=when(&v.saved_at) /> })
+                .into_any(),
+            ProfileCol::SavedBy => latest
+                .map(|v| view! { <Clip text=v.saved_by.clone() /> })
+                .into_any(),
         }
     }
+
+    fn compare(&self, other: &Self, col: ProfileCol) -> std::cmp::Ordering {
+        let (a, b) = (self.0.latest.as_ref(), other.0.latest.as_ref());
+        match col {
+            ProfileCol::Name => self.0.name.to_lowercase().cmp(&other.0.name.to_lowercase()),
+            ProfileCol::Version => a.map(|v| v.version).cmp(&b.map(|v| v.version)),
+            ProfileCol::Saved => a.map(|v| &v.saved_at).cmp(&b.map(|v| &v.saved_at)),
+            ProfileCol::SavedBy => a.map(|v| &v.saved_by).cmp(&b.map(|v| &v.saved_by)),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(profile_href(&self.0.name))
+    }
+}
+
+fn profile_detail(item: ProfileItem) -> AnyView {
+    let record = item.0;
+    let latest = record.latest.clone();
+    view! {
+        <dl class="facts">
+            {match latest {
+                Some(v) => view! {
+                    <dt>"Newest version"</dt>
+                    <dd>{v.version}</dd>
+                    <dt>"Saved"</dt>
+                    <dd>{when(&v.saved_at)} " by " {v.saved_by.clone()}</dd>
+                }
+                .into_any(),
+                None => view! {
+                    <dt>"Newest version"</dt>
+                    <dd>"Not saved yet"</dd>
+                }
+                .into_any(),
+            }}
+            <dt>"Created"</dt>
+            <dd>{when(&record.created_at)}</dd>
+            {record.retired_at.map(|at| view! {
+                <dt>"Retired"</dt>
+                <dd>{format!("{}: hidden from new choices, its versions kept", when(&at))}</dd>
+            })}
+        </dl>
+    }
+    .into_any()
 }
 
 #[component]
 pub fn Profiles() -> impl IntoView {
     let profiles = LocalResource::new(|| api::get::<Vec<ProfileRecord>>("/profiles"));
-    let go = navigator();
     let rows = Signal::derive(move || {
-        let items = profiles
-            .get()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-            .into_iter()
-            .map(ProfileItem)
-            .collect::<Vec<_>>();
-        rows_of(items) as Rows<ProfileItem>
+        Arc::new(
+            profiles
+                .get()
+                .and_then(Result::ok)
+                .unwrap_or_default()
+                .into_iter()
+                .map(ProfileItem)
+                .collect::<Vec<_>>(),
+        )
     });
     view! {
         <h1>"Selection profiles"</h1>
@@ -160,14 +227,13 @@ pub fn Profiles() -> impl IntoView {
             }
             Some(Ok(_)) => ().into_any(),
         }}
-        <DataTable
+        <List
             id="profiles"
-            label="Selection profiles".to_string()
+            label="Selection profiles"
             rows
-            sorting=RwSignal::new(VecDeque::<(ProfileCol, ColumnSort)>::new())
-            selected=RwSignal::new(None)
-            on_open=Callback::new(move |item: ProfileItem| go.run(profile_href(&item.0.name)))
-            empty="No selection profiles yet.".to_string()
+            empty="No selection profiles yet."
+            placeholder="Filter by name or who saved it"
+            detail=Callback::new(profile_detail)
         />
     }
 }
@@ -893,7 +959,7 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
             }
         }}
         <h3>"What it selects"</h3>
-        <ReleasesPanel index audited=false group=RwSignal::new(None) detail_id="preview-title" />
+        <ReleasesPanel index audited=false />
     }
 }
 
