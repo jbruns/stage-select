@@ -15,10 +15,11 @@ use stage_select_api::lifecycle::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem, navigator};
+use crate::app::{Loading, navigator};
 use crate::events::use_live;
 use crate::model::when;
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::status::StatusBadge;
 
 /// Where the unregistered history is.
@@ -495,7 +496,7 @@ fn Forget(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoView {
                     <button type="button" on:click=move |_| asking.set(false)>"Cancel"</button>
                 </div>
             </Show>
-            <p class="done" role="status">{move || said.get()}</p>
+            {move || said.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
@@ -733,7 +734,7 @@ pub fn MoveFolderAction(folder: i64, from: String, refresh: RwSignal<u64>) -> im
                     .into_any(),
                 }}
             </Show>
-            <p class="done" role="status">{move || said.get()}</p>
+            {move || said.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
             {move || problem.get().map(|message| view! { <Problem message /> })}
             <p class="note">{format!("Now at {from}.")}</p>
         </section>

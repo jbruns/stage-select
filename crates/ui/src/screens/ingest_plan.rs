@@ -10,12 +10,13 @@ use stage_select_api::build::ApprovePlan;
 use stage_select_api::ingest::{IngestAction, IngestOutcome, IngestPlan, IngestPlanItem};
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::events::use_live;
 use crate::ingest_model::{self, Outcome};
 use crate::model::{short_sha, when};
 use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::list::{Column, ListRow, Width, last_good_rows};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::pending::ActionPending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{IngestPlanKind, Status, StatusBadge, StatusIcon};
@@ -261,7 +262,7 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>, back: Callback<()>) -
                         p.content.fingerprint.len()
                     )}
                 </p>
-                {state.map(|s| view! { <p class="done" role="status">{s}</p> })}
+                {state.map(|s| view! { <Message kind=MessageKind::DONE live=Live::Off>{s}</Message> })}
                 <div class="form">{approve}</div>
             }
         })

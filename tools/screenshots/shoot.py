@@ -40,11 +40,12 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Two screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row,
+Three screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row,
 then opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail.
 table-states moves the keyboard cursor in the audit's entries table and captures the table. Each fails the run if
 its cursor row's brackets (their computed background-image) are missing while the grid has keyboard focus, and
-table-states also if they show without it.
+table-states also if they show without it. messages sets every Repack item of the repair plan to Leave, a draft
+that changes nothing in the store, and captures the page down to that notice.
 """
 
 import argparse
@@ -103,6 +104,7 @@ SCREENS = {
     "about": "/settings/about",
     "row-states": "/dats",
     "table-states": "/audits/{audit}?tab=entries",
+    "messages": "/source-sets/{findings_set}?tab=repair",
 }
 
 # Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
@@ -157,7 +159,27 @@ def table_states(page):
     return page.locator(".table-scroll").first
 
 
-DRIVEN = {"row-states": row_states, "table-states": table_states}
+class Top:
+    """The page from its top down to the bottom of `below`, for a screenshot."""
+
+    def __init__(self, page, below):
+        self.page, self.below = page, below
+
+    def screenshot(self, path):
+        box = self.below.bounding_box()
+        width = self.page.viewport_size["width"]
+        self.page.screenshot(path=path, full_page=True, clip={"x": 0, "y": 0, "width": width, "height": box["y"] + box["height"] + 16})
+
+
+def messages(page):
+    """The repair plan with every Repack item set to Leave: an outcome ("Set 6 items…") and a notice that the plan
+    changed. The choice is a draft in the page, so the store is unchanged."""
+    page.locator("select.apply-all").first.select_option("Leave")
+    page.wait_for_timeout(300)
+    return Top(page, page.get_by_text("since this plan was made"))
+
+
+DRIVEN = {"row-states": row_states, "table-states": table_states, "messages": messages}
 
 RUNNING = {"activity-running"}
 

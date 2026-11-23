@@ -11,7 +11,7 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem, navigator};
+use crate::app::{Loading, navigator};
 use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
@@ -21,6 +21,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     CellTip, Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
+use crate::parts::message::{Problem, Said};
 use crate::parts::meter::GamesMeter;
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
@@ -51,11 +52,11 @@ pub fn new_library_href(name: &str) -> String {
 }
 
 /// Queues an incremental audit of `name` against its default DAT revision, and says how that went in `said`.
-pub fn start_audit(name: String, said: RwSignal<Option<String>>) {
+pub fn start_audit(name: String, said: RwSignal<Option<Result<String, String>>>) {
     leptos::task::spawn_local(async move {
         let message = match queue_audit(&name).await {
-            Ok(job) => format!("Queued audit job #{} for {name}.", job.id),
-            Err(problem) => format!("Couldn't audit {name}: {problem}"),
+            Ok(job) => Ok(format!("Queued audit job #{} for {name}.", job.id)),
+            Err(problem) => Err(format!("Couldn't audit {name}: {problem}")),
         };
         said.set(Some(message));
     });
@@ -72,12 +73,12 @@ pub async fn queue_audit(name: &str) -> Result<Job, String> {
 }
 
 /// Queues a check of `name` for files changed since its latest audit, and says how that went in `said`.
-pub fn start_check(name: String, said: RwSignal<Option<String>>) {
+pub fn start_check(name: String, said: RwSignal<Option<Result<String, String>>>) {
     leptos::task::spawn_local(async move {
         let path = format!("{}/stat-walks", set_href(&name));
         let message = match api::post::<_, Job>(&path, &()).await {
-            Ok(job) => format!("Queued check #{} of {name} for changes.", job.id),
-            Err(problem) => format!("Couldn't check {name} for changes: {problem}"),
+            Ok(job) => Ok(format!("Queued check #{} of {name} for changes.", job.id)),
+            Err(problem) => Err(format!("Couldn't check {name} for changes: {problem}")),
         };
         said.set(Some(message));
     });
@@ -306,7 +307,7 @@ impl ListRow for SetRow {
 /// What a list action reports to, and what it changes.
 #[derive(Clone, Copy)]
 struct Ctx {
-    said: RwSignal<Option<String>>,
+    said: RwSignal<Option<Result<String, String>>>,
     proposing: RwSignal<Vec<String>>,
     refresh: RwSignal<u64>,
 }
@@ -323,21 +324,34 @@ impl Ctx {
         }
         self.proposing.update(|p| p.extend(names.iter().cloned()));
         leptos::task::spawn_local(async move {
-            let mut said = Vec::new();
+            let (mut proposed, mut failed) = (Vec::new(), Vec::new());
             for name in names {
                 let path = format!("{}/repairs", set_href(&name));
                 let made = api::post::<_, RepairPlan>(&path, &PlanRepair::default()).await;
-                said.push(match made {
-                    Ok(plan) => format!(
+                match made {
+                    Ok(plan) => proposed.push(format!(
                         "Proposed repair #{} of {name}: {} items to review on its Repair tab.",
                         plan.id,
                         plan.content.items.len()
-                    ),
-                    Err(problem) => format!("Couldn't propose a repair of {name}: {problem}"),
-                });
+                    )),
+                    Err(problem) => {
+                        failed.push(format!("Couldn't propose a repair of {name}: {problem}"))
+                    }
+                }
                 self.proposing.update(|p| p.retain(|n| *n != name));
             }
-            self.said.set(Some(said.join(" ")));
+            // A failure leads, and makes the whole message a problem.
+            let said = failed
+                .iter()
+                .chain(&proposed)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.said.set(Some(if failed.is_empty() {
+                Ok(said)
+            } else {
+                Err(said)
+            }));
             self.refresh.update(|n| *n += 1);
         });
     }
@@ -555,10 +569,10 @@ pub fn SourceSets() -> impl IntoView {
     let one = move |chosen: Vec<SetRow>, href: fn(&str) -> String| match chosen.as_slice() {
         [row] => go.run(href(row.name())),
         [row, ..] => {
-            ctx.said.set(Some(format!(
+            ctx.said.set(Some(Ok(format!(
                 "That works on one source set at a time: going on with {}.",
                 row.name()
-            )));
+            ))));
             go.run(href(row.name()));
         }
         [] => {}
@@ -600,9 +614,7 @@ pub fn SourceSets() -> impl IntoView {
         <Show when=move || ctx.proposing.with(|p| !p.is_empty())>
             <PendingStatus status=Signal::derive(move || ctx.proposing.with(|p| proposing_status(p))) />
         </Show>
-        <p class="done" role="status">
-            {move || ctx.said.get()}
-        </p>
+        <Said said=ctx.said />
         <List
             id="source-sets"
             label="Source sets"

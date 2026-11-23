@@ -73,6 +73,9 @@ pure logic there too.
 | A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
 | A job's progress, beside its counts    | `ProgressMeter { done, total, unit }`                  | `meter`     |
 | A source set's games, beside its counts| `GamesMeter { games }`                                 | `meter`     |
+| An outcome, a problem or a notice      | `Message { kind }` around its content (see Messages)   | `message`   |
+| A problem from the Service             | `Problem { message }`                                  | `message`   |
+| How the last request went              | `Said { said }`, an `Option<Result<String, String>>`   | `message`   |
 | Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
@@ -106,7 +109,8 @@ verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's fla
 `ItemState` and `Stream` (the live connection).
 
 - Never colour a status in CSS of its own: every coloured state renders through `StatusIcon`, `StatusBadge` or
-  `StatusCount`. `.tag` is for neutral labels that are not a status ("Not in the DAT"); `.failed` for an error's text.
+  `StatusCount`. `.tag` is for neutral labels that are not a status ("Not in the DAT"). An error's text is a
+  `Problem` (see Messages).
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.
@@ -126,6 +130,33 @@ which stay as text, and is one `role="img"` whose label carries the numbers: no 
 `segments` shares the segments in proportion and gives every count above zero at least one; keep that rule there,
 host-tested. Each segment takes its colour from its `Tone` class through `currentColor`, and nothing in it moves. The
 source sets list's games cell keeps its icons and counts without a meter.
+
+### Messages
+
+A message is not a status: it has no vocabulary and no legend. `parts::message::Message` draws its kind's tone and
+glyph beside its content, which may be text, paragraphs, a link or a list, and names the kind for assistive
+technology, so it reads without colour. Use one of three kinds:
+
+- `MessageKind::DONE`, an outcome: "Saved the storage policy."
+- `MessageKind::PROBLEM`, something went wrong. `Problem { message }` is the short form, and `Pending` and
+  `ActionPending` show their problems with it.
+- `MessageKind::NOTICE`, something that needs a look before the Operator goes on.
+
+How a message is announced is its `live` prop, not its kind. The kind gives the default: a problem is `Live::Alert`,
+an outcome or a notice `Live::Polite`. Choose by what the message answers:
+
+- `Live::Alert` (the problem default): a request the Operator just made failed. `Pending` and `ActionPending`
+  problems, a failed `Said`, a queued selection that turned into a failure.
+- `Live::Polite` (the outcome and notice default): the outcome of what the Operator just did, live progress, or a
+  notice that appears because of it.
+- `Live::Off`: what is stored, shown as the page loads or per row: a job's error, each failed or incomplete item in a
+  list, a stored error on a record, a notice about the state of what is shown. Announcing these would read out the
+  page's history as if it had just happened.
+
+A part built on `Message` may make its own `MessageKind` (tone, glyph, label, live). A glyph means the same in every
+message and every status vocabulary; `message.rs` tests that. Never colour a message in CSS of its own: the part's
+own `.message` rules are the only ones that may set colour, border or background on its classes, and a test in
+`message.rs` fails on any other rule that does.
 
 ### Pending and problems
 

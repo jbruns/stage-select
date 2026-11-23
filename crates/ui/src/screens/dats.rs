@@ -12,7 +12,7 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{imported_message, revision_named, when};
 use crate::parts::icon::Glyph;
@@ -20,6 +20,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
 use crate::parts::status::{DatFileStatus, StatusIcon};
 
@@ -461,7 +462,7 @@ fn DeleteRevision(item: RevisionItem, on_done: Callback<()>) -> impl IntoView {
                 }
                     .into_any()
             }}
-            <p class="done" role="status">{move || said.get()}</p>
+            {move || said.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
@@ -568,13 +569,13 @@ fn SupportFileUpload() -> impl IntoView {
                                 ImportOutcome::Restored => "Restored the kept file of",
                             };
                             view! {
-                                <p class="done" role="status">
+                                <Message kind=MessageKind::DONE>
                                     {format!(
                                         "{what} {} for MAME {}.",
                                         f.kind.file_name(),
                                         f.mame_version,
                                     )}
-                                </p>
+                                </Message>
                             }
                                 .into_any()
                         }
@@ -654,9 +655,9 @@ fn CuePackUpload(on_done: Callback<()>) -> impl IntoView {
                                 n => format!("{n} cue sheets"),
                             };
                             view! {
-                                <p class="done" role="status">
+                                <Message kind=MessageKind::DONE>
                                     {format!("{what} {} for {} ({sheets}).", p.file, p.dat)}
-                                </p>
+                                </Message>
                             }
                                 .into_any()
                         }
@@ -869,9 +870,9 @@ pub(crate) fn Upload(on_done: Callback<()>) -> impl IntoView {
                     .map(|outcome| match outcome {
                         Ok(imported) => {
                             view! {
-                                <p class="done" role="status">
+                                <Message kind=MessageKind::DONE>
                                     {imported_message(imported.outcome, &imported.dat_revision)}
-                                </p>
+                                </Message>
                             }
                                 .into_any()
                         }

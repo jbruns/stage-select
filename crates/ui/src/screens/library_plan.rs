@@ -15,7 +15,7 @@ use stage_select_api::build::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::build_model::{
     ConflictChoice, Placing, approve_label, blocker_label, cause_label, cleanup_action_label,
     group_href, item_change, keep_reason_label, place_facts, plan_kinds, restore_kind_label,
@@ -25,6 +25,7 @@ use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::plan::{Change, PlanReview, PlanRow, apply_to_all, set_actions};
 use crate::parts::plan_model::{apply_choice, offered_by_any};
 use crate::parts::status::{BuildKind, Status, StatusIcon};
@@ -569,7 +570,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             {(!plan.content.blockers.is_empty())
                 .then(|| {
                     view! {
-                        <div class="notice" role="status">
+                        <Message kind=MessageKind::NOTICE live=Live::Off>
                             <p>"You can't approve this plan until these are fixed:"</p>
                             <ul class="plain">
                                 {plan
@@ -595,7 +596,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                                     })
                                     .collect_view()}
                             </ul>
-                        </div>
+                        </Message>
                     }
                 })}
             {(!space.is_empty() || changes_set)

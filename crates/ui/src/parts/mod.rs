@@ -6,6 +6,7 @@
 //! - `list`: `List`, the toolbar, checkable rows, quick actions and detail every list screen uses, over `list_model`.
 //! - `plan`: `PlanReview`, the plan review's counts by kind, rows reading current → proposed and choices set in bulk,
 //!   over `plan_model`.
+//! - `message`: `Message`, a tone and a glyph beside an outcome, a problem or a notice, and `Problem`.
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
 //! - `meter`: `ProgressMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
 //! - `help`: `Help`, a one-line summary with longer help folded beneath it.
@@ -22,6 +23,7 @@ pub mod legend;
 pub mod list;
 pub mod list_model;
 pub mod lucide;
+pub mod message;
 pub mod meter;
 pub mod overlay;
 pub mod pending;

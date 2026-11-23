@@ -9,9 +9,10 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::coverage_model::{self as model, Draft, Tick};
 use crate::parts::icon::Glyph;
+use crate::parts::message::Problem;
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{Status, StatusIcon};
@@ -170,7 +171,7 @@ pub fn CoverageDrawer(
     open: RwSignal<bool>,
     #[prop(into)] coverage: Signal<Option<Option<Vec<String>>>>,
     refresh: RwSignal<u64>,
-    said: RwSignal<Option<String>>,
+    said: RwSignal<Option<Result<String, String>>>,
 ) -> impl IntoView {
     let name = StoredValue::new(name);
     // The coverage just saved, until the reload of the source set brings it: reopening the drawer sooner starts from
@@ -211,7 +212,7 @@ fn EditCoverage(
     open: RwSignal<bool>,
     coverage: Option<Vec<String>>,
     refresh: RwSignal<u64>,
-    said: RwSignal<Option<String>>,
+    said: RwSignal<Option<Result<String, String>>>,
     saved: RwSignal<Option<Option<Vec<String>>>>,
 ) -> impl IntoView {
     let path = format!("/source-sets/{}/coverage", api::segment(&name));
@@ -261,10 +262,10 @@ fn EditCoverage(
             busy.set(false);
             match stored {
                 Ok(set) => {
-                    said.set(Some(format!(
+                    said.set(Some(Ok(format!(
                         "Saved: {name} now covers {}.",
                         model::label_in_sentence(set.coverage.as_deref())
-                    )));
+                    ))));
                     saved.set(Some(set.coverage));
                     refresh.update(|n| *n += 1);
                     open.set(false);

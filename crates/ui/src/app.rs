@@ -350,12 +350,6 @@ pub fn navigator() -> Callback<String> {
     Callback::new(move |path: String| target.set(Some(path)))
 }
 
-/// An error from the Service, announced as it appears.
-#[component]
-pub fn Problem(message: String) -> impl IntoView {
-    view! { <p class="problem" role="alert">{message}</p> }
-}
-
 #[component]
 pub fn Loading(what: &'static str) -> impl IntoView {
     view! { <p class="loading-note" aria-live="polite">{format!("Loading {what}…")}</p> }

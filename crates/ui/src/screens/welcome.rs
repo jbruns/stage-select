@@ -11,6 +11,7 @@ use stage_select_api::{Dat, Root, SourceSetSummary};
 
 use crate::api;
 use crate::events::use_live;
+use crate::parts::message::{Live, Message, MessageKind};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StepStatus};
@@ -328,10 +329,10 @@ fn AuditSets(names: Signal<Vec<String>>) -> impl IntoView {
                     .and_then(Result::ok)
                     .map(|message| {
                         view! {
-                            <p class="done" role="status">
+                            <Message kind=MessageKind::DONE>
                                 {message}
                                 " This step is done once the audit finishes. You can follow it under Activity."
-                            </p>
+                            </Message>
                         }
                     })
             }}
@@ -348,7 +349,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         Step::Root => {
             let again = RwSignal::new(false);
             view! {
-                <p class="done">
+                <Message kind=MessageKind::DONE live=Live::Off>
                     {held(|h| {
                         let roots = h
                             .roots
@@ -361,7 +362,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
                             .join("; ");
                         format!("Your roots: {roots}. You manage them under Settings, then Roots.")
                     })}
-                </p>
+                </Message>
                 <Show
                     when=move || again.get()
                     fallback=move || {
@@ -378,25 +379,25 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
             .into_any()
         }
         Step::Dat => view! {
-            <p class="done">
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| {
                     let dats = h.dats.iter().map(|d| d.dat.clone()).collect::<Vec<_>>().join(", ");
                     format!("Your DATs: {dats}.")
                 })}
-            </p>
+            </Message>
         }
         .into_any(),
         Step::SourceSet => view! {
-            <p class="done">
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| {
                     let sets = h.sets.iter().map(|s| s.set.name.clone()).collect::<Vec<_>>().join(", ");
                     format!("Your source sets: {sets}.")
                 })}
-            </p>
+            </Message>
         }
         .into_any(),
         Step::Audit => view! {
-            <p class="done">"Your first audit is done. Open it to see what it found:"</p>
+            <Message kind=MessageKind::DONE live=Live::Off>"Your first audit is done. Open it to see what it found:"</Message>
             <ul>
                 {move || {
                     let audited: Vec<(String, i64)> = last.with(|h| {
@@ -422,10 +423,10 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         }
         .into_any(),
         Step::Library => view! {
-            <p class="done">
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| format!("You have {} library folders. ", h.libraries))}
                 <A href="/libraries">"Open your library folders"</A>
-            </p>
+            </Message>
         }
         .into_any(),
     }
@@ -516,7 +517,7 @@ fn RegisterRoot(changed: Callback<()>) -> impl IntoView {
         <div class="step-form">
             <RootForm was=None done draft />
         </div>
-        {move || said.get().map(|message| view! { <p class="done" role="status">{message}</p> })}
+        {move || said.get().map(|message| view! { <Message kind=MessageKind::DONE>{message}</Message> })}
     }
 }
 

@@ -18,7 +18,7 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
@@ -26,6 +26,7 @@ use crate::parts::help::Help;
 use crate::parts::icon::Svg;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{
     AvailabilityStatus, GameFlag, GroupStatus, SelectionFlag, Status, StatusBadge, StatusCount,
@@ -47,26 +48,32 @@ use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 #[component]
 pub fn SelectionQueued(job: i64) -> impl IntoView {
     let live = use_live();
-    let made = move || {
+    let made = Memo::new(move |_| {
         live.book.with(|b| {
             b.get(job)
                 .map(|l| (l.job.state, l.job.selection, l.job.error.clone()))
         })
+    });
+    let queued = move |selection: Option<i64>| {
+        view! {
+            <Message kind=MessageKind::DONE>
+                {format!("Job #{job} is queued to make a selection. ")}
+                {match selection {
+                    Some(selection) => {
+                        view! { <A href=format!("/selections/{selection}")>"Open the new selection"</A> }
+                            .into_any()
+                    }
+                    None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
+                }}
+            </Message>
+        }
     };
-    view! {
-        <p class="done" role="status">
-            {format!("Job #{job} is queued to make a selection. ")}
-            {move || match made() {
-                Some((_, Some(selection), _)) => {
-                    view! { <A href=format!("/selections/{selection}")>"Open the new selection"</A> }
-                        .into_any()
-                }
-                Some((state, None, Some(error))) if state.is_final() => {
-                    view! { <span class="failed">{format!("It failed: {error}")}</span> }.into_any()
-                }
-                _ => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
-            }}
-        </p>
+    move || match made.get() {
+        Some((state, None, Some(error))) if state.is_final() => {
+            let message = format!("Job #{job} to make a selection failed: {error}");
+            view! { <Problem message /> }.into_any()
+        }
+        made => queued(made.and_then(|(_, selection, _)| selection)).into_any(),
     }
 }
 
@@ -905,20 +912,20 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                 }}
             </dd>
         </dl>
-        {r.pins.arcade.as_ref().map(|pins| {
+        {r.pins.arcade.as_ref().map(arcade_model::notices).map(|notices| {
             view! {
-                <div class="notice" role="status">
-                    {arcade_model::notices(pins)
+                <Message kind=MessageKind::NOTICE live=Live::Off>
+                    {notices
                         .into_iter()
                         .map(|notice| view! { <p>{notice}</p> })
                         .collect_view()}
-                </div>
+                </Message>
             }
         })}
         {(r.latest_profile_version > r.profile.version)
             .then(|| {
                 view! {
-                    <div class="notice" role="status">
+                    <Message kind=MessageKind::NOTICE live=Live::Off>
                         <p>
                             {format!(
                                 "Version {} of this selection profile is available. This selection was made with version {}.",
@@ -929,7 +936,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                         <button type="button" on:click=start_newer>
                             {format!("Make a selection with version {}", r.latest_profile_version)}
                         </button>
-                    </div>
+                    </Message>
                 }
             })}
         {(!pruned)
@@ -1026,12 +1033,12 @@ fn AvailabilityNote(audit: Option<i64>, reaudit: ReAudit) -> impl IntoView {
         }
         .into_any(),
         None => view! {
-            <div class="notice" role="status">
+            <Message kind=MessageKind::NOTICE live=Live::Off>
                 <p>"Not audited against this revision, so it is unknown which games you have."</p>
                 <button type="button" on:click=move |_| reaudit.start()>
                     "Audit against this revision"
                 </button>
-            </div>
+            </Message>
             {reaudit.outcome()}
         }
         .into_any(),
@@ -1697,7 +1704,7 @@ fn StagedChoices(
                                 )
                             };
                             view! {
-                                <p class="done" role="status">{message}</p>
+                                <Message kind=MessageKind::DONE>{message}</Message>
                                 {saved
                                     .jobs
                                     .into_iter()

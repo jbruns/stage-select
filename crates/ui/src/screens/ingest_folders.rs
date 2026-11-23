@@ -16,7 +16,7 @@ use stage_select_api::ingest::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem, use_ingest_changed};
+use crate::app::{Loading, use_ingest_changed};
 use crate::events::use_live;
 use crate::ingest_model::{self, Choices, Count, Decision};
 use crate::model::{earlier, when};
@@ -25,6 +25,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
+use crate::parts::message::Problem;
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::query_string;

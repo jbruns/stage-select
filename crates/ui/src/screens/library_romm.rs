@@ -10,12 +10,12 @@ use stage_select_api::romm::{
 };
 
 use crate::api;
-use crate::app::Problem;
 use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Clip, Column, List, ListRow, RowAction, Width, last_good_rows};
+use crate::parts::message::{Live, Problem};
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{StatusBadge, StatusCount, StatusIcon, highest};
 
@@ -170,7 +170,7 @@ pub fn RommTab(folder: i64) -> impl IntoView {
                     {l.job_id.map(|job| format!(", once the scan job #{job} asked for finished"))}
                     "."
                 </p>
-                {l.error.map(|message| view! { <Problem message /> })}
+                {l.error.map(|message| view! { <Problem message live=Live::Off /> })}
                 <ul class="counts">
                     <li class="count">
                         <span class="n">{c.files}</span>

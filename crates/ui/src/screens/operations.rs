@@ -9,10 +9,11 @@ use stage_select_api::settings::{Ceiling, NotifyEvent, Pace, SecretUpdate, Setti
 use stage_select_api::{Job, Root};
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::calibration_model;
 use crate::events::use_live;
 use crate::parts::legend::{Legend, present};
+use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Tooltip;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StatusIcon};
@@ -376,7 +377,7 @@ fn Editor(saved: SettingsView) -> impl IntoView {
             }}
             {move || match outcome.get() {
                 Some(Ok(())) if !dirty.get() => {
-                    view! { <p class="done" role="status">"Saved your settings. They apply now."</p> }.into_any()
+                    view! { <Message kind=MessageKind::DONE>"Saved your settings. They apply now."</Message> }.into_any()
                 }
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 _ => ().into_any(),
@@ -419,9 +420,9 @@ fn PaceSection(
                 (draft.with(|d| d.pace) == Pace::Unthrottled)
                     .then(|| {
                         view! {
-                            <p class="note small tone-review">
+                            <Message kind=MessageKind::NOTICE>
                                 "Unthrottled, jobs use every ceiling in full, with no limit on reads or writes, and can slow everything else on this server. The header shows Unthrottled while it is on."
-                            </p>
+                            </Message>
                         }
                     })
             }}

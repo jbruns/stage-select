@@ -13,6 +13,7 @@ use wasm_bindgen::JsCast;
 use super::icon::{Glyph, Svg};
 use super::legend::{Legend, present};
 use super::list::{Clip, Keep, List, ListRow, RowAction, Selected, ToolAction};
+use super::message::{Message, MessageKind};
 use super::plan_model::{kind_counts, kind_from_slug, kind_slug};
 use super::status::{Status, StatusIcon};
 use super::url_state::use_query_edit;
@@ -207,9 +208,7 @@ pub fn PlanReview<R: PlanRow>(
     let placeholder = placeholder.unwrap_or_else(|| "Filter the items".to_string());
     view! {
         <KindCounts counts active=kind on_filter=set_kind apply />
-        <p class="done" role="status">
-            {move || message.get()}
-        </p>
+        {move || message.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
         <List
             id
             label

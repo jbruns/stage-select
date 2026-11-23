@@ -19,7 +19,7 @@ use crate::activity_model::{
     files_rate, listed, newest_first, opened_failure, throughput_cell, workers_fact,
 };
 use crate::api;
-use crate::app::{Loading, Problem, use_seen_jobs};
+use crate::app::{Loading, use_seen_jobs};
 use crate::events::{Live, Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, when};
@@ -29,6 +29,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
+use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::meter::ProgressMeter;
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
@@ -426,9 +427,7 @@ pub fn Jobs() -> impl IntoView {
             (None, _) | (_, None) => view! { <Loading what="the jobs" /> }.into_any(),
             _ => ().into_any(),
         }}
-        <p class="done" role="status">
-            {move || said.get()}
-        </p>
+        {move || said.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
         <List
             id="jobs"
             label="Jobs"
@@ -670,7 +669,7 @@ fn job_detail(row: JobRow) -> AnyView {
                 .map(|error| {
                     view! {
                         <dt>"Error"</dt>
-                        <dd class="failed">{error}</dd>
+                        <dd><Problem message=error live=MessageLive::Off /></dd>
                     }
                 })}
         </dl>

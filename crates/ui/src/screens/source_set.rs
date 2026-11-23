@@ -18,7 +18,7 @@ use stage_select_api::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::Loading;
 use crate::build_model::build_state_label;
 use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
@@ -31,6 +31,7 @@ use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
+use crate::parts::message::{Problem, Said};
 use crate::parts::meter::GamesMeter;
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
@@ -157,7 +158,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             })
         })
     });
-    let said = RwSignal::new(None::<String>);
+    let said = RwSignal::new(None::<Result<String, String>>);
     let editing = RwSignal::new(query.read_untracked().get("edit").as_deref() == Some("coverage"));
     let coverage =
         Signal::derive(move || good.with(|g| g.as_ref().map(|(s, _)| s.set.coverage.clone())));
@@ -173,9 +174,9 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         leptos::task::spawn_local(async move {
             let path = format!("/source-sets/{}/follow", api::segment(&name.get_value()));
             if let Err(problem) = api::put::<_, SourceSetRecord>(&path, &request).await {
-                said.set(Some(format!(
+                said.set(Some(Err(format!(
                     "Couldn't change whether it follows its DAT: {problem}"
-                )));
+                ))));
             }
             refresh.update(|n| *n += 1);
         });
@@ -222,9 +223,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 "Repair"
             </A>
         </div>
-        <p class="done" role="status">
-            {move || said.get()}
-        </p>
+        <Said said />
         <Show when=move || desk.proposing().get() && tab.get() != PageTab::Repair>
             <PendingStatus status=MAKING_PLAN />
         </Show>
