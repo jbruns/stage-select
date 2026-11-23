@@ -13,8 +13,8 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
     AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, KeptDeletion,
-    KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
+    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemState,
+    KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
     PlanKeptDeletion, RETENTION,
 };
 use stage_select_api::{
@@ -43,7 +43,9 @@ use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::pending::{ActionPending, Pending, action_problem};
-use crate::parts::status::{BuildKind, LibraryStatus, Placement, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{
+    BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
+};
 use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
@@ -114,7 +116,7 @@ fn last_checked(folder: &LibraryFolder, full: bool) -> AnyView {
         .is_some_and(|built| earlier(&check.at, built));
     view! {
         <span title=title>{text}</span>
-        {stale.then(|| view! { " " <span class="state review">"Before the current build"</span> })}
+        {stale.then(|| view! { " " <StatusBadge status=CheckFlag::BeforeBuild /> })}
     }
     .into_any()
 }
@@ -1417,15 +1419,18 @@ fn check_view(check: FolderCheck) -> impl IntoView {
         Some(job) => format!("Checked by job #{job} · {}", when(&s.at)),
         None => format!("Checked with a plan · {}", when(&s.at)),
     };
-    let counts = [
-        ("Unchanged", s.unchanged + s.refreshed, "count verified"),
-        ("Same ROMs, another ZIP", s.repacked, "count"),
-        ("Conflict", s.conflict, "count review"),
-        ("Missing", s.missing, "count review"),
-        ("Unreadable", s.unreadable, "count review"),
-        ("Not built here", s.drift, "count"),
-        ("Read", s.hashed, "count"),
+    let outcomes = [
+        (FileOutcome::Unchanged, s.unchanged + s.refreshed, None),
+        (
+            FileOutcome::Repacked,
+            s.repacked,
+            Some("Same ROMs, another ZIP"),
+        ),
+        (FileOutcome::Conflict, s.conflict, None),
+        (FileOutcome::Missing, s.missing, None),
+        (FileOutcome::Unreadable, s.unreadable, None),
     ];
+    let others = [("Not built here", s.drift), ("Read", s.hashed)];
     let marker = s.marker.clone();
     let files: Vec<_> = check
         .files
@@ -1437,10 +1442,17 @@ fn check_view(check: FolderCheck) -> impl IntoView {
         <p class="note">{by}</p>
         {marker.map(|m| view! { <div class="notice" role="status"><p>{format!("The marker does not match: {m}")}</p></div> })}
         <ul class="counts">
-            {counts
+            {outcomes
                 .into_iter()
-                .map(|(what, n, class)| view! {
-                    <li class=class><span class="n">{n}</span><span class="what">{what}</span></li>
+                .map(|(status, n, what)| view! { {
+                    let what = what.unwrap_or(status.look().label);
+                    view! { <StatusCount status what>{n}</StatusCount> }
+                } })
+                .collect_view()}
+            {others
+                .into_iter()
+                .map(|(what, n)| view! {
+                    <li class="count"><span class="n">{n}</span><span class="what">{what}</span></li>
                 })
                 .collect_view()}
         </ul>
@@ -2097,18 +2109,9 @@ fn build_detail(row: BuildRow) -> AnyView {
             <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
         </dl>
         <ul class="counts">
-            <li class="count verified">
-                <span class="n">{b.applied}</span>
-                <span class="what">"Written"</span>
-            </li>
-            <li class="count review">
-                <span class="n">{b.failed}</span>
-                <span class="what">"Failed"</span>
-            </li>
-            <li class="count">
-                <span class="n">{b.pending}</span>
-                <span class="what">"Not written"</span>
-            </li>
+            <StatusCount status=ItemState::Applied>{b.applied}</StatusCount>
+            <StatusCount status=ItemState::Failed>{b.failed}</StatusCount>
+            <StatusCount status=ItemState::Pending>{b.pending}</StatusCount>
         </ul>
     }
     .into_any()
@@ -2433,18 +2436,9 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
         </dl>
         <ul class="counts">
-            <li class="count verified">
-                <span class="n">{b.applied}</span>
-                <span class="what">"Written"</span>
-            </li>
-            <li class="count review">
-                <span class="n">{b.failed}</span>
-                <span class="what">"Failed"</span>
-            </li>
-            <li class="count">
-                <span class="n">{b.pending}</span>
-                <span class="what">"Not written"</span>
-            </li>
+            <StatusCount status=ItemState::Applied>{b.applied}</StatusCount>
+            <StatusCount status=ItemState::Failed>{b.failed}</StatusCount>
+            <StatusCount status=ItemState::Pending>{b.pending}</StatusCount>
         </ul>
         <section aria-labelledby="items-title">
             <h2 id="items-title">"Files"</h2>

@@ -9,7 +9,7 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
 use stage_select_api::arcade::same_name;
 use stage_select_api::selection::{
-    Category, Compilations, SelectionOptions, SelectionProfile, SystemSettings,
+    Category, Compilations, Outcome, SelectionOptions, SelectionProfile, SystemSettings,
 };
 use stage_select_api::{
     Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, SaveProfile,
@@ -22,11 +22,12 @@ use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcad
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::pending::Pending;
+use crate::parts::status::{GroupStatus, StatusCount};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, add_item, lines, move_item, reset_global, reset_system,
-    system_tabs, use_global_settings,
+    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, reset_global,
+    reset_system, system_tabs, use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
 
@@ -836,6 +837,12 @@ fn SettingsTab(
 fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
     let selection = &preview.selection;
     let summary = selection.summary;
+    let groups = group_counts(&selection.groups);
+    let (to_review, unresolved, yours) = (
+        groups.get(GroupStatus::ChoiceToReview),
+        groups.get(GroupStatus::Unresolved),
+        groups.get(GroupStatus::YourChoice),
+    );
     let index = Arc::new(SelectionIndex::new(
         selection.clone(),
         &Default::default(),
@@ -866,26 +873,16 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
                 <span class="n">{summary.groups}</span>
                 <span class="what">"Game groups"</span>
             </li>
-            <li class="count verified">
-                <span class="n">{summary.kept}</span>
-                <span class="what">"Kept"</span>
-            </li>
-            <li class="count">
-                <span class="n">{summary.clones}</span>
-                <span class="what">"Clones"</span>
-            </li>
-            <li class="count">
-                <span class="n">{summary.left_out}</span>
-                <span class="what">"Left out"</span>
-            </li>
-            <li class="count review">
-                <span class="n">{summary.needs_review()}</span>
-                <span class="what">"Needs review"</span>
-            </li>
-            <li class="count">
-                <span class="n">{summary.choices}</span>
-                <span class="what">"Your choices"</span>
-            </li>
+            <StatusCount status=Outcome::Kept>{summary.kept}</StatusCount>
+            <StatusCount status=Outcome::Clone what="Clones">{summary.clones}</StatusCount>
+            <StatusCount status=Outcome::LeftOut>{summary.left_out}</StatusCount>
+            <StatusCount status=GroupStatus::ChoiceToReview what="Choices to review">
+                {to_review}
+            </StatusCount>
+            <StatusCount status=GroupStatus::Unresolved>{unresolved}</StatusCount>
+            <StatusCount status=GroupStatus::YourChoice what="Your choices">
+                {yours}
+            </StatusCount>
         </ul>
         <h3>"Changes"</h3>
         {match preview.against {

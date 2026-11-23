@@ -17,7 +17,7 @@ use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Clip, Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::ActionPending;
-use crate::parts::status::{StatusBadge, StatusIcon, highest};
+use crate::parts::status::{StatusBadge, StatusCount, StatusIcon, highest};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RommCol {
@@ -176,22 +176,13 @@ pub fn RommTab(folder: i64) -> impl IntoView {
                         <span class="n">{c.files}</span>
                         <span class="what">"Files compared"</span>
                     </li>
-                    <li class="count verified">
+                    <li class="count">
                         <span class="n">{c.clean}</span>
                         <span class="what">"Agree"</span>
                     </li>
-                    <li class="count review">
-                        <span class="n">{c.unidentified}</span>
-                        <span class="what">"Unidentified"</span>
-                    </li>
-                    <li class="count review">
-                        <span class="n">{c.title_mismatch}</span>
-                        <span class="what">"Title differs"</span>
-                    </li>
-                    <li class="count review">
-                        <span class="n">{c.hash_mismatch}</span>
-                        <span class="what">"Hash differs"</span>
-                    </li>
+                    <StatusCount status=RommFlag::Unidentified>{c.unidentified}</StatusCount>
+                    <StatusCount status=RommFlag::TitleMismatch>{c.title_mismatch}</StatusCount>
+                    <StatusCount status=RommFlag::HashMismatch>{c.hash_mismatch}</StatusCount>
                 </ul>
             }
         })

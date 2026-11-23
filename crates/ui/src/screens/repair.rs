@@ -27,7 +27,7 @@ use crate::parts::icon::Glyph;
 use crate::parts::list::{Column, ListRow, Width};
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, Change, PlanReview, PlanRow};
-use crate::parts::status::{PlanKind, Status, StatusIcon};
+use crate::parts::status::{PlanKind, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
     ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
@@ -35,7 +35,7 @@ use crate::repair_model::{
     steps_by_item, suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
-use crate::screens::jobs::{progress_view, state_view};
+use crate::screens::jobs::progress_view;
 use crate::screens::source_sets::tab_href;
 use crate::source_set_model::PageTab;
 
@@ -966,12 +966,12 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
                         Some(error) => format!("ended: {error}"),
                         None => "ended.".to_string(),
                     };
-                    view! { {state_view(l.job.state)} " " <span>{outcome}</span> }.into_any()
+                    view! { <StatusBadge status=l.job.state /> " " <span>{outcome}</span> }.into_any()
                 }
                 Some(l) => {
                     let asked = l.job.cancel_requested_at.is_some();
                     view! {
-                        {state_view(l.job.state)}
+                        <StatusBadge status=l.job.state />
                         " "
                         {progress_view(&l)}
                         {if asked {

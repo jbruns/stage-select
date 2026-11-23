@@ -68,6 +68,7 @@ pure logic there too.
 | An icon beside its visible text        | `LabelledIcon { glyph, label }`                        | `icon`      |
 | A row's status in a cell               | `StatusIcon { status, tab_stop? }`                     | `status`    |
 | A status with its words (detail pane)  | `StatusBadge { status }`                               | `status`    |
+| A count of one status (summary tile)   | `StatusCount { status, what?, children }` in `.counts` | `status`    |
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
 | Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
@@ -97,7 +98,13 @@ nothing is fetched at runtime. The licence ships at `/licences/lucide.txt` and i
 is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `SourceSetStatus`, `LibraryStatus`,
 `PlanKind` (repair plans, `From<RepairKind>`), `BuildKind` (build plans, builds and cleanups, `From<ItemKind>`),
 `IngestStatus`, `JobState`, `DatFileStatus`, `SupportFileStatus` (an arcade selection's support files), `StepStatus`
-(a first-run step).
+(a first-run step), `Outcome` (a game's selection outcome), `AvailabilityStatus` (what you have of a game, on claims or
+verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's flags), `Derived` (an audit entry),
+`AdditionState`, `CheckFlag` (a folder check older than the build), `FileOutcome` (a folder check's file), build
+`ItemState` and `Stream` (the live connection).
+
+- Never colour a status in CSS of its own: every coloured state renders through `StatusIcon`, `StatusBadge` or
+  `StatusCount`. `.tag` is for neutral labels that are not a status ("Not in the DAT"); `.failed` for an error's text.
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.

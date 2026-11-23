@@ -28,7 +28,7 @@ use crate::model::{
 };
 use crate::parts::help::Help;
 use crate::parts::pending::Pending;
-use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusIcon};
+use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusCount, StatusIcon};
 use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
@@ -238,35 +238,29 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
         <section aria-labelledby="summary-title">
             <h2 id="summary-title">"Summary"</h2>
             <ul class="counts">
-                <li class="count verified">
-                    <span class="n">
-                        {move || counts.get().map_or("—".to_string(), |c| c.verified.to_string())}
-                    </span>
-                    <span class="what">"Verified"</span>
-                </li>
-                <li class="count review">
-                    <span class="n">{needs_review}</span>
-                    <span class="what">"Needs review"</span>
-                </li>
+                <StatusCount status=Derived::Verified>
+                    {move || counts.get().map_or("—".to_string(), |c| c.verified.to_string())}
+                </StatusCount>
+                <StatusCount status=Derived::NeedsReview>{needs_review}</StatusCount>
                 {Finding::ALL
                     .iter()
                     .map(|f| {
+                        let n = findings.get(f).copied().unwrap_or(0);
                         view! {
-                            <li class="count">
-                                <span class="n">{findings.get(f).copied().unwrap_or(0)}</span>
-                                <span class="what">{finding_label(*f)}</span>
-                            </li>
+                            <StatusCount status=FindingStatus::from(*f) what=finding_label(*f)>
+                                {n}
+                            </StatusCount>
                         }
                     })
                     .collect_view()}
                 {GameStatus::ALL
                     .iter()
                     .map(|s| {
+                        let n = games.get(s).copied().unwrap_or(0);
                         view! {
-                            <li class="count game">
-                                <span class="n">{games.get(s).copied().unwrap_or(0)}</span>
-                                <span class="what">{games_of_status_label(*s)}</span>
-                            </li>
+                            <StatusCount status=*s what=games_of_status_label(*s)>
+                                {n}
+                            </StatusCount>
                         }
                     })
                     .collect_view()}
@@ -478,14 +472,11 @@ impl EntryCol {
     }
 }
 
-fn state_badge(state: Option<Derived>) -> AnyView {
+/// An Entry's derived state, as its icon in a cell, or as a badge with its label.
+fn state_badge(state: Option<Derived>, badge: bool) -> AnyView {
     match state {
-        Some(Derived::Verified) => {
-            view! { <span class="state verified">"Verified"</span> }.into_any()
-        }
-        Some(Derived::NeedsReview) => {
-            view! { <span class="state review">"Needs review"</span> }.into_any()
-        }
+        Some(status) if badge => view! { <StatusBadge status /> }.into_any(),
+        Some(status) => view! { <StatusIcon status tab_stop=false /> }.into_any(),
         None => ().into_any(),
     }
 }
@@ -536,7 +527,7 @@ impl Grid for EntryItem {
         match col {
             EntryCol::Name => entry_name(entry).into_any(),
             EntryCol::Finding => finding_label(entry.finding).into_any(),
-            EntryCol::State => state_badge(self.entries.derived(i)),
+            EntryCol::State => state_badge(self.entries.derived(i), false),
             EntryCol::Game => {
                 let mut games: Vec<&str> = entry.roms.iter().map(|r| r.game.as_str()).collect();
                 games.dedup();
@@ -772,7 +763,7 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
                     }
                 })}
             <dt>"Finding"</dt>
-            <dd>{finding_label(entry.finding)} " " {state_badge(entries.derived(i))}</dd>
+            <dd>{finding_label(entry.finding)} " " {state_badge(entries.derived(i), true)}</dd>
             <dt>"Evidence"</dt>
             <dd>{if evidence.is_empty() { "None".to_string() } else { evidence }}</dd>
             {header

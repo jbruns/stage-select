@@ -12,6 +12,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{short_sha, when};
+use crate::parts::status::StatusBadge;
 use crate::screens::lifecycle::{
     AdditionsSetAsideAction, LifecycleSection, Paths, UnregisterAction,
 };
@@ -32,17 +33,6 @@ pub fn new_addition(path: &str, system: Option<&str>) -> NewAddition {
         system: system.unwrap_or_default().to_owned(),
         name: suggested_name(path),
         parent: None,
-    }
-}
-
-pub fn state_label(state: AdditionState) -> &'static str {
-    match state {
-        AdditionState::Pending => "Being published",
-        AdditionState::Active => "Active",
-        AdditionState::Retiring => "Being retired",
-        AdditionState::Retired => "Retired",
-        AdditionState::Restoring => "Being restored",
-        AdditionState::Failed => "Failed",
     }
 }
 
@@ -327,7 +317,7 @@ fn AdditionView(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
         <li>
             <strong>{addition.name.clone()}</strong>
             " "
-            <span class="state">{state_label(addition.state)}</span>
+            <StatusBadge status=addition.state />
             {format!(
                 " · from the {} {} · stored as {}",
                 addition.source.label(),

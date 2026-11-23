@@ -56,11 +56,6 @@ pub(crate) fn progress_view(live: &LiveJob) -> AnyView {
     }
 }
 
-pub(crate) fn state_view(state: JobState) -> AnyView {
-    view! { <span class=format!("job-state job-{}", state.as_str())>{state_label(state)}</span> }
-        .into_any()
-}
-
 pub(crate) fn kind_label(kind: JobKind) -> &'static str {
     match kind {
         JobKind::Audit => "Audit",

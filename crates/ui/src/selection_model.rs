@@ -12,27 +12,8 @@ use stage_select_api::selection::{
 
 use crate::arcade_model::update_arcade;
 use crate::model::{Sort, status_text};
-use crate::parts::status::GroupStatus;
+use crate::parts::status::{GroupStatus, SelectionFlag};
 use crate::placement_model::FlagsNow;
-
-pub fn outcome_label(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Kept => "Kept",
-        Outcome::Clone => "Clone",
-        Outcome::LeftOut => "Left out",
-        Outcome::Dependency => "Dependency",
-    }
-}
-
-/// What an outcome means, for its tooltip.
-pub fn outcome_hint(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Kept => "The version of a game the selection keeps.",
-        Outcome::Clone => "Another version of a game you kept.",
-        Outcome::LeftOut => "A rule of your selection profile leaves it out.",
-        Outcome::Dependency => "A game you kept needs it to run.",
-    }
-}
 
 /// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message in the
 /// glossary's words, "Your choice", or, for a Game its source set's coverage leaves out, that alone.
@@ -73,15 +54,6 @@ fn capitalised(text: &str) -> String {
     }
 }
 
-pub fn choice_label(status: ChoiceStatus) -> &'static str {
-    match status {
-        ChoiceStatus::Applied => "Your choice",
-        ChoiceStatus::MatchesDefault => "Matches the default now",
-        ChoiceStatus::Conflicting => "Conflicting choice",
-        ChoiceStatus::Stale => "Stale choice",
-    }
-}
-
 /// A group's flags, as a bit set.
 pub mod flag {
     pub const UNRESOLVED: u8 = 1;
@@ -112,17 +84,17 @@ pub fn group_flags(group: &SelectionGroup) -> u8 {
     flags
 }
 
-/// The words for a group's flags, as the Selection table shows them.
-pub fn flag_labels(flags: u8) -> Vec<&'static str> {
+/// A group's flags as the Selection table shows them; a choice that applies is no flag.
+pub fn flag_statuses(flags: u8) -> Vec<SelectionFlag> {
     [
-        (flag::UNRESOLVED, "Unresolved"),
-        (flag::STALE, "Stale choice"),
-        (flag::CONFLICTING, "Conflicting choice"),
-        (flag::DRIFT, "Coverage drift"),
+        (flag::UNRESOLVED, SelectionFlag::Unresolved),
+        (flag::STALE, SelectionFlag::StaleChoice),
+        (flag::CONFLICTING, SelectionFlag::ConflictingChoice),
+        (flag::DRIFT, SelectionFlag::CoverageDrift),
     ]
     .into_iter()
     .filter(|(bit, _)| flags & bit != 0)
-    .map(|(_, label)| label)
+    .map(|(_, status)| status)
     .collect()
 }
 
@@ -528,6 +500,24 @@ pub fn group_status(group: &SelectionGroup) -> GroupStatus {
         _ if group.kept.is_empty() => GroupStatus::Excluded,
         _ => GroupStatus::Chosen,
     }
+}
+
+/// How many groups show each status, each group counted once under the status its row shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupCounts(std::collections::HashMap<GroupStatus, usize>);
+
+impl GroupCounts {
+    pub fn get(&self, status: GroupStatus) -> usize {
+        self.0.get(&status).copied().unwrap_or(0)
+    }
+}
+
+pub fn group_counts(groups: &[SelectionGroup]) -> GroupCounts {
+    let mut counts = GroupCounts::default();
+    for group in groups {
+        *counts.0.entry(group_status(group)).or_default() += 1;
+    }
+    counts
 }
 
 /// Confirms the engine's pick, or your checked releases, in every unresolved group you haven't staged a choice
@@ -1430,5 +1420,43 @@ mod tests {
             rule_text(&sole),
             "Parent selection: No other version competed"
         );
+    }
+
+    #[test]
+    fn a_groups_flags_show_as_statuses_but_a_choice_alone_shows_none() {
+        assert_eq!(
+            flag_statuses(flag::UNRESOLVED | flag::CONFLICTING | flag::DRIFT | flag::CHOICE),
+            vec![
+                SelectionFlag::Unresolved,
+                SelectionFlag::ConflictingChoice,
+                SelectionFlag::CoverageDrift
+            ]
+        );
+        assert_eq!(
+            flag_statuses(flag::STALE | flag::CHOICE),
+            vec![SelectionFlag::StaleChoice]
+        );
+        assert_eq!(flag_statuses(flag::CHOICE), vec![]);
+    }
+
+    #[test]
+    fn a_group_is_counted_once_under_the_status_its_row_shows() {
+        let mut stale = group("pong", "Pong (USA)", &[], &[]);
+        stale.unresolved = true;
+        stale.choice = Some(GroupChoice {
+            checked: BTreeSet::from(["Pong (Japan)".to_owned()]),
+            status: ChoiceStatus::Stale,
+            picks: vec!["Pong (USA)".into()],
+            engine_unresolved: true,
+            problems: vec!["Pong (Japan)".into()],
+        });
+        let mut unresolved = group("tetris", "Tetris (USA)", &[], &[]);
+        unresolved.unresolved = true;
+
+        let counts = group_counts(&[stale, unresolved]);
+
+        assert_eq!(counts.get(GroupStatus::ChoiceToReview), 1);
+        assert_eq!(counts.get(GroupStatus::Unresolved), 1);
+        assert_eq!(counts.get(GroupStatus::YourChoice), 0);
     }
 }
