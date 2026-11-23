@@ -13,8 +13,11 @@ use super::status::{Look, Status};
 use super::url_state::{edited, query_string};
 
 /// The query string's keys that belong to one tab's content, such as its list's filter: a link to another tab leaves
-/// them behind.
-const TAB_STATE: [&str; 8] = ["tab", "q", "sort", "row", "sel", "all", "kind", "plan"];
+/// them behind. Besides the shared list's own, `finding` (a source set's Entries) and `status` (an ingest folder's
+/// Items) filter one tab's list, and `plan` names the plan one tab shows; no page keeps any of them across its tabs.
+const TAB_STATE: [&str; 10] = [
+    "tab", "q", "sort", "row", "sel", "all", "kind", "plan", "finding", "status",
+];
 
 /// The link to the tab `tab` of the page at `path` whose query string is `pairs`: the page's other state is kept, and
 /// what belongs to the tab open now is left behind. `None` is the page's first tab, with no `tab` in the URL.
@@ -193,6 +196,19 @@ mod tests {
         assert_eq!(
             tab_href("/profiles/Mine", [], Some("Nintendo - NES & Famicom")),
             "/profiles/Mine?tab=Nintendo%20-%20NES%20%26%20Famicom"
+        );
+    }
+
+    #[test]
+    fn a_tab_link_leaves_the_open_tabs_filters_behind() {
+        let pairs = [
+            ("finding", "missing"),
+            ("status", "unmatched"),
+            ("saved", "2"),
+        ];
+        assert_eq!(
+            tab_href("/source-sets/NES", pairs, Some("games")),
+            "/source-sets/NES?saved=2&tab=games"
         );
     }
 

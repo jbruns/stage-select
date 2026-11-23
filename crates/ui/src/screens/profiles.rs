@@ -29,8 +29,8 @@ use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, reset_global,
-    reset_system, system_tabs, use_global_settings,
+    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, preview_set,
+    reset_global, reset_system, system_tabs, use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
 
@@ -418,14 +418,6 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
     // the engine there are none, and the preview says why.
     let registered = LocalResource::new(|| api::get::<Vec<SourceSetSystem>>("/systems"));
     let set = RwSignal::new(String::new());
-    Effect::new(move || {
-        if let Some(Ok(sets)) = sets.get()
-            && set.get_untracked().is_empty()
-            && let Some(first) = sets.first()
-        {
-            set.set(first.name.clone());
-        }
-    });
 
     let problems = RwSignal::new(Vec::<String>::new());
     let check = debouncer(move || {
@@ -513,6 +505,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                 .map(|p| p.selection.system.clone())
         })
     });
+    let systems_loaded = registered;
     let registered = Memo::new(move |_| registered.get().and_then(Result::ok).unwrap_or_default());
     let systems = Memo::new(move |_| {
         let previewed = previewed_system.get();
@@ -549,20 +542,22 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
         }))
         .collect::<Vec<_>>()
     });
-    // A system's tab previews against its source set.
+    // A system's tab previews against its source set, once the systems are known; otherwise the first source set.
     Effect::new(move || {
-        let Some(system) = tab.get() else {
-            return;
-        };
-        let source_set = registered.with_untracked(|r| {
-            r.iter()
-                .find(|s| s.system.as_deref() == Some(system.as_str()))
-                .map(|s| s.source_set.clone())
+        let open = tab.get();
+        let first = sets.with(|s| match s {
+            Some(Ok(sets)) => sets.first().map(|s| s.name.clone()),
+            _ => None,
         });
-        if let Some(source_set) = source_set
-            && set.get_untracked() != source_set
-        {
-            set.set(source_set);
+        let known = systems_loaded.with(|r| match r {
+            Some(Ok(r)) => Some(r.clone()),
+            _ => None,
+        });
+        let next = set.with_untracked(|current| {
+            preview_set(current, open.as_deref(), known.as_deref(), first.as_deref())
+        });
+        if let Some(next) = next {
+            set.set(next);
         }
     });
 

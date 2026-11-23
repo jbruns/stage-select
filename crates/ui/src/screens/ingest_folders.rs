@@ -18,7 +18,7 @@ use stage_select_api::ingest::{
 use crate::api;
 use crate::app::{Loading, navigator, use_ingest_changed};
 use crate::events::use_live;
-use crate::ingest_model::{self, Choices, Count, Decision};
+use crate::ingest_model::{self, Choices, Count, Decision, FolderTab};
 use crate::model::{earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::layout::Crumbs;
@@ -30,7 +30,7 @@ use crate::parts::message::Problem;
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::tabs::{Tab, Tabs, use_tab};
-use crate::parts::url_state::query_string;
+use crate::parts::url_state::{edited, query_string};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
 use crate::screens::lifecycle::{LifecycleSection, Paths, UnregisterAction};
@@ -380,7 +380,36 @@ fn FolderView(
     };
     let url_tab = use_tab();
     let query = use_query_map();
-    let open = Memo::new(move |_| FolderTab::parse(url_tab.current().as_deref()));
+    let open = Memo::new(move |_| {
+        FolderTab::parse(
+            url_tab.current().as_deref(),
+            query.read().get(PLAN).as_deref(),
+        )
+    });
+    // An older link names a plan with no tab: name the Plan tab too, keeping the rest of the URL.
+    let location = use_location();
+    let navigate = use_navigate();
+    Effect::new(move || {
+        if open.get() == FolderTab::Plan && url_tab.current().is_none() {
+            let pairs = query.with_untracked(|q| {
+                edited(
+                    q.latest_values().map(|(k, v)| (k.as_ref(), v)),
+                    &[("tab", FolderTab::Plan.key().map(Into::into))],
+                )
+            });
+            let path = location.pathname.get_untracked();
+            navigate(
+                &format!("{path}{}", query_string(&pairs)),
+                NavigateOptions {
+                    replace: true,
+                    scroll: false,
+                    ..Default::default()
+                },
+            );
+        }
+    });
+    // What you chose to add items as, by id: kept here, so a draft outlives a change of tab.
+    let edits = RwSignal::new(BTreeMap::<i64, NewAddition>::new());
     let folder_tabs = Signal::derive(move || {
         let state = plans
             .get()
@@ -461,7 +490,7 @@ fn FolderView(
             FolderTab::Items => {
                 let (root, base) = lifecycle.get_value();
                 view! {
-                    <Items folder=latest base=base.clone() refresh plans review />
+                    <Items folder=latest base=base.clone() refresh plans review edits />
                     <LifecycleSection>
                         <UnregisterAction
                             what=format!("the ingest folder {root}")
@@ -495,43 +524,6 @@ fn FolderView(
                 view! { <KeptFiles base=lifecycle.with_value(|(_, b)| b.clone()) refresh /> }.into_any()
             }
         }}
-    }
-}
-
-/// The folder page's tabs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FolderTab {
-    Items,
-    Plan,
-    Kept,
-}
-
-impl FolderTab {
-    const ALL: [FolderTab; 3] = [FolderTab::Items, FolderTab::Plan, FolderTab::Kept];
-
-    fn parse(key: Option<&str>) -> Self {
-        match key {
-            Some("plan") => FolderTab::Plan,
-            Some("kept") => FolderTab::Kept,
-            _ => FolderTab::Items,
-        }
-    }
-
-    /// The `tab` URL value; the items, the default, have none.
-    fn key(self) -> Option<&'static str> {
-        match self {
-            FolderTab::Items => None,
-            FolderTab::Plan => Some("plan"),
-            FolderTab::Kept => Some("kept"),
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            FolderTab::Items => "Items",
-            FolderTab::Plan => "Plan",
-            FolderTab::Kept => "Kept files",
-        }
     }
 }
 
@@ -720,6 +712,7 @@ fn Items(
     refresh: RwSignal<u64>,
     plans: LocalResource<Result<Vec<IngestPlan>, String>>,
     review: Callback<i64>,
+    edits: RwSignal<BTreeMap<i64, NewAddition>>,
 ) -> impl IntoView {
     let live = use_live();
     let items = {
@@ -754,8 +747,6 @@ fn Items(
         )
     });
 
-    // What you chose to add items as, by id.
-    let edits = RwSignal::new(BTreeMap::<i64, NewAddition>::new());
     let choices = move || Choices {
         additions: edits.get(),
     };

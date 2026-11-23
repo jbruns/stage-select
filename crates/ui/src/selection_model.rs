@@ -15,6 +15,31 @@ use crate::model::{Sort, status_text};
 use crate::parts::status::{GroupStatus, SelectionFlag};
 use crate::placement_model::FlagsNow;
 
+/// The source set the Profile editor should preview against now, if it should change from `current`: the open system
+/// tab's (`tab`) source set, once the systems are known (`registered`, `None` while loading); or else, if you haven't
+/// one yet, the first source set (`first`).
+pub fn preview_set(
+    current: &str,
+    tab: Option<&str>,
+    registered: Option<&[stage_select_api::SourceSetSystem]>,
+    first: Option<&str>,
+) -> Option<String> {
+    if let Some(system) = tab {
+        let registered = registered?;
+        if let Some(s) = registered
+            .iter()
+            .find(|s| s.system.as_deref() == Some(system))
+        {
+            return (s.source_set != current).then(|| s.source_set.clone());
+        }
+    }
+    if current.is_empty() {
+        first.map(str::to_owned)
+    } else {
+        None
+    }
+}
+
 /// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message in the
 /// glossary's words, "Your choice", or, for a Game its source set's coverage leaves out, that alone.
 pub fn rule_text(rule: &Rule) -> String {
@@ -1458,5 +1483,53 @@ mod tests {
         assert_eq!(counts.get(GroupStatus::ChoiceToReview), 1);
         assert_eq!(counts.get(GroupStatus::Unresolved), 1);
         assert_eq!(counts.get(GroupStatus::YourChoice), 0);
+    }
+
+    #[test]
+    fn a_system_tab_previews_its_own_source_set_once_the_systems_are_known() {
+        let registered = [
+            stage_select_api::SourceSetSystem {
+                source_set: "Atari".into(),
+                system: Some("Atari - 2600".into()),
+                arcade: false,
+            },
+            stage_select_api::SourceSetSystem {
+                source_set: "GB".into(),
+                system: Some("Nintendo - Game Boy".into()),
+                arcade: false,
+            },
+        ];
+        let gb = Some("Nintendo - Game Boy");
+        assert_eq!(
+            preview_set("", gb, None, Some("Atari")),
+            None,
+            "with a system tab open, wait for the systems rather than take the first source set"
+        );
+        assert_eq!(
+            preview_set("", gb, Some(&registered), Some("Atari")),
+            Some("GB".into())
+        );
+        assert_eq!(
+            preview_set("Atari", gb, Some(&registered), Some("Atari")),
+            Some("GB".into())
+        );
+        assert_eq!(
+            preview_set("GB", gb, Some(&registered), Some("Atari")),
+            None
+        );
+        assert_eq!(
+            preview_set("", None, None, Some("Atari")),
+            Some("Atari".into())
+        );
+        assert_eq!(
+            preview_set("GB", None, None, Some("Atari")),
+            None,
+            "your choice stays"
+        );
+        assert_eq!(
+            preview_set("", Some("Sega - 32X"), Some(&registered), Some("Atari")),
+            Some("Atari".into()),
+            "a system with no source set previews against the first"
+        );
     }
 }

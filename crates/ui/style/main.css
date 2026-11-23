@@ -1546,6 +1546,14 @@ details.kept > summary {
   box-shadow: var(--current-edge);
 }
 
+/* Forced colours drop box shadows, so the current tab takes a real border in a system colour. */
+@media (forced-colors: active) {
+  .tabs a[aria-current="page"] {
+    border-bottom: var(--focus-width) solid Highlight;
+    padding-bottom: calc(var(--space-2) - var(--focus-width));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation-duration: 4s;

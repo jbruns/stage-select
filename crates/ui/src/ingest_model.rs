@@ -460,6 +460,45 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
     }
 }
 
+/// The folder page's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderTab {
+    Items,
+    Plan,
+    Kept,
+}
+
+impl FolderTab {
+    pub const ALL: [FolderTab; 3] = [FolderTab::Items, FolderTab::Plan, FolderTab::Kept];
+
+    /// The tab the URL's `tab` names, or else, as an older link has it, the Plan tab when `plan` names a plan.
+    pub fn parse(tab: Option<&str>, plan: Option<&str>) -> Self {
+        match tab {
+            Some("plan") => FolderTab::Plan,
+            Some("kept") => FolderTab::Kept,
+            None if plan.is_some_and(|p| p.parse::<i64>().is_ok()) => FolderTab::Plan,
+            _ => FolderTab::Items,
+        }
+    }
+
+    /// The `tab` URL value; the items, the default, have none.
+    pub fn key(self) -> Option<&'static str> {
+        match self {
+            FolderTab::Items => None,
+            FolderTab::Plan => Some("plan"),
+            FolderTab::Kept => Some("kept"),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FolderTab::Items => "Items",
+            FolderTab::Plan => "Plan",
+            FolderTab::Kept => "Kept files",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -923,5 +962,23 @@ mod tests {
         );
         assert_eq!(shown_plan(&plans, None), Some(5));
         assert_eq!(shown_plan(&[], None), None);
+    }
+
+    #[test]
+    fn an_old_link_to_a_plan_opens_the_plan_tab() {
+        assert_eq!(FolderTab::parse(None, None), FolderTab::Items);
+        assert_eq!(FolderTab::parse(Some("kept"), None), FolderTab::Kept);
+        assert_eq!(FolderTab::parse(Some("plan"), None), FolderTab::Plan);
+        assert_eq!(FolderTab::parse(None, Some("7")), FolderTab::Plan);
+        assert_eq!(
+            FolderTab::parse(None, Some("x")),
+            FolderTab::Items,
+            "only a plan's id names a plan"
+        );
+        assert_eq!(
+            FolderTab::parse(Some("kept"), Some("7")),
+            FolderTab::Kept,
+            "a tab the URL names wins"
+        );
     }
 }
