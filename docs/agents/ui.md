@@ -364,9 +364,13 @@ you there. Two forms:
   state of the tab you leave (`q`, `sort`, `row`, `sel`, `all`, `kind`, a scoped list's `{scope}-q` and the like, and
   the filters in `parts::tabs::TAB_STATE`) and `plan`. A new list filter key goes in `TAB_STATE`. Changing only the query keeps the
   page mounted, so a draft survives a change of tab; don't read the whole query in a closure that renders the page.
+- **A second row on a page**: `use_tab_keyed(key)` reads and links its own key, as the profile page's `uses` beside
+  the editor's `tab`. Its links keep the other row's tab and drop only the scoped lists' state, so opening one leaves
+  the other row, and a draft in it, in place.
 - **Child routes**: `RouteTabs` over a `ParentRoute`, as on Activity and Settings.
 
-A page below a list starts with `Crumbs`: the list, any page between, then this page's name.
+A page below a list starts with `Crumbs`: the list, any page between, then this page's name. A page head with no
+trail above it takes the class `top`, and a link that is the page's primary action takes `button primary`.
 
 ### Theme and colour
 

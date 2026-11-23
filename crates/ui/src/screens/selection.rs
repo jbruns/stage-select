@@ -600,8 +600,6 @@ struct GroupItem {
     /// The Games kept.
     kept: Vec<String>,
     releases: usize,
-    /// The rule that decided the first Game kept, or what left the group out.
-    rule: String,
     availability: GroupAvailability,
     /// Whether a build flagged a Game it keeps as needing review.
     needs_review: bool,
@@ -609,19 +607,11 @@ struct GroupItem {
 
 impl GroupItem {
     fn new(group: &SelectionGroup, availability: &Availability) -> Self {
-        let first = group.kept.first();
-        let rule = match (first, group.left_out.first()) {
-            (Some(w), _) => rule_text(&w.rule),
-            (None, Some(e)) if e.rule.is_coverage() => rule_text(&e.rule),
-            (None, Some(e)) => e.reason.clone(),
-            (None, None) => String::new(),
-        };
         GroupItem {
             name: group.group.clone(),
             status: group_status(group),
             kept: group.kept.iter().map(|w| w.title.clone()).collect(),
             releases: group.kept.len() + group.clones.len() + group.left_out.len(),
-            rule,
             availability: GroupAvailability::of(group, &availability.games, &availability.claimed),
             needs_review: false,
         }
@@ -690,7 +680,7 @@ impl ListRow for GroupItem {
     }
 
     fn search(&self) -> String {
-        format!("{} {} {}", self.name, self.kept.join(" "), self.rule)
+        format!("{} {}", self.name, self.kept.join(" "))
     }
 
     fn cell(&self, col: GroupCol) -> AnyView {
@@ -1022,8 +1012,8 @@ fn SelectionTabs(
             _ => {
                 let loaded = loaded.get_value();
                 view! {
+                    <Groups loaded=loaded.clone() staged source_set=record.get_value().source_set />
                     <StaleGroups index=loaded.index.clone() staged />
-                    <Groups loaded staged source_set=record.get_value().source_set />
                 }
                     .into_any()
             }
@@ -1210,6 +1200,7 @@ fn Groups(
     });
     view! {
         <section aria-label="Game groups">
+            <div class="count-strips">
             <KindCounts
                 counts=Signal::stored(status_counts)
                 active=only
@@ -1225,6 +1216,7 @@ fn Groups(
                     label="Game groups by what you have"
                 />
             })}
+            </div>
             <DependencyLine
                 lead="Your selected games need"
                 dependencies=all_dependencies
@@ -1237,7 +1229,7 @@ fn Groups(
                 label="Game groups"
                 rows
                 empty="This selection has no game groups."
-                placeholder="Filter by game group, game or rule"
+                placeholder="Filter by game group or game"
                 keep
                 detail
                 legend=move || view! { <LegendStrip looks=legend_looks list="groups" /> }

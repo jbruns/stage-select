@@ -235,7 +235,7 @@ pub fn Profiles() -> impl IntoView {
         )
     });
     view! {
-        <header class="page-head">
+        <header class="page-head top">
             <div class="page-title">
                 <h1>"Selection profiles"</h1>
             </div>
