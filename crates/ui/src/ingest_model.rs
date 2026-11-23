@@ -461,23 +461,21 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
     }
 }
 
-/// Where an item a plan of `action` moved, as `ended` says, can be seen: the DAT revision a DAT import recorded, or
-/// the additions an addition joined.
+/// Where what an item of a plan of `action` made, as `ended` says, can be seen: the DAT revision a DAT import
+/// recorded, even when moving the file afterwards failed, or the additions an addition moved into.
 pub fn made_link(action: IngestAction, ended: &IngestOutcome) -> Option<Link> {
-    if !ended.moved || ended.error.is_some() {
-        return None;
-    }
     match action {
         IngestAction::DatImport => ended
             .dat_revision
             .as_ref()
             .map(|sha| Link::new(format!("/dats?row={sha}"), "Open the DAT revision")),
-        IngestAction::Addition => Some(Link::new("/additions", "Open the additions")),
+        IngestAction::Addition => (ended.moved && ended.error.is_none())
+            .then(|| Link::new("/additions", "Open the additions")),
         IngestAction::Discard => None,
     }
 }
 
-/// Where what `plan` made can be seen, once it moved anything: the one DAT revision or additions an item made, or
+/// Where what `plan` made can be seen, once it made anything: the one DAT revision or additions an item made, or
 /// every DAT revision when it imported several.
 pub fn plan_made_link(plan: &IngestPlan) -> Option<Link> {
     let mut made = plan
@@ -930,6 +928,13 @@ mod tests {
             made_link(IngestAction::DatImport, &ended(true, None)),
             None,
             "a support file makes no DAT revision"
+        );
+        let mut unmoved = ended(false, Some("abc"));
+        unmoved.error = Some("the move failed".into());
+        assert_eq!(
+            made_link(IngestAction::DatImport, &unmoved),
+            Some(Link::new("/dats?row=abc", "Open the DAT revision")),
+            "a DAT recorded before its move failed is still imported"
         );
         assert_eq!(
             made_link(IngestAction::Addition, &ended(true, None)),

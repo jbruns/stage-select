@@ -170,6 +170,12 @@ pub fn tally(detail: &BuildDetail) -> Tally {
     }
 }
 
+/// Whether the outcome part fetches its Job: when the live book lacks it and the part knows of no ending, as when
+/// a resync dropped it while it ran.
+pub fn needs_fetch(in_book: bool, held: Option<&Job>) -> bool {
+    !in_book && held.is_none_or(|j| !j.state.is_final())
+}
+
 /// The unit a Job's progress counts.
 pub fn unit(kind: JobKind) -> &'static str {
     if kind == JobKind::Repair {
@@ -460,24 +466,21 @@ pub fn JobOutcome(
         });
     }
     let fetched = RwSignal::new(None::<Job>);
-    if seed.is_none() && live.book.with_untracked(|b| b.get(job).is_none()) {
-        leptos::task::spawn_local(async move {
-            if let Ok(found) = api::get::<Job>(&format!("/jobs/{job}")).await {
-                fetched.set(Some(found));
-            }
-        });
-    }
+    let unfetched = RwSignal::new(None::<String>);
+    let retry = RwSignal::new(0u64);
     let held = Memo::new(move |prev: Option<&Option<Held>>| {
         let prev = prev.cloned().flatten();
         let now = live.book.with(|b| b.get(job).cloned());
         let (current, progress) = match now {
             Some(l) => (Some(l.job), l.progress),
-            None => (
-                fetched
-                    .get()
-                    .or_else(|| prev.as_ref().map(|h| h.job.clone())),
-                None,
-            ),
+            None => {
+                let known = prev.as_ref().map(|h| h.job.clone());
+                let newer = match (fetched.get(), known) {
+                    (Some(f), Some(k)) => Some(if f.version >= k.version { f } else { k }),
+                    (f, k) => f.or(k),
+                };
+                (newer, None)
+            }
         };
         let current = current?;
         let watched = prev.as_ref().is_some_and(|h| h.watched) || !current.state.is_final();
@@ -493,6 +496,24 @@ pub fn JobOutcome(
             watched,
             reached,
         })
+    });
+    // Fetched when the book doesn't have it: at first, and after a resync dropped it before its ending arrived.
+    Effect::new(move |_| {
+        live.settled.track();
+        retry.track();
+        let in_book = live.book.with_untracked(|b| b.get(job).is_some());
+        if !held.with_untracked(|h| needs_fetch(in_book, h.as_ref().map(|h| &h.job))) {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            match api::get::<Job>(&format!("/jobs/{job}")).await {
+                Ok(found) => {
+                    unfetched.set(None);
+                    fetched.set(Some(found));
+                }
+                Err(message) => unfetched.set(Some(message)),
+            }
+        });
     });
     let progress = Memo::new(move |_| {
         live.book.with(|b| {
@@ -606,6 +627,16 @@ pub fn JobOutcome(
             })
         }}
         {move || problem.get().map(|message| view! { <Problem message /> })}
+        {move || {
+            unfetched.get().map(|message| {
+                view! {
+                    <Problem message=format!("Couldn't load job #{job}: {message}") />
+                    <div class="form">
+                        <button type="button" on:click=move |_| retry.update(|n| *n += 1)>"Try again"</button>
+                    </div>
+                }
+            })
+        }}
     }
 }
 
@@ -751,6 +782,20 @@ mod tests {
         let s = shown(&stopped, reached, None, true);
         assert_eq!(s.text, "The repair of NES was cancelled at 3 of 10 steps.");
         assert_eq!(s.link.unwrap().label, "Open the job");
+    }
+
+    #[test]
+    fn a_job_missing_from_the_live_book_is_fetched_until_it_ends() {
+        let running = job(JobKind::Build, JobState::Running);
+        let failed = job(JobKind::Build, JobState::Failed);
+        assert!(needs_fetch(false, None), "a job the book never had");
+        assert!(
+            needs_fetch(false, Some(&running)),
+            "a resync dropped it while it ran: its ending was missed"
+        );
+        assert!(!needs_fetch(false, Some(&failed)), "its ending is known");
+        assert!(!needs_fetch(true, None), "the book has it");
+        assert!(!needs_fetch(true, Some(&running)));
     }
 
     #[test]

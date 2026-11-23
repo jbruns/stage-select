@@ -605,19 +605,29 @@ def interrupted(signum, _frame):
 # The scratch folder as screenshots show it, so a PR shows no local path.
 SHOWN_AS = "/srv/stage-select"
 
-# Replaces the scratch folder's path in the page's text and fields with SHOWN_AS.
+# Replaces the scratch folder's path in the page's text and fields with SHOWN_AS, and keeps replacing it in whatever
+# the page renders afterwards, such as a job's error that loads after the screen settles.
 MASK = """
 ([from, to]) => {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (n.nodeValue.includes(from)) n.nodeValue = n.nodeValue.split(from).join(to);
-  }
-  for (const f of document.querySelectorAll('input, textarea')) {
-    if (f.value.includes(from)) f.value = f.value.split(from).join(to);
-    if (f.placeholder.includes(from)) f.placeholder = f.placeholder.split(from).join(to);
-  }
-  for (const e of document.querySelectorAll('[title]')) {
-    if (e.title.includes(from)) e.title = e.title.split(from).join(to);
+  const mask = () => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.nodeValue.includes(from)) n.nodeValue = n.nodeValue.split(from).join(to);
+    }
+    for (const f of document.querySelectorAll('input, textarea')) {
+      if (f.value.includes(from)) f.value = f.value.split(from).join(to);
+      if (f.placeholder.includes(from)) f.placeholder = f.placeholder.split(from).join(to);
+    }
+    for (const e of document.querySelectorAll('[title]')) {
+      if (e.title.includes(from)) e.title = e.title.split(from).join(to);
+    }
+  };
+  mask();
+  if (!window.__masking) {
+    window.__masking = new MutationObserver(mask);
+    window.__masking.observe(document.body, {
+      subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title'],
+    });
   }
 }
 """
@@ -656,6 +666,7 @@ def capture(url, screens, label, work):
                     if name in DRIVEN and width < 1100:
                         continue
                     page.goto(url + route, wait_until="load")
+                    page.evaluate(MASK, [str(work), SHOWN_AS])
                     try:
                         page.wait_for_function(SETTLED, timeout=15000)
                     except Exception:

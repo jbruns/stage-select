@@ -1079,6 +1079,16 @@ pub fn LibraryFolderScreen() -> impl IntoView {
     let live = use_live();
     let planner = use_planner();
     let refresh = RwSignal::new(0u64);
+    // What checks you started say, kept here: the page below is made again each time a job settles.
+    let (said, checks) = (Reports::new(), Reports::new());
+    Effect::new(move |shown: Option<Option<i64>>| {
+        let now = id();
+        if shown.is_some_and(|shown| shown != now) {
+            said.clear();
+            checks.clear();
+        }
+        now
+    });
     let folder = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
@@ -1098,7 +1108,7 @@ pub fn LibraryFolderScreen() -> impl IntoView {
             <Problem message />
         }
         .into_any(),
-        Some(Ok(folder)) => view! { <FolderPage folder tab refresh /> }.into_any(),
+        Some(Ok(folder)) => view! { <FolderPage folder tab refresh said checks /> }.into_any(),
     }
 }
 
@@ -1107,6 +1117,8 @@ fn FolderPage(
     folder: LibraryFolder,
     tab: Memo<FolderTab>,
     refresh: RwSignal<u64>,
+    said: Reports,
+    checks: Reports,
 ) -> impl IntoView {
     let id = folder.id;
     let planner = use_planner();
@@ -1118,7 +1130,6 @@ fn FolderPage(
     };
     let busy = Signal::derive(move || now.get() == LibraryStatus::Running);
     let title = location(&folder);
-    let said = Reports::new();
     let what = title.clone();
     let start_check = move |_| {
         said.clear();
@@ -1179,7 +1190,7 @@ fn FolderPage(
             FolderTab::Drift => {
                 let source_set = folder.with_value(|f| f.source_set.clone());
                 view! {
-                    <CheckPanel folder=id busy refresh />
+                    <CheckPanel folder=id busy refresh reports=checks />
                     <CleanupForm folder=id source_set busy refresh />
                 }
                 .into_any()
@@ -1453,7 +1464,12 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
 
 /// Starts a read-only check of the folder, and shows the latest one.
 #[component]
-fn CheckPanel(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
+fn CheckPanel(
+    folder: i64,
+    busy: Signal<bool>,
+    refresh: RwSignal<u64>,
+    reports: Reports,
+) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
@@ -1464,7 +1480,6 @@ fn CheckPanel(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl I
                 .ok()
         }
     });
-    let reports = Reports::new();
     let start = move |_| {
         reports.clear();
         leptos::task::spawn_local(async move {

@@ -175,14 +175,19 @@ own `.message` rules are the only ones that may set colour, border or background
 
 Wherever a job starts, `parts::outcome::JobOutcome` shows it until it ends, then links onward: never "follow it in
 Activity" and never a hand-built link. Pass the started `Job` as `seed` so it shows at once; it follows the job
-through the live book after that, and `cancel=true` offers cancelling a running build or repair.
+through the live book after that, and `cancel=true` offers cancelling a running build or repair. Without a seed it
+fetches the job, and fetches it again when a resync drops it before its ending arrived (`needs_fetch`); a failed
+fetch shows with "Try again". Mount it once, outside closures that read the live book, and keep `Reports` outside a
+subtree that reloads when jobs settle, or the outcome is lost, or made again without knowing it watched the ending.
 
 - Queued or running: the job's state, a `ProgressMeter` while it reports progress, and "Open the job", announced
   politely.
 - Succeeded: a done message linking to what it made (`Outcome::of`: the audit, selection, build, or the repair on
   the source set's Repair tab), or else to what it worked on (`Subject::of`).
 - Failed: a problem that says how far it got and what that left ("The build stopped at 412 of 620 files. Nothing was
-  removed."), the error's first line, and "Open the job to see why." It is an alert only when the part watched the
+  removed."), the error's first line, and "Open the job to see why." A build says what it removed only when its items
+  account for every deletion: placing and returning delete files no item records, so then it says nothing about
+  removal rather than claim none. The count includes files still being written. It is an alert only when the part watched the
   job end; one that had already failed shows with `Live::Off`.
 - Interrupted or cancelled: a notice, how far it got, and the job's link.
 

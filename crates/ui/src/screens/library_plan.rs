@@ -406,7 +406,6 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let id = plan.id;
     let selection = plan.content.selection;
     let digest = StoredValue::new(plan.digest.clone());
-    let live = use_live();
     let problem = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
     let approve = move |_| {
@@ -631,15 +630,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                         </div>
                     }
                 })}
-            {plan
-                .job
-                .map(|job| {
-                    move || {
-                        live.book
-                            .with(|b| b.get(job).is_some())
-                            .then(|| view! { <JobOutcome job cancel=true /> })
-                    }
-                })}
+            {plan.job.map(|job| view! { <JobOutcome job cancel=true /> })}
             {move || problem.get().map(|message| view! { <Problem message /> })}
             {(!plan.changes.is_empty())
                 .then(|| {
