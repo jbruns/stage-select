@@ -45,15 +45,19 @@ pub struct Part {
 /// `n` segments shared among `parts` in proportion to their counts, in order. A part counting above zero always gets
 /// at least one segment, while `n` allows. With nothing counted, every segment is `EMPTY`.
 pub fn segments(parts: &[Part], n: usize) -> Vec<Segment> {
-    let total: usize = parts.iter().map(|p| p.count).sum();
+    // Widened before any sum or product: `usize` is 32 bits on wasm32, and counts can pass u32::MAX between them.
+    let wide = |x: usize| x as u128;
+    let total: u128 = parts.iter().map(|p| wide(p.count)).sum();
     if total == 0 {
         return vec![EMPTY; n];
     }
     // Each part's share is count × n / total segments. Compared scaled by `total`, so the arithmetic stays exact.
-    let share = |i: usize, given: usize| (parts[i].count * n) as i128 - (given * total) as i128;
+    let share = |i: usize, given: usize| {
+        (wide(parts[i].count) * wide(n)) as i128 - (wide(given) * total) as i128
+    };
     let mut given: Vec<usize> = parts
         .iter()
-        .map(|p| (p.count * n / total).max(usize::from(p.count > 0)))
+        .map(|p| ((wide(p.count) * wide(n) / total) as usize).max(usize::from(p.count > 0)))
         .collect();
     let mut sum: usize = given.iter().sum();
     // The rule of at least one can give out more than `n`: take back from the part most over its share that keeps one.
@@ -203,6 +207,34 @@ mod tests {
         assert_eq!(drawn.len(), 10);
         assert_eq!(drawn[0], DONE);
         assert_eq!(counted(&drawn, DONE), 1);
+    }
+
+    // `usize` is 32 bits on wasm32, so totals past u32::MAX are real there; on the host they reach usize::MAX.
+    #[test]
+    fn counts_past_u32_max_share_in_proportion() {
+        let drawn = segments(&[part(644_245_094, DONE), part(429_496_729, EMPTY)], 10);
+        assert_eq!(drawn.len(), 10);
+        assert_eq!(counted(&drawn, DONE), 6);
+
+        let half = 1 << 31;
+        let drawn = segments(&[part(half, DONE), part(half, EMPTY)], 10);
+        assert_eq!(counted(&drawn, DONE), 5);
+        assert_eq!(counted(&drawn, EMPTY), 5);
+    }
+
+    #[test]
+    fn counts_near_usize_max_keep_the_total_and_at_least_one() {
+        let drawn = segments(&[part(usize::MAX, DONE), part(usize::MAX, EMPTY)], 10);
+        assert_eq!(counted(&drawn, DONE), 5);
+        assert_eq!(counted(&drawn, EMPTY), 5);
+
+        let drawn = segments(&[part(1, DONE), part(usize::MAX, EMPTY)], 10);
+        assert_eq!(drawn.len(), 10);
+        assert_eq!(counted(&drawn, DONE), 1);
+
+        let drawn = segments(&[part(usize::MAX - 1, DONE), part(1, EMPTY)], 10);
+        assert_eq!(drawn.len(), 10);
+        assert_eq!(counted(&drawn, EMPTY), 1);
     }
 
     #[test]

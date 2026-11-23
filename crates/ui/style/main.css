@@ -475,8 +475,9 @@ input[type="file"] {
   background: repeating-linear-gradient(-45deg, currentColor 0 1.5px, transparent 1.5px 3.5px);
 }
 
+/* `.meter` raises this above the later `.tone-*` rules, so system colours win. */
 @media (forced-colors: active) {
-  .meter-segment {
+  .meter .meter-segment {
     forced-color-adjust: none;
     color: CanvasText;
   }
