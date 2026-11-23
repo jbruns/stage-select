@@ -864,16 +864,7 @@ mod tests {
     /// the schema that release's 49 migrations made (#283), so this applies it without its stamp, sets that release's
     /// schema version, and adds a few rows.
     fn pre_baseline(dir: &Path, wal: bool) -> Connection {
-        let conn = Connection::open(dir.join(DATABASE)).unwrap();
-        if wal {
-            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-                .unwrap();
-            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-        }
-        let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
-        let baseline = migrations::MIGRATIONS[0];
-        assert_eq!(baseline.matches(&stamp).count(), 1);
-        conn.execute_batch(&baseline.replace(&stamp, "")).unwrap();
+        let conn = baseline_stamped(dir, wal, None);
         conn.execute_batch(
             "INSERT INTO roots (name, path, kind, writable, updated_by, updated_at)
                  VALUES ('roms', '/srv/roms', 'general', 1, 'operator', '2026-01-01T00:00:00Z');
@@ -889,6 +880,49 @@ mod tests {
         conn
     }
 
+    /// Applies the baseline to a new database in `dir`, stamped `id` in place of this release's, or unstamped.
+    fn baseline_stamped(dir: &Path, wal: bool, id: Option<i32>) -> Connection {
+        let conn = Connection::open(dir.join(DATABASE)).unwrap();
+        if wal {
+            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
+                .unwrap();
+            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        }
+        let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
+        let baseline = migrations::MIGRATIONS[0];
+        assert_eq!(baseline.matches(&stamp).count(), 1);
+        let other = id.map_or(String::new(), |id| format!("PRAGMA application_id = {id};"));
+        conn.execute_batch(&baseline.replace(&stamp, &other))
+            .unwrap();
+        conn
+    }
+
+    /// The `application_id` 0.12.0 and every release before the rename stamped a store with: "TSel" in ASCII.
+    const BEFORE_THE_RENAME: i32 = 0x5453_656C;
+
+    #[test]
+    fn a_store_stamped_before_the_rename_is_refused_and_left_untouched() {
+        for wal in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let conn = baseline_stamped(dir.path(), wal, Some(BEFORE_THE_RENAME));
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            assert_eq!(
+                pragma(&conn, "application_id"),
+                format!("Integer({BEFORE_THE_RENAME})")
+            );
+            // Closing the last connection checkpoints a WAL and deletes its sidecars.
+            drop(conn);
+            let path = dir.path().join(DATABASE);
+            let before = std::fs::read(&path).unwrap();
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+
+            assert_pre_baseline_refused(Store::open(dir.path()));
+
+            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
+            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+        }
+    }
+
     fn assert_pre_baseline_refused(opened: Result<Store>) {
         let Err(Error::Refused(message)) = opened else {
             panic!(
@@ -898,7 +932,7 @@ mod tests {
         };
         assert_eq!(
             message,
-            "This store was made by an earlier release of Stage Select and can't be opened. Start a new store."
+            "This store was made by an earlier release and can't be opened. Start a new store."
         );
     }
 

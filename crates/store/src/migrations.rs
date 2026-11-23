@@ -8,15 +8,16 @@ use rusqlite::Connection;
 
 use super::{BACKUPS, Error, Result, io_error};
 
-/// The `PRAGMA application_id` the baseline stamps every store with: "TSel" in ASCII. A store with a schema and
-/// another id was made before the baseline, and is refused.
-pub(crate) const APPLICATION_ID: i32 = 0x5453_656C;
+/// The `PRAGMA application_id` the baseline stamps every store with: "SSel" in ASCII. A store with a schema and
+/// another id was made by an earlier release, before the baseline or before the rename (ADR 0030), and is refused.
+pub(crate) const APPLICATION_ID: i32 = 0x5353_656C;
 
 /// Applied in order; `PRAGMA user_version` counts those already applied.
 pub(super) const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_baseline.sql")];
 
-/// What a store made before the baseline is refused with.
-pub(crate) const PRE_BASELINE: &str = "This store was made by an earlier release of Stage Select and can't be opened. Start a new store.";
+/// What a store made by an earlier release is refused with.
+pub(crate) const PRE_BASELINE: &str =
+    "This store was made by an earlier release and can't be opened. Start a new store.";
 
 /// Refuses the database at `path` if its header says it has a schema but not the baseline's stamp. It reads the
 /// header's bytes rather than opening the database, as even a read-only SQLite connection may create a WAL's sidecars,

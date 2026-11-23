@@ -1,8 +1,8 @@
 -- The baseline schema (ADR 0028): everything a store holds, created at once. Later migrations append to it and are
 -- never flattened again. Each table keeps its columns in the order the stores before the baseline had them.
 
--- Marks the file as a Stage Select store from the baseline on: crate::migrations::APPLICATION_ID, "TSel".
-PRAGMA application_id = 1414751596;
+-- Marks the file as a Stage Select store from the baseline on: crate::migrations::APPLICATION_ID, "SSel".
+PRAGMA application_id = 1397974380;
 
 ------------------------------------------------------------------------------------------------------------------------
 -- The store
