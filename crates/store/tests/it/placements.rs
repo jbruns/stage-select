@@ -396,7 +396,7 @@ fn a_check_of_the_holding_folder_reports_a_changed_or_missing_placed_game_and_ne
     assert_eq!(outcome(&check, "Pong (USA).zip"), FileOutcome::Missing);
     assert!(
         check.drift.is_empty(),
-        "a placed game's file is never drift a cleanup could acknowledge or keep aside: {:?}",
+        "a placed game's file is never drift a cleanup could acknowledge or set aside: {:?}",
         check.drift
     );
     // The Audit is the authority, whatever the check found.

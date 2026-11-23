@@ -1781,7 +1781,7 @@ impl Store {
             return self.unretire(id, kept.id, format!("{file_name} cannot be opened"));
         };
         if let Err(e) = dir.rename_new(file_name, &area, &kept.kept_name) {
-            return self.unretire(id, kept.id, format!("its file cannot be kept aside: {e}"));
+            return self.unretire(id, kept.id, format!("its file cannot be set aside: {e}"));
         }
         self.fault_point(Fault::AdditionRetireMoved);
         dir.sync().map_err(io)?;
@@ -1800,7 +1800,7 @@ impl Store {
                 dir.sync()
             });
         let why = format!(
-            "{file_name} was replaced by something else while it was kept aside; that was left as it is"
+            "{file_name} was replaced by something else while it was set aside; that was left as it is"
         );
         match (back, found) {
             (Ok(()), _) => self.unretire(id, kept.id, why),
@@ -2199,7 +2199,7 @@ impl Store {
             None => return Ok(Kept::Failed(format!("repair {plan} has no step for {key}"))),
             Some((state, _, Some(kept))) if state == "done" => kept,
             Some((state, _, None)) if state == "done" => {
-                return Ok(Kept::Failed("the repair did not keep it aside".into()));
+                return Ok(Kept::Failed("the repair did not set it aside".into()));
             }
             Some((state, error, _)) if matches!(state.as_str(), "failed" | "skipped") => {
                 return Ok(Kept::Failed(
@@ -2229,7 +2229,7 @@ impl Store {
         })?;
         if state != "kept" {
             return Ok(Kept::Failed(format!(
-                "the file the repair kept aside is {state}"
+                "the file the repair set aside is {state}"
             )));
         }
         let dir = match open_repairable(self, roots, set, MarkerRule::Required)? {
@@ -2293,7 +2293,7 @@ impl Store {
             })?;
             return Ok(match running {
                 true => Kept::Waiting,
-                false => Kept::Failed("the cleanup ended without keeping it aside".into()),
+                false => Kept::Failed("the cleanup ended without setting it aside".into()),
             });
         };
         match state.as_str() {
@@ -2301,7 +2301,7 @@ impl Store {
             "kept" => {}
             other => {
                 return Ok(Kept::Failed(format!(
-                    "the file the cleanup kept aside is {other}"
+                    "the file the cleanup set aside is {other}"
                 )));
             }
         }

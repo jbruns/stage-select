@@ -34,8 +34,8 @@ use crate::screens::audit::{ReAudit, flags_notice, flags_now, focus, placements_
 use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
-    exclusion_text, flag_labels, group_status, includable, include_and_check, kept_need_review,
-    listed, outcome_label, rule_text, staged_changes, toggle, unresolved_explanation,
+    flag_labels, group_status, includable, include_and_check, kept_need_review, left_out_text,
+    listed, outcome_hint, outcome_label, rule_text, staged_changes, toggle, unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -117,8 +117,12 @@ impl ReleaseCol {
 }
 
 fn outcome_view(outcome: Outcome) -> AnyView {
-    view! { <span class=format!("outcome outcome-{}", outcome.as_str())>{outcome_label(outcome)}</span> }
-        .into_any()
+    view! {
+        <span class=format!("outcome outcome-{}", outcome.as_str()) title=outcome_hint(outcome)>
+            {outcome_label(outcome)}
+        </span>
+    }
+    .into_any()
 }
 
 fn availability_view(status: Option<GameStatus>, claimed: bool) -> AnyView {
@@ -144,9 +148,9 @@ impl Grid for ReleaseItem {
 
     fn header(col: ReleaseCol) -> &'static str {
         match col {
-            ReleaseCol::Group => "Group",
-            ReleaseCol::Release => "Release",
-            ReleaseCol::Outcome => "Role",
+            ReleaseCol::Group => "Game group",
+            ReleaseCol::Release => "Game",
+            ReleaseCol::Outcome => "Status",
             ReleaseCol::Availability => "Availability",
             ReleaseCol::Rule => "Why",
             ReleaseCol::Flags => "Flags",
@@ -263,11 +267,11 @@ pub fn ReleasesPanel(
         <div class="panel" node_ref=panel>
             <form class="filters" on:submit=|ev| ev.prevent_default()>
                 <label>
-                    "Filter releases"
+                    "Filter games"
                     <input
                         type="search"
                         class="filter-text"
-                        placeholder="Group or release name"
+                        placeholder="Game group or game name"
                         autocomplete="off"
                         on:input=move |ev| {
                             let text = event_target_value(&ev);
@@ -276,7 +280,7 @@ pub fn ReleasesPanel(
                     />
                 </label>
                 <label>
-                    "Role"
+                    "Status"
                     <select on:change=move |ev| {
                         let v = event_target_value(&ev);
                         refilter(Box::new(move |f| f.outcome = Outcome::parse(&v)));
@@ -329,16 +333,16 @@ pub fn ReleasesPanel(
                 data-query=move || filter.with(|f| f.text.clone())
                 data-shown=move || shown.with(|s| s.len())
             >
-                {move || format!("{} of {total} releases", shown.with(|s| s.len()))}
+                {move || format!("{} of {total} games", shown.with(|s| s.len()))}
             </p>
             <DataTable
                 id="releases"
-                label="Releases".to_string()
+                label="Games".to_string()
                 rows
                 sorting
                 selected
                 on_open=Callback::new(move |_| focus(detail_id))
-                empty="No releases match these filters.".to_string()
+                empty="No games match these filters.".to_string()
             />
         </div>
     }
@@ -376,8 +380,8 @@ impl Grid for ChangeItem {
 
     fn header(col: ChangeCol) -> &'static str {
         match col {
-            ChangeCol::Group => "Group",
-            ChangeCol::Release => "Release",
+            ChangeCol::Group => "Game group",
+            ChangeCol::Release => "Game",
             ChangeCol::Before => "Before",
             ChangeCol::After => "Now",
             ChangeCol::Rule => "Why",
@@ -417,12 +421,12 @@ pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoV
             sorting=RwSignal::new(VecDeque::new())
             selected=RwSignal::new(None)
             on_open=Callback::new(|_| {})
-            empty="No release changes its role.".to_string()
+            empty="No game changes its outcome.".to_string()
         />
     }
 }
 
-/// Makes a what-if Selection: a Profile's Selection from a Source Set that no Library Folder uses yet. Opened from a
+/// Makes a preview, a Selection a Profile's Selection from a Source Set that no Library Folder uses yet. Opened from a
 /// Profile (`?profile=`, pick a Source Set) or from a Source Set (`?source_set=`, pick a Profile).
 #[component]
 pub fn NewSelection() -> impl IntoView {
@@ -456,9 +460,9 @@ pub fn NewSelection() -> impl IntoView {
     };
 
     view! {
-        <h1>"New what-if selection"</h1>
+        <h1>"Preview a selection"</h1>
         <p class="lede">
-            "A what-if selection shows what a selection profile would keep from a source set, without changing any library folder. It's listed on its profile until a library folder uses it."
+            "A preview is a selection that shows what a selection profile would keep from a source set, without changing any library folder. It's listed on its profile until a library folder uses it."
         </p>
         {back.map(|(href, name)| view! { <p><A href=href>{format!("Back to {name}")}</A></p> })}
         <form class="form" on:submit=submit>
@@ -583,13 +587,13 @@ pub fn SelectionScreen() -> impl IntoView {
 struct GroupItem {
     name: String,
     status: GroupStatus,
-    /// The releases kept: the winners.
+    /// The Games kept.
     kept: Vec<String>,
     releases: usize,
-    /// The rule that decided the first winner, or what excluded the group.
+    /// The rule that decided the first Game kept, or what left the group out.
     rule: String,
     availability: GroupAvailability,
-    /// Whether a build flagged a release it keeps as needing review.
+    /// Whether a build flagged a Game it keeps as needing review.
     needs_review: bool,
 }
 
@@ -639,10 +643,10 @@ impl ListRow for GroupItem {
         match col {
             GroupCol::Status => Column::new("status", "Status", Width::Fixed(4.0))
                 .sortable()
-                .hint("Chosen, unresolved, your choice or excluded"),
+                .hint("Chosen, unresolved, your choice or left out"),
             GroupCol::Group => Column::new(
                 "group",
-                "Group",
+                "Game group",
                 Width::Flex {
                     min: 10.0,
                     share: 2,
@@ -658,7 +662,7 @@ impl ListRow for GroupItem {
                 },
             )
             .sortable()
-            .hint("The releases the selection keeps"),
+            .hint("The games the selection keeps"),
             GroupCol::Rule => Column::new(
                 "rule",
                 "Rule",
@@ -667,14 +671,14 @@ impl ListRow for GroupItem {
                     share: 2,
                 },
             )
-            .hint("The rule that chose the kept release, or what excluded the group"),
-            GroupCol::Releases => Column::new("releases", "Releases", Width::Fixed(6.0))
+            .hint("The rule that chose the kept game, or what left the game group out"),
+            GroupCol::Releases => Column::new("releases", "Versions", Width::Fixed(6.0))
                 .sortable()
                 .numeric()
-                .hint("How many releases the group has"),
+                .hint("How many versions the game group has"),
             GroupCol::Have => Column::new("have", "You have", Width::Fixed(11.0))
                 .sortable()
-                .hint("The worst of the kept releases, from the latest audit"),
+                .hint("The worst of the kept games, from the latest audit"),
         }
     }
 
@@ -793,7 +797,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
     let summary = r.summary;
     let set_href = format!("/source-sets/{}", api::segment(&r.source_set));
     let profile_href = format!("/profiles/{}", api::segment(&r.profile.name));
-    let what_if = r.library_folders.is_empty();
+    let preview = r.library_folders.is_empty();
     let promote_href = format!("/libraries/new?selection={id}");
 
     view! {
@@ -867,8 +871,8 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             <dd>{when(&r.created_at)}</dd>
             <dt>"Library folders"</dt>
             <dd>
-                {if what_if {
-                    view! { "None: this is a what-if selection" }.into_any()
+                {if preview {
+                    view! { "None: this selection is a preview" }.into_any()
                 } else {
                     r.library_folders
                         .iter()
@@ -937,11 +941,11 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                     <ul class="counts">
                         <li class="count">
                             <span class="n">{summary.groups}</span>
-                            <span class="what">"Groups"</span>
+                            <span class="what">"Game groups"</span>
                         </li>
                         <li class="count verified">
                             <span class="n">{summary.kept}</span>
-                            <span class="what">"Selected"</span>
+                            <span class="what">"Kept"</span>
                         </li>
                         <li class="count review">
                             <span class="n">{summary.needs_review()}</span>
@@ -949,13 +953,13 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                         </li>
                     </ul>
                     <p class="note">
-                        "This selection is pruned: only its summary is kept, so its releases are gone."
+                        "This selection is pruned: only its summary is kept, so its list of games is gone."
                     </p>
                 }
             })}
 
         {move || match data.get() {
-            None => view! { <Loading what="the groups" /> }.into_any(),
+            None => view! { <Loading what="the game groups" /> }.into_any(),
             Some(None) => ().into_any(),
             Some(Some(Err(message))) => view! { <Problem message /> }.into_any(),
             Some(Some(Ok(loaded))) => {
@@ -979,7 +983,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                         <p class="lede">
                             "Since "
                             <A href=format!("/selections/{}", diff.from)>{format!("selection #{}", diff.from)}</A>
-                            {format!(": {count} {} changed role.", if count == 1 { "release" } else { "releases" })}
+                            {format!(": {count} {} changed outcome.", if count == 1 { "game" } else { "games" })}
                         </p>
                         <ChangesTable id="changes" changes=diff.changes />
                     </section>
@@ -998,13 +1002,13 @@ fn AvailabilityNote(audit: Option<i64>, reaudit: ReAudit) -> impl IntoView {
             <p class="lede">
                 "What you have is from "
                 <A href=format!("/audits/{audit}")>{format!("audit #{audit}")}</A>
-                ", the latest audit of this source set against this DAT revision. A kept release that is missing stays missing: to fall back to an alternative you have, check it."
+                ", the latest audit of this source set against this DAT revision. A kept game that is missing stays missing: to fall back to another version you have, check it."
             </p>
         }
         .into_any(),
         None => view! {
             <div class="notice" role="status">
-                <p>"Not audited against this revision, so it is unknown which releases you have."</p>
+                <p>"Not audited against this revision, so it is unknown which games you have."</p>
                 <button type="button" on:click=move |_| reaudit.start()>
                     "Audit against this revision"
                 </button>
@@ -1135,8 +1139,8 @@ fn Groups(
         <section aria-labelledby="groups-title">
             <h2 id="groups-title">"Game groups"</h2>
             <p class="lede">
-                {arcade.then_some("Each group is a family: a parent machine and its clones. ")}
-                "Open a group to see its releases, the rule that decided each, and to choose the releases you want. Your choices are staged until you save them."
+                {arcade.then_some("Each game group is a family: a parent machine and its clones. ")}
+                "Open a game group to see its versions, the rule that decided each, and to choose the ones you want. Your choices are staged until you save them."
             </p>
             <DependencyLine
                 lead="Your selected games need"
@@ -1144,7 +1148,7 @@ fn Groups(
                 games=loaded.availability.games.clone()
                 claimed=loaded.availability.claimed.clone()
             />
-            <div class="count-strip" role="group" aria-label="Show groups by status">
+            <div class="count-strip" role="group" aria-label="Show game groups by status">
                 <ul class="counts">
                     {statuses
                         .into_iter()
@@ -1190,7 +1194,7 @@ fn Groups(
                                     }}
                                 </button>
                                 <span class="note small">
-                                    "Confirming keeps the selection's pick, or the releases you checked, as your choice."
+                                    "Confirming keeps the selection's pick, or the games you checked, as your choice."
                                 </span>
                             </div>
                         }
@@ -1201,8 +1205,8 @@ fn Groups(
                 id="groups"
                 label="Game groups"
                 rows
-                empty="This selection has no groups."
-                placeholder="Filter by group, release or rule"
+                empty="This selection has no game groups."
+                placeholder="Filter by game group, game or rule"
                 keep
                 detail
                 legend=move || view! { <LegendStrip looks=legend_looks list="groups" /> }
@@ -1224,7 +1228,7 @@ fn StaleGroups(
             <section aria-labelledby="stale-title">
                 <h2 id="stale-title">"Stale choices"</h2>
                 <p class="lede">
-                    "These groups are gone from this DAT revision. Your choices for them are kept until you drop them."
+                    "These game groups are gone from this DAT revision. Your choices for them are kept until you drop them."
                 </p>
                 <ul class="plain">
                     {stale
@@ -1283,7 +1287,7 @@ fn GroupPanel(
     /// The review flags builds raised, to mark a release whose game needs review.
     flags: FlagsNow,
     staged: RwSignal<Option<SelectionProfile>>,
-    /// Each winner, with the Dependencies it needs.
+    /// Each Game kept, with the Dependencies it needs.
     needs: Vec<(String, Vec<Dependency>)>,
     /// An arcade Selection, whose include list is in the system's arcade settings.
     arcade: bool,
@@ -1334,7 +1338,7 @@ fn GroupPanel(
         }
         Some(choice) => match choice.status {
             ChoiceStatus::Applied => format!(
-                "Your choice decides this group. Without it the selection would be: {}.",
+                "Your choice decides this game group. Without it the selection would be: {}.",
                 list_or_none(&picks)
             ),
             ChoiceStatus::MatchesDefault => {
@@ -1342,16 +1346,16 @@ fn GroupPanel(
                     .to_string()
             }
             ChoiceStatus::Conflicting => format!(
-                "Your choice includes a release your settings exclude: {}. It is not applied: the default applies until you change your choice or your settings.",
+                "Your choice includes a game your settings leave out: {}. It is not applied: the default applies until you change your choice or your settings.",
                 choice.problems.join(", ")
             ),
             ChoiceStatus::Stale => format!(
-                "Your choice names a release that is gone from this DAT revision: {}. It is not applied, and it is kept until you change it.",
+                "Your choice names a game that is gone from this DAT revision: {}. It is not applied, and it is kept until you change it.",
                 choice.problems.join(", ")
             ),
         },
         None if g.unresolved => unresolved_explanation(&g),
-        None => "The selection's default applies to this group.".to_string(),
+        None => "The selection's default applies to this game group.".to_string(),
     };
     let status = g.choice.as_ref().map(|c| c.status);
     let unresolved = g.engine_unresolved();
@@ -1369,7 +1373,7 @@ fn GroupPanel(
             (
                 e.title.clone(),
                 Outcome::LeftOut,
-                exclusion_text(e),
+                left_out_text(e),
                 includable(e, arcade),
             )
         }))
@@ -1397,13 +1401,13 @@ fn GroupPanel(
             .then(|| {
                 view! {
                     <p class="note small">
-                        "Coverage drift: a release in this group has no metadata entry, so the selection may know less about it."
+                        "Coverage drift: a game in this game group has no metadata entry, so the selection may know less about it."
                     </p>
                 }
             })}
         {needs_view}
         <fieldset class="releases" disabled=move || !ready()>
-            <legend>"Candidate releases: check the ones to keep"</legend>
+            <legend>"Versions: check the ones to keep"</legend>
             <ul class="plain">
                 {releases
                     .into_iter()
@@ -1475,7 +1479,7 @@ fn GroupPanel(
                             disabled=move || !ready() || has_choice()
                             on:click=move |_| update(Box::new(confirm))
                         >
-                            "Confirm these releases"
+                            "Confirm these games"
                         </button>
                     }
                 })}
@@ -1489,15 +1493,15 @@ fn GroupPanel(
                 {if status == Some(ChoiceStatus::MatchesDefault) {
                     "Drop your choice"
                 } else {
-                    "Reset to default choices for this group"
+                    "Reset to default choices for this game group"
                 }}
             </button>
         </div>
         <p class="note small">
             {if arcade {
-                "Including an excluded machine adds it to the always include list in this system's arcade settings, which are then set for this system and replace your global ones. Leaving every box unchecked leaves the group out."
+                "Including a machine that was left out adds it to the always include list in this system's arcade settings, which are then set for this system and replace your global ones. Leaving every box unchecked leaves the game group out."
             } else {
-                "Including an excluded release adds an include override for it to this system's settings. Leaving every box unchecked leaves the group out."
+                "Including a game that was left out adds an include override for it to this system's settings. Leaving every box unchecked leaves the game group out."
             }}
         </p>
     }
@@ -1611,7 +1615,7 @@ fn StagedChoices(
             <p aria-live="polite">
                 {move || match count.get() {
                     None => "Loading your selection profile…".to_string(),
-                    Some(0) => "Nothing staged. Check releases in a group to stage a choice.".to_string(),
+                    Some(0) => "Nothing staged. Check games in a game group to stage a choice.".to_string(),
                     Some(1) => "1 change staged.".to_string(),
                     Some(n) => format!("{n} changes staged."),
                 }}

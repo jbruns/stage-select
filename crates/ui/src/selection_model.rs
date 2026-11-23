@@ -17,33 +17,51 @@ use crate::placement_model::FlagsNow;
 
 pub fn outcome_label(outcome: Outcome) -> &'static str {
     match outcome {
-        Outcome::Kept => "Selected",
-        Outcome::Clone => "Alternative",
-        Outcome::LeftOut => "Excluded",
+        Outcome::Kept => "Kept",
+        Outcome::Clone => "Clone",
+        Outcome::LeftOut => "Left out",
         Outcome::Dependency => "Dependency",
     }
 }
 
-/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message, "Your
-/// choice", or, for a release its source set's coverage leaves out, that alone.
+/// What an outcome means, for its tooltip.
+pub fn outcome_hint(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Kept => "The version of a game the selection keeps.",
+        Outcome::Clone => "Another version of a game you kept.",
+        Outcome::LeftOut => "A rule of your selection profile leaves it out.",
+        Outcome::Dependency => "A game you kept needs it to run.",
+    }
+}
+
+/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message in the
+/// glossary's words, "Your choice", or, for a Game its source set's coverage leaves out, that alone.
 pub fn rule_text(rule: &Rule) -> String {
     if rule.is_choice() {
         "Your choice".to_string()
     } else if rule.is_coverage() {
         capitalised(&rule.message)
     } else {
-        let stage = crate::arcade_model::stage_label(&rule.stage).unwrap_or(&rule.stage);
-        format!("{stage}: {}", rule.message)
+        let stage = match rule.stage.as_str() {
+            // Retool's name for the stage that leaves Games out.
+            "Exclusions" => "Left out",
+            other => crate::arcade_model::stage_label(other).unwrap_or(other),
+        };
+        format!("{stage}: {}", crate::rule_words::explanation(&rule.message))
     }
 }
 
-/// Why a release was excluded: the engine's reason and the rule that applied it, or, for a release outside its source
-/// set's coverage, that once.
-pub fn exclusion_text(exclusion: &LeftOutGame) -> String {
+/// Why a Game was left out: the engine's reason and the rule that applied it, or, for a Game outside its source set's
+/// coverage, that once.
+pub fn left_out_text(exclusion: &LeftOutGame) -> String {
     if exclusion.rule.is_coverage() {
         rule_text(&exclusion.rule)
     } else {
-        format!("{}: {}", exclusion.reason, rule_text(&exclusion.rule))
+        format!(
+            "{}: {}",
+            crate::rule_words::explanation(&exclusion.reason),
+            rule_text(&exclusion.rule)
+        )
     }
 }
 
@@ -728,7 +746,7 @@ pub fn unresolved_explanation(group: &SelectionGroup) -> String {
             };
             format!("{}{}. {next}", first.unwrap_or_default(), chars.as_str())
         }
-        None => "The selection picked this by a tie-break, so it needs your decision. Check the releases you want, \
+        None => "The selection picked this by a tie-break, so it needs your decision. Check the games you want, \
                  or confirm the pick."
             .to_string(),
     }
@@ -807,7 +825,7 @@ mod tests {
         saga.unresolved = true;
         assert_eq!(
             unresolved_explanation(&saga),
-            "Its selected discs come from different releases: disc 1 from Saga (USA), disc 2 from Saga (Europe). \
+            "Its selected discs come from different versions: disc 1 from Saga (USA), disc 2 from Saga (Europe). \
              Check the discs you want, or confirm the pick."
         );
         let partial = BTreeSet::from(["Saga (Europe) (Disc 1)".to_owned()]);
@@ -1385,10 +1403,7 @@ mod tests {
             rule: Rule::coverage(),
             reason: stage_select_api::selection::COVERAGE_MESSAGE.into(),
         };
-        assert_eq!(
-            exclusion_text(&outside),
-            "Outside its source set's coverage"
-        );
+        assert_eq!(left_out_text(&outside), "Outside its source set's coverage");
 
         let demo = LeftOutGame {
             title: "Pong (Demo)".into(),
@@ -1396,9 +1411,24 @@ mod tests {
             reason: "Demos".into(),
         };
         assert_eq!(
-            exclusion_text(&demo),
+            left_out_text(&demo),
             "Demos: Parent selection: Higher region"
         );
         assert_eq!(rule_text(&Rule::choice()), "Your choice");
+        let left_out = Rule {
+            stage: "Exclusions".into(),
+            reference: None,
+            message: "Demos".into(),
+        };
+        assert_eq!(rule_text(&left_out), "Left out: Demos");
+        let sole = Rule {
+            stage: "Parent selection".into(),
+            reference: None,
+            message: "No other release competed".into(),
+        };
+        assert_eq!(
+            rule_text(&sole),
+            "Parent selection: No other version competed"
+        );
     }
 }

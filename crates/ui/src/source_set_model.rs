@@ -183,7 +183,7 @@ impl PageTab {
             PageTab::Overview => "Overview",
             PageTab::Games => "Games",
             PageTab::Entries => "Entries",
-            PageTab::Libraries => "Libraries",
+            PageTab::Libraries => "Library folders",
             PageTab::Additions => "Additions",
             PageTab::History => "History",
             PageTab::Kept => "Kept files",

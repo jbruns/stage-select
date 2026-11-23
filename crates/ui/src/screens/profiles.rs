@@ -136,7 +136,7 @@ pub fn Profiles() -> impl IntoView {
     view! {
         <h1>"Selection profiles"</h1>
         <p class="lede">
-            "A selection profile holds your settings for choosing one release per game, and your choices where you want something else. Every save is kept as a new version."
+            "A selection profile holds your settings for choosing one version per game, and your choices where you want something else. Every save is kept as a new version."
         </p>
         <div class="actions">
             <A href="/new-profile" attr:class="button">
@@ -209,7 +209,7 @@ pub fn ProfileScreen() -> impl IntoView {
                         }
                     })}
                 <Editor name=Some(record.name.clone()) initial=record.latest.clone() />
-                <WhatIfs name=name.clone() />
+                <Previews name=name.clone() />
                 <Versions name />
                 <Retirement record refresh />
             }
@@ -268,10 +268,10 @@ fn Retirement(record: ProfileRecord, refresh: RwSignal<u64>) -> impl IntoView {
     }
 }
 
-/// The profile's what-if Selections: those no Library Folder uses. A Source Set's page lists only the Selections
+/// The profile's previews: its Selections no Library Folder uses. A Source Set's page lists only the Selections
 /// its Library Folders use.
 #[component]
-fn WhatIfs(name: String) -> impl IntoView {
+fn Previews(name: String) -> impl IntoView {
     let live = use_live();
     let path = format!("/selections?profile={}", api::segment(&name));
     let selections = LocalResource::new(move || {
@@ -281,30 +281,30 @@ fn WhatIfs(name: String) -> impl IntoView {
     });
     let new_href = format!("/selections/new?profile={}", api::segment(&name));
     view! {
-        <section aria-labelledby="what-ifs-title">
-            <h2 id="what-ifs-title">"What-if selections"</h2>
+        <section aria-labelledby="previews-title">
+            <h2 id="previews-title">"Previews"</h2>
             <p class="lede">
-                "Selections of this profile that no library folder uses: what it would keep from a source set. Open one to review it, or to create a library folder from it."
+                "Selections of this profile that no library folder uses: previews of what it would keep from a source set. Open one to review it, or to create a library folder from it."
             </p>
             <div class="actions">
                 <A href=new_href attr:class="button">
-                    "New what-if selection"
+                    "Preview a selection"
                 </A>
             </div>
             {move || match selections.get() {
-                None => view! { <Loading what="the what-if selections" /> }.into_any(),
+                None => view! { <Loading what="the previews" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(all)) => {
-                    let what_ifs: Vec<SelectionRecord> = all
+                    let previews: Vec<SelectionRecord> = all
                         .into_iter()
                         .filter(|s| s.library_folders.is_empty() && !s.pruned)
                         .collect();
-                    if what_ifs.is_empty() {
+                    if previews.is_empty() {
                         return view! { <p class="note">"None yet."</p> }.into_any();
                     }
                     view! {
                         <ul class="plain">
-                            {what_ifs
+                            {previews
                                 .into_iter()
                                 .map(|s| {
                                     view! {
@@ -736,7 +736,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
 
         </div>
         <section class="editor-preview" aria-labelledby="preview-title">
-            <h2 id="preview-title">"What-if preview"</h2>
+            <h2 id="preview-title">"Selection preview"</h2>
             <form class="form" on:submit=move |ev| {
                 ev.prevent_default();
                 run_preview();
@@ -799,8 +799,8 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                         );
                         view! {
                             <p class="note">
-                                "To keep this what-if and review it group by group, save, then "
-                                <A href=href>"make a what-if selection"</A>
+                                "To keep this preview and review it one game group at a time, save, then "
+                                <A href=href>"preview a selection"</A>
                                 "."
                             </p>
                         }
@@ -864,19 +864,19 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
         <ul class="counts">
             <li class="count">
                 <span class="n">{summary.groups}</span>
-                <span class="what">"Groups"</span>
+                <span class="what">"Game groups"</span>
             </li>
             <li class="count verified">
                 <span class="n">{summary.kept}</span>
-                <span class="what">"Selected"</span>
+                <span class="what">"Kept"</span>
             </li>
             <li class="count">
                 <span class="n">{summary.clones}</span>
-                <span class="what">"Alternatives"</span>
+                <span class="what">"Clones"</span>
             </li>
             <li class="count">
                 <span class="n">{summary.left_out}</span>
-                <span class="what">"Excluded"</span>
+                <span class="what">"Left out"</span>
             </li>
             <li class="count review">
                 <span class="n">{summary.needs_review()}</span>
@@ -895,8 +895,8 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
                         "Compared with "
                         <A href=format!("/selections/{against}")>{format!("selection #{against}")}</A>
                         {format!(
-                            ", the latest saved selection for this DAT revision: {count} {} change role.",
-                            if count == 1 { "release" } else { "releases" },
+                            ", the latest saved selection for this DAT revision: {count} {} change outcome.",
+                            if count == 1 { "game" } else { "games" },
                         )}
                     </p>
                     <ChangesTable id="preview-changes" changes />
@@ -1068,7 +1068,7 @@ fn GlobalSettings(
             <OrderedList
                 id="g-local"
                 label="Languages for local names"
-                note="Used only to rename releases; it doesn't change what is selected."
+                note="Used only to rename games; it doesn't change what is selected."
                 empty=LOCALIZATION_EMPTY
                 options=vocabulary.languages.clone()
                 items=Signal::derive(move || profile.with(|p| p.localization_order.clone()))
@@ -1108,10 +1108,10 @@ fn GlobalSettings(
             </fieldset>
             <fieldset class="setting">
                 <legend>"Post filters"</legend>
-                <p class="note small">"A selected release must match one of these to stay selected."</p>
+                <p class="note small">"A selected game must match one of these to stay selected."</p>
                 <LineEditor
                     id="g-post"
-                    label="Keep only releases matching"
+                    label="Keep only games matching"
                     items=Signal::derive(move || profile.with(|p| p.post_filters.clone()))
                     on_change=Callback::new(move |v| profile.update(|p| p.post_filters = v))
                 />
@@ -1130,7 +1130,7 @@ fn OverrideHelp() -> impl IntoView {
             <code>"/"</code>
             " then a regular expression matches by pattern. Wrap one in "
             <code>"<…>"</code>
-            " to match related releases too."
+            " to match related games too."
         </p>
     }
 }
@@ -1401,7 +1401,7 @@ fn SystemSettingsForm(
                 </label>
                 <LineEditor
                     id="s-post"
-                    label="Keep only releases matching"
+                    label="Keep only games matching"
                     items=Signal::derive(move || profile.with(|p| own(p, &s.get_value()).post_filters))
                     on_change=Callback::new(move |v| update_own(profile, &s.get_value(), |o| o.post_filters = v))
                 />
@@ -1438,7 +1438,7 @@ type Flag = (
 
 const OPTIONS: &[Flag] = &[
     (
-        "Prefer releases that support RetroAchievements",
+        "Prefer versions that support RetroAchievements",
         |o| o.prefer_retroachievements,
         |o, v| o.prefer_retroachievements = v,
     ),
@@ -1453,22 +1453,22 @@ const OPTIONS: &[Flag] = &[
         |o, v| o.prefer_regions = v,
     ),
     (
-        "Prefer licensed releases",
+        "Prefer licensed versions",
         |o| o.prefer_licensed,
         |o, v| o.prefer_licensed = v,
     ),
     (
-        "Prefer releases ripped from modern rereleases",
+        "Prefer versions ripped from modern rereleases",
         |o| o.prefer_modern_rips,
         |o, v| o.prefer_modern_rips = v,
     ),
     (
-        "Leave out releases in none of your languages",
+        "Leave out versions in none of your languages",
         |o| o.filter_languages,
         |o, v| o.filter_languages = v,
     ),
     (
-        "Keep every release, not one per game",
+        "Keep every version, not one per game",
         |o| o.disable_1g1r,
         |o, v| o.disable_1g1r = v,
     ),
@@ -1476,11 +1476,9 @@ const OPTIONS: &[Flag] = &[
 
 fn compilations_label(c: Compilations) -> &'static str {
     match c {
-        Compilations::Default => {
-            "the default: individual releases unless a compilation ranks higher"
-        }
-        Compilations::Individual => "always prefer individual releases",
-        Compilations::Keep => "keep individual releases and compilations",
+        Compilations::Default => "the default: individual games unless a compilation ranks higher",
+        Compilations::Individual => "always prefer individual games",
+        Compilations::Keep => "keep individual games and compilations",
         Compilations::Optimize => "least duplication (experimental)",
     }
 }

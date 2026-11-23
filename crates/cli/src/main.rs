@@ -175,7 +175,7 @@ enum Command {
         chdman: Option<PathBuf>,
     },
     /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
-    /// as JSON: every group's kept releases, clones and releases left out, with the rule responsible for each.
+    /// as JSON: every game group's kept games, clones and games left out, with the rule responsible for each.
     Select {
         /// The Logiqx XML DAT file to select from.
         #[arg(long)]
@@ -229,7 +229,7 @@ enum FixdatScopeArg {
 
 #[derive(clap::Args)]
 struct ExportArgs {
-    /// Limit the export to the kept releases of this selection, by its id. It must be a selection of the same source set,
+    /// Limit the export to the games this selection kept, by its id. It must be a selection of the same source set,
     /// against the DAT revision of its latest audit.
     #[arg(long)]
     selection: Option<i64>,

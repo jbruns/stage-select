@@ -190,7 +190,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
                 ..ItemRow::new(&i.target, &i.game, proposed)
                     .fact("Why", i.reason.clone())
                     .fact(
-                        "Kept aside first",
+                        "Set aside first",
                         i.keep
                             .as_ref()
                             .map(|k| format!("{} ({})", k.name, keep_reason_label(k.reason))),
@@ -199,7 +199,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
                         "Converts",
                         i.converts.as_ref().map(|c| {
                             format!(
-                                "{}, stored the other way, kept aside once this is written",
+                                "{}, stored the other way, set aside once this is written",
                                 c.name
                             )
                         }),
@@ -244,7 +244,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
         ItemRow::new(&kept, game, &r.target).fact("Does", restore_kind_label(r.kind).to_string())
     });
     let repacks = cleanup.repacks.iter().map(|r| {
-        let does = "Repack as TorrentZip, keeping the file as it is aside";
+        let does = "Repack as TorrentZip, setting the file as it is aside";
         ItemRow::new(&r.target, &r.game, &r.target).fact("Does", does.to_string())
     });
     with_kinds(content, entries.chain(restores).chain(repacks))
@@ -442,9 +442,9 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 ..choices.clone()
             };
             let label = if on {
-                "Build resolved groups only"
+                "Build resolved game groups only"
             } else {
-                "Plan every group again"
+                "Plan every game group again"
             };
             view! {
                 <div class="form">

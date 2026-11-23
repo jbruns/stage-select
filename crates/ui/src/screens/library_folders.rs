@@ -743,7 +743,7 @@ pub fn Libraries() -> impl IntoView {
     });
 
     view! {
-        <h1>"Libraries"</h1>
+        <h1>"Library folders"</h1>
         <p class="lede">"Folders you build a source set's selections into, for your front end to play from."</p>
         {move || match folders.get() {
             None => view! { <Loading what="the library folders" /> }.into_any(),
@@ -927,7 +927,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
             ("/source-sets".to_string(), "Source sets".to_string()),
             (set_href(name), name.clone()),
         ],
-        None => vec![("/libraries".to_string(), "Libraries".to_string())],
+        None => vec![("/libraries".to_string(), "Library folders".to_string())],
     };
     view! {
         <Crumbs trail here="New library folder" />
@@ -1593,7 +1593,7 @@ fn CleanupForm(
                 return view! {
                     <p class="note">
                         "Nothing to clean up: the latest check found nothing Stage Select did not build, every built \
-                        file is TorrentZip, and no files are kept aside."
+                        file is TorrentZip, and no files are set aside."
                     </p>
                 }
                 .into_any();
@@ -1684,7 +1684,7 @@ fn CleanupForm(
                                             />
                                             " Repack "
                                             <code>{target}</code>
-                                            " as TorrentZip, keeping the file as it is aside"
+                                            " as TorrentZip, setting the file as it is aside"
                                         </label>
                                     </li>
                                 }
@@ -1740,10 +1740,10 @@ fn CleanupForm(
             <h2 id="cleanup-title">"Clean up the folder"</h2>
             <p class="lede">
                 {format!(
-                    "Choose what to do with what the latest check found. Keep an entry aside, and it is moved, whole, \
+                    "Choose what to do with what the latest check found. Set an entry aside, and it is moved, whole, \
                      into {RETENTION}; adopt a file that holds a selected game, and it is recorded as built under that \
                      game's file name; acknowledge an entry, and it is no longer reported until it changes; add a file \
-                     no DAT knows as an addition, and it is kept aside and copied into its system's \
+                     no DAT knows as an addition, and it is set aside and copied into its system's \
                      additions set. Anything \
                      you do not choose is left as it is, and nothing changes until you approve the plan."
                 )}
@@ -2571,7 +2571,7 @@ fn KeptFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl In
         None => view! { <Loading what="the kept files" /> }.into_any(),
         Some(Err(message)) => view! { <Problem message /> }.into_any(),
         Some(Ok(files)) if files.is_empty() => {
-            view! { <p class="note">"No files are kept aside."</p> }.into_any()
+            view! { <p class="note">"No files are set aside."</p> }.into_any()
         }
         Some(Ok(files)) => {
             let mut generations: Vec<(u64, Vec<KeptFile>)> = Vec::new();
@@ -2702,7 +2702,7 @@ fn KeptFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl In
         <section aria-labelledby="kept-title">
             <h2 id="kept-title">"Kept files"</h2>
             <p class="lede">
-                "Files builds moved aside instead of deleting: removed, replaced, or conflicts you chose to keep aside. \
+                "Files builds moved aside instead of deleting: removed, replaced, or conflicts you chose to set aside. \
                 Nothing here is deleted until you approve it."
             </p>
             <ActionPending action=planning status="Making the deletion plan…">

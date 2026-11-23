@@ -2370,7 +2370,7 @@ fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_st
             && pong
                 .error
                 .as_deref()
-                .is_some_and(|e| e.contains("kept aside as Pong (USA).zip.kept")),
+                .is_some_and(|e| e.contains("set aside as Pong (USA).zip.kept")),
         "{pong:?}"
     );
     assert_eq!(
@@ -4788,7 +4788,7 @@ fn a_renamed_game_is_left_when_its_track_is_the_last_copy_of_one_the_dat_pins_mo
     assert_eq!(
         left.note.as_deref(),
         Some(
-            "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes"
+            "left as it is: it would set aside the only copy of a ROM no repair in this plan writes"
         )
     );
     env.approve(&plan);

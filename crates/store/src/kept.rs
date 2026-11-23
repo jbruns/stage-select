@@ -814,7 +814,7 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
 
 /// Why a selected game's file is missing that a cleanup kept aside to repack, while its repacked copy is not in place.
 pub(super) const REPACK_UNPUBLISHED: &str =
-    "it was kept aside to be repacked, but the repacked copy is not in place";
+    "it was set aside to be repacked, but the repacked copy is not in place";
 
 impl Store {
     /// Keeps aside, through the folder's handle `dir`, the file `k.keep` names: only while it is the regular file the
@@ -833,7 +833,7 @@ impl Store {
         let directory = k.keep.directory;
         let left = |why: &str| {
             Ok(Err(format!(
-                "{name} was not kept aside: {why}; it was left as it is"
+                "{name} was not set aside: {why}; it was left as it is"
             )))
         };
         if !is_kept_entry(dir, name, id, Some(&k.keep.file), directory) {
@@ -959,7 +959,7 @@ impl Store {
         };
         if !is_kept_entry(dir, name, id, Some(&k.keep.file), directory) {
             return forget(format!(
-                "{name} was not kept aside: it changed while it was read; it was left as it is"
+                "{name} was not set aside: it changed while it was read; it was left as it is"
             ));
         }
         // A hash this step did not read is trusted only while nothing about the file has changed since it was read.
@@ -980,14 +980,14 @@ impl Store {
                 || !is_kept_entry(dir, name, id, Some(&k.keep.file), directory)
             {
                 return forget(format!(
-                    "{name} was not kept aside: it changed while it was read; it was left as it is"
+                    "{name} was not set aside: it changed while it was read; it was left as it is"
                 ));
             }
         }
         if let Err(e) = dir.rename_new(name, &retention.generation, &kept) {
             return match e.kind() {
                 io::ErrorKind::AlreadyExists => forget(format!(
-                    "{name} was not kept aside: {kept} appeared in the retention area; it was left as it is"
+                    "{name} was not set aside: {kept} appeared in the retention area; it was left as it is"
                 )),
                 _ => {
                     let _ = forget(e.to_string())?;
@@ -1073,7 +1073,7 @@ impl Store {
         let Some(trusted) = trusted.filter(|_| !file.directory) else {
             return Ok(left(
                 &file,
-                "it was not read as it was kept aside, so nothing shows it is the original; it stays kept".into(),
+                "it was not read as it was set aside, so nothing shows it is the original; it stays kept".into(),
             ));
         };
         let (sha256, ctime_ns) = trusted;
@@ -1205,7 +1205,7 @@ impl Store {
                             build,
                             seq,
                             format!(
-                                "the build stopped while keeping {name} aside; it is kept as \
+                                "the build stopped while setting {name} aside; it is kept as \
                                  {RETENTION}/{generation}/{kept}"
                             )
                         ],
@@ -1213,7 +1213,7 @@ impl Store {
                     note(
                         "failed",
                         format!(
-                            "the build stopped after keeping {name} aside as {RETENTION}/{generation}/{kept}, before \
+                            "the build stopped after setting {name} aside as {RETENTION}/{generation}/{kept}, before \
                              it wrote the new file"
                         ),
                     )?;
@@ -1221,11 +1221,11 @@ impl Store {
                     tx.execute("DELETE FROM kept_files WHERE id = ?1", [id])?;
                     note(
                         "failed",
-                        format!("the build stopped before it kept {name} aside; it is still in place"),
+                        format!("the build stopped before it set {name} aside; it is still in place"),
                     )?;
                 } else {
                     let error = format!(
-                        "the build stopped while keeping {name} aside, and it is now neither in place nor at \
+                        "the build stopped while setting {name} aside, and it is now neither in place nor at \
                          {RETENTION}/{generation}/{kept}; something else moved it"
                     );
                     tx.execute(
@@ -1379,7 +1379,7 @@ impl Store {
                 Ok(read)
             } else {
                 Err(format!(
-                    "{kept} no longer holds what was kept aside, so it cannot be deleted"
+                    "{kept} no longer holds what was set aside, so it cannot be deleted"
                 ))
             }
         }))
@@ -2082,7 +2082,7 @@ impl Store {
 }
 
 const CHANGED: &str = "it changed since you reviewed its deletion, so it is never deleted";
-const CONVERTED_CHANGED: &str = "it no longer reads as it did when its conversion kept it aside, or nothing shows \
+const CONVERTED_CHANGED: &str = "it no longer reads as it did when its conversion set it aside, or nothing shows \
      that it does, so it is never deleted";
 const NOT_THE_FILE: &str =
     "what is there now is not the file that was kept, so it is never deleted";

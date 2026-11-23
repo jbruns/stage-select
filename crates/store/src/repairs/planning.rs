@@ -147,16 +147,16 @@ const PLACED_CHD_UNVERIFIED: &str = "it is placed as a CHD in a play library fol
 
 /// Why a repair leaves an item that would keep aside the only copy of a ROM.
 const ONLY_COPY: &str =
-    "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes";
+    "left as it is: it would set aside the only copy of a ROM no repair in this plan writes";
 
 /// Why a repair leaves an item that would keep a file aside before another item writes the copy that file holds.
-const WAITS_ON_LATER: &str = "left as it is: it would keep aside a copy of a ROM before another item of this repair \
+const WAITS_ON_LATER: &str = "left as it is: it would set aside a copy of a ROM before another item of this repair \
      writes it, so it couldn't wait for that file to be written and verified; you can repair it once this repair is \
      done";
 
 /// Why a repair leaves, by default, a file holding only copies of ROMs another file holds or this plan writes.
-const SPARE_COPY: &str = "left as it is: a repair keeps a copy of a ROM aside only when you choose to. If you do, it \
-     is kept aside only once every file this repair reads from it, or writes with a copy of what it holds, is written \
+const SPARE_COPY: &str = "left as it is: a repair sets a copy of a ROM aside only when you choose to. If you do, it \
+     is set aside only once every file this repair reads from it, or writes with a copy of what it holds, is written \
      and verified";
 
 /// What becomes of each disc of a placed release a repair releases (ADR 0023): every CHD of it is set aside, never
@@ -1353,7 +1353,7 @@ fn disk_fills<'p>(
             true => (RepairKind::Fill, format!("write {target} from {from}")),
             false => (
                 RepairKind::Replace,
-                format!("keep {target} aside, and write it from {from}"),
+                format!("set {target} aside, and write it from {from}"),
             ),
         };
         proposed.push(Proposed {
@@ -1466,8 +1466,8 @@ fn left_for_nodump<'a>(
     if_chosen: IfChosen,
 ) -> Option<String> {
     let (result, choose) = match if_chosen {
-        IfChosen::Repair => ("repairing would move it or keep it aside", "repair"),
-        IfChosen::KeepAside => ("this would keep it aside", "keep it aside"),
+        IfChosen::Repair => ("repairing would move it or set it aside", "repair"),
+        IfChosen::KeepAside => ("this would set it aside", "set it aside"),
     };
     let (entry, (rom, of)) = files
         .into_iter()
@@ -1700,7 +1700,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 displaces: match chosen {
                     RepairChoice::KeepAside => vec![(
                         path.to_string(),
-                        "you chose to keep its conflicting entry aside".into(),
+                        "you chose to set its conflicting entry aside".into(),
                     )],
                     _ => Vec::new(),
                 },
@@ -1933,7 +1933,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let left_in_way = |path: &str| {
             format!(
                 "{game} is left as it is: {path} is in the way, and it holds a conflicting entry you chose to leave; \
-                 choose to keep that entry aside to repair it"
+                 choose to set that entry aside to repair it"
             )
         };
         if let Some(occupant) = occupants.iter().find(|o| left_conflicts.contains(**o)) {
@@ -2209,7 +2209,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         false => (
                             RepairKind::Replace,
                             format!(
-                                "keep {} aside, and write {} into {target} from {}",
+                                "set {} aside, and write {} into {target} from {}",
                                 displaces
                                     .iter()
                                     .map(|(path, _)| path.as_str())
@@ -2552,7 +2552,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             false => (
                 RepairKind::Replace,
                 format!(
-                    "keep {} aside, and write {target} from {} in ingest folder {}",
+                    "set {} aside, and write {target} from {} in ingest folder {}",
                     attributable.join(", "),
                     c.item.name,
                     c.root
@@ -2726,10 +2726,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                             format!("forget {chd}, which is gone; nothing is kept")
                         }
                         Freed::Gone => format!(
-                            "forget {chd}, which is gone, and keep the files laid out beside it aside in your \
+                            "forget {chd}, which is gone, and set the files laid out beside it aside in your \
                              source set's kept files"
                         ),
-                        _ => format!("keep {chd} aside in your source set's kept files"),
+                        _ => format!("set {chd} aside in your source set's kept files"),
                     },
                 ),
                 proposal: None,
@@ -3049,7 +3049,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .collect();
     for (n, lost) in last {
         proposed[n].item.note = Some(format!(
-            "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
+            "this sets aside the last copy in the source set of {}; you can restore it from the kept files",
             lost.join(", ")
         ));
     }
@@ -3080,7 +3080,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // a conversion's, which never needs waiting for.
     if let Some(item) = ungated.first() {
         return Err(Error::Refused(format!(
-            "{item} would keep a file aside before the copy it relies on is written; plan again"
+            "{item} would set a file aside before the copy it relies on is written; plan again"
         )));
     }
     let releasing = proposed

@@ -1876,7 +1876,7 @@ fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_w
     assert_eq!(
         *held.lock().unwrap(),
         [1, 1, 1],
-        "one original, of Pong and each addition, kept aside at a time"
+        "one original, of Pong and each addition, set aside at a time"
     );
     assert_eq!(std::fs::read(dir.join("My Hack.a26")).unwrap(), b"My Hack");
     assert_eq!(std::fs::read(dir.join("Demo.a26")).unwrap(), b"Demo");

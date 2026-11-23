@@ -187,7 +187,10 @@ fn a_scope_limits_both_exports_to_its_games() {
 
     let xml = lacking.fixdat();
     assert_eq!(parse(&xml).games, ["Combat (USA)"]);
-    assert!(xml.contains("winners of selection 3"), "{xml}");
+    assert!(
+        xml.contains("limited to the games selection 3 kept"),
+        "{xml}"
+    );
     let games: Vec<String> = lacking
         .have_miss()
         .lines()

@@ -2036,7 +2036,7 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
         b"theirs",
         "the folder put in its place is left as it is"
     );
-    assert_eq!(names(&dir), before, "nothing was kept aside");
+    assert_eq!(names(&dir), before, "nothing was set aside");
     assert!(env.store.kept_files(folder.id).unwrap().is_empty());
     let (env, _) = env.restart();
     let next = env.plan(&folder, plan.content.selection);
@@ -4109,7 +4109,7 @@ fn a_group_whose_discs_come_from_different_releases_blocks_the_plan_and_says_why
     assert_eq!(blocker.group.as_deref(), Some("saga"));
     assert!(
         blocker.message.contains(
-            "its selected discs come from different releases: disc 1 from Saga (USA), disc 2 from Saga (Europe)"
+            "its selected discs come from different versions: disc 1 from Saga (USA), disc 2 from Saga (Europe)"
         ),
         "{}",
         blocker.message

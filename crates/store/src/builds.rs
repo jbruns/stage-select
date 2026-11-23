@@ -1705,7 +1705,7 @@ fn build_items(c: &Connection, build: i64) -> Result<Vec<BuildItem>> {
 const CANCELLED_ITEM: &str = "you cancelled the build before it got to this";
 
 /// How a cancelled Build's Job ends.
-const CANCELLED_BUILD: &str = "you cancelled the build; each file it had put in place or kept aside stays so, and \
+const CANCELLED_BUILD: &str = "you cancelled the build; each file it had put in place or set aside stays so, and \
                                a new plan finishes the folder";
 
 /// Ends Build `build` of `folder`, and its Job `job`, which you cancelled between two of its items: each item it did
@@ -1924,7 +1924,7 @@ struct Publishing {
 fn unit_stuck(release: &str, target: &str, error: &str) -> String {
     format!(
         "the discs of {release} go in place together, but {target} could not be put in place: {error}. Its other \
-         discs, the checked files waiting to go in place and anything kept aside were all kept, and the build \
+         discs, the checked files waiting to go in place and anything set aside were all kept, and the build \
          finishes {release} when the service next starts, once {target} can be put in place"
     )
 }

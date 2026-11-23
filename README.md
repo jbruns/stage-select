@@ -213,7 +213,7 @@ stage-select select --dat <DAT file> --profile <selection profile file> [--outpu
   [--clone-lists <dir>] [--support-file <catver.ini, languages.ini or bestgames.ini>]...
 ```
 
-Chooses releases from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
+Chooses games from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
 `--output`. Selection runs inside Stage Select, offline, and stops after `--timeout` seconds (600 by default). It reads
 a pinned copy of the clone lists and metadata: `--clone-lists`, else `STAGE_SELECT_CLONE_LISTS`, else
 `/opt/clone-lists`, where the image has them. Clone lists fetched at another commit than this binary's pins are
@@ -255,7 +255,7 @@ refused:
   "systems": {                                 // keyed by the system name derived from the DAT header
     "Atari - Atari 2600 (No-Intro)": { "region_order": ["Europe", "USA"], "replace_post_filters": false }
   },
-  "choices": {                                 // your choices, by system and then group: the releases you checked
+  "choices": {                                 // your choices, by system and then game group: the games you checked
     "Atari - Atari 2600 (No-Intro)": { "pong": ["Pong (Europe)"], "parachute": [] }
   }
 }
@@ -301,15 +301,16 @@ without it; the selection says which. With `curated` on, the curated list decide
 steps you list. `minimum_rating` and `drop_unrated` read `bestgames.ini`: without it, they drop nothing, and the
 selection lists the rating filter as unavailable.
 
-In overrides and post filters, plain text matches part of a release's name, `|` the full name and `/` a regular
+In overrides and post filters, plain text matches part of a game's name, `|` the full name and `/` a regular
 expression (Python syntax, ignoring case). A profile with a regular expression that doesn't compile is refused, so it
 can't silently match nothing; so is one that nests groups more than 60 deep. Anything else the engine warns about on a run that succeeds goes to the server's log, or
 to standard error for `stage-select select`.
 
-A choice replaces the selection's winners in one group with the releases you checked, zero or more, after the engine
-has run. It is kept only where it differs from what the engine picks, or where you confirmed an unresolved group's
-pick. A choice is not applied, and is flagged, when a checked release is now excluded by your settings (conflicting)
-or gone from the group (stale); a choice for a group that is gone is kept and listed until you drop it. A choice that
+A choice replaces the games the selection kept in one game group with the games you checked, zero or more, after
+the engine has run. It is kept only where it differs from what the engine picks, or where you confirmed an unresolved
+game group's pick. A choice is not applied, and is flagged, when a checked game is now left out by your settings
+(conflicting) or gone from the game group (stale); a choice for a game group that is gone is kept and listed until you
+drop it. A choice that
 the engine now makes anyway is flagged as matching the default, so you can drop it.
 
 ```jsonc
@@ -329,7 +330,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   "groups": [
     {
       "group": "parachute",
-      "unresolved": true,            // decided by a tie-breaker: the kept release is provisional
+      "unresolved": true,            // decided by a tie-breaker: the kept game is provisional
       "kept": [
         { "title": "…", "unresolved": true,
           "rule": { "stage": "Parent selection", "ref": "REF0059", "message": "…" } }
@@ -350,20 +351,20 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   `category` (`catver` or `listxml_heuristic`, absent when your category filter is off), and the filters you turned on
   that were `unavailable` because the DAT had nothing for them to read, or, for `rating`, because no `bestgames.ini`
   was read.
-- Each release in `kept`, `clones` and `left_out` carries the rule that decided it: the stage, the engine's trace
-  reference and its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
-- A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
+- Each game in `kept`, `clones` and `left_out` carries the rule that decided it: the stage, the engine's trace
+  reference and its message. `ref` is absent when no trace record names the game, for example a game filtered out by region.
+- A game group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
-  different releases, or whose selected release lacks a disc: one of its own, even one your settings exclude, or one
-  another release in the group has that your settings don't exclude. A game is selected whole, never half. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing other
-  releases, resolves it. A choice of discs resolves it only while its discs cover the game, even mixed from several
-  releases: a saved choice is flagged again, and kept, when a newer DAT revision adds a disc it doesn't cover.
-- A group with your choice carries `choice`: the releases you checked, its `status` (`applied`, `matches_default`,
-  `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Releases it moved carry
-  a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.
-- A group has `drift` when a release in it has no metadata, or the clone list names it but no longer matches the DAT.
+  different versions, or whose selected version lacks a disc: one of its own, even one your settings exclude, or one
+  another version in the game group has that your settings don't exclude. A game is selected whole, never half. The engine's pick stays kept, provisionally: review it. Confirming it, or choosing other
+  games, resolves it. A choice of discs resolves it only while its discs cover the game, even mixed from several
+  versions: a saved choice is flagged again, and kept, when a newer DAT revision adds a disc it doesn't cover.
+- A game group with your choice carries `choice`: the games you checked, its `status` (`applied`, `matches_default`,
+  `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Games it moved carry
+  a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for game groups that are gone.
+- A game group has `drift` when a game in it has no metadata, or the clone list names it but no longer matches the DAT.
 - A selection the service makes from a source set with a coverage (see "Coverage") chooses only among the games in
-  it. `pins.coverage` lists the regions it chose among, and each release outside them is left out, and its rule's
+  it. `pins.coverage` lists the regions it chose among, and each game outside them is left out, and its rule's
   stage is `coverage`, with the message "outside its source set's coverage". Without a coverage, `pins` has no
   `coverage`.
 
@@ -786,7 +787,7 @@ header rule, so does the fixdat, since its ROM sizes and hashes leave out the he
 | `available_elsewhere_roms` | the ROMs you lack that are inside another game's ZIP or folder in the source set |
 
 ROM names in a cell are separated by `|`, which no file name holds. With `--selection`, either export covers only
-the winners of that selection, which must be a selection of the same source set against the latest audit's DAT
+the games that selection kept, which must be a selection of the same source set against the latest audit's DAT
 revision. When the source set has a coverage, `fixdat` lists only the games in it by default, and its description
 names the coverage; `--scope dat` lists every game of the DAT instead, and `--scope coverage` on a source set without
 a coverage is refused. `have-miss` lists every game of the DAT, whatever the coverage. Both write to stdout; `--output` writes to a file, or into a folder under the export's own name, such as
@@ -1063,7 +1064,7 @@ stale. What it changes:
   can't be approved under another (see "Repairs"). An ingest item that matches only games outside your coverage
   shows as outside your coverage, and isn't proposed to fill them.
 - **Selections.** A selection from the source set chooses only among the games in its coverage, and records the
-  coverage it was made under. A release outside it is excluded, as "outside its source set's coverage". A disc
+  coverage it was made under. A game outside it is left out, as "outside its source set's coverage". A disc
   outside your coverage still counts towards whether a chosen multi-disc game is whole. Changing the coverage makes
   stale each library folder built from the source set whose current build was selected under another coverage, as
   "coverage changed", until it is built from a selection made under the new one.
@@ -1224,7 +1225,7 @@ game's files and names the folder, so you can move it.
 
 A disc system's own setting can also put each disc's SBI file beside it: with "Put SBI files beside discs" on, a build
 writes each disc's `.sbi` from the system's latest fetched SBI pack, named for and beside its `.cue` or `.chd`. A disc
-the pack has no SBI file for gets none. Turning it off keeps the SBI files aside in your kept files. A plan records
+the pack has no SBI file for gets none. Turning it off sets the SBI files aside in your kept files. A plan records
 the SBI pack it uses: if a newer pack arrives before you run it, the plan is out of date and you review a new one.
 
 A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say CHD,
@@ -1242,13 +1243,13 @@ twice its CHD's size while it runs: it writes the tracks, makes the CHD, unpacks
 into place. It removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each
 GiB of the disc, set by the CHD time limits under Settings, then Operations; one that runs longer is stopped,
 and its disc fails. The discs of one game are put in place together: every disc is made and checked first, and if one
-fails, or you cancel before the last is checked, none is, and the game stays as it was. Once any file is kept aside or
+fails, or you cancel before the last is checked, none is, and the game stays as it was. Once any file is set aside or
 put in place for them, the rest follow, even if you cancel or the service stops. If one disc can't be put in place, its
-checked file and anything kept aside are held, the folder takes no new build, and the build says why; it finishes the
+checked file and anything set aside are held, the folder takes no new build, and the build says why; it finishes the
 game when the service next starts, once that disc can go in place. When the new CHDs replace a game's earlier files, an
 earlier file is deleted, if you chose that, only while its CHD is still the file that was checked: the same size and
 modification time, and, read whole again just before, the same SHA-256. Otherwise it stays in your kept files. A plan
-never adopts a CHD a build didn't write, or one put back from kept files: it keeps it aside and builds the disc again,
+never adopts a CHD a build didn't write, or one put back from kept files: it sets it aside and builds the disc again,
 unless a cleanup adopts it first (see below).
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
@@ -1270,7 +1271,7 @@ audit verified, and moves the original into the folder's kept files.
 "Delete originals after conversion", set globally and for each system in each scope, is off by default. When it's on,
 a conversion deletes each original only once its converted file is verified: a TorrentZip is opened as canonical and
 its members' hashes and sizes match the ROMs exactly; a loose file's hashes match its ROM exactly. The original is
-kept aside first, then moved into `.stage-select/retained/.deleting` and read back through the same open file, and
+set aside first, then moved into `.stage-select/retained/.deleting` and read back through the same open file, and
 deleted only when it still matches what the conversion read and recorded, before it put the converted file in place:
 its hash, size, modification time and change time. A check of the folder never changes that record. An original
 that changed in any way, even repacked with the same ROMs, or whose converted file doesn't verify, stays in the kept
@@ -1296,7 +1297,7 @@ ZIP that holds it, and a ZIP another game is written into is read but never set 
 layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is written and
 verified; if one of them fails, it stays. By default a repack only builds, renames, fills and converts: a file left
 holding only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to
-keep it aside, and the item says so. A family is repacked whole: leaving one game of it as it is leaves the family's
+set it aside, and the item says so. A family is repacked whole: leaving one game of it as it is leaves the family's
 other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists for it wins, a game's own
 before its dependencies' and a parent's before its clones', the plan's notes say which ROM was left out, and the file
 that holds it stays where it is. Disks are never moved by the set layout: they stay in a folder named for the family's
@@ -1318,16 +1319,16 @@ and a check never reports what is in it as a change to the folder. A plan refuse
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
 
-A plan lists, for each selected release, what a build would do, from the selection and the source set's latest audit
+A plan lists, for each selected game, what a build would do, from the selection and the source set's latest audit
 against the selection's DAT revision:
 
 - **copy** a source that is already the game's TorrentZip, holding exactly its ROMs, where the storage policy says
   TorrentZip;
 - **repack** the game's ROMs into a new TorrentZip, or, where the storage policy says loose, write its one ROM as a
   loose file. A game built the other way is converted: the new file is written and put in place, then the old one
-  is kept aside, or deleted once the new one verifies when delete originals after conversion is on, before the next
+  is set aside, or deleted once the new one verifies when delete originals after conversion is on, before the next
   game is written, so a conversion never needs room for a second copy of the folder. An old file left in place by a
-  stop is kept aside, or deleted under the same rule, by the next build, before it writes anything else: the plan
+  stop is set aside, or deleted under the same rule, by the next build, before it writes anything else: the plan
   lists it with the file that replaced it;
 - **unchanged**: the folder already holds the file, as built;
 - **no source**: no audited file holds every ROM, by payload. Claims are never sources: a ROM only a quick
@@ -1340,20 +1341,20 @@ against the selection's DAT revision:
   expects, or, for an `.m3u` or an SBI file, is exactly the file a build writes there. Nothing is written; the build checks the file
   again and records it as built. A disc file adopted inside a `<game>.cue/` or `<game>.m3u/` folder records that
   folder as made by a build, so it is removed once empty;
-- **unresolved**: you chose to build resolved groups only, and the game's group is unresolved. Whatever is at its
+- **unresolved**: you chose to build resolved game groups only, and the game's game group is unresolved. Whatever is at its
   target is left untouched.
 
 Each ROM's source is ranked: matched before misnamed or conflicting, payload evidence before metadata, a copyable
 archive before another, then by path. No source, conflict and blocked items are skipped and shown. A plan cannot be
-approved while the source set has no audit against the selection's DAT revision, a group is unresolved and you have
-neither confirmed a choice nor chosen to build resolved groups only, the root is not writable, or the folder, its
+approved while the source set has no audit against the selection's DAT revision, a game group is unresolved and you have
+neither confirmed a choice nor chosen to build resolved game groups only, the root is not writable, or the folder, its
 marker or its retention area is wrong. It shows what changed since the current build, and whether your settings,
 your choices or the DAT revision caused it.
 
-A plan never deletes a file. A built file whose game is no longer selected is a removal: the plan keeps it aside when
+A plan never deletes a file. A built file whose game is no longer selected is a removal: the plan sets it aside when
 a check finds it as built, forgets its record when it is gone already, and leaves it when it changed since it was
 built. A built file the plan writes again from other ROMs, as when a newer DAT revision changes the game, is a
-replacement: the old file is kept aside and the new one written in the same build. Keeping a file aside moves it, by
+replacement: the old file is set aside and the new one written in the same build. Setting a file aside moves it, by
 one rename that never replaces anything, into `.stage-select/retained/<generation>/<name>.kept` in the same folder,
 only while it is still the file the plan found. The retention area and each generation's folder are created under a
 temporary name the store records, made durable, renamed into place without replacing anything, and used only while
@@ -1362,8 +1363,8 @@ recorded; none of these folders is ever removed, even once empty. The store reco
 that kept it and its provenance, and holds that provenance's selection and audit from pruning. A plan never removes a
 file Stage Select did not build.
 
-Your choices are part of the plan, and of its digest: building resolved groups only, and, for each conflict, leaving
-it (the default), adopting it when it holds the ROMs the DAT expects, or keeping it aside and building the game in its
+Your choices are part of the plan, and of its digest: building resolved game groups only, and, for each conflict, leaving
+it (the default), adopting it when it holds the ROMs the DAT expects, or setting it aside and building the game in its
 place. To change one, plan again with it. The removals are part of the digest too.
 
 Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-files`), plan deleting some or all
@@ -1389,21 +1390,21 @@ Select's own entries are never drift. Drift is a warning: only a conflict at a s
 incomplete.
 
 A cleanup acts on what a check found, only as you choose, entry by entry (`POST /libraries/{id}/cleanups`):
-keep an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
+set an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
 a selected game's ROMs under the current DAT revision, renamed to that game's file name when it is not already, and
 recorded as built; or acknowledge an entry, which writes nothing to the folder and stops reporting it until its
 identity, size or modification time changes; or add a file that holds one ROM no DAT knows as an addition,
-which keeps it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
+which sets it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
 free and, for a file holding a selected game, that game's file name; a kept file holding a selected game under
 another name is adopted under that game's file name instead, and one whose name is taken is refused. It repacks a
-built file flagged not TorrentZip from its own contents, in one read, keeping the file as it was aside; if the
-service stops after the old file is kept aside and before the new one is in place, a selected game is reported failed, so
+built file flagged not TorrentZip from its own contents, in one read, setting the file as it was aside; if the
+service stops after the old file is set aside and before the new one is in place, a selected game is reported failed, so
 the folder shows as incomplete until you put the kept copy back or build again. A kept folder is put back
 as it was, never adopted or deleted by Stage Select. A disc layout you laid out yourself, the way a build lays out
 the play library, can be adopted file by file where it is, with nothing rebuilt: each disc's `.cue` and tracks in
 a `<game>.cue/` or `<game>.m3u/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
 extracted once to check every track, or the image, against the DAT, then recorded by the SHA-1 its header holds, as a
-build records the CHDs it writes; each `.m3u`, only when its text is exactly what a build writes for that release; and
+build records the CHDs it writes; each `.m3u`, only when its text is exactly what a build writes for that game; and
 each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. A
 CD's CHD must also give back the layout of the DAT's cue sheet: each track's mode, its INDEX 00 and 01, and any PREGAP
 or POSTGAP, compared with the cue sheet your source set holds for that disc, which must match the DAT. With no such cue
@@ -1421,9 +1422,9 @@ cleanup needs a current build, whose selection and DAT revision it uses; only on
 advances the folder's generation. A cleanup never counts as a build: a build that stopped stays reported until a
 build finishes.
 
-A folder is incomplete when its current build lacks some of its selection: unresolved groups left out, games with no
+A folder is incomplete when its current build lacks some of its selection: unresolved game groups left out, games with no
 source, files that failed, conflicts and blocked games, built files a check found missing, or a disc of a selected
-multi-disc game that no selected release has. The store records this
+multi-disc game that no selected version has. The store records this
 for each build, with counts and items by reason; it is never written to the marker. A build cut off by a stop or a
 failure shows as an interrupted or failed build, with how many files were applied and how many are uncertain, from
 the store's record, straight after a restart. Planning again finishes it: the files already built are unchanged.
@@ -1661,7 +1662,7 @@ Discarding an item moves it into the folder's kept files, `.stage-select/retaine
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
 audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
-file keeps it as `support-file import` would, then keeps the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
+file keeps it as `support-file import` would, then sets the file aside the same way. Within one filesystem a move is a rename that never replaces anything. What
 arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
 meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
 The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is
@@ -1691,8 +1692,8 @@ approving approves the plan as it was made, so it waits while you have changes y
   written out together in one read of it:
   always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
   original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
-  converted file's name is taken, the original stays where it is, unless you chose to keep what is there aside: it
-  is kept aside before the converted file is put in place;
+  converted file's name is taken, the original stays where it is, unless you chose to set what is there aside: it
+  is set aside before the converted file is put in place;
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
   original: on by default when there is one;
@@ -1706,13 +1707,13 @@ approving approves the plan as it was made, so it waits while you have changes y
   and the plan says which ROMs;
 - a MAME game's missing disk is filed from an ingest folder's CHD that `chdman verify` proved, into its family's folder,
   `<parent>/<disk>.chd`, as a merged CHD set keeps it: the folder of the furthest of its parent and BIOS that lists it
-  too, under that one's name for it, replacing a CHD there that can match no disk and keeping that one aside. A disk the
-  audit matched stays where it is: a repair never keeps it aside, and never packs a CHD into a game's ZIP;
+  too, under that one's name for it, replacing a CHD there that can match no disk and setting that one aside. A disk the
+  audit matched stays where it is: a repair never sets it aside, and never packs a CHD into a game's ZIP;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
-  to take it as the ROM its payload matches, keep it aside or leave it;
-- unmatched entries and extra members of a game's ZIP are kept aside by default;
+  to take it as the ROM its payload matches, set it aside or leave it;
+- unmatched entries and extra members of a game's ZIP are set aside by default;
 - a file holding only copies of ROMs that another file holds, or that the repair writes, is left where it is by
-  default. You can choose to keep it aside: it's kept aside only once every file the repair reads from it, or writes
+  default. You can choose to set it aside: it's set aside only once every file the repair reads from it, or writes
   with a copy of what it holds, is written and verified, and if one of them fails, it stays.
 
 When the source set has a coverage, a repair fills only the games in it: a game outside it is renamed, repacked and
@@ -1724,7 +1725,7 @@ Setting a file aside that holds the last copy of a ROM no repair writes is never
 the same payload for another game counts, such as a track two games share, when the DAT gives that game's ROM every
 checksum it gives this one. When you choose to set the last copy aside, the item says so, and you can restore it from the kept files. A conflicting entry you leave is never displaced by
 another item, and an unreadable entry is replaced only while it is as the audit found it. The plan lists every
-change in order: each file written, renamed, published or kept aside. It binds the source set's folder, and every
+change in order: each file written, renamed, published or set aside. It binds the source set's folder, and every
 entry in it, by device, inode, size, modification time, change time and link count, and its audit: approving is
 refused if anything changed or a newer audit finished, or while an audit of the source set, or a build reading it,
 is queued or running. If something else puts another file in place of one a repair is moving, that file is never
@@ -1769,9 +1770,9 @@ You add one from three places, each through a plan you approve:
   what was written is exactly the addition's ROM. A loose file is deleted then; a ZIP original is kept in the ingest
   folder's kept files;
 - an entry of a source set that matched nothing and holds one ROM, by choosing "add to additions" for it in
-  a repair. The repair keeps it aside as it would otherwise, and the addition is copied from that kept file;
+  a repair. The repair sets it aside as it would otherwise, and the addition is copied from that kept file;
 - drift in a library folder, by choosing "add to additions" for an entry not built there in a cleanup. The
-  cleanup keeps it aside, and the addition is copied from that kept file.
+  cleanup sets it aside, and the addition is copied from that kept file.
 
 The plan records each addition's hashes when it is made, read from the file through a descriptor it holds, and you
 approve those hashes with the plan. An additions job, one per additions set and subject to `jobs.concurrent` like any
@@ -1882,7 +1883,7 @@ What these versions promise you:
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows. With a coverage, the latest audit's `games` counts only the games it covers, `outside_coverage` (`{"games", "unknown_region"}`) counts the rest by game status and how many of them have the region `Unknown`, and `covered_entries` (`{"findings", "claimed"}`) counts the entries its status ranks on, those of covered games and of no game, while `latest.findings` and `latest.claimed` still count every entry; `coverage_unavailable` is `true` when the coverage couldn't be applied, and its counts are then whole |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
-| `GET /api/v1/source-sets/{name}/fixdat`            | a fixdat of what its latest audit found missing; `?scope=coverage` lists only the games in its coverage, the default when it has one, and `?scope=dat` every game of the DAT, the default otherwise; `?selection=<id>` limits it to that selection's winners instead; `400` for both a scope and a selection, or `scope=coverage` without a coverage |
+| `GET /api/v1/source-sets/{name}/fixdat`            | a fixdat of what its latest audit found missing; `?scope=coverage` lists only the games in its coverage, the default when it has one, and `?scope=dat` every game of the DAT, the default otherwise; `?selection=<id>` limits it to the games that selection kept instead; `400` for both a scope and a selection, or `scope=coverage` without a coverage |
 | `GET /api/v1/source-sets/{name}/have-miss.csv`     | a have/miss CSV of its latest audit, every game of the DAT whatever its coverage; `?selection=<id>` as for the fixdat |
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
@@ -1920,7 +1921,7 @@ What these versions promise you:
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
 | `GET /api/v1/selections/{id}`                      | a selection's record and summary                             |
 | `GET /api/v1/selections/{id}/selection`            | the explained selection, as `select` prints it               |
-| `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?outcome=`, `?group=`   |
+| `GET /api/v1/selections/{id}/releases`             | games, paged, with availability; `?outcome=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
@@ -1935,7 +1936,7 @@ What these versions promise you:
 | `POST /api/v1/libraries/{id}/checks`               | check it; `202` with the check job                           |
 | `GET /api/v1/libraries/{id}/check`                 | its latest check: each built file, the drift and the acknowledged entries; `404` when never checked |
 | `GET /api/v1/libraries/{id}/incomplete`            | what its current build lacks, by reason                      |
-| `GET /api/v1/libraries/{id}/kept-files`            | the files builds kept aside in it, newest generation first   |
+| `GET /api/v1/libraries/{id}/kept-files`            | the files builds set aside in it, newest generation first    |
 | `POST /api/v1/libraries/{id}/kept-deletions`       | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/libraries/{id}/romm`                  | its latest comparison with RomM: `{"folder_id", "job_id"?, "fs_slug", "reconciled_at", "error"?, "counts" ({"files", "clean", "unidentified", "title_mismatch", "hash_mismatch"}), "rows"}`, each row `{"target", "game", "flags" (`unidentified`, `title_mismatch`, `hash_mismatch`), "rom_id"?, "romm_name"?, "detail"?}`; `404` when never compared |
 | `POST /api/v1/libraries/{id}/romm/reconciliations` | compare it with RomM now and return the comparison; `400` while RomM is off or doesn't scan it |
@@ -1949,7 +1950,7 @@ What these versions promise you:
 | `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way. Each match's `need` says what the item does for that game; `outside_coverage` and `coverage_unavailable` propose nothing |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
 | `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
-| `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
+| `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans set aside                                |
 | `POST /api/v1/ingest-folders/{root}/dismissals`    | dismiss several of its items until they change: `{"items": [id]}`; all of them or none |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
@@ -1959,7 +1960,7 @@ What these versions promise you:
 | `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside" \| "add_addition"}, "additions"?: {key: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes, its `content.coverage` being the coverage it was made under, absent for every game, and its `content.needs` the most free space it needs in each root, by name, to set placed CHDs aside, absent when it sets none aside |
 | `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed, its source set's coverage included |
-| `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
+| `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs set aside                              |
 | `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/source-kept-deletions/{id}`           | a plan to delete a source set's kept files                   |
 | `POST /api/v1/source-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
@@ -1971,7 +1972,7 @@ What these versions promise you:
 | `POST /api/v1/additions-set/checks?system=`        | check it for drift; changes nothing                          |
 | `GET /api/v1/additions/{id}`                       | one addition                                                 |
 | `PATCH /api/v1/additions/{id}`                     | rename it or set its parent: `{"name"?, "parent"?: name \| null}` |
-| `POST /api/v1/additions/{id}/retirement`           | retire it: builds no longer read it, and its file is kept aside |
+| `POST /api/v1/additions/{id}/retirement`           | retire it: builds no longer read it, and its file is set aside |
 | `POST /api/v1/additions/{id}/restoration`          | restore a retired one: its file is moved back                |
 | `GET /api/v1/additions-set/kept-files?system=`     | the files of additions retired from it                       |
 | `POST /api/v1/additions-set/kept-deletions?system=` | plan deleting some or all of them: `{"ids"?: [id], "all"?: true}`; `201` |
@@ -2007,7 +2008,7 @@ What these versions promise you:
 A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` back as `?cursor=` for the next page, and
 `?limit=` (1 to 1000, default 100) for its size. Each item carries its `seq`, its position in the report. A DAT upload
 may be up to 512 MiB, and is `201` when it adds a DAT revision, `200` when the bytes were already imported. After a
-quick inventory, availability's `claimed` names the games whose status rests on claims, and such a release carries
+quick inventory, availability's `claimed` names the games whose status rests on claims, and such a game carries
 `"claimed": true`.
 
 A source set's coverage is read with the clone lists, as selection is. Without them, `PUT …/coverage` with regions,
@@ -2282,7 +2283,7 @@ groups:
 The workbench is your browser interface to the Service: a Leptos app compiled to WebAssembly that uses only the
 `/api/v1` JSON API, from the same origin.
 
-The top bar holds the navigation: **Source sets · Libraries · Ingest · DATs · Profiles · Activity · Settings**, with
+The top bar holds the navigation: **Source sets · Library folders · Ingest · DATs · Profiles · Activity · Settings**, with
 the stream's status and the theme button. Ingest shows a badge counting the items in your ingest folders that wait
 on your decision: assessed, already held, unreadable or unsupported, until you plan them out or dismiss them.
 Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old. Activity
@@ -2323,7 +2324,7 @@ Its screens:
   latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
   that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
   claims) and how many games may not play without their header, and why it is stale, downloads a fixdat or have/miss
-  CSV of what the latest audit found missing, for the whole DAT or one selection's winners, and starts an audit
+  CSV of what the latest audit found missing, for the whole DAT or the games one selection kept, and starts an audit
   against the default DAT revision or a newer one, as a quick inventory
   or an incremental (the default) or full audit. With a coverage, the game statuses are headed **In your coverage**,
   and a line under them counts what is **Outside your coverage**: the games you have, those incomplete and those
@@ -2343,10 +2344,10 @@ Its screens:
   folder that holds its placed games, lets you choose it when several are built from it, and lists the games a build
   flagged as needing review, with why. Its header checks it for changes and follows its DAT. **Games** and
   **Entries** show the latest audit's game statuses and entries, as the audit screen does. A MAME ListXML's source set
-  shows no **Edit coverage**: its **Coverage** section says in one line why it has none. **Libraries** lists its
+  shows no **Edit coverage**: its **Coverage** section says in one line why it has none. **Library folders** lists its
   library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
-  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
+  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs set aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest first within each DAT, with its name, provider ("Unknown" when
   its header doesn't show one), version, date, whether its file is kept and how many source sets use its DAT. Its
@@ -2383,44 +2384,45 @@ Its screens:
   pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
-  and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes
+  and a live selection preview against a source set you choose on the right; on a narrow screen the preview comes
   under the settings. The settings have a global settings tab and a tab for every system with a registered source
   set, and for every system the profile has settings or choices for, so you needn't preview first. A system can opt
   in to its additions set on its tab; a tab for a system without settings of its own says that every setting comes
   from your global settings. Opening a system's tab previews against its source set. Each system setting says
   whether it comes from your global settings or is set for that system,
-  with "Use global setting" to go back. "Reset to defaults" and "Reset to default choices" work per group, per system
+  with "Use global setting" to go back. "Reset to defaults" and "Reset to default choices" work per game group, per system
   and for the whole profile. An empty region or video order shows the default order it stands for, which you can
   expand, start your own order from, or reset to, with a link to how the default orders work. The preview follows your edits 500 ms after you stop, cancelling a preview still
   running; when a preview of a source set takes more than 2 seconds, it waits for the Preview button instead. While
   a preview runs, it shows how long it has taken (a large system takes several seconds). It shows what changed from
   the latest saved selection. Saving creates the next version and can make a selection. A profile's page lists its
-  what-if selections, the selections no library folder uses, with "New what-if selection" to make another. The tab of
+  previews, the selections no library folder uses, with "Preview a selection" to make another. The tab of
   an arcade DAT's system, such as MAME, holds its arcade settings instead: what to leave out and keep, the election
   order, region and language orders, and your include and exclude lists. It says whether they are the defaults, come
   from your global arcade settings or are set for that system; changing one sets them all for that system. It also
   holds the curated list switch, the lowest rating to keep and whether to drop unrated families.
-- **New what-if selection** (`/selections/new`) makes a selection without changing any library folder: from a
+- **Preview a selection** (`/selections/new`) makes a selection without changing any library folder: from a
   profile (`?profile=`) you pick a source set, and from a source set (`?source_set=`) you pick a profile. It is
   listed on its profile, not on its source set, until a library folder uses it.
 - **Selection** lists its game groups on the left, each chosen, unresolved, your choice, a choice to review, or
-  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against the
-  same DAT revision, marked when a build flagged a kept release as needing review. A strip of counts across the top
-  shows how many groups have each status; select a count to list only those groups, and "Apply to all" confirms every
-  unresolved pick at once. Opening a group shows, on the right, its candidate releases with the rule that decided each,
-  where you check the releases you want, confirm an unresolved pick, include an excluded release, or reset the group to
-  the default choices; your choices are staged until you save them as the next version of the profile, which makes a new
-  selection. A link to a group (`?group=`) opens it. Its facts name the coverage it was made under, and a release
-  outside that coverage shows as excluded, "Outside its source set's coverage". The selection names the library folders
-  that use it; one no library folder uses is a what-if. "Create library folder from this" makes a library folder from
+  left out, with the games kept, the rule that chose them and whether you have them in the latest audit against the
+  same DAT revision, marked when a build flagged a kept game as needing review. A strip of counts across the top
+  shows how many game groups have each status; select a count to list only those game groups, and "Apply to all"
+  confirms every unresolved pick at once. Opening a game group shows, on the right, its versions, each kept, a clone
+  (another version of a game you kept) or left out, with the rule that decided each, where you check the games you
+  want, confirm an unresolved pick, include a game that was left out, or reset the game group to the default choices;
+  your choices are staged until you save them as the next version of the profile, which makes a new selection. A link
+  to a game group (`?group=`) opens it. Its facts name the coverage it was made under, and a game outside that
+  coverage shows as left out, "Outside its source set's coverage". The selection names the library folders that use
+  it; one no library folder uses is a preview. "Create library folder from this" makes a library folder from
   it, and "Plan a build" plans building it into a library folder bound to its source set and selection profile. An
-  arcade selection's groups are families, and its rules' stages read in plain words, such as "Parent over clone". It
+  arcade selection's game groups are families, and its rules' stages read in plain words, such as "Parent over clone". It
   says where categories came from, when your category filter is on, and lists the filters you turned on that had nothing
   to read. Its facts list each support file it read, with its MAME version and SHA-256, marked **Older version** when it
   is for an older MAME than the ListXML, whose newer machines it then lacks, **Newer version** when it is for a newer
   one, **Same version**, or **Not read**; and, with the curated list on, its commit and how many names on it the DAT
   revision lacks, which open to list them. Its dependencies sum up in one line, "Your selected games need 3
-  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with what
+  dependencies, all complete", and so does each selected game's in its game group; open the line to list them, each with what
   you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
@@ -2435,7 +2437,7 @@ Its screens:
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
-- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
+- **Library folders** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
   current or never built, in that precedence. Stale means its source set's latest audit found something other than the
   audit its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
   changed"), or the folder was rebound to another; the folder says which. Each row can be checked, or have a build
@@ -2445,16 +2447,16 @@ Its screens:
   path from the path template as for a source set, creates the folder and plans its first build. A folder's page
   (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs: **Overview**, its facts, with the coverage
   it has from its source set and a link to edit it there (for a MAME folder, why it has none, the MAME version it was
-  built for and which emulators run it, its disk folders, and, under **Using RomM?**, the RomM exclusions ready to
-  copy), what it lacks, naming the dependency a game lacks, and the files built into it, each file placed there now
+  built for and which emulators run it, its disk folders, and, under **Using RomM?**, the RomM `exclude` settings ready
+  to copy), what it lacks, naming the dependency a game lacks, and the files built into it, each file placed there now
   marked **Only copy**, or **Not known** while that's being read or can't be; **Selection**, the selection it was built
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
   blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs, its
   choices, the built files no longer selected, approval and the build live, with a way to cancel it; **Builds**;
   **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept files**, by
-  generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers to build
-  resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can keep
-  aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built here, kept files
+  generation, where you pick some or all and approve deleting them. A plan with unresolved game groups offers to build
+  resolved game groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can
+  set aside has a choice to set it aside and rebuild. A cleanup offers an action for each entry not built here, kept files
   to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an addition
   asks for its system, name and parent game. Each build shows every file it wrote or failed to write.
 - **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was

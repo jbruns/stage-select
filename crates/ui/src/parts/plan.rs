@@ -100,7 +100,7 @@ pub fn apply_to_all<K: Status, C: Copy + Send + Sync + 'static>(
                 }
             }
         >
-            <option value="">"Apply to all: no change"</option>
+            <option value="">"Apply to all: No change"</option>
             {options}
         </select>
     }

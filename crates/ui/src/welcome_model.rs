@@ -43,7 +43,7 @@ impl Step {
             Step::Root => "Settings, then Roots",
             Step::Dat => "DATs",
             Step::SourceSet | Step::Audit => "Source sets",
-            Step::Library => "Libraries",
+            Step::Library => "Library folders",
         }
     }
 }

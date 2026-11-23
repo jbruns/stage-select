@@ -452,7 +452,7 @@ impl Store {
                         Some(CleanupAction::KeepAside) => {
                             (!f.regular && d.kind != DriftKind::Directory).then(|| {
                                 format!(
-                                    "{} is neither a file nor a folder, so it cannot be kept aside",
+                                    "{} is neither a file nor a folder, so it cannot be set aside",
                                     d.name
                                 )
                             })
@@ -517,7 +517,7 @@ impl Store {
                         }
                         Some(CleanupAction::Acknowledge) => d.conflict.then(|| {
                             format!(
-                                "{} is at a selected game's file name; adopt it or keep it aside instead",
+                                "{} is at a selected game's file name; adopt it or set it aside instead",
                                 d.name
                             )
                         }),

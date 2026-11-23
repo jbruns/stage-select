@@ -25,7 +25,7 @@ pub fn item_kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Adopt => "Adopt",
         ItemKind::Unresolved => "Unresolved",
         ItemKind::Remove => "Remove",
-        ItemKind::KeepAside => "Keep aside",
+        ItemKind::KeepAside => "Set aside",
         ItemKind::Acknowledge => "Acknowledge",
         ItemKind::Restore => "Restore",
         ItemKind::Place => "Place",
@@ -42,7 +42,7 @@ pub fn item_kind_note(kind: ItemKind) -> &'static str {
         ItemKind::NoSource => "No audited file holds every ROM, so these are skipped.",
         ItemKind::Conflict => {
             "A file the store did not build, or one changed since it was built, is at the target. It is never \
-             overwritten, so these are skipped unless you choose to keep the file aside and rebuild."
+             overwritten, so these are skipped unless you choose to set the file aside and rebuild."
         }
         ItemKind::Blocked => "These cannot be built as planned, so they are skipped.",
         ItemKind::Adopt => {
@@ -54,7 +54,7 @@ pub fn item_kind_note(kind: ItemKind) -> &'static str {
              left untouched."
         }
         ItemKind::Remove => {
-            "Built files no longer selected: each is kept aside, or forgotten if it is gone."
+            "Built files no longer selected: each is set aside, or forgotten if it is gone."
         }
         ItemKind::KeepAside => "Moved, whole, into the retention area as kept files.",
         ItemKind::Acknowledge => "Left as they are, and no longer reported until they change.",
@@ -99,7 +99,7 @@ pub fn unfinished_label(unfinished: &UnfinishedBuild) -> String {
     };
     let kept = match unfinished.kept {
         0 => String::new(),
-        n => format!(", {n} kept aside"),
+        n => format!(", {n} set aside"),
     };
     format!(
         "{what}: {} applied, {} uncertain{kept}",
@@ -130,7 +130,7 @@ pub fn drift_kind_label(kind: DriftKind) -> &'static str {
 
 pub fn cleanup_action_label(action: CleanupAction) -> &'static str {
     match action {
-        CleanupAction::KeepAside => "Keep aside",
+        CleanupAction::KeepAside => "Set aside",
         CleanupAction::Adopt => "Adopt",
         CleanupAction::Acknowledge => "Acknowledge",
         CleanupAction::AddAddition => "Add to additions",
@@ -176,7 +176,7 @@ impl ConflictChoice {
         match self {
             ConflictChoice::Leave => "Leave it",
             ConflictChoice::Adopt => "Adopt it",
-            ConflictChoice::KeepAside => "Keep aside and rebuild",
+            ConflictChoice::KeepAside => "Set aside and rebuild",
         }
     }
 
@@ -431,12 +431,12 @@ pub fn return_games(content: &PlanContent) -> Vec<ReturnGame> {
 pub fn return_facts(game: &ReturnGame) -> Vec<(&'static str, String)> {
     let needs = match game.needs {
         0 => "Nothing".to_string(),
-        n => format!("At most {} for its release, an upper bound", bytes(n)),
+        n => format!("At most {} for the whole game, an upper bound", bytes(n)),
     };
     let mut facts = vec![
         ("Why", game.reason.clone()),
         ("How", return_how_label(game.how).to_string()),
-        ("Release", format!("{}, returned whole", game.release)),
+        ("Game", format!("{}, returned whole", game.release)),
         ("Needs in your source set", needs),
     ];
     if game.keeps {
@@ -555,8 +555,8 @@ pub fn keep_reason_label(reason: KeepReason) -> &'static str {
     match reason {
         KeepReason::Removal => "no longer selected",
         KeepReason::Replacement => "replaced",
-        KeepReason::Conflict => "conflict kept aside",
-        KeepReason::Drift => "not built here, kept aside",
+        KeepReason::Conflict => "conflict set aside",
+        KeepReason::Drift => "not built here, set aside",
         KeepReason::Repack => "before repacking",
     }
 }
@@ -573,7 +573,7 @@ pub fn blocker_label(kind: BlockerKind) -> &'static str {
     match kind {
         BlockerKind::NoAudit => "No audit",
         BlockerKind::RevisionMismatch => "DAT revision mismatch",
-        BlockerKind::Unresolved => "Unresolved group",
+        BlockerKind::Unresolved => "Unresolved game group",
         BlockerKind::ReadOnlyRoot => "Read-only root",
         BlockerKind::FolderMissing => "Folder missing",
         BlockerKind::Marker => "Marker",
@@ -1213,10 +1213,10 @@ mod tests {
         assert!(games[0].keeps && !games[1].keeps);
         let facts: BTreeMap<&str, String> = return_facts(&games[1]).into_iter().collect();
         assert_eq!(facts["Why"], "single copy is off for its system");
-        assert_eq!(facts["Release"], "Orbit, returned whole");
+        assert_eq!(facts["Game"], "Orbit, returned whole");
         assert_eq!(
             facts["Needs in your source set"],
-            "At most 64 KiB for its release, an upper bound"
+            "At most 64 KiB for the whole game, an upper bound"
         );
         assert_eq!(
             summary_of(&plan, BuildKind::Return) as u64,

@@ -128,7 +128,7 @@ impl DiscCheck {
                 .map(|(release, discs)| format!("{} from {release}", numbers("disc", discs)))
                 .collect();
             let mut reason = format!(
-                "its selected discs come from different releases: {}",
+                "its selected discs come from different versions: {}",
                 from.join(", ")
             );
             let missing = self.missing();
@@ -142,7 +142,7 @@ impl DiscCheck {
             let why = if lacking.is_subset(&self.excluded) {
                 "which your settings exclude"
             } else {
-                "which another release in the group has"
+                "which another version in the game group has"
             };
             format!(
                 "{release} is selected without {}, {why}",
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(s.summary.unresolved, 1);
         assert_eq!(
             check_picks(&s.groups[0]).unwrap().reason(),
-            "its selected discs come from different releases: disc 1 from Title (USA), disc 2 from Title (Europe)"
+            "its selected discs come from different versions: disc 1 from Title (USA), disc 2 from Title (Europe)"
         );
     }
 
@@ -452,7 +452,7 @@ mod tests {
         assert!(s.groups[0].unresolved);
         assert_eq!(
             check_picks(&s.groups[0]).unwrap().reason(),
-            "Title (USA) is selected without disc 2, which another release in the group has"
+            "Title (USA) is selected without disc 2, which another version in the game group has"
         );
         assert_eq!(
             missing(&s.groups[0]),
