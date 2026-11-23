@@ -4,15 +4,16 @@ use leptos_router::components::{A, ParentRoute, Redirect, Route, Router, Routes}
 use leptos_router::hooks::use_navigate;
 use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
+use stage_select_api::build::LibraryFolder;
 use stage_select_api::ingest::IngestFolder;
 use stage_select_api::settings::{Pace, SettingsView};
-use stage_select_api::{Job, JobState};
+use stage_select_api::{Job, JobState, SourceSetSummary};
 
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::overlay::Tooltip;
-use crate::parts::status::StatusIcon;
+use crate::parts::status::{StatusIcon, needing_a_look};
 use crate::parts::tabs::RouteTabs;
 use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
@@ -22,9 +23,10 @@ use crate::screens::{
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
     NewLibraryFolder, NewProfile, NewSelection, Operations, ProfileScreen, Profiles, Roots,
     SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, Welcome,
-    provide_planner,
+    provide_planner, use_planner,
 };
 use crate::shell::{SeenJobs, needing_attention, waiting_on_decision};
+use crate::{library_model, source_set_model};
 
 /// Without the `bench` feature, `/bench` is not a screen.
 #[cfg(not(feature = "bench"))]
@@ -95,13 +97,14 @@ pub fn App() -> impl IntoView {
     }
 }
 
-/// The top navigation, with a badge on Ingest for the items waiting on a decision, and on Activity for the Jobs
-/// running or failed and not yet seen.
+/// The top navigation, with a badge on Source sets and Library folders for the rows whose status needs a look, on
+/// Ingest for the items waiting on a decision, and on Activity for the Jobs running or failed and not yet seen.
 #[component]
 fn Nav() -> impl IntoView {
     let live = use_live();
     let seen = use_seen_jobs();
     let ingest_changed = use_ingest_changed();
+    let planner = use_planner();
     let folders = LocalResource::new(move || {
         live.settled.track();
         ingest_changed.track();
@@ -133,6 +136,47 @@ fn Nav() -> impl IntoView {
             .and_then(Result::ok)
             .map_or(0, |f| waiting_on_decision(&f))
     });
+    let jobs = Memo::new(move |_| {
+        live.book.with(|b| {
+            b.newest_first()
+                .into_iter()
+                .map(|l| l.job)
+                .collect::<Vec<Job>>()
+        })
+    });
+    let summaries = LocalResource::new(move || {
+        live.settled.track();
+        api::get::<Vec<SourceSetSummary>>("/source-set-summaries")
+    });
+    let libraries = LocalResource::new(move || {
+        live.settled.track();
+        planner.track();
+        api::get::<Vec<LibraryFolder>>("/libraries")
+    });
+    // Counted from the same statuses, in the same way, as the lists the badges lead to.
+    let sets_to_look_at = Signal::derive(move || {
+        let Some(Ok(summaries)) = summaries.get() else {
+            return 0;
+        };
+        let running = jobs.with(|j| source_set_model::running(j));
+        needing_a_look(
+            source_set_model::checked_in(&summaries, &running)
+                .into_iter()
+                .map(|(s, _)| s),
+        )
+    });
+    let folders_to_look_at = Signal::derive(move || {
+        let Some(Ok(folders)) = libraries.get() else {
+            return 0;
+        };
+        jobs.with(|j| {
+            needing_a_look(
+                library_model::checked_in(&folders, j)
+                    .into_iter()
+                    .map(|(s, _)| s),
+            )
+        })
+    });
     let attention = Signal::derive(move || {
         let failed = failed.get().and_then(Result::ok).unwrap_or_default();
         let failed = failed.iter().map(|j| j.id);
@@ -142,8 +186,20 @@ fn Nav() -> impl IntoView {
     });
     view! {
         <nav aria-label="Workbench">
-            <NavLink href="/source-sets" glyph=Glyph::Database label="Source sets" />
-            <NavLink href="/libraries" glyph=Glyph::Library label="Library folders" />
+            <NavLink
+                href="/source-sets"
+                glyph=Glyph::Database
+                label="Source sets"
+                badge=sets_to_look_at
+                badge_label=|n| format!("{n} for you to look at (needs review, stale or on claims)")
+            />
+            <NavLink
+                href="/libraries"
+                glyph=Glyph::Library
+                label="Library folders"
+                badge=folders_to_look_at
+                badge_label=|n| format!("{n} for you to look at (drift, incomplete or stale)")
+            />
             <NavLink
                 href="/ingest"
                 glyph=Glyph::FolderInput

@@ -7,7 +7,7 @@ use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem}
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
-use crate::parts::status::{LibraryFacts, LibraryStatus, PlanState};
+use crate::parts::status::{LibraryFacts, LibraryStatus, PlanState, by_attention};
 
 /// Whether the folder's latest check, made since its current build, found it differs from that build.
 pub fn drifted(folder: &LibraryFolder) -> bool {
@@ -42,7 +42,8 @@ pub fn facts(folder: &LibraryFolder) -> LibraryFacts {
         drift: drifted(folder),
         incomplete: folder.incomplete.is_some() || folder.unfinished.is_some(),
         stale: !folder.stale.is_empty(),
-        built: folder.build.is_some(),
+        // A first build that failed or was interrupted wrote some files: the folder is incomplete, not never built.
+        built: folder.build.is_some() || folder.unfinished.is_some(),
     }
 }
 
@@ -69,6 +70,22 @@ pub fn live_status(folder: &LibraryFolder, jobs: &[Job]) -> LibraryStatus {
         running: working || folder.active_job.is_some(),
         ..facts(folder)
     })
+}
+
+/// Where the folder is: its root and its path in it.
+pub fn location(folder: &LibraryFolder) -> String {
+    format!("{}: {}", folder.root, folder.path)
+}
+
+/// Every folder with its live row status, in the list's default order: what needs attention first, then by where it
+/// is. The Library folders badge counts the same statuses.
+pub fn checked_in(folders: &[LibraryFolder], jobs: &[Job]) -> Vec<(LibraryStatus, LibraryFolder)> {
+    let mut rows: Vec<(LibraryStatus, String, LibraryFolder)> = folders
+        .iter()
+        .map(|f| (live_status(f, jobs), location(f), f.clone()))
+        .collect();
+    rows.sort_by(|(a, x, _), (b, y, _)| by_attention((*a, x), (*b, y)));
+    rows.into_iter().map(|(s, _, f)| (s, f)).collect()
 }
 
 /// The oldest selection job not yet ended for the folder's source set and profile that runs the profile's `newest`
@@ -283,9 +300,13 @@ impl Replans {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stage_select_api::build::{BuildState, BuildSummary, CheckSummary, PlanSummary, Stale};
+    use stage_select_api::build::{
+        BuildState, BuildSummary, CheckSummary, PlanSummary, Stale, UnfinishedBuild,
+    };
     use stage_select_api::selection::{SelectionPins, SelectionSummary};
     use stage_select_api::{ProfileVersionRef, Workers};
+
+    use crate::parts::status::needing_a_look;
 
     fn folder() -> LibraryFolder {
         LibraryFolder {
@@ -634,6 +655,67 @@ mod tests {
             live_status(&folder(), &[check(JobState::Succeeded), elsewhere]),
             LibraryStatus::NeverBuilt
         );
+    }
+
+    fn at(id: i64, path: &str) -> LibraryFolder {
+        LibraryFolder {
+            id,
+            path: path.into(),
+            ..built("2026-01-03T00:00:00Z")
+        }
+    }
+
+    #[test]
+    fn folders_with_drift_or_a_failed_build_come_first_and_are_the_ones_counted() {
+        let drifted = LibraryFolder {
+            check: Some(checked("2026-01-04T00:00:00Z", 2)),
+            ..at(2, "nes")
+        };
+        let failed_first_build = LibraryFolder {
+            unfinished: Some(UnfinishedBuild {
+                build: 9,
+                state: BuildState::Failed,
+                applied: 3,
+                uncertain: 0,
+                not_written: 4,
+                kept: 0,
+            }),
+            ..at(3, "snes")
+        };
+        let failed_first_build = LibraryFolder {
+            build: None,
+            ..failed_first_build
+        };
+        let never = LibraryFolder {
+            id: 4,
+            path: "a2600".into(),
+            ..folder()
+        };
+        let folders = [
+            at(1, "gb"),
+            never,
+            failed_first_build,
+            drifted,
+            at(5, "atari"),
+        ];
+        let working = Job {
+            library_folder: Some(5),
+            ..job(8, JobKind::Check, JobState::Running)
+        };
+        let rows = checked_in(&folders, &[working]);
+        let order: Vec<(&str, LibraryStatus)> =
+            rows.iter().map(|(s, f)| (f.path.as_str(), *s)).collect();
+        assert_eq!(
+            order,
+            [
+                ("atari", LibraryStatus::Running),
+                ("nes", LibraryStatus::Drift),
+                ("snes", LibraryStatus::Incomplete),
+                ("gb", LibraryStatus::Current),
+                ("a2600", LibraryStatus::NeverBuilt),
+            ]
+        );
+        assert_eq!(needing_a_look(rows.iter().map(|(s, _)| *s)), 2);
     }
 
     #[test]

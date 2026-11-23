@@ -2284,11 +2284,13 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
 `/api/v1` JSON API, from the same origin.
 
 The top bar holds the navigation: **Source sets · Library folders · Ingest · DATs · Profiles · Activity · Settings**, with
-the stream's status and the theme button. Ingest shows a badge counting the items in your ingest folders that wait
+the stream's status and the theme button. Source sets and Library folders show a badge counting the rows whose
+status needs a look: source sets that need review, are stale or rest on claims, and library folders with drift, an
+incomplete or failed build, or a stale one. Ingest shows a badge counting the items in your ingest folders that wait
 on your decision: assessed, already held, unreadable or unsupported, until you plan them out or dismiss them.
 Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old. Activity
 lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and **Mark
-all failures seen** in its toolbar marks every failure seen at once (**Mark seen** marks the failed jobs you checked). Both badges follow `/api/v1/events`, and the
+all failures seen** in its toolbar marks every failure seen at once (**Mark seen** marks the failed jobs you checked). Every badge follows `/api/v1/events`, and the
 Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
 the icons; hover over or focus one to see its name.
 
@@ -2307,7 +2309,8 @@ Its screens:
   source set in a read-only root; audit it; and, once you have a writable root, make a library folder. Each step
   waits for the one it needs, and you can skip any of them and take it later from the screen it names.
 - **Source sets** lists each source set with its status (running, repair open, needs review, stale, resting on
-  claims, verified or never audited); a stale status carries an icon for each cause, files changed or a newer DAT
+  claims, verified or never audited), in that order and then by name unless you sort by a column, under a strip of
+  counts by status, each showing only those rows when you choose it; a stale status carries an icon for each cause, files changed or a newer DAT
   revision, and a set whose latest audit matched entries only on claims
   (a quick inventory) never reads verified, its game counts by game status (in its coverage only, when it has one),
   its coverage, its DAT and its latest audit. The **Coverage** column reads "Every region", the presets a coverage is
@@ -2438,7 +2441,9 @@ Its screens:
   texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
 - **Library folders** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
-  current or never built, in that precedence. Stale means its source set's latest audit found something other than the
+  current or never built, in that precedence, and in that order and then by root and path unless you sort by a
+  column, under a strip of counts by status that filter it as on Source sets. A first build that failed or was
+  interrupted reads incomplete. Stale means its source set's latest audit found something other than the
   audit its current build used, its selection profile was saved since, its source set's coverage changed ("Coverage
   changed"), or the folder was rebound to another; the folder says which. Each row can be checked, or have a build
   planned of the newest selection of its source set and profile against the source set's latest verified DAT revision,

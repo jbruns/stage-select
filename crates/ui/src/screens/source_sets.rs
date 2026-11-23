@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
@@ -15,16 +16,19 @@ use crate::app::{Loading, navigator};
 use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
+use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Svg;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
-    CellTip, Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
+    CellTip, Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
 use crate::parts::message::{Problem, Said};
 use crate::parts::meter::GamesMeter;
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
+use crate::parts::plan::{KindCounts, use_status_filter};
+use crate::parts::plan_model::kind_counts;
 use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::encode;
 use crate::registration;
@@ -548,16 +552,23 @@ pub fn SourceSets() -> impl IntoView {
             .book
             .with(|b| model::running(b.newest_first().iter().map(|l| &l.job)));
         let rows: Vec<SetRow> = latest.with(|sets| {
-            sets.iter()
-                .map(|s| SetRow {
-                    status: model::status(s, running.contains(&s.set.name)),
-                    summary: s.clone(),
-                })
+            model::checked_in(sets, &running)
+                .into_iter()
+                .map(|(status, summary)| SetRow { status, summary })
                 .collect()
         });
-        std::sync::Arc::new(rows)
+        Arc::new(rows)
     });
     let statuses = Signal::derive(move || present(rows.get().iter().map(|r| r.status)));
+    let (only, show_only) = use_status_filter::<SourceSetStatus>("status");
+    let counts = Signal::derive(move || rows.with(|r| kind_counts(r.iter().map(|r| r.status))));
+    let keep = Signal::derive(move || -> Keep<SetRow> {
+        only.get().map(|status| {
+            let keep: Arc<dyn Fn(&SetRow) -> bool + Send + Sync> =
+                Arc::new(move |r: &SetRow| r.status == status);
+            keep
+        })
+    });
     let ctx = Ctx {
         said: RwSignal::new(None),
         proposing: RwSignal::new(Vec::new()),
@@ -602,10 +613,7 @@ pub fn SourceSets() -> impl IntoView {
 
     view! {
         <h1>"Source sets"</h1>
-        <p class="lede">
-            "A source set is a folder in a root, audited against its DAT. Open one for its games, entries, library \
-            folders, history and repair."
-        </p>
+        <KindCounts counts active=only on_filter=show_only label="Source sets by status" />
         {move || match loaded.get() {
             None => view! { <Loading what="the source sets" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -624,8 +632,16 @@ pub fn SourceSets() -> impl IntoView {
             actions
             row_actions=Callback::new(move |row: SetRow| set_actions(&row, ctx))
             detail=Callback::new(set_detail)
+            keep
             legend=move || view! { <Legend statuses list="source-sets" /> }
         />
+        <Help summary="What a source set is">
+            <p>
+                "A source set is a folder in a root, audited against its DAT. The list shows those that need a look \
+                first, then the rest by name; choose a column to sort by it instead. Open one for its games, \
+                entries, library folders, history and repair."
+            </p>
+        </Help>
         <Drawer open=registering title="Register a source set">
             <Register on_added=Callback::new(move |name: String| {
                 registering.set(false);
