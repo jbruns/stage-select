@@ -14,7 +14,7 @@ use super::icon::{Glyph, Svg};
 use super::legend::{Legend, present};
 use super::list::{Clip, Keep, List, ListRow, RowAction, Selected, ToolAction};
 use super::message::{Message, MessageKind};
-use super::plan_model::{kind_counts, kind_from_slug, kind_slug};
+use super::plan_model::{kind_counts, kind_from_slug, kind_slug, with_active};
 use super::status::{Status, StatusIcon};
 use super::url_state::use_query_edit;
 
@@ -130,7 +130,7 @@ pub fn set_actions<R: ListRow, C: Copy + PartialEq + Send + Sync + 'static>(
 }
 
 /// The counts of a plan's items by kind, or of a list's rows by status. Each count filters the list to its kind, or
-/// back to every kind; `apply` gives the control beside it that sets one choice for every item of the kind. `label`
+/// back to every kind; the kind filtered on stays, at zero, once none are left. `apply` gives the control beside it that sets one choice for every item of the kind. `label`
 /// names the strip, "Items by kind" unless given.
 #[component]
 pub fn KindCounts<K: Status>(
@@ -143,8 +143,7 @@ pub fn KindCounts<K: Status>(
     view! {
         <ul class="kind-counts" aria-label=label.unwrap_or("Items by kind")>
             {move || {
-                counts
-                    .get()
+                with_active(counts.get(), active.get())
                     .into_iter()
                     .map(|(kind, n)| {
                         let look = kind.look();

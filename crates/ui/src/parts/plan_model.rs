@@ -19,6 +19,18 @@ pub fn kind_counts<K: Status>(kinds: impl IntoIterator<Item = K>) -> Vec<(K, usi
         .collect()
 }
 
+/// `counts` with the kind filtered on kept in place at zero when none are left, so the filter that hides every row
+/// can still be cleared from the strip.
+pub fn with_active<K: Status>(mut counts: Vec<(K, usize)>, active: Option<K>) -> Vec<(K, usize)> {
+    if let Some(kind) = active
+        && !counts.iter().any(|(k, _)| *k == kind)
+    {
+        let at = counts.partition_point(|(k, _)| k.rank() < kind.rank());
+        counts.insert(at, (kind, 0));
+    }
+    counts
+}
+
 /// A kind as the URL's `kind` names it: its label, lowercase, with hyphens for spaces.
 pub fn kind_slug<K: Status>(kind: K) -> String {
     kind.look().label.to_lowercase().replace(' ', "-")
@@ -131,6 +143,24 @@ mod tests {
             kind_counts(kinds),
             [(PlanKind::Rename, 1), (PlanKind::SetAside, 2)]
         );
+    }
+
+    #[test]
+    fn the_kind_filtered_on_stays_in_the_strip_at_zero_so_it_can_be_cleared() {
+        use crate::parts::status::SourceSetStatus;
+        let counts = kind_counts([SourceSetStatus::Verified]);
+        assert_eq!(
+            with_active(counts.clone(), Some(SourceSetStatus::Running)),
+            [
+                (SourceSetStatus::Running, 0),
+                (SourceSetStatus::Verified, 1)
+            ]
+        );
+        assert_eq!(
+            with_active(counts.clone(), Some(SourceSetStatus::Verified)),
+            counts
+        );
+        assert_eq!(with_active(counts.clone(), None), counts);
     }
 
     #[test]

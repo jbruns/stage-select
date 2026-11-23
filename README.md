@@ -2291,7 +2291,9 @@ on your decision: assessed, already held, unreadable or unsupported, until you p
 Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old. Activity
 lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and **Mark
 all failures seen** in its toolbar marks every failure seen at once (**Mark seen** marks the failed jobs you checked). Every badge follows `/api/v1/events`, and the
-Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
+Source sets, Library folders and Ingest badges also count again after each change you make, such as proposing a
+repair or opening a plan. In the strip of counts above a list, the status you filter on stays, at zero, even when no
+rows are left, so you can always turn the filter off. On a narrow screen the bar shows only
 the icons; hover over or focus one to see its name.
 
 Once jobs have run, a strip at the top of Activity shows how fast the service reads and writes, against the byte-rate

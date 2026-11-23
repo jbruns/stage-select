@@ -144,12 +144,18 @@ fn Nav() -> impl IntoView {
                 .collect::<Vec<Job>>()
         })
     });
-    let summaries = LocalResource::new(move || {
-        live.settled.track();
-        api::get::<Vec<SourceSetSummary>>("/source-set-summaries")
+    let writes = api::writes();
+    let summaries = LocalResource::new({
+        let writes = writes.clone();
+        move || {
+            live.settled.track();
+            writes.track();
+            api::get::<Vec<SourceSetSummary>>("/source-set-summaries")
+        }
     });
     let libraries = LocalResource::new(move || {
         live.settled.track();
+        writes.track();
         planner.track();
         api::get::<Vec<LibraryFolder>>("/libraries")
     });

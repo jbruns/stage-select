@@ -120,7 +120,10 @@ verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's fla
 - A status needs a look when its tone is `Review` or `Failed` (`needs_a_look`). The Source sets and Library folders
   lists open in that order, by rank then name (`by_attention`, through `source_set_model::checked_in` and
   `library_model::checked_in`), and their navigation badges count the same rows (`needing_a_look`). A sort in the URL
-  still wins.
+  still wins. The badges fetch again on settled Jobs and on `api::writes()`, which every accepted write bumps, since
+  some writes change a status without a Job.
+- `KindCounts` keeps the active kind in its strip at zero (`plan_model::with_active`), so a filter whose rows have all
+  gone can still be turned off.
 - To add a vocabulary, implement `Status` (`ALL` in precedence order, `look`). The tests in `status.rs` check label
   length, case, unique glyphs and labels; add the new type to them.
 - In a cell that isn't a tab stop of its own (the shared list's rows, which the arrow keys move through), pass

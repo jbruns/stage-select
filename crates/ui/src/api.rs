@@ -1,7 +1,10 @@
 //! Requests to the Service's `/api/v1`, same-origin, so the trusted proxy's identity header or the loopback
 //! dev identity authenticates them and no token is kept in the browser.
 
+use std::sync::OnceLock;
+
 use gloo_net::http::{Request, Response};
+use leptos::prelude::{ArcRwSignal, Update};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use stage_select_api::{ErrorBody, GameRow, PREFIX, Page};
@@ -33,6 +36,21 @@ async fn refused(response: Response) -> Result<Response, ErrorBody> {
             blockers: None,
         }),
     }
+}
+
+/// Bumped after every write the Service accepted, whatever it changed. Some writes change a status without a Job, such
+/// as proposing a repair or opening a plan, so whatever counts statuses outside the screen that wrote, like the
+/// navigation badges, fetches again on it as well as on settled Jobs.
+pub fn writes() -> ArcRwSignal<u64> {
+    static WRITES: OnceLock<ArcRwSignal<u64>> = OnceLock::new();
+    WRITES.get_or_init(|| ArcRwSignal::new(0)).clone()
+}
+
+fn wrote<T, E>(result: Result<T, E>) -> Result<T, E> {
+    if result.is_ok() {
+        writes().update(|n| *n += 1);
+    }
+    result
 }
 
 fn failed(err: gloo_net::Error) -> String {
@@ -75,8 +93,7 @@ pub async fn post_refusable<B: Serialize, T: DeserializeOwned>(
         .json(body)
         .map_err(|e| plain(e.to_string()))?;
     let response = request.send().await.map_err(|e| plain(failed(e)))?;
-    refused(response)
-        .await?
+    wrote(refused(response).await)?
         .json()
         .await
         .map_err(|e| plain(e.to_string()))
@@ -93,8 +110,7 @@ pub async fn post_until<B: Serialize, T: DeserializeOwned>(
         .json(body)
         .map_err(|e| e.to_string())?;
     let response = request.send().await.map_err(failed)?;
-    checked(response)
-        .await?
+    wrote(checked(response).await)?
         .json()
         .await
         .map_err(|e| e.to_string())
@@ -106,7 +122,7 @@ pub async fn post_empty<B: Serialize>(path: &str, body: &B) -> Result<(), String
         .json(body)
         .map_err(|e| e.to_string())?;
     let response = request.send().await.map_err(failed)?;
-    checked(response).await.map(drop)
+    wrote(checked(response).await).map(drop)
 }
 
 pub async fn patch<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T, String> {
@@ -114,8 +130,7 @@ pub async fn patch<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> R
         .json(body)
         .map_err(|e| e.to_string())?;
     let response = request.send().await.map_err(failed)?;
-    checked(response)
-        .await?
+    wrote(checked(response).await)?
         .json()
         .await
         .map_err(|e| e.to_string())
@@ -126,8 +141,7 @@ pub async fn put<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Res
         .json(body)
         .map_err(|e| e.to_string())?;
     let response = request.send().await.map_err(failed)?;
-    checked(response)
-        .await?
+    wrote(checked(response).await)?
         .json()
         .await
         .map_err(|e| e.to_string())
@@ -135,8 +149,7 @@ pub async fn put<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Res
 
 pub async fn delete<T: DeserializeOwned>(path: &str) -> Result<T, String> {
     let response = Request::delete(&url(path)).send().await.map_err(failed)?;
-    checked(response)
-        .await?
+    wrote(checked(response).await)?
         .json()
         .await
         .map_err(|e| e.to_string())
@@ -150,8 +163,7 @@ pub async fn post_form<T: DeserializeOwned>(
         .body(form)
         .map_err(|e| e.to_string())?;
     let response = request.send().await.map_err(failed)?;
-    checked(response)
-        .await?
+    wrote(checked(response).await)?
         .json()
         .await
         .map_err(|e| e.to_string())
