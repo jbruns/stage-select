@@ -31,6 +31,7 @@ use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
+use crate::parts::meter::GamesMeter;
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
     FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge,
@@ -365,6 +366,7 @@ fn Overview(
                             {review}
                         </StatusCount>
                     </ul>
+                    <GamesMeter games=a.games.clone() />
                     {outside_line}
                     <ByRegion name=name.clone() />
                 </section>

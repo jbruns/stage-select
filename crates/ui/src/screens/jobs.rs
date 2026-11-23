@@ -29,6 +29,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
+use crate::parts::meter::ProgressMeter;
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::{query_string, use_list_query};
@@ -37,20 +38,22 @@ use crate::shell::unseen_failures;
 
 pub(crate) fn progress_view(live: &LiveJob) -> AnyView {
     match (live.job.state, live.progress) {
-        (JobState::Running, Some(p)) => view! {
-            <span class="progress">
-                <progress max=p.files_total.max(1) value=p.files_done></progress>
-                <span class="data">
-                    {format!(
-                        "{} / {} {}",
-                        p.files_done,
-                        p.files_total,
-                        if live.job.kind == JobKind::Repair { "steps" } else { "files" },
-                    )}
+        (JobState::Running, Some(p)) => {
+            let unit = if live.job.kind == JobKind::Repair {
+                "steps"
+            } else {
+                "files"
+            };
+            view! {
+                <span class="progress">
+                    <ProgressMeter done=p.files_done total=p.files_total unit />
+                    <span class="data" aria-hidden="true">
+                        {format!("{} / {} {unit}", p.files_done, p.files_total)}
+                    </span>
                 </span>
-            </span>
+            }
+            .into_any()
         }
-        .into_any(),
         (JobState::Running, None) => "Starting".into_any(),
         _ => ().into_any(),
     }
@@ -175,7 +178,7 @@ impl ListRow for JobRow {
             )
             .sortable()
             .hint("The source set or folder it works on"),
-            JobCol::Progress => Column::new("progress", "Progress", Width::Fixed(10.0)),
+            JobCol::Progress => Column::new("progress", "Progress", Width::Fixed(15.0)),
             JobCol::Throughput => Column::new("throughput", "Rate", Width::Fixed(7.0))
                 .numeric()
                 .hint("Bytes read and written per second: now while it runs, on average once it has ended"),

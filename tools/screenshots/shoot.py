@@ -26,7 +26,7 @@ target/screenshots/.work/<label>/:
 - roots: `sets` (read-only, but repairs may write to the Game Boy source set), `play` (writable) and `drop` (ingest);
 - four DATs and four source sets: Atari - 2600, complete; Nintendo - Game Boy, with a misnamed file, a missing game,
   a file of wrong content and an unknown file, given a full audit and a repair proposal; Sega - Mega Drive - Genesis,
-  missing two games; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
+  missing two games and holding one of a two-ROM game's ROMs, so that game is incomplete; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
   Activity lists a failed job;
 - a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets;
 - two library folders: play/atari-2600, its plan approved and built (so READY shows), and play/game-boy, its plan
@@ -34,7 +34,9 @@ target/screenshots/.work/<label>/:
 - the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows.
 
 It doesn't seed an additions root, curation, cue packs, RomM, notifications, a drifted or stale library folder, a
-DAT fetch, kept files from an approved repair or ingest plan, or a running or interrupted job. A step the Service
+DAT fetch, kept files from an approved repair or ingest plan, or a running or interrupted job. The activity-running
+screen shows a running job all the same: the page itself hands the newest job's state and progress to its live
+stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
@@ -76,7 +78,8 @@ THEMES = ["light", "dark"]
 WIDTHS = [1440, 1000]
 HEIGHT = 900
 
-# Each screen's route; `{…}` names what the seed made, and a screen whose name the seed didn't make is skipped.
+# Each screen's route; `{…}` names what the seed made, and a screen whose name the seed didn't make is skipped. A
+# screen in RUNNING also shows a job running (see RUN).
 SCREENS = {
     "home": "/",
     "source-sets": "/source-sets",
@@ -95,6 +98,7 @@ SCREENS = {
     "ingest": "/ingest",
     "ingest-folder": "/ingest/drop",
     "activity": "/activity",
+    "activity-running": "/activity",
     "roots": "/settings/roots",
     "about": "/settings/about",
     "row-states": "/dats",
@@ -155,6 +159,31 @@ def table_states(page):
 
 DRIVEN = {"row-states": row_states, "table-states": table_states}
 
+RUNNING = {"activity-running"}
+
+# Records each EventSource the workbench opens, so RUN can hand it events.
+RECORD_EVENTS = """
+(() => {
+  const Real = window.EventSource;
+  window.EventSource = class extends Real {
+    constructor(...args) { super(...args); window.__events = this; }
+  };
+})()
+"""
+
+# Shows the newest job running, 12 of 40 files done, in this page alone: its live stream gets that job's state and
+# progress as if the Service had sent them. Nothing reaches the Service, which still holds the job as it finished.
+RUN = """
+async () => {
+  const [job] = await (await fetch('/api/v1/jobs')).json();
+  const version = job.version + 1;
+  const running = { ...job, state: 'running', version, finished_at: null, error: null, throughput: undefined };
+  const send = (name, data) => window.__events.dispatchEvent(new MessageEvent(name, { data: JSON.stringify(data) }));
+  send('state', running);
+  send('progress', { job: job.id, version, files_done: 12, files_total: 40 });
+}
+"""
+
 ATARI = "Atari - 2600"
 GAME_BOY = "Nintendo - Game Boy"
 MEGA_DRIVE = "Sega - Mega Drive - Genesis"
@@ -194,6 +223,7 @@ SYSTEMS = {
         ("Iron Meadow (USA)", None),
         ("Rally Spirits (Japan)", None),
         ("Velvet Engine (USA, Europe)", None),
+        ("Twin Reels (USA)", None),
     ]),
     PC_ENGINE: (".pce", [
         ("Comet Dancer (Japan)", None),
@@ -207,10 +237,20 @@ GB_MISNAMED = "Tile Tumbler (World)"
 GB_MISSING = "Pocket Ranger 2 (USA)"
 GB_WRONG = "Deep Current (Japan)"
 MD_MISSING = {"Iron Meadow (USA)", "Rally Spirits (Japan)"}
+# A Mega Drive game of two ROMs, its source set holding only the first: an incomplete game.
+MD_TWO_ROMS = "Twin Reels (USA)"
+
+
+def roms(system, game):
+    """The names of a game's ROMs: one, or two for MD_TWO_ROMS."""
+    ext = SYSTEMS[system][0]
+    if (system, game) == (MEGA_DRIVE, MD_TWO_ROMS):
+        return [f"{game} (Part 1){ext}", f"{game} (Part 2){ext}"]
+    return [game + ext]
 
 
 def dat_xml(system, version):
-    ext, games = SYSTEMS[system]
+    _, games = SYSTEMS[system]
     out = [
         '<?xml version="1.0"?>',
         "<datafile>",
@@ -221,14 +261,14 @@ def dat_xml(system, version):
         "  </header>",
     ]
     for game, parent in games:
-        rom = game + ext
-        p = payload(rom)
         cloneof = f' cloneof="{parent}"' if parent else ""
         out.append(f'  <game name="{game}"{cloneof}>')
-        out.append(
-            f'    <rom name="{rom}" size="{len(p)}" crc="{zlib.crc32(p):08x}" md5="{hashlib.md5(p).hexdigest()}"'
-            f' sha1="{hashlib.sha1(p).hexdigest()}"/>'
-        )
+        for rom in roms(system, game):
+            p = payload(rom)
+            out.append(
+                f'    <rom name="{rom}" size="{len(p)}" crc="{zlib.crc32(p):08x}" md5="{hashlib.md5(p).hexdigest()}"'
+                f' sha1="{hashlib.sha1(p).hexdigest()}"/>'
+            )
         out.append("  </game>")
     out.append("</datafile>")
     return ("\n".join(out) + "\n").encode()
@@ -242,10 +282,10 @@ def write_zip(path, name, content):
 
 def write_set(folder, system):
     """Writes `system`'s source set folder, flawed as the seed says."""
-    ext, games = SYSTEMS[system]
+    _, games = SYSTEMS[system]
     folder.mkdir(parents=True, exist_ok=True)
     for game, _ in games:
-        rom = game + ext
+        rom = roms(system, game)[0]
         if (system, game) == (GAME_BOY, GB_MISSING) or (system == MEGA_DRIVE and game in MD_MISSING):
             continue
         content, name = payload(rom), game
@@ -556,6 +596,7 @@ def capture(url, screens, label, work):
             for width in WIDTHS:
                 context = browser.new_context(viewport={"width": width, "height": HEIGHT}, reduced_motion="reduce")
                 context.add_init_script(f"localStorage.setItem('stage-select.theme', '{theme}')")
+                context.add_init_script(RECORD_EVENTS)
                 page = context.new_page()
                 page.on("request", request)
                 for name, route in screens.items():
@@ -566,6 +607,10 @@ def capture(url, screens, label, work):
                         page.wait_for_function(SETTLED, timeout=15000)
                     except Exception:
                         print(f"capture: {name} still loading after 15 s; capturing it as it is", file=sys.stderr)
+                    if name in RUNNING:
+                        page.wait_for_function("() => window.__events?.readyState === 1", timeout=15000)
+                        page.wait_for_timeout(500)
+                        page.evaluate(RUN)
                     page.wait_for_timeout(500)
                     page.evaluate(MASK, [str(work), SHOWN_AS])
                     path = inside(out / f"{name}-{theme}-{width}.png", OUT)
