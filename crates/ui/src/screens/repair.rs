@@ -890,7 +890,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
             </div>
         })}
         <details>
-            <summary>{format!("Every change, in order ({count}; {removals} kept aside)")}</summary>
+            <summary>{format!("Every change, in order ({count}; {removals} set aside)")}</summary>
             <ul class="plain">
                 {steps
                     .iter()
@@ -1095,7 +1095,7 @@ pub fn KeptFiles(
         None => view! { <Loading what="the kept files" /> }.into_any(),
         Some(Err(message)) => view! { <Problem message /> }.into_any(),
         Some(Ok(files)) if files.is_empty() => {
-            view! { <p class="note">"No files are kept aside."</p> }.into_any()
+            view! { <p class="note">"No files are set aside."</p> }.into_any()
         }
         Some(Ok(files)) => view! {
             <ul class="plain">

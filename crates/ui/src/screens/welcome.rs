@@ -424,7 +424,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         Step::Library => view! {
             <p class="done">
                 {held(|h| format!("You have {} library folders. ", h.libraries))}
-                <A href="/libraries">"Open your libraries"</A>
+                <A href="/libraries">"Open your library folders"</A>
             </p>
         }
         .into_any(),

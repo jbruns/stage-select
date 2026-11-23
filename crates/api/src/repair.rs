@@ -48,7 +48,7 @@ impl RepairKind {
             RepairKind::Fill => "fill",
             RepairKind::Replace => "replace",
             RepairKind::Conflict => "conflict",
-            RepairKind::KeepAside => "keep aside",
+            RepairKind::KeepAside => "set aside",
             RepairKind::Convert => "convert",
         }
     }
@@ -71,10 +71,10 @@ pub enum RepairChoice {
 impl RepairChoice {
     pub fn label(self) -> &'static str {
         match self {
-            RepairChoice::Apply => "apply",
-            RepairChoice::Leave => "leave",
-            RepairChoice::KeepAside => "keep aside",
-            RepairChoice::AddAddition => "add to additions",
+            RepairChoice::Apply => "Apply",
+            RepairChoice::Leave => "Leave",
+            RepairChoice::KeepAside => "Set aside",
+            RepairChoice::AddAddition => "Add to additions",
         }
     }
 }

@@ -147,7 +147,7 @@ const PLACED_CHD_UNVERIFIED: &str = "it is placed as a CHD in a play library fol
 
 /// Why a repair leaves an item that would keep aside the only copy of a ROM.
 const ONLY_COPY: &str =
-    "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes";
+    "left as it is: it would set aside the only copy of a ROM no repair in this plan writes";
 
 /// Why a repair leaves an item that would keep a file aside before another item writes the copy that file holds.
 const WAITS_ON_LATER: &str = "left as it is: it would keep aside a copy of a ROM before another item of this repair \
@@ -3049,7 +3049,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .collect();
     for (n, lost) in last {
         proposed[n].item.note = Some(format!(
-            "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
+            "this sets aside the last copy in the source set of {}; you can restore it from the kept files",
             lost.join(", ")
         ));
     }

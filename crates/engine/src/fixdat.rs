@@ -85,7 +85,7 @@ impl Lacking<'_> {
             Some(Scope::Selection { selection, .. }) => {
                 let _ = write!(
                     description,
-                    ", limited to the winners of selection {selection}"
+                    ", limited to the games selection {selection} kept"
                 );
             }
             Some(Scope::Coverage { regions, .. }) => {

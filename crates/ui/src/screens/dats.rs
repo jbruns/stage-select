@@ -339,7 +339,7 @@ pub fn DatRevisions() -> impl IntoView {
     ];
 
     view! {
-        <h1>"DAT revisions"</h1>
+        <h1>"DATs"</h1>
         <p class="lede">
             "Each import of a DAT file is a DAT revision, shown as its header describes it. Newest import first within \
              each DAT. When the header doesn't show who publishes the DAT, its provider is unknown. \
@@ -353,7 +353,7 @@ pub fn DatRevisions() -> impl IntoView {
         }}
         <List
             id="dat-revisions"
-            label="DAT revisions"
+            label="DATs"
             rows
             empty="No DAT revisions yet. Choose Import to add a DAT."
             placeholder="Filter by DAT, provider, version or file"

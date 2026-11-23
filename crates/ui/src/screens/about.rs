@@ -124,7 +124,7 @@ pub fn About() -> impl IntoView {
                 "When you leave the region order or the video order of a selection profile empty, for the whole profile or for one system, selection uses the default order. Your selection profile lists it in full: open \"The default order\" under the setting."
             </p>
             <p>
-                "The default region order puts USA first, then the regions whose releases are most often in English, then the rest of the world. The default video order prefers NTSC, then PAL. So the defaults suit English speakers."
+                "The default region order puts USA first, then the regions whose games are most often in English, then the rest of the world. The default video order prefers NTSC, then PAL. So the defaults suit English speakers."
             </p>
             <p>
                 "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Stage Select uses them as the pinned copy of the clone lists and metadata ships them, and does not change them."

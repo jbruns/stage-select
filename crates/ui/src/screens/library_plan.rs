@@ -190,7 +190,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
                 ..ItemRow::new(&i.target, &i.game, proposed)
                     .fact("Why", i.reason.clone())
                     .fact(
-                        "Kept aside first",
+                        "Set aside first",
                         i.keep
                             .as_ref()
                             .map(|k| format!("{} ({})", k.name, keep_reason_label(k.reason))),
@@ -199,7 +199,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
                         "Converts",
                         i.converts.as_ref().map(|c| {
                             format!(
-                                "{}, stored the other way, kept aside once this is written",
+                                "{}, stored the other way, set aside once this is written",
                                 c.name
                             )
                         }),
@@ -442,9 +442,9 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 ..choices.clone()
             };
             let label = if on {
-                "Build resolved groups only"
+                "Build resolved game groups only"
             } else {
-                "Plan every group again"
+                "Plan every game group again"
             };
             view! {
                 <div class="form">

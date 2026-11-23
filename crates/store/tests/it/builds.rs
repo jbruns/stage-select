@@ -4109,7 +4109,7 @@ fn a_group_whose_discs_come_from_different_releases_blocks_the_plan_and_says_why
     assert_eq!(blocker.group.as_deref(), Some("saga"));
     assert!(
         blocker.message.contains(
-            "its selected discs come from different releases: disc 1 from Saga (USA), disc 2 from Saga (Europe)"
+            "its selected discs come from different versions: disc 1 from Saga (USA), disc 2 from Saga (Europe)"
         ),
         "{}",
         blocker.message

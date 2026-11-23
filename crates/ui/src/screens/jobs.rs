@@ -771,7 +771,7 @@ impl ListRow for KeptRow {
             .sortable(),
             KeptCol::Folder => Column::new("folder", "Folder", Width::Flex { min: 8.0, share: 2 })
                 .sortable()
-                .hint("The folder it was kept aside from"),
+                .hint("The folder it was set aside from"),
             KeptCol::Reason => {
                 Column::new("reason", "Why", Width::Flex { min: 9.0, share: 2 }).sortable()
             }
@@ -891,7 +891,7 @@ pub fn KeptFiles() -> impl IntoView {
             id="kept-files"
             label="Kept files"
             rows
-            empty="No files are kept aside in any folder."
+            empty="No files are set aside in any folder."
             placeholder="Filter by file, folder or reason"
             row_actions=Callback::new(move |row: KeptRow| {
                 let (glyph, label) = place_link(&row.place);

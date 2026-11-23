@@ -142,7 +142,7 @@ fn Nav() -> impl IntoView {
     view! {
         <nav aria-label="Workbench">
             <NavLink href="/source-sets" glyph=Glyph::Database label="Source sets" />
-            <NavLink href="/libraries" glyph=Glyph::Library label="Libraries" />
+            <NavLink href="/libraries" glyph=Glyph::Library label="Library folders" />
             <NavLink
                 href="/ingest"
                 glyph=Glyph::FolderInput

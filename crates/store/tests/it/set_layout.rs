@@ -1285,7 +1285,7 @@ fn a_conflicting_entry_you_choose_to_keep_aside_with_the_last_copy_of_a_rom_says
     assert_eq!(
         item.note.as_deref(),
         Some(
-            "this keeps aside the last copy in the source set of prog.u3 of blaster; you can restore it from the \
+            "this sets aside the last copy in the source set of prog.u3 of blaster; you can restore it from the \
              kept files"
         )
     );

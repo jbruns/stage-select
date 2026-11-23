@@ -1143,14 +1143,14 @@ fn KeptFiles(base: String, refresh: RwSignal<u64>) -> impl IntoView {
         <details class="kept">
             <summary>{summary}</summary>
             <p class="lede">
-                "Items you discarded, DATs you imported and the originals of repacks, kept aside in the folder. \
+                "Items you discarded, DATs you imported and the originals of repacks, set aside in the folder. \
                 Nothing here is deleted until you approve a cleanup."
             </p>
             {move || match files.get() {
                 None => view! { <Loading what="the kept files" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(files)) if files.is_empty() => {
-                    view! { <p class="note">"No files are kept aside."</p> }.into_any()
+                    view! { <p class="note">"No files are set aside."</p> }.into_any()
                 }
                 Some(Ok(files)) => view! {
                     <ul class="plain">

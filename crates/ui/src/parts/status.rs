@@ -748,7 +748,7 @@ impl Status for BuildKind {
                 Glyph::CircleQuestionMark,
                 Tone::Review,
                 "Unresolved",
-                "Skipped: you chose to build the resolved groups only, so its target is left as it is.",
+                "Skipped: you chose to build the resolved game groups only, so its target is left as it is.",
             ),
             BuildKind::Blocked => look(
                 Glyph::CircleX,
@@ -945,31 +945,31 @@ impl Status for GroupStatus {
                 Glyph::TriangleAlert,
                 Tone::Review,
                 "Choice to review",
-                "Your choice names a release that is now excluded or gone, so the default applies until you change it.",
+                "Your choice names a game that is now left out or gone, so the default applies until you change it.",
             ),
             GroupStatus::Unresolved => look(
                 Glyph::CircleQuestionMark,
                 Tone::Review,
                 "Unresolved",
-                "The selection picked a release by a tie-break, so it needs your decision.",
+                "The selection picked a game by a tie-break, so it needs your decision.",
             ),
             GroupStatus::YourChoice => look(
                 Glyph::PencilLine,
                 Tone::Good,
                 "Your choice",
-                "Your choice decides which releases are kept.",
+                "Your choice decides which games are kept.",
             ),
             GroupStatus::Chosen => look(
                 Glyph::CircleCheck,
                 Tone::Good,
                 "Chosen",
-                "The selection chose a release by your settings.",
+                "The selection chose a game by your settings.",
             ),
             GroupStatus::Excluded => look(
                 Glyph::CircleOff,
                 Tone::Neutral,
-                "Excluded",
-                "Your settings exclude every release of the group.",
+                "Left out",
+                "Your settings leave out every game of the game group.",
             ),
         }
     }
