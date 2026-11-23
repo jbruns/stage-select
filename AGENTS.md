@@ -49,7 +49,8 @@ real DAT unless its licence permits redistribution.
 ### Testing against live data
 
 Test against local copies and synthetic fixtures. You may read the Host, but touch live data on it only at a milestone
-acceptance agreed with the Operator. The next one is the end of M7 (#271).
+acceptance agreed with the Operator: the acceptance slice of an open milestone's parent issue, and only once that
+slice is the work in hand.
 
 ### Read-only by default
 
