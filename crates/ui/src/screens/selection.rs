@@ -20,10 +20,10 @@ use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
 use crate::model::{game_status_label, when};
 use crate::parts::help::Help;
-use crate::parts::icon::Svg;
+use crate::parts::icon::{Glyph, Svg};
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present, present_looks};
-use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
+use crate::parts::list::{Clip, Column, Keep, List, ListRow, RowAction, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{
@@ -1258,60 +1258,169 @@ fn Groups(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaleCol {
+    Group,
+    Titles,
+    Choice,
+}
+
+/// A choice of yours for a group gone from this DAT Revision, and whether the staged profile drops it.
+#[derive(Clone, PartialEq)]
+struct StaleRow {
+    group: String,
+    titles: Vec<String>,
+    dropped: bool,
+}
+
+impl StaleRow {
+    fn choice(&self) -> &'static str {
+        if self.dropped {
+            "Dropped until you save"
+        } else {
+            "Kept"
+        }
+    }
+}
+
+impl ListRow for StaleRow {
+    type Col = StaleCol;
+    const COLUMNS: &'static [StaleCol] = &[StaleCol::Group, StaleCol::Titles, StaleCol::Choice];
+
+    fn column(col: StaleCol) -> Column {
+        match col {
+            StaleCol::Group => Column::new(
+                "group",
+                "Game group",
+                Width::Flex {
+                    min: 12.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            StaleCol::Titles => Column::new(
+                "titles",
+                "Releases you chose",
+                Width::Flex {
+                    min: 14.0,
+                    share: 3,
+                },
+            ),
+            StaleCol::Choice => Column::new("choice", "Your choice", Width::Fixed(12.0)).sortable(),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.group.clone()
+    }
+
+    fn title(&self) -> String {
+        self.group.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{} {}", self.group, self.titles.join(" "))
+    }
+
+    fn cell(&self, col: StaleCol) -> AnyView {
+        match col {
+            StaleCol::Group => view! { <Clip text=self.group.clone() /> }.into_any(),
+            StaleCol::Titles => view! { <Clip text=self.titles.join(", ") /> }.into_any(),
+            StaleCol::Choice => self.choice().into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: StaleCol) -> std::cmp::Ordering {
+        match col {
+            StaleCol::Group | StaleCol::Titles => self.group.cmp(&other.group),
+            StaleCol::Choice => self.dropped.cmp(&other.dropped),
+        }
+    }
+}
+
+fn stale_detail(row: StaleRow) -> AnyView {
+    view! {
+        <p>{row.choice()}</p>
+        <dl class="facts">
+            <dt>"Releases you chose"</dt>
+            <dd>
+                <ul class="plain">
+                    {row.titles.into_iter().map(|t| view! { <li>{t}</li> }).collect_view()}
+                </ul>
+            </dd>
+        </dl>
+    }
+    .into_any()
+}
+
 /// Choices of yours for groups that are gone from this DAT Revision: stale, kept until you drop them.
 #[component]
 fn StaleGroups(
     index: Arc<SelectionIndex>,
     staged: RwSignal<Option<SelectionProfile>>,
 ) -> impl IntoView {
-    let stale = index.selection.stale_choices.clone();
-    let system = index.selection.system.clone();
-    (!stale.is_empty()).then(|| {
+    let stale = StoredValue::new(index.selection.stale_choices.clone());
+    let system = StoredValue::new(index.selection.system.clone());
+    let rows = Signal::derive(move || {
+        staged.with(|p| {
+            let kept = p.as_ref().map(|p| {
+                p.choices
+                    .get(&system.get_value())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            stale.with_value(|stale| {
+                Arc::new(
+                    stale
+                        .iter()
+                        .map(|(group, titles)| StaleRow {
+                            group: group.clone(),
+                            titles: titles.iter().cloned().collect(),
+                            dropped: kept.as_ref().is_some_and(|c| !c.contains_key(group)),
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+        })
+    });
+    let row_actions = Callback::new(move |row: StaleRow| {
+        if row.dropped {
+            vec![RowAction::unavailable(
+                Glyph::CircleMinus,
+                format!("Your choice for {} is dropped until you save", row.group),
+            )]
+        } else {
+            let group = row.group.clone();
+            vec![RowAction::run(
+                Glyph::CircleMinus,
+                format!("Drop your choice for {}", row.group),
+                move || {
+                    staged.update(|p| {
+                        if let Some(p) = p {
+                            p.reset_choices(&system.get_value(), Some(&group));
+                        }
+                    })
+                },
+            )]
+        }
+    });
+    stale.with_value(|s| !s.is_empty()).then(|| {
         view! {
             <section aria-labelledby="stale-title">
                 <h2 id="stale-title">"Stale choices"</h2>
                 <p class="lede">
                     "These game groups are gone from this DAT revision. Your choices for them are kept until you drop them."
                 </p>
-                <ul class="plain">
-                    {stale
-                        .into_iter()
-                        .map(|(group, titles)| {
-                            let (s, g) = (system.clone(), group.clone());
-                            let dropped = move || {
-                                staged
-                                    .with(|p| {
-                                        p.as_ref()
-                                            .is_some_and(|p| {
-                                                p.choices.get(&s).is_none_or(|c| !c.contains_key(&g))
-                                            })
-                                    })
-                            };
-                            let system = system.clone();
-                            view! {
-                                <li>
-                                    <strong>{group.clone()}</strong>
-                                    {format!(": {}", titles.into_iter().collect::<Vec<_>>().join(", "))}
-                                    " "
-                                    <button
-                                        type="button"
-                                        disabled=dropped
-                                        on:click=move |_| {
-                                            staged
-                                                .update(|p| {
-                                                    if let Some(p) = p {
-                                                        p.reset_choices(&system, Some(&group));
-                                                    }
-                                                })
-                                        }
-                                    >
-                                        "Drop this choice"
-                                    </button>
-                                </li>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
+                <List
+                    id="stale"
+                    label="Stale choices"
+                    rows
+                    empty="No stale choices."
+                    placeholder="Filter by game group or release"
+                    detail=Callback::new(stale_detail)
+                    row_actions
+                    scope="stale"
+                />
             </section>
         }
     })
