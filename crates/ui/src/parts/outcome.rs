@@ -18,6 +18,7 @@ use super::status::Status;
 use super::tabs::tab_link;
 use super::url_state::encode;
 use crate::api;
+use crate::build_model::publishing;
 use crate::events::use_live;
 use crate::library_model::{FolderTab, build_finished};
 use crate::source_set_model::PageTab;
@@ -138,25 +139,31 @@ pub struct Reached {
     pub unit: &'static str,
 }
 
-/// What a Build that stopped left: how many of its files it wrote, and how many built files it removed.
+/// What a Build that stopped left: how many of its files it wrote, and how many built files it removed, when that
+/// is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tally {
     pub reached: Reached,
-    pub removed: usize,
+    pub removed: Option<usize>,
 }
 
 /// A Build's tally from its items: written of every file it set out to write or remove, and the removals it made.
+/// Placing deletes Source Set originals and returning deletes placed files, and no item records those, so a Build
+/// that places or returns claims nothing about removal.
 pub fn tally(detail: &BuildDetail) -> Tally {
     let b = &detail.build;
-    let removed = detail
-        .items
-        .iter()
-        .filter(|i| i.kind == ItemKind::Remove && i.state == ItemState::Applied)
-        .count();
+    let disposes = b.planned.place > 0 || b.planned.returned > 0;
+    let removed = (!disposes).then(|| {
+        detail
+            .items
+            .iter()
+            .filter(|i| i.kind == ItemKind::Remove && i.state == ItemState::Applied)
+            .count()
+    });
     Tally {
         reached: Reached {
             done: b.applied as usize,
-            total: (b.applied + b.failed + b.pending + b.uncertain) as usize,
+            total: (b.applied + b.failed + b.pending + b.uncertain + publishing(detail)) as usize,
             unit: "files",
         },
         removed,
@@ -521,7 +528,7 @@ pub fn JobOutcome(
             let tally = tallied.get().flatten();
             let reached = tally.map(|t| t.reached).or(h.reached);
             (
-                shown(&h.job, reached, tally.map(|t| t.removed), h.watched),
+                shown(&h.job, reached, tally.and_then(|t| t.removed), h.watched),
                 h.job,
             )
         })
@@ -773,13 +780,14 @@ mod tests {
             uncertain: 1,
             planned: Default::default(),
         };
-        let detail = BuildDetail {
+        let mut detail = BuildDetail {
             build: summary,
             items: vec![
                 item(ItemKind::Remove, ItemState::Applied),
                 item(ItemKind::Copy, ItemState::Applied),
                 item(ItemKind::Remove, ItemState::Pending),
                 item(ItemKind::Copy, ItemState::Failed),
+                item(ItemKind::Copy, ItemState::Publishing),
             ],
         };
         assert_eq!(
@@ -787,11 +795,25 @@ mod tests {
             Tally {
                 reached: Reached {
                     done: 2,
-                    total: 7,
+                    total: 8,
                     unit: "files"
                 },
-                removed: 1
-            }
+                removed: Some(1)
+            },
+            "a file still being put in place counts toward the whole"
+        );
+        detail.build.planned.place = 1;
+        assert_eq!(
+            tally(&detail).removed,
+            None,
+            "placing deletes source set originals, which the items don't count"
+        );
+        detail.build.planned.place = 0;
+        detail.build.planned.returned = 1;
+        assert_eq!(
+            tally(&detail).removed,
+            None,
+            "returning deletes placed files, which the items don't count"
         );
     }
 }

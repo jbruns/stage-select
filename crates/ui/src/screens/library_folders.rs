@@ -12,7 +12,7 @@ use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
-    AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
+    AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
     ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemState,
     KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, PlanCleanup,
     PlanKeptDeletion, RETENTION,
@@ -25,8 +25,8 @@ use stage_select_api::{
 use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
-    build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label, folders_for,
-    incomplete_counts, incomplete_reason_label, keep_reason_label, unfinished_label,
+    build_files, build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label,
+    folders_for, incomplete_counts, incomplete_reason_label, keep_reason_label, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
@@ -43,7 +43,7 @@ use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
-use crate::parts::outcome::{JobOutcome, Reports, ShowReports};
+use crate::parts::outcome::{JobOutcome, Reports, ShowReports, job_href};
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
@@ -2702,7 +2702,24 @@ fn build_item_detail(row: BuildItemRow) -> AnyView {
     .into_any()
 }
 
+/// The library folder `folder`, named by where it is once it loads.
+#[component]
+fn FolderName(folder: i64) -> impl IntoView {
+    let loaded = LocalResource::new(move || async move {
+        api::get::<LibraryFolder>(&format!("/libraries/{folder}")).await
+    });
+    view! {
+        <A href=folder_href(folder)>
+            {move || match loaded.get() {
+                Some(Ok(f)) => location(&f),
+                _ => format!("#{folder}"),
+            }}
+        </A>
+    }
+}
+
 fn build_view(detail: BuildDetail) -> impl IntoView {
+    let files = build_files(&detail);
     let b = detail.build;
     let trail = vec![
         ("/libraries".to_string(), "Library folders".to_string()),
@@ -2712,10 +2729,9 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
         ),
     ];
     let rows: Signal<Arc<Vec<BuildItemRow>>> = Signal::stored(Arc::new(
-        detail
-            .items
+        files
+            .rows
             .into_iter()
-            .enumerate()
             .map(|(i, item)| BuildItemRow(i, item))
             .collect(),
     ));
@@ -2731,13 +2747,37 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
     view! {
         <Crumbs trail here=format!("Build #{}", b.id) />
         <h1>{format!("Build #{}", b.id)}</h1>
+        {(b.state != BuildState::Succeeded).then(|| view! { <JobOutcome job=b.job /> })}
+        <ul class="counts">
+            {files
+                .counts
+                .into_iter()
+                .map(|(status, n)| view! { <StatusCount status>{n}</StatusCount> })
+                .collect_view()}
+        </ul>
+        <section aria-labelledby="items-title">
+            <h2 id="items-title">"Files"</h2>
+            <List
+                id="build-files"
+                label="Files"
+                rows
+                empty="The build had no files to write."
+                placeholder="Filter by file or game"
+                detail=Callback::new(build_item_detail)
+                legend=move || view! { <LegendStrip looks list="build-files" /> }
+            />
+        </section>
         <dl class="facts">
             <dt>"Library folder"</dt>
             <dd>
-                <A href=folder_href(b.folder)>{format!("#{}", b.folder)}</A>
+                <FolderName folder=b.folder />
             </dd>
             <dt>"State"</dt>
             <dd>{build_state_label(b.state)}</dd>
+            <dt>"Job"</dt>
+            <dd>
+                <A href=job_href(b.job)>{format!("Job #{}", b.job)}</A>
+            </dd>
             <dt>"Plan"</dt>
             <dd>{format!("#{}", b.plan)}</dd>
             <dt>"Selection"</dt>
@@ -2759,23 +2799,6 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             <dt>"Finished"</dt>
             <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
         </dl>
-        <ul class="counts">
-            <StatusCount status=ItemState::Applied>{b.applied}</StatusCount>
-            <StatusCount status=ItemState::Failed>{b.failed}</StatusCount>
-            <StatusCount status=ItemState::Pending>{b.pending}</StatusCount>
-        </ul>
-        <section aria-labelledby="items-title">
-            <h2 id="items-title">"Files"</h2>
-            <List
-                id="build-files"
-                label="Files"
-                rows
-                empty="The build had no files to write."
-                placeholder="Filter by file or game"
-                detail=Callback::new(build_item_detail)
-                legend=move || view! { <LegendStrip looks list="build-files" /> }
-            />
-        </section>
     }
 }
 

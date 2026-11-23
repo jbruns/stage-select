@@ -77,6 +77,8 @@ pure logic there too.
 | An outcome, a problem or a notice      | `Message { kind }` around its content (see Messages)   | `message`   |
 | A problem from the Service             | `Problem { message }`                                  | `message`   |
 | How the last request went              | `Said { said }`, an `Option<Result<String, String>>`   | `message`   |
+| A job you started, until it ends       | `JobOutcome { job, seed?, cancel? }` (see Outcomes)    | `outcome`   |
+| What starting jobs or a request made   | `ShowReports { reports }` of a `Reports`               | `outcome`   |
 | Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
@@ -88,6 +90,7 @@ pure logic there too.
 | A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
 | Filter, sort, open/checked rows in URL | `use_list_query()` (`List` uses it already)            | `url_state` |
 | Tabs on a page, kept in the URL's `tab`| `Tabs { label, tabs }` of `Tab`s, `use_tab()`          | `tabs`      |
+| A link to a tab from another page      | `tab_link(path, tab, state)`                           | `tabs`      |
 | Tabs that are child routes             | `RouteTabs { label, tabs: Vec<(path, label)> }`        | `tabs`      |
 | The trail to the pages above this one  | `Crumbs { trail: Vec<(href, label)>, here }`           | `layout`    |
 | A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, empty, detail, .. }`    | `plan`      |
@@ -167,6 +170,26 @@ A part built on `Message` may make its own `MessageKind` (tone, glyph, label, li
 message and every status vocabulary; `message.rs` tests that. Never colour a message in CSS of its own: the part's
 own `.message` rules are the only ones that may set colour, border or background on its classes, and a test in
 `message.rs` fails on any other rule that does.
+
+### Outcomes
+
+Wherever a job starts, `parts::outcome::JobOutcome` shows it until it ends, then links onward: never "follow it in
+Activity" and never a hand-built link. Pass the started `Job` as `seed` so it shows at once; it follows the job
+through the live book after that, and `cancel=true` offers cancelling a running build or repair.
+
+- Queued or running: the job's state, a `ProgressMeter` while it reports progress, and "Open the job", announced
+  politely.
+- Succeeded: a done message linking to what it made (`Outcome::of`: the audit, selection, build, or the repair on
+  the source set's Repair tab), or else to what it worked on (`Subject::of`).
+- Failed: a problem that says how far it got and what that left ("The build stopped at 412 of 620 files. Nothing was
+  removed."), the error's first line, and "Open the job to see why." It is an alert only when the part watched the
+  job end; one that had already failed shows with `Live::Off`.
+- Interrupted or cancelled: a notice, how far it got, and the job's link.
+
+Where one action starts several jobs or makes something without a job (a proposed repair), keep a `Reports` and show
+it with `ShowReports`: `reports.started(result, doing)` adds a job's outcome or its refusal, `Report::Made` adds what
+a request made with its link, and refusals lead. The pure parts (`shown`, `tally`, `Outcome::href`) are host-tested
+in `outcome.rs`; add a job kind's wording and link there, never on a screen.
 
 ### Pending and problems
 
