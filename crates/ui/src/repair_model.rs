@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use stage_select_api::additions::NewAddition;
 use stage_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
+use stage_select_api::report::{Finding, GameStatus};
 
 use crate::parts::plan_model::{self, BulkOutcome, Does};
 use crate::parts::status::{ItemOutcome, PlanKind, Status};
@@ -96,6 +97,100 @@ impl Loads {
         self.seq += 1;
         if let Some(id) = proposed {
             self.requested = Some(Some(id));
+        }
+    }
+}
+
+/// What an audit found, counted on the Repair tab before any repair is proposed: entries with a finding, or games
+/// with a status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found {
+    Entries(Finding),
+    Games(GameStatus),
+}
+
+/// How many of one thing the latest audit found that a repair could change, and the kind of change it would be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CouldChange {
+    pub found: Found,
+    pub n: usize,
+    pub kind: PlanKind,
+}
+
+impl CouldChange {
+    /// What its tile says under its count.
+    pub fn what(self) -> &'static str {
+        match self.found {
+            Found::Entries(Finding::Misnamed) => "Misnamed entries to rename",
+            Found::Entries(Finding::Conflicting) => "Conflicting entries to rename",
+            Found::Entries(Finding::Mismatched) => "Mismatched entries to replace",
+            Found::Entries(Finding::Unreadable) => "Unreadable entries to replace",
+            Found::Entries(Finding::Unmatched) => "Unmatched entries to set aside",
+            Found::Entries(Finding::Matched) => "Matched entries",
+            Found::Games(GameStatus::Missing) => "Missing games to fill",
+            Found::Games(GameStatus::Incomplete) => "Incomplete games to complete",
+            Found::Games(_) => "Games",
+        }
+    }
+
+    /// The query pairs that narrow the source set's Entries or Games tab to what it counts. Where its Coverage
+    /// applies (`covered`), its games are counted only in it, and so are those the tab lists.
+    pub fn filter(self, covered: bool) -> Vec<(&'static str, &'static str)> {
+        match self.found {
+            Found::Entries(f) => vec![(crate::model::FINDING, f.as_str())],
+            Found::Games(s) => {
+                let mut pairs = vec![(crate::model::STATUS, s.as_str())];
+                if covered {
+                    pairs.push((crate::model::COVERED, crate::model::COVERED_YES));
+                }
+                pairs
+            }
+        }
+    }
+}
+
+/// What of an audit's `findings` and `games` a repair could change, in the order a plan lists its kinds: misnamed and
+/// conflicting entries are renamed, mismatched and unreadable ones replaced from an Ingest Folder, unmatched ones set
+/// aside, and missing and incomplete games filled. Those it found none of are left out. What an Audit doesn't count
+/// ahead of a plan, spare copies of matched ROMs to set aside and games to repack or convert per the storage policy,
+/// [`repair_lead`] names instead.
+pub fn could_change(
+    findings: &BTreeMap<Finding, usize>,
+    games: &BTreeMap<GameStatus, usize>,
+) -> Vec<CouldChange> {
+    let entries = [
+        (Finding::Misnamed, PlanKind::Rename),
+        (Finding::Conflicting, PlanKind::Rename),
+        (Finding::Mismatched, PlanKind::Replace),
+        (Finding::Unreadable, PlanKind::Replace),
+        (Finding::Unmatched, PlanKind::SetAside),
+    ]
+    .map(|(f, kind)| (Found::Entries(f), findings.get(&f).copied(), kind));
+    let games = [GameStatus::Missing, GameStatus::Incomplete]
+        .map(|s| (Found::Games(s), games.get(&s).copied(), PlanKind::Fill));
+    entries
+        .into_iter()
+        .chain(games)
+        .filter_map(|(found, n, kind)| n.filter(|n| *n > 0).map(|n| CouldChange { found, n, kind }))
+        .collect()
+}
+
+/// The line the Repair tab leads with before any repair is proposed, whether the source set is `audited` and what of
+/// its latest audit a repair `could` change.
+pub fn repair_lead(audited: bool, could: &[CouldChange]) -> &'static str {
+    match (audited, could.is_empty()) {
+        (false, _) => {
+            "Not audited yet. A repair is proposed from an audit, so audit the source set first."
+        }
+        (true, true) => {
+            "The latest audit found no entries to rename, replace or set aside, and no missing or incomplete games. \
+             A repair may still set aside spare copies or repack games to your storage policy, which an audit \
+             doesn't count: propose one to see what it would do."
+        }
+        (true, false) => {
+            "The latest audit found these, which a repair could change. It may also set aside spare copies or \
+             repack games to your storage policy, which an audit doesn't count: propose one to see everything it \
+             would do."
         }
     }
 }
@@ -1040,6 +1135,73 @@ mod tests {
                 Some(ItemOutcome::NotDone),
                 None
             ]
+        );
+    }
+
+    #[test]
+    fn with_no_repair_the_tab_counts_what_a_repair_could_change() {
+        let findings = BTreeMap::from([
+            (Finding::Matched, 40),
+            (Finding::Misnamed, 3),
+            (Finding::Conflicting, 0),
+            (Finding::Unmatched, 2),
+            (Finding::Unreadable, 1),
+        ]);
+        let games = BTreeMap::from([
+            (GameStatus::Complete, 30),
+            (GameStatus::Incomplete, 4),
+            (GameStatus::Missing, 5),
+        ]);
+        let could = could_change(&findings, &games);
+        assert_eq!(
+            could
+                .iter()
+                .map(|c| (c.found, c.n, c.kind))
+                .collect::<Vec<_>>(),
+            [
+                (Found::Entries(Finding::Misnamed), 3, PlanKind::Rename),
+                (Found::Entries(Finding::Unreadable), 1, PlanKind::Replace),
+                (Found::Entries(Finding::Unmatched), 2, PlanKind::SetAside),
+                (Found::Games(GameStatus::Missing), 5, PlanKind::Fill),
+                (Found::Games(GameStatus::Incomplete), 4, PlanKind::Fill),
+            ],
+            "a repair fills missing and incomplete games; matched entries and complete games aren't counted, and \
+             none counted is left out"
+        );
+        assert_eq!(could[0].what(), "Misnamed entries to rename");
+        assert_eq!(could[3].what(), "Missing games to fill");
+        assert_eq!(could[4].what(), "Incomplete games to complete");
+        assert_eq!(could[0].filter(true), [("finding", "misnamed")]);
+        assert_eq!(could[3].filter(false), [("status", "missing")]);
+        assert_eq!(
+            could[4].filter(true),
+            [("status", "incomplete"), ("covered", "yes")],
+            "with a coverage the counts are of covered games, and so is the list a tile opens"
+        );
+        let lead = repair_lead(true, &could);
+        assert!(lead.contains("could change"), "{lead}");
+        assert!(
+            lead.contains("spare copies") && lead.contains("storage policy"),
+            "what the audit can't count is named: {lead}"
+        );
+    }
+
+    #[test]
+    fn the_empty_repair_tab_says_why_nothing_is_counted() {
+        let clean = could_change(
+            &BTreeMap::from([(Finding::Matched, 9)]),
+            &BTreeMap::from([(GameStatus::Complete, 9)]),
+        );
+        assert!(clean.is_empty());
+        let (unaudited, nothing) = (repair_lead(false, &[]), repair_lead(true, &clean));
+        assert!(unaudited.starts_with("Not audited yet"), "{unaudited}");
+        assert!(
+            !nothing.contains("nothing a repair could change"),
+            "a matched-only audit can still need spare copies set aside or games repacked: {nothing}"
+        );
+        assert!(
+            nothing.contains("spare copies") && nothing.contains("storage policy"),
+            "{nothing}"
         );
     }
 }

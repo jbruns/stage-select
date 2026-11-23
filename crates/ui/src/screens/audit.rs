@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -17,12 +18,12 @@ use crate::api;
 use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{
-    ALGORITHM, AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn,
-    EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME, NOTHING_TO_CHECK_NOTE, STATE,
-    STATUS, absent_roms, audit_evidence_label, dependency_line, disk_text, entry_name,
-    evidence_text, finding_label, game_status_label, games_found, games_of_status_label,
-    header_rule_text, header_text, needs_review_from_counts, parse_ndjson, payload_read_text,
-    unneeded, warning_counts, warning_text, when,
+    ALGORITHM, AuditEntries, AuditGames, COVERED, COVERED_YES, DEPENDENCIES_NOTE, Derived, Disks,
+    EntryColumn, EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME,
+    NOTHING_TO_CHECK_NOTE, STATE, STATUS, absent_roms, audit_evidence_label, dependency_line,
+    disk_text, entry_name, evidence_text, finding_label, game_status_label, games_found,
+    games_of_status_label, header_rule_text, header_text, needs_review_from_counts, parse_ndjson,
+    payload_read_text, unneeded, warning_counts, warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
@@ -311,7 +312,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                                     .into_any()
                             }
                             Tab::Games => {
-                                view! { <GamesPanel games=loaded.games.clone() rule source_set=set.get_value() /> }
+                                view! { <GamesPanel audit=id games=loaded.games.clone() rule source_set=set.get_value() /> }
                                     .into_any()
                             }
                         }}
@@ -970,9 +971,11 @@ impl ListRow for GameItem {
 const FLAGGED_NOW: &str = "This flag is the game's now, not part of this audit: every audit of the source set \
 shows it until a full audit verifies the file or the game returns.";
 
-/// An Audit's Game Statuses in the shared list, with a filter by status in the URL beside its text.
+/// An Audit's Game Statuses in the shared list, with a filter by status in the URL beside its text. The URL's
+/// `covered` narrows them to the Games the Source Set's Coverage covers, as its counts are.
 #[component]
 pub fn GamesPanel(
+    audit: i64,
     games: Arc<AuditGames>,
     rule: Option<HeaderRule>,
     source_set: String,
@@ -995,13 +998,34 @@ pub fn GamesPanel(
     });
     let query = use_query_map();
     let filter = Memo::new(move |_| query.with(|q| GameFilter::from_query(|k| q.get_str(k))));
+    let covered = Memo::new(move |_| filter.with(|f| f.covered));
+    let outside = LocalResource::new(move || {
+        let wanted = covered.get();
+        async move {
+            if !wanted {
+                return Ok(None);
+            }
+            api::get::<Vec<String>>(&format!("/audits/{audit}/outside-coverage"))
+                .await
+                .map(|names| Some(Arc::new(names.into_iter().collect::<HashSet<_>>())))
+        }
+    });
+    let outside_now = Memo::new(move |_| outside.get().and_then(Result::ok).flatten());
     let keep: Signal<Keep<GameItem>> = Signal::derive(move || {
         let filter = filter.get();
+        let outside = outside_now.get();
         (filter != GameFilter::default()).then(|| {
-            Arc::new(move |row: &GameItem| row.games.keeps(row.i as usize, &filter))
-                as Arc<dyn Fn(&GameItem) -> bool + Send + Sync>
+            Arc::new(move |row: &GameItem| {
+                row.games.keeps(row.i as usize, &filter, outside.as_deref())
+            }) as Arc<dyn Fn(&GameItem) -> bool + Send + Sync>
         })
     });
+    let coverage_problem = move || {
+        outside.get().and_then(Result::err).map(|message| {
+            let message = format!("Couldn't read which games are in your coverage: {message}");
+            view! { <Problem message /> }
+        })
+    };
     let looks = Memo::new(move |_| {
         rows.with(|r| {
             let mut looks = present_looks(r.iter().map(GameItem::status));
@@ -1013,18 +1037,27 @@ pub fn GamesPanel(
         })
     });
     let filters = move || {
-        url_select(
-            "Game status",
-            STATUS,
-            GameStatus::ALL
-                .iter()
-                .map(|s| (s.as_str(), game_status_label(*s)))
-                .collect(),
-            false,
-        )
+        view! {
+            {url_select(
+                "Game status",
+                STATUS,
+                GameStatus::ALL
+                    .iter()
+                    .map(|s| (s.as_str(), game_status_label(*s)))
+                    .collect(),
+                false,
+            )}
+            {move || covered.get().then(|| url_select(
+                "Coverage",
+                COVERED,
+                vec![(COVERED_YES, "In your coverage")],
+                false,
+            ))}
+        }
     };
     view! {
         {flags_notice(flags)}
+        {coverage_problem}
         <List
             id="games"
             label="Game statuses"

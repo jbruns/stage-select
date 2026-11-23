@@ -1904,6 +1904,7 @@ What these versions promise you:
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
+| `GET /api/v1/audits/{id}/outside-coverage`         | names of its games outside its source set's coverage         |
 | `GET /api/v1/vocabulary`                           | the names, categories and default orders, and `coverage_presets`, each `{"name", "regions"}` |
 | `GET /api/v1/systems`                              | each source set's system, as a profile's system settings name it: `[{"source_set", "system", "arcade"}]`, `arcade` present and `true` for an arcade DAT |
 | `POST /api/v1/check`                               | check a selection profile: `{"problems": [...]}`             |

@@ -4149,6 +4149,41 @@ fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
 }
 
 #[test]
+fn the_api_names_an_audits_games_outside_its_source_sets_coverage() {
+    let env = Env::new();
+    let (_service, client) = audited_mixed_regions(&env);
+    let summary: Vec<stage_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    let path = format!(
+        "/audits/{}/outside-coverage",
+        summary[0].latest.as_ref().unwrap().id
+    );
+    let outside: Vec<String> = client.json(&path);
+    assert!(
+        outside.is_empty(),
+        "without a coverage every game is covered"
+    );
+
+    put_coverage(&client, serde_json::json!(["Europe"]));
+    let mut outside: Vec<String> = client.json(&path);
+    outside.sort();
+    assert_eq!(
+        outside,
+        [
+            "Boxing (Japan)",
+            "Breakout (USA)",
+            "Chess",
+            "Combat (USA)",
+            "Pong (USA)"
+        ],
+        "World and Europe games are covered, as is Golf (USA, Europe)"
+    );
+    assert_eq!(
+        status_of(client.get("/audits/999/outside-coverage").call()),
+        404
+    );
+}
+
+#[test]
 fn the_api_counts_the_latest_audit_by_region_overlapping_for_games_of_several_regions() {
     use stage_select_api::{RegionCount, RegionCounts};
     let env = Env::new();

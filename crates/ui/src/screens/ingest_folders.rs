@@ -20,7 +20,8 @@ use crate::events::use_live;
 use crate::ingest_model::{self, Choices, Count, Decision, FolderTab};
 use crate::kept_model::KeptPlace;
 use crate::model::{earlier, when};
-use crate::parts::icon::{Glyph, LabelledIcon, Svg};
+use crate::parts::help::Help;
+use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
@@ -29,7 +30,8 @@ use crate::parts::list::{
 use crate::parts::message::Problem;
 use crate::parts::outcome::{JobOutcome, job_href};
 use crate::parts::pending::ActionPending;
-use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::plan::KindCounts;
+use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusCount, StatusIcon};
 use crate::parts::tabs::{Tab, Tabs, tab_link, use_tab};
 use crate::parts::url_state::{edited, query_string};
 use crate::screens::additions::{AdditionFields, new_addition};
@@ -285,10 +287,6 @@ pub fn IngestFolders() -> impl IntoView {
     });
     view! {
         <h1>"Ingest folders"</h1>
-        <p class="lede">
-            "An ingest folder is a writable root of kind ingest where new files arrive. A scan assesses each item \
-            against every source set; items leave the folder only through a plan you approve."
-        </p>
         {move || match folders.get() {
             None => view! { <Loading what="the ingest folders" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -305,20 +303,18 @@ pub fn IngestFolders() -> impl IntoView {
                 detail=Callback::new(folder_detail)
             />
         </ActionPending>
+        <Help summary="Where new files arrive, to be assessed and moved by plans you approve">
+            <p>
+                "An ingest folder is a writable root of kind ingest where new files arrive. A scan assesses each \
+                item against every source set; items leave the folder only through a plan you approve."
+            </p>
+        </Help>
     }
 }
 
 fn folder_detail(row: FolderRow) -> AnyView {
     let f = row.0;
-    let counts = if f.counts.is_empty() {
-        "No items".to_string()
-    } else {
-        f.counts
-            .iter()
-            .map(|(state, n)| format!("{n} {}", state.label()))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+    let root = f.root.clone();
     view! {
         <dl class="facts">
             <dt>"Path"</dt>
@@ -333,11 +329,41 @@ fn folder_detail(row: FolderRow) -> AnyView {
                     "Not yet: register it to scan it and move items out of it"
                 }}
             </dd>
-            <dt>"Items"</dt>
-            <dd>{counts}</dd>
         </dl>
+        {f.id.is_some().then(|| view! { <FolderCounts root /> })}
     }
     .into_any()
+}
+
+/// How many of a registered folder's items show each status.
+#[component]
+fn FolderCounts(root: String) -> impl IntoView {
+    let live = use_live();
+    let path = format!("/ingest-folders/{}/items", api::segment(&root));
+    let items = LocalResource::new(move || {
+        live.settled.track();
+        let path = path.clone();
+        async move { api::get::<Vec<IngestItem>>(&path).await }
+    });
+    move || match items.get() {
+        None => view! { <Loading what="its items" /> }.into_any(),
+        Some(Err(message)) => view! { <Problem message /> }.into_any(),
+        Some(Ok(items)) => {
+            let counts = ingest_model::status_counts(&items);
+            if counts.is_empty() {
+                return view! { <p class="note">"No items"</p> }.into_any();
+            }
+            view! {
+                <ul class="counts" aria-label="Items by status">
+                    {counts
+                        .into_iter()
+                        .map(|(status, n)| view! { <StatusCount status>{n}</StatusCount> })
+                        .collect_view()}
+                </ul>
+            }
+            .into_any()
+        }
+    }
 }
 
 #[component]
@@ -449,44 +475,17 @@ fn FolderView(
             _ => prev.cloned().flatten(),
         },
     );
-    let facts = move || match (latest.get(), folder.get()) {
-        (Some(folder), _) => {
-            let schedule = match folder.scan_every_minutes {
-                Some(m) => {
-                    format!("Every {m} minutes, when you ask, and once arriving items could settle")
-                }
-                None => "When you ask, and once arriving items could settle".into(),
-            };
-            view! {
-                <dl class="facts">
-                    <dt>"Path"</dt>
-                    <dd>
-                        <code class="path">{folder.path.clone()}</code>
-                    </dd>
-                    <dt>"Settles after"</dt>
-                    <dd>{format!("{} seconds unchanged", folder.settle_secs)}</dd>
-                    <dt>"Scans"</dt>
-                    <dd>{schedule}</dd>
-                    <dt>"Last scan"</dt>
-                    <dd>{folder.last_scan_at.as_deref().map(when).unwrap_or_else(|| "Never".into())}</dd>
-                    {folder.next_check_at.as_deref().map(|at| view! {
-                        <dt>"Next check"</dt>
-                        <dd>{format!("{}, for items still arriving", when(at))}</dd>
-                    })}
-                </dl>
-            }
-            .into_any()
-        }
+    let loading = move || match (latest.get(), folder.get()) {
         (None, None) => view! { <Loading what="the ingest folder" /> }.into_any(),
         (None, Some(Err(message))) => view! { <Problem message /> }.into_any(),
-        (None, Some(Ok(_))) => ().into_any(),
+        _ => ().into_any(),
     };
     let trail = vec![("/ingest".to_string(), "Ingest folders".to_string())];
     let lifecycle = StoredValue::new((root.clone(), base.clone()));
     view! {
         <Crumbs trail here=root.clone() />
         <h1>{format!("Ingest folder {root}")}</h1>
-        {facts}
+        {loading}
         <Tabs label="Ingest folder" tabs=folder_tabs />
         {move || match open.get() {
             FolderTab::Items => {
@@ -530,6 +529,33 @@ fn FolderView(
     }
 }
 
+/// The folder's path, how long its items settle, and when it is scanned.
+fn folder_facts(folder: &IngestFolder) -> AnyView {
+    let schedule = match folder.scan_every_minutes {
+        Some(m) => format!("Every {m} minutes, when you ask, and once arriving items could settle"),
+        None => "When you ask, and once arriving items could settle".into(),
+    };
+    view! {
+        <dl class="facts">
+            <dt>"Path"</dt>
+            <dd>
+                <code class="path">{folder.path.clone()}</code>
+            </dd>
+            <dt>"Settles after"</dt>
+            <dd>{format!("{} seconds unchanged", folder.settle_secs)}</dd>
+            <dt>"Scans"</dt>
+            <dd>{schedule}</dd>
+            <dt>"Last scan"</dt>
+            <dd>{folder.last_scan_at.as_deref().map(when).unwrap_or_else(|| "Never".into())}</dd>
+            {folder.next_check_at.as_deref().map(|at| view! {
+                <dt>"Next check"</dt>
+                <dd>{format!("{}, for items still arriving", when(at))}</dd>
+            })}
+        </dl>
+    }
+    .into_any()
+}
+
 /// An item in the folder's list.
 #[derive(Debug, Clone, PartialEq)]
 struct ItemRow {
@@ -551,52 +577,7 @@ enum ItemCol {
 impl ItemRow {
     /// What is proposed, or under way, in a few words.
     fn proposed(&self) -> String {
-        let item = &self.item;
-        let job = item.last_move.as_ref().and_then(|m| m.job);
-        match self.status {
-            IngestStatus::Moving => match job {
-                Some(job) => format!("Moving · job #{job}"),
-                None => "Moving".into(),
-            },
-            IngestStatus::Arriving => self.arriving.clone(),
-            IngestStatus::MatchesSourceSet => match &item.assessment.proposal {
-                Some(Proposal::SourceSet {
-                    source_set,
-                    game,
-                    need,
-                }) => crate::ingest_model::source_set_match(source_set, game, *need),
-                _ => "A source set needs it".into(),
-            },
-            IngestStatus::NoDatMatch => match &item.assessment.proposal {
-                Some(Proposal::Addition {
-                    system: Some(system),
-                }) => format!("Addition for {system}"),
-                _ => "Addition; choose its system".into(),
-            },
-            IngestStatus::ImportFile => match (&item.assessment.dat, &item.assessment.support_file)
-            {
-                (Some(d), _) => format!("Import DAT {} {}", d.name, d.version),
-                (None, Some(f)) => format!("Import {} {}", f.kind.file_name(), f.mame_version),
-                (None, None) => "Import it".into(),
-            },
-            IngestStatus::Duplicate => {
-                match (&item.assessment.dat, &item.assessment.support_file) {
-                    (Some(_), _) => "DAT already imported".into(),
-                    (None, Some(_)) => "Already imported".into(),
-                    (None, None) => "Already held".into(),
-                }
-            }
-            IngestStatus::Unreadable => item
-                .reason
-                .clone()
-                .unwrap_or_else(|| "Couldn't be read".into()),
-            IngestStatus::Dismissed => "Dismissed until it changes".into(),
-            IngestStatus::Done => item
-                .last_move
-                .as_ref()
-                .and_then(|m| m.note.clone())
-                .unwrap_or_else(|| "Moved out of the folder".into()),
-        }
+        ingest_model::proposed(self.status, &self.item, &self.arriving)
     }
 }
 
@@ -977,42 +958,8 @@ fn Items(
         })
     };
 
-    let filters = move || {
-        view! {
-            <label>
-                "Status"
-                <select on:change=move |ev| {
-                    show_only(ingest_model::parse_slug(&event_target_value(&ev)))
-                }>
-                    <option value="" selected=move || only.get().is_none()>
-                        "Still in the folder"
-                    </option>
-                    {IngestStatus::ALL
-                        .iter()
-                        .map(|&s| {
-                            view! {
-                                <option
-                                    value=ingest_model::slug(s)
-                                    selected=move || only.get() == Some(s)
-                                >
-                                    {s.look().label}
-                                </option>
-                            }
-                        })
-                        .collect_view()}
-                </select>
-            </label>
-        }
-    };
-
     view! {
-        <section aria-labelledby="items-title">
-            <h2 id="items-title">"Items"</h2>
-            <p class="lede">
-                "Each item is assessed once its size and times stop changing. Decide for every item of a status at \
-                once, for the items you check, or for one. Nothing moves until you approve the plan a decision makes; \
-                dismissing moves nothing."
-            </p>
+        <section aria-label="Items">
             {move || match items.get() {
                 None => view! { <Loading what="the items" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -1043,15 +990,23 @@ fn Items(
                         row_actions
                         quick=2
                         detail
-                        filters=filters
                         keep
                         legend=move || view! { <Legend statuses list="ingest-items" /> }
                     />
+            <Help summary="About this folder and its items">
+                <p>
+                    "Each item is assessed once its size and times stop changing. Decide for every item of a status \
+                    at once, for the items you check, or for one. Nothing moves until you approve the plan a decision \
+                    makes; dismissing moves nothing. The list shows what is still in the folder until you choose a \
+                    status; choose Done to see what plans moved out."
+                </p>
+                {move || folder.get().map(|f| folder_facts(&f))}
+            </Help>
         </section>
     }
 }
 
-/// How many items show each status, with the decisions you can apply to all of them.
+/// How many items show each status, each a filter, with the decisions you can apply to all of them beside it.
 #[component]
 fn Strip(
     strip: Memo<Vec<Count>>,
@@ -1060,64 +1015,51 @@ fn Strip(
     all: Signal<Arc<Vec<IngestItem>>>,
     show_only: Callback<Option<IngestStatus>>,
 ) -> impl IntoView {
-    move || {
-        let counts = strip.get();
-        if counts.is_empty() {
-            return ().into_any();
-        }
-        view! {
-            <ul class="ingest-strip" aria-label="Items by status">
-                {counts
-                    .into_iter()
-                    .map(|count| {
-                        let status = count.status;
-                        let look = status.look();
-                        let pressed = move || only.get() == Some(status);
-                        let toggle = move |_| {
-                            show_only.run(if only.get_untracked() == Some(status) { None } else { Some(status) })
-                        };
-                        let decisions = count
-                            .decisions
-                            .into_iter()
-                            .map(|(decision, bulk)| {
-                                let label = decision.label(bulk.items.len());
-                                let ids = bulk.items;
-                                let run = move |_| {
-                                    let asked = all.with_untracked(|items| {
-                                        items.iter().filter(|i| ids.contains(&i.id)).cloned().collect()
-                                    });
-                                    apply.run((decision, asked));
-                                };
-                                view! {
-                                    <button type="button" on:click=run>
-                                        <LabelledIcon glyph=decision.glyph() label=label />
-                                    </button>
-                                }
-                            })
-                            .collect_view();
-                        view! {
-                            <li>
-                                <button
-                                    type="button"
-                                    class="ingest-count"
-                                    aria-pressed=move || pressed().to_string()
-                                    title=look.hint
-                                    on:click=toggle
-                                >
-                                    <span class=format!("status {}", look.tone.class())>
-                                        <Svg glyph=look.glyph />
-                                    </span>
-                                    <span>{look.label}</span>
-                                    <span class="tally">{count.items}</span>
-                                </button>
-                                {decisions}
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
-        }
+    let counts = Signal::derive(move || {
+        strip.with(|s| s.iter().map(|c| (c.status, c.items)).collect::<Vec<_>>())
+    });
+    // Tracked apart from the counts, so a decision follows what you fill in without the strip being drawn again.
+    let decisions = Callback::new(move |status: IngestStatus| {
+        (move || {
+            strip
+                .with(|s| {
+                    s.iter()
+                        .find(|c| c.status == status)
+                        .map(|c| c.decisions.clone())
+                        .unwrap_or_default()
+                })
+                .into_iter()
+                .map(|(decision, bulk)| {
+                    let label = decision.label(bulk.items.len());
+                    let ids = bulk.items;
+                    let run = move |_| {
+                        let asked = all.with_untracked(|items| {
+                            items
+                                .iter()
+                                .filter(|i| ids.contains(&i.id))
+                                .cloned()
+                                .collect()
+                        });
+                        apply.run((decision, asked));
+                    };
+                    view! {
+                        <button type="button" on:click=run>
+                            <LabelledIcon glyph=decision.glyph() label=label />
+                        </button>
+                    }
+                })
+                .collect_view()
+        })
         .into_any()
+    });
+    view! {
+        <KindCounts
+            counts
+            active=only
+            on_filter=show_only
+            apply=decisions
+            label="Items by status"
+        />
     }
 }
 

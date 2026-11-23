@@ -14,6 +14,7 @@ use crate::parts::icon::Glyph;
 use crate::parts::outcome::Link;
 use crate::parts::plan_model::{self, Does};
 use crate::parts::status::{IngestStatus, ItemOutcome, PlanState, Status};
+use crate::parts::url_state::query_string;
 use crate::screens::additions::new_addition;
 use crate::screens::source_sets::tab_href;
 use crate::source_set_model::PageTab;
@@ -78,6 +79,63 @@ pub fn status(item: &IngestItem) -> Option<IngestStatus> {
             Some(Proposal::Addition { .. }) | None => IngestStatus::NoDatMatch,
         },
     })
+}
+
+/// What is proposed for an item of `status`, or under way, in a few words for its list cell; `arriving` says when an
+/// arriving item is next looked at. Never a reason: why an item couldn't be read and what a move did besides what was
+/// planned are in its detail.
+pub fn proposed(status: IngestStatus, item: &IngestItem, arriving: &str) -> String {
+    let job = item.last_move.as_ref().and_then(|m| m.job);
+    match status {
+        IngestStatus::Moving => match job {
+            Some(job) => format!("Moving · job #{job}"),
+            None => "Moving".into(),
+        },
+        IngestStatus::Arriving => arriving.into(),
+        IngestStatus::MatchesSourceSet => match &item.assessment.proposal {
+            Some(Proposal::SourceSet {
+                source_set,
+                game,
+                need,
+            }) => source_set_match(source_set, game, *need),
+            _ => "A source set needs it".into(),
+        },
+        IngestStatus::NoDatMatch => match &item.assessment.proposal {
+            Some(Proposal::Addition {
+                system: Some(system),
+            }) => format!("Addition for {system}"),
+            _ => "Addition; choose its system".into(),
+        },
+        IngestStatus::ImportFile => match (&item.assessment.dat, &item.assessment.support_file) {
+            (Some(d), _) => format!("Import DAT {} {}", d.name, d.version),
+            (None, Some(f)) => format!("Import {} {}", f.kind.file_name(), f.mame_version),
+            (None, None) => "Import it".into(),
+        },
+        IngestStatus::Duplicate => match (&item.assessment.dat, &item.assessment.support_file) {
+            (Some(_), _) => "DAT already imported".into(),
+            (None, Some(_)) => "Already imported".into(),
+            (None, None) => "Already held".into(),
+        },
+        IngestStatus::Unreadable => match item.state {
+            ItemState::Failed => "Reading failed; tried again at the next scan".into(),
+            ItemState::Unsupported => "Not supported".into(),
+            _ => "Couldn't be read".into(),
+        },
+        IngestStatus::Dismissed => "Dismissed until it changes".into(),
+        IngestStatus::Done => "Moved out of the folder".into(),
+    }
+}
+
+/// How many of `items` show each status, in the legend's order; those of no status, gone from the folder, are left
+/// out.
+pub fn status_counts(items: &[IngestItem]) -> Vec<(IngestStatus, usize)> {
+    IngestStatus::ALL
+        .iter()
+        .filter_map(|&s| {
+            let n = items.iter().filter(|i| status(i) == Some(s)).count();
+            (n > 0).then_some((s, n))
+        })
+        .collect()
 }
 
 /// A decision you make on items: one plan for the first three, nothing moved for the last.
@@ -483,31 +541,61 @@ pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
 }
 
 /// Where what an item of a plan of `action` made, as `ended` says, can be seen: the DAT revision a DAT import
-/// recorded, even when moving the file afterwards failed, or the additions an addition moved into.
-pub fn made_link(action: IngestAction, ended: &IngestOutcome) -> Option<Link> {
+/// recorded, even when moving the file afterwards failed, or the additions set of the system an addition, as
+/// `addition` planned it, moved into.
+pub fn made_link(
+    action: IngestAction,
+    addition: Option<&NewAddition>,
+    ended: &IngestOutcome,
+) -> Option<Link> {
     match action {
         IngestAction::DatImport => ended
             .dat_revision
             .as_ref()
             .map(|sha| Link::new(format!("/dats?row={sha}"), "Open the DAT revision")),
         IngestAction::Addition => (ended.moved && ended.error.is_none())
-            .then(|| Link::new("/additions", "Open the additions")),
+            .then(|| additions_link(addition.map(|a| &a.system))),
         IngestAction::Discard => None,
     }
 }
 
-/// Where what `plan` made can be seen, once it made anything: the one DAT revision or additions an item made, or
-/// every DAT revision when it imported several.
+/// The additions set of `system`, or every additions set.
+fn additions_link(system: Option<&String>) -> Link {
+    match system {
+        Some(system) => Link::new(
+            format!(
+                "/additions{}",
+                query_string(&[(crate::screens::additions::SYSTEM.into(), system.clone())])
+            ),
+            "Open the additions set",
+        ),
+        None => Link::new("/additions", "Open the additions"),
+    }
+}
+
+/// Where what `plan` made can be seen, once it made anything: the one DAT revision or additions set its items made,
+/// or every DAT revision or additions set when they made several.
 pub fn plan_made_link(plan: &IngestPlan) -> Option<Link> {
-    let mut made = plan
+    let action = plan.content.action;
+    let made: Vec<Link> = plan
         .outcomes
         .iter()
-        .filter_map(|o| made_link(plan.content.action, o));
-    let first = made.next()?;
-    match (plan.content.action, made.next()) {
-        (IngestAction::DatImport, Some(_)) => Some(Link::new("/dats", "Open the DAT revisions")),
-        _ => Some(first),
-    }
+        .filter_map(|o| {
+            let addition = plan
+                .content
+                .items
+                .iter()
+                .find(|i| i.item == o.item)
+                .and_then(|i| i.addition.as_ref());
+            made_link(action, addition, o)
+        })
+        .collect();
+    let first = made.first()?;
+    Some(match action {
+        _ if made.iter().all(|l| l == first) => first.clone(),
+        IngestAction::DatImport => Link::new("/dats", "Open the DAT revisions"),
+        _ => additions_link(None),
+    })
 }
 
 /// The folder page's tabs.
@@ -706,6 +794,58 @@ mod tests {
         for (item, expected) in cases {
             assert_eq!(status(&item), expected, "{item:?}");
         }
+    }
+
+    #[test]
+    fn a_proposed_cell_says_a_short_status_and_leaves_the_reason_to_the_detail() {
+        let reason = "The ZIP's central directory is damaged";
+        let with_reason = |state: &str| {
+            let mut i = item(1, "x.zip", state, serde_json::json!({}));
+            i.reason = Some(reason.into());
+            i
+        };
+        let mut moved = being_moved(homebrew(2, Some("Atari")), false);
+        moved.state = ItemState::Moved;
+        moved.last_move.as_mut().unwrap().note =
+            Some("kept the original, which changed while it was moved".into());
+        let cases = [
+            (with_reason("unreadable"), "Couldn't be read"),
+            (
+                with_reason("failed"),
+                "Reading failed; tried again at the next scan",
+            ),
+            (with_reason("unsupported"), "Not supported"),
+            (moved, "Moved out of the folder"),
+        ];
+        for (item, expected) in cases {
+            let status = status(&item).unwrap();
+            assert_eq!(proposed(status, &item, ""), expected, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn a_folder_counts_its_items_by_status_in_the_legends_order() {
+        let mut moved = homebrew(6, None);
+        moved.state = ItemState::Moved;
+        let items = [
+            duplicate(1),
+            fill(2),
+            fill(3),
+            item(4, "x.zip", "failed", serde_json::json!({})),
+            item(5, "y.a26", "gone", serde_json::json!({})),
+            moved,
+        ];
+        assert_eq!(
+            status_counts(&items),
+            [
+                (IngestStatus::MatchesSourceSet, 2),
+                (IngestStatus::Duplicate, 1),
+                (IngestStatus::Unreadable, 1),
+                (IngestStatus::Done, 1),
+            ],
+            "an item gone from the folder is counted under no status"
+        );
+        assert!(status_counts(&[]).is_empty());
     }
 
     #[test]
@@ -941,28 +1081,47 @@ mod tests {
             error: None,
             dat_revision: dat_revision.map(Into::into),
         };
+        let atari = NewAddition {
+            system: "No-Intro/Atari 2600".into(),
+            name: "hack".into(),
+            parent: None,
+        };
         assert_eq!(
-            made_link(IngestAction::DatImport, &ended(true, Some("abc"))),
+            made_link(IngestAction::DatImport, None, &ended(true, Some("abc"))),
             Some(Link::new("/dats?row=abc", "Open the DAT revision"))
         );
         assert_eq!(
-            made_link(IngestAction::DatImport, &ended(true, None)),
+            made_link(IngestAction::DatImport, None, &ended(true, None)),
             None,
             "a support file makes no DAT revision"
         );
         let mut unmoved = ended(false, Some("abc"));
         unmoved.error = Some("the move failed".into());
         assert_eq!(
-            made_link(IngestAction::DatImport, &unmoved),
+            made_link(IngestAction::DatImport, None, &unmoved),
             Some(Link::new("/dats?row=abc", "Open the DAT revision")),
             "a DAT recorded before its move failed is still imported"
         );
         assert_eq!(
-            made_link(IngestAction::Addition, &ended(true, None)),
+            made_link(IngestAction::Addition, Some(&atari), &ended(true, None)),
+            Some(Link::new(
+                "/additions?system=No-Intro%2FAtari%202600",
+                "Open the additions set"
+            )),
+            "an addition opens its system's additions set"
+        );
+        assert_eq!(
+            made_link(IngestAction::Addition, None, &ended(true, None)),
             Some(Link::new("/additions", "Open the additions"))
         );
-        assert_eq!(made_link(IngestAction::Addition, &ended(false, None)), None);
-        assert_eq!(made_link(IngestAction::Discard, &ended(true, None)), None);
+        assert_eq!(
+            made_link(IngestAction::Addition, Some(&atari), &ended(false, None)),
+            None
+        );
+        assert_eq!(
+            made_link(IngestAction::Discard, None, &ended(true, None)),
+            None
+        );
 
         let mut plan: IngestPlan = serde_json::from_value(serde_json::json!({
             "id": 3, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
@@ -980,6 +1139,45 @@ mod tests {
         assert_eq!(
             plan_made_link(&plan),
             Some(Link::new("/dats", "Open the DAT revisions"))
+        );
+    }
+
+    #[test]
+    fn a_finished_additions_plan_links_to_the_additions_set_it_added_to() {
+        let plan_of = |systems: &[&str]| -> IngestPlan {
+            let items: Vec<_> = systems
+                .iter()
+                .enumerate()
+                .map(|(i, system)| {
+                    serde_json::json!({
+                        "item": i, "name": format!("hack {i}"), "identity": {"dev": 1, "ino": i},
+                        "file": {"size": 4, "mtime_ns": 0}, "ctime_ns": 0, "sha256": "h",
+                        "destination": "x", "reason": "r",
+                        "addition": {"system": system, "name": format!("hack {i}")},
+                    })
+                })
+                .collect();
+            let outcomes: Vec<_> = (0..systems.len())
+                .map(|i| serde_json::json!({"item": i, "name": format!("hack {i}"), "moved": true}))
+                .collect();
+            serde_json::from_value(serde_json::json!({
+                "id": 3, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+                "content": {"ingest_folder": 1, "root": "in", "action": "addition", "generation": 1,
+                            "items": items, "fingerprint": []},
+                "outcomes": outcomes,
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            plan_made_link(&plan_of(&["Atari", "Atari"])),
+            Some(Link::new(
+                "/additions?system=Atari",
+                "Open the additions set"
+            ))
+        );
+        assert_eq!(
+            plan_made_link(&plan_of(&["Atari", "NES"])),
+            Some(Link::new("/additions", "Open the additions"))
         );
     }
 

@@ -10,6 +10,7 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_router::params::ParamsMap;
+use stage_select_api::SourceSetSummary;
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::ApprovePlan;
 use stage_select_api::repair::{PlanRepair, RepairChoice, RepairItem, RepairPlan, RepairStep};
@@ -25,13 +26,13 @@ use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
 use crate::parts::plan_model::{Approval, PlanBlocker};
-use crate::parts::status::{ItemOutcome, PlanKind, Status, StatusIcon};
+use crate::parts::status::{FindingStatus, ItemOutcome, PlanKind, Status, StatusCount, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
-    ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
-    fetch_after, item_outcome, kind_choices, may_propose, place, plan_line, proposed,
-    repair_to_show, requested, steps_by_item, suggested_addition, to_add, unfinished_note,
-    unplanned,
+    ChangeMark, Found, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen,
+    could_change, current, fetch_after, item_outcome, kind_choices, may_propose, place, plan_line,
+    proposed, repair_lead, repair_to_show, requested, steps_by_item, suggested_addition, to_add,
+    unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
 use crate::screens::source_sets::tab_href;
@@ -698,8 +699,12 @@ pub fn RepairTab(
             .value()
             .with(|v| v.as_ref().and_then(|r| r.as_ref().err().cloned()))
     });
+    let none_yet = Signal::derive(move || {
+        named.get().is_none() && current.get().is_none() && desk.plan.with(Option::is_none)
+    });
     view! {
         <section aria-label="Repair">
+            {move || none_yet.get().then(|| view! { <WhatARepairCouldChange name=desk.name.get_value() /> })}
             {move || {
                 let shown = desk
                     .plan
@@ -724,7 +729,75 @@ pub fn RepairTab(
                 }}
             </Pending>
             {move || desk.problem.get().map(|message| view! { <Problem message /> })}
+            {move || none_yet.get().then(|| view! {
+                <Help summary="About repairs">
+                    <p>
+                        "A repair is proposed from the source set's latest audit and from items in your ingest \
+                        folders: it renames misnamed entries, replaces mismatched or unreadable ones and fills \
+                        missing games from your ingest folders, repacks what isn't stored as your storage policy \
+                        says, and sets aside what no game needs. You review every change, and nothing changes until \
+                        you approve. Nothing is deleted: what a repair replaces or sets aside goes to kept files."
+                    </p>
+                </Help>
+            })}
         </section>
+    }
+}
+
+/// What the source set's latest audit found that a repair could change, each count opening what it counts, led by a
+/// line saying so, or why there's nothing to count.
+#[component]
+fn WhatARepairCouldChange(name: String) -> impl IntoView {
+    let live = use_live();
+    let wanted = StoredValue::new(name.clone());
+    let latest = LocalResource::new(move || {
+        live.settled.track();
+        let name = wanted.get_value();
+        async move {
+            let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
+            Ok::<_, String>(sets.into_iter().find(|s| s.set.name == name))
+        }
+    });
+    move || {
+        let summary = latest.get()?.ok()?;
+        let audit = summary.as_ref().and_then(|s| s.latest.as_ref());
+        let could = audit
+            .map(|a| could_change(&a.findings, &a.games))
+            .unwrap_or_default();
+        let lead = repair_lead(audit.is_some(), &could);
+        // The summary counts games only in the coverage, unless it couldn't be applied.
+        let covered = summary
+            .as_ref()
+            .is_some_and(|s| s.set.coverage.is_some() && !s.coverage_unavailable);
+        let tiles = could
+            .into_iter()
+            .map(|c| {
+                let tab = match c.found {
+                    Found::Entries(_) => PageTab::Entries,
+                    Found::Games(_) => PageTab::Games,
+                };
+                let href = c
+                    .filter(covered)
+                    .into_iter()
+                    .fold(tab_href(&name, tab), |href, (key, value)| {
+                        format!("{href}&{key}={value}")
+                    });
+                let n = view! { <a href=href>{c.n}</a> };
+                match c.found {
+                    Found::Entries(f) => view! {
+                        <StatusCount status=FindingStatus::from(f) what=c.what()>{n}</StatusCount>
+                    }
+                    .into_any(),
+                    Found::Games(s) => {
+                        view! { <StatusCount status=s what=c.what()>{n}</StatusCount> }.into_any()
+                    }
+                }
+            })
+            .collect_view();
+        Some(view! {
+            <p>{lead}</p>
+            <ul class="counts">{tiles}</ul>
+        })
     }
 }
 
@@ -846,6 +919,23 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                 )}
             </p>
             <p>{storage.clone()}</p>
+            <details>
+                <summary>{format!("Every change, in order ({count}; {removals} set aside)")}</summary>
+                <ul class="plain">
+                    {steps
+                        .iter()
+                        .map(|(_, line, class)| view! { <li class=*class>{line.clone()}</li> })
+                        .collect_view()}
+                </ul>
+            </details>
+            {(!notes.is_empty()).then(|| view! {
+                <details>
+                    <summary>{format!("Left as it is ({})", notes.len())}</summary>
+                    <ul class="plain">
+                        {notes.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
+                    </ul>
+                </details>
+            })}
         }
     };
     let job = p.job;
@@ -914,21 +1004,6 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
             }
                 .into_any()
         }}
-        <details>
-            <summary>{format!("Every change, in order ({count}; {removals} set aside)")}</summary>
-            <ul class="plain">
-                {steps
-                    .iter()
-                    .map(|(_, line, class)| view! { <li class=*class>{line.clone()}</li> })
-                    .collect_view()}
-            </ul>
-        </details>
-        {(!notes.is_empty()).then(|| view! {
-            <details>
-                <summary>{format!("Left as it is ({})", notes.len())}</summary>
-                <ul class="plain">{notes.into_iter().map(|n| view! { <li>{n}</li> }).collect_view()}</ul>
-            </details>
-        })}
     }
 }
 

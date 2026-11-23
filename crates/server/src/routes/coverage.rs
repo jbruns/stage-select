@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use stage_select_api::coverage::Tally;
+use stage_select_api::coverage::{Tally, covered};
 use stage_select_api::report::EvidenceLevel;
 use stage_select_api::{
     AuditSummary, CoveragePreview, CoverageStaleFolder, GameStatus, RegionCounts, SetCoverage,
@@ -25,6 +25,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/source-sets/{name}/regions", get(region_counts))
         .route("/source-sets/{name}/coverage/preview", post(preview))
+        .route("/audits/{id}/outside-coverage", get(outside_coverage))
 }
 
 /// How many times a summary is read again while newer Audits keep finishing.
@@ -211,6 +212,41 @@ async fn blocking<T: Send + 'static>(
 /// The Source Set `name`'s latest finished Audit, if any.
 fn latest_audit(store: &Store, name: &str) -> Result<Option<AuditSummary>, Error> {
     Ok(store.history(name)?.into_iter().next())
+}
+
+/// How many Game rows are read at a time while naming those outside a Coverage.
+const GAMES_PAGE: usize = 5000;
+
+/// The names of the Audit's Games outside its Source Set's Coverage as it is now, so a list of its Games can narrow to
+/// the covered ones that the Source Set's counts are of. None without a Coverage. Refused for a pruned Audit.
+async fn outside_coverage(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Vec<String>>> {
+    let Path(id) = id?;
+    blocking(move || {
+        let store = &state.store;
+        let audit = store.audit(id)?;
+        let Some(coverage) = store.source_set(&audit.source_set)?.coverage else {
+            return Ok(Json(Vec::new()));
+        };
+        let regions = store.region_reader()?;
+        let mut outside = Vec::new();
+        let mut after = None;
+        loop {
+            let (rows, next) = store.games(id, after, GAMES_PAGE, None)?;
+            outside.extend(
+                rows.into_iter()
+                    .map(|row| row.game.name)
+                    .filter(|name| !covered(&regions(name), Some(&coverage))),
+            );
+            match next {
+                Some(next) => after = Some(next),
+                None => return Ok(Json(outside)),
+            }
+        }
+    })
+    .await
 }
 
 /// The Source Set's latest Audit counted by region, each region marked covered or not by its Coverage.

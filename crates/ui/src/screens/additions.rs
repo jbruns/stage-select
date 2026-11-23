@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
+use leptos_router::components::A;
+use leptos_router::hooks::use_query_map;
 use stage_select_api::Dat;
 use stage_select_api::additions::{
     Addition, AdditionState, AdditionsCheck, AdditionsFinding, AdditionsSet, EditAddition,
@@ -18,6 +20,7 @@ use crate::app::Loading;
 use crate::events::use_live;
 use crate::kept_model::KeptPlace;
 use crate::model::{short_sha, when};
+use crate::parts::help::Help;
 use crate::parts::legend::{LegendStrip, present_looks};
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Problem};
@@ -128,9 +131,20 @@ pub fn AdditionFields(
     }
 }
 
-/// Every additions set: every addition in one list, then each set's check and kept files.
+/// The query key that narrows the additions to one system's, matched whole.
+pub const SYSTEM: &str = "system";
+
+/// Whether an addition or additions set of `system` is shown when `wanted` names one system, or none.
+pub fn in_system(wanted: Option<&str>, system: &str) -> bool {
+    wanted.is_none_or(|w| w == system)
+}
+
+/// Every additions set: every addition in one list, then each set's check and kept files. The URL's `system` narrows
+/// both to one system's.
 #[component]
 pub fn Additions() -> impl IntoView {
+    let query = use_query_map();
+    let wanted = Memo::new(move |_| query.with(|q| q.get(SYSTEM)));
     let live = use_live();
     let refresh = RwSignal::new(0u64);
     let sets = LocalResource::new(move || {
@@ -139,29 +153,50 @@ pub fn Additions() -> impl IntoView {
         async { api::get::<Vec<AdditionsSet>>("/additions-sets").await }
     });
     let additions = last_good_rows(move || {
-        sets.get()
-            .map(|r| r.map(|sets| sets.into_iter().flat_map(|s| s.additions).collect()))
+        let wanted = wanted.get();
+        sets.get().map(|r| {
+            r.map(|sets| {
+                sets.into_iter()
+                    .flat_map(|s| s.additions)
+                    .filter(|a| in_system(wanted.as_deref(), &a.system))
+                    .collect()
+            })
+        })
     });
+    let narrowed = move || {
+        wanted.get().map(|system| {
+            view! {
+                <p>
+                    "Showing the additions of " {system} ". "
+                    <A href="/additions">"Show every system's additions"</A>
+                </p>
+            }
+        })
+    };
     view! {
         <h1>"Additions"</h1>
-        <p class="lede">
-            "Files no DAT knows that you chose to keep, each known by its own hashes and a name you give it, in an \
-            additions set per system. A selection profile that opts in for a system builds them alongside the \
-            source set. Add one from an ingest folder, a repair of a source set or a cleanup of a library folder. \
-            An additions job publishes each one after you approve it, and moves the file of one you retire into \
-            the additions set's kept files."
-        </p>
         {move || match sets.get() {
             None => view! { <Loading what="the additions sets" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
+        {narrowed}
         <AdditionsList additions refresh />
+        <Help summary="Files no DAT knows that you chose to keep, in an additions set per system">
+            <p>
+                "Each addition is known by its own hashes and a name you give it. A selection profile that opts in \
+                for a system builds them alongside the source set. Add one from an ingest folder, a repair of a \
+                source set or a cleanup of a library folder. An additions job publishes each one after you approve \
+                it, and moves the file of one you retire into the additions set's kept files."
+            </p>
+        </Help>
         {move || {
             sets.get()
                 .and_then(Result::ok)
                 .map(|sets| {
+                    let wanted = wanted.get();
                     sets.into_iter()
+                        .filter(|set| in_system(wanted.as_deref(), &set.system))
                         .map(|set| view! { <SetView set refresh /> })
                         .collect_view()
                 })
@@ -570,6 +605,22 @@ fn AdditionDetail(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_system_filter_keeps_only_that_systems_additions() {
+        assert!(in_system(
+            Some("Nintendo - Game Boy"),
+            "Nintendo - Game Boy"
+        ));
+        assert!(
+            !in_system(Some("Nintendo - Game Boy"), "Nintendo - Game Boy Color"),
+            "a system is matched whole, not as a part of another's name"
+        );
+        assert!(
+            in_system(None, "Nintendo - Game Boy Color"),
+            "no filter keeps every system"
+        );
+    }
 
     #[test]
     fn an_edit_outlives_its_detail_until_it_is_saved() {

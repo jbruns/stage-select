@@ -637,6 +637,9 @@ pub const FINDING: &str = "finding";
 pub const STATE: &str = "state";
 pub const STATUS: &str = "status";
 pub const ALGORITHM: &str = "algorithm";
+/// The Game Statuses' key that narrows them to the Games the Source Set's Coverage covers, and its one value.
+pub const COVERED: &str = "covered";
+pub const COVERED_YES: &str = "yes";
 /// The `status` that narrows Entries to those counting towards no Game.
 pub const NO_GAME: &str = "none";
 
@@ -660,11 +663,12 @@ impl EntryFilter {
 }
 
 impl GameFilter {
-    /// The filter the URL's `status` holds, as `EntryFilter::from_query` reads it.
+    /// The filter the URL's `status` and `covered` hold, as `EntryFilter::from_query` reads it.
     pub fn from_query<'a>(get: impl Fn(&str) -> Option<&'a str>) -> GameFilter {
         GameFilter {
             text: String::new(),
             status: get(STATUS).and_then(GameStatus::parse),
+            covered: get(COVERED) == Some(COVERED_YES),
         }
     }
 }
@@ -675,6 +679,8 @@ pub struct GameFilter {
     /// Case-insensitive text in the Game's name or its absent ROMs.
     pub text: String,
     pub status: Option<GameStatus>,
+    /// Only the Games the Source Set's Coverage covers.
+    pub covered: bool,
 }
 
 /// An Audit's Game Statuses with lowercase keys for filtering and sorting.
@@ -810,21 +816,31 @@ impl AuditGames {
         &self.search[i]
     }
 
-    pub fn filtered(&self, order: &[u32], filter: &GameFilter) -> Vec<u32> {
+    /// The Games of `order` that pass `filter`, `outside` naming those outside the Coverage once known.
+    pub fn filtered(
+        &self,
+        order: &[u32],
+        filter: &GameFilter,
+        outside: Option<&HashSet<String>>,
+    ) -> Vec<u32> {
         let text = filter.text.trim().to_lowercase();
         order
             .iter()
             .copied()
             .filter(|&i| {
                 let i = i as usize;
-                self.keeps(i, filter) && (text.is_empty() || self.search[i].contains(&text))
+                self.keeps(i, filter, outside)
+                    && (text.is_empty() || self.search[i].contains(&text))
             })
             .collect()
     }
 
-    /// Whether Game `i` passes `filter`'s status.
-    pub fn keeps(&self, i: usize, filter: &GameFilter) -> bool {
-        filter.status.is_none_or(|s| self.rows[i].game.status == s)
+    /// Whether Game `i` passes `filter`'s status and, asked for covered Games, isn't among those `outside` the
+    /// Coverage. Until those are known, no Game passes as covered.
+    pub fn keeps(&self, i: usize, filter: &GameFilter, outside: Option<&HashSet<String>>) -> bool {
+        let game = &self.rows[i].game;
+        filter.status.is_none_or(|s| game.status == s)
+            && (!filter.covered || outside.is_some_and(|o| !o.contains(&game.name)))
     }
 }
 
@@ -1402,6 +1418,11 @@ mod tests {
             GameFilter::from_query(|k| (k == "status").then_some("missing")).status,
             Some(GameStatus::Missing)
         );
+        assert!(GameFilter::from_query(|k| (k == "covered").then_some("yes")).covered);
+        assert!(
+            !GameFilter::from_query(|k| (k == "covered").then_some("no")).covered,
+            "a value it doesn't know narrows nothing"
+        );
     }
 
     #[test]
@@ -1493,7 +1514,7 @@ mod tests {
         }));
         let shown = |filter: GameFilter| -> Vec<String> {
             games
-                .filtered(&order, &filter)
+                .filtered(&order, &filter, None)
                 .iter()
                 .map(|&i| games.rows[i as usize].game.name.clone())
                 .collect()
@@ -1516,6 +1537,34 @@ mod tests {
             }),
             ["Combat (USA)"],
             "found by an absent ROM"
+        );
+    }
+
+    #[test]
+    fn games_filter_to_those_in_your_coverage() {
+        let games = AuditGames::new(vec![
+            game("Pong (USA)", GameStatus::Missing),
+            game("Tennis (Europe)", GameStatus::Missing),
+            game("Golf (World)", GameStatus::Complete),
+        ]);
+        let order = games.sorted(None);
+        let covered = GameFilter {
+            status: Some(GameStatus::Missing),
+            covered: true,
+            ..Default::default()
+        };
+        let outside = HashSet::from(["Tennis (Europe)".to_owned()]);
+        let shown = |outside| -> Vec<String> {
+            games
+                .filtered(&order, &covered, outside)
+                .iter()
+                .map(|&i| games.rows[i as usize].game.name.clone())
+                .collect()
+        };
+        assert_eq!(shown(Some(&outside)), ["Pong (USA)"]);
+        assert!(
+            shown(None).is_empty(),
+            "until it's known which games are outside your coverage, none is shown as covered"
         );
     }
 
