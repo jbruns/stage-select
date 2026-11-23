@@ -325,6 +325,18 @@ pub struct Deletion {
     /// Why it isn't finished yet, when the service could not finish it.
     pub recovery_error: Option<String>,
     pub rows: Vec<DeletionRow>,
+    pub owner: DeletionOwner,
+}
+
+/// Whose kept files a deletion deletes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeletionOwner {
+    LibraryFolder(i64),
+    /// A source set, additions set or ingest folder by its id, and by the name it is registered under while it is.
+    Named {
+        id: i64,
+        name: Option<String>,
+    },
 }
 
 impl Deletion {
@@ -348,6 +360,64 @@ impl Deletion {
             1 => format!("Deleted {deleted} of {}. 1 was left kept.", files(n)),
             left => format!("Deleted {deleted} of {}. {left} were left kept.", files(n)),
         }
+    }
+
+    /// Whether it deletes kept files of `place`: only there is approving it approving what you see.
+    pub fn belongs_to(&self, place: &KeptPlace) -> bool {
+        match (&self.owner, place) {
+            (DeletionOwner::LibraryFolder(id), KeptPlace::LibraryFolder { id: here, .. }) => {
+                id == here
+            }
+            (
+                DeletionOwner::Named {
+                    name: Some(name), ..
+                },
+                KeptPlace::IngestFolder(here)
+                | KeptPlace::SourceSet(here)
+                | KeptPlace::AdditionsSet(here),
+            ) => name == here,
+            _ => false,
+        }
+    }
+
+    /// The id of the folder or set whose kept files it deletes, which approving it names.
+    pub fn owner_id(&self) -> i64 {
+        match self.owner {
+            DeletionOwner::LibraryFolder(id) | DeletionOwner::Named { id, .. } => id,
+        }
+    }
+
+    /// Where its own kept files are, when it was found under `place` of the same kind: none once its owner is
+    /// unregistered.
+    pub fn owner_href(&self, place: &KeptPlace) -> Option<String> {
+        let owner = match (&self.owner, place) {
+            (DeletionOwner::LibraryFolder(id), KeptPlace::LibraryFolder { .. }) => {
+                KeptPlace::LibraryFolder {
+                    id: *id,
+                    path: String::new(),
+                }
+            }
+            (
+                DeletionOwner::Named {
+                    name: Some(name), ..
+                },
+                KeptPlace::IngestFolder(_),
+            ) => KeptPlace::IngestFolder(name.clone()),
+            (
+                DeletionOwner::Named {
+                    name: Some(name), ..
+                },
+                KeptPlace::SourceSet(_),
+            ) => KeptPlace::SourceSet(name.clone()),
+            (
+                DeletionOwner::Named {
+                    name: Some(name), ..
+                },
+                KeptPlace::AdditionsSet(_),
+            ) => KeptPlace::AdditionsSet(name.clone()),
+            _ => return None,
+        };
+        Some(owner.href())
     }
 
     /// The approve button's label: what approving does.
@@ -405,6 +475,7 @@ impl From<KeptDeletion> for Deletion {
             finished,
             recovery_error: d.recovery_error,
             rows: deletion_rows(files, finished, &d.content.reviewed, &d.outcomes),
+            owner: DeletionOwner::LibraryFolder(d.content.folder),
         }
     }
 }
@@ -424,6 +495,10 @@ impl From<SourceKeptDeletion> for Deletion {
             finished,
             recovery_error: d.recovery_error,
             rows: deletion_rows(files, finished, &d.content.reviewed, &d.outcomes),
+            owner: DeletionOwner::Named {
+                id: d.content.source_set,
+                name: d.owner,
+            },
         }
     }
 }
@@ -648,6 +723,7 @@ mod tests {
     fn source_deletion(approved: bool, outcomes: Vec<KeptDeletionOutcome>) -> SourceKeptDeletion {
         SourceKeptDeletion {
             id: 5,
+            owner: Some("Atari 2600".into()),
             digest: "d1".into(),
             created_at: "2026-01-05T00:00:00Z".into(),
             content: SourceKeptDeletionContent {
@@ -752,6 +828,61 @@ mod tests {
             shown.rows[0].kept_path(),
             ".stage-select/retained/2/Pong (USA).zip"
         );
+    }
+
+    #[test]
+    fn a_deletion_is_approved_only_under_the_folder_whose_kept_files_it_deletes() {
+        let library = Deletion::from(KeptDeletion {
+            id: 2,
+            digest: "d2".into(),
+            created_at: "2026-01-05T00:00:00Z".into(),
+            content: KeptDeletionContent {
+                folder: 3,
+                files: vec![library_file(1)],
+                reviewed: vec![],
+            },
+            approval: None,
+            finished_at: None,
+            outcomes: vec![],
+            recovery_error: None,
+        });
+        let folder = |id| KeptPlace::LibraryFolder {
+            id,
+            path: "play/atari-2600".into(),
+        };
+        assert!(library.belongs_to(&folder(3)));
+        assert_eq!(
+            library.owner_id(),
+            3,
+            "approval names the folder it deletes from"
+        );
+        assert!(
+            !library.belongs_to(&folder(9)),
+            "another folder's deletion, even of the same path"
+        );
+        assert_eq!(
+            library.owner_href(&folder(9)).as_deref(),
+            Some("/libraries/3?tab=kept")
+        );
+
+        let set = Deletion::from(source_deletion(false, vec![]));
+        let named = |name: &str| KeptPlace::SourceSet(name.into());
+        assert!(set.belongs_to(&named("Atari 2600")));
+        assert_eq!(set.owner_id(), 4);
+        assert!(!set.belongs_to(&named("Atari 7800")));
+        assert_eq!(
+            set.owner_href(&named("Atari 7800")).as_deref(),
+            Some("/source-sets/Atari%202600?tab=kept")
+        );
+
+        let mut forgotten = source_deletion(false, vec![]);
+        forgotten.owner = None;
+        let forgotten = Deletion::from(forgotten);
+        assert!(
+            !forgotten.belongs_to(&named("Atari 2600")),
+            "a deletion of an unregistered set is no registered set's"
+        );
+        assert_eq!(forgotten.owner_href(&named("Atari 2600")), None);
     }
 
     #[test]

@@ -18,9 +18,9 @@ use stage_select_api::additions::{
     Addition, AdditionsCheck, AdditionsSet, EditAddition, SystemQuery,
 };
 use stage_select_api::build::{
-    AddLibraryFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeLibraryFolder,
-    FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild,
-    PlanCleanup, PlanKeptDeletion,
+    AddLibraryFolder, ApproveKeptDeletion, ApprovePlan, BuildDetail, BuildSummary, BuiltFile,
+    ChangeLibraryFolder, FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder,
+    PlacedFile, Plan, PlanBuild, PlanCleanup, PlanKeptDeletion,
 };
 use stage_select_api::calibration::Calibration;
 use stage_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
@@ -1065,13 +1065,13 @@ async fn approve_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<KeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_kept_deletion(id, &approve.digest, &actor)
+            store.approve_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1278,13 +1278,13 @@ async fn approve_ingest_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_ingest_kept_deletion(id, &approve.digest, &actor)
+            store.approve_ingest_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1415,13 +1415,13 @@ async fn approve_additions_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_additions_kept_deletion(id, &approve.digest, &actor)
+            store.approve_additions_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1520,13 +1520,13 @@ async fn approve_source_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_source_kept_deletion(id, &approve.digest, &actor)
+            store.approve_source_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))

@@ -389,6 +389,10 @@ pub struct KeptFileReviewed {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceKeptDeletion {
     pub id: i64,
+    /// The name of the Source Set, the system of the Additions Set, or the Root of the Ingest Folder whose kept
+    /// files it deletes; none once that is forgotten. Not part of what the digest binds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     pub digest: String,
     pub created_at: String,
     pub content: SourceKeptDeletionContent,

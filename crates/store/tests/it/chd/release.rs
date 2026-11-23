@@ -236,7 +236,12 @@ fn a_repair_releases_a_damaged_placed_chd_into_the_source_sets_kept_files() {
     let deletion = env.store.plan_source_kept_deletion(SET, &pick).unwrap();
     let done = env
         .store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(done.outcomes.iter().all(|o| o.deleted), "{done:#?}");
     assert!(!copy.exists());

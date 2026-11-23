@@ -1059,14 +1059,22 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
         )
         .unwrap();
     assert_eq!(env.listing().len(), 2, "planning deletes nothing");
-    let wrong = env
-        .store
-        .approve_source_kept_deletion(deletion.id, "0000", "Operator");
+    let wrong = env.store.approve_source_kept_deletion(
+        deletion.id,
+        deletion.content.source_set,
+        "0000",
+        "Operator",
+    );
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
 
     let deleted = env
         .store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
 
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
@@ -1123,9 +1131,12 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
             rewrite_unnoticed(&kept, bytes);
         }
 
-        let done =
-            env.store
-                .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator");
+        let done = env.store.approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        );
         env.store.hook_faults(None);
 
         let done = done.unwrap();
@@ -1161,8 +1172,12 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
         .unwrap();
     env.store.inject_fault(Some(Fault::SourceKeptMoved(id)));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        env.store.approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
     }));
     assert!(ran.is_err(), "{ran:?}");
     let moved = env.listing();

@@ -82,6 +82,30 @@ impl Owner {
         }
     }
 
+    /// The name `set` is registered under: a Source Set's name, an Additions Set's system or an Ingest Folder's Root;
+    /// `None` once it is unregistered.
+    fn registered_name(self, c: &Connection, set: i64) -> Result<Option<String>> {
+        let sql = match self {
+            Owner::Source => {
+                "SELECT name FROM source_sets WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+            Owner::Additions => {
+                "SELECT 1 FROM additions_sets WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+            Owner::Ingest => {
+                "SELECT root FROM ingest_folders WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+        };
+        if self == Owner::Additions {
+            let registered: Option<i64> = c.query_row(sql, [set], |r| r.get(0)).optional()?;
+            return match registered {
+                Some(_) => Ok(Some(crate::additions::set_by_id(c, set)?.system)),
+                None => Ok(None),
+            };
+        }
+        Ok(c.query_row(sql, [set], |r| r.get(0)).optional()?)
+    }
+
     /// Why kept file `id` cannot be deleted now, or `None`.
     fn reserved(self, c: &Connection, id: i64) -> Result<Option<String>> {
         match self {
@@ -168,6 +192,7 @@ fn deletion_from_row(r: &Row) -> rusqlite::Result<SourceKeptDeletion> {
     let outcomes: Option<String> = r.get(8)?;
     Ok(SourceKeptDeletion {
         id: r.get(0)?,
+        owner: None,
         digest: r.get(1)?,
         created_at: r.get(2)?,
         content: json(r, 3)?,
@@ -200,6 +225,10 @@ fn deletion_by_id(c: &Connection, owner: Owner, id: i64) -> Result<SourceKeptDel
             "no deletion {id} of kept files of an {}",
             owner.what()
         ))
+    })
+    .and_then(|mut d| {
+        d.owner = owner.registered_name(c, d.content.source_set)?;
+        Ok(d)
     })
 }
 
@@ -325,17 +354,19 @@ impl Store {
         self.read(|c| deletion_by_id(c, Owner::Source, id))
     }
 
-    /// Approves deleting kept files of a Source Set as reviewed with `digest`, and carries it out. Each file is
+    /// Approves deleting kept files of Source Set `owner_reviewed` as reviewed with `digest`, and carries it out; a
+    /// deletion of another set's kept files is refused. Each file is
     /// deleted only while its kept entry is the file that was kept; anything else is left, and its outcome says why.
     /// Refused while a repair or another deletion of the Source Set is unfinished, while an Addition is
     /// still being added from a file it picks, and when its kept files changed since the plan.
     pub fn approve_source_kept_deletion(
         &self,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(Owner::Source, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Source, id, owner_reviewed, digest_reviewed, actor)
     }
 
     /// The kept files of Source Set `set`, registered or not, newest generation first.
@@ -378,10 +409,11 @@ impl Store {
     pub fn approve_additions_kept_deletion(
         &self,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(Owner::Additions, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Additions, id, owner_reviewed, digest_reviewed, actor)
     }
 
     /// The kept files of Additions Set `set`, registered or not, newest generation first.
@@ -420,10 +452,11 @@ impl Store {
     pub fn approve_ingest_kept_deletion(
         &self,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(Owner::Ingest, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Ingest, id, owner_reviewed, digest_reviewed, actor)
     }
 
     /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
@@ -515,6 +548,7 @@ impl Store {
         &self,
         owner: Owner,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
@@ -531,6 +565,12 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
+        if owner_reviewed != set {
+            return Err(Error::Conflict(format!(
+                "deletion {id} deletes kept files of another {}; review it there",
+                owner.what()
+            )));
+        }
         let roots = self.roots();
         self.open_owner(owner, set)?.map_err(Error::Refused)?;
         let lifecycle = self.lock_roots_unchanged(&roots)?;

@@ -1546,6 +1546,15 @@ pub struct KeptDeletionOutcome {
     pub detail: Option<String>,
 }
 
+/// The request to approve a deletion of kept files: the digest you reviewed, and the id of the Library Folder,
+/// Source Set, Additions Set or Ingest Folder you reviewed it as deleting kept files of. A deletion of another's
+/// kept files is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApproveKeptDeletion {
+    pub digest: String,
+    pub owner: i64,
+}
+
 /// A plan to delete kept files, carried out once you approve it with its digest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptDeletion {

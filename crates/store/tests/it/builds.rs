@@ -861,13 +861,23 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
         .unwrap();
     assert_eq!(one.content.files, vec![kept[0].clone()]);
     assert!(path(&kept[0]).exists(), "planning deletes nothing");
-    let stale = env.store.approve_kept_deletion(one.id, "0000", "Operator");
+    let stale = env
+        .store
+        .approve_kept_deletion(one.id, one.content.folder, "0000", "Operator");
     assert!(matches!(stale, Err(Error::Conflict(_))), "{stale:?}");
+    assert!(path(&kept[0]).exists());
+    let elsewhere = env
+        .store
+        .approve_kept_deletion(one.id, folder.id + 1, &one.digest, "Operator");
+    assert!(
+        matches!(&elsewhere, Err(Error::Conflict(m)) if m.contains("another library folder")),
+        "a deletion is approved only as the kept files of the folder you reviewed it under: {elsewhere:?}"
+    );
     assert!(path(&kept[0]).exists());
 
     let done = env
         .store
-        .approve_kept_deletion(one.id, &one.digest, "Operator")
+        .approve_kept_deletion(one.id, one.content.folder, &one.digest, "Operator")
         .unwrap();
     assert!(
         done.outcomes.iter().all(|o| o.deleted),
@@ -890,7 +900,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
         .unwrap();
     let done = env
         .store
-        .approve_kept_deletion(rest.id, &rest.digest, "Operator")
+        .approve_kept_deletion(rest.id, rest.content.folder, &rest.digest, "Operator")
         .unwrap();
     assert!(
         done.outcomes.iter().all(|o| o.deleted),
@@ -907,9 +917,9 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
     let checked = check(&env, &env.store.library_folder(folder.id).unwrap());
     assert!(checked.drift.is_empty(), "{:?}", checked.drift);
     assert_eq!(checked.files.len(), 1);
-    let again = env
-        .store
-        .approve_kept_deletion(rest.id, &rest.digest, "Operator");
+    let again =
+        env.store
+            .approve_kept_deletion(rest.id, rest.content.folder, &rest.digest, "Operator");
     assert!(matches!(again, Err(Error::Refused(_))), "{again:?}");
 }
 
@@ -948,7 +958,12 @@ fn a_substituted_retention_entry_is_never_deleted() {
 
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
 
     for o in &done.outcomes[..3] {
@@ -993,7 +1008,12 @@ fn a_substituted_retention_entry_is_never_deleted() {
     let before = names(&elsewhere.join("2"));
     let done = env2
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(
         done.outcomes.iter().all(|o| !o.deleted),
@@ -1418,8 +1438,12 @@ fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> stage_select_api::build
 fn crash_deletion(env: &Env, deletion: &stage_select_api::build::KeptDeletion, fault: Fault) {
     env.store.inject_fault(Some(fault));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        env.store.approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
     }));
     assert!(ran.is_err(), "{ran:?}");
     env.store.inject_fault(None);
@@ -1448,7 +1472,12 @@ fn a_kept_file_swapped_just_before_it_is_deleted_is_moved_back_and_never_deleted
 
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     env.store.hook_faults(None);
 
@@ -1642,7 +1671,12 @@ fn a_kept_file_rewritten_after_you_review_its_deletion_is_never_deleted() {
 
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
 
     let detail = done.outcomes[0].detail.as_deref().unwrap();
@@ -1685,7 +1719,12 @@ fn a_kept_file_rewritten_inside_deleting_is_moved_back_and_never_deleted() {
 
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     env.store.hook_faults(None);
 
@@ -1854,8 +1893,12 @@ fn what_is_swapped_into_deleting_after_it_is_recorded_held_aside_is_moved_back_a
             }
         })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        env.store.approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err());
@@ -1920,9 +1963,12 @@ fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
             .contains("not writable"),
         "{pending:?}"
     );
-    let approve =
-        env.store
-            .approve_kept_deletion(deletion_again.id, &deletion_again.digest, "Operator");
+    let approve = env.store.approve_kept_deletion(
+        deletion_again.id,
+        deletion_again.content.folder,
+        &deletion_again.digest,
+        "Operator",
+    );
     assert!(
         matches!(&approve, Err(Error::Conflict(m)) if m.contains("not finished")),
         "{approve:?}"
@@ -1981,7 +2027,12 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(done.outcomes.iter().all(|o| !o.deleted));
     assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
@@ -1993,7 +2044,7 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     .unwrap();
     let done = env
         .store
-        .approve_kept_deletion(later.id, &later.digest, "Operator")
+        .approve_kept_deletion(later.id, later.content.folder, &later.digest, "Operator")
         .unwrap();
     assert!(!done.outcomes[0].deleted);
     assert!(
@@ -2112,8 +2163,12 @@ fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stop
                     }
                 })));
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                env.store
-                    .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+                env.store.approve_kept_deletion(
+                    deletion.id,
+                    deletion.content.folder,
+                    &deletion.digest,
+                    "Operator",
+                )
             }));
             env.store.hook_faults(None);
             assert!(ran.is_err());
@@ -2131,7 +2186,7 @@ fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stop
             let first = plan_one(&env, kept[0].id);
             let done = env
                 .store
-                .approve_kept_deletion(first.id, &first.digest, "Operator")
+                .approve_kept_deletion(first.id, first.content.folder, &first.digest, "Operator")
                 .unwrap();
             assert!(done.outcomes[0].deleted, "{done:?}");
             std::fs::remove_dir(&deleting).unwrap();
@@ -2170,7 +2225,7 @@ fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stop
             let again = plan_one(&env, file.id);
             let done = env
                 .store
-                .approve_kept_deletion(again.id, &again.digest, "Operator")
+                .approve_kept_deletion(again.id, again.content.folder, &again.digest, "Operator")
                 .unwrap();
             assert!(done.outcomes[0].deleted, "{gone}: {done:?}");
         }
@@ -2268,8 +2323,12 @@ fn a_move_back_is_recorded_only_once_it_is_found_back_and_made_durable() {
             }
         })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store
-            .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        env.store.approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err());
@@ -2355,8 +2414,12 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
                 }
             })));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            env.store
-                .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+            env.store.approve_kept_deletion(
+                deletion.id,
+                deletion.content.folder,
+                &deletion.digest,
+                "Operator",
+            )
         }));
         env.store.hook_faults(None);
         if crash {
@@ -2389,9 +2452,12 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
                 .any(|k| k.id == first.id)
         );
         let others = plan_delete_all(&env, &folder);
-        let refused = env
-            .store
-            .approve_kept_deletion(others.id, &others.digest, "Operator");
+        let refused = env.store.approve_kept_deletion(
+            others.id,
+            others.content.folder,
+            &others.digest,
+            "Operator",
+        );
         assert!(
             matches!(&refused, Err(Error::Conflict(m)) if m.contains("not finished")),
             "{refused:?}"
@@ -2485,7 +2551,12 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     std::fs::set_permissions(&area, std::fs::Permissions::from_mode(0o777)).unwrap();
     let done = env
         .store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(
         done.outcomes
@@ -5203,7 +5274,12 @@ fn a_cleanup_is_refused_at_approval_once_anything_in_the_folder_changed() {
                     )
                     .unwrap();
                 env.store
-                    .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+                    .approve_kept_deletion(
+                        deletion.id,
+                        deletion.content.folder,
+                        &deletion.digest,
+                        "Operator",
+                    )
                     .unwrap();
             }
         }

@@ -380,6 +380,7 @@ fn DeleteKept(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoVi
         .into_any();
     };
     let count = record.kept_files;
+    let owner = record.id;
     let plan = RwSignal::new(None::<KeptPlan>);
     let problem = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
@@ -406,7 +407,10 @@ fn DeleteKept(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoVi
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
-            let body = stage_select_api::build::ApprovePlan { digest: p.digest };
+            let body = stage_select_api::build::ApproveKeptDeletion {
+                digest: p.digest,
+                owner,
+            };
             match api::post::<_, serde_json::Value>(&format!("{approval}/{}/approval", p.id), &body)
                 .await
             {

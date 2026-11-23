@@ -1389,13 +1389,15 @@ impl Store {
         self.read(|c| deletion_by_id(c, id))
     }
 
-    /// Approves deleting kept files as reviewed with `digest`, and carries it out. Each file is deleted only while
+    /// Approves deleting kept files of Library Folder `folder_reviewed` as reviewed with `digest`, and carries it out;
+    /// a deletion of another folder's kept files is refused. Each file is deleted only while
     /// its kept entry is the file that was kept and still reads as you reviewed it, ctime and SHA-256; anything else
     /// there is left, and its outcome says why. Refused while
     /// a Build of the folder is queued or running, and when the kept files changed since the plan.
     pub fn approve_kept_deletion(
         &self,
         id: i64,
+        folder_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<KeptDeletion> {
@@ -1410,6 +1412,11 @@ impl Store {
         }
         let content = &plan.content;
         let folder = content.folder;
+        if folder_reviewed != folder {
+            return Err(Error::Conflict(format!(
+                "deletion {id} deletes kept files of another library folder; review it there"
+            )));
+        }
         // Recorded between edits of Roots, so the deletion reads the Roots as they are once it is recorded.
         let lifecycle = self.lifecycle_lock();
         self.write(|tx| {

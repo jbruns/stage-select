@@ -11,7 +11,7 @@ use leptos_router::hooks::use_query_map;
 use stage_select_api::SourceSetRecord;
 use stage_select_api::additions::AdditionsSet;
 use stage_select_api::build::{
-    ApprovePlan, KeptDeletion, KeptFile, LibraryFolder, PlanKeptDeletion,
+    ApproveKeptDeletion, KeptDeletion, KeptFile, LibraryFolder, PlanKeptDeletion,
 };
 use stage_select_api::ingest::{IngestFolder, IngestKeptFile};
 use stage_select_api::repair::{SourceKeptDeletion, SourceKeptFile};
@@ -392,9 +392,15 @@ async fn load_deletion(place: KeptPlace, id: i64) -> Result<Deletion, String> {
     })
 }
 
-async fn approve_deletion(place: KeptPlace, id: i64, digest: String) -> Result<Deletion, String> {
+/// Approves deletion `id` as the kept files of `owner`, the folder or set you reviewed it under, by its id.
+async fn approve_deletion(
+    place: KeptPlace,
+    id: i64,
+    owner: i64,
+    digest: String,
+) -> Result<Deletion, String> {
     let path = place.approval_path(id);
-    let body = ApprovePlan { digest };
+    let body = ApproveKeptDeletion { digest, owner };
     Ok(match place {
         KeptPlace::LibraryFolder { .. } => api::post::<_, KeptDeletion>(&path, &body).await?.into(),
         _ => api::post::<_, SourceKeptDeletion>(&path, &body)
@@ -743,9 +749,9 @@ fn DeletionReview(
         _ => prev.cloned().flatten(),
     });
     let approving = Action::new_local(move |d: &Deletion| {
-        let (id, digest) = (d.id, d.digest.clone());
+        let (id, owner, digest) = (d.id, d.owner_id(), d.digest.clone());
         async move {
-            let done = approve_deletion(place.get_value(), id, digest).await;
+            let done = approve_deletion(place.get_value(), id, owner, digest).await;
             if done.is_ok() {
                 reloaded.update(|n| *n += 1);
                 after.run(());
@@ -760,7 +766,20 @@ fn DeletionReview(
     });
     let header = move || {
         latest.get().map(|d| {
-            let approve = (!d.approved).then(|| {
+            let here = place.with_value(|p| d.belongs_to(p));
+            let elsewhere = (!here).then(|| {
+                let owner = place.with_value(|p| d.owner_href(p));
+                view! {
+                    <Message kind=MessageKind::PROBLEM>
+                        "This plan deletes kept files of another folder, so you can't approve it here. "
+                        {match owner {
+                            Some(href) => view! { <A href>"Review it with its own kept files"</A> "." }.into_any(),
+                            None => "That folder is unregistered: review its kept files under Unregistered.".into_any(),
+                        }}
+                    </Message>
+                }
+            });
+            let approve = (!d.approved && here).then(|| {
                 let (label, shown) = (d.approve_label(), d.clone());
                 view! {
                     <div class="form">
@@ -799,6 +818,7 @@ fn DeletionReview(
             );
             let recovery = d.recovery_error.clone().map(|message| view! { <Problem message /> });
             view! {
+                {elsewhere}
                 {(!d.approved).then(|| view! { <p class="lede">{said}</p> })}
                 {state}
                 {recovery}

@@ -1370,7 +1370,8 @@ it (the default), adopting it when it holds the ROMs the DAT expects, or setting
 place. To change one, plan again with it. The removals are part of the digest too.
 
 Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-files`), plan deleting some or all
-(`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
+(`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it with the digest and the id of
+the folder you reviewed it under; a plan of another folder's kept files is refused. Planning reads each kept
 file and the digest binds what it read, its change time and SHA-256 included. Each kept file is deleted
 only while it is still the file that was kept and still reads as you reviewed it: it is moved, without replacing anything, into the private folder
 `.stage-select/retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
@@ -1944,7 +1945,7 @@ What these versions promise you:
 | `POST /api/v1/libraries/{id}/romm/reconciliations` | compare it with RomM now and return the comparison; `400` while RomM is off or doesn't scan it |
 | `POST /api/v1/libraries/{id}/romm/rescans`         | ask RomM to scan one ROM its latest comparison flagged: `{"rom_id"}`; returns `{"rom_id", "scan_type" (`unmatched` or `update`), "task_id"}`; `400` while RomM is off or when RomM refuses |
 | `GET /api/v1/kept-deletions/{id}`                  | a plan to delete kept files, with its digest and outcomes    |
-| `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest"}`; deletes them and answers with each outcome, `409` when they changed |
+| `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest", "owner"}`, `owner` the library folder's id; deletes them and answers with each outcome, `409` when they changed or belong to another folder |
 | `GET /api/v1/ingest-folders`                       | every ingest root, with its counts of items by state once registered |
 | `POST /api/v1/ingest-folders`                      | register one: `{"root"}`; `201`                              |
 | `GET /api/v1/ingest-folders/{root}`                | one ingest folder, with `next_check_at` while a follow-up scan is pending |
@@ -1955,7 +1956,7 @@ What these versions promise you:
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans set aside                                |
 | `POST /api/v1/ingest-folders/{root}/kept-deletions` | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`    |
 | `GET /api/v1/ingest-kept-deletions/{id}`           | a plan to delete an ingest folder's kept files               |
-| `POST /api/v1/ingest-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
+| `POST /api/v1/ingest-kept-deletions/{id}/approval` | approve it: `{"digest", "owner"}`, `owner` the ingest folder's id; deletes them and answers with each outcome, `409` when they belong to another ingest folder |
 | `POST /api/v1/ingest-folders/{root}/dismissals`    | dismiss several of its items until they change: `{"items": [id]}`; all of them or none |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
@@ -1968,7 +1969,7 @@ What these versions promise you:
 | `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs set aside                              |
 | `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/source-kept-deletions/{id}`           | a plan to delete a source set's kept files                   |
-| `POST /api/v1/source-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
+| `POST /api/v1/source-kept-deletions/{id}/approval` | approve it: `{"digest", "owner"}`, `owner` the source set's id; deletes them and answers with each outcome, `409` when they belong to another source set |
 | `GET /api/v1/plans/{id}`                           | a plan, with its digest, summary and changes                 |
 | `POST /api/v1/plans/{id}/approval`                 | approve it: `{"digest"}`; `202` with the build job, `409` when the plan changed |
 | `GET /api/v1/builds/{id}`                          | a build and each file it wrote                               |
@@ -1982,7 +1983,7 @@ What these versions promise you:
 | `GET /api/v1/additions-set/kept-files?system=`     | the files of additions retired from it                       |
 | `POST /api/v1/additions-set/kept-deletions?system=` | plan deleting some or all of them: `{"ids"?: [id], "all"?: true}`; `201` |
 | `GET /api/v1/additions-kept-deletions/{id}`        | a plan to delete an additions set's kept files               |
-| `POST /api/v1/additions-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
+| `POST /api/v1/additions-kept-deletions/{id}/approval` | approve it: `{"digest", "owner"}`, `owner` the additions set's id; deletes them and answers with each outcome, `409` when they belong to another additions set |
 | `GET /api/v1/{source-sets/{name},libraries/{id},ingest-folders/{root}}/holds`, `GET /api/v1/additions-set/holds?system=` | what holds it registered: `{"holds": [reason]}` |
 | `GET /api/v1/roots/{name}/holds`                   | what is registered in a root                                 |
 | `POST /api/v1/{source-sets/{name},libraries/{id},ingest-folders/{root}}/unregistration`, `POST /api/v1/additions-set/unregistration?system=` | unregister it, touching no game file; `400` with what holds it |

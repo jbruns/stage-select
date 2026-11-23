@@ -622,15 +622,34 @@ fn a_kept_file_of_an_ingest_folder_is_deleted_only_once_you_approve_its_deletion
     assert_eq!(deletion.content.files.len(), 1);
     assert_eq!(deletion.content.files[0].id, mystery);
     assert_eq!(env.listing(), before, "planning deletes nothing");
-    let wrong = env
-        .store
-        .approve_ingest_kept_deletion(deletion.id, "0000", "Operator");
+    let wrong = env.store.approve_ingest_kept_deletion(
+        deletion.id,
+        deletion.content.source_set,
+        "0000",
+        "Operator",
+    );
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
+    assert_eq!(env.listing(), before);
+    let elsewhere = env.store.approve_ingest_kept_deletion(
+        deletion.id,
+        deletion.content.source_set + 1,
+        &deletion.digest,
+        "Operator",
+    );
+    assert!(
+        matches!(&elsewhere, Err(Error::Conflict(m)) if m.contains("another ingest folder")),
+        "a deletion is approved only as the kept files of the folder you reviewed it under: {elsewhere:?}"
+    );
     assert_eq!(env.listing(), before);
 
     let done = env
         .store
-        .approve_ingest_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_ingest_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(done.finished_at.is_some(), "{done:?}");
     assert_eq!(done.outcomes.len(), 1);
@@ -647,7 +666,12 @@ fn a_kept_file_of_an_ingest_folder_is_deleted_only_once_you_approve_its_deletion
     assert_eq!(env.store.ingest_kept_deletion(deletion.id).unwrap(), done);
     assert!(
         env.store
-            .approve_ingest_kept_deletion(deletion.id, &deletion.digest, "Operator")
+            .approve_ingest_kept_deletion(
+                deletion.id,
+                deletion.content.source_set,
+                &deletion.digest,
+                "Operator"
+            )
             .is_err(),
         "a deletion is carried out once"
     );
@@ -697,7 +721,12 @@ fn a_kept_file_of_an_ingest_folder_rewritten_after_you_review_its_deletion_is_ne
 
     let done = env
         .store
-        .approve_ingest_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_ingest_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
 
     assert!(!done.outcomes[0].deleted, "{:?}", done.outcomes);
