@@ -21,6 +21,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     CellTip, Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
+use crate::parts::meter::GamesMeter;
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
@@ -451,7 +452,10 @@ fn set_detail(row: SetRow) -> AnyView {
             </dd>
             {s.latest.as_ref().map(|a| view! {
                 <dt>{if s.set.coverage.is_some() && !s.coverage_unavailable { "In your coverage" } else { "Games" }}</dt>
-                <dd>{game_counts(&a.games)}</dd>
+                <dd class="games">
+                    {game_counts(&a.games)}
+                    <GamesMeter games=a.games.clone() />
+                </dd>
             })}
             <dt>"Last verified against"</dt>
             <dd>

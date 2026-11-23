@@ -71,6 +71,8 @@ pure logic there too.
 | A count of one status (summary tile)   | `StatusCount { status, what?, children }` in `.counts` | `status`    |
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A key to statuses of two vocabularies  | `LegendStrip { looks, list }`, `present_looks` each    | `legend`    |
+| A job's progress, beside its counts    | `ProgressMeter { done, total, unit }`                  | `meter`     |
+| A source set's games, beside its counts| `GamesMeter { games }`                                 | `meter`     |
 | Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
@@ -113,6 +115,17 @@ verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's fla
 - In a cell that isn't a tab stop of its own (the shared list's rows, which the arrow keys move through), pass
   `tab_stop=false` to `StatusIcon` (or `Icon`); its label still names it.
 - `Tone` is the colour: `Good`, `Review`, `Failed`, `Active`, `Neutral`, styled by `.tone-*` and `--tone-*`.
+
+### Segmented meter
+
+`parts::meter` draws "how much of a whole" as a row of equal segments (the style guide's "Segmented meter"), and
+only two things get one: a running job's progress (`ProgressMeter`, done filled in the active tone, the rest
+outlined) and a source set's games by game status (`GamesMeter`, complete filled in the good tone, incomplete
+hatched in the review tone, missing outlined; nothing to check isn't drawn). It always sits beside the exact counts,
+which stay as text, and is one `role="img"` whose label carries the numbers: no tab stop, no tooltip, no percentage.
+`segments` shares the segments in proportion and gives every count above zero at least one; keep that rule there,
+host-tested. Each segment takes its colour from its `Tone` class through `currentColor`, and nothing in it moves. The
+source sets list's games cell keeps its icons and counts without a meter.
 
 ### Pending and problems
 

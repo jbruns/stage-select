@@ -1,8 +1,10 @@
 //! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`, or with `&list=1`,
 //! the same Entries in the shared list (`parts::list`), or with `&repair=1` a repair plan of as many items in the
-//! Repair tab's review.
+//! Repair tab's review. With `&list=1&meter=1`, the shared list's rows also show a Games meter (`parts::meter`), to
+//! measure what the meter costs a list.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -15,6 +17,7 @@ use stage_select_api::{
 
 use crate::model::{AuditEntries, DerivedCounts};
 use crate::parts::list::{Clip, Column, List, ListRow, Width};
+use crate::parts::meter::GamesMeter;
 use crate::screens::audit::EntriesPanel;
 use crate::screens::repair::bench_plan;
 use stage_select_api::repair::RepairPlan;
@@ -77,6 +80,66 @@ impl ListRow for BenchRow {
 
     fn compare(&self, other: &Self, _col: BenchCol) -> std::cmp::Ordering {
         self.0.entry.path.cmp(&other.0.entry.path)
+    }
+}
+
+/// A bench row that also shows a Games meter, over counts made from its sequence number.
+#[derive(Clone, PartialEq)]
+struct MeterRow(BenchRow);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MeterCol {
+    Bench(BenchCol),
+    Games,
+}
+
+impl ListRow for MeterRow {
+    type Col = MeterCol;
+    const COLUMNS: &'static [MeterCol] = &[
+        MeterCol::Bench(BenchCol::Path),
+        MeterCol::Bench(BenchCol::Finding),
+        MeterCol::Games,
+    ];
+
+    fn column(col: MeterCol) -> Column {
+        match col {
+            MeterCol::Bench(col) => BenchRow::column(col),
+            MeterCol::Games => Column::new("games", "Games", Width::Fixed(10.0)),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.key()
+    }
+
+    fn title(&self) -> String {
+        self.0.title()
+    }
+
+    fn search(&self) -> String {
+        self.0.search()
+    }
+
+    fn cell(&self, col: MeterCol) -> AnyView {
+        match col {
+            MeterCol::Bench(col) => self.0.cell(col),
+            MeterCol::Games => {
+                let seq = self.0.0.seq as usize;
+                let games = BTreeMap::from([
+                    (GameStatus::Complete, seq % 97),
+                    (GameStatus::Incomplete, seq % 7),
+                    (GameStatus::Missing, seq % 31),
+                ]);
+                view! { <GamesMeter games /> }.into_any()
+            }
+        }
+    }
+
+    fn compare(&self, other: &Self, col: MeterCol) -> std::cmp::Ordering {
+        match col {
+            MeterCol::Bench(col) => self.0.compare(&other.0, col),
+            MeterCol::Games => self.0.compare(&other.0, BenchCol::Path),
+        }
     }
 }
 
@@ -250,6 +313,7 @@ pub fn Bench() -> impl IntoView {
         .and_then(|n| n.parse().ok())
         .unwrap_or(100_000);
     let list = query.read_untracked().get("list").is_some();
+    let meter = query.read_untracked().get("meter").is_some();
     if query.read_untracked().get("repair").is_some() {
         return view! {
             <h1>"Filtering benchmark"</h1>
@@ -272,7 +336,21 @@ pub fn Bench() -> impl IntoView {
                 "{n} synthetic entries: {verified} verified, {needs_review} need review. Nothing here comes from the service.",
             )}
         </p>
-        {if list {
+        {if list && meter {
+            let rows: Arc<Vec<MeterRow>> = Arc::new(
+                entries.rows.iter().cloned().map(|r| MeterRow(BenchRow(Arc::new(r)))).collect(),
+            );
+            view! {
+                <List
+                    id="bench"
+                    label="Synthetic entries"
+                    rows=Signal::stored(rows)
+                    empty="No entries."
+                    detail=Callback::new(|row: MeterRow| row.0.0.entry.path.clone().into_any())
+                />
+            }
+                .into_any()
+        } else if list {
             let rows: Arc<Vec<BenchRow>> =
                 Arc::new(entries.rows.iter().cloned().map(|r| BenchRow(Arc::new(r))).collect());
             view! {

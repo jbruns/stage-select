@@ -7,6 +7,7 @@
 //! - `plan`: `PlanReview`, the plan review's counts by kind, rows reading current → proposed and choices set in bulk,
 //!   over `plan_model`.
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
+//! - `meter`: `ProgressMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
 //! - `help`: `Help`, a one-line summary with longer help folded beneath it.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
 //! - `theme`: the light and dark themes and `ThemeToggle`.
@@ -21,6 +22,7 @@ pub mod legend;
 pub mod list;
 pub mod list_model;
 pub mod lucide;
+pub mod meter;
 pub mod overlay;
 pub mod pending;
 pub mod plan;

@@ -4,14 +4,15 @@ Not a CI gate. Needs cargo-leptos, the wasm32-unknown-unknown target and Playwri
 repository's root:
 
     python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwright install chromium
-    .venv/bin/python crates/ui/bench/filter.py [--entries 100000] [--rounds 5] [--list | --repair]
+    .venv/bin/python crates/ui/bench/filter.py [--entries 100000] [--rounds 5] [--list [--meter] | --repair]
 
 The `/bench` screen exists only with the workbench's `bench` feature, which no release or image has. So the script
 builds the workbench with it into target/bench/site, runs the Service on a loopback port with a scratch store and
 a dev identity under target/bench, measures, and stops the Service. With `--url`, it measures a Service already
 serving a `bench` build instead. The screen renders the Audit screen's Entries panel over deterministic synthetic
 Entries, or with `--list` the same Entries in the shared list every list screen uses (`parts::list`), or with
-`--repair` a repair plan of as many items in the Repair tab's review (the shared plan review); it reads nothing from
+`--repair` a repair plan of as many items in the Repair tab's review (the shared plan review); `--list --meter` adds
+a column holding a segmented meter (`parts::meter`) to each row, to measure the meter's cost. It reads nothing from
 the Service. It also reports how long the screen took to show its first rows. Each sample starts at the keydown's own timestamp and ends after the first frame painted once the
 shown count reflects the new text and every rendered row matches it. The Entries panel's rows must also be new; the
 shared list keeps a row's element while the row stays shown, so its rows need only match; a repair plan's rows also
@@ -19,6 +20,7 @@ match on their kind, which shows only as an icon, so there the shown count alone
 """
 
 import argparse
+import json
 import os
 import socket
 import statistics
@@ -100,8 +102,13 @@ def bench_service():
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
+    # Cargo's target directory, which CARGO_TARGET_DIR or a cargo config may move from ./target.
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"], check=True, capture_output=True, text=True
+    )
+    binary = Path(json.loads(metadata.stdout)["target_directory"]) / "release" / "stage-select"
     service = subprocess.Popen(
-        ["target/release/stage-select", "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
+        [str(binary), "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
          "--ui", str(site), "--dev-identity", "Benchmark"]
     )
     try:
@@ -129,12 +136,15 @@ def main():
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--list", action="store_true", help="measure the shared list rather than the Entries panel")
     parser.add_argument("--repair", action="store_true", help="measure a repair plan's review")
+    parser.add_argument("--meter", action="store_true", help="with --list, give each row a segmented meter")
     args = parser.parse_args()
     args.list = args.list or args.repair
 
     with (given(args.url) if args.url else bench_service()) as url:
         samples, version = measure(url, args)
     what = "a repair plan's review" if args.repair else "the shared list" if args.list else "the Entries panel"
+    if args.list and args.meter and not args.repair:
+        what += " with a meter in each row"
     print(f"{len(samples)} keystrokes after one warm-up round over {args.entries} rows in {what}; {version}")
     print(f"p50 {statistics.median(samples):.1f} ms, p95 {percentile(samples, 95):.1f} ms, max {max(samples):.1f} ms")
 
@@ -143,7 +153,7 @@ def measure(url, args):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
-        mode = "&repair=1" if args.repair else "&list=1" if args.list else ""
+        mode = "&repair=1" if args.repair else "&list=1&meter=1" if args.list and args.meter else "&list=1" if args.list else ""
         started = time.monotonic()
         page.goto(f"{url}/bench?entries={args.entries}{mode}")
         page.wait_for_selector(LIST_ROWS if args.list else TABLE_ROWS, timeout=120_000)
