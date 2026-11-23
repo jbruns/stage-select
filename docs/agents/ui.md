@@ -109,6 +109,11 @@ pure logic there too.
 | An item's choice, in its cell and detail | `plan::choice_select(label, offers, planned, now, ..)` | `plan`      |
 | Light/dark override                    | `ThemeToggle` (already in the header)                  | `theme`     |
 
+Two screen-level pieces are shared the same way. An audit's Games and Findings counts, wherever they show (the
+source set overview, the audit page), are `screens::audit::AuditCounts { audit, lists, covered? }`, with its pure
+logic in `summary_model`. Proposing a repair and opening its plan is `screens::source_sets::propose_repair(name)`
+then `repair_plan_href(name, id)`.
+
 ### Icons
 
 `Glyph` (`parts/lucide.rs`) is generated from vendored Lucide icons; never edit it by hand. To add one, append its

@@ -35,14 +35,6 @@ pub fn game_status_label(status: GameStatus) -> &'static str {
     }
 }
 
-/// What a count of Games of a Game Status counts, such as "Complete games".
-pub fn games_of_status_label(status: GameStatus) -> String {
-    match status {
-        GameStatus::NothingToCheck => "Games with nothing to check".to_string(),
-        status => format!("{} games", game_status_label(status)),
-    }
-}
-
 /// Why a Game's Dependencies don't change its Game Status.
 pub const DEPENDENCIES_NOTE: &str = "The BIOS and devices it needs to run, each with its own game status. None of them \
 changes this game's status: a play library lacking one is incomplete.";
@@ -1104,27 +1096,6 @@ mod tests {
         ] {
             assert!(NOTHING_TO_CHECK_NOTE.contains(said), "{said}");
         }
-        // The summary counts them under their own label, beside the other statuses.
-        let labels: Vec<String> = GameStatus::ALL
-            .iter()
-            .map(|s| games_of_status_label(*s))
-            .collect();
-        assert_eq!(
-            labels
-                .iter()
-                .filter(|l| l.contains("nothing to check"))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn a_count_of_games_names_their_status() {
-        assert_eq!(games_of_status_label(GameStatus::Missing), "Missing games");
-        assert_eq!(
-            games_of_status_label(GameStatus::NothingToCheck),
-            "Games with nothing to check"
-        );
     }
 
     #[test]

@@ -24,13 +24,12 @@ use crate::parts::list::{
     CellTip, Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
 use crate::parts::message::Problem;
-use crate::parts::meter::GamesMeter;
 use crate::parts::outcome::{Link, Report, Reports, ShowReports};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
-use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{SourceSetStatus, Status, StatusIcon};
 use crate::parts::tabs::tab_link;
 use crate::parts::url_state::encode;
 use crate::registration;
@@ -45,6 +44,25 @@ pub fn set_href(name: &str) -> String {
 /// A tab of a source set's page.
 pub fn tab_href(name: &str, tab: PageTab) -> String {
     tab_link(&set_href(name), Some(tab.slug()), &[])
+}
+
+/// Where you review the repair plan `id` of the source set `name`.
+pub fn repair_plan_href(name: &str, id: i64) -> String {
+    tab_link(
+        &set_href(name),
+        Some(PageTab::Repair.slug()),
+        &[("plan", &id.to_string())],
+    )
+}
+
+/// Proposes a repair of `name` from its latest audit, with the default choices: the one way a page outside the
+/// source set's Repair tab proposes one, then opens it at [`repair_plan_href`].
+pub async fn propose_repair(name: &str) -> Result<RepairPlan, String> {
+    api::post(
+        &format!("{}/repairs", set_href(name)),
+        &PlanRepair::default(),
+    )
+    .await
 }
 
 /// Where you preview a selection of the source set.
@@ -325,9 +343,7 @@ impl Ctx {
         self.said.clear();
         leptos::task::spawn_local(async move {
             for name in names {
-                let path = format!("{}/repairs", set_href(&name));
-                let made = api::post::<_, RepairPlan>(&path, &PlanRepair::default()).await;
-                self.said.add(match made {
+                self.said.add(match propose_repair(&name).await {
                     Ok(plan) => Report::Made {
                         text: format!(
                             "Proposed repair #{} of {name}: {} items to review.",
@@ -335,11 +351,7 @@ impl Ctx {
                             plan.content.items.len()
                         ),
                         link: Some(Link::new(
-                            tab_link(
-                                &set_href(&name),
-                                Some(PageTab::Repair.slug()),
-                                &[("plan", &plan.id.to_string())],
-                            ),
+                            repair_plan_href(&name, plan.id),
                             "Open the repair",
                         )),
                     },
@@ -378,7 +390,7 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
         Some(open) => RowAction::go(
             Glyph::Wrench,
             format!("Review its repair #{}", open.id),
-            tab_href(&name, PageTab::Repair),
+            repair_plan_href(&name, open.id),
         ),
         None => {
             let name = name.clone();
@@ -418,59 +430,35 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
     actions
 }
 
+/// What the row's cells don't say: why it stands as it does, where it is, its latest audit's revision and what it
+/// left to review, and its open repair. Its status, DAT, coverage, games and when it was audited are in the cells.
 fn set_detail(row: SetRow) -> AnyView {
     let s = row.summary;
-    let name = s.set.name.clone();
     let outside = s
         .outside_coverage
         .as_ref()
         .filter(|_| !s.coverage_unavailable)
         .map(|o| view! { <p class="note">{coverage_model::outside_line(o)}</p> });
+    let unavailable = (s.coverage_unavailable && s.set.coverage.is_some())
+        .then(|| view! { <p class="note small">{UNAVAILABLE}</p> });
     view! {
-        <p>
-            <StatusBadge status=row.status />
-        </p>
         {stale_lines(&s.set)}
         <dl class="facts">
-            <dt>"DAT"</dt>
-            <dd>{s.set.dat.clone()}</dd>
             <dt>"Root and path"</dt>
             <dd>
                 <code class="path">{format!("{}: {}", s.set.root, s.set.path)}</code>
             </dd>
             <dt>"Registered"</dt>
             <dd>{when(&s.set.added_at)}</dd>
-            <dt>"Latest audit"</dt>
-            <dd>
-                {match &s.latest {
-                    Some(audit) => {
-                        let review = needs_review_from_counts(&audit.findings);
-                        view! {
-                            <A href=format!("/audits/{}", audit.id)>{format!("#{}", audit.id)}</A>
-                            {format!(
-                                ", {}, against {}; {review} need review",
-                                when(&audit.finished_at),
-                                audit.dat_revision_version,
-                            )}
-                        }
-                            .into_any()
-                    }
-                    None => "Never audited".into_any(),
-                }}
-            </dd>
-            <dt>"Coverage"</dt>
-            <dd>
-                {coverage_model::label(s.set.coverage.as_deref())}
-                {(s.coverage_unavailable && s.set.coverage.is_some()).then(|| view! {
-                    <p class="note small">{UNAVAILABLE}</p>
-                })}
-            </dd>
-            {s.latest.as_ref().map(|a| view! {
-                <dt>{if s.set.coverage.is_some() && !s.coverage_unavailable { "In your coverage" } else { "Games" }}</dt>
-                <dd class="games">
-                    {game_counts(&a.games)}
-                    <GamesMeter games=a.games.clone() />
-                </dd>
+            {s.latest.as_ref().map(|audit| {
+                let review = needs_review_from_counts(&audit.findings);
+                view! {
+                    <dt>"Latest audit"</dt>
+                    <dd>
+                        <A href=format!("/audits/{}", audit.id)>{format!("#{}", audit.id)}</A>
+                        {format!(", against {}; {review} need review", audit.dat_revision_version)}
+                    </dd>
+                }
             })}
             <dt>"Last verified against"</dt>
             <dd>
@@ -482,23 +470,8 @@ fn set_detail(row: SetRow) -> AnyView {
                     }.into_any())
                     .unwrap_or_else(|| "Never".into_any())}
             </dd>
-            <dt>"Repair"</dt>
-            <dd>
-                {match &s.repair {
-                    Some(open) => view! {
-                        <A href=tab_href(&name, PageTab::Repair)>
-                            {format!(
-                                "Repair #{} {}",
-                                open.id,
-                                if open.approved { "approved, not finished" } else { "waits for your review" },
-                            )}
-                        </A>
-                    }
-                        .into_any(),
-                    None => "None open".into_any(),
-                }}
-            </dd>
         </dl>
+        {unavailable}
         {outside}
     }
     .into_any()
