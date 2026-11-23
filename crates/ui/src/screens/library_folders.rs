@@ -2767,6 +2767,8 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
                 legend=move || view! { <LegendStrip looks list="build-files" /> }
             />
         </section>
+        <section aria-labelledby="build-facts-title">
+            <h2 id="build-facts-title">"About the build"</h2>
         <dl class="facts">
             <dt>"Library folder"</dt>
             <dd>
@@ -2799,6 +2801,7 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             <dt>"Finished"</dt>
             <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
         </dl>
+        </section>
     }
 }
 
