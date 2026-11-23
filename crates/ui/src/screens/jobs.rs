@@ -129,6 +129,7 @@ fn outcome_link(outcome: &Outcome) -> (Glyph, String) {
     match outcome {
         Outcome::Audit(id) => (Glyph::ClipboardList, format!("Open audit #{id}")),
         Outcome::Selection(id) => (Glyph::SlidersHorizontal, format!("Open selection #{id}")),
+        Outcome::Build(id) => (outcome.glyph(), format!("Open build #{id}")),
         Outcome::Repair { .. } => (Glyph::Wrench, "Open its repair".to_string()),
     }
 }
@@ -580,6 +581,8 @@ fn job_detail(row: JobRow) -> AnyView {
     let throughput = throughput_facts(use_live(), live.clone());
     let set_href = Subject::SourceSet(job.source_set.clone()).href();
     view! {
+        // A failed job's detail leads with why it failed.
+        {job.error.clone().map(|error| view! { <Problem message=error live=MessageLive::Off /> })}
         <dl class="facts">
             <dt>"State"</dt>
             <dd>
@@ -657,15 +660,6 @@ fn job_detail(row: JobRow) -> AnyView {
             <dd>{job.finished_at.as_deref().map(when)}</dd>
             {throughput}
             {job.romm_scan.clone().map(romm_scan_fact)}
-            {job
-                .error
-                .clone()
-                .map(|error| {
-                    view! {
-                        <dt>"Error"</dt>
-                        <dd><Problem message=error live=MessageLive::Off /></dd>
-                    }
-                })}
         </dl>
     }
     .into_any()

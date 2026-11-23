@@ -32,76 +32,7 @@ pub fn counts<'a>(jobs: impl IntoIterator<Item = &'a Job>) -> Counts {
     counts
 }
 
-/// What a Job works on, which its row links to: the Ingest Folder it scans, the Library Folder it builds or checks,
-/// the Additions Set it works on, or else its Source Set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Subject {
-    SourceSet(String),
-    LibraryFolder(i64),
-    IngestFolder(String),
-    AdditionsSet(String),
-}
-
-impl Subject {
-    pub fn of(job: &Job) -> Subject {
-        if let Some(root) = &job.ingest_folder {
-            Subject::IngestFolder(root.clone())
-        } else if let Some(folder) = job.library_folder {
-            Subject::LibraryFolder(folder)
-        } else if let Some(system) = &job.additions_set {
-            Subject::AdditionsSet(system.clone())
-        } else {
-            Subject::SourceSet(job.source_set.clone())
-        }
-    }
-
-    pub fn href(&self) -> String {
-        match self {
-            Subject::SourceSet(name) => format!("/source-sets/{}", encode(name)),
-            Subject::LibraryFolder(id) => format!("/libraries/{id}"),
-            Subject::IngestFolder(root) => format!("/ingest/{}", encode(root)),
-            Subject::AdditionsSet(_) => "/additions".to_string(),
-        }
-    }
-}
-
-/// What a Job recorded or carries out, which its row also links to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    Audit(i64),
-    Selection(i64),
-    /// The repair a Repair Job carries out, by its plan's ID, on its Source Set's Repair tab.
-    Repair {
-        source_set: String,
-        plan: i64,
-    },
-}
-
-impl Outcome {
-    pub fn of(job: &Job) -> Option<Outcome> {
-        if let Some(plan) = job.repair {
-            return Some(Outcome::Repair {
-                source_set: job.source_set.clone(),
-                plan,
-            });
-        }
-        match (job.audit, job.selection) {
-            (Some(audit), _) => Some(Outcome::Audit(audit)),
-            (None, Some(selection)) => Some(Outcome::Selection(selection)),
-            (None, None) => None,
-        }
-    }
-
-    pub fn href(&self) -> String {
-        match self {
-            Outcome::Audit(id) => format!("/audits/{id}"),
-            Outcome::Selection(id) => format!("/selections/{id}"),
-            Outcome::Repair { source_set, plan } => {
-                format!("/source-sets/{}?tab=repair&plan={plan}", encode(source_set))
-            }
-        }
-    }
-}
+pub use crate::parts::outcome::{Outcome, Subject};
 
 /// The Jobs Activity lists: the last good fetch of `/jobs` and of `/failed-jobs` (either absent until one
 /// succeeds), merged, with the live book's Jobs over them, so that a failed fetch never hides what streams in.
@@ -433,6 +364,10 @@ mod tests {
         let mut selection = job(2, JobState::Succeeded);
         selection.selection = Some(5);
         assert_eq!(Outcome::of(&selection).unwrap().href(), "/selections/5");
+
+        let mut build = job(5, JobState::Failed);
+        build.build = Some(4);
+        assert_eq!(Outcome::of(&build).unwrap().href(), "/builds/4");
 
         let mut repair = job(3, JobState::Running);
         repair.repair = Some(9);

@@ -8,6 +8,8 @@
 //!   over `plan_model`.
 //! - `message`: `Message`, a tone and a glyph beside an outcome, a problem or a notice, and `Problem`.
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
+//! - `outcome`: `JobOutcome`, a job's outcome wherever you start one, linking onward once it ends, and `Reports`
+//!   with `ShowReports` for what a screen's actions said.
 //! - `meter`: `ProgressMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
 //! - `help`: `Help`, a one-line summary with longer help folded beneath it.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
@@ -26,6 +28,7 @@ pub mod list_model;
 pub mod lucide;
 pub mod message;
 pub mod meter;
+pub mod outcome;
 pub mod overlay;
 pub mod pending;
 pub mod plan;
