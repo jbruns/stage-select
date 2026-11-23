@@ -37,6 +37,9 @@ It doesn't seed an additions root, curation, cue packs, RomM, notifications, a d
 DAT fetch, kept files from an approved repair or ingest plan, or a running or interrupted job. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
+
+One screen, row-states, isn't a route alone: it checks the DATs list's fourth row, then opens, checks, puts the
+keyboard cursor on and hovers its second row, and captures only the list and its detail, at 1440px only.
 """
 
 import argparse
