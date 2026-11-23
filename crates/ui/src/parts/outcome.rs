@@ -18,7 +18,7 @@ use super::status::Status;
 use super::tabs::tab_link;
 use super::url_state::encode;
 use crate::api;
-use crate::build_model::publishing;
+use crate::build_model::{self, publishing};
 use crate::events::use_live;
 use crate::library_model::{FolderTab, build_finished};
 use crate::source_set_model::PageTab;
@@ -521,32 +521,39 @@ pub fn JobOutcome(
                 .and_then(|l| l.progress.map(|p| (p.files_done, p.files_total)))
         })
     });
-    // A Build that stopped says how far it got, and what it removed, from its items.
+    // A Build that ended is read from its items: one that stopped says how far it got and what it removed, and one
+    // that succeeded is READY only when none of its files failed.
     let build = Memo::new(move |_| {
         held.with(|h| {
             h.as_ref().and_then(|h| {
-                (h.job.kind == JobKind::Build
-                    && matches!(h.job.state, JobState::Failed | JobState::Interrupted))
-                .then_some(h.job.build)
-                .flatten()
+                (h.job.kind == JobKind::Build && h.job.state.is_final())
+                    .then_some(h.job.build)
+                    .flatten()
             })
         })
     });
-    let tallied = LocalResource::new(move || {
+    let detail = LocalResource::new(move || {
         let build = build.get();
         async move {
             match build {
-                Some(id) => api::get::<BuildDetail>(&format!("/builds/{id}"))
-                    .await
-                    .ok()
-                    .map(|d| tally(&d)),
+                Some(id) => api::get::<BuildDetail>(&format!("/builds/{id}")).await.ok(),
                 None => None,
             }
         }
     });
+    let read = Memo::new(move |_| {
+        detail
+            .get()
+            .flatten()
+            .map(|d| (tally(&d), build_model::ready(&d)))
+    });
+    let clean = Memo::new(move |_| read.get().is_some_and(|(_, ready)| ready));
     let shown = Memo::new(move |_| {
         held.get().map(|h| {
-            let tally = tallied.get().flatten();
+            let tally = read
+                .get()
+                .map(|(t, _)| t)
+                .filter(|_| matches!(h.job.state, JobState::Failed | JobState::Interrupted));
             let reached = tally.map(|t| t.reached).or(h.reached);
             (
                 shown(&h.job, reached, tally.and_then(|t| t.removed), h.watched),
@@ -606,7 +613,7 @@ pub fn JobOutcome(
                         None => view! { <span class="note">"Starting"</span> }.into_any(),
                     }
                 });
-                let ready = build_finished(&j).then(|| {
+                let ready = (build_finished(&j) && clean.get()).then(|| {
                     view! {
                         " "
                         <img class="ready" src="/stage-select-ready.svg" alt="" width="58" height="14" />

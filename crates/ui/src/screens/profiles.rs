@@ -330,13 +330,32 @@ pub fn ProfileScreen() -> impl IntoView {
 
 /// What uses the profile, in tabs beside its editor: the library folders bound to it, its previews and its versions.
 /// The tabs live in the URL's `uses`, so that opening one leaves the editor's own tab and its draft in place.
+///
+/// It reads the profile again after every write and settled job, from `record` on, so that a save or a build shows
+/// which folders are on the newest version; the editor, which owns the draft, is left alone.
 #[component]
 fn Uses(record: ProfileRecord) -> impl IntoView {
     let uses = use_tab_keyed("uses");
     let open = Memo::new(move |_| uses.current());
-    let folders = record.library_folders.len();
+    let name = record.name.clone();
+    let writes = api::writes();
+    let settled = use_live().settled;
+    let fetched = LocalResource::new(move || {
+        writes.track();
+        settled.track();
+        let path = profile_href(&name);
+        async move { api::get::<ProfileRecord>(&path).await.ok() }
+    });
+    let record = Memo::new(move |prev: Option<&ProfileRecord>| {
+        fetched
+            .get()
+            .flatten()
+            .or_else(|| prev.cloned())
+            .unwrap_or_else(|| record.clone())
+    });
     let tabs = Signal::derive(move || {
         let open = open.get();
+        let folders = record.with(|r| r.library_folders.len());
         [
             (None, format!("Library folders ({folders})")),
             (Some("previews"), "Previews".to_string()),
@@ -346,16 +365,15 @@ fn Uses(record: ProfileRecord) -> impl IntoView {
         .map(|(key, label)| Tab::new(uses.href(key), label, open.as_deref() == key))
         .collect::<Vec<_>>()
     });
-    let record = StoredValue::new(record);
     view! {
         <section class="uses" aria-label="What uses this profile">
             <Tabs label="What uses this profile" tabs />
             {move || {
-                let name = record.with_value(|r| r.name.clone());
+                let name = record.with_untracked(|r| r.name.clone());
                 match open.get().as_deref() {
                     Some("previews") => view! { <Previews name /> }.into_any(),
                     Some("versions") => view! { <Versions name /> }.into_any(),
-                    _ => view! { <Folders record=record.get_value() /> }.into_any(),
+                    _ => view! { <Folders record=record.into() /> }.into_any(),
                 }
             }}
         </section>
@@ -452,17 +470,20 @@ fn folder_detail(row: FolderRow) -> AnyView {
     view! { <p>{note}</p> }.into_any()
 }
 
+/// The library folders bound to the profile, each against its newest version.
+fn folder_rows(record: &ProfileRecord) -> Vec<FolderRow> {
+    let newest = record.latest.as_ref().map(|v| v.version);
+    record
+        .library_folders
+        .iter()
+        .map(|f| FolderRow(f.clone(), newest))
+        .collect()
+}
+
 /// The library folders bound to the profile.
 #[component]
-fn Folders(record: ProfileRecord) -> impl IntoView {
-    let newest = record.latest.as_ref().map(|v| v.version);
-    let rows = Signal::stored(Arc::new(
-        record
-            .library_folders
-            .into_iter()
-            .map(|f| FolderRow(f, newest))
-            .collect::<Vec<_>>(),
-    ));
+fn Folders(record: Signal<ProfileRecord>) -> impl IntoView {
+    let rows = Signal::derive(move || Arc::new(record.with(folder_rows)));
     view! {
         <List
             id="profile-folders"

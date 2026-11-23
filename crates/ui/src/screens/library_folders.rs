@@ -12,7 +12,7 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::build::{
     AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
     ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, IncompleteReason, ItemState,
-    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices,
+    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, UnfinishedBuild,
 };
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -23,7 +23,7 @@ use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
     build_files, build_state_label, drift_kind_label, folders_for, incomplete_counts,
-    incomplete_reason_label, unfinished_label,
+    incomplete_reason_label, troubles, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
@@ -129,9 +129,9 @@ fn set_href(name: &str) -> String {
     format!("/source-sets/{}", api::segment(name))
 }
 
-/// Why the folder has its status, beyond its status alone: one line each. `incomplete` adds what it lacks, by reason,
-/// where no list of it is beside.
-fn reasons(folder: &LibraryFolder, incomplete: bool) -> AnyView {
+/// Why the folder has its status, beyond its status alone: one line each. `full` adds what it lacks, by reason, and
+/// how its unfinished build ended, where no list or outcome of them is beside.
+fn reasons(folder: &LibraryFolder, full: bool) -> AnyView {
     let mut lines: Vec<String> = Vec::new();
     if folder.plan_open {
         lines.push("A plan waits on your approval.".into());
@@ -139,10 +139,10 @@ fn reasons(folder: &LibraryFolder, incomplete: bool) -> AnyView {
     if drifted(folder) {
         lines.push("Its latest check found files that differ from its build.".into());
     }
-    if let Some(counts) = folder.incomplete.as_ref().filter(|_| incomplete) {
+    if let Some(counts) = folder.incomplete.as_ref().filter(|_| full) {
         lines.push(format!("Incomplete: {}.", incomplete_counts(counts)));
     }
-    if let Some(u) = &folder.unfinished {
+    if let Some(u) = folder.unfinished.as_ref().filter(|_| full) {
         lines.push(format!("{}.", unfinished_label(u)));
     }
     lines.extend(folder.stale.iter().map(stale_label));
@@ -1225,47 +1225,87 @@ fn FolderPage(
 #[component]
 fn Overview(folder: LibraryFolder) -> impl IntoView {
     let id = folder.id;
-    // An unfinished build is the latest, and its reason line says how it ended.
-    let last = folder.build.clone().filter(|_| folder.unfinished.is_none());
-    let failed = last.as_ref().map_or(0, |b| b.failed);
-    let facts = folder_facts(&folder, false);
+    // The latest build's outcome: an unfinished one when it stopped after the current build, which the facts then
+    // name instead.
+    let unfinished = folder.unfinished.clone();
+    let failed_shown = unfinished.is_none() && folder.build.as_ref().is_some_and(|b| b.failed > 0);
+    let facts = folder_facts(&folder, unfinished.is_some());
     let disk_folders = folder.disk_folders.clone();
+    let latest = match unfinished {
+        Some(u) => Some(view! { <UnfinishedOutcome unfinished=u /> }.into_any()),
+        None => folder
+            .build
+            .clone()
+            .map(|b| view! { <LastBuild summary=b /> }.into_any()),
+    };
     view! {
         {folder.active_job.map(|job| view! { <JobOutcome job cancel=true /> })}
         {reasons(&folder, false)}
-        {last.map(|b| view! { <LastBuild summary=b /> })}
-        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id failed_shown={failed > 0} /> })}
+        {latest}
+        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id failed_shown /> })}
         <BuiltFiles folder=id />
         <Help summary="About this library folder">{facts}</Help>
         {(!disk_folders.is_empty()).then(|| view! { <DiskFolders folders=disk_folders /> })}
     }
 }
 
-/// The folder's current build: its outcome, which links to it, and how many of its files failed, which links to
-/// them.
+/// The folder's latest build: its outcome, which links to it, how many of its files failed or are uncertain, each
+/// linking to them, and how many it set aside.
 #[component]
-fn LastBuild(summary: BuildSummary) -> impl IntoView {
-    let build = summary;
-    let failures = (build.failed > 0).then(|| {
-        let href = tab_link(
-            &format!("/builds/{}", build.id),
-            None,
-            &[("state", "failed")],
-        );
-        let n = build.failed;
+fn LastBuild(summary: BuildSummary, #[prop(optional)] kept: u64) -> impl IntoView {
+    let troubles = troubles(&summary).into_iter().map(|t| {
         view! {
             <p class="failures">
-                <StatusIcon status=ItemState::Failed tab_stop=false />
+                <StatusIcon status=t.state tab_stop=false />
                 " "
-                <A href=href>{format!("{n} {} failed", if n == 1 { "file" } else { "files" })}</A>
+                <A href=t.href>{t.text}</A>
+            </p>
+        }
+    });
+    let folder = summary.folder;
+    let kept = (kept > 0).then(|| {
+        let text = format!(
+            "{kept} {} set aside",
+            if kept == 1 { "file" } else { "files" }
+        );
+        view! {
+            <p>
+                <A href=tab_href(folder, FolderTab::Kept)>{text}</A>
             </p>
         }
     });
     view! {
         <section class="last-build" aria-label="Last build">
-            <JobOutcome job=build.job />
-            {failures}
+            <JobOutcome job=summary.job />
+            {troubles.collect_view()}
+            {kept}
         </section>
+    }
+}
+
+/// A build that stopped after the folder's current build: its outcome, read from the build, or until then how it
+/// ended.
+#[component]
+fn UnfinishedOutcome(unfinished: UnfinishedBuild) -> impl IntoView {
+    let id = unfinished.build;
+    let detail = LocalResource::new(move || async move {
+        api::get::<BuildDetail>(&format!("/builds/{id}")).await
+    });
+    let kept = unfinished.kept;
+    let label = format!("{}.", unfinished_label(&unfinished));
+    move || match detail.get() {
+        Some(Ok(d)) => view! { <LastBuild summary=d.build kept /> }.into_any(),
+        Some(Err(message)) => {
+            let label = label.clone();
+            view! {
+                <p>
+                    <A href=format!("/builds/{id}")>{label}</A>
+                </p>
+                <Problem message />
+            }
+            .into_any()
+        }
+        None => view! { <p>{label.clone()}</p> }.into_any(),
     }
 }
 
