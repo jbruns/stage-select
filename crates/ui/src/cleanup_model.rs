@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
     BuildDetail, BuildState, CheckedFile, Cleanup, CleanupAction, DriftEntry, DriftKind,
-    FileOutcome, KeptFile, PlanCleanup,
+    FileOutcome, ItemKind, KeptFile, PlanCleanup,
 };
 
 use crate::build_model::{self, cleanup_actions};
@@ -277,21 +277,48 @@ pub fn plan_line(items: &[CleanupItem]) -> String {
     )
 }
 
-/// What became of `item` once its cleanup's build `detail` ran: a repack by its own item, anything else by the build,
-/// which stops at the first step that fails. Nothing for what it leaves, or while it runs.
-pub fn item_outcome(item: &CleanupItem, detail: &BuildDetail) -> Option<ItemOutcome> {
-    if item.planned == CleanupChoice::Leave {
-        return None;
+/// The build item a cleanup records `item`'s action as: its kind and target.
+fn action(item: &CleanupItem) -> Option<(ItemKind, &str)> {
+    let name = item.name.as_str();
+    match (&item.candidate, item.planned) {
+        (_, CleanupChoice::Leave) => None,
+        (Candidate::Entry(_), CleanupChoice::SetAside | CleanupChoice::AddAddition) => {
+            Some((ItemKind::KeepAside, name))
+        }
+        (Candidate::Entry(_), CleanupChoice::Adopt) => {
+            Some((ItemKind::Adopt, item.target.as_deref().unwrap_or(name)))
+        }
+        (Candidate::Entry(_), CleanupChoice::Acknowledge) => Some((ItemKind::Acknowledge, name)),
+        (Candidate::Repack(target), CleanupChoice::Repack) => Some((ItemKind::Repack, target)),
+        (Candidate::Kept(_), CleanupChoice::PutBack) => {
+            item.target.as_deref().map(|t| (ItemKind::Restore, t))
+        }
+        _ => None,
     }
-    if let Candidate::Repack(target) = &item.candidate
-        && let Some(built) = detail.items.iter().find(|i| i.target == *target)
+}
+
+/// What became of `item` once its cleanup's build `detail` ran, and why when it failed: by its own build item, as a
+/// cleanup carries on past an action that fails. Nothing for what it leaves, or for what it hasn't reached while it
+/// runs; a finished cleanup with no item for it is uncertain, never done.
+pub fn item_outcome(
+    item: &CleanupItem,
+    detail: &BuildDetail,
+) -> Option<(ItemOutcome, Option<String>)> {
+    let (kind, target) = action(item)?;
+    match detail
+        .items
+        .iter()
+        .find(|i| i.kind == kind && i.target == target)
     {
-        return Some(build_model::item_outcome(built.state));
-    }
-    match detail.build.state {
-        BuildState::Running => None,
-        BuildState::Succeeded => Some(ItemOutcome::Done),
-        BuildState::Failed | BuildState::Interrupted => Some(ItemOutcome::Uncertain),
+        Some(built) => Some((build_model::item_outcome(built.state), built.error.clone())),
+        None if detail.build.state == BuildState::Running => None,
+        None => Some((
+            ItemOutcome::Uncertain,
+            Some(
+                "The cleanup recorded nothing for it: check the folder to see what became of it."
+                    .to_string(),
+            ),
+        )),
     }
 }
 
@@ -487,11 +514,12 @@ mod tests {
     }
 
     #[test]
-    fn a_finished_cleanup_says_what_became_of_every_candidate_it_changes() {
+    fn each_candidate_a_cleanup_changes_takes_the_outcome_of_its_own_build_item() {
         let (cleanup, found) = planned();
         let mut listed = items(Some(&cleanup), &found);
+        listed[2].planned = CleanupChoice::Acknowledge;
         listed[3].planned = CleanupChoice::Repack;
-        let detail = |state: &str, repacked: &str| -> BuildDetail {
+        let detail = |state: &str, items: serde_json::Value| -> BuildDetail {
             serde_json::from_value(json!({
                 "build": {
                     "id": 1, "folder": 1, "plan": 1, "job": 1, "state": state, "generation": 2,
@@ -499,25 +527,89 @@ mod tests {
                     "applied": 0, "failed": 0, "pending": 0, "uncertain": 0,
                     "planned": serde_json::to_value(stage_select_api::build::PlanSummary::default()).unwrap(),
                 },
-                "items": [{ "target": "Outlaw.zip", "game": "Outlaw", "kind": "repack", "state": repacked }],
+                "items": items,
             }))
             .unwrap()
         };
+        let item = |target: &str, kind: &str, state: &str, error: Option<&str>| json!({ "target": target, "game": "", "kind": kind, "state": state, "error": error });
         let outcomes =
             |d: &BuildDetail| -> Vec<_> { listed.iter().map(|i| item_outcome(i, d)).collect() };
-        let done = Some(ItemOutcome::Done);
-        assert_eq!(
-            outcomes(&detail("succeeded", "applied")),
-            [done, None, None, done, done, None]
+        let done = Some((ItemOutcome::Done, None));
+        let refused = "it changed since you planned the cleanup";
+
+        // A cleanup carries on past an action that fails and still succeeds: each row says how its own action went.
+        let succeeded = detail(
+            "succeeded",
+            json!([
+                item("notes.txt", "keep_aside", "applied", None),
+                // Another action on the same name doesn't stand for this one.
+                item("roms", "keep_aside", "applied", None),
+                item("roms", "acknowledge", "failed", Some(refused)),
+                item("Outlaw.zip", "repack", "applied", None),
+                item("Combat.zip", "restore", "failed", Some(refused)),
+            ]),
         );
-        let unsure = Some(ItemOutcome::Uncertain);
         assert_eq!(
-            outcomes(&detail("failed", "failed")),
-            [unsure, None, None, Some(ItemOutcome::Failed), unsure, None]
+            outcomes(&succeeded),
+            [
+                done.clone(),
+                None,
+                Some((ItemOutcome::Failed, Some(refused.to_string()))),
+                done,
+                Some((ItemOutcome::Failed, Some(refused.to_string()))),
+                None,
+            ]
+        );
+
+        // What a finished cleanup has no item for is never taken as done.
+        let unrecorded = detail(
+            "succeeded",
+            json!([item("Outlaw.zip", "repack", "applied", None)]),
+        );
+        let unsure = |o: &Option<(ItemOutcome, Option<String>)>| o.as_ref().map(|(o, _)| *o);
+        assert_eq!(
+            outcomes(&unrecorded).iter().map(unsure).collect::<Vec<_>>(),
+            [
+                Some(ItemOutcome::Uncertain),
+                None,
+                Some(ItemOutcome::Uncertain),
+                Some(ItemOutcome::Done),
+                Some(ItemOutcome::Uncertain),
+                None,
+            ]
+        );
+
+        // An interrupted cleanup keeps what it finished.
+        let interrupted = detail(
+            "interrupted",
+            json!([
+                item("notes.txt", "keep_aside", "applied", None),
+                item("roms", "acknowledge", "pending", None),
+            ]),
         );
         assert_eq!(
-            outcomes(&detail("running", "pending")),
-            [None, None, None, Some(ItemOutcome::NotDone), None, None]
+            outcomes(&interrupted)
+                .iter()
+                .map(unsure)
+                .collect::<Vec<_>>(),
+            [
+                Some(ItemOutcome::Done),
+                None,
+                Some(ItemOutcome::NotDone),
+                Some(ItemOutcome::Uncertain),
+                Some(ItemOutcome::Uncertain),
+                None,
+            ]
+        );
+
+        // While it runs, what has no item yet has no outcome yet.
+        let running = detail(
+            "running",
+            json!([item("notes.txt", "keep_aside", "applied", None)]),
+        );
+        assert_eq!(
+            outcomes(&running).iter().map(unsure).collect::<Vec<_>>(),
+            [Some(ItemOutcome::Done), None, None, None, None, None]
         );
     }
 

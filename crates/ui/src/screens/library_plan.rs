@@ -18,26 +18,27 @@ use stage_select_api::build::{
 };
 
 use crate::api;
-use crate::app::Loading;
+use crate::app::{Loading, navigator};
 use crate::build_model::{
-    self, ConflictChoice, Placing, approve_label, blocker_label, cause_label, group_href,
-    item_change, keep_reason_label, place_facts, plan_kinds, return_facts, return_games,
-    space_lines, with_conflict_choices,
+    self, Built, ConflictChoice, Placing, approve_label, cause_label, item_change,
+    keep_reason_label, place_facts, plan_kinds, return_facts, return_games, space_lines,
+    with_conflict_choices,
 };
 use crate::cleanup_model::{self, CleanupChoice, CleanupItem, Found};
 use crate::events::use_live;
+use crate::library_model::FolderTab;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
-use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::message::Problem;
 use crate::parts::outcome::{JobOutcome, job_href};
 use crate::parts::plan::{
     self, ApproveBar, Change, PlanReview, PlanRow, apply_to_all, set_actions,
 };
-use crate::parts::plan_model::{Approval, Picks, offered_by_any};
+use crate::parts::plan_model::{Approval, Picks, PlanBlocker, offered_by_any};
 use crate::parts::status::{BuildKind, CleanupKind, ItemOutcome, Status, StatusIcon};
 use crate::screens::additions::{AdditionFields, new_addition};
-use crate::screens::library_folders::use_planner;
+use crate::screens::library_folders::{tab_href, use_planner};
 
 /// What approving a plan that places or returns games does to your source set.
 const CHANGES_SOURCE_SET: &str = "Approving this plan also changes your source set: each game placed is taken out \
@@ -58,11 +59,127 @@ pub fn LibraryPlan(plan: i64, folder: i64, refresh: RwSignal<u64>) -> impl IntoV
         Some(Err(message)) => view! { <Problem message /> }.into_any(),
         Some(Ok(plan)) if plan.content.cleanup.is_some() => {
             let plan = Some(plan);
-            let on_planned = Callback::new(move |()| refresh.update(|n| *n += 1));
-            view! { <CleanupLoad plan folder refresh on_planned /> }.into_any()
+            view! { <CleanupLoad plan folder refresh /> }.into_any()
         }
         Some(Ok(plan)) => view! { <PlanView plan folder refresh /> }.into_any(),
     }
+}
+
+/// Your choices on one of a folder's plans, or on its cleanup not yet planned, staged until you plan again, and
+/// whether the plan is being approved. A stage outlives each showing of the plan, so a reload keeps them.
+#[derive(Clone, Copy)]
+struct Stage {
+    conflicts: Chooser<ConflictChoice>,
+    cleanup: Chooser<CleanupChoice>,
+    /// What each entry you add as an addition is added as, by name.
+    additions: StoredValue<BTreeMap<String, RwSignal<NewAddition>>>,
+    approving: RwSignal<bool>,
+    problem: RwSignal<Option<String>>,
+}
+
+impl Stage {
+    fn new() -> Self {
+        Stage {
+            conflicts: Chooser::new(),
+            cleanup: Chooser::new(),
+            additions: StoredValue::new(BTreeMap::new()),
+            approving: RwSignal::new(false),
+            problem: RwSignal::new(None),
+        }
+    }
+
+    /// What the entry `name` is added as: as you edited it, or else `planned`.
+    fn addition(
+        self,
+        owner: &Owner,
+        name: &str,
+        planned: impl FnOnce() -> NewAddition,
+    ) -> RwSignal<NewAddition> {
+        if let Some(value) = self.additions.with_value(|a| a.get(name).copied()) {
+            return value;
+        }
+        let value = owner.with(|| RwSignal::new(planned()));
+        self.additions.update_value(|a| {
+            a.insert(name.to_string(), value);
+        });
+        value
+    }
+
+    /// Back to nothing chosen, once what you chose is planned.
+    fn clear(self) {
+        self.cleanup.picks.set(Picks::default());
+        self.cleanup.said.set(None);
+        self.additions.update_value(BTreeMap::clear);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Staged {
+    Plan(i64),
+    /// A folder's cleanup, not yet planned.
+    Draft(i64),
+}
+
+/// The stages of a library folder's plans, kept by its screen, which outlives the page it reloads as each job
+/// settles; and planning a cleanup, which opens the plan made on the Plan tab.
+#[derive(Clone, Copy)]
+pub struct Staging {
+    owner: StoredValue<Owner>,
+    stages: StoredValue<BTreeMap<Staged, Stage>>,
+    planning: Action<(i64, PlanCleanup), Result<Plan, String>>,
+}
+
+impl Staging {
+    fn stage(self, staged: Staged) -> Stage {
+        if let Some(stage) = self.stages.with_value(|s| s.get(&staged).copied()) {
+            return stage;
+        }
+        let stage = self.owner.with_value(|o| o.with(Stage::new));
+        self.stages.update_value(|s| {
+            s.insert(staged, stage);
+        });
+        stage
+    }
+
+    fn addition(
+        self,
+        stage: Stage,
+        name: &str,
+        planned: impl FnOnce() -> NewAddition,
+    ) -> RwSignal<NewAddition> {
+        self.owner.with_value(|o| stage.addition(o, name, planned))
+    }
+}
+
+/// Keeps the stages of the library folder screen's plans, for `use_staging`. `refresh` reloads the folder once a
+/// cleanup is planned.
+pub fn provide_staging(refresh: RwSignal<u64>) {
+    let go = navigator();
+    let stages = StoredValue::new(BTreeMap::<Staged, Stage>::new());
+    let planning = Action::new_local(move |(folder, body): &(i64, PlanCleanup)| {
+        let (folder, body) = (*folder, body.clone());
+        async move {
+            let planned =
+                api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await;
+            if planned.is_ok() {
+                if let Some(draft) = stages.with_value(|s| s.get(&Staged::Draft(folder)).copied()) {
+                    draft.clear();
+                }
+                refresh.update(|n| *n += 1);
+                go.run(tab_href(folder, FolderTab::Plan));
+            }
+            planned
+        }
+    });
+    provide_context(Staging {
+        owner: StoredValue::new(Owner::current().expect("the library folder screen has an owner")),
+        stages,
+        planning,
+    });
+}
+
+fn use_staging() -> Staging {
+    use_context::<Staging>().expect("the library folder screen keeps its plans' stages")
 }
 
 /// Approving a plan by the digest shown.
@@ -76,17 +193,20 @@ struct Approver {
 }
 
 impl Approver {
-    fn new(plan: &Plan, refresh: RwSignal<u64>) -> Self {
+    fn new(plan: &Plan, refresh: RwSignal<u64>, stage: Stage) -> Self {
         Approver {
             id: plan.id,
             digest: StoredValue::new(plan.digest.clone()),
-            busy: RwSignal::new(false),
-            problem: RwSignal::new(None),
+            busy: stage.approving,
+            problem: stage.problem,
             refresh,
         }
     }
 
     fn approve(self) {
+        if self.busy.get_untracked() {
+            return;
+        }
         self.busy.set(true);
         self.problem.set(None);
         let request = ApprovePlan {
@@ -196,6 +316,15 @@ impl<C: Send + Sync + 'static> PartialEq for Chooser<C> {
 }
 
 impl<C: Copy + Eq + Send + Sync + 'static> Chooser<C> {
+    /// Keeps, of your picks, those the items shown again still offer.
+    fn reconcile<'a>(self, items: impl IntoIterator<Item = (&'a str, &'a [C])>) {
+        let mut picks = self.picks.get_untracked();
+        picks.reconcile(items);
+        if self.picks.with_untracked(|p| *p != picks) {
+            self.picks.set(picks);
+        }
+    }
+
     fn new() -> Self {
         Chooser {
             picks: RwSignal::new(Picks::default()),
@@ -220,7 +349,7 @@ impl<C: Copy + Eq + Send + Sync + 'static> Chooser<C> {
         Signal::derive(move || self.picks.with(|p| p.now(&key, planned)))
     }
 
-    /// The choice of the item `key`, as the plan's shared `<select>`.
+    /// The choice of the item `key`, as the plan's shared `<select>`, held as it is while `held`.
     fn select(
         self,
         key: &str,
@@ -228,6 +357,7 @@ impl<C: Copy + Eq + Send + Sync + 'static> Chooser<C> {
         offers: Vec<C>,
         planned: C,
         label: fn(C) -> &'static str,
+        held: Signal<bool>,
     ) -> AnyView {
         let picked = key.to_string();
         plan::choice_select(
@@ -236,7 +366,12 @@ impl<C: Copy + Eq + Send + Sync + 'static> Chooser<C> {
             planned,
             self.now(key, planned),
             label,
-            Callback::new(move |c| self.picks.update(|p| p.pick(&picked, c))),
+            held,
+            Callback::new(move |c| {
+                if !held.get_untracked() {
+                    self.picks.update(|p| p.pick(&picked, c))
+                }
+            }),
         )
     }
 
@@ -247,6 +382,14 @@ impl<C: Copy + Eq + Send + Sync + 'static> Chooser<C> {
     }
 }
 
+/// A plan's chooser, for its rows, and whether your choices are held as they are: while the plan is approved or
+/// planned again.
+#[derive(Clone, Copy, PartialEq)]
+struct Choosing<C: Send + Sync + 'static> {
+    by: Chooser<C>,
+    held: Signal<bool>,
+}
+
 /// One item of a build plan: a file it writes or skips, or a built file it removes.
 #[derive(Clone, PartialEq)]
 struct ItemRow {
@@ -254,8 +397,8 @@ struct ItemRow {
     /// What else it does, such as setting a file aside.
     also: Option<BuildKind>,
     key: String,
-    /// The file its build item is found by.
-    target: String,
+    /// The build item it is carried out as.
+    built: Built,
     game: String,
     current: String,
     proposed: String,
@@ -263,7 +406,7 @@ struct ItemRow {
     facts: Vec<(&'static str, String)>,
     offers: Vec<ConflictChoice>,
     chosen: ConflictChoice,
-    chooser: Option<Chooser<ConflictChoice>>,
+    chooser: Option<Choosing<ConflictChoice>>,
     done: Option<ItemOutcome>,
 }
 
@@ -274,7 +417,7 @@ impl ItemRow {
             kind: BuildKind::Unchanged,
             also: None,
             key: key.to_string(),
-            target: key.to_string(),
+            built: Built::Item(key.to_string()),
             game: game.to_string(),
             current: key.to_string(),
             proposed: proposed.into(),
@@ -297,18 +440,19 @@ impl ItemRow {
     }
 
     /// The choice, where you may change it.
-    fn choosing(&self) -> Option<Chooser<ConflictChoice>> {
+    fn choosing(&self) -> Option<Choosing<ConflictChoice>> {
         self.chooser.filter(|_| !self.offers.is_empty())
     }
 
     fn choice(&self) -> AnyView {
         match self.choosing() {
-            Some(c) => c.select(
+            Some(c) => c.by.select(
                 &self.key,
                 self.key.clone(),
                 self.offers.clone(),
                 self.chosen,
                 ConflictChoice::label,
+                c.held,
             ),
             None => (!self.offers.is_empty())
                 .then_some(self.chosen.label())
@@ -318,7 +462,7 @@ impl ItemRow {
 }
 
 /// A build plan's rows: its returns, items and removals.
-fn plan_rows(content: &PlanContent, chooser: Option<Chooser<ConflictChoice>>) -> Vec<ItemRow> {
+fn plan_rows(content: &PlanContent, chooser: Option<Choosing<ConflictChoice>>) -> Vec<ItemRow> {
     let items = content.items.iter().map(|i| {
         let (current, proposed) = item_change(i);
         ItemRow {
@@ -352,7 +496,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser<ConflictChoice>>) ->
         // Apart from any item for the same file, such as the built copy a still selected game leaves.
         let key = format!("{} (return)", r.current.first().unwrap_or(&r.game));
         ItemRow {
-            target: r.current.first().cloned().unwrap_or_default(),
+            built: Built::Return(r.release.clone()),
             current: r.current.join(", "),
             ..ItemRow::new(&key, &r.game, r.proposed.join(", ")).facts(return_facts(&r))
         }
@@ -363,7 +507,10 @@ fn plan_rows(content: &PlanContent, chooser: Option<Chooser<ConflictChoice>>) ->
             RemovalKind::Forget => "forgotten",
             RemovalKind::Leave => "left as it is",
         };
-        ItemRow::new(&r.target, &r.game, to).fact("Why", r.reason.clone())
+        ItemRow {
+            built: Built::Removal(r.target.clone()),
+            ..ItemRow::new(&r.target, &r.game, to).fact("Why", r.reason.clone())
+        }
     });
     with_kinds(content, returns.chain(items).chain(removals))
 }
@@ -530,15 +677,25 @@ fn item_view(row: ItemRow) -> AnyView {
 fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let selection = plan.content.selection;
     let facts = StoredValue::new(plan.clone());
-    let approver = Approver::new(&plan, refresh);
+    let stage = use_staging().stage(Staged::Plan(plan.id));
+    let approver = Approver::new(&plan, refresh, stage);
     let planner = use_planner();
     let open = plan.approval.is_none();
     let approvable = plan.approvable();
     let choices = plan.content.choices.clone();
     let replanning = planner.pending(folder);
     let busy = Signal::derive(move || approver.busy.get() || replanning.get());
-    let chooser = open.then(Chooser::<ConflictChoice>::new);
-    let base: Arc<Vec<ItemRow>> = Arc::new(plan_rows(&plan.content, chooser));
+    let chooser = open.then_some(stage.conflicts);
+    let choosing = chooser.map(|by| Choosing { by, held: busy });
+    let base: Arc<Vec<ItemRow>> = Arc::new(plan_rows(&plan.content, choosing));
+    // Your choices outlive a reload, but only those the plan still offers.
+    if let Some(c) = chooser {
+        c.reconcile(
+            base.iter()
+                .filter(|r| !r.offers.is_empty())
+                .map(|r| (r.key.as_str(), r.offers.as_slice())),
+        );
+    }
     // The rows whose choice you may change, as the plan shown chose for them.
     let planned: Arc<Vec<(String, ConflictChoice)>> = Arc::new(
         base.iter()
@@ -580,11 +737,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             Arc::new(
                 base.iter()
                     .map(|r| ItemRow {
-                        done: detail
-                            .items
-                            .iter()
-                            .find(|i| i.target == r.target)
-                            .map(|i| build_model::item_outcome(i.state)),
+                        done: build_model::built_outcome(&r.built, &detail),
                         ..r.clone()
                     })
                     .collect(),
@@ -601,6 +754,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             ],
             &offered,
             ConflictChoice::label,
+            busy,
             move |rows: Vec<ItemRow>, c| {
                 chooser.set(
                     rows.iter()
@@ -618,7 +772,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             Some(chooser) => {
                 let of_kind: Vec<ItemRow> = base.iter().filter(|r| r.is(kind)).cloned().collect();
                 let choices = offered_by_any(of_kind.iter().map(|r| r.offers.as_slice()));
-                apply_to_all(kind, choices, ConflictChoice::label, move |c| {
+                apply_to_all(kind, choices, ConflictChoice::label, busy, move |c| {
                     chooser.set(
                         of_kind
                             .iter()
@@ -667,33 +821,11 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let space = space_lines(&plan.summary, Placing::of(&plan.content));
     let changes_set =
         !plan.content.returns.is_empty() || plan.content.items.iter().any(|i| i.changes_source_set);
-    let blockers = move || {
-        let blockers = facts.with_value(|plan| plan.content.blockers.clone());
-        (!blockers.is_empty()).then(|| {
-        view! {
-            <Message kind=MessageKind::NOTICE live=Live::Off>
-                <p>"You can't approve this plan until these are fixed:"</p>
-                <ul class="plain">
-                    {blockers
-                        .into_iter()
-                        .map(|b| {
-                            let link = b.group.as_ref().map(|g| {
-                                view! { " " <A href=group_href(selection, g)>"Confirm a choice"</A> }
-                            });
-                            view! {
-                                <li>
-                                    <strong>{blocker_label(b.kind)}</strong>
-                                    {format!(": {}", b.message)}
-                                    {link}
-                                </li>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-            </Message>
-        }
-        })
-    };
+    let blockers = Signal::stored(if open {
+        build_model::plan_blockers(&plan.content.blockers, selection)
+    } else {
+        Vec::new()
+    });
     let space = StoredValue::new(space);
     let single_copy = move || {
         (!space.with_value(Vec::is_empty) || changes_set).then(|| {
@@ -712,7 +844,6 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         move || {
             view! {
                 {open.then(|| view! {
-                    {blockers()}
                     {single_copy()}
                     {partial()}
                     <ApproveBar
@@ -779,6 +910,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 detail=Callback::new(item_view)
                 actions
                 apply
+                blockers
                 approve
                 message=said
                 help
@@ -788,15 +920,14 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
 }
 
 /// A cleanup of what the latest check of folder `folder` found, not yet planned: every candidate, left as it is, for
-/// you to choose from and plan. `on_planned` runs once the cleanup is planned.
+/// you to choose from and plan. Once it's planned, the plan opens on the Plan tab.
 #[component]
 pub fn CleanupDraft(
     folder: i64,
     refresh: RwSignal<u64>,
     #[prop(into)] busy: Signal<bool>,
-    on_planned: Callback<()>,
 ) -> impl IntoView {
-    view! { <CleanupLoad plan=None folder refresh on_planned busy /> }
+    view! { <CleanupLoad plan=None folder refresh busy /> }
 }
 
 /// A cleanup, planned as `plan` or not yet planned, loaded with what the folder holds that it can change: the latest
@@ -806,7 +937,6 @@ fn CleanupLoad(
     plan: Option<Plan>,
     folder: i64,
     refresh: RwSignal<u64>,
-    on_planned: Callback<()>,
     #[prop(optional, into)] busy: Signal<bool>,
 ) -> impl IntoView {
     let draft = plan.is_none();
@@ -841,7 +971,7 @@ fn CleanupLoad(
     move || match loaded.get() {
         None => view! { <Loading what="the cleanup" /> }.into_any(),
         Some((found, system)) => view! {
-            <CleanupView plan=plan.get_value() found system folder refresh on_planned busy />
+            <CleanupView plan=plan.get_value() found system folder refresh busy />
         }
         .into_any(),
     }
@@ -851,22 +981,25 @@ fn CleanupLoad(
 #[derive(Clone, PartialEq)]
 struct CleanupRow {
     item: CleanupItem,
-    chooser: Option<Chooser<CleanupChoice>>,
+    chooser: Option<Choosing<CleanupChoice>>,
     /// What an entry added as an addition is added as, where it may be.
     addition: Option<RwSignal<NewAddition>>,
     done: Option<ItemOutcome>,
+    /// Why its action failed, or why its outcome is uncertain.
+    error: Option<String>,
 }
 
 impl CleanupRow {
     fn choice(&self) -> AnyView {
         let item = &self.item;
         match self.chooser {
-            Some(c) => c.select(
+            Some(c) => c.by.select(
                 &item.key,
                 item.name.clone(),
                 item.offers.clone(),
                 item.planned,
                 CleanupChoice::label,
+                c.held,
             ),
             None => item.planned.label().into_any(),
         }
@@ -980,7 +1113,7 @@ fn cleanup_detail(row: CleanupRow) -> AnyView {
     let look = item.kind.look();
     let now = row
         .chooser
-        .map(|c| c.now(&item.key, item.planned))
+        .map(|c| c.by.now(&item.key, item.planned))
         .unwrap_or_else(|| Signal::stored(item.planned));
     let place = match item.candidate {
         cleanup_model::Candidate::Kept(_) => format!("{RETENTION}/{}", item.name),
@@ -1001,10 +1134,11 @@ fn cleanup_detail(row: CleanupRow) -> AnyView {
             <dt>"Choice"</dt>
             <dd>{row.choice()}</dd>
             {row.done.map(|o| view! { <dt>"Outcome"</dt> <dd><StatusIcon status=o /> " " {o.look().label}</dd> })}
+            {row.error.clone().map(|e| view! { <dt>"Why"</dt> <dd>{e}</dd> })}
         </dl>
-        {row.addition.filter(|_| row.chooser.is_some()).map(|value| view! {
+        {row.addition.zip(row.chooser).map(|(value, c)| view! {
             <Show when=move || now.get() == CleanupChoice::AddAddition>
-                <p>"Add it as: " <AdditionFields value /></p>
+                <p>"Add it as: " <AdditionFields value held=c.held /></p>
             </Show>
         })}
     }
@@ -1020,7 +1154,6 @@ fn CleanupView(
     system: Option<String>,
     folder: i64,
     refresh: RwSignal<u64>,
-    on_planned: Callback<()>,
     busy: Signal<bool>,
 ) -> impl IntoView {
     let cleanup = plan.as_ref().and_then(|p| p.content.cleanup.clone());
@@ -1028,11 +1161,24 @@ fn CleanupView(
         return ().into_any();
     }
     let draft = plan.is_none();
-    let approver = plan.as_ref().map(|p| Approver::new(p, refresh));
+    let staging = use_staging();
+    let stage = staging.stage(match &plan {
+        Some(p) => Staged::Plan(p.id),
+        None => Staged::Draft(folder),
+    });
+    let approver = plan.as_ref().map(|p| Approver::new(p, refresh, stage));
     let open = plan.as_ref().is_none_or(|p| p.approval.is_none());
     let approvable = plan.as_ref().is_some_and(Plan::approvable);
-    let chooser = open.then(Chooser::<CleanupChoice>::new);
+    let chooser = open.then_some(stage.cleanup);
+    let planning = staging.planning;
+    // Your choices are held as they are while the plan is approved or planned.
+    let held = Signal::derive(move || stage.approving.get() || planning.pending().get());
+    let choosing = chooser.map(|by| Choosing { by, held });
     let items = cleanup_model::items(cleanup.as_ref(), &found);
+    // Your choices outlive a reload, but only those still offered.
+    if let Some(c) = chooser {
+        c.reconcile(items.iter().map(|i| (i.key.as_str(), i.offers.as_slice())));
+    }
     // What each entry that may be added as an addition is added as: as planned, or suggested.
     let additions: BTreeMap<String, (RwSignal<NewAddition>, Option<NewAddition>)> = items
         .iter()
@@ -1046,10 +1192,12 @@ fn CleanupView(
                 .as_ref()
                 .and_then(|c| c.entries.iter().find(|e| e.name == name))
                 .and_then(|e| e.addition.clone());
-            let value = shown
-                .clone()
-                .unwrap_or_else(|| new_addition(&name, system.as_deref()));
-            (name, (RwSignal::new(value), shown))
+            let value = staging.addition(stage, &name, || {
+                shown
+                    .clone()
+                    .unwrap_or_else(|| new_addition(&name, system.as_deref()))
+            });
+            (name, (value, shown))
         })
         .collect();
     let additions = StoredValue::new(additions);
@@ -1064,8 +1212,9 @@ fn CleanupView(
                     _ => None,
                 },
                 item: item.clone(),
-                chooser,
+                chooser: choosing,
                 done: None,
+                error: None,
             })
             .collect(),
     );
@@ -1088,15 +1237,6 @@ fn CleanupView(
             blocked: !approvable || !changes,
         })
     };
-    let planning = Action::new_local(move |body: &PlanCleanup| {
-        let body = body.clone();
-        async move { api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await }
-    });
-    Effect::new(move || {
-        if let Some(Ok(_)) = planning.value().get() {
-            on_planned.run(());
-        }
-    });
     let plan_again = {
         let items = items.clone();
         chooser.map(|c| {
@@ -1109,13 +1249,13 @@ fn CleanupView(
                 let body = c
                     .picks
                     .with_untracked(|p| cleanup_model::request(&items, p, &added));
-                planning.dispatch(body);
+                if !held.get_untracked() {
+                    planning.dispatch((folder, body));
+                }
             })
         })
     };
-    let busy = Signal::derive(move || {
-        busy.get() || approver.is_some_and(|a| a.busy.get()) || planning.pending().get()
-    });
+    let busy = Signal::derive(move || busy.get() || held.get());
     let build = plan.as_ref().map(|p| use_build(folder, p));
     let rows = {
         let base = base.clone();
@@ -1123,9 +1263,14 @@ fn CleanupView(
             None => base.clone(),
             Some(detail) => Arc::new(
                 base.iter()
-                    .map(|r| CleanupRow {
-                        done: cleanup_model::item_outcome(&r.item, &detail),
-                        ..r.clone()
+                    .map(|r| {
+                        let (done, error) = cleanup_model::item_outcome(&r.item, &detail)
+                            .map_or((None, None), |(o, e)| (Some(o), e));
+                        CleanupRow {
+                            done,
+                            error,
+                            ..r.clone()
+                        }
                     })
                     .collect(),
             ),
@@ -1145,6 +1290,7 @@ fn CleanupView(
             ],
             &offered,
             CleanupChoice::label,
+            held,
             move |rows: Vec<CleanupRow>, c| {
                 chooser.set(
                     rows.iter().map(|r| {
@@ -1171,7 +1317,7 @@ fn CleanupView(
                     .map(|r| r.item.clone())
                     .collect();
                 let choices = offered_by_any(of_kind.iter().map(|i| i.offers.as_slice()));
-                apply_to_all(kind, choices, CleanupChoice::label, move |c| {
+                apply_to_all(kind, choices, CleanupChoice::label, held, move |c| {
                     chooser.set(
                         of_kind
                             .iter()
@@ -1228,12 +1374,6 @@ fn CleanupView(
         }
         view! {
             {open.then(|| view! {
-                {(!changes).then(|| view! {
-                    <p class="note">
-                        "Choose what to do with at least one item, then plan again: a cleanup that changes nothing \
-                        can't be approved."
-                    </p>
-                })}
                 <ApproveBar
                     label="Approve the cleanup".to_string()
                     approval
@@ -1294,6 +1434,16 @@ fn CleanupView(
         })
     };
     let said = chooser.map_or_else(|| RwSignal::new(None), |c| c.said);
+    let blockers = {
+        let mut blockers = match (&plan, open) {
+            (Some(p), true) => build_model::plan_blockers(&p.content.blockers, p.content.selection),
+            _ => Vec::new(),
+        };
+        if open && !draft && !changes {
+            blockers.push(PlanBlocker::nothing_to_change());
+        }
+        Signal::stored(blockers)
+    };
     let title = match &plan {
         Some(plan) => heading(plan, "Cleanup plan").into_any(),
         None => view! { <h2 id="cleanup-title">"Clean up the folder"</h2> }.into_any(),
@@ -1311,6 +1461,7 @@ fn CleanupView(
                 detail=Callback::new(cleanup_detail)
                 actions
                 apply
+                blockers
                 approve
                 message=said
                 help

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
+use leptos_router::components::A;
 use leptos_router::hooks::use_query_map;
 use wasm_bindgen::JsCast;
 
@@ -15,9 +16,9 @@ use super::help::Help;
 use super::icon::{Glyph, Svg};
 use super::legend::{LegendStrip, present_looks};
 use super::list::{Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width};
-use super::message::{Message, MessageKind};
+use super::message::{Live, Message, MessageKind};
 use super::plan_model::{
-    Approval, kind_counts, kind_from_slug, kind_slug, outcome_line, with_active,
+    Approval, PlanBlocker, kind_counts, kind_from_slug, kind_slug, outcome_line, with_active,
 };
 use super::status::{ItemOutcome, Status, StatusIcon};
 use super::url_state::{scoped, use_query_edit};
@@ -118,6 +119,7 @@ pub fn apply_to_all<K: Status, C: Copy + Send + Sync + 'static>(
     kind: K,
     choices: Vec<C>,
     label: fn(C) -> &'static str,
+    held: Signal<bool>,
     pick: impl Fn(C) + 'static,
 ) -> AnyView {
     if choices.is_empty() {
@@ -135,9 +137,12 @@ pub fn apply_to_all<K: Status, C: Copy + Send + Sync + 'static>(
             class="apply-all"
             aria-label=format!("Set every {what} item to")
             title=format!("Set every {what} item to one choice")
+            disabled=held
             on:change=move |ev| {
                 let value = event_target_value(&ev);
-                if let Some(c) = choices.iter().copied().find(|c| label(*c) == value) {
+                if held.get_untracked() {
+                    // Frozen while the plan is approved or planned again.
+                } else if let Some(c) = choices.iter().copied().find(|c| label(*c) == value) {
                     pick(c);
                 }
                 if let Some(el) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
@@ -153,18 +158,27 @@ pub fn apply_to_all<K: Status, C: Copy + Send + Sync + 'static>(
 }
 
 /// The toolbar's "Set to …" actions over the checked rows: one for each of `choices` that `offered` holds, running
-/// `set` with the rows checked and the choice.
+/// `set` with the rows checked and the choice. They are disabled while `held`.
 pub fn set_actions<R: ListRow, C: Copy + PartialEq + Send + Sync + 'static>(
     choices: impl IntoIterator<Item = (Glyph, C)>,
     offered: &[C],
     label: fn(C) -> &'static str,
+    held: Signal<bool>,
     set: impl Fn(Vec<R>, C) + Copy + Send + Sync + 'static,
 ) -> Vec<ToolAction<R>> {
-    let run = move |c: C| move |chosen: Selected<R>| set(chosen.rows, c);
+    let run = move |c: C| {
+        move |chosen: Selected<R>| {
+            if !held.get_untracked() {
+                set(chosen.rows, c)
+            }
+        }
+    };
     choices
         .into_iter()
         .filter(|(_, c)| offered.contains(c))
-        .map(|(glyph, c)| ToolAction::checked(glyph, format!("Set to {}", label(c)), run(c)))
+        .map(|(glyph, c)| {
+            ToolAction::checked(glyph, format!("Set to {}", label(c)), run(c)).held_while(held)
+        })
         .collect()
 }
 
@@ -222,6 +236,7 @@ pub fn choice_select<C: Copy + PartialEq + Send + Sync + 'static>(
     planned: C,
     now: Signal<C>,
     name: fn(C) -> &'static str,
+    held: Signal<bool>,
     pick: Callback<C>,
 ) -> AnyView {
     let options = offers
@@ -234,9 +249,15 @@ pub fn choice_select<C: Copy + PartialEq + Send + Sync + 'static>(
             class:changed=move || now.get() != planned
             aria-label=label
             prop:value=move || name(now.get())
+            disabled=held
             on:change=move |ev| {
                 let value = event_target_value(&ev);
-                if let Some(c) = offers.iter().find(|c| name(**c) == value) {
+                if held.get_untracked() {
+                    // Frozen while the plan is approved or planned again: show the choice as it stands.
+                    if let Some(el) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
+                        el.set_value(name(now.get_untracked()));
+                    }
+                } else if let Some(c) = offers.iter().find(|c| name(**c) == value) {
                     pick.run(*c);
                 }
             }
@@ -284,8 +305,39 @@ pub fn ApproveBar(
     }
 }
 
+/// What blocks approving a plan, each with the item it is about and what to do: nothing when none does.
+#[component]
+pub fn Blockers(#[prop(into)] blockers: Signal<Vec<PlanBlocker>>) -> impl IntoView {
+    move || {
+        let blockers = blockers.get();
+        (!blockers.is_empty()).then(|| {
+            view! {
+                <Message kind=MessageKind::NOTICE live=Live::Off>
+                    <p>"You can't approve this plan until these are fixed:"</p>
+                    <ul class="plain blockers">
+                        {blockers
+                            .into_iter()
+                            .map(|b| {
+                                view! {
+                                    <li>
+                                        <strong>{b.what}</strong>
+                                        {b.item.map(|i| view! { " " <code class="path">{i}</code> })}
+                                        {format!(": {}. {}", b.why.trim_end_matches('.'), b.fix)}
+                                        {b.link.map(|(href, text)| view! { " " <A href>{text}</A> })}
+                                    </li>
+                                }
+                            })
+                            .collect_view()}
+                    </ul>
+                </Message>
+            }
+        })
+    }
+}
+
 /// A plan's review, in the plan shape's order: `summary`, the one-line summary in numbers; its items' counts by kind,
-/// filtering the list, each with its "apply to all" control from `apply`; `approve`, Approve and "Plan again", and
+/// filtering the list, each with its "apply to all" control from `apply`; `blockers`, what blocks approving, each with
+/// its item and what to do; `approve`, Approve and "Plan again", and
 /// what the last bulk choice changed in `message`; once any row has an outcome, the counts by outcome, failures
 /// first, each filtering the list; the list, whose toolbar `actions` act on the checked rows or every row matching its
 /// filter; and `help`, the plan's notes, in `Help`. Approve is never below the list.
@@ -302,6 +354,9 @@ pub fn PlanReview<R: PlanRow>(
     /// The "apply to all" control of a kind.
     #[prop(optional)]
     apply: Option<Callback<R::Kind, AnyView>>,
+    /// What blocks approving, each with its item and what to do: shown above Approve.
+    #[prop(optional, into)]
+    blockers: Signal<Vec<PlanBlocker>>,
     /// Approve and "Plan again", usually an `ApproveBar`: shown above the list.
     #[prop(optional, into)]
     approve: Option<ViewFn>,
@@ -351,6 +406,7 @@ pub fn PlanReview<R: PlanRow>(
     view! {
         <p class="plan-line">{summary}</p>
         <KindCounts counts active=kind on_filter=set_kind apply />
+        <Blockers blockers />
         {approve.map(|a| a.run())}
         {move || message.get().map(|said| view! { <Message kind=MessageKind::DONE>{said}</Message> })}
         {move || {

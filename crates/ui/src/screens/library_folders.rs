@@ -53,7 +53,7 @@ use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, onl
 use crate::registration;
 use crate::screens::coverage::InheritedCoverage;
 use crate::screens::kept::KeptFiles;
-use crate::screens::library_plan::{CleanupDraft, LibraryPlan};
+use crate::screens::library_plan::{CleanupDraft, LibraryPlan, provide_staging};
 use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
     LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
@@ -120,7 +120,7 @@ fn last_checked(folder: &LibraryFolder, full: bool) -> AnyView {
     .into_any()
 }
 
-fn tab_href(id: i64, tab: FolderTab) -> String {
+pub fn tab_href(id: i64, tab: FolderTab) -> String {
     tab_link(&format!("/libraries/{id}"), Some(tab.key()), &[])
 }
 
@@ -1066,6 +1066,8 @@ pub fn LibraryFolderScreen() -> impl IntoView {
     let refresh = RwSignal::new(0u64);
     // What checks you started say, kept here: the page below is made again each time a job settles.
     let (said, checks) = (Reports::new(), Reports::new());
+    // And your choices on its plans, until you plan or approve them.
+    provide_staging(refresh);
     Effect::new(move |shown: Option<Option<i64>>| {
         let now = id();
         if shown.is_some_and(|shown| shown != now) {
@@ -1805,12 +1807,7 @@ fn drift_detail(row: DriftRow) -> AnyView {
 /// you to review and approve.
 #[component]
 fn CleanupStart(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
-    let go = navigator();
-    let on_planned = Callback::new(move |()| {
-        refresh.update(|n| *n += 1);
-        go.run(tab_href(folder, FolderTab::Plan));
-    });
-    view! { <CleanupDraft folder refresh busy on_planned /> }
+    view! { <CleanupDraft folder refresh busy /> }
 }
 
 /// Plans building one of the bound selection profile's selections of the source set.

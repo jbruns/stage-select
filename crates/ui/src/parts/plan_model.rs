@@ -229,6 +229,17 @@ impl<C: Copy + Eq> Picks<C> {
         apply_choice(items, choice, &mut self.picked)
     }
 
+    /// Keeps, as the plan's items are loaded again, each pick its item (key, choices offered) still offers; a pick of
+    /// an item no longer listed, or of a choice it no longer offers, is dropped.
+    pub fn reconcile<'a>(&mut self, items: impl IntoIterator<Item = (&'a str, &'a [C])>)
+    where
+        C: 'a,
+    {
+        let offers: BTreeMap<&str, &[C]> = items.into_iter().collect();
+        self.picked
+            .retain(|key, c| offers.get(key.as_str()).is_some_and(|o| o.contains(c)));
+    }
+
     /// How many of `planned` (each item's key and the choice the plan gives it) you picked otherwise.
     pub fn changed<'a>(&self, planned: impl IntoIterator<Item = (&'a str, C)>) -> usize {
         planned
@@ -250,6 +261,30 @@ impl<C: Copy + Eq> Picks<C> {
             .filter(|(_, c)| *c != default)
             .map(|(key, c)| (key.to_string(), c))
             .collect()
+    }
+}
+
+/// What blocks approving a plan, in the plan shape: what it is, the item it is about, why, and what to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanBlocker {
+    pub what: String,
+    pub item: Option<String>,
+    pub why: String,
+    pub fix: String,
+    /// Where to do it, and the link's text.
+    pub link: Option<(String, String)>,
+}
+
+impl PlanBlocker {
+    /// What blocks approving a plan that leaves every item as it is.
+    pub fn nothing_to_change() -> Self {
+        PlanBlocker {
+            what: "Nothing to change".to_string(),
+            item: None,
+            why: "the plan leaves every item as it is".to_string(),
+            fix: "Choose what to do with at least one item, then plan again.".to_string(),
+            link: None,
+        }
     }
 }
 
@@ -501,5 +536,40 @@ mod tests {
         };
         assert!(!blocked.may_approve());
         assert!(!blocked.plan_again());
+    }
+
+    #[test]
+    fn a_reload_keeps_each_pick_its_item_still_offers() {
+        use crate::parts::status::PlanKind as C;
+        let mut picks = Picks::default();
+        picks.pick("a", C::SetAside);
+        picks.pick("b", C::Rename);
+        picks.pick("gone", C::SetAside);
+        let (offers_both, offers_one) = ([C::Rename, C::SetAside], [C::Rename]);
+        picks.reconcile([
+            ("a", &offers_both[..]),
+            ("b", &offers_one[..]),
+            ("c", &offers_both[..]),
+        ]);
+        assert_eq!(
+            picks.now("a", C::Rename),
+            C::SetAside,
+            "still offered: kept"
+        );
+        assert_eq!(
+            picks.now("b", C::SetAside),
+            C::Rename,
+            "still offered: kept"
+        );
+        picks.reconcile([("a", &offers_one[..]), ("b", &offers_one[..])]);
+        assert_eq!(
+            picks.now("a", C::Rename),
+            C::Rename,
+            "no longer offered: the plan's own choice again"
+        );
+        assert_eq!(
+            picks.changed([("a", C::Rename), ("b", C::Rename), ("gone", C::Rename)]),
+            0
+        );
     }
 }

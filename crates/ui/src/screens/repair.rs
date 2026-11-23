@@ -24,7 +24,7 @@ use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
-use crate::parts::plan_model::Approval;
+use crate::parts::plan_model::{Approval, PlanBlocker};
 use crate::parts::status::{ItemOutcome, PlanKind, Status, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
@@ -206,6 +206,11 @@ impl RepairDesk {
     /// Subscribes to the plan shown, so that what reads the source set's open repair reads it again.
     pub fn track(self) {
         self.plan.track();
+    }
+
+    /// Whether your choices are held as they are: while the plan is approved or planned again.
+    fn held(self) -> Signal<bool> {
+        Signal::derive(move || self.working.get() || self.proposal.pending().get())
     }
 
     /// Whether a plan is being made.
@@ -521,6 +526,7 @@ fn choice_select(item: &RepairItem, desk: RepairDesk) -> AnyView {
         item.chosen,
         now,
         RepairChoice::label,
+        desk.held(),
         Callback::new(move |c| {
             desk.picked.update(|m| {
                 m.insert(key.get_value(), c);
@@ -543,7 +549,7 @@ fn repair_detail(row: RepairRow, steps: Arc<Vec<(String, String, &'static str)>>
         view! {
             <Show when=shows>
                 <h3>"Add it as"</h3>
-                <AdditionFields value=fields />
+                <AdditionFields value=fields held=desk.held() />
             </Show>
         }
     });
@@ -606,18 +612,24 @@ fn apply_to_all(desk: RepairDesk, kind: PlanKind) -> AnyView {
         .plan
         .with_untracked(|p| p.as_ref().map(|p| kind_choices(p, kind)))
         .unwrap_or_default();
-    plan::apply_to_all(kind, choices, RepairChoice::label, move |choice| {
-        let said = desk.plan.with_untracked(|p| {
-            let p = p.as_ref()?;
-            let mut picked = desk.picked.get_untracked();
-            let outcome = apply_to_kind(p, kind, Some(choice), &mut picked)?;
-            desk.picked.set(picked);
-            Some(outcome.message(choice.label()))
-        });
-        if let Some(said) = said {
-            desk.said.set(Some(said));
-        }
-    })
+    plan::apply_to_all(
+        kind,
+        choices,
+        RepairChoice::label,
+        desk.held(),
+        move |choice| {
+            let said = desk.plan.with_untracked(|p| {
+                let p = p.as_ref()?;
+                let mut picked = desk.picked.get_untracked();
+                let outcome = apply_to_kind(p, kind, Some(choice), &mut picked)?;
+                desk.picked.set(picked);
+                Some(outcome.message(choice.label()))
+            });
+            if let Some(said) = said {
+                desk.said.set(Some(said));
+            }
+        },
+    )
 }
 
 fn outcome_text(o: &stage_select_api::repair::RepairOutcome) -> String {
@@ -762,7 +774,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
         .count();
     let count = p.content.steps.len();
     let changed = move || desk.changed();
-    let busy = Signal::derive(move || desk.working.get() || desk.proposal.pending().get());
+    let busy = desk.held();
     let approval = Signal::derive(move || Approval {
         changed: changed(),
         blocked: count == 0,
@@ -794,6 +806,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
         ],
         &offered,
         RepairChoice::label,
+        busy,
         set,
     );
     let detail_steps = steps.clone();
@@ -888,6 +901,9 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                     detail=Callback::new(move |row: RepairRow| repair_detail(row, detail_steps.clone()))
                     actions
                     apply=Callback::new(move |kind: PlanKind| if open { apply_to_all(desk, kind) } else { ().into_any() })
+                    blockers=Signal::stored(
+                        (open && count == 0).then(PlanBlocker::nothing_to_change).into_iter().collect::<Vec<_>>(),
+                    )
                     approve=approve
                     message=desk.said
                     help=help
