@@ -294,6 +294,9 @@ impl PlanBlocker {
 pub struct Approval {
     pub changed: usize,
     pub blocked: bool,
+    /// What the plan was made from may have changed since: approving it was refused, what blocks it may be fixed
+    /// elsewhere, or the screen can't tell.
+    pub stale: bool,
 }
 
 impl Approval {
@@ -302,8 +305,10 @@ impl Approval {
         self.changed == 0 && !self.blocked
     }
 
+    /// "Plan again" is offered once you change a choice, and while the plan may be stale, so a plan that can't be
+    /// approved as it is still has a way out.
     pub fn plan_again(self) -> bool {
-        self.changed > 0
+        self.changed > 0 || self.stale
     }
 
     pub fn notice(self) -> Option<String> {
@@ -504,6 +509,7 @@ mod tests {
         let ready = Approval {
             changed: 0,
             blocked: false,
+            stale: false,
         };
         assert!(ready.may_approve());
         assert!(!ready.plan_again());
@@ -511,6 +517,7 @@ mod tests {
         let changed = Approval {
             changed: 2,
             blocked: false,
+            stale: false,
         };
         assert!(!changed.may_approve());
         assert!(changed.plan_again());
@@ -523,6 +530,7 @@ mod tests {
         let one = Approval {
             changed: 1,
             blocked: false,
+            stale: false,
         };
         assert_eq!(
             one.notice().as_deref(),
@@ -533,9 +541,29 @@ mod tests {
         let blocked = Approval {
             changed: 0,
             blocked: true,
+            stale: false,
         };
         assert!(!blocked.may_approve());
         assert!(!blocked.plan_again());
+    }
+
+    #[test]
+    fn plan_again_shows_for_a_plan_that_may_be_stale_with_no_choice_changed() {
+        let stale = Approval {
+            changed: 0,
+            blocked: false,
+            stale: true,
+        };
+        assert!(stale.plan_again());
+        assert!(stale.may_approve());
+        assert_eq!(stale.notice(), None);
+        let empty = Approval {
+            changed: 0,
+            blocked: true,
+            stale: true,
+        };
+        assert!(empty.plan_again());
+        assert!(!empty.may_approve());
     }
 
     #[test]

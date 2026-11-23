@@ -43,7 +43,7 @@ Every plan (repair, build, cleanup, ingest, deleting kept files, setting aside) 
    from `plan_model::plan_line`.
 2. **Counts by kind**, each a filter, with "apply to all" where the plan offers choices.
 3. **Approve, above the list**, labelled with what it does ("Approve and make 17 changes"), with "Plan again" beside
-   it once you change a choice: an `ApproveBar`. What blocks it is listed just above it, each blocker with its item
+   it once you change a choice or while the plan may be stale: an `ApproveBar`. What blocks it is listed just above it, each blocker with its item
    and what to do. Once approved, the plan's job takes its place.
 4. **After it applies, counts by outcome** (`ItemOutcome`), failures first, each a filter, with the line from
    `plan_model::outcome_line` ("4 of 6 done: 1 failed, 1 not done.").
@@ -252,7 +252,8 @@ toolbar "Set to …" actions over the checked rows, or every row the filter show
 `plan_model::Picks` until you plan again, since approving approves the plan as shown: `Picks::set` counts what a bulk
 choice did (show `BulkOutcome::message` in `message`, so a partial application says how many items don't offer the
 choice), `Picks::changed` feeds `Approval`, and `ApproveBar` holds Approve while choices differ and offers "Plan
-again". A plan that offers no choices, such as an ingest plan approved whole, passes neither `apply` nor `actions`.
+again". Set `Approval::stale` whenever the plan may no longer be approvable as it is (approving was refused, a blocker
+may be fixed elsewhere, or the screen can't tell, as for every open repair), so "Plan again" is always the way out. A plan that offers no choices, such as an ingest plan approved whole, passes neither `apply` nor `actions`.
 
 While a plan is approved or planned again, your choices are held as they are: pass the same `held` signal to
 `choice_select`, `set_actions`, `apply_to_all` and `AdditionFields`, which disable their controls and ignore input

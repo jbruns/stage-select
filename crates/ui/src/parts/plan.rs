@@ -268,8 +268,9 @@ pub fn choice_select<C: Copy + PartialEq + Send + Sync + 'static>(
     .into_any()
 }
 
-/// Approve, labelled with what it does, and "Plan again" beside it once you change a choice: approving approves the
-/// plan as shown, so it waits until you plan again. `busy` holds both while a request is under way.
+/// Approve, labelled with what it does, and "Plan again" beside it once you change a choice or while the plan may be
+/// stale (`Approval::plan_again`): approving approves the plan as shown, so it waits until you plan again. `busy`
+/// holds both while a request is under way.
 #[component]
 pub fn ApproveBar(
     #[prop(into)] label: Signal<String>,
@@ -292,9 +293,13 @@ pub fn ApproveBar(
                 on_plan_again.filter(|_| approval.get().plan_again()).map(|again| view! {
                     <button
                         type="button"
-                        class="primary"
+                        class:primary=move || !approval.get().may_approve()
                         disabled=busy
-                        on:click=move |_| again.run(())
+                        on:click=move |_| {
+                            if !busy.get_untracked() {
+                                again.run(())
+                            }
+                        }
                     >
                         "Plan again"
                     </button>

@@ -708,6 +708,8 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         Signal::derive(move || Approval {
             changed: chooser.map_or(0, |c| c.changed(&planned)),
             blocked: !approvable,
+            // A refused approval or a blocker fixed elsewhere is planned again from here.
+            stale: !approvable || approver.problem.with(Option::is_some),
         })
     };
     let plan_again = {
@@ -1235,6 +1237,7 @@ fn CleanupView(
         Signal::derive(move || Approval {
             changed: chooser.map_or(0, |c| c.changed(&planned)) + edited(),
             blocked: !approvable || !changes,
+            stale: !approvable || approver.is_some_and(|a| a.problem.with(Option::is_some)),
         })
     };
     let plan_again = {

@@ -775,9 +775,12 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
     let count = p.content.steps.len();
     let changed = move || desk.changed();
     let busy = desk.held();
+    // A newer audit, or another repair approved, leaves a plan stale that this screen can't tell from a fresh one,
+    // and an empty one only changes once planned again: an open repair always offers planning again.
     let approval = Signal::derive(move || Approval {
         changed: changed(),
         blocked: count == 0,
+        stale: true,
     });
     let summary = plan_line(&p);
     // Only the choices some item offers are offered in bulk.
