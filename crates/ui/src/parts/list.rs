@@ -19,7 +19,7 @@ use super::layout::DetailPane;
 pub use super::list_model::Width;
 use super::list_model::{self as model, Checked, Step};
 use super::overlay::{Drawer, Menu, MenuItem, Tooltip};
-use super::url_state::{ListQuery, query_string, use_list_query};
+use super::url_state::{ListQuery, query_string, use_list_query_in};
 
 /// Every row is this tall, here and in the stylesheet (`--table-row-min-height`).
 pub const ROW_HEIGHT: f64 = 40.0;
@@ -312,8 +312,12 @@ pub fn List<T: ListRow>(
     /// The legend strip under the list: a `Legend` of the statuses its rows show.
     #[prop(optional, into)]
     legend: Option<ViewFn>,
+    /// For a second list on a page: the prefix of its own URL keys, such as `changes` for `changes-q`, so each list
+    /// keeps its own filter, sort and open row.
+    #[prop(optional)]
+    scope: Option<&'static str>,
 ) -> impl IntoView {
-    let (query, set_query) = use_list_query();
+    let (query, set_query) = use_list_query_in(scope);
     let query_map = use_query_map();
     let location = use_location();
     let go = crate::app::navigator();
@@ -831,7 +835,8 @@ pub fn List<T: ListRow>(
     let close_href = Signal::derive(move || {
         let mut q = query.get();
         q.selected = None;
-        let pairs = query_map.with(|m| q.merged(m.latest_values().map(|(k, v)| (k.as_ref(), v))));
+        let pairs =
+            query_map.with(|m| q.merged_in(scope, m.latest_values().map(|(k, v)| (k.as_ref(), v))));
         format!("{}{}", location.pathname.get(), query_string(&pairs))
     });
     // The open row's current data: it follows a reload, and the detail redraws only when the row itself changed.

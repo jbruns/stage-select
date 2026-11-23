@@ -232,7 +232,7 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
    - `cell(col) -> AnyView`: terse (copy rules). A status cell is `StatusIcon { status, tab_stop: false }`.
    - `compare(other, col)` for sortable columns, and `href()` when the row has its own page (the detail links to it
      as "Open").
-2. **The list.** `<List id label rows empty detail actions? row_actions? quick? placeholder? filters? keep? legend? />`:
+2. **The list.** `<List id label rows empty detail actions? row_actions? quick? placeholder? filters? keep? legend? scope? />`:
    - `id: &'static str` prefixes element IDs; `label` names the grid and toolbar; `empty` shows when there are no
      rows at all.
    - `rows: Signal<Arc<Vec<T>>>`: every row, in their default order. A reload replaces the `Arc`. It must reflect
@@ -258,9 +258,14 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      (`Option<Arc<dyn Fn(&T) -> bool>>`), applied with the filter text. Changing it clears an "every match"
      selection.
    - `legend: ViewFn`: the strip under the list, usually `Legend { statuses: present(rows), list: id }`.
+   - `scope: &'static str`: for a second list on one page, the prefix of its URL keys (`changes-q`, `changes-row`,
+     …), so each list keeps its own filter, sort, open row and checks. One list per page goes unscoped.
+   - A filter control beside the text keeps its value in the URL too: build it with `use_query_edit`, as
+     `screens::audit::url_select` does, and derive `keep` from the query, so a link can open the list filtered
+     (`/audits/7?finding=misnamed`).
 3. **What it does for you.** Filter text (`q`), sort (`sort`), the open row (`row`) and the checked rows (`sel`,
    `all`) live in the URL. Rows are keyed and virtualized: only the rows in view plus a few more are in the DOM, all
-   40px tall, so a list of 100,000 filters within the ADR 0005 budget (`crates/ui/bench/filter.py --list`). The
+   40px tall, so a list of 100,000 filters within the ADR 0005 budget (`crates/ui/bench/filter.py`, over the Audit's Entries). The
    header checkbox checks every row matching the filter (stored as `all=1`, not as keys), even when some already
    are, and clears only when all are; changing the
    filter text clears such a selection but keeps rows checked one by one. The toolbar shows "N selected", "Select
@@ -275,7 +280,8 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
 replaces the URL without scrolling. Keys: `q`, `sort` (`-name` for descending), `row` (the open row's key), `tab`,
 `sel` (checked rows' keys, comma-separated, `\` escapes) and `all=1` (every row matching the filter is checked; `sel`
 then lists the rows unchecked since). Defaults are omitted and other query parameters are kept. Use
-`ListQuery::sorted_by(column)` for a header click. `checked` is a `list_model::Selection`.
+`ListQuery::sorted_by(column)` for a header click. `checked` is a `list_model::Selection`. `use_list_query_in(scope)`
+reads and writes a scoped list's keys (`{scope}-q`, …); `tab` always stays the page's.
 
 ### Layout and routes
 
@@ -289,7 +295,8 @@ you there. Two forms:
 
 - **On a page**: `use_tab()` reads the URL's `tab` (`current()`, `None` for the default tab) and builds each tab's
   link (`href(key)`, `None` for the default). A tab's link keeps the page's other query values and drops the list
-  state of the tab you leave (`q`, `sort`, `row`, `sel`, `all`, `kind`) and `plan`. Changing only the query keeps the
+  state of the tab you leave (`q`, `sort`, `row`, `sel`, `all`, `kind`, a scoped list's `{scope}-q` and the like, and
+  the filters in `parts::tabs::TAB_STATE`) and `plan`. A new list filter key goes in `TAB_STATE`. Changing only the query keeps the
   page mounted, so a draft survives a change of tab; don't read the whole query in a closure that renders the page.
 - **Child routes**: `RouteTabs` over a `ParentRoute`, as on Activity and Settings.
 
@@ -312,7 +319,7 @@ checked, under the cursor and open at once and show all four:
 | --- | --- | --- |
 | Hover | `--color-hover` surface; on a checked row, a ring in `--color-control-border` | `:hover` |
 | Checked | `--color-checked` wash, and its checkbox | `.list-row.checked` |
-| Keyboard cursor | Four corner brackets (`--cursor-brackets-image`, `-position`, `-size`), only while the grid has keyboard focus | `.list-row.cursor::after`; the older table's `table:focus-visible tr.selected` |
+| Keyboard cursor | Four corner brackets (`--cursor-brackets-image`, `-position`, `-size`), only while the grid has keyboard focus | `.list-row.cursor::after` |
 | Open | `--color-open-edge` inset on the leading side, and weight 600 | `.list-row.open` |
 | Current | `--current-edge`, an edge along the bottom | `aria-current`, a selected tab, a pressed filter |
 | Focus | A 2 px outline, 3 px off | `:focus-visible` |

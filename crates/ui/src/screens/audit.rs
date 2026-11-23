@@ -1,17 +1,15 @@
-use std::collections::VecDeque;
-use std::ops::Range;
+use std::cmp::Ordering;
 use std::sync::Arc;
 
-use leptos::html::Div;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
-use leptos_struct_table::ColumnSort;
+use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::build::LibraryFolder;
+use stage_select_api::report::ReviewFlag;
 use stage_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, EvidenceLevel, Finding, Game, GameStatus, HeaderRule,
-    Job, Placements, StartAudit,
+    ALGORITHMS, AuditEvidence, AuditSummary, Entry, EvidenceLevel, Finding, Game, GameStatus,
+    HeaderRule, Job, Placements, StartAudit,
 };
 use wasm_bindgen::JsCast;
 
@@ -19,24 +17,29 @@ use crate::api;
 use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{
-    AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn, EntryFilter,
-    GameColumn, GameDisk, GameFilter, NOTHING_TO_CHECK_NOTE, Sort, StatusFilter, absent_roms,
-    audit_evidence_label, dependency_line, disk_text, entry_name, evidence_text, finding_label,
-    game_status_label, game_status_text, games_found, games_of_status_label, header_rule_text,
-    header_text, needs_review_from_counts, parse_ndjson, payload_read_text, unneeded,
-    warning_counts, warning_text, when,
+    ALGORITHM, AuditEntries, AuditGames, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn,
+    EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME, NOTHING_TO_CHECK_NOTE, STATE,
+    STATUS, absent_roms, audit_evidence_label, dependency_line, disk_text, entry_name,
+    evidence_text, finding_label, game_status_label, games_found, games_of_status_label,
+    header_rule_text, header_text, needs_review_from_counts, parse_ndjson, payload_read_text,
+    unneeded, warning_counts, warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
+use crate::parts::legend::{LegendStrip, present_looks};
+use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
-use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusCount, StatusIcon};
+use crate::parts::status::{
+    AvailabilityStatus, FindingStatus, GameFlag, Placement, Status, StatusBadge, StatusCount,
+    StatusIcon,
+};
 use crate::parts::tabs::{self, Tabs, use_tab};
+use crate::parts::url_state::use_query_edit;
 use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
 };
-use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
 /// An audit's entries and game statuses, as its panels show them.
 #[derive(Clone)]
@@ -212,107 +215,112 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
         (set_href.clone(), audit.source_set.clone()),
     ];
     view! {
-        <Crumbs trail here=format!("Audit #{id}") />
-        <h1>{format!("Audit #{id}")}</h1>
-        <dl class="facts">
-            <dt>"Source set"</dt>
-            <dd>
-                <A href=set_href>{audit.source_set.clone()}</A>
-            </dd>
-            <dt>"DAT revision"</dt>
-            <dd>
-                <super::dats::RevisionName
-                    sha256=audit.dat_revision_sha256.clone()
-                    version=audit.dat_revision_version.clone()
-                />
-            </dd>
-            <dt>"Started"</dt>
-            <dd>{when(&audit.started_at)}</dd>
-            <dt>"Finished"</dt>
-            <dd>{when(&audit.finished_at)}</dd>
-            <dt>"Evidence"</dt>
-            <dd>{audit_evidence_label(audit.evidence)}</dd>
-            {header_rule}
-            {warnings}
-        </dl>
-        <div class="actions">
-            {(!pruned)
-                .then(|| {
-                    view! {
-                        <a
-                            class="button"
-                            href=api::url(&format!("/audits/{id}/report"))
-                            download=format!("audit-{id}.json")
-                        >
-                            "Export JSON report"
-                        </a>
-                    }
-                })}
-            {reaudit.button()}
-            <A href=repair_href attr:class="button">"Repair the source set"</A>
-        </div>
-        {reaudit.outcome()}
-
-        <section aria-labelledby="summary-title">
-            <h2 id="summary-title">"Summary"</h2>
-            <ul class="counts">
-                <StatusCount status=Derived::Verified>
-                    {move || counts.get().map_or("—".to_string(), |c| c.verified.to_string())}
-                </StatusCount>
-                <StatusCount status=Derived::NeedsReview>{needs_review}</StatusCount>
-                {Finding::ALL
-                    .iter()
-                    .map(|f| {
-                        let n = findings.get(f).copied().unwrap_or(0);
+            <Crumbs trail here=format!("Audit #{id}") />
+            <h1>{format!("Audit #{id}")}</h1>
+            <dl class="facts">
+                <dt>"Source set"</dt>
+                <dd>
+                    <A href=set_href>{audit.source_set.clone()}</A>
+                </dd>
+                <dt>"DAT revision"</dt>
+                <dd>
+                    <super::dats::RevisionName
+                        sha256=audit.dat_revision_sha256.clone()
+                        version=audit.dat_revision_version.clone()
+                    />
+                </dd>
+                <dt>"Started"</dt>
+                <dd>{when(&audit.started_at)}</dd>
+                <dt>"Finished"</dt>
+                <dd>{when(&audit.finished_at)}</dd>
+                <dt>"Evidence"</dt>
+                <dd>{audit_evidence_label(audit.evidence)}</dd>
+                {header_rule}
+                {warnings}
+            </dl>
+            <div class="actions">
+                {(!pruned)
+                    .then(|| {
                         view! {
-                            <StatusCount status=FindingStatus::from(*f) what=finding_label(*f)>
-                                {n}
-                            </StatusCount>
+                            <a
+                                class="button"
+                                href=api::url(&format!("/audits/{id}/report"))
+                                download=format!("audit-{id}.json")
+                            >
+                                "Export JSON report"
+                            </a>
                         }
-                    })
-                    .collect_view()}
-                {GameStatus::ALL
-                    .iter()
-                    .map(|s| {
-                        let n = games.get(s).copied().unwrap_or(0);
-                        view! {
-                            <StatusCount status=*s what=games_of_status_label(*s)>
-                                {n}
-                            </StatusCount>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
-            {pruned
-                .then(|| {
-                    view! {
-                        <p class="note">
-                            "This audit is pruned: only its summary is kept, so its entries, game statuses and verified count are gone."
-                        </p>
-                    }
-                })}
-        </section>
+                    })}
+                {reaudit.button()}
+                <A href=repair_href attr:class="button">"Repair the source set"</A>
+            </div>
+            {reaudit.outcome()}
 
-        {move || match data.get() {
-            None => view! { <Loading what="the entries" /> }.into_any(),
-            Some(None) => ().into_any(),
-            Some(Some(Err(message))) => view! { <Problem message /> }.into_any(),
-            Some(Some(Ok(loaded))) => {
-                view! {
-                    <Tabs label="Audit details" tabs=audit_tabs />
-                    <div hidden=move || tab.get() != Tab::Entries>
-                        <EntriesPanel entries=loaded.entries.clone() source_set=set.get_value() />
-                    </div>
-                    <div hidden=move || tab.get() != Tab::Games>
-                        <GamesPanel games=loaded.games.clone() rule source_set=set.get_value() />
-                    </div>
+            <section aria-labelledby="summary-title">
+                <h2 id="summary-title">"Summary"</h2>
+                <ul class="counts">
+                    <StatusCount status=Derived::Verified>
+                        {move || counts.get().map_or("—".to_string(), |c| c.verified.to_string())}
+                    </StatusCount>
+                    <StatusCount status=Derived::NeedsReview>{needs_review}</StatusCount>
+                    {Finding::ALL
+                        .iter()
+                        .map(|f| {
+                            let n = findings.get(f).copied().unwrap_or(0);
+                            view! {
+                                <StatusCount status=FindingStatus::from(*f) what=finding_label(*f)>
+                                    {n}
+                                </StatusCount>
+                            }
+                        })
+                        .collect_view()}
+                    {GameStatus::ALL
+                        .iter()
+                        .map(|s| {
+                            let n = games.get(s).copied().unwrap_or(0);
+                            view! {
+                                <StatusCount status=*s what=games_of_status_label(*s)>
+                                    {n}
+                                </StatusCount>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
+                {pruned
+                    .then(|| {
+                        view! {
+                            <p class="note">
+                                "This audit is pruned: only its summary is kept, so its entries, game statuses and verified count are gone."
+                            </p>
+                        }
+                    })}
+            </section>
+
+            {move || match data.get() {
+                None => view! { <Loading what="the entries" /> }.into_any(),
+                Some(None) => ().into_any(),
+                Some(Some(Err(message))) => view! { <Problem message /> }.into_any(),
+                Some(Some(Ok(loaded))) => {
+                    view! {
+                        <Tabs label="Audit details" tabs=audit_tabs />
+    {move || match tab.get() {
+                            Tab::Entries => {
+                                view! { <EntriesPanel entries=loaded.entries.clone() source_set=set.get_value() /> }
+                                    .into_any()
+                            }
+                            Tab::Games => {
+                                view! { <GamesPanel games=loaded.games.clone() rule source_set=set.get_value() /> }
+                                    .into_any()
+                            }
+                        }}
+                    }
+                        .into_any()
                 }
-                    .into_any()
-            }
-        }}
-    }
+            }}
+        }
 }
 
+/// The audit page's tabs, by the URL's `tab`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Entries,
@@ -412,7 +420,7 @@ pub fn queued(job: &Job) -> impl IntoView + use<> {
     }
 }
 
-/// An Entry in an Audit's Entries table, by its index.
+/// An Entry in an Audit's Entries list, by its index.
 #[derive(Clone)]
 pub struct EntryItem {
     entries: Arc<AuditEntries>,
@@ -420,326 +428,298 @@ pub struct EntryItem {
     i: u32,
 }
 
-struct EntryWindow {
-    entries: Arc<AuditEntries>,
-    flags: FlagsNow,
-    shown: Arc<Vec<u32>>,
-}
-
-impl RowSource<EntryItem> for EntryWindow {
-    fn len(&self) -> usize {
-        self.shown.len()
-    }
-
-    fn rows(&self, range: Range<usize>) -> Vec<EntryItem> {
-        self.shown[range]
-            .iter()
-            .map(|&i| EntryItem {
-                entries: self.entries.clone(),
-                flags: self.flags.clone(),
-                i,
-            })
-            .collect()
+// The entries never change once loaded, so a row is the same while it points at the same entry and its games' flag
+// stands.
+impl PartialEq for EntryItem {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.entries, &other.entries)
+            && self.i == other.i
+            && self.flagged() == other.flagged()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl EntryItem {
+    fn entry(&self) -> &Entry {
+        &self.entries.rows[self.i as usize].entry
+    }
+
+    fn finding_status(&self) -> FindingStatus {
+        let entry = self.entry();
+        let payload = entry
+            .evidence
+            .as_ref()
+            .is_some_and(|e| e.level == EvidenceLevel::Payload);
+        FindingStatus::of(entry.finding, payload)
+    }
+
+    fn game_status(&self) -> Option<GameStatus> {
+        self.entries.primary_status(self.i as usize)
+    }
+
+    /// Whether a build flagged any game the entry counts towards as needing review.
+    fn flagged(&self) -> bool {
+        self.flags
+            .any(self.entry().roms.iter().map(|r| r.game.as_str()))
+    }
+
+    fn games(&self) -> String {
+        let mut games: Vec<&str> = self.entry().roms.iter().map(|r| r.game.as_str()).collect();
+        games.dedup();
+        games.join(", ")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryCol {
-    Name,
     Finding,
-    State,
+    Name,
     Game,
     GameStatus,
     Evidence,
-    Reason,
 }
 
-impl EntryCol {
-    fn sort_key(self) -> Option<EntryColumn> {
-        match self {
-            EntryCol::Name => Some(EntryColumn::Name),
-            EntryCol::Finding => Some(EntryColumn::Finding),
-            EntryCol::GameStatus => Some(EntryColumn::GameStatus),
-            EntryCol::Evidence => Some(EntryColumn::Evidence),
-            EntryCol::State | EntryCol::Game | EntryCol::Reason => None,
-        }
+/// A game's status as its icon in a cell, with the review flag a build raised beside it.
+fn game_status_cell<S: Status>(status: Option<S>, flagged: bool) -> AnyView {
+    let flag =
+        flagged.then(|| view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> });
+    view! {
+        {status.map(|status| view! { <StatusIcon status tab_stop=false /> })}
+        {flag}
     }
+    .into_any()
 }
 
-/// An Entry's derived state, as its icon in a cell, or as a badge with its label.
-fn state_badge(state: Option<Derived>, badge: bool) -> AnyView {
-    match state {
-        Some(status) if badge => view! { <StatusBadge status /> }.into_any(),
-        Some(status) => view! { <StatusIcon status tab_stop=false /> }.into_any(),
-        None => ().into_any(),
-    }
-}
-
-impl Grid for EntryItem {
+impl ListRow for EntryItem {
     type Col = EntryCol;
     const COLUMNS: &'static [EntryCol] = &[
-        EntryCol::Name,
         EntryCol::Finding,
-        EntryCol::State,
+        EntryCol::Name,
         EntryCol::Game,
         EntryCol::GameStatus,
         EntryCol::Evidence,
-        EntryCol::Reason,
     ];
 
-    fn header(col: EntryCol) -> &'static str {
+    fn column(col: EntryCol) -> Column {
         match col {
-            EntryCol::Name => "Entry",
-            EntryCol::Finding => "Finding",
-            EntryCol::State => "State",
-            EntryCol::Game => "Game",
-            EntryCol::GameStatus => "Game status",
-            EntryCol::Evidence => "Evidence",
-            EntryCol::Reason => "Reason",
+            EntryCol::Finding => Column::new("finding", "Finding", Width::Fixed(5.5))
+                .sortable()
+                .hint("What the audit found the entry to be"),
+            EntryCol::Name => Column::new(
+                "name",
+                "Entry",
+                Width::Flex {
+                    min: 14.0,
+                    share: 3,
+                },
+            )
+            .sortable()
+            .hint("The file, and the member inside it"),
+            EntryCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .hint("The games its payload counts towards"),
+            EntryCol::GameStatus => Column::new("status", "Game status", Width::Fixed(6.5))
+                .sortable()
+                .hint("The status of the first game it counts towards"),
+            EntryCol::Evidence => {
+                Column::new("evidence", "Evidence", Width::Flex { min: 9.0, share: 1 })
+                    .sortable()
+                    .hint("What the audit compared it by")
+            }
         }
     }
 
-    fn class(col: EntryCol) -> &'static str {
-        match col {
-            EntryCol::Name => "c-wide data",
-            EntryCol::Finding => "c-finding",
-            EntryCol::State => "c-state",
-            EntryCol::Game => "c-wide",
-            EntryCol::GameStatus => "c-status",
-            EntryCol::Evidence => "c-evidence data",
-            EntryCol::Reason => "c-reason",
-        }
+    fn key(&self) -> String {
+        self.entries.rows[self.i as usize].seq.to_string()
     }
 
-    fn sortable(col: EntryCol) -> bool {
-        col.sort_key().is_some()
+    fn title(&self) -> String {
+        entry_name(self.entry())
+    }
+
+    fn search(&self) -> String {
+        self.entries.search(self.i as usize).to_string()
     }
 
     fn cell(&self, col: EntryCol) -> AnyView {
-        let i = self.i as usize;
-        let entry = &self.entries.rows[i].entry;
         match col {
-            EntryCol::Name => entry_name(entry).into_any(),
-            EntryCol::Finding => finding_label(entry.finding).into_any(),
-            EntryCol::State => state_badge(self.entries.derived(i), false),
-            EntryCol::Game => {
-                let mut games: Vec<&str> = entry.roms.iter().map(|r| r.game.as_str()).collect();
-                games.dedup();
-                games.join(", ").into_any()
+            EntryCol::Finding => {
+                view! { <StatusIcon status=self.finding_status() tab_stop=false /> }.into_any()
             }
-            EntryCol::GameStatus => {
-                let status = self
-                    .entries
-                    .primary_status(i)
-                    .map(game_status_label)
-                    .unwrap_or("");
-                let flagged = self.flags.any(entry.roms.iter().map(|r| r.game.as_str()));
-                let flag = flagged.then(
-                    || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
-                );
-                view! { {status} {flag} }.into_any()
-            }
-            EntryCol::Evidence => evidence_text(entry).into_any(),
-            EntryCol::Reason => entry.reason.clone().unwrap_or_default().into_any(),
+            EntryCol::Name => view! { <Clip text=entry_name(self.entry()) /> }.into_any(),
+            EntryCol::Game => view! { <Clip text=self.games() /> }.into_any(),
+            EntryCol::GameStatus => game_status_cell(self.game_status(), self.flagged()),
+            EntryCol::Evidence => view! { <Clip text=evidence_text(self.entry()) /> }.into_any(),
         }
+    }
+
+    fn compare(&self, other: &Self, col: EntryCol) -> Ordering {
+        let key = match col {
+            EntryCol::Finding => EntryColumn::Finding,
+            EntryCol::Name => EntryColumn::Name,
+            EntryCol::GameStatus => EntryColumn::GameStatus,
+            EntryCol::Evidence => EntryColumn::Evidence,
+            EntryCol::Game => return Ordering::Equal,
+        };
+        self.entries.compare(key, self.i as usize, other.i as usize)
     }
 }
 
-/// An Audit's Entries with their filters, table and the selected Entry's details. Filtering and sorting run in the
-/// browser on every keystroke.
+/// Every row of a loaded list, rebuilt with the flags whenever they change.
+fn all_rows<T: Send + Sync + 'static>(
+    n: usize,
+    flags: Memo<FlagsNow>,
+    row: impl Fn(FlagsNow, u32) -> T + Send + Sync + 'static,
+) -> Memo<Arc<Vec<T>>> {
+    Memo::new_with_compare(
+        move |_| {
+            let flags = flags.get();
+            Arc::new((0..n as u32).map(|i| row(flags.clone(), i)).collect())
+        },
+        |_, _| true,
+    )
+}
+
+/// A select of one of the list's filters in the URL: `key`'s value, or none for "Any".
+pub(crate) fn url_select(
+    label: &'static str,
+    key: &'static str,
+    options: Vec<(&'static str, &'static str)>,
+    disabled: bool,
+) -> impl IntoView {
+    let query = use_query_map();
+    let edit = use_query_edit();
+    let current = Memo::new(move |_| query.with(|q| q.get(key).unwrap_or_default()));
+    view! {
+        <label>
+            {label}
+            <select disabled=disabled on:change=move |ev| {
+                let v = event_target_value(&ev);
+                edit.run(vec![(key, (!v.is_empty()).then_some(v))]);
+            }>
+                <option value="" selected=move || current.with(String::is_empty)>
+                    "Any"
+                </option>
+                {options
+                    .into_iter()
+                    .map(|(value, text)| {
+                        view! {
+                            <option value=value selected=move || current.with(|c| c == value)>
+                                {text}
+                            </option>
+                        }
+                    })
+                    .collect_view()}
+            </select>
+        </label>
+    }
+}
+
+/// An Audit's Entries in the shared list, with filters by finding, state, game status and algorithm in the URL beside
+/// its text. Filtering and sorting run in the browser on every keystroke.
 #[component]
 pub fn EntriesPanel(
     entries: Arc<AuditEntries>,
-    /// What the entries are narrowed to at first, such as a finding a badge links to.
-    #[prop(optional)]
-    initial: EntryFilter,
     /// Its source set, to mark the games a build flagged as needing review; none where there's none to ask.
     #[prop(optional)]
     source_set: Option<String>,
 ) -> impl IntoView {
-    let total = entries.len();
     let flags = flags_now(source_set.map(placements_now));
-    let sorting = RwSignal::new(VecDeque::<(EntryCol, ColumnSort)>::new());
-    let filter = RwSignal::new(initial.clone());
-    let first = initial;
-    let selected = RwSignal::new(None::<usize>);
-    let panel = NodeRef::<Div>::new();
-
-    let sorted = Memo::new({
+    let rows = all_rows(entries.len(), flags, {
         let entries = entries.clone();
-        move |_| {
-            let sort = sort_of(&sorting.read()).and_then(|s| {
-                s.column.sort_key().map(|column| Sort {
-                    column,
-                    descending: s.descending,
-                })
-            });
-            Arc::new(entries.sorted(sort))
+        move |flags, i| EntryItem {
+            entries: entries.clone(),
+            flags,
+            i,
         }
     });
-    let shown = Memo::new({
-        let entries = entries.clone();
-        move |_| filter.with(|f| sorted.with(|order| Arc::new(entries.filtered(order, f))))
+    let query = use_query_map();
+    let filter = Memo::new(move |_| query.with(|q| EntryFilter::from_query(|k| q.get_str(k))));
+    let keep: Signal<Keep<EntryItem>> = Signal::derive(move || {
+        let filter = filter.get();
+        (filter != EntryFilter::default()).then(|| {
+            Arc::new(move |row: &EntryItem| row.entries.keeps(row.i as usize, &filter))
+                as Arc<dyn Fn(&EntryItem) -> bool + Send + Sync>
+        })
     });
-    let rows = Signal::derive({
-        let entries = entries.clone();
-        move || {
-            Arc::new(EntryWindow {
-                entries: entries.clone(),
-                flags: flags.get(),
-                shown: shown.get(),
-            }) as Rows<EntryItem>
-        }
+    let looks = Memo::new(move |_| {
+        rows.with(|r| {
+            let mut looks = present_looks(r.iter().map(EntryItem::finding_status));
+            looks.extend(present_looks(r.iter().filter_map(EntryItem::game_status)));
+            if r.iter().any(EntryItem::flagged) {
+                looks.push(GameFlag::NeedsReview.look());
+            }
+            looks
+        })
     });
-
-    let refilter = move |change: Box<dyn FnOnce(&mut EntryFilter)>| {
-        filter.update(|f| change(f));
-        selected.set(None);
-        if let Some(scroll) = panel
-            .get_untracked()
-            .and_then(|p| p.query_selector(".table-scroll").ok().flatten())
-        {
-            scroll.set_scroll_top(0);
+    let filters = move || {
+        view! {
+            {url_select(
+                "Finding",
+                FINDING,
+                Finding::ALL.iter().map(|f| (f.as_str(), finding_label(*f))).collect(),
+                false,
+            )}
+            {url_select(
+                "State",
+                STATE,
+                [Derived::Verified, Derived::NeedsReview].map(|d| (d.slug(), d.label())).to_vec(),
+                false,
+            )}
+            {url_select(
+                "Game status",
+                STATUS,
+                GameStatus::ALL
+                    .iter()
+                    .map(|s| (s.as_str(), game_status_label(*s)))
+                    .chain([(NO_GAME, "No game")])
+                    .collect(),
+                false,
+            )}
+            {url_select("Algorithm", ALGORITHM, ALGORITHMS.iter().map(|a| (*a, *a)).collect(), false)}
         }
     };
-
-    let detail = move || {
-        let shown = shown.get();
-        let i = *shown.get(selected.get()?)? as usize;
-        Some(entry_detail(&entries, i))
-    };
-
     view! {
-        <div class="panel" node_ref=panel>
-            <form class="filters" on:submit=|ev| ev.prevent_default()>
-                <label>
-                    "Filter entries"
-                    <input
-                        type="search"
-                        class="filter-text"
-                        placeholder="Entry or game name"
-                        autocomplete="off"
-                        prop:value=first.text.clone()
-                        on:input=move |ev| {
-                            let text = event_target_value(&ev);
-                            refilter(Box::new(move |f| f.text = text));
-                        }
-                    />
-                </label>
-                <label>
-                    "Finding"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(Box::new(move |f| f.finding = Finding::parse(&v)));
-                    }>
-                        <option value="">"Any"</option>
-                        {Finding::ALL
-                            .iter()
-                            .map(|f| {
-                                let chosen = first.finding == Some(*f);
-                                view! { <option value=f.as_str() selected=chosen>{finding_label(*f)}</option> }
-                            })
-                            .collect_view()}
-                    </select>
-                </label>
-                <label>
-                    "State"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(
-                            Box::new(move |f| {
-                                f.state = match v.as_str() {
-                                    "verified" => Some(Derived::Verified),
-                                    "needs-review" => Some(Derived::NeedsReview),
-                                    _ => None,
-                                };
-                            }),
-                        );
-                    }>
-                        <option value="">"Any"</option>
-                        <option value="verified">"Verified"</option>
-                        <option value="needs-review">"Needs review"</option>
-                    </select>
-                </label>
-                <label>
-                    "Game status"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(
-                            Box::new(move |f| {
-                                f.game_status = match v.as_str() {
-                                    "none" => Some(StatusFilter::None),
-                                    other => GameStatus::parse(other).map(StatusFilter::Is),
-                                };
-                            }),
-                        );
-                    }>
-                        <option value="">"Any"</option>
-                        {GameStatus::ALL
-                            .iter()
-                            .map(|s| view! { <option value=s.as_str()>{game_status_label(*s)}</option> })
-                            .collect_view()}
-                        <option value="none">"No game"</option>
-                    </select>
-                </label>
-                <label>
-                    "Algorithm"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        refilter(Box::new(move |f| f.algorithm = (!v.is_empty()).then_some(v)));
-                    }>
-                        <option value="">"Any"</option>
-                        {ALGORITHMS.iter().map(|a| view! { <option value=*a>{*a}</option> }).collect_view()}
-                    </select>
-                </label>
-            </form>
-            <p
-                class="shown"
-                aria-live="polite"
-                data-query=move || filter.with(|f| f.text.clone())
-                data-shown=move || shown.with(|s| s.len())
-            >
-                {move || format!("{} of {total} entries", shown.with(|s| s.len()))}
-            </p>
-            {flags_notice(flags)}
-            <DataTable
-                id="entries"
-                label="Entries".to_string()
-                rows
-                sorting
-                selected
-                on_open=Callback::new(|_| focus("entry-detail"))
-                empty="No entries match these filters.".to_string()
-            />
-            <section class="detail" id="entry-detail" tabindex="-1" aria-label="Selected entry">
-                {move || {
-                    detail()
-                        .unwrap_or_else(|| {
-                            view! {
-                                <p class="note">
-                                    "Select an entry with the arrow keys or a click to see its details."
-                                </p>
-                            }
-                                .into_any()
-                        })
-                }}
-            </section>
-        </div>
+        {flags_notice(flags)}
+        <List
+            id="entries"
+            label="Entries"
+            rows
+            empty="This audit has no entries."
+            placeholder="Filter by entry or game name"
+            filters
+            keep
+            legend=move || view! { <LegendStrip looks list="entries" /> }
+            detail=Callback::new(|row: EntryItem| entry_detail(&row))
+        />
     }
 }
 
-fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
-    let entry = entries.rows[i].entry.clone();
+fn entry_detail(row: &EntryItem) -> AnyView {
+    let entry = row.entry().clone();
     let evidence = evidence_text(&entry);
     let read = payload_read_text(&entry);
     let header = header_text(&entry);
+    let game_status = row.game_status().map(|status| {
+        let flag = row
+            .flagged()
+            .then(|| view! { " " <StatusBadge status=GameFlag::NeedsReview /> });
+        view! {
+            <dt>"Game status"</dt>
+            <dd><StatusBadge status /> {flag}</dd>
+        }
+    });
     let roms = entry
         .roms
         .iter()
         .map(|r| view! { <li>{r.game.clone()} " › " <code>{r.name.clone()}</code></li> })
         .collect_view();
     view! {
-        <h3>"Entry"</h3>
         <dl class="facts">
             <dt>"Path"</dt>
             <dd>
@@ -757,7 +737,16 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
                     }
                 })}
             <dt>"Finding"</dt>
-            <dd>{finding_label(entry.finding)} " " {state_badge(entries.derived(i), true)}</dd>
+            <dd><StatusBadge status=row.finding_status() /></dd>
+            {entry
+                .reason
+                .clone()
+                .map(|r| {
+                    view! {
+                        <dt>"Reason"</dt>
+                        <dd>{r}</dd>
+                    }
+                })}
             <dt>"Evidence"</dt>
             <dd>{if evidence.is_empty() { "None".to_string() } else { evidence }}</dd>
             {header
@@ -792,20 +781,12 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
                         </dd>
                     }
                 })}
+            {game_status}
             {disk_text(&entry)
                 .map(|disk| {
                     view! {
                         <dt>"Disk"</dt>
                         <dd>{disk}</dd>
-                    }
-                })}
-            {entry
-                .reason
-                .clone()
-                .map(|r| {
-                    view! {
-                        <dt>"Reason"</dt>
-                        <dd>{r}</dd>
                     }
                 })}
         </dl>
@@ -887,7 +868,7 @@ fn disks_view(disks: Vec<GameDisk>) -> Option<AnyView> {
     )
 }
 
-/// A Game Status in an Audit's Game Statuses table.
+/// A Game Status in an Audit's Game Statuses list, by its index.
 #[derive(Clone)]
 pub struct GameItem {
     games: Arc<AuditGames>,
@@ -895,88 +876,108 @@ pub struct GameItem {
     i: u32,
 }
 
-struct GameWindow {
-    games: Arc<AuditGames>,
-    flags: FlagsNow,
-    shown: Arc<Vec<u32>>,
-}
-
-impl RowSource<GameItem> for GameWindow {
-    fn len(&self) -> usize {
-        self.shown.len()
-    }
-
-    fn rows(&self, range: Range<usize>) -> Vec<GameItem> {
-        self.shown[range]
-            .iter()
-            .map(|&i| GameItem {
-                games: self.games.clone(),
-                flags: self.flags.clone(),
-                i,
-            })
-            .collect()
+// As for `EntryItem`: the same game, with the same flag.
+impl PartialEq for GameItem {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.games, &other.games) && self.i == other.i && self.flag() == other.flag()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl GameItem {
+    fn game(&self) -> &Game {
+        &self.games.rows[self.i as usize].game
+    }
+
+    fn status(&self) -> AvailabilityStatus {
+        let game = self.game();
+        AvailabilityStatus::of(game.status, !game.claimed_roms.is_empty())
+    }
+
+    fn flag(&self) -> Option<&ReviewFlag> {
+        self.flags.get(&self.game().name)
+    }
+
+    fn placement(&self) -> Option<Placement> {
+        self.games.placement(self.i as usize)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameCol {
-    Name,
     Status,
+    Name,
     Placement,
     Absent,
 }
 
-impl Grid for GameItem {
+impl ListRow for GameItem {
     type Col = GameCol;
     const COLUMNS: &'static [GameCol] = &[
-        GameCol::Name,
         GameCol::Status,
+        GameCol::Name,
         GameCol::Placement,
         GameCol::Absent,
     ];
 
-    fn header(col: GameCol) -> &'static str {
+    fn column(col: GameCol) -> Column {
         match col {
-            GameCol::Name => "Game",
-            GameCol::Status => "Game status",
-            GameCol::Placement => "Placement",
-            GameCol::Absent => "Absent ROMs",
+            GameCol::Status => Column::new("status", "Status", Width::Fixed(5.5))
+                .sortable()
+                .hint("The game's status in this audit, and whether a build flagged it"),
+            GameCol::Name => Column::new(
+                "name",
+                "Game",
+                Width::Flex {
+                    min: 16.0,
+                    share: 1,
+                },
+            )
+            .sortable(),
+            GameCol::Placement => Column::new("placement", "Placement", Width::Fixed(6.5))
+                .sortable()
+                .hint("Where the audit found the game's files"),
+            GameCol::Absent => Column::new("absent", "Absent", Width::Fixed(6.0))
+                .sortable()
+                .numeric()
+                .hint("How many of its ROMs are absent"),
         }
     }
 
-    fn class(col: GameCol) -> &'static str {
-        match col {
-            GameCol::Name => "c-wide",
-            GameCol::Status => "c-status",
-            GameCol::Placement => "c-status",
-            GameCol::Absent => "c-wide data",
-        }
+    fn key(&self) -> String {
+        self.games.rows[self.i as usize].seq.to_string()
     }
 
-    fn sortable(_col: GameCol) -> bool {
-        true
+    fn title(&self) -> String {
+        self.game().name.clone()
+    }
+
+    fn search(&self) -> String {
+        self.games.search(self.i as usize).to_string()
     }
 
     fn cell(&self, col: GameCol) -> AnyView {
-        let game = &self.games.rows[self.i as usize].game;
         match col {
-            GameCol::Name => game.name.clone().into_any(),
-            GameCol::Status => {
-                let flag = self.flags.get(&game.name).is_some().then(
-                    || view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> },
-                );
-                view! { {game_status_text(game)} {flag} }.into_any()
-            }
+            GameCol::Status => game_status_cell(Some(self.status()), self.flag().is_some()),
+            GameCol::Name => view! { <Clip text=self.game().name.clone() /> }.into_any(),
             GameCol::Placement => self
-                .games
-                .placement(self.i as usize)
+                .placement()
                 .map(|p| view! { <StatusIcon status=p tab_stop=false /> })
                 .into_any(),
-            GameCol::Absent => match game.missing_roms.len() {
+            GameCol::Absent => match self.game().missing_roms.len() {
                 0 => ().into_any(),
-                n => format!("{n}: {}", game.missing_roms.join(", ")).into_any(),
+                n => n.to_string().into_any(),
             },
         }
+    }
+
+    fn compare(&self, other: &Self, col: GameCol) -> Ordering {
+        let key = match col {
+            GameCol::Status => GameColumn::Status,
+            GameCol::Name => GameColumn::Name,
+            GameCol::Placement => GameColumn::Placement,
+            GameCol::Absent => GameColumn::Absent,
+        };
+        self.games.compare(key, self.i as usize, other.i as usize)
     }
 }
 
@@ -984,13 +985,13 @@ impl Grid for GameItem {
 const FLAGGED_NOW: &str = "This flag is the game's now, not part of this audit: every audit of the source set \
 shows it until a full audit verifies the file or the game returns.";
 
+/// An Audit's Game Statuses in the shared list, with a filter by status in the URL beside its text.
 #[component]
 pub fn GamesPanel(
     games: Arc<AuditGames>,
     rule: Option<HeaderRule>,
     source_set: String,
 ) -> impl IntoView {
-    let total = games.len();
     let now = placements_now(source_set);
     let flags = flags_now(Some(now));
     let folders = Memo::new(move |_| {
@@ -999,178 +1000,150 @@ pub fn GamesPanel(
             .map(|(_, f)| f)
             .unwrap_or_default()
     });
-    let sorting = RwSignal::new(VecDeque::<(GameCol, ColumnSort)>::new());
-    let filter = RwSignal::new(GameFilter::default());
-    let selected = RwSignal::new(None::<usize>);
-    let sorted = Memo::new({
+    let rows = all_rows(games.len(), flags, {
         let games = games.clone();
-        move |_| {
-            let sort = sort_of(&sorting.read()).map(|s| Sort {
-                column: match s.column {
-                    GameCol::Name => GameColumn::Name,
-                    GameCol::Status => GameColumn::Status,
-                    GameCol::Placement => GameColumn::Placement,
-                    GameCol::Absent => GameColumn::Absent,
-                },
-                descending: s.descending,
-            });
-            Arc::new(games.sorted(sort))
+        move |flags, i| GameItem {
+            games: games.clone(),
+            flags,
+            i,
         }
     });
-    let shown = Memo::new({
-        let games = games.clone();
-        move |_| filter.with(|f| sorted.with(|order| Arc::new(games.filtered(order, f))))
-    });
-    let rows = Signal::derive({
-        let games = games.clone();
-        move || {
-            Arc::new(GameWindow {
-                games: games.clone(),
-                flags: flags.get(),
-                shown: shown.get(),
-            }) as Rows<GameItem>
-        }
-    });
-    let detail = move || {
-        let i = *shown.get().get(selected.get()?)? as usize;
-        let game = games.rows[i].game.clone();
-        let placement = games.placement(i).map(|p| {
-            let place = match games.placed_in(i) {
-                Some(id) => view! {
-                    "Placed in "
-                    <A href=format!("/libraries/{id}")>{move || folders.with(|f| folder_name(f, id))}</A>
-                    " under single copy: its file there was the game's only copy."
-                }
-                .into_any(),
-                None => "In your source set's own folder.".into_any(),
-            };
-            view! {
-                <h4>"Placement"</h4>
-                <p><StatusBadge status=p /></p>
-                <p>{place}</p>
-            }
-        });
-        let flag = flags.with(|f| f.get(&game.name).cloned()).map(|flag| {
-            view! {
-                <h4>"Flagged now"</h4>
-                <p><StatusBadge status=GameFlag::NeedsReview /></p>
-                <p>{flag_detail(&flag)}</p>
-                <p class="note">{FLAGGED_NOW}</p>
-            }
-        });
-        let absent = (!game.missing_roms.is_empty()).then(|| {
-            let elsewhere = (!game.available_elsewhere.is_empty()).then(|| {
-                view! {
-                    <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it unless the file is named for the other game."</p>
-                }
-            });
-            let unneeded_note = game.missing_roms.iter().any(|r| unneeded(&game, r)).then(|| {
-                view! {
-                    <p class="note">"An absent ROM that is optional, or that has no good dump known, doesn't keep this game from being complete."</p>
-                }
-            });
-            view! {
-                <h4>"Absent ROMs"</h4>
-                {unneeded_note}
-                {elsewhere}
-                <ul class="data">{absent_roms(&game).into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}</ul>
-            }
-        });
-        let claimed = (!game.claimed_roms.is_empty()).then(|| {
-            view! {
-                <h4>"Present only on claim evidence"</h4>
-                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory, or disks' SHA-1s from their CHD headers, without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
-                <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
-            }
-        });
-        let bad_dumps = (!game.bad_dumps.is_empty()).then(|| {
-            view! {
-                <h4>"Known bad dumps"</h4>
-                <p class="note">"The DAT lists these ROMs by the checksums of dumps known to be bad. A file that matches one counts like any other."</p>
-                <ul class="data">{game.bad_dumps.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
-            }
-        });
-        let warnings = (!game.warnings.is_empty()).then(|| {
-            view! {
-                <h4>"Warnings"</h4>
-                <ul class="data">
-                    {game
-                        .warnings
-                        .iter()
-                        .map(|w| view! { <li>{format!("It {}", warning_text(*w, rule))}</li> })
-                        .collect_view()}
-                </ul>
-            }
-        });
-        let nothing_to_check = (game.status == GameStatus::NothingToCheck)
-            .then(|| view! { <p class="note">{NOTHING_TO_CHECK_NOTE}</p> });
-        let dependencies = dependencies_view(&game, &games);
-        let disks = disks_view(games.disks(i));
-        Some(view! {
-            <h3>{game.name.clone()}</h3>
-            <p>{format!("Game status: {}", game_status_text(&game))}</p>
-            {nothing_to_check}
-            {flag}
-            {placement}
-            {warnings}
-            {dependencies}
-            {disks}
-            {absent}
-            {bad_dumps}
-            {claimed}
+    let query = use_query_map();
+    let filter = Memo::new(move |_| query.with(|q| GameFilter::from_query(|k| q.get_str(k))));
+    let keep: Signal<Keep<GameItem>> = Signal::derive(move || {
+        let filter = filter.get();
+        (filter != GameFilter::default()).then(|| {
+            Arc::new(move |row: &GameItem| row.games.keeps(row.i as usize, &filter))
+                as Arc<dyn Fn(&GameItem) -> bool + Send + Sync>
         })
+    });
+    let looks = Memo::new(move |_| {
+        rows.with(|r| {
+            let mut looks = present_looks(r.iter().map(GameItem::status));
+            if r.iter().any(|g| g.flag().is_some()) {
+                looks.push(GameFlag::NeedsReview.look());
+            }
+            looks.extend(present_looks(r.iter().filter_map(GameItem::placement)));
+            looks
+        })
+    });
+    let filters = move || {
+        url_select(
+            "Game status",
+            STATUS,
+            GameStatus::ALL
+                .iter()
+                .map(|s| (s.as_str(), game_status_label(*s)))
+                .collect(),
+            false,
+        )
     };
-
     view! {
-        <div class="panel">
-            <form class="filters" on:submit=|ev| ev.prevent_default()>
-                <label>
-                    "Filter game statuses"
-                    <input
-                        type="search"
-                        placeholder="Game or absent ROM name"
-                        autocomplete="off"
-                        on:input=move |ev| {
-                            let text = event_target_value(&ev);
-                            filter.update(|f| f.text = text);
-                            selected.set(None);
-                        }
-                    />
-                </label>
-                <label>
-                    "Game status"
-                    <select on:change=move |ev| {
-                        let v = event_target_value(&ev);
-                        filter.update(|f| f.status = GameStatus::parse(&v));
-                        selected.set(None);
-                    }>
-                        <option value="">"Any"</option>
-                        {GameStatus::ALL
-                            .iter()
-                            .map(|s| view! { <option value=s.as_str()>{game_status_label(*s)}</option> })
-                            .collect_view()}
-                    </select>
-                </label>
-            </form>
-            <p class="shown" aria-live="polite">
-                {move || format!("{} of {total} game statuses", shown.with(|s| s.len()))}
-            </p>
-            {flags_notice(flags)}
-            <DataTable
-                id="games"
-                label="Game statuses".to_string()
-                rows
-                sorting
-                selected
-                on_open=Callback::new(|_| focus("game-detail"))
-                empty="No game statuses match these filters.".to_string()
-            />
-            <section class="detail" id="game-detail" tabindex="-1" aria-label="Selected game status">
-                {move || match detail() {
-                    Some(view) => view.into_any(),
-                    None => view! { <p class="note">"Select a game to see its absent ROMs."</p> }.into_any(),
-                }}
-            </section>
-        </div>
+        {flags_notice(flags)}
+        <List
+            id="games"
+            label="Game statuses"
+            rows
+            empty="This audit has no game statuses."
+            placeholder="Filter by game or absent ROM name"
+            filters
+            keep
+            legend=move || view! { <LegendStrip looks list="games" /> }
+            detail=Callback::new(move |row: GameItem| game_detail(&row, rule, folders))
+        />
     }
+}
+
+fn game_detail(
+    row: &GameItem,
+    rule: Option<HeaderRule>,
+    folders: Memo<Vec<LibraryFolder>>,
+) -> AnyView {
+    let (games, i) = (&row.games, row.i as usize);
+    let game = row.game().clone();
+    let placement = row.placement().map(|p| {
+        let place = match games.placed_in(i) {
+            Some(id) => view! {
+                "Placed in "
+                <A href=format!("/libraries/{id}")>{move || folders.with(|f| folder_name(f, id))}</A>
+                " under single copy: its file there was the game's only copy."
+            }
+            .into_any(),
+            None => "In your source set's own folder.".into_any(),
+        };
+        view! {
+            <h4>"Placement"</h4>
+            <p><StatusBadge status=p /></p>
+            <p>{place}</p>
+        }
+    });
+    let flag = row.flag().cloned().map(|flag| {
+        view! {
+            <h4>"Flagged now"</h4>
+            <p><StatusBadge status=GameFlag::NeedsReview /></p>
+            <p>{flag_detail(&flag)}</p>
+            <p class="note">{FLAGGED_NOW}</p>
+        }
+    });
+    let absent = (!game.missing_roms.is_empty()).then(|| {
+        let elsewhere = (!game.available_elsewhere.is_empty()).then(|| {
+            view! {
+                <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it unless the file is named for the other game."</p>
+            }
+        });
+        let unneeded_note = game.missing_roms.iter().any(|r| unneeded(&game, r)).then(|| {
+            view! {
+                <p class="note">"An absent ROM that is optional, or that has no good dump known, doesn't keep this game from being complete."</p>
+            }
+        });
+        view! {
+            <h4>"Absent ROMs"</h4>
+            {unneeded_note}
+            {elsewhere}
+            <ul class="data">{absent_roms(&game).into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}</ul>
+        }
+    });
+    let claimed = (!game.claimed_roms.is_empty()).then(|| {
+        view! {
+            <h4>"Present only on claim evidence"</h4>
+            <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory, or disks' SHA-1s from their CHD headers, without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
+            <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
+        }
+    });
+    let bad_dumps = (!game.bad_dumps.is_empty()).then(|| {
+        view! {
+            <h4>"Known bad dumps"</h4>
+            <p class="note">"The DAT lists these ROMs by the checksums of dumps known to be bad. A file that matches one counts like any other."</p>
+            <ul class="data">{game.bad_dumps.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
+        }
+    });
+    let warnings = (!game.warnings.is_empty()).then(|| {
+        view! {
+            <h4>"Warnings"</h4>
+            <ul class="data">
+                {game
+                    .warnings
+                    .iter()
+                    .map(|w| view! { <li>{format!("It {}", warning_text(*w, rule))}</li> })
+                    .collect_view()}
+            </ul>
+        }
+    });
+    let nothing_to_check = (game.status == GameStatus::NothingToCheck)
+        .then(|| view! { <p class="note">{NOTHING_TO_CHECK_NOTE}</p> });
+    let dependencies = dependencies_view(&game, games);
+    let disks = disks_view(games.disks(i));
+    view! {
+        <p><StatusBadge status=row.status() /></p>
+        {nothing_to_check}
+        {flag}
+        {placement}
+        {warnings}
+        {dependencies}
+        {disks}
+        {absent}
+        {bad_dumps}
+        {claimed}
+    }
+    .into_any()
 }

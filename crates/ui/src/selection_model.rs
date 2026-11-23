@@ -206,6 +206,29 @@ pub struct ReleaseFilter {
     pub flag: Option<FlagFilter>,
 }
 
+/// The URL keys of a Selection's releases' filters beside the list's text.
+pub const OUTCOME_KEY: &str = "status";
+pub const AVAILABILITY_KEY: &str = "availability";
+pub const FLAG_KEY: &str = "flag";
+/// The `availability` that narrows releases to those no audit says anything of.
+pub const UNKNOWN: &str = "unknown";
+
+impl ReleaseFilter {
+    /// The filter the URL's keys hold, `get` giving each key's value; the text is the list's own `q`. A value it
+    /// doesn't know narrows nothing.
+    pub fn from_query<'a>(get: impl Fn(&str) -> Option<&'a str>) -> ReleaseFilter {
+        ReleaseFilter {
+            text: String::new(),
+            outcome: get(OUTCOME_KEY).and_then(Outcome::parse),
+            availability: get(AVAILABILITY_KEY).and_then(|v| match v {
+                UNKNOWN => Some(AvailabilityFilter::Unknown),
+                v => GameStatus::parse(v).map(AvailabilityFilter::Is),
+            }),
+            flag: get(FLAG_KEY).and_then(FlagFilter::parse),
+        }
+    }
+}
+
 /// A Selection's releases with the keys filtering and sorting use, computed once when it loads.
 #[derive(Debug)]
 pub struct SelectionIndex {
@@ -310,17 +333,26 @@ impl SelectionIndex {
         };
         order.sort_by(|&a, &b| {
             let (a, b) = (a as usize, b as usize);
-            let ord = match sort.column {
-                ReleaseColumn::Group => self.group[a].cmp(&self.group[b]),
-                ReleaseColumn::Release => self.title[a].cmp(&self.title[b]),
-                ReleaseColumn::Outcome => self.rows[a].outcome.cmp(&self.rows[b].outcome),
-                ReleaseColumn::Availability => availability_rank(self.availability[a])
-                    .cmp(&availability_rank(self.availability[b])),
-            }
-            .then(a.cmp(&b));
+            let ord = self.compare(sort.column, a, b).then(a.cmp(&b));
             if sort.descending { ord.reverse() } else { ord }
         });
         order
+    }
+
+    /// The order of releases `a` and `b` by `column`, ascending.
+    pub fn compare(&self, column: ReleaseColumn, a: usize, b: usize) -> std::cmp::Ordering {
+        match column {
+            ReleaseColumn::Group => self.group[a].cmp(&self.group[b]),
+            ReleaseColumn::Release => self.title[a].cmp(&self.title[b]),
+            ReleaseColumn::Outcome => self.rows[a].outcome.cmp(&self.rows[b].outcome),
+            ReleaseColumn::Availability => availability_rank(self.availability[a])
+                .cmp(&availability_rank(self.availability[b])),
+        }
+    }
+
+    /// The lowercase group and title the filter searches for release `i`.
+    pub fn search(&self, i: usize) -> &str {
+        &self.search[i]
     }
 
     /// The releases of `order` that `filter` keeps.
@@ -331,15 +363,19 @@ impl SelectionIndex {
             .copied()
             .filter(|&i| {
                 let i = i as usize;
-                filter.outcome.is_none_or(|r| self.rows[i].outcome == r)
-                    && filter.availability.is_none_or(|a| match a {
-                        AvailabilityFilter::Is(s) => self.availability[i] == Some(s),
-                        AvailabilityFilter::Unknown => self.availability[i].is_none(),
-                    })
-                    && filter.flag.is_none_or(|f| self.flags[i] & f.bits() != 0)
-                    && (text.is_empty() || self.search[i].contains(&text))
+                self.keeps(i, filter) && (text.is_empty() || self.search[i].contains(&text))
             })
             .collect()
+    }
+
+    /// Whether release `i` passes every part of `filter` but its text.
+    pub fn keeps(&self, i: usize, filter: &ReleaseFilter) -> bool {
+        filter.outcome.is_none_or(|r| self.rows[i].outcome == r)
+            && filter.availability.is_none_or(|a| match a {
+                AvailabilityFilter::Is(s) => self.availability[i] == Some(s),
+                AvailabilityFilter::Unknown => self.availability[i].is_none(),
+            })
+            && filter.flag.is_none_or(|f| self.flags[i] & f.bits() != 0)
     }
 }
 
@@ -1026,6 +1062,33 @@ mod tests {
             .iter()
             .map(|&i| index.rows[i as usize].title.clone())
             .collect()
+    }
+
+    #[test]
+    fn release_filters_live_in_the_url() {
+        let pairs = [
+            ("status", "clone"),
+            ("availability", "unknown"),
+            ("flag", "stale"),
+        ];
+        let get = |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
+        assert_eq!(
+            ReleaseFilter::from_query(get),
+            ReleaseFilter {
+                text: String::new(),
+                outcome: Some(Outcome::Clone),
+                availability: Some(AvailabilityFilter::Unknown),
+                flag: Some(FlagFilter::Stale),
+            }
+        );
+        assert_eq!(
+            ReleaseFilter::from_query(|k| (k == "availability").then_some("missing")).availability,
+            Some(AvailabilityFilter::Is(GameStatus::Missing))
+        );
+        assert_eq!(
+            ReleaseFilter::from_query(|_| Some("nonsense")),
+            ReleaseFilter::default()
+        );
     }
 
     #[test]

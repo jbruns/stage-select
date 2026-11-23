@@ -13,11 +13,35 @@ use super::status::{Look, Status};
 use super::url_state::{edited, query_string};
 
 /// The query string's keys that belong to one tab's content, such as its list's filter: a link to another tab leaves
-/// them behind. Besides the shared list's own, `finding` (a source set's Entries) and `status` (an ingest folder's
-/// Items) filter one tab's list, and `plan` names the plan one tab shows; no page keeps any of them across its tabs.
-const TAB_STATE: [&str; 10] = [
-    "tab", "q", "sort", "row", "sel", "all", "kind", "plan", "finding", "status",
+/// them behind. Besides the shared list's own, `finding`, `state`, `algorithm` (an audit's Entries), `status`,
+/// `availability` and `flag` (a selection's groups, an ingest folder's Items) filter one tab's list, and `plan` names
+/// the plan one tab shows; no page keeps any of them across its tabs.
+const TAB_STATE: [&str; 14] = [
+    "tab",
+    "q",
+    "sort",
+    "row",
+    "sel",
+    "all",
+    "kind",
+    "plan",
+    "finding",
+    "state",
+    "algorithm",
+    "status",
+    "availability",
+    "flag",
 ];
+
+/// A scoped list's own keys, such as `changes-q`, which a second list on a page uses: they go with the tab too.
+const LIST_KEYS: [&str; 5] = ["q", "sort", "row", "sel", "all"];
+
+fn is_tab_state(key: &str) -> bool {
+    TAB_STATE.contains(&key)
+        || key
+            .rsplit_once('-')
+            .is_some_and(|(scope, k)| !scope.is_empty() && LIST_KEYS.contains(&k))
+}
 
 /// The link to the tab `tab` of the page at `path` whose query string is `pairs`: the page's other state is kept, and
 /// what belongs to the tab open now is left behind. `None` is the page's first tab, with no `tab` in the URL.
@@ -26,7 +50,7 @@ pub fn tab_href<'a>(
     pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
     tab: Option<&str>,
 ) -> String {
-    let kept = pairs.into_iter().filter(|(k, _)| !TAB_STATE.contains(k));
+    let kept = pairs.into_iter().filter(|(k, _)| !is_tab_state(k));
     let pairs = edited(kept, &[("tab", tab.map(str::to_string))]);
     format!("{path}{}", query_string(&pairs))
 }
@@ -209,6 +233,26 @@ mod tests {
         assert_eq!(
             tab_href("/source-sets/NES", pairs, Some("games")),
             "/source-sets/NES?saved=2&tab=games"
+        );
+    }
+
+    #[test]
+    fn a_tab_link_leaves_every_list_filter_and_scoped_list_behind() {
+        let pairs = [
+            ("state", "unmatched"),
+            ("algorithm", "sha1"),
+            ("availability", "missing"),
+            ("flag", "review"),
+            ("changes-q", "mario"),
+            ("previews-sort", "-made"),
+            ("versions-row", "2"),
+            ("stale-sel", "a,b"),
+            ("drift-all", "1"),
+            ("saved", "2"),
+        ];
+        assert_eq!(
+            tab_href("/profiles/Mine", pairs, Some("Nintendo - NES")),
+            "/profiles/Mine?saved=2&tab=Nintendo%20-%20NES"
         );
     }
 

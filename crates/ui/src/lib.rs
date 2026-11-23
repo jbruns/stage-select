@@ -29,7 +29,6 @@ pub mod selection_model;
 pub mod settings_model;
 pub mod shell;
 pub mod source_set_model;
-pub mod table;
 pub mod welcome_model;
 
 #[cfg(target_arch = "wasm32")]
