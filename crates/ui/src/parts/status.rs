@@ -1407,7 +1407,7 @@ impl Status for AvailabilityStatus {
         match self {
             AvailabilityStatus::Missing => look(
                 Glyph::CircleOff,
-                Tone::Review,
+                Tone::Neutral,
                 "Missing",
                 "You have none of its ROMs.",
             ),
@@ -2079,6 +2079,19 @@ mod tests {
         assert_eq!(PlanKind::from(RepairKind::Conflict), PlanKind::Rename);
         assert_eq!(PlanKind::from(RepairKind::KeepAside), PlanKind::SetAside);
         assert_eq!(PlanKind::from(RepairKind::Convert), PlanKind::Convert);
+    }
+
+    #[test]
+    fn availability_takes_the_tone_of_the_game_status_it_derives_from() {
+        for status in GameStatus::ALL {
+            for claimed in [false, true] {
+                assert_eq!(
+                    AvailabilityStatus::of(status, claimed).look().tone,
+                    status.look().tone,
+                    "{status:?}, claimed {claimed}"
+                );
+            }
+        }
     }
 
     #[test]

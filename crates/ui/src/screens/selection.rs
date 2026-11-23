@@ -226,6 +226,25 @@ pub fn ReleasesPanel(
         let index = index.clone();
         move |_| filter.with(|f| sorted.with(|order| Arc::new(index.filtered(order, f))))
     });
+    // The cells show these statuses as icons only, and a preview has no detail pane, so the legend is how you read them.
+    let legend = Memo::new({
+        let index = index.clone();
+        move |_| {
+            shown.with(|shown| {
+                let rows = || shown.iter().map(|&i| i as usize);
+                let mut looks = present_looks(rows().map(|i| index.rows[i].outcome));
+                looks.extend(present_looks(rows().filter_map(|i| {
+                    index
+                        .availability(i)
+                        .map(|s| AvailabilityStatus::of(s, index.claimed(i)))
+                })));
+                looks.extend(present_looks(
+                    rows().flat_map(|i| flag_statuses(index.flags(i))),
+                ));
+                looks
+            })
+        }
+    });
     let rows = Signal::derive({
         let index = index.clone();
         move || {
@@ -339,6 +358,7 @@ pub fn ReleasesPanel(
                 on_open=Callback::new(move |_| focus(detail_id))
                 empty="No games match these filters.".to_string()
             />
+            <LegendStrip looks=legend list="releases" />
         </div>
     }
 }
@@ -407,6 +427,7 @@ impl Grid for ChangeItem {
 /// What changed, release by release, in a table.
 #[component]
 pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoView {
+    let looks = present_looks(changes.iter().flat_map(|c| [c.before, c.after]).flatten());
     let rows = rows_of(changes.into_iter().map(ChangeItem).collect::<Vec<_>>());
     view! {
         <DataTable
@@ -418,6 +439,7 @@ pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoV
             on_open=Callback::new(|_| {})
             empty="No game changes its outcome.".to_string()
         />
+        <LegendStrip looks=Signal::stored(looks) list=id />
     }
 }
 
@@ -939,10 +961,15 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             <span class="what">"Game groups"</span>
                         </li>
                         <StatusCount status=Outcome::Kept>{summary.kept}</StatusCount>
-                        <StatusCount status=GroupStatus::ChoiceToReview what="Choices to review">
-                            {summary.stale + summary.conflicting}
+                        // Only the summary's counts are kept, and a group can carry more than one of these flags,
+                        // so they show as flags, not as each group's one status.
+                        <StatusCount status=SelectionFlag::Unresolved>{summary.unresolved}</StatusCount>
+                        <StatusCount status=SelectionFlag::StaleChoice what="Stale choices">
+                            {summary.stale}
                         </StatusCount>
-                        <StatusCount status=GroupStatus::Unresolved>{summary.unresolved}</StatusCount>
+                        <StatusCount status=SelectionFlag::ConflictingChoice what="Conflicting choices">
+                            {summary.conflicting}
+                        </StatusCount>
                     </ul>
                     <p class="note">
                         "This selection is pruned: only its summary is kept, so its list of games is gone."

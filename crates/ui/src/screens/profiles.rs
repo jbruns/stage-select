@@ -26,8 +26,8 @@ use crate::parts::status::{GroupStatus, StatusCount};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, add_item, lines, move_item, reset_global, reset_system,
-    system_tabs, use_global_settings,
+    SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, reset_global,
+    reset_system, system_tabs, use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
 
@@ -837,6 +837,12 @@ fn SettingsTab(
 fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
     let selection = &preview.selection;
     let summary = selection.summary;
+    let groups = group_counts(&selection.groups);
+    let (to_review, unresolved, yours) = (
+        groups.get(GroupStatus::ChoiceToReview),
+        groups.get(GroupStatus::Unresolved),
+        groups.get(GroupStatus::YourChoice),
+    );
     let index = Arc::new(SelectionIndex::new(
         selection.clone(),
         &Default::default(),
@@ -871,10 +877,12 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
             <StatusCount status=Outcome::Clone what="Clones">{summary.clones}</StatusCount>
             <StatusCount status=Outcome::LeftOut>{summary.left_out}</StatusCount>
             <StatusCount status=GroupStatus::ChoiceToReview what="Choices to review">
-                {summary.stale + summary.conflicting}
+                {to_review}
             </StatusCount>
-            <StatusCount status=GroupStatus::Unresolved>{summary.unresolved}</StatusCount>
-            <StatusCount status=GroupStatus::YourChoice what="Your choices">{summary.choices}</StatusCount>
+            <StatusCount status=GroupStatus::Unresolved>{unresolved}</StatusCount>
+            <StatusCount status=GroupStatus::YourChoice what="Your choices">
+                {yours}
+            </StatusCount>
         </ul>
         <h3>"Changes"</h3>
         {match preview.against {

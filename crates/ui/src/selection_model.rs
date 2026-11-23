@@ -502,6 +502,24 @@ pub fn group_status(group: &SelectionGroup) -> GroupStatus {
     }
 }
 
+/// How many groups show each status, each group counted once under the status its row shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupCounts(std::collections::HashMap<GroupStatus, usize>);
+
+impl GroupCounts {
+    pub fn get(&self, status: GroupStatus) -> usize {
+        self.0.get(&status).copied().unwrap_or(0)
+    }
+}
+
+pub fn group_counts(groups: &[SelectionGroup]) -> GroupCounts {
+    let mut counts = GroupCounts::default();
+    for group in groups {
+        *counts.0.entry(group_status(group)).or_default() += 1;
+    }
+    counts
+}
+
 /// Confirms the engine's pick, or your checked releases, in every unresolved group you haven't staged a choice
 /// for, and says how many it confirmed.
 pub fn confirm_unresolved(
@@ -1419,5 +1437,26 @@ mod tests {
             vec![SelectionFlag::StaleChoice]
         );
         assert_eq!(flag_statuses(flag::CHOICE), vec![]);
+    }
+
+    #[test]
+    fn a_group_is_counted_once_under_the_status_its_row_shows() {
+        let mut stale = group("pong", "Pong (USA)", &[], &[]);
+        stale.unresolved = true;
+        stale.choice = Some(GroupChoice {
+            checked: BTreeSet::from(["Pong (Japan)".to_owned()]),
+            status: ChoiceStatus::Stale,
+            picks: vec!["Pong (USA)".into()],
+            engine_unresolved: true,
+            problems: vec!["Pong (Japan)".into()],
+        });
+        let mut unresolved = group("tetris", "Tetris (USA)", &[], &[]);
+        unresolved.unresolved = true;
+
+        let counts = group_counts(&[stale, unresolved]);
+
+        assert_eq!(counts.get(GroupStatus::ChoiceToReview), 1);
+        assert_eq!(counts.get(GroupStatus::Unresolved), 1);
+        assert_eq!(counts.get(GroupStatus::YourChoice), 0);
     }
 }
