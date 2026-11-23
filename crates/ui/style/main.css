@@ -195,21 +195,6 @@ code,
   white-space: nowrap;
 }
 
-.dot {
-  width: var(--space-2);
-  height: var(--space-2);
-  border-radius: 50%;
-  background: var(--color-text-secondary);
-}
-
-.dot.live {
-  background: var(--color-verified);
-}
-
-.dot.reconnecting {
-  background: var(--color-review);
-}
-
 main {
   max-width: 96rem;
   margin: 0 auto;
@@ -419,69 +404,31 @@ input[type="file"] {
   line-height: var(--line-meta);
 }
 
-.count.verified {
-  border-left: var(--space-1) solid var(--color-verified);
+/* A count of one status: its tone marks the edge and the number, since a count-strip button keeps its own colour. */
+
+.status-count {
+  border-left: var(--space-1) solid var(--tone);
 }
 
-.count.verified .n {
-  color: var(--color-verified);
+.status-count .n {
+  color: var(--tone);
 }
 
-.count.review {
-  border-left: var(--space-1) solid var(--color-review);
-}
+/* Tags: neutral labels that are not a status, such as "Not in the DAT". */
 
-.count.review .n {
-  color: var(--color-review);
-}
-
-/* State labels: Verified is green and never blue, so it can't be mistaken for a Selected row. */
-
-.state,
-.tag,
-.job-state {
+.tag {
   display: inline-block;
   padding: 0 var(--space-2);
   border: var(--border-width) solid currentColor;
   border-radius: var(--radius-control);
   font-size: var(--type-meta);
   line-height: var(--line-meta);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
-.state.verified {
-  color: var(--color-verified);
-}
-
-.state.verified::before {
-  content: "✓ ";
-}
-
-.state.review,
-.job-queued,
-.job-interrupted {
-  color: var(--color-review);
-}
-
-.state.review::before {
-  content: "! ";
-}
-
-.job-running {
-  color: var(--color-action);
-}
-
-.job-succeeded {
-  color: var(--color-verified);
-}
-
-.job-failed,
 .failed {
   color: var(--color-failed);
-}
-
-.tag {
-  color: var(--color-text-secondary);
 }
 
 .progress {
@@ -1026,35 +973,6 @@ tbody td button.small {
   padding: var(--space-1) 0;
 }
 
-.review {
-  color: var(--color-review);
-}
-
-.outcome-kept {
-  color: var(--color-verified);
-  font-weight: 600;
-}
-
-.outcome-clone {
-  color: var(--color-text-secondary);
-}
-
-.outcome-left_out {
-  color: var(--color-failed);
-}
-
-.avail-complete {
-  color: var(--color-verified);
-}
-
-.avail-incomplete {
-  color: var(--color-review);
-}
-
-.avail-missing {
-  color: var(--color-failed);
-}
-
 .c-group {
   width: 14rem;
 }
@@ -1280,22 +1198,27 @@ a.icon-button {
 }
 
 .tone-good {
+  --tone: var(--tone-good);
   color: var(--tone-good);
 }
 
 .tone-review {
+  --tone: var(--tone-review);
   color: var(--tone-review);
 }
 
 .tone-failed {
+  --tone: var(--tone-failed);
   color: var(--tone-failed);
 }
 
 .tone-active {
+  --tone: var(--tone-active);
   color: var(--tone-active);
 }
 
 .tone-neutral {
+  --tone: var(--tone-neutral);
   color: var(--tone-neutral);
 }
 

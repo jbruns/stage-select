@@ -24,8 +24,8 @@ use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
 use crate::library_model::live_status;
 use crate::model::{
-    EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, revision_label,
-    warning_counts, when,
+    Derived, EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts,
+    revision_label, warning_counts, when,
 };
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
@@ -33,7 +33,8 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
-    FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge, StatusIcon,
+    FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge,
+    StatusCount, StatusIcon,
 };
 use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
@@ -352,22 +353,17 @@ fn Overview(
                         {GameStatus::ALL
                             .into_iter()
                             .map(|s| {
+                                let n = a.games.get(&s).copied().unwrap_or(0);
                                 view! {
-                                    <li class="count">
-                                        <span class="n">{a.games.get(&s).copied().unwrap_or(0)}</span>
-                                        <span class="what">
-                                            <StatusIcon status=s tab_stop=false />
-                                            " "
-                                            {s.look().label}
-                                        </span>
-                                    </li>
+                                    <StatusCount status=s>
+                                        {n}
+                                    </StatusCount>
                                 }
                             })
                             .collect_view()}
-                        <li class="count review">
-                            <span class="n">{review}</span>
-                            <span class="what">"Entries that need review"</span>
-                        </li>
+                        <StatusCount status=Derived::NeedsReview what="Entries that need review">
+                            {review}
+                        </StatusCount>
                     </ul>
                     {outside_line}
                     <ByRegion name=name.clone() />

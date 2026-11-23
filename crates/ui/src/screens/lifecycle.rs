@@ -19,6 +19,7 @@ use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
 use crate::model::when;
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
+use crate::parts::status::StatusBadge;
 
 /// Where the unregistered history is.
 pub const UNREGISTERED: &str = "/settings/unregistered";
@@ -346,7 +347,7 @@ fn history_view(h: RegistrationHistory) -> AnyView {
                 {h.jobs.into_iter().map(|j| view! {
                     <li>
                         {format!("{} job #{}, queued {}: ", super::jobs::kind_label(j.kind), j.id, when(&j.created_at))}
-                        {super::jobs::state_view(j.state)}
+                        <StatusBadge status=j.state />
                     </li>
                 }).collect_view()}
             </ul>

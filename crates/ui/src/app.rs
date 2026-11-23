@@ -13,6 +13,7 @@ use crate::events::{Stream, provide_live, use_live};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::layout::{Tab, Tabs};
 use crate::parts::overlay::Tooltip;
+use crate::parts::status::StatusIcon;
 use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
@@ -318,7 +319,7 @@ fn StreamStatus() -> impl IntoView {
     let active = move || live.book.with(|b| b.active());
     view! {
         <p class="stream" aria-live="polite">
-            <span class=move || format!("dot {}", live.stream.get().label().to_lowercase())></span>
+            {move || view! { <StatusIcon status=live.stream.get() tab_stop=false /> }}
             <span class="stream-text">
                 {move || match live.stream.get() {
                     Stream::Live => format!("Live · {} jobs active", active()),

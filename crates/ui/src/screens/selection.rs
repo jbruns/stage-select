@@ -23,19 +23,23 @@ use crate::arcade_model::{self, Needs};
 use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
 use crate::parts::help::Help;
+use crate::parts::icon::Svg;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::overlay::Tooltip;
-use crate::parts::status::{GameFlag, GroupStatus, Status, StatusBadge, StatusIcon, Tone};
+use crate::parts::status::{
+    AvailabilityStatus, GameFlag, GroupStatus, SelectionFlag, Status, StatusBadge, StatusCount,
+    StatusIcon,
+};
 use crate::parts::url_state::use_list_query;
 use crate::placement_model::FlagsNow;
 use crate::screens::PlanABuild;
 use crate::screens::audit::{ReAudit, flags_notice, flags_now, focus, placements_now};
 use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
-    SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
-    flag_labels, group_status, includable, include_and_check, kept_need_review, left_out_text,
-    listed, outcome_hint, outcome_label, rule_text, staged_changes, toggle, unresolved_explanation,
+    SelectionIndex, checked, confirm, confirm_unresolved, flag_statuses, group_status, includable,
+    include_and_check, kept_need_review, left_out_text, listed, rule_text, staged_changes, toggle,
+    unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -117,20 +121,14 @@ impl ReleaseCol {
 }
 
 fn outcome_view(outcome: Outcome) -> AnyView {
-    view! {
-        <span class=format!("outcome outcome-{}", outcome.as_str()) title=outcome_hint(outcome)>
-            {outcome_label(outcome)}
-        </span>
-    }
-    .into_any()
+    view! { <StatusIcon status=outcome tab_stop=false /> }.into_any()
 }
 
-fn availability_view(status: Option<GameStatus>, claimed: bool) -> AnyView {
-    match status {
-        Some(s) => {
-            view! { <span class=format!("avail avail-{}", s.as_str())>{availability_label(Some(s), claimed)}</span> }
-                .into_any()
-        }
+/// What you have of a Game, as its icon in a cell, or as a badge with its label.
+fn availability_view(status: Option<GameStatus>, claimed: bool, badge: bool) -> AnyView {
+    match status.map(|s| AvailabilityStatus::of(s, claimed)) {
+        Some(status) if badge => view! { <StatusBadge status /> }.into_any(),
+        Some(status) => view! { <StatusIcon status tab_stop=false /> }.into_any(),
         None => ().into_any(),
     }
 }
@@ -179,19 +177,16 @@ impl Grid for ReleaseItem {
             ReleaseCol::Release => row.title.clone().into_any(),
             ReleaseCol::Outcome => outcome_view(row.outcome),
             ReleaseCol::Availability => {
-                availability_view(self.index.availability(i), self.index.claimed(i))
+                availability_view(self.index.availability(i), self.index.claimed(i), false)
             }
             ReleaseCol::Rule => {
                 let text = rule_text(&row.rule);
                 let title = row.rule.reference.clone().unwrap_or_default();
                 view! { <span title=title>{text}</span> }.into_any()
             }
-            ReleaseCol::Flags => flag_labels(self.index.flags(i))
+            ReleaseCol::Flags => flag_statuses(self.index.flags(i))
                 .into_iter()
-                .map(|label| {
-                    let review = label != "Coverage drift";
-                    view! { <span class=if review { "state review" } else { "tag" }>{label}</span> " " }
-                })
+                .map(|status| view! { <StatusIcon status tab_stop=false /> " " })
                 .collect_view()
                 .into_any(),
         }
@@ -288,7 +283,7 @@ pub fn ReleasesPanel(
                         <option value="">"Any"</option>
                         {Outcome::ALL
                             .iter()
-                            .map(|r| view! { <option value=r.as_str()>{outcome_label(*r)}</option> })
+                            .map(|r| view! { <option value=r.as_str()>{r.look().label}</option> })
                             .collect_view()}
                     </select>
                 </label>
@@ -943,14 +938,11 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             <span class="n">{summary.groups}</span>
                             <span class="what">"Game groups"</span>
                         </li>
-                        <li class="count verified">
-                            <span class="n">{summary.kept}</span>
-                            <span class="what">"Kept"</span>
-                        </li>
-                        <li class="count review">
-                            <span class="n">{summary.needs_review()}</span>
-                            <span class="what">"Needs review"</span>
-                        </li>
+                        <StatusCount status=Outcome::Kept>{summary.kept}</StatusCount>
+                        <StatusCount status=GroupStatus::ChoiceToReview what="Choices to review">
+                            {summary.stale + summary.conflicting}
+                        </StatusCount>
+                        <StatusCount status=GroupStatus::Unresolved>{summary.unresolved}</StatusCount>
                     </ul>
                     <p class="note">
                         "This selection is pruned: only its summary is kept, so its list of games is gone."
@@ -1155,7 +1147,7 @@ fn Groups(
                         .map(|status| {
                             let look = status.look();
                             let n = counts[status.rank()];
-                            let tone = if look.tone == Tone::Review { "count review" } else { "count" };
+                            let tone = format!("count status-count {}", look.tone.class());
                             view! {
                                 <li>
                                     <Tooltip label=look.hint>
@@ -1170,7 +1162,13 @@ fn Groups(
                                             }
                                         >
                                             <span class="n">{n}</span>
-                                            <span class="what">{look.label}</span>
+                                            <span class="what">
+                                                <span class=format!("status {}", look.tone.class())>
+                                                    <Svg glyph=look.glyph />
+                                                </span>
+                                                " "
+                                                {look.label}
+                                            </span>
                                         </button>
                                     </Tooltip>
                                 </li>
@@ -1389,12 +1387,9 @@ fn GroupPanel(
 
     view! {
         <p>
-            {status.map(|s| {
-                let review = matches!(s, ChoiceStatus::Stale | ChoiceStatus::Conflicting);
-                view! { <span class=if review { "state review" } else { "tag" }>{choice_label(s)}</span> " " }
-            })}
-            {g.unresolved.then(|| view! { <span class="state review">"Unresolved"</span> " " })}
-            {g.drift.then(|| view! { <span class="tag">"Coverage drift"</span> " " })}
+            {status.map(|status| view! { <StatusBadge status /> " " })}
+            {g.unresolved.then(|| view! { <StatusBadge status=SelectionFlag::Unresolved /> " " })}
+            {g.drift.then(|| view! { <StatusBadge status=SelectionFlag::CoverageDrift /> " " })}
             {explanation}
         </p>
         {g.drift
@@ -1440,9 +1435,9 @@ fn GroupPanel(
                                     {title.clone()}
                                 </label>
                                 " "
-                                {outcome_view(outcome)}
+                                <StatusBadge status=outcome />
                                 " "
-                                {availability_view(avail, claimed_only)}
+                                {availability_view(avail, claimed_only, true)}
                                 {flag}
                                 <span class="note small rule">{rule}</span>
                                 {can_include
@@ -1531,7 +1526,7 @@ fn DependencyLine(
                                 {d.title.clone()}
                                 " "
                                 {match status {
-                                    Some(_) => availability_view(status, claimed_only),
+                                    Some(_) => availability_view(status, claimed_only, true),
                                     None => view! { <span class="note small">"Not audited"</span> }.into_any(),
                                 }}
                                 <span class="note small rule">{format!("Needed by {}", d.needed_by.join(", "))}</span>

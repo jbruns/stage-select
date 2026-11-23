@@ -4,13 +4,17 @@
 
 use leptos::prelude::*;
 use stage_select_api::JobState;
-use stage_select_api::build::ItemKind;
+use stage_select_api::additions::AdditionState;
+use stage_select_api::build::{FileOutcome, ItemKind, ItemState};
 use stage_select_api::ingest::IngestAction;
 use stage_select_api::repair::RepairKind;
 use stage_select_api::report::{Finding, GameStatus};
 use stage_select_api::romm::{RommAdditionsOutcome, RommFlag, RommScanOutcome};
+use stage_select_api::selection::{ChoiceStatus, Outcome};
 
 use super::icon::{Glyph, Icon};
+use crate::events::Stream;
+use crate::model::Derived;
 
 /// A status's colour, named by meaning. Each is a `--tone-*` token in `style/main.css` with a light and a dark value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1329,6 +1333,417 @@ impl Status for RommAdditionsOutcome {
     }
 }
 
+/// A Game's Selection Outcome: kept, a clone of a Game kept, left out, or needed by a Game kept.
+impl Status for Outcome {
+    const ALL: &'static [Self] = &Outcome::ALL;
+
+    fn look(self) -> Look {
+        match self {
+            Outcome::Kept => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Kept",
+                "The version of a game the selection keeps.",
+            ),
+            Outcome::Clone => look(
+                Glyph::Copy,
+                Tone::Neutral,
+                "Clone",
+                "Another version of a game you kept.",
+            ),
+            Outcome::LeftOut => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Left out",
+                "A rule of your selection profile leaves it out.",
+            ),
+            Outcome::Dependency => look(
+                Glyph::Package,
+                Tone::Neutral,
+                "Dependency",
+                "A game you kept needs it to run.",
+            ),
+        }
+    }
+}
+
+/// What you have of a Game a Selection lists, from the latest Audit: its Game Status, saying when it rests on Claim
+/// Evidence for some ROM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AvailabilityStatus {
+    Missing,
+    Incomplete,
+    IncompleteOnClaims,
+    CompleteOnClaims,
+    Complete,
+    NothingToCheck,
+}
+
+impl AvailabilityStatus {
+    /// The availability of a Game with `status`, `claimed` when some ROM of it is present on Claim Evidence alone.
+    pub fn of(status: GameStatus, claimed: bool) -> Self {
+        match (status, claimed) {
+            (GameStatus::Complete, false) => AvailabilityStatus::Complete,
+            (GameStatus::Complete, true) => AvailabilityStatus::CompleteOnClaims,
+            (GameStatus::Incomplete, false) => AvailabilityStatus::Incomplete,
+            (GameStatus::Incomplete, true) => AvailabilityStatus::IncompleteOnClaims,
+            (GameStatus::Missing, _) => AvailabilityStatus::Missing,
+            (GameStatus::NothingToCheck, _) => AvailabilityStatus::NothingToCheck,
+        }
+    }
+}
+
+impl Status for AvailabilityStatus {
+    const ALL: &'static [Self] = &[
+        AvailabilityStatus::Missing,
+        AvailabilityStatus::Incomplete,
+        AvailabilityStatus::IncompleteOnClaims,
+        AvailabilityStatus::CompleteOnClaims,
+        AvailabilityStatus::Complete,
+        AvailabilityStatus::NothingToCheck,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            AvailabilityStatus::Missing => look(
+                Glyph::CircleOff,
+                Tone::Review,
+                "Missing",
+                "You have none of its ROMs.",
+            ),
+            AvailabilityStatus::Incomplete => look(
+                Glyph::CircleDashed,
+                Tone::Review,
+                "Incomplete",
+                "You have some of its ROMs.",
+            ),
+            AvailabilityStatus::IncompleteOnClaims => look(
+                Glyph::CircleDotDashed,
+                Tone::Review,
+                "Incomplete on claims",
+                "You have some of its ROMs, and some of those only by their archive's claim, which a build never takes.",
+            ),
+            AvailabilityStatus::CompleteOnClaims => look(
+                Glyph::ShieldQuestionMark,
+                Tone::Good,
+                "Complete on claims",
+                "You have every ROM it needs, but some only by their archive's claim, which a build never takes.",
+            ),
+            AvailabilityStatus::Complete => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Complete",
+                "You have every ROM it needs.",
+            ),
+            AvailabilityStatus::NothingToCheck => look(
+                Glyph::CircleMinus,
+                Tone::Neutral,
+                "Nothing to check",
+                "It lists no ROM you need that a file can match, so it lacks nothing.",
+            ),
+        }
+    }
+}
+
+/// The states the glossary derives from an Entry's Finding and Evidence.
+impl Status for Derived {
+    const ALL: &'static [Self] = &[Derived::NeedsReview, Derived::Verified];
+
+    fn look(self) -> Look {
+        match self {
+            Derived::NeedsReview => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Needs review",
+                "Its finding isn't matched, so look at it before you repair or build.",
+            ),
+            Derived::Verified => look(
+                Glyph::ShieldCheck,
+                Tone::Good,
+                "Verified",
+                "Matched, and every byte of its payload was read.",
+            ),
+        }
+    }
+}
+
+/// How your choice for a game group relates to what the selection would pick without it.
+impl Status for ChoiceStatus {
+    const ALL: &'static [Self] = &[
+        ChoiceStatus::Conflicting,
+        ChoiceStatus::Stale,
+        ChoiceStatus::Applied,
+        ChoiceStatus::MatchesDefault,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            ChoiceStatus::Conflicting => look(
+                Glyph::ArrowLeftRight,
+                Tone::Review,
+                "Conflicting choice",
+                "A game you checked is now left out by your settings, so your choice isn't applied.",
+            ),
+            ChoiceStatus::Stale => look(
+                Glyph::Clock,
+                Tone::Review,
+                "Stale choice",
+                "A game you checked is gone from the game group, so your choice isn't applied.",
+            ),
+            ChoiceStatus::Applied => look(
+                Glyph::PencilLine,
+                Tone::Good,
+                "Your choice",
+                "Your choice decides which games are kept.",
+            ),
+            ChoiceStatus::MatchesDefault => look(
+                Glyph::CircleCheck,
+                Tone::Neutral,
+                "Matches the default",
+                "The selection now keeps exactly the games you checked, so you can drop your choice.",
+            ),
+        }
+    }
+}
+
+/// A Selection's flags on a game group, shown on each of its Games.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SelectionFlag {
+    Unresolved,
+    StaleChoice,
+    ConflictingChoice,
+    CoverageDrift,
+}
+
+impl Status for SelectionFlag {
+    const ALL: &'static [Self] = &[
+        SelectionFlag::Unresolved,
+        SelectionFlag::StaleChoice,
+        SelectionFlag::ConflictingChoice,
+        SelectionFlag::CoverageDrift,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            SelectionFlag::Unresolved => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Unresolved",
+                "The selection picked a game by a tie-break, so it needs your decision.",
+            ),
+            SelectionFlag::StaleChoice => look(
+                Glyph::Clock,
+                Tone::Review,
+                "Stale choice",
+                "A game you checked is gone from the game group, so your choice isn't applied.",
+            ),
+            SelectionFlag::ConflictingChoice => look(
+                Glyph::ArrowLeftRight,
+                Tone::Review,
+                "Conflicting choice",
+                "A game you checked is now left out by your settings, so your choice isn't applied.",
+            ),
+            SelectionFlag::CoverageDrift => look(
+                Glyph::Globe,
+                Tone::Neutral,
+                "Coverage drift",
+                "A game in this game group has no metadata entry, so the selection may know less about it.",
+            ),
+        }
+    }
+}
+
+/// Where an Addition is in its life.
+impl Status for AdditionState {
+    const ALL: &'static [Self] = &[
+        AdditionState::Failed,
+        AdditionState::Pending,
+        AdditionState::Retiring,
+        AdditionState::Restoring,
+        AdditionState::Active,
+        AdditionState::Retired,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            AdditionState::Failed => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Failed",
+                "Its file couldn't be written into the additions set, and the original was left as it was.",
+            ),
+            AdditionState::Pending => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Being published",
+                "Its file is being written into the additions set.",
+            ),
+            AdditionState::Retiring => look(
+                Glyph::Archive,
+                Tone::Active,
+                "Being retired",
+                "Its file is being moved into the additions set's kept files.",
+            ),
+            AdditionState::Restoring => look(
+                Glyph::Undo2,
+                Tone::Active,
+                "Being restored",
+                "Its file is being moved back from the additions set's kept files.",
+            ),
+            AdditionState::Active => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Active",
+                "Its file is in the additions set, and builds that opt in read it.",
+            ),
+            AdditionState::Retired => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Retired",
+                "Builds no longer read it; its file is among the additions set's kept files.",
+            ),
+        }
+    }
+}
+
+/// A Library Folder's latest Check, against the folder's current Build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CheckFlag {
+    BeforeBuild,
+}
+
+impl Status for CheckFlag {
+    const ALL: &'static [Self] = &[CheckFlag::BeforeBuild];
+
+    fn look(self) -> Look {
+        match self {
+            CheckFlag::BeforeBuild => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Before current build",
+                "This check ran before the folder's current build, so check the folder again to see it as it is.",
+            ),
+        }
+    }
+}
+
+/// What a Check found for one built file.
+impl Status for FileOutcome {
+    const ALL: &'static [Self] = &[
+        FileOutcome::Conflict,
+        FileOutcome::Missing,
+        FileOutcome::Unreadable,
+        FileOutcome::Repacked,
+        FileOutcome::Refreshed,
+        FileOutcome::Unchanged,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            FileOutcome::Conflict => look(
+                Glyph::ArrowLeftRight,
+                Tone::Review,
+                "Conflict",
+                "It changed, and no longer holds the ROMs the DAT expects there.",
+            ),
+            FileOutcome::Missing => look(Glyph::CircleOff, Tone::Review, "Missing", "It's gone."),
+            FileOutcome::Unreadable => look(
+                Glyph::FileExclamationPoint,
+                Tone::Review,
+                "Unreadable",
+                "It couldn't be read, or changed while it was read.",
+            ),
+            FileOutcome::Repacked => look(
+                Glyph::Package,
+                Tone::Neutral,
+                "Repacked",
+                "It holds the ROMs the DAT expects there in another ZIP, such as one zipped again by another tool.",
+            ),
+            FileOutcome::Refreshed => look(
+                Glyph::RefreshCw,
+                Tone::Good,
+                "Record refreshed",
+                "Its size or time changed, but it's still the file the build wrote, so its record was refreshed.",
+            ),
+            FileOutcome::Unchanged => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Unchanged",
+                "Its size and modification time are as the build recorded them.",
+            ),
+        }
+    }
+}
+
+/// Where a Build's item stands.
+impl Status for ItemState {
+    const ALL: &'static [Self] = &[
+        ItemState::Failed,
+        ItemState::Uncertain,
+        ItemState::Publishing,
+        ItemState::Pending,
+        ItemState::Applied,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            ItemState::Failed => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Failed",
+                "It couldn't be written, or failed its check, so nothing was put in place.",
+            ),
+            ItemState::Uncertain => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Uncertain",
+                "The build stopped while putting it in place, and its target now holds another file.",
+            ),
+            ItemState::Publishing => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Writing",
+                "It's written and checked, and being put in place.",
+            ),
+            ItemState::Pending => look(
+                Glyph::Clock,
+                Tone::Neutral,
+                "Not written",
+                "The build hasn't written it, or stopped before it did.",
+            ),
+            ItemState::Applied => look(Glyph::Check, Tone::Good, "Written", "It's in place."),
+        }
+    }
+}
+
+/// The workbench's live connection to the Service.
+impl Status for Stream {
+    const ALL: &'static [Self] = &[Stream::Reconnecting, Stream::Connecting, Stream::Live];
+
+    fn look(self) -> Look {
+        match self {
+            Stream::Reconnecting => look(
+                Glyph::RefreshCw,
+                Tone::Review,
+                "Reconnecting",
+                "The connection to the service dropped, so what you see may be out of date until it's back.",
+            ),
+            Stream::Connecting => look(
+                Glyph::LoaderCircle,
+                Tone::Neutral,
+                "Connecting",
+                "The workbench is connecting to the service for live updates.",
+            ),
+            Stream::Live => look(
+                Glyph::Activity,
+                Tone::Good,
+                "Live",
+                "Jobs update here as they change.",
+            ),
+        }
+    }
+}
+
 /// A status as its icon alone, for a table cell: its label is the icon's tooltip and accessible name. In a
 /// `parts::list` row, set `tab_stop` false: the row's detail pane names it too.
 #[component]
@@ -1413,6 +1828,29 @@ pub fn StatusBadge<S: Status>(status: S) -> impl IntoView {
     }
 }
 
+/// A count tile in a `ul.counts`: how many have `status`, in its tone, its glyph and label below the number. `what`
+/// names what is counted when the status's label alone doesn't ("Entries that need review").
+#[component]
+pub fn StatusCount<S: Status>(
+    status: S,
+    #[prop(optional, into)] what: Option<String>,
+    children: Children,
+) -> impl IntoView {
+    let look = status.look();
+    view! {
+        <li class=format!("count status-count {}", look.tone.class())>
+            <span class="n">{children()}</span>
+            <span class="what">
+                <span class=format!("status {}", look.tone.class())>
+                    <Icon glyph=look.glyph label=look.hint />
+                </span>
+                " "
+                {what.unwrap_or_else(|| look.label.to_string())}
+            </span>
+        </li>
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -1447,6 +1885,16 @@ mod tests {
             ("selection groups", vocabulary::<GroupStatus>()),
             ("calibration", vocabulary::<CalibrationStatus>()),
             ("first-run steps", vocabulary::<StepStatus>()),
+            ("selection outcomes", vocabulary::<Outcome>()),
+            ("availability", vocabulary::<AvailabilityStatus>()),
+            ("entry states", vocabulary::<Derived>()),
+            ("choices", vocabulary::<ChoiceStatus>()),
+            ("selection flags", vocabulary::<SelectionFlag>()),
+            ("additions", vocabulary::<AdditionState>()),
+            ("folder checks", vocabulary::<CheckFlag>()),
+            ("checked files", vocabulary::<FileOutcome>()),
+            ("build items", vocabulary::<ItemState>()),
+            ("the stream", vocabulary::<Stream>()),
         ]
     }
 
@@ -1631,5 +2079,30 @@ mod tests {
         assert_eq!(PlanKind::from(RepairKind::Conflict), PlanKind::Rename);
         assert_eq!(PlanKind::from(RepairKind::KeepAside), PlanKind::SetAside);
         assert_eq!(PlanKind::from(RepairKind::Convert), PlanKind::Convert);
+    }
+
+    #[test]
+    fn availability_names_a_status_resting_on_claims() {
+        assert_eq!(
+            AvailabilityStatus::of(GameStatus::Complete, false),
+            AvailabilityStatus::Complete
+        );
+        assert_eq!(
+            AvailabilityStatus::of(GameStatus::Complete, true),
+            AvailabilityStatus::CompleteOnClaims
+        );
+        assert_eq!(
+            AvailabilityStatus::of(GameStatus::Incomplete, true),
+            AvailabilityStatus::IncompleteOnClaims
+        );
+        // Claims make a game no less missing, and leave nothing to check as it is.
+        assert_eq!(
+            AvailabilityStatus::of(GameStatus::Missing, true),
+            AvailabilityStatus::Missing
+        );
+        assert_eq!(
+            AvailabilityStatus::of(GameStatus::NothingToCheck, true),
+            AvailabilityStatus::NothingToCheck
+        );
     }
 }
