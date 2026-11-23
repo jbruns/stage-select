@@ -29,7 +29,7 @@ use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::meter::ProgressMeter;
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
@@ -669,7 +669,7 @@ fn job_detail(row: JobRow) -> AnyView {
                 .map(|error| {
                     view! {
                         <dt>"Error"</dt>
-                        <dd><Problem message=error /></dd>
+                        <dd><Problem message=error live=MessageLive::Off /></dd>
                     }
                 })}
         </dl>

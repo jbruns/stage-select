@@ -11,7 +11,7 @@ use stage_select_api::{Dat, Root, SourceSetSummary};
 
 use crate::api;
 use crate::events::use_live;
-use crate::parts::message::{Message, MessageKind};
+use crate::parts::message::{Live, Message, MessageKind};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
 use crate::parts::status::{StatusBadge, StepStatus};
@@ -349,7 +349,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         Step::Root => {
             let again = RwSignal::new(false);
             view! {
-                <Message kind=MessageKind::DONE>
+                <Message kind=MessageKind::DONE live=Live::Off>
                     {held(|h| {
                         let roots = h
                             .roots
@@ -379,7 +379,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
             .into_any()
         }
         Step::Dat => view! {
-            <Message kind=MessageKind::DONE>
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| {
                     let dats = h.dats.iter().map(|d| d.dat.clone()).collect::<Vec<_>>().join(", ");
                     format!("Your DATs: {dats}.")
@@ -388,7 +388,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         }
         .into_any(),
         Step::SourceSet => view! {
-            <Message kind=MessageKind::DONE>
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| {
                     let sets = h.sets.iter().map(|s| s.set.name.clone()).collect::<Vec<_>>().join(", ");
                     format!("Your source sets: {sets}.")
@@ -397,7 +397,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         }
         .into_any(),
         Step::Audit => view! {
-            <Message kind=MessageKind::DONE>"Your first audit is done. Open it to see what it found:"</Message>
+            <Message kind=MessageKind::DONE live=Live::Off>"Your first audit is done. Open it to see what it found:"</Message>
             <ul>
                 {move || {
                     let audited: Vec<(String, i64)> = last.with(|h| {
@@ -423,7 +423,7 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
         }
         .into_any(),
         Step::Library => view! {
-            <Message kind=MessageKind::DONE>
+            <Message kind=MessageKind::DONE live=Live::Off>
                 {held(|h| format!("You have {} library folders. ", h.libraries))}
                 <A href="/libraries">"Open your library folders"</A>
             </Message>

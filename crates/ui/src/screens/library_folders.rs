@@ -42,7 +42,7 @@ use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
-use crate::parts::message::{Message, MessageKind, Problem, Said};
+use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem, Said};
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
@@ -1351,7 +1351,7 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
                                         {format!(": {}", incomplete_reason_label(i.reason))}
                                         {i.detail.map(|d| {
                                             if failed {
-                                                view! { <Problem message=d /> }.into_any()
+                                                view! { <Problem message=d live=MessageLive::Off /> }.into_any()
                                             } else {
                                                 format!(": {d}").into_any()
                                             }
@@ -1434,7 +1434,7 @@ fn check_view(check: FolderCheck) -> impl IntoView {
         .collect();
     view! {
         <p class="note">{by}</p>
-        {marker.map(|m| view! { <Message kind=MessageKind::NOTICE><p>{format!("The marker does not match: {m}")}</p></Message> })}
+        {marker.map(|m| view! { <Message kind=MessageKind::NOTICE live=MessageLive::Off><p>{format!("The marker does not match: {m}")}</p></Message> })}
         <ul class="counts">
             {outcomes
                 .into_iter()
@@ -2392,7 +2392,7 @@ fn build_item_line(item: BuildItem) -> impl IntoView {
                 item_kind_label(item.kind).to_lowercase(),
                 item_state_label(item.state).to_lowercase(),
             )}
-            {item.error.map(|message| view! { <Problem message /> })}
+            {item.error.map(|message| view! { <Problem message live=MessageLive::Off /> })}
         </li>
     }
 }

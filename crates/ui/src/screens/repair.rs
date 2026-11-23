@@ -25,7 +25,7 @@ use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Column, ListRow, Width};
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusBadge, StatusIcon};
@@ -803,7 +803,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
     let notes = p.content.notes.clone();
     let replaced_note = replaced.then(|| {
         view! {
-            <Message kind=MessageKind::NOTICE>
+            <Message kind=MessageKind::NOTICE live=Live::Off>
                 "A newer plan replaced this one, so it is shown read-only. "
                 <A href=tab_href(&desk.name.get_value(), PageTab::Repair)>"Show the source set's repair"</A>
             </Message>
@@ -826,8 +826,8 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
         </p>
         {p.job.map(|job| view! { <RepairProgress job plan=p.id desk /> })}
         {match unfinished_note(&p) {
-            Some(note) => Some(view! { <Message kind=MessageKind::NOTICE>{note}</Message> }.into_any()),
-            None => p.recovery_error.clone().map(|e| view! { <Problem message=e /> }.into_any()),
+            Some(note) => Some(view! { <Message kind=MessageKind::NOTICE live=Live::Off>{note}</Message> }.into_any()),
+            None => p.recovery_error.clone().map(|e| view! { <Problem message=e live=Live::Off /> }.into_any()),
         }}
         {p.audit_job.map(|job| view! {
             <p>

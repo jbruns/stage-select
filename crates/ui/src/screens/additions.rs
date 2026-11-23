@@ -12,7 +12,7 @@ use crate::api;
 use crate::app::Loading;
 use crate::events::use_live;
 use crate::model::{short_sha, when};
-use crate::parts::message::Problem;
+use crate::parts::message::{Live, Problem};
 use crate::parts::status::StatusBadge;
 use crate::screens::lifecycle::{
     AdditionsSetAsideAction, LifecycleSection, Paths, UnregisterAction,
@@ -327,7 +327,7 @@ fn AdditionView(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
             )}
             {addition.parent.clone().map(|p| format!(" · a version of {p}"))}
             {format!(" · approved by {} {}", addition.approved_by, when(&addition.created_at))}
-            {addition.error.clone().map(|message| view! { <Problem message /> })}
+            {addition.error.clone().map(|message| view! { <Problem message live=Live::Off /> })}
             {hashes}
             {editable.then(|| view! {
                 <div class="form">

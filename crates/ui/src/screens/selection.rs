@@ -26,7 +26,7 @@ use crate::parts::help::Help;
 use crate::parts::icon::Svg;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{
     AvailabilityStatus, GameFlag, GroupStatus, SelectionFlag, Status, StatusBadge, StatusCount,
@@ -914,7 +914,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
         </dl>
         {r.pins.arcade.as_ref().map(arcade_model::notices).map(|notices| {
             view! {
-                <Message kind=MessageKind::NOTICE>
+                <Message kind=MessageKind::NOTICE live=Live::Off>
                     {notices
                         .into_iter()
                         .map(|notice| view! { <p>{notice}</p> })
@@ -925,7 +925,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
         {(r.latest_profile_version > r.profile.version)
             .then(|| {
                 view! {
-                    <Message kind=MessageKind::NOTICE>
+                    <Message kind=MessageKind::NOTICE live=Live::Off>
                         <p>
                             {format!(
                                 "Version {} of this selection profile is available. This selection was made with version {}.",
@@ -1033,7 +1033,7 @@ fn AvailabilityNote(audit: Option<i64>, reaudit: ReAudit) -> impl IntoView {
         }
         .into_any(),
         None => view! {
-            <Message kind=MessageKind::NOTICE>
+            <Message kind=MessageKind::NOTICE live=Live::Off>
                 <p>"Not audited against this revision, so it is unknown which games you have."</p>
                 <button type="button" on:click=move |_| reaudit.start()>
                     "Audit against this revision"

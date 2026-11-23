@@ -25,7 +25,7 @@ use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::plan::{Change, PlanReview, PlanRow, apply_to_all, set_actions};
 use crate::parts::plan_model::{apply_choice, offered_by_any};
 use crate::parts::status::{BuildKind, Status, StatusIcon};
@@ -570,7 +570,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             {(!plan.content.blockers.is_empty())
                 .then(|| {
                     view! {
-                        <Message kind=MessageKind::NOTICE>
+                        <Message kind=MessageKind::NOTICE live=Live::Off>
                             <p>"You can't approve this plan until these are fixed:"</p>
                             <ul class="plain">
                                 {plan

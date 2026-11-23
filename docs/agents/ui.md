@@ -137,14 +137,26 @@ A message is not a status: it has no vocabulary and no legend. `parts::message::
 glyph beside its content, which may be text, paragraphs, a link or a list, and names the kind for assistive
 technology, so it reads without colour. Use one of three kinds:
 
-- `MessageKind::DONE`, an outcome: "Saved the storage policy." Announced politely.
-- `MessageKind::PROBLEM`, something went wrong. Announced as an alert. `Problem { message }` is the short form, and
-  `Pending` and `ActionPending` show their problems with it.
-- `MessageKind::NOTICE`, something that needs a look before the Operator goes on. Announced politely.
+- `MessageKind::DONE`, an outcome: "Saved the storage policy."
+- `MessageKind::PROBLEM`, something went wrong. `Problem { message }` is the short form, and `Pending` and
+  `ActionPending` show their problems with it.
+- `MessageKind::NOTICE`, something that needs a look before the Operator goes on.
+
+How a message is announced is its `live` prop, not its kind. The kind gives the default: a problem is `Live::Alert`,
+an outcome or a notice `Live::Polite`. Choose by what the message answers:
+
+- `Live::Alert` (the problem default): a request the Operator just made failed. `Pending` and `ActionPending`
+  problems, a failed `Said`, a queued selection that turned into a failure.
+- `Live::Polite` (the outcome and notice default): the outcome of what the Operator just did, live progress, or a
+  notice that appears because of it.
+- `Live::Off`: what is stored, shown as the page loads or per row: a job's error, each failed or incomplete item in a
+  list, a stored error on a record, a notice about the state of what is shown. Announcing these would read out the
+  page's history as if it had just happened.
 
 A part built on `Message` may make its own `MessageKind` (tone, glyph, label, live). A glyph means the same in every
-message and every status vocabulary; `message.rs` tests that. Never colour a message in CSS of its own: `.message` is
-the only rule that does.
+message and every status vocabulary; `message.rs` tests that. Never colour a message in CSS of its own: the part's
+own `.message` rules are the only ones that may set colour, border or background on its classes, and a test in
+`message.rs` fails on any other rule that does.
 
 ### Pending and problems
 
