@@ -647,6 +647,7 @@ fn finish_addition_plans(tx: &Transaction) -> Result<()> {
                     a.error
                         .unwrap_or_else(|| "it was not added; it was left as it is".into())
                 }),
+                dat_revision: None,
             });
         }
         tx.execute(

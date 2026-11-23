@@ -863,6 +863,7 @@ mod tests {
             moved,
             detail: None,
             error: error.map(Into::into),
+            dat_revision: None,
         };
         assert_eq!(outcome(&plan, None), Outcome::Waiting);
         plan.approval = serde_json::from_value(

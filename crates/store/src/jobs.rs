@@ -47,7 +47,7 @@ pub(super) const JOB_QUERY: &str =
             j.kind, p.name, v.version, j.selection_id, j.library_folder_id, j.plan_id, i.root, j.evidence,
             j.repair_plan_id, j.cancel_requested_at, ad.provider || '/' || ad.name, rs.platform, rs.outcome,
             rs.task_id, rs.detail, rs.requested_at, rs.ended_at, rs.additions, j.bytes_read, j.bytes_written,
-            j.duration_ms
+            j.duration_ms, b.id
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
      LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
@@ -56,7 +56,8 @@ pub(super) const JOB_QUERY: &str =
      LEFT JOIN profiles p ON p.id = v.profile_id
      LEFT JOIN additions_sets a ON a.id = j.additions_set_id
      LEFT JOIN dats ad ON ad.id = a.dat_id
-     LEFT JOIN romm_scans rs ON rs.job_id = j.id";
+     LEFT JOIN romm_scans rs ON rs.job_id = j.id
+     LEFT JOIN builds b ON b.job_id = j.id";
 
 pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
     let state: String = row.get(1)?;
@@ -89,6 +90,7 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         selection: row.get(18)?,
         library_folder: row.get(19)?,
         plan: row.get(20)?,
+        build: row.get(36)?,
         ingest_folder: row.get(21)?,
         evidence: match row.get::<_, Option<String>>(22)? {
             Some(text) => Some(AuditEvidence::parse(&text).ok_or_else(|| {

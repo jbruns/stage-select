@@ -501,6 +501,26 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
 }
 
 #[test]
+fn a_build_job_names_the_build_it_recorded_once_it_starts() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let plan = env.plan(&folder, id);
+    let queued = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert_eq!(queued.build, None, "a queued build job has no build yet");
+    env.store.claim_job().unwrap().unwrap();
+    let ended = env.store.run_build_job(queued.id, None).unwrap();
+
+    let build = env.store.library_folder(folder.id).unwrap().build.unwrap();
+    assert_eq!(ended.build, Some(build.id));
+    assert_eq!(env.store.job(queued.id).unwrap().build, Some(build.id));
+}
+
+#[test]
 fn a_builds_written_bytes_are_counted_for_its_job_and_root_and_kept_across_a_restart() {
     let env = Env::new();
     env.audit();

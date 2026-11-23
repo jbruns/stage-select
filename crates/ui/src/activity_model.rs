@@ -341,6 +341,7 @@ mod tests {
             evidence: None,
             error: None,
             romm_scan: None,
+            build: None,
             throughput: None,
             workers: Workers {
                 readers: 1,
