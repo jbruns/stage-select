@@ -432,6 +432,47 @@ impl Status for SourceSetStatus {
     }
 }
 
+/// What an Audit found, as its own page names it: the Source Set's row status, as of that Audit alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AuditState {
+    NeedsReview,
+    /// Nothing to review, but some Entries rest on Claim Evidence, which never makes them Verified.
+    OnClaims,
+    Verified,
+}
+
+impl Status for AuditState {
+    const ALL: &'static [Self] = &[
+        AuditState::NeedsReview,
+        AuditState::OnClaims,
+        AuditState::Verified,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            AuditState::NeedsReview => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Needs review",
+                "This audit found entries for you to review.",
+            ),
+            AuditState::OnClaims => look(
+                Glyph::FileQuestionMark,
+                Tone::Review,
+                "On claims",
+                "This audit found nothing to review, but some entries rest on claims taken from archive \
+                 directories, not on payloads read.",
+            ),
+            AuditState::Verified => look(
+                Glyph::ShieldCheck,
+                Tone::Good,
+                "Verified",
+                "This audit found nothing to review.",
+            ),
+        }
+    }
+}
+
 /// A Library Folder's row status, highest precedence first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LibraryStatus {
@@ -2051,6 +2092,7 @@ pub(crate) mod tests {
             ("placements", vocabulary::<Placement>()),
             ("game flags", vocabulary::<GameFlag>()),
             ("source set rows", vocabulary::<SourceSetStatus>()),
+            ("audits", vocabulary::<AuditState>()),
             ("stale causes", vocabulary::<StaleCause>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),

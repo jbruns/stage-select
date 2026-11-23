@@ -1,7 +1,7 @@
 //! Stage Select's workbench: DAT Revisions, Source Sets, Audits, Selection Profiles, Selections, Library Folders,
 //! Change Plans, Builds and Jobs over the `/api/v1` JSON API (ADR 0005).
 //!
-//! `activity_model`, `arcade_model`, `coverage_model`, `fetch_model`, `model`, `selection_model`, `build_model`, `library_model`, `repair_model`, `source_set_model`,
+//! `activity_model`, `arcade_model`, `coverage_model`, `fetch_model`, `model`, `selection_model`, `build_model`, `library_model`, `repair_model`, `source_set_model`, `summary_model`,
 //! `registration`, `settings_model`, `welcome_model`, `kept_model` and `jobs` are pure, as is the logic of `parts`, and tested on the host; the rest renders in the
 //! browser.
 
@@ -31,6 +31,7 @@ pub mod selection_model;
 pub mod settings_model;
 pub mod shell;
 pub mod source_set_model;
+pub mod summary_model;
 pub mod welcome_model;
 
 #[cfg(target_arch = "wasm32")]
