@@ -232,10 +232,12 @@ keep the contrast test in `theme.rs` passing: every tone, text, secondary text a
 canvas, surface, hover, checked and selected rows, and the primary button's label on its fill and hover fill.
 
 `button.primary` is the action fill (`--color-action-fill`, hovering `--color-action-fill-hover`), as the brand
-kit's style guide says. The fonts are Chakra Petch 700 for `h1` and `h2` (`--font-display`), IBM Plex Sans 400 and
-600 and IBM Plex Mono 400: subset WOFF2 files in `assets/fonts/` with their licences beside them, all served by the
+kit's style guide says. The fonts are Chakra Petch 700 for `h1` and `h2` (`--font-display`), and Stage Sans 400 and
+600 and Stage Mono 400, IBM Plex Sans and IBM Plex Mono renamed because a subset of a font with a reserved name must
+not keep it. They are subset WOFF2 files in `assets/fonts/` with their licences beside them, all served by the
 Service. Use weight 600, never 700, outside headings: no other weight ships. To change the fonts or their coverage,
-edit and rerun `tools/fonts/subset.py`; never hand-edit the files.
+edit and rerun `tools/fonts/subset.py`, which also checks that no renamed font still names Plex; never hand-edit the
+files.
 
 ### Screenshots
 

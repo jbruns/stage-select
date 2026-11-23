@@ -56,11 +56,13 @@
   --tone-active: light-dark(var(--stage-select-deep-cobalt), var(--stage-select-sky));
   --tone-neutral: var(--color-text-secondary);
 
-  /* Type. Font files are not in the kit; serve them with the product, never from another origin. */
+  /* Type. Font files are not in the kit; serve them with the product, never from another origin. A product that
+     serves a subset of IBM Plex names it Stage Sans or Stage Mono, as the workbench does: Plex is a reserved font
+     name, and a subset is a modified version. */
   --font-display: "Chakra Petch", "Arial Narrow", Arial, sans-serif;
   --font-display-weight: 700;
-  --font-ui: "IBM Plex Sans", Arial, sans-serif;
-  --font-data: "IBM Plex Mono", "Courier New", monospace;
+  --font-ui: "Stage Sans", "IBM Plex Sans", Arial, sans-serif;
+  --font-data: "Stage Mono", "IBM Plex Mono", "Courier New", monospace;
   --type-page: 2rem;
   --line-page: 2.375rem;
   --type-section: 1.25rem;

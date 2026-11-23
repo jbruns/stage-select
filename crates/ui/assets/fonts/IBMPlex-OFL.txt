@@ -1,3 +1,7 @@
+Stage Sans and Stage Mono are IBM Plex Sans and IBM Plex Mono by IBM, subset to Latin and Latin Extended for
+the Stage Select workbench, and renamed as Stage Sans and Stage Mono because the subset is a modified version.
+IBM's licence for them follows.
+
 Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

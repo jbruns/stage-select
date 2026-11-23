@@ -45,6 +45,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -54,11 +55,16 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "target" / "screenshots"
 WORK = OUT / ".work"
+
+# A label or screen name: one path component, so it names a file or folder inside its parent and nowhere else. No
+# leading dot, so a label can't name the tool's own work and cache folders either.
+NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 THEMES = ["light", "dark"]
 WIDTHS = [1440, 1000]
@@ -350,18 +356,39 @@ def build(tree, site, target):
     return target / "release" / "stage-select"
 
 
-def built_ref(ref, label):
-    """Builds `ref` from a temporary git worktree, which it removes; returns the binary and the site."""
-    tree = WORK / label / "tree"
+def is_name(name):
+    return NAME.fullmatch(name) is not None
+
+
+def inside(path, parent):
+    """`path`, resolved, once it is checked to be inside `parent`; nothing is deleted or written outside it."""
+    resolved, parent = path.resolve(), parent.resolve()
+    if resolved == parent or parent not in resolved.parents:
+        raise SystemExit(f"{path} is not inside {parent}")
+    return resolved
+
+
+def remove_worktree(tree):
+    """Removes the temporary worktree at `tree`, however far `git worktree add` got."""
+    tree = inside(tree, WORK)
     if tree.exists():
         subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=ROOT)
-    subprocess.run(["git", "worktree", "add", "--detach", str(tree), ref], cwd=ROOT, check=True)
+    if tree.exists():
+        shutil.rmtree(tree)
+    subprocess.run(["git", "worktree", "prune"], cwd=ROOT, check=True)
+
+
+def built_ref(ref, label):
+    """Builds `ref` from a temporary git worktree, which it removes; returns the binary and the site."""
+    tree = inside(WORK / label / "tree", WORK)
+    remove_worktree(tree)
     try:
+        subprocess.run(["git", "worktree", "add", "--detach", str(tree), ref], cwd=ROOT, check=True)
         site = WORK / label / "site"
         # Shared by every ref, so a later ref's build is incremental.
         return build(tree, site, OUT / ".ref-target"), site
     finally:
-        subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=ROOT, check=True)
+        remove_worktree(tree)
 
 
 def clone_lists():
@@ -370,28 +397,54 @@ def clone_lists():
     return dest
 
 
-def serve(binary, site, work):
+def stop(service):
+    """Stops the Service: asks it to, waits a bounded time, then kills it, and reaps it either way."""
+    if service.poll() is not None:
+        return
+    service.terminate()
+    try:
+        service.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        service.kill()
+        service.wait()
+
+
+@contextmanager
+def serving(binary, site, work):
+    """Runs the Service until the block ends, however it ends; yields its URL."""
+    lists = clone_lists()
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
-    log = open(work / "service.log", "w")
-    service = subprocess.Popen(
-        [str(binary), "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}", "--ui", str(site),
-         "--dev-identity", "Screenshots", "--clone-lists", str(clone_lists())],
-        stdout=log,
-        stderr=subprocess.STDOUT,
-    )
-    for _ in range(300):
+    service = None
+    with open(work / "service.log", "w") as log:
         try:
-            urllib.request.urlopen(f"{url}/api/v1/health")
-            return url, service
-        except OSError:
-            if service.poll() is not None:
-                raise RuntimeError(f"the Service stopped; see {work / 'service.log'}")
-            time.sleep(0.1)
-    service.terminate()
-    raise RuntimeError("the Service didn't answer")
+            service = subprocess.Popen(
+                [str(binary), "--store", str(work / "store"), "serve", "--listen", f"127.0.0.1:{port}",
+                 "--ui", str(site), "--dev-identity", "Screenshots", "--clone-lists", str(lists)],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            for _ in range(300):
+                try:
+                    urllib.request.urlopen(f"{url}/api/v1/health")
+                    break
+                except OSError:
+                    if service.poll() is not None:
+                        raise RuntimeError(f"the Service stopped; see {work / 'service.log'}")
+                    time.sleep(0.1)
+            else:
+                raise RuntimeError("the Service didn't answer")
+            yield url
+        finally:
+            if service is not None:
+                stop(service)
+
+
+def interrupted(signum, _frame):
+    # Raising runs every `finally`, so the Service, the browser and a temporary worktree are cleaned up.
+    raise SystemExit(128 + signum)
 
 
 # The scratch folder as screenshots show it, so a PR shows no local path.
@@ -425,7 +478,7 @@ SETTLED = """
 def capture(url, screens, label, work):
     from playwright.sync_api import sync_playwright
 
-    out = OUT / label
+    out = inside(OUT / label, OUT)
     out.mkdir(parents=True, exist_ok=True)
     origin = urllib.parse.urlsplit(url).netloc
     foreign = set()
@@ -451,7 +504,7 @@ def capture(url, screens, label, work):
                         print(f"capture: {name} still loading after 15 s; capturing it as it is", file=sys.stderr)
                     page.wait_for_timeout(500)
                     page.evaluate(MASK, [str(work), SHOWN_AS])
-                    path = out / f"{name}-{theme}-{width}.png"
+                    path = inside(out / f"{name}-{theme}-{width}.png", OUT)
                     page.screenshot(path=str(path), full_page=True)
                     print(path.relative_to(ROOT), flush=True)
                 context.close()
@@ -473,8 +526,8 @@ def main():
     screens = dict(SCREENS)
     for item in args.route:
         name, _, path = item.partition("=")
-        if not name or not path.startswith("/"):
-            parser.error(f"--route {item!r}: want NAME=/path")
+        if not is_name(name) or not path.startswith("/"):
+            parser.error(f"--route {item!r}: want NAME=/path, NAME being letters, digits, '.', '_' or '-', not starting with '.'")
         screens[name] = path
     if args.list:
         for name, route in screens.items():
@@ -487,10 +540,14 @@ def main():
             parser.error(f"unknown screens: {', '.join(unknown)}; see --list")
         screens = {s: screens[s] for s in wanted}
 
-    label = args.label or (re.sub(r"[^A-Za-z0-9._-]+", "-", args.ref) if args.ref else "after")
-    work = WORK / label
+    label = args.label or (re.sub(r"[^A-Za-z0-9._-]+", "-", args.ref).lstrip(".") if args.ref else "after")
+    if not is_name(label):
+        parser.error(f"label {label!r}: want one folder name of letters, digits, '.', '_' or '-', not starting with '.'")
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, interrupted)
+    work = inside(WORK / label, WORK)
     for scratch in ("store", "data"):
-        shutil.rmtree(work / scratch, ignore_errors=True)
+        shutil.rmtree(inside(work / scratch, work), ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
 
     if args.ref:
@@ -499,8 +556,7 @@ def main():
         site = work / "site"
         binary = build(ROOT, site, Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve())
 
-    url, service = serve(binary, site, work)
-    try:
+    with serving(binary, site, work) as url:
         made, failures = seed(Api(url), work / "data")
         routes = {}
         for name, route in screens.items():
@@ -509,9 +565,6 @@ def main():
             except KeyError as e:
                 print(f"capture: skipped {name}: the seed made no {e}", file=sys.stderr)
         foreign = capture(url, routes, label, work)
-    finally:
-        service.terminate()
-        service.wait()
     if failures:
         print(f"seed: {len(failures)} step(s) skipped: {', '.join(failures)}", file=sys.stderr)
     if foreign:

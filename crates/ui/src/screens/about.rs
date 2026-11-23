@@ -59,7 +59,8 @@ const LICENCES: &[Licence] = &[
         upstream: Some("https://github.com/google/fonts/blob/main/ofl/chakrapetch/OFL.txt"),
     },
     Licence {
-        title: "IBM Plex Sans and IBM Plex Mono, the workbench's text fonts: SIL Open Font License",
+        title: "Stage Sans and Stage Mono, the workbench's text fonts: IBM Plex Sans and IBM Plex Mono by IBM, renamed \
+                because the workbench's subset is a modified version. SIL Open Font License",
         file: "/fonts/IBMPlex-OFL.txt",
         upstream: Some("https://github.com/IBM/plex/blob/master/LICENSE.txt"),
     },

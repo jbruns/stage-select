@@ -133,7 +133,8 @@ figures cover the named pairings, not the accessibility of a complete implementa
 | Data and technical labels | IBM Plex Mono 400 | Paths, hashes, revisions and aligned counts |
 
 All three are under the SIL Open Font License. Font files are not in this kit; the product serves its own copies
-with their licence and never loads a font from another origin.
+with their licence and never loads a font from another origin. IBM Plex reserves the name "Plex", so a subset of it,
+being a modified version, is renamed: the workbench serves its subsets as Stage Sans and Stage Mono.
 
 Screen scale:
 
