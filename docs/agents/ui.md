@@ -377,5 +377,6 @@ python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwrigh
 ```
 
 Each run writes `target/screenshots/<label>/<screen>-<theme>-<width>.png`, light and dark at 1440 and 1000px; the
-label is `after`, or the ref's name with `--ref`. `--route name=/path` adds a screen. The `github-pr-media` skill
+label is `after`, or the ref's name with `--ref`. `--route name=/path` adds a screen. `--empty` seeds nothing, to show
+a first run (`--screens welcome --empty --label after-empty`). The `github-pr-media` skill
 uploads the files into the PR body; never commit them.

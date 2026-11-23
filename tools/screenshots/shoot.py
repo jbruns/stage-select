@@ -106,7 +106,12 @@ SCREENS = {
     "ingest-folder": "/ingest/drop",
     "activity": "/activity",
     "activity-running": "/activity",
+    "welcome": "/welcome",
     "roots": "/settings/roots",
+    "storage": "/settings/storage",
+    "operations": "/settings/operations",
+    "operations-calibration": "/settings/operations?tab=calibration",
+    "unregistered": "/settings/unregistered",
     "about": "/settings/about",
     "row-states": "/dats",
     "messages": "/source-sets/{findings_set}?tab=repair",
@@ -697,6 +702,8 @@ def main():
                         help="add or replace a screen; PATH may name {findings_set}, {audit}, {selection}, "
                              "{library}, {pending_library}, {build} or {additions_set}")
     parser.add_argument("--list", action="store_true", help="list the screens and stop")
+    parser.add_argument("--empty", action="store_true",
+                        help="seed nothing, to capture the screens as a first run sees them; skips any screen naming {…}")
     args = parser.parse_args()
 
     screens = dict(SCREENS)
@@ -733,7 +740,7 @@ def main():
         binary = build(ROOT, site, Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve())
 
     with serving(binary, site, work) as url:
-        made, failures = seed(Api(url), work / "data")
+        made, failures = ({}, []) if args.empty else seed(Api(url), work / "data")
         routes = {}
         for name, route in screens.items():
             try:
