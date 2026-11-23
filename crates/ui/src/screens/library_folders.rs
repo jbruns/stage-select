@@ -32,8 +32,8 @@ use crate::build_model::{
 use crate::events::{Live, use_live};
 use crate::library_model::{
     BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
-    Replan, Replans, built_for, drifted, fresh, live_status, no_coverage, pick, romm_exclusions,
-    selection_under_way, stale_label,
+    Replan, Replans, build_finished, built_for, drifted, fresh, live_status, no_coverage, pick,
+    romm_exclusions, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::help::Help;
@@ -1791,7 +1791,13 @@ pub(crate) fn BuildProgress(job: i64) -> impl IntoView {
                         Some(error) => format!("ended {}: {error}", l.job.state.as_str()),
                         None => format!("ended {}.", l.job.state.as_str()),
                     };
-                    view! { <span>{outcome}</span> }.into_any()
+                    let ready = build_finished(&l.job).then(|| {
+                        view! {
+                            " "
+                            <img class="ready" src="/stage-select-ready.svg" alt="" width="58" height="14" />
+                        }
+                    });
+                    view! { <span>{outcome}</span> {ready} }.into_any()
                 }
                 Some(l) => {
                     let control = if l.job.kind != JobKind::Build {

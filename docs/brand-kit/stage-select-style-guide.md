@@ -4,9 +4,7 @@
 
 Identity v2.0 · 15 November 2026
 
-> **Status.** This identity replaces the v1.1 identity. The product ships under the new name but still in the old
-> look: #162 tracks the workbench's adoption of this kit. Until #162 lands, the workbench links
-> `title-select-tokens.css`, which stays in this folder for that reason only.
+> **Status.** This identity replaces the v1.1 identity, and the workbench wears it.
 
 ## Position
 
@@ -135,7 +133,8 @@ figures cover the named pairings, not the accessibility of a complete implementa
 | Data and technical labels | IBM Plex Mono 400 | Paths, hashes, revisions and aligned counts |
 
 All three are under the SIL Open Font License. Font files are not in this kit; the product serves its own copies
-with their licence and never loads a font from another origin.
+with their licence and never loads a font from another origin. IBM Plex reserves the name "Plex", so a subset of it,
+being a modified version, is renamed: the workbench serves its subsets as Stage Sans and Stage Mono.
 
 Screen scale:
 

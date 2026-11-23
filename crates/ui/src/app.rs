@@ -41,7 +41,7 @@ pub fn App() -> impl IntoView {
             <a class="skip" href="#main">"Skip to content"</a>
             <header class="bar">
                 <a class="brand" href="/">
-                    <img src="/icon-64.png" alt="" width="24" height="24" />
+                    <img src="/stage-select-emblem-small.svg" alt="" width="24" height="24" />
                     <span class="brand-name">"Stage Select"</span>
                 </a>
                 <Nav />

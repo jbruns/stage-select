@@ -2508,8 +2508,11 @@ Every table is virtualized, sorts by its column headers and works from the keybo
 keys, Page Up, Page Down, Home and End move the selected row, Enter opens it and Escape clears it. Each screen's
 controls are ordinary buttons, links and form fields. The workbench follows your system's light or dark setting; the
 header's theme button overrides it in that browser. The workbench needs an evergreen browser; it makes no request
-to any other origin and keeps no credential in browser storage. Its fonts, Liberation Sans and Liberation Mono, are
-served with it under the SIL Open Font License (`crates/ui/assets/fonts/LICENSE-OFL.txt`).
+to any other origin and keeps no credential in browser storage. Its fonts, Chakra Petch for titles and Stage Sans
+and Stage Mono for text, are served with it under the SIL Open Font License, each licence beside the fonts it covers
+in `crates/ui/assets/fonts/` and shown on the About page. Stage Sans and Stage Mono are IBM Plex Sans and IBM Plex
+Mono by IBM, renamed because the workbench's subset is a modified version. They cover Latin and Latin Extended; text in other
+scripts is shown in your system's font. `tools/fonts/subset.py` writes them from their upstream repositories.
 
 The workbench's own files are served without auth, with a same-origin Content Security Policy; everything it shows
 comes from the API, which needs you to authenticate as above. Behind an authenticating reverse proxy, the proxy's

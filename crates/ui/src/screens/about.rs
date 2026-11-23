@@ -12,7 +12,7 @@ const PROGETTO_SNAPS: &str = "https://www.progettosnaps.net/support/";
 const SUPPORT_MIRROR: &str = "https://github.com/AntoPISA/MAME_SupportFiles";
 const CURATED_LIST: &str = "https://github.com/zr00da/curated-mame-arcade-romset";
 
-/// A licence text shipped beside the workbench's bundle, under `/licences/`.
+/// A licence text shipped beside the workbench's bundle, under `/licences/`, or beside the fonts it covers.
 struct Licence {
     title: &'static str,
     file: &'static str,
@@ -52,6 +52,17 @@ const LICENCES: &[Licence] = &[
         title: "Lucide icons: ISC License",
         file: "/licences/lucide.txt",
         upstream: Some("https://github.com/lucide-icons/lucide/blob/main/LICENSE"),
+    },
+    Licence {
+        title: "Chakra Petch, the workbench's title font: SIL Open Font License",
+        file: "/fonts/ChakraPetch-OFL.txt",
+        upstream: Some("https://github.com/google/fonts/blob/main/ofl/chakrapetch/OFL.txt"),
+    },
+    Licence {
+        title: "Stage Sans and Stage Mono, the workbench's text fonts: IBM Plex Sans and IBM Plex Mono by IBM, renamed \
+                because the workbench's subset is a modified version. SIL Open Font License",
+        file: "/fonts/IBMPlex-OFL.txt",
+        upstream: Some("https://github.com/IBM/plex/blob/master/LICENSE.txt"),
     },
 ];
 
@@ -126,10 +137,6 @@ pub fn About() -> impl IntoView {
         <section aria-labelledby="licences-title">
             <h2 id="licences-title">"Licences"</h2>
             {LICENCES.iter().map(|licence| view! { <LicenceText licence /> }).collect_view()}
-            <p class="note">
-                "The workbench's fonts, Liberation Sans and Liberation Mono, are served under the "
-                <a href="/fonts/LICENSE-OFL.txt">"SIL Open Font License"</a> "."
-            </p>
         </section>
     }
 }

@@ -3,7 +3,7 @@
 
 use stage_select_api::build::{LibraryFolder, Stale};
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
-use stage_select_api::{Job, JobKind, SelectionRecord, SourceSetSystem};
+use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
@@ -30,6 +30,14 @@ pub fn facts(folder: &LibraryFolder) -> LibraryFacts {
         stale: !folder.stale.is_empty(),
         built: folder.build.is_some(),
     }
+}
+
+/// Whether `job` is a build that finished: the one message READY may stand beside. A build you cancelled, or one that
+/// failed or was interrupted, didn't finish, and a check isn't a build.
+pub fn build_finished(job: &Job) -> bool {
+    job.kind == JobKind::Build
+        && job.state == JobState::Succeeded
+        && job.cancel_requested_at.is_none()
 }
 
 /// The folder's row status.
@@ -263,7 +271,7 @@ mod tests {
     use super::*;
     use stage_select_api::build::{BuildState, BuildSummary, CheckSummary, PlanSummary, Stale};
     use stage_select_api::selection::{SelectionPins, SelectionSummary};
-    use stage_select_api::{JobState, ProfileVersionRef, Workers};
+    use stage_select_api::{ProfileVersionRef, Workers};
 
     fn folder() -> LibraryFolder {
         LibraryFolder {
@@ -483,6 +491,29 @@ mod tests {
             finished_at: None,
             version: 1,
         }
+    }
+
+    #[test]
+    fn only_a_build_that_finished_is_ready() {
+        assert!(build_finished(&job(1, JobKind::Build, JobState::Succeeded)));
+        for state in [
+            JobState::Queued,
+            JobState::Running,
+            JobState::Failed,
+            JobState::Interrupted,
+        ] {
+            assert!(!build_finished(&job(1, JobKind::Build, state)), "{state:?}");
+        }
+        let cancelled = Job {
+            cancel_requested_at: Some("2026-01-01T00:00:00Z".into()),
+            ..job(1, JobKind::Build, JobState::Succeeded)
+        };
+        assert!(!build_finished(&cancelled));
+        assert!(!build_finished(&job(
+            1,
+            JobKind::Check,
+            JobState::Succeeded
+        )));
     }
 
     fn selection_job(id: i64, state: JobState, set: &str, profile: &str) -> Job {
