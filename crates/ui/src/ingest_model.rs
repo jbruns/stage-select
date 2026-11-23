@@ -11,7 +11,7 @@ use stage_select_api::ingest::{
 
 use crate::model::when;
 use crate::parts::icon::Glyph;
-use crate::parts::status::{IngestStatus, Status};
+use crate::parts::status::{IngestStatus, PlanState, Status};
 use crate::screens::additions::new_addition;
 use crate::screens::source_sets::tab_href;
 use crate::source_set_model::PageTab;
@@ -425,6 +425,27 @@ impl Outcome {
             Outcome::Failed => "Failed",
         }
     }
+}
+
+/// Where the folder's plans are, for its Plan tab's icon, from its plans newest first: a plan you approved still
+/// moving items, or else the newest plan waiting for your approval.
+pub fn plan_state(plans: &[IngestPlan]) -> Option<PlanState> {
+    if plans
+        .iter()
+        .any(|p| p.approval.is_some() && p.finished_at.is_none())
+    {
+        Some(PlanState::Running)
+    } else if plans.first().is_some_and(|p| p.approval.is_none()) {
+        Some(PlanState::Open)
+    } else {
+        None
+    }
+}
+
+/// The plan the Plan tab opens: the one the URL names (`wanted`), or else the newest of `plans`, which come newest
+/// first.
+pub fn shown_plan(plans: &[IngestPlan], wanted: Option<i64>) -> Option<i64> {
+    wanted.or_else(|| plans.first().map(|p| p.id))
 }
 
 /// Where the item of `plan` whose outcome, if it has one yet, is `ended` stands.
@@ -861,5 +882,46 @@ mod tests {
             source_set_match("GB", "Pong (USA)", Need::Missing),
             "Pong (USA) in GB"
         );
+    }
+
+    fn plan(id: i64, approved: bool, finished: bool) -> IngestPlan {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+            "content": {"ingest_folder": 1, "root": "in", "action": "discard", "generation": 1,
+                        "items": [], "fingerprint": []},
+            "approval": approved.then(|| serde_json::json!({"digest": "d", "actor": "Operator", "at": "t"})),
+            "finished_at": finished.then_some("2026-01-02T00:00:00Z"),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_plan_tab_shows_a_plan_moving_items_or_the_newest_waiting_on_you() {
+        assert_eq!(plan_state(&[]), None);
+        assert_eq!(
+            plan_state(&[plan(2, true, true), plan(1, false, false)]),
+            None
+        );
+        assert_eq!(
+            plan_state(&[plan(2, false, false), plan(1, true, true)]),
+            Some(PlanState::Open)
+        );
+        assert_eq!(
+            plan_state(&[plan(2, false, false), plan(1, true, false)]),
+            Some(PlanState::Running)
+        );
+    }
+
+    #[test]
+    fn the_plan_tab_opens_the_plan_the_url_names_or_else_the_newest() {
+        let plans = [plan(5, false, false), plan(4, true, true)];
+        assert_eq!(shown_plan(&plans, Some(4)), Some(4));
+        assert_eq!(
+            shown_plan(&plans, Some(9)),
+            Some(9),
+            "an older plan than the list holds still opens"
+        );
+        assert_eq!(shown_plan(&plans, None), Some(5));
+        assert_eq!(shown_plan(&[], None), None);
     }
 }

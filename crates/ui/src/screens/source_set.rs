@@ -29,6 +29,7 @@ use crate::model::{
 };
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
+use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::message::{Problem, Said};
@@ -38,6 +39,7 @@ use crate::parts::status::{
     FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge,
     StatusCount, StatusIcon,
 };
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
@@ -182,7 +184,21 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         });
     };
 
+    let url_tab = use_tab();
+    let page_tabs = Signal::derive(move || {
+        let open = tab.get();
+        PageTab::ALL
+            .into_iter()
+            .map(|t| {
+                let key = (t != PageTab::Overview).then_some(t.slug());
+                let status = (t == PageTab::Repair).then(|| repair_state.get()).flatten();
+                Tab::new(url_tab.href(key), t.label(), t == open).status(status)
+            })
+            .collect::<Vec<_>>()
+    });
+
     view! {
+        <Crumbs trail=vec![("/source-sets".to_string(), "Source sets".to_string())] here=set.name.clone() />
         <header class="page-head">
             <h1>{set.name.clone()}</h1>
             {move || {
@@ -219,34 +235,12 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             <A href=new_library_href(&set.name) attr:class="button">
                 "New library folder"
             </A>
-            <A href=tab_href(&set.name, PageTab::Repair) attr:class="button">
-                "Repair"
-            </A>
         </div>
         <Said said />
         <Show when=move || desk.proposing().get() && tab.get() != PageTab::Repair>
             <PendingStatus status=MAKING_PLAN />
         </Show>
-        <nav class="tabs" aria-label="Source set">
-            {move || {
-                model::tabs(repair_state.get(), tab.get())
-                    .into_iter()
-                    .map(|t| {
-                        let current = (t == tab.get()).then_some("page");
-                        let icon = (t == PageTab::Repair)
-                            .then(|| repair_state.get())
-                            .flatten()
-                            .map(|s| view! { <StatusIcon status=s tab_stop=false /> " " });
-                        view! {
-                            <a href=tab_href(&name.get_value(), t) aria-current=current>
-                                {icon}
-                                {t.label()}
-                            </a>
-                        }
-                    })
-                    .collect_view()
-            }}
-        </nav>
+        <Tabs label="Source set" tabs=page_tabs />
         {move || match summary.get() {
             Some(Err(message)) if good.with(Option::is_none) => {
                 view! { <Problem message /> }.into_any()

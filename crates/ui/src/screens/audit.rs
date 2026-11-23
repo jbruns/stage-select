@@ -27,9 +27,11 @@ use crate::model::{
     warning_counts, warning_text, when,
 };
 use crate::parts::help::Help;
+use crate::parts::layout::Crumbs;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{FindingStatus, GameFlag, StatusBadge, StatusCount, StatusIcon};
+use crate::parts::tabs::{self, Tabs, use_tab};
 use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
@@ -175,7 +177,17 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
         audit.dat_revision_sha256.clone(),
         RwSignal::new(None),
     );
-    let tab = RwSignal::new(Tab::Entries);
+    let url_tab = use_tab();
+    let tab = Memo::new(move |_| Tab::parse(url_tab.current().as_deref()));
+    let audit_tabs = Signal::derive(move || {
+        [Tab::Entries, Tab::Games]
+            .into_iter()
+            .map(|t| {
+                let key = (t != Tab::Entries).then_some(t.key());
+                tabs::Tab::new(url_tab.href(key), t.label(), t == tab.get())
+            })
+            .collect::<Vec<_>>()
+    });
     let set_href = format!("/source-sets/{}", api::segment(&audit.source_set));
     let repair_href = format!("{set_href}?tab=repair");
     let findings = audit.findings.clone();
@@ -195,7 +207,12 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
         }
     });
 
+    let trail = vec![
+        ("/source-sets".to_string(), "Source sets".to_string()),
+        (set_href.clone(), audit.source_set.clone()),
+    ];
     view! {
+        <Crumbs trail here=format!("Audit #{id}") />
         <h1>{format!("Audit #{id}")}</h1>
         <dl class="facts">
             <dt>"Source set"</dt>
@@ -282,24 +299,11 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             Some(Some(Err(message))) => view! { <Problem message /> }.into_any(),
             Some(Some(Ok(loaded))) => {
                 view! {
-                    <div class="tabs" role="tablist" aria-label="Audit details">
-                        <TabButton tab which=Tab::Entries label="Entries" />
-                        <TabButton tab which=Tab::Games label="Game statuses" />
-                    </div>
-                    <div
-                        role="tabpanel"
-                        id="panel-entries"
-                        aria-labelledby="tab-entries"
-                        hidden=move || tab.get() != Tab::Entries
-                    >
+                    <Tabs label="Audit details" tabs=audit_tabs />
+                    <div hidden=move || tab.get() != Tab::Entries>
                         <EntriesPanel entries=loaded.entries.clone() source_set=set.get_value() />
                     </div>
-                    <div
-                        role="tabpanel"
-                        id="panel-games"
-                        aria-labelledby="tab-games"
-                        hidden=move || tab.get() != Tab::Games
-                    >
+                    <div hidden=move || tab.get() != Tab::Games>
                         <GamesPanel games=loaded.games.clone() rule source_set=set.get_value() />
                     </div>
                 }
@@ -316,42 +320,26 @@ enum Tab {
 }
 
 impl Tab {
+    fn parse(key: Option<&str>) -> Self {
+        if key == Some("games") {
+            Tab::Games
+        } else {
+            Tab::Entries
+        }
+    }
+
     fn key(self) -> &'static str {
         match self {
             Tab::Entries => "entries",
             Tab::Games => "games",
         }
     }
-}
 
-#[component]
-fn TabButton(tab: RwSignal<Tab>, which: Tab, label: &'static str) -> impl IntoView {
-    let selected = move || tab.get() == which;
-    let on_keydown = move |ev: web_sys::KeyboardEvent| {
-        if matches!(ev.key().as_str(), "ArrowLeft" | "ArrowRight") {
-            ev.prevent_default();
-            let other = if which == Tab::Entries {
-                Tab::Games
-            } else {
-                Tab::Entries
-            };
-            tab.set(other);
-            focus(&format!("tab-{}", other.key()));
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Entries => "Entries",
+            Tab::Games => "Game statuses",
         }
-    };
-    view! {
-        <button
-            type="button"
-            role="tab"
-            id=format!("tab-{}", which.key())
-            aria-controls=format!("panel-{}", which.key())
-            aria-selected=move || selected().to_string()
-            tabindex=move || if selected() { "0" } else { "-1" }
-            on:click=move |_| tab.set(which)
-            on:keydown=on_keydown
-        >
-            {label}
-        </button>
     }
 }
 

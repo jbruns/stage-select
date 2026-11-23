@@ -13,7 +13,8 @@
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
 //! - `theme`: the light and dark themes and `ThemeToggle`.
 //! - `url_state`: a list's filter, sort, selected row and tab in the query string.
-//! - `layout`: `SplitView`, `DetailPane` and `Tabs` over nested routes.
+//! - `layout`: `SplitView`, `DetailPane` and the `Crumbs` above a page below a list.
+//! - `tabs`: `Tabs`, `RouteTabs` and `use_tab`, the one row of tabs, whose open tab is always in the URL.
 
 pub mod help;
 pub mod icon;
@@ -30,5 +31,6 @@ pub mod pending;
 pub mod plan;
 pub mod plan_model;
 pub mod status;
+pub mod tabs;
 pub mod theme;
 pub mod url_state;

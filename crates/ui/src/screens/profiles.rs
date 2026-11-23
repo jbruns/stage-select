@@ -21,9 +21,11 @@ use crate::app::{Loading, navigator};
 use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcade};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
+use crate::parts::layout::Crumbs;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
@@ -188,11 +190,12 @@ pub fn ProfileScreen() -> impl IntoView {
         let name = name.get();
         async move { api::get::<ProfileRecord>(&profile_href(&name)).await }
     });
-    let just_saved = move || {
+    // A memo, so that a tab opening (a change to the query) leaves the editor and its draft in place.
+    let just_saved = Memo::new(move |_| {
         let q = query.read();
         let version = q.get("saved")?.parse::<u32>().ok()?;
         Some((version, q.get("job").and_then(|j| j.parse::<i64>().ok())))
-    };
+    });
     move || match record.get() {
         None => view! { <Loading what="the selection profile" /> }.into_any(),
         Some(Err(message)) => view! {
@@ -203,7 +206,8 @@ pub fn ProfileScreen() -> impl IntoView {
         Some(Ok(record)) => {
             let name = record.name.clone();
             view! {
-                {just_saved()
+                {move || just_saved
+                    .get()
                     .map(|(version, job)| {
                         view! {
                             <Message kind=MessageKind::DONE>{format!("Saved version {version}.")}</Message>
@@ -530,7 +534,21 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
         });
         registered.with(|r| profile.with(|p| arcade_systems(r, previewed.as_deref(), p)))
     });
-    let tab = RwSignal::new(None::<String>);
+    let url_tab = use_tab();
+    let tab = Memo::new(move |_| url_tab.current());
+    let settings_tabs = Signal::derive(move || {
+        let open = tab.get();
+        std::iter::once(Tab::new(
+            url_tab.href(None),
+            "Global settings",
+            open.is_none(),
+        ))
+        .chain(systems.get().into_iter().map(|system| {
+            let current = open.as_deref() == Some(system.as_str());
+            Tab::new(url_tab.href(Some(&system)), system, current)
+        }))
+        .collect::<Vec<_>>()
+    });
     // A system's tab previews against its source set.
     Effect::new(move || {
         let Some(system) = tab.get() else {
@@ -598,6 +616,10 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
     };
 
     view! {
+        <Crumbs
+            trail=vec![("/profiles".to_string(), "Selection profiles".to_string())]
+            here=if existing { name.get_untracked() } else { "New selection profile".to_string() }
+        />
         <h1>
             {move || {
                 if existing { format!("Selection profile {}", name.get()) } else { "New selection profile".to_string() }
@@ -642,18 +664,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                     }
                 })
         }}
-        <div class="tabs" role="tablist" aria-label="Settings">
-            <SettingsTab tab which=None label="Global settings".to_string() />
-            {move || {
-                systems
-                    .get()
-                    .into_iter()
-                    .map(|system| {
-                        view! { <SettingsTab tab which=Some(system.clone()) label=system /> }
-                    })
-                    .collect_view()
-            }}
-        </div>
+        <Tabs label="Settings" tabs=settings_tabs />
         {move || {
             let vocabulary = vocabulary.get().and_then(Result::ok);
             match (tab.get(), vocabulary) {
@@ -810,26 +821,6 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
             }}
         </section>
         </div>
-    }
-}
-
-#[component]
-fn SettingsTab(
-    tab: RwSignal<Option<String>>,
-    which: Option<String>,
-    label: String,
-) -> impl IntoView {
-    let which = StoredValue::new(which);
-    let selected = move || tab.with(|t| *t == which.get_value());
-    view! {
-        <button
-            type="button"
-            role="tab"
-            aria-selected=move || selected().to_string()
-            on:click=move |_| tab.set(which.get_value())
-        >
-            {label}
-        </button>
     }
 }
 
@@ -1021,7 +1012,7 @@ fn GlobalSettings(
 ) -> impl IntoView {
     let choices = move || profile.with(|p| p.choices.values().map(|c| c.len()).sum::<usize>());
     view! {
-        <div class="settings" role="tabpanel" aria-label="Global settings">
+        <div class="settings" role="region" aria-label="Global settings">
             <div class="actions">
                 <button type="button" on:click=move |_| profile.update(reset_global)>
                     "Reset to defaults"
@@ -1199,7 +1190,7 @@ fn SystemSettingsForm(
     };
     let v = StoredValue::new(vocabulary);
     view! {
-        <div class="settings" role="tabpanel" aria-label=format!("System settings for {system}")>
+        <div class="settings" role="region" aria-label=format!("System settings for {system}")>
             <p class="lede">
                 {move || {
                     if has_own() {

@@ -14,7 +14,6 @@ use crate::app::Loading;
 use crate::events::use_live;
 use crate::ingest_model::{self, Outcome};
 use crate::model::{short_sha, when};
-use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::list::{Column, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::pending::ActionPending;
@@ -189,9 +188,9 @@ fn action_text(action: IngestAction) -> &'static str {
 }
 
 /// The plan `plan`, loaded and listed, with approving it. `refresh` is the shared ingest counter: approving bumps it,
-/// and the plan reloads with it. `back` returns to the folder's items.
+/// and the plan reloads with it.
 #[component]
-pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>, back: Callback<()>) -> impl IntoView {
+pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
@@ -271,11 +270,6 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>, back: Callback<()>) -
     view! {
         <section aria-labelledby="plan-title">
             <h2 id="plan-title">{format!("Plan #{plan}")}</h2>
-            <p>
-                <button type="button" on:click=move |_| back.run(())>
-                    <LabelledIcon glyph=Glyph::ClipboardList label="Back to the items" />
-                </button>
-            </p>
             {move || match loaded.get() {
                 None if latest.with(Option::is_none) => view! { <Loading what="the plan" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),

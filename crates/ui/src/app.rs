@@ -11,9 +11,9 @@ use stage_select_api::{Job, JobState};
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
-use crate::parts::layout::{Tab, Tabs};
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::StatusIcon;
+use crate::parts::tabs::RouteTabs;
 use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
@@ -204,14 +204,14 @@ fn NavLink(
 #[component]
 fn Settings() -> impl IntoView {
     view! {
-        <Tabs
+        <RouteTabs
             label="Settings"
             tabs=vec![
-                Tab { path: "/settings/storage", label: "Storage policy" },
-                Tab { path: "/settings/operations", label: "Operations" },
-                Tab { path: "/settings/roots", label: "Roots" },
-                Tab { path: "/settings/unregistered", label: "Unregistered" },
-                Tab { path: "/settings/about", label: "About" },
+                ("/settings/storage", "Storage policy"),
+                ("/settings/operations", "Operations"),
+                ("/settings/roots", "Roots"),
+                ("/settings/unregistered", "Unregistered"),
+                ("/settings/about", "About"),
             ]
         />
     }

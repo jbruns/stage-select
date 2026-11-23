@@ -16,6 +16,7 @@ use crate::api;
 use crate::app::Loading;
 use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 
 const SCOPES: [(StorageScope, &str); 2] = [
     (StorageScope::SourceSets, "Source sets"),
@@ -190,7 +191,21 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
         });
         all.into_iter().collect::<Vec<_>>()
     });
-    let tab = RwSignal::new(None::<String>);
+    let url_tab = use_tab();
+    let tab = Memo::new(move |_| url_tab.current());
+    let storage_tabs = Signal::derive(move || {
+        let open = tab.get();
+        std::iter::once(Tab::new(
+            url_tab.href(None),
+            "Global settings",
+            open.is_none(),
+        ))
+        .chain(systems.get().into_iter().map(|system| {
+            let current = open.as_deref() == Some(system.as_str());
+            Tab::new(url_tab.href(Some(&system)), system, current)
+        }))
+        .collect::<Vec<_>>()
+    });
     let outcome = RwSignal::new(None::<Result<(), String>>);
     let saving = RwSignal::new(false);
     let save = move |_| {
@@ -210,16 +225,7 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
         });
     };
     view! {
-        <div class="tabs" role="tablist" aria-label="Storage settings">
-            <Tab tab which=None label="Global settings".to_string() />
-            {move || {
-                systems
-                    .get()
-                    .into_iter()
-                    .map(|system| view! { <Tab tab which=Some(system.clone()) label=system /> })
-                    .collect_view()
-            }}
-        </div>
+        <Tabs label="Storage settings" tabs=storage_tabs />
         {move || match tab.get() {
             None => view! { <GlobalSettings policy /> }.into_any(),
             Some(system) => {
@@ -261,25 +267,9 @@ fn Editor(initial: StoragePolicy, systems: Vec<String>, arcade: BTreeSet<String>
 }
 
 #[component]
-fn Tab(tab: RwSignal<Option<String>>, which: Option<String>, label: String) -> impl IntoView {
-    let which = StoredValue::new(which);
-    let selected = move || tab.with(|t| *t == which.get_value());
-    view! {
-        <button
-            type="button"
-            role="tab"
-            aria-selected=move || selected().to_string()
-            on:click=move |_| tab.set(which.get_value())
-        >
-            {label}
-        </button>
-    }
-}
-
-#[component]
 fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     view! {
-        <div class="settings" role="tabpanel" aria-label="Global storage settings">
+        <div class="settings" role="region" aria-label="Global storage settings">
             <p class="lede">
                 "These apply to every system you haven't set differently. Stored loose, a game with more than one ROM stays TorrentZip, and a plan says so. Source sets of disc systems, those whose DAT Redump publishes, are stored as loose folders unless you set the system differently."
             </p>
@@ -387,7 +377,7 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String, arcade: bool)
         })
     };
     view! {
-        <div class="settings" role="tabpanel" aria-label=format!("Storage settings for {system}")>
+        <div class="settings" role="region" aria-label=format!("Storage settings for {system}")>
             <p class="lede">
                 {move || {
                     if has_own() {

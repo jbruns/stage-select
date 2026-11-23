@@ -33,11 +33,12 @@ use crate::events::{Live, use_live};
 use crate::library_model::{
     BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
     Replan, Replans, build_finished, built_for, drifted, fresh, live_status, no_coverage, pick,
-    romm_exclusions, selection_under_way, stale_label,
+    plan_state, romm_exclusions, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::help::Help;
-use crate::parts::icon::{Glyph, LabelledIcon, Svg};
+use crate::parts::icon::{Glyph, LabelledIcon};
+use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
@@ -47,6 +48,7 @@ use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
 };
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
@@ -155,29 +157,6 @@ fn reasons(folder: &LibraryFolder) -> AnyView {
         </ul>
     }
     .into_any()
-}
-
-/// A trail of links to the pages above this one.
-#[component]
-fn Crumbs(trail: Vec<(String, String)>, #[prop(into)] here: String) -> impl IntoView {
-    view! {
-        <nav class="crumbs" aria-label="Breadcrumb">
-            <ol>
-                {trail
-                    .into_iter()
-                    .map(|(href, label)| {
-                        view! {
-                            <li>
-                                <A href=href>{label}</A>
-                                <Svg glyph=Glyph::ChevronRight />
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-                <li aria-current="page">{here}</li>
-            </ol>
-        </nav>
-    }
 }
 
 /// A request to plan a build of a folder: of `selection`, or else of the newest fresh selection, made first when there
@@ -1135,10 +1114,21 @@ fn FolderPage(
         go.run(tab_href(id, FolderTab::Plan));
     };
     let planning = planner.pending(id);
-    let trail = vec![
-        ("/source-sets".to_string(), "Source sets".to_string()),
-        (set_href(&folder.source_set), folder.source_set.clone()),
-    ];
+    let trail = vec![("/libraries".to_string(), "Library folders".to_string())];
+    let (building, plan_open) = (folder.active_job.is_some(), folder.plan_open);
+    let url_tab = use_tab();
+    let folder_tabs = Signal::derive(move || {
+        let open = tab.get();
+        let state = plan_state(planning.get(), building, plan_open);
+        FolderTab::ALL
+            .into_iter()
+            .map(|t| {
+                let key = (t != FolderTab::Overview).then_some(t.key());
+                let status = (t == FolderTab::Plan).then_some(state).flatten();
+                Tab::new(url_tab.href(key), t.label(), t == open).status(status)
+            })
+            .collect::<Vec<_>>()
+    });
     let latest = folder.latest_plan;
     let folder = StoredValue::new(folder);
     view! {
@@ -1158,18 +1148,7 @@ fn FolderPage(
             </div>
         </header>
         <Said said />
-        <nav class="tabs" aria-label="Library folder">
-            {FolderTab::ALL
-                .into_iter()
-                .map(|t| {
-                    view! {
-                        <a href=tab_href(id, t) aria-current=move || (tab.get() == t).then_some("page")>
-                            {t.label()}
-                        </a>
-                    }
-                })
-                .collect_view()}
-        </nav>
+        <Tabs label="Library folder" tabs=folder_tabs />
         {move || match tab.get() {
             FolderTab::Overview => view! {
                 <Overview folder=folder.get_value() />
@@ -2399,7 +2378,15 @@ fn build_item_line(item: BuildItem) -> impl IntoView {
 
 fn build_view(detail: BuildDetail) -> impl IntoView {
     let b = detail.build;
+    let trail = vec![
+        ("/libraries".to_string(), "Library folders".to_string()),
+        (
+            folder_href(b.folder),
+            format!("Library folder #{}", b.folder),
+        ),
+    ];
     view! {
+        <Crumbs trail here=format!("Build #{}", b.id) />
         <h1>{format!("Build #{}", b.id)}</h1>
         <dl class="facts">
             <dt>"Library folder"</dt>

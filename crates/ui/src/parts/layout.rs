@@ -1,6 +1,6 @@
 //! Layouts over nested routes. A list page is a `ParentRoute` whose view puts its list in a `SplitView`; a child
 //! route, such as `:id`, renders into the split view's `<Outlet/>` as a `DetailPane`, and a `""` child leaves it
-//! empty. A page with tabs is a `ParentRoute` whose view shows `Tabs`, one child route per tab.
+//! empty.
 
 use leptos::prelude::*;
 use leptos_router::components::{A, Outlet};
@@ -43,23 +43,26 @@ pub fn DetailPane(
     }
 }
 
-/// One tab: its child route's path, relative to the page, and its label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Tab {
-    pub path: &'static str,
-    pub label: &'static str,
-}
-
-/// A page's tabs, named `label` for assistive technology, over the child route the selected tab renders.
+/// A trail of links to the pages above this one, `(href, label)` each, ending with `here`, the page itself. Every page
+/// below a list has one.
 #[component]
-pub fn Tabs(label: &'static str, tabs: Vec<Tab>) -> impl IntoView {
+pub fn Crumbs(trail: Vec<(String, String)>, #[prop(into)] here: String) -> impl IntoView {
     view! {
-        <nav class="tabs" aria-label=label>
-            {tabs
-                .into_iter()
-                .map(|t| view! { <A href=t.path exact=true>{t.label}</A> })
-                .collect_view()}
+        <nav class="crumbs" aria-label="Breadcrumb">
+            <ol>
+                {trail
+                    .into_iter()
+                    .map(|(href, label)| {
+                        view! {
+                            <li>
+                                <A href=href>{label}</A>
+                                <Svg glyph=Glyph::ChevronRight />
+                            </li>
+                        }
+                    })
+                    .collect_view()}
+                <li aria-current="page">{here}</li>
+            </ol>
         </nav>
-        <Outlet />
     }
 }

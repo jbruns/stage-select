@@ -16,11 +16,12 @@ use stage_select_api::ingest::{
 };
 
 use crate::api;
-use crate::app::{Loading, use_ingest_changed};
+use crate::app::{Loading, navigator, use_ingest_changed};
 use crate::events::use_live;
 use crate::ingest_model::{self, Choices, Count, Decision};
 use crate::model::{earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
+use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
@@ -28,6 +29,7 @@ use crate::parts::list::{
 use crate::parts::message::Problem;
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::parts::url_state::query_string;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
@@ -366,6 +368,50 @@ fn FolderView(
     refresh: RwSignal<u64>,
 ) -> impl IntoView {
     let base = format!("/ingest-folders/{}", api::segment(&root));
+    let live = use_live();
+    let plans = {
+        let base = base.clone();
+        LocalResource::new(move || {
+            live.settled.track();
+            refresh.track();
+            let path = format!("{base}/plans");
+            async move { api::get::<Vec<IngestPlan>>(&path).await }
+        })
+    };
+    let url_tab = use_tab();
+    let query = use_query_map();
+    let open = Memo::new(move |_| FolderTab::parse(url_tab.current().as_deref()));
+    let folder_tabs = Signal::derive(move || {
+        let state = plans
+            .get()
+            .and_then(Result::ok)
+            .and_then(|p| ingest_model::plan_state(&p));
+        FolderTab::ALL
+            .into_iter()
+            .map(|t| {
+                let status = (t == FolderTab::Plan).then_some(state).flatten();
+                Tab::new(url_tab.href(t.key()), t.label(), t == open.get()).status(status)
+            })
+            .collect::<Vec<_>>()
+    });
+    let go = navigator();
+    let review = Callback::new(move |plan: i64| {
+        go.run(format!(
+            "{}&{PLAN}={plan}",
+            url_tab.href(FolderTab::Plan.key())
+        ))
+    });
+    // The plan the Plan tab shows: the one the URL names, or else the newest. `None` inside: there is none.
+    let shown = Memo::new(move |_| {
+        let wanted = query.read().get(PLAN).and_then(|v| v.parse::<i64>().ok());
+        match wanted {
+            Some(id) => Some(Some(id)),
+            None => plans
+                .get()
+                .and_then(Result::ok)
+                .map(|p| ingest_model::shown_plan(&p, None)),
+        }
+    });
     let latest = Memo::new(
         move |prev: Option<&Option<IngestFolder>>| match folder.get() {
             Some(Ok(f)) => Some(f),
@@ -404,21 +450,88 @@ fn FolderView(
         (None, Some(Err(message))) => view! { <Problem message /> }.into_any(),
         (None, Some(Ok(_))) => ().into_any(),
     };
+    let trail = vec![("/ingest".to_string(), "Ingest folders".to_string())];
+    let lifecycle = StoredValue::new((root.clone(), base.clone()));
     view! {
+        <Crumbs trail here=root.clone() />
         <h1>{format!("Ingest folder {root}")}</h1>
         {facts}
-        <Items folder=latest base=base.clone() refresh />
-        <KeptFiles base=base.clone() refresh />
-        <LifecycleSection>
-            <UnregisterAction
-                what=format!("the ingest folder {root}")
-                paths=Paths {
-                    holds: format!("{base}/holds"),
-                    unregister: format!("{base}/unregistration"),
+        <Tabs label="Ingest folder" tabs=folder_tabs />
+        {move || match open.get() {
+            FolderTab::Items => {
+                let (root, base) = lifecycle.get_value();
+                view! {
+                    <Items folder=latest base=base.clone() refresh plans review />
+                    <LifecycleSection>
+                        <UnregisterAction
+                            what=format!("the ingest folder {root}")
+                            paths=Paths {
+                                holds: format!("{base}/holds"),
+                                unregister: format!("{base}/unregistration"),
+                            }
+                            left="Its files, kept files included, stay where they are, no longer managed."
+                        />
+                    </LifecycleSection>
                 }
-                left="Its files, kept files included, stay where they are, no longer managed."
-            />
-        </LifecycleSection>
+                .into_any()
+            }
+            FolderTab::Plan => {
+                view! {
+                    {move || match shown.get() {
+                        None => view! { <Loading what="the plans" /> }.into_any(),
+                        Some(None) => view! {
+                            <p class="note">
+                                "There's no plan yet. A decision on the items makes one, and nothing moves until \
+                                you approve it."
+                            </p>
+                        }
+                        .into_any(),
+                        Some(Some(plan)) => view! { <IngestPlanReview plan refresh /> }.into_any(),
+                    }}
+                }
+                .into_any()
+            }
+            FolderTab::Kept => {
+                view! { <KeptFiles base=lifecycle.with_value(|(_, b)| b.clone()) refresh /> }.into_any()
+            }
+        }}
+    }
+}
+
+/// The folder page's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderTab {
+    Items,
+    Plan,
+    Kept,
+}
+
+impl FolderTab {
+    const ALL: [FolderTab; 3] = [FolderTab::Items, FolderTab::Plan, FolderTab::Kept];
+
+    fn parse(key: Option<&str>) -> Self {
+        match key {
+            Some("plan") => FolderTab::Plan,
+            Some("kept") => FolderTab::Kept,
+            _ => FolderTab::Items,
+        }
+    }
+
+    /// The `tab` URL value; the items, the default, have none.
+    fn key(self) -> Option<&'static str> {
+        match self {
+            FolderTab::Items => None,
+            FolderTab::Plan => Some("plan"),
+            FolderTab::Kept => Some("kept"),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            FolderTab::Items => "Items",
+            FolderTab::Plan => "Plan",
+            FolderTab::Kept => "Kept files",
+        }
     }
 }
 
@@ -595,18 +708,18 @@ enum Decided {
 
 /// The `status` URL value: the one status the list shows, if you chose one.
 const STATUS: &str = "status";
-/// The `plan` URL value: the plan under review, shown in place of the items.
+/// The `plan` URL value: the plan the Plan tab shows.
 const PLAN: &str = "plan";
-/// The URL values a list keeps its state in, which the other list on the page must not inherit.
-const LIST_STATE: [&str; 6] = ["q", "sort", "row", "sel", "all", "kind"];
 
 /// The folder's items: a strip of how many show each status, with the decisions you can apply to all of them; the
-/// list, with decisions on the items you check; and the plan you review before anything moves.
+/// list, with decisions on the items you check. A decision that makes a plan opens it with `review`.
 #[component]
 fn Items(
     folder: Memo<Option<IngestFolder>>,
     base: String,
     refresh: RwSignal<u64>,
+    plans: LocalResource<Result<Vec<IngestPlan>, String>>,
+    review: Callback<i64>,
 ) -> impl IntoView {
     let live = use_live();
     let items = {
@@ -616,15 +729,6 @@ fn Items(
             refresh.track();
             let path = format!("{base}/items");
             async move { api::get::<Vec<IngestItem>>(&path).await }
-        })
-    };
-    let plans = {
-        let base = base.clone();
-        LocalResource::new(move || {
-            live.settled.track();
-            refresh.track();
-            let path = format!("{base}/plans");
-            async move { api::get::<Vec<IngestPlan>>(&path).await }
         })
     };
     let all = last_good_rows(move || items.get());
@@ -697,12 +801,6 @@ fn Items(
     let show_only = move |status: Option<IngestStatus>| {
         set_query(STATUS, status.map(|s| ingest_model::slug(s).into()), &[])
     };
-    // The plan under review, by id, from the URL. The plan's list and the items' list each keep their own state in
-    // the URL, so going from one to the other leaves the last one's behind.
-    let reviewing = Memo::new(move |_| query.read().get(PLAN).and_then(|v| v.parse::<i64>().ok()));
-    let review = Callback::new(move |plan: Option<i64>| {
-        set_query(PLAN, plan.map(|p| p.to_string()), &LIST_STATE)
-    });
     let keep: Signal<Keep<ItemRow>> = Signal::derive(move || {
         let only = only.get();
         Some(
@@ -738,7 +836,7 @@ fn Items(
         })
     };
     Effect::new(move || match decide.value().get() {
-        Some(Ok(Decided::Planned(id))) => review.run(Some(id)),
+        Some(Ok(Decided::Planned(id))) => review.run(id),
         Some(Ok(Decided::Dismissed(n))) => said.set(Some(match n {
             1 => "Dismissed 1 item. It stays dismissed until it changes.".into(),
             n => format!("Dismissed {n} items. They stay dismissed until they change."),
@@ -817,7 +915,7 @@ fn Items(
                 actions.push(RowAction::run(
                     Glyph::ClipboardList,
                     format!("Review plan #{plan}"),
-                    move || review.run(Some(plan)),
+                    move || review.run(plan),
                 ));
             }
         }
@@ -873,7 +971,7 @@ fn Items(
                     {job.map(|job| view! {
                         <A href=format!("/activity?row={job}")>{format!("Job #{job}")}</A>
                     })}
-                    <button type="button" on:click=move |_| review.run(Some(id))>
+                    <button type="button" on:click=move |_| review.run(id)>
                         {format!("Review plan #{id}")}
                     </button>
                 </p>
@@ -928,15 +1026,9 @@ fn Items(
                     <p class="note">"Register the folder before you scan it."</p>
                 })}
             </ActionPending>
-            {move || match reviewing.get() {
-                Some(plan) => view! {
-                    <IngestPlanReview plan refresh back=Callback::new(move |()| review.run(None)) />
-                }
-                .into_any(),
-                None => view! {
-                    <ActionPending action=decide status=deciding>
-                        <Strip strip only apply all show_only=Callback::new(show_only) />
-                    </ActionPending>
+            <ActionPending action=decide status=deciding>
+                <Strip strip only apply all show_only=Callback::new(show_only) />
+            </ActionPending>
                     <p class="note" role="status">
                         {move || said.get()}
                     </p>
@@ -954,9 +1046,6 @@ fn Items(
                         keep
                         legend=move || view! { <Legend statuses list="ingest-items" /> }
                     />
-                }
-                .into_any(),
-            }}
         </section>
     }
 }

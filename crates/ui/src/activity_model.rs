@@ -161,7 +161,7 @@ impl KeptPlace {
     pub fn href(&self) -> String {
         match self {
             KeptPlace::LibraryFolder { id, .. } => format!("/libraries/{id}?tab=kept"),
-            KeptPlace::IngestFolder(root) => format!("/ingest/{}", encode(root)),
+            KeptPlace::IngestFolder(root) => format!("/ingest/{}?tab=kept", encode(root)),
             KeptPlace::SourceSet(name) => format!("/source-sets/{}?tab=kept", encode(name)),
             KeptPlace::AdditionsSet(_) => "/additions".to_string(),
         }
@@ -508,7 +508,7 @@ mod tests {
                 ),
                 (
                     "ingest-folder-1".to_string(),
-                    "/ingest/My%20Drop".to_string()
+                    "/ingest/My%20Drop?tab=kept".to_string()
                 ),
             ]
         );

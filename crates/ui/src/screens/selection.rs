@@ -24,6 +24,7 @@ use crate::events::use_live;
 use crate::model::{Sort, game_status_label, when};
 use crate::parts::help::Help;
 use crate::parts::icon::Svg;
+use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
@@ -824,7 +825,12 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
     let preview = r.library_folders.is_empty();
     let promote_href = format!("/libraries/new?selection={id}");
 
+    let trail = vec![
+        ("/source-sets".to_string(), "Source sets".to_string()),
+        (set_href.clone(), r.source_set.clone()),
+    ];
     view! {
+        <Crumbs trail here=format!("Selection #{id}") />
         <h1>{format!("Selection #{id}")}</h1>
         <dl class="facts">
             <dt>"Source set"</dt>
