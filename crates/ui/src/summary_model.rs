@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use stage_select_api::{AuditSummary, Finding, GameStatus, SourceSetSummary};
+use stage_select_api::{AuditSummary, Finding, GameStatus, Job, JobKind, SourceSetSummary};
 
 use crate::model::{ALGORITHM, FINDING, STATE, STATUS, needs_review_from_counts};
 use crate::parts::status::{AuditState, FindingStatus, Status};
@@ -104,15 +104,28 @@ pub enum NextStep {
     Repair,
     /// Open its open repair plan, by id.
     Review(i64),
+    /// Follow its audit, queued or running, by job id: a repair proposed now would rest on the audit it supersedes.
+    Auditing(i64),
 }
 
-/// The next step for the source set `summary`: its open repair to review; a repair, when its latest audit has entries
-/// to review and nothing has changed since; otherwise an audit. `running` when a job is queued or running for it.
-pub fn next_step(summary: &SourceSetSummary, running: bool) -> NextStep {
+/// The audit job queued or running for the source set `name`, newest first in `jobs`.
+pub fn audit_job<'a>(jobs: impl IntoIterator<Item = &'a Job>, name: &str) -> Option<i64> {
+    jobs.into_iter()
+        .find(|j| j.kind == JobKind::Audit && j.source_set == name && !j.state.is_final())
+        .map(|j| j.id)
+}
+
+/// The next step for the source set `summary`: its open repair to review; the audit job `auditing` to follow, while
+/// one is queued or running; a repair, when its latest audit has entries to review and nothing has changed since;
+/// otherwise an audit.
+pub fn next_step(summary: &SourceSetSummary, auditing: Option<i64>) -> NextStep {
     if let Some(repair) = &summary.repair {
         return NextStep::Review(repair.id);
     }
-    let facts = facts(summary, running);
+    if let Some(job) = auditing {
+        return NextStep::Auditing(job);
+    }
+    let facts = facts(summary, false);
     if facts.audited && facts.needs_review && !facts.stale {
         NextStep::Repair
     } else {
@@ -121,11 +134,17 @@ pub fn next_step(summary: &SourceSetSummary, running: bool) -> NextStep {
 }
 
 /// What an audit's page offers next, given its source set's `summary`: the open repair to review, or a repair while
-/// this audit is the latest and leads to one; nothing otherwise.
-pub fn after_audit(audit: i64, summary: &SourceSetSummary, running: bool) -> Option<NextStep> {
+/// this audit is the latest and leads to one; the audit job `auditing` to follow, while one is queued or running;
+/// nothing otherwise.
+pub fn after_audit(
+    audit: i64,
+    summary: &SourceSetSummary,
+    auditing: Option<i64>,
+) -> Option<NextStep> {
     let latest = summary.latest.as_ref().is_some_and(|a| a.id == audit);
-    match next_step(summary, running) {
+    match next_step(summary, auditing) {
         NextStep::Review(id) => Some(NextStep::Review(id)),
+        NextStep::Auditing(job) => Some(NextStep::Auditing(job)),
         NextStep::Repair if latest => Some(NextStep::Repair),
         _ => None,
     }
@@ -230,20 +249,20 @@ mod tests {
 
     #[test]
     fn a_source_set_leads_with_a_repair_only_when_its_latest_audit_has_entries_to_review() {
-        assert_eq!(next_step(&summary(2, None), false), NextStep::Repair);
-        assert_eq!(next_step(&summary(0, None), false), NextStep::Audit);
+        assert_eq!(next_step(&summary(2, None), None), NextStep::Repair);
+        assert_eq!(next_step(&summary(0, None), None), NextStep::Audit);
         // Files changed since: audit again first.
-        assert_eq!(next_step(&stale(summary(2, None)), false), NextStep::Audit);
+        assert_eq!(next_step(&stale(summary(2, None)), None), NextStep::Audit);
         let mut never = summary(0, None);
         never.latest = None;
-        assert_eq!(next_step(&never, false), NextStep::Audit);
+        assert_eq!(next_step(&never, None), NextStep::Audit);
     }
 
     #[test]
     fn an_open_repair_is_the_next_step_to_review() {
-        assert_eq!(next_step(&summary(2, Some(3)), false), NextStep::Review(3));
+        assert_eq!(next_step(&summary(2, Some(3)), None), NextStep::Review(3));
         assert_eq!(
-            next_step(&stale(summary(0, Some(3))), true),
+            next_step(&stale(summary(0, Some(3))), Some(9)),
             NextStep::Review(3)
         );
     }
@@ -251,15 +270,61 @@ mod tests {
     #[test]
     fn an_audit_offers_a_repair_only_while_it_is_the_latest() {
         assert_eq!(
-            after_audit(7, &summary(2, None), false),
+            after_audit(7, &summary(2, None), None),
             Some(NextStep::Repair)
         );
-        assert_eq!(after_audit(6, &summary(2, None), false), None);
-        assert_eq!(after_audit(7, &summary(0, None), false), None);
-        assert_eq!(after_audit(7, &stale(summary(2, None)), false), None);
+        assert_eq!(after_audit(6, &summary(2, None), None), None);
+        assert_eq!(after_audit(7, &summary(0, None), None), None);
+        assert_eq!(after_audit(7, &stale(summary(2, None)), None), None);
         assert_eq!(
-            after_audit(6, &summary(2, Some(3)), false),
+            after_audit(6, &summary(2, Some(3)), None),
             Some(NextStep::Review(3))
+        );
+    }
+
+    #[test]
+    fn while_an_audit_is_queued_or_running_it_is_followed_rather_than_a_repair_proposed() {
+        assert_eq!(next_step(&summary(2, None), Some(9)), NextStep::Auditing(9));
+        assert_eq!(next_step(&summary(0, None), Some(9)), NextStep::Auditing(9));
+        assert_eq!(
+            after_audit(7, &summary(2, None), Some(9)),
+            Some(NextStep::Auditing(9))
+        );
+        // An open repair stays the one to review.
+        assert_eq!(
+            next_step(&summary(2, Some(3)), Some(9)),
+            NextStep::Review(3)
+        );
+        assert_eq!(
+            after_audit(7, &summary(2, Some(3)), Some(9)),
+            Some(NextStep::Review(3))
+        );
+    }
+
+    fn job(id: i64, kind: &str, name: &str, state: &str) -> Job {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "kind": kind, "state": state, "source_set": name, "dat_revision": "r", "actor": "Operator",
+            "attempt": 1, "requeued_from": null, "audit": null, "created_at": "t",
+            "workers": {"readers": 1, "hashers": 1}, "version": 1,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_audit_job_followed_is_the_newest_queued_or_running_audit_of_that_source_set() {
+        let jobs = [
+            job(6, "selection", "GB", "running"),
+            job(5, "audit", "NES", "running"),
+            job(4, "audit", "GB", "queued"),
+            job(3, "audit", "GB", "running"),
+            job(2, "audit", "GB", "succeeded"),
+        ];
+        assert_eq!(audit_job(&jobs, "GB"), Some(4));
+        assert_eq!(audit_job(&jobs[..2], "GB"), None, "only an audit counts");
+        assert_eq!(
+            audit_job(&jobs[4..], "GB"),
+            None,
+            "an audit that ended isn't followed"
         );
     }
 

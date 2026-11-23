@@ -34,6 +34,7 @@ use crate::parts::tabs::tab_link;
 use crate::parts::url_state::encode;
 use crate::registration;
 use crate::screens::coverage::{self, CoverageEditor, UNAVAILABLE};
+use crate::screens::repair::MAKING_PLAN;
 use crate::source_set_model::{self as model, PageTab};
 
 /// A source set's page.
@@ -63,6 +64,80 @@ pub async fn propose_repair(name: &str) -> Result<RepairPlan, String> {
         &PlanRepair::default(),
     )
     .await
+}
+
+/// A repair being proposed from a page: whether one is on its way, and why the last was refused.
+#[derive(Clone, Copy)]
+pub struct Proposal {
+    pending: RwSignal<bool>,
+    problem: RwSignal<Option<String>>,
+}
+
+impl Proposal {
+    pub fn new() -> Proposal {
+        Proposal {
+            pending: RwSignal::new(false),
+            problem: RwSignal::new(None),
+        }
+    }
+
+    pub fn pending(self) -> Signal<bool> {
+        self.pending.into()
+    }
+
+    /// Proposes a repair of `name` and, once the Service returns the plan, opens it at [`repair_plan_href`]: the plan
+    /// is named before the Repair tab loads, so it opens on it. A second start while one is on its way does nothing.
+    pub fn start(self, name: String, navigate: Callback<String>) {
+        if self.pending.get_untracked() {
+            return;
+        }
+        self.pending.set(true);
+        self.problem.set(None);
+        leptos::task::spawn_local(async move {
+            match propose_repair(&name).await {
+                Ok(plan) => navigate.run(repair_plan_href(&name, plan.id)),
+                Err(message) => self
+                    .problem
+                    .set(Some(format!("Couldn't propose a repair: {message}"))),
+            }
+            self.pending.set(false);
+        });
+    }
+}
+
+impl Default for Proposal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The primary Repair button: it proposes a repair of `name` and opens the plan. `title` says what it proposes from.
+#[component]
+pub fn RepairNow(proposal: Proposal, name: String, title: &'static str) -> impl IntoView {
+    let navigate = navigator();
+    let name = StoredValue::new(name);
+    view! {
+        <button
+            type="button"
+            class="primary"
+            disabled=proposal.pending()
+            title=title
+            on:click=move |_| proposal.start(name.get_value(), navigate)
+        >
+            "Repair"
+        </button>
+    }
+}
+
+/// How `proposal` is going: the plan being made, or why it was refused.
+#[component]
+pub fn ProposalStatus(proposal: Proposal) -> impl IntoView {
+    view! {
+        <Show when=move || proposal.pending.get()>
+            <PendingStatus status=MAKING_PLAN />
+        </Show>
+        {move || proposal.problem.get().map(|message| view! { <Problem message /> })}
+    }
 }
 
 /// Where you preview a selection of the source set.

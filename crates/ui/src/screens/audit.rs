@@ -31,7 +31,7 @@ use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::message::Problem;
 use crate::parts::meter::GamesMeter;
 use crate::parts::outcome::JobOutcome;
-use crate::parts::pending::{Pending, PendingStatus};
+use crate::parts::pending::Pending;
 use crate::parts::plan::KindCounts;
 use crate::parts::status::{
     AvailabilityStatus, FindingStatus, GameFlag, Placement, Status, StatusBadge, StatusIcon,
@@ -42,9 +42,7 @@ use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
 };
-use crate::screens::repair::MAKING_PLAN;
-use crate::screens::source_sets::{propose_repair, repair_plan_href};
-use crate::source_set_model;
+use crate::screens::source_sets::{Proposal, ProposalStatus, RepairNow, repair_plan_href};
 use crate::summary_model::{self, NextStep};
 
 /// An audit's entries and game statuses, as its panels show them.
@@ -180,6 +178,12 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
         audit.dat_revision_sha256.clone(),
         RwSignal::new(None),
     );
+    let proposal = Proposal::new();
+    let reaudited = Signal::derive(move || {
+        reaudit
+            .outcome
+            .with(|o| o.iter().flatten().map(|j| j.id).collect::<Vec<_>>())
+    });
     let url_tab = use_tab();
     let tab = Memo::new(move |_| Tab::parse(url_tab.current().as_deref()));
     let audit_tabs = Signal::derive(move || {
@@ -224,7 +228,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                 <StatusBadge status=state />
             </header>
             <div class="actions">
-                <NextFromAudit audit=id source_set=audit.source_set.clone() />
+                <NextFromAudit audit=id source_set=audit.source_set.clone() proposal />
                 {reaudit.button()}
                 {(!pruned)
                     .then(|| {
@@ -239,7 +243,9 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         }
                     })}
             </div>
+            <ProposalStatus proposal />
             {reaudit.outcome()}
+            <FollowAudit source_set=audit.source_set.clone() shown=reaudited />
             <Help summary="What this audit read, and how">
                 <dl class="facts">
                     <dt>"DAT revision"</dt>
@@ -292,9 +298,9 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
 
 /// What an audit's page offers next, as its primary action: "Repair", which proposes a repair of its source set and
 /// opens the plan, while this audit is the latest and found entries to review; or the open repair to review. Nothing
-/// otherwise, nor until its source set's status is read.
+/// otherwise, nor while an audit of its source set is queued or running, nor until its source set's status is read.
 #[component]
-fn NextFromAudit(audit: i64, source_set: String) -> impl IntoView {
+fn NextFromAudit(audit: i64, source_set: String, proposal: Proposal) -> impl IntoView {
     let live = use_live();
     let name = StoredValue::new(source_set);
     let summary = LocalResource::new(move || {
@@ -307,53 +313,49 @@ fn NextFromAudit(audit: i64, source_set: String) -> impl IntoView {
     });
     let next = Memo::new(move |_| {
         let summary = summary.get()?.ok()??;
-        let running = live.book.with(|b| {
-            source_set_model::running(b.newest_first().iter().map(|l| &l.job))
-                .contains(&name.get_value())
+        let auditing = live.book.with(|b| {
+            summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &name.get_value())
         });
-        summary_model::after_audit(audit, &summary, running)
+        summary_model::after_audit(audit, &summary, auditing)
     });
-    let navigate = navigator();
-    let proposing = RwSignal::new(false);
-    let problem = RwSignal::new(None::<String>);
-    let repair = move |_| {
-        proposing.set(true);
-        problem.set(None);
-        leptos::task::spawn_local(async move {
-            let name = name.get_value();
-            match propose_repair(&name).await {
-                Ok(plan) => navigate.run(repair_plan_href(&name, plan.id)),
-                Err(message) => problem.set(Some(format!("Couldn't propose a repair: {message}"))),
-            }
-            proposing.set(false);
-        });
-    };
-    view! {
-        {move || match next.get() {
-            Some(NextStep::Repair) => view! {
-                <button
-                    type="button"
-                    class="primary"
-                    disabled=proposing
-                    title="Proposes a repair of its source set from this audit, and opens the plan for your review. Nothing changes until you approve it."
-                    on:click=repair
-                >
-                    "Repair"
-                </button>
-            }
-            .into_any(),
-            Some(NextStep::Review(plan)) => view! {
-                <A href=repair_plan_href(&name.get_value(), plan) attr:class="button primary">
-                    {format!("Review repair #{plan}")}
-                </A>
-            }
-            .into_any(),
-            _ => ().into_any(),
-        }}
-        <Show when=move || proposing.get()>
-            <PendingStatus status=MAKING_PLAN />
-        </Show>
-        {move || problem.get().map(|message| view! { <Problem message /> })}
+    move || {
+        match next.get() {
+        Some(NextStep::Repair) => view! {
+            <RepairNow
+                proposal
+                name=name.get_value()
+                title="Proposes a repair of its source set from this audit, and opens the plan for your review. Nothing changes until you approve it."
+            />
+        }
+        .into_any(),
+        Some(NextStep::Review(plan)) => view! {
+            <A href=repair_plan_href(&name.get_value(), plan) attr:class="button primary">
+                {format!("Review repair #{plan}")}
+            </A>
+        }
+        .into_any(),
+        _ => ().into_any(),
+    }
+    }
+}
+
+/// The audit of `source_set` queued or running, as its job's progress, kept once it ends so you see how it went. None
+/// while `shown` names that job: the screen shows it already.
+#[component]
+pub fn FollowAudit(source_set: String, #[prop(into)] shown: Signal<Vec<i64>>) -> impl IntoView {
+    let live = use_live();
+    let followed = Memo::new(move |prev: Option<&Option<i64>>| {
+        live.book
+            .with(|b| {
+                summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &source_set)
+            })
+            .or(prev.copied().flatten())
+    });
+    move || {
+        followed
+            .get()
+            .filter(|job| !shown.with(|s| s.contains(job)))
+            .map(|job| view! { <JobOutcome job /> })
     }
 }
 

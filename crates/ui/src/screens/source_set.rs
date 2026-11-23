@@ -31,9 +31,8 @@ use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::message::{Problem, Said};
-use crate::parts::outcome::{JobOutcome, Reports, ShowReports};
+use crate::parts::outcome::{JobOutcome, Report, Reports, ShowReports};
 use crate::parts::overlay::{Drawer, Menu, MenuItem};
-use crate::parts::pending::PendingStatus;
 use crate::parts::status::{
     GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge, StatusIcon,
 };
@@ -42,16 +41,16 @@ use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
 use crate::screens::additions::{AdditionsList, SetView};
-use crate::screens::audit::{AuditCounts, EntriesPanel, GamesPanel, load};
+use crate::screens::audit::{AuditCounts, EntriesPanel, FollowAudit, GamesPanel, load};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
 use crate::screens::kept::KeptFiles;
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
-use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab};
+use crate::screens::repair::{RepairDesk, RepairTab};
 use crate::screens::source_sets::{
-    new_library_href, preview_href, repair_plan_href, stale_lines, start_audit, start_check,
-    tab_href,
+    Proposal, ProposalStatus, RepairNow, new_library_href, preview_href, repair_plan_href,
+    stale_lines, start_audit, start_check, tab_href,
 };
 use crate::source_set_model::{
     self as model, ExportScope, Happened, MissingExport, Moment, PageTab, no_coverage,
@@ -129,11 +128,15 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 .map(|(s, _)| model::status(s, jobs_running().contains(&name.get_value())))
         })
     });
+    let auditing = Memo::new(move |_| {
+        live.book.with(|b| {
+            summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &name.get_value())
+        })
+    });
     let next = Memo::new(move |_| {
         good.with(|g| {
-            g.as_ref().map(|(s, _)| {
-                summary_model::next_step(s, jobs_running().contains(&name.get_value()))
-            })
+            g.as_ref()
+                .map(|(s, _)| summary_model::next_step(s, auditing.get()))
         })
     });
     let repair_state = Memo::new(move |_| {
@@ -182,11 +185,17 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         start_check(name.get_value(), reports)
     };
     let navigate = navigator();
-    // Proposing lands on the Repair tab, which shows the plan being made and then names it in the URL.
-    let repair_now = move |_| {
-        desk.propose();
-        navigate.run(url_tab.href(Some(PageTab::Repair.slug())));
-    };
+    let proposal = Proposal::new();
+    let started = Signal::derive(move || {
+        reports
+            .get()
+            .into_iter()
+            .filter_map(|r| match r {
+                Report::Job(job) => Some(job.id),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
     let options = RwSignal::new(false);
     let audited =
         Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.latest.is_some())));
@@ -225,15 +234,16 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         <div class="actions">
             {move || match next.get() {
                 Some(NextStep::Repair) => view! {
-                    <button
-                        type="button"
-                        class="primary"
-                        disabled=desk.proposing()
+                    <RepairNow
+                        proposal
+                        name=name.get_value()
                         title="Proposes a repair from its latest audit, and opens the plan for your review. Nothing changes until you approve it."
-                        on:click=repair_now
-                    >
-                        "Repair"
-                    </button>
+                    />
+                    <button type="button" on:click=audit_now>"Audit"</button>
+                }
+                .into_any(),
+                // Its audit is on its way: follow it below rather than propose a repair it is about to supersede.
+                Some(NextStep::Auditing(_)) => view! {
                     <button type="button" on:click=audit_now>"Audit"</button>
                 }
                 .into_any(),
@@ -269,10 +279,9 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             </Menu>
         </div>
         <Said said />
+        <ProposalStatus proposal />
         <ShowReports reports />
-        <Show when=move || desk.proposing().get() && tab.get() != PageTab::Repair>
-            <PendingStatus status=MAKING_PLAN />
-        </Show>
+        <FollowAudit source_set=set.name.clone() shown=started />
         <Tabs label="Source set" tabs=page_tabs />
         {move || match summary.get() {
             Some(Err(message)) if good.with(Option::is_none) => {
