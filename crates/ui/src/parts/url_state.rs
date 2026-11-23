@@ -211,11 +211,15 @@ pub fn use_list_query() -> (Memo<ListQuery>, Callback<ListQuery>) {
 }
 
 /// As `use_list_query`, for the list scoped by `scope`.
-pub fn use_list_query_in(scope: Option<&'static str>) -> (Memo<ListQuery>, Callback<ListQuery>) {
+pub fn use_list_query_in(scope: Option<String>) -> (Memo<ListQuery>, Callback<ListQuery>) {
     let query = use_query_map();
+    let scope = StoredValue::new(scope);
     let state = Memo::new(move |_| {
         query.with(|q| {
-            ListQuery::from_pairs_in(scope, q.latest_values().map(|(k, v)| (k.as_ref(), v)))
+            ListQuery::from_pairs_in(
+                scope.get_value().as_deref(),
+                q.latest_values().map(|(k, v)| (k.as_ref(), v)),
+            )
         })
     });
     let location = use_location();
@@ -235,7 +239,10 @@ pub fn use_list_query_in(scope: Option<&'static str>) -> (Memo<ListQuery>, Callb
     });
     let set = Callback::new(move |next: ListQuery| {
         let pairs = query.with_untracked(|q| {
-            next.merged_in(scope, q.latest_values().map(|(k, v)| (k.as_ref(), v)))
+            next.merged_in(
+                scope.get_value().as_deref(),
+                q.latest_values().map(|(k, v)| (k.as_ref(), v)),
+            )
         });
         let path = location.pathname.get_untracked();
         target.set(Some(format!("{path}{}", query_string(&pairs))));

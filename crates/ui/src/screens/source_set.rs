@@ -43,7 +43,7 @@ use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
-use crate::screens::additions::SetView;
+use crate::screens::additions::{AdditionsList, SetView};
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::library_folders::live_jobs;
@@ -1016,7 +1016,14 @@ fn Additions(system: String) -> impl IntoView {
             None => view! { <Loading what="its additions" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(None)) => view! { <p class="note">"This DAT has no additions yet."</p> }.into_any(),
-            Some(Ok(Some(set))) => view! { <SetView set refresh /> }.into_any(),
+            Some(Ok(Some(set))) => {
+                let additions = Signal::stored(std::sync::Arc::new(set.additions.clone()));
+                view! {
+                    <AdditionsList additions refresh />
+                    <SetView set refresh />
+                }
+                .into_any()
+            }
         }}
     }
 }

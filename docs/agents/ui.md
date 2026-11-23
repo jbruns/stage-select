@@ -258,8 +258,9 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      (`Option<Arc<dyn Fn(&T) -> bool>>`), applied with the filter text. Changing it clears an "every match"
      selection.
    - `legend: ViewFn`: the strip under the list, usually `Legend { statuses: present(rows), list: id }`.
-   - `scope: &'static str`: for a second list on one page, the prefix of its URL keys (`changes-q`, `changes-row`,
-     …), so each list keeps its own filter, sort, open row and checks. One list per page goes unscoped.
+   - `scope` (any string): for a second list on one page, the prefix of its URL keys (`changes-q`, `changes-row`,
+     …), so each list keeps its own filter, sort, open row and checks. One list per page goes unscoped. Give each
+     list on a page its own `id` too: the `id` prefixes its element ids.
    - A filter control beside the text keeps its value in the URL too: build it with `use_query_edit`, as
      `screens::audit::url_select` does, and derive `keep` from the query, so a link can open the list filtered
      (`/audits/7?finding=misnamed`).
@@ -280,7 +281,7 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
 replaces the URL without scrolling. Keys: `q`, `sort` (`-name` for descending), `row` (the open row's key), `tab`,
 `sel` (checked rows' keys, comma-separated, `\` escapes) and `all=1` (every row matching the filter is checked; `sel`
 then lists the rows unchecked since). Defaults are omitted and other query parameters are kept. Use
-`ListQuery::sorted_by(column)` for a header click. `checked` is a `list_model::Selection`. `use_list_query_in(scope)`
+`ListQuery::sorted_by(column)` for a header click. `checked` is a `list_model::Selection`. `use_list_query_in(Some(scope))`
 reads and writes a scoped list's keys (`{scope}-q`, …); `tab` always stays the page's.
 
 ### Layout and routes

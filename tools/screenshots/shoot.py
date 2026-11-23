@@ -29,12 +29,15 @@ target/screenshots/.work/<label>/:
   missing two games, holding one of a two-ROM game's ROMs, so that game is incomplete, and an unknown file, so it
   needs review; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
   Activity lists a failed job;
-- a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets;
-- two library folders: play/atari-2600, its plan approved and built (so READY shows), and play/game-boy, its plan
-  waiting for approval;
-- the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows.
+- a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets, and a choice for a game
+  group the Atari DAT lacks, so the Atari selection has a stale choice;
+- two library folders: play/atari-2600, its plan approved and built (so READY shows), then one built file changed and
+  a stray file added and the folder checked, so its drift tab has drift; and play/game-boy, its plan waiting for
+  approval;
+- the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows;
+- the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan.
 
-It doesn't seed an additions root, curation, cue packs, RomM, notifications, a drifted or stale library folder, a
+It doesn't seed curation, cue packs, RomM, notifications, a stale library folder, a
 DAT fetch, kept files from an approved repair or ingest plan, or a running or interrupted job. The activity-running
 screen shows a running job all the same: the page itself hands the newest job's state and progress to its live
 stream, and the Service never sees it. A step the Service
@@ -95,7 +98,10 @@ SCREENS = {
     "library": "/libraries/{library}",
     "library-plan": "/libraries/{library}?tab=plan",
     "library-pending-plan": "/libraries/{pending_library}?tab=plan",
+    "library-drift": "/libraries/{library}?tab=drift",
     "build": "/builds/{build}",
+    "additions": "/additions",
+    "source-set-additions": "/source-sets/{additions_set}?tab=additions",
     "ingest": "/ingest",
     "ingest-folder": "/ingest/drop",
     "activity": "/activity",
@@ -240,6 +246,9 @@ SYSTEMS = {
 GB_MISNAMED = "Tile Tumbler (World)"
 GB_MISSING = "Pocket Ranger 2 (USA)"
 GB_WRONG = "Deep Current (Japan)"
+# A choice of the profile for a game group no DAT has, and an ingest folder file kept as an addition.
+STALE_GROUP = "Vanished Racer"
+ADDITION = "pocket-ranger-en.gb"
 MD_MISSING = {"Iron Meadow (USA)", "Rally Spirits (Japan)"}
 # A Mega Drive game of two ROMs, its source set holding only the first: an incomplete game.
 MD_TWO_ROMS = "Twin Reels (USA)"
@@ -360,11 +369,12 @@ def seed(api, data):
             print(f"seed: skipped {what}: {e}", file=sys.stderr)
             return None
 
-    sets, play, drop = data / "sets", data / "play", data / "drop"
+    sets, play, drop, additions = data / "sets", data / "play", data / "drop", data / "additions"
     for system in SYSTEMS:
         write_set(sets / system, system)
     play.mkdir(parents=True)
     drop.mkdir(parents=True)
+    additions.mkdir(parents=True)
 
     step("root sets", lambda: api.post("/roots", {
         "name": "sets", "path": str(sets), "kind": "general", "writable": False, "writable_paths": [GAME_BOY]}))
@@ -398,7 +408,8 @@ def seed(api, data):
 
     def profile():
         saved = api.post("/profiles/Everyday/versions", {
-            "profile": {}, "base_version": None,
+            # A choice for a game group the Atari DAT lacks: a stale choice.
+            "profile": {"choices": {ATARI: {STALE_GROUP: [STALE_GROUP + " (USA)"]}}}, "base_version": None,
             "queue": [{"source_set": ATARI, "revision": None}, {"source_set": GAME_BOY, "revision": None}],
         })
         selections = {}
@@ -422,11 +433,23 @@ def seed(api, data):
         job = api.follow(api.post(f"/plans/{plan['id']}/approval", {"digest": plan["digest"]}))
         if job["state"] != "succeeded":
             raise RuntimeError(f"build {job['id']} {job['state']}")
-        return folder["id"], job["id"]
+        build = next(b for b in api.get(f"/libraries/{folder['id']}/builds") if b["job"] == job["id"])
+        return folder["id"], build["id"]
 
     built = step("library folder play/atari-2600, built", lambda: library(ATARI, "atari-2600", True))
     if built:
         made["library"], made["build"] = built
+    def drift():
+        folder = data / "play" / "atari-2600"
+        (folder / "Stray Disk (USA).zip").write_bytes(payload("a stray"))
+        built = sorted(folder.glob("*.zip"))[0]
+        built.write_bytes(payload("changed by hand"))
+        job = api.follow(api.post(f"/libraries/{made['library']}/checks"))
+        if job["state"] != "succeeded":
+            raise RuntimeError(f"the check {job['state']}")
+
+    if built:
+        step("drift in play/atari-2600, checked", drift)
     pending = step("library folder play/game-boy, planned", lambda: library(GAME_BOY, "game-boy", False))
     if pending:
         made["pending_library"] = pending[0]
@@ -442,6 +465,30 @@ def seed(api, data):
             api.follow(api.post("/ingest-folders/drop/scans"))
 
     step("ingest folder drop", ingest)
+
+    def addition():
+        api.post("/roots", {"name": "additions", "path": str(additions), "kind": "additions", "writable": True})
+        (drop / ADDITION).write_bytes(payload(ADDITION))
+        for _ in range(2):
+            api.follow(api.post("/ingest-folders/drop/scans"))
+        items = api.get("/ingest-folders/drop/items")
+        item = next(i for i in items if i["name"] == ADDITION)
+        plan = api.post("/ingest-folders/drop/plans", {
+            "action": "addition", "items": [item["id"]],
+            "additions": {str(item["id"]): {
+                "system": f"No-Intro/{GAME_BOY}", "name": "Pocket Ranger (USA) (Fan Translation)",
+                "parent": "Pocket Ranger (USA)"}},
+        })
+        api.post(f"/ingest-plans/{plan['id']}/approval", {"digest": plan["digest"]})
+        for _ in range(120):
+            sets = api.get("/additions-sets")
+            if any(a["additions"] for a in sets):
+                return True
+            time.sleep(0.5)
+        raise RuntimeError("the addition wasn't published")
+
+    if step("an addition, from drop", addition):
+        made["additions_set"] = urllib.parse.quote(GAME_BOY)
 
     def failed_audit():
         shutil.rmtree(sets / PC_ENGINE)
@@ -637,7 +684,7 @@ def main():
     parser.add_argument("--screens", help="comma-separated screen names to capture; by default every one")
     parser.add_argument("--route", action="append", default=[], metavar="NAME=PATH",
                         help="add or replace a screen; PATH may name {findings_set}, {audit}, {selection}, "
-                             "{library}, {pending_library} or {build}")
+                             "{library}, {pending_library}, {build} or {additions_set}")
     parser.add_argument("--list", action="store_true", help="list the screens and stop")
     args = parser.parse_args()
 

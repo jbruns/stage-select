@@ -25,9 +25,8 @@ use stage_select_api::{
 use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
-    build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label, file_outcome_label,
-    folders_for, incomplete_counts, incomplete_reason_label, item_kind_label, item_state_label,
-    keep_reason_label, unfinished_label,
+    build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label, folders_for,
+    incomplete_counts, incomplete_reason_label, keep_reason_label, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
@@ -61,6 +60,7 @@ use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
     LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
 };
+use crate::selection_model::capitalised;
 
 fn folder_href(id: i64) -> String {
     format!("/libraries/{id}")
@@ -1312,6 +1312,106 @@ fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl Int
         </Pending>
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IncompleteCol {
+    Reason,
+    Game,
+    Target,
+}
+
+/// A selected game's file the folder lacks, and why.
+#[derive(Clone, PartialEq)]
+struct IncompleteRow(stage_select_api::build::IncompleteItem);
+
+impl ListRow for IncompleteRow {
+    type Col = IncompleteCol;
+    const COLUMNS: &'static [IncompleteCol] = &[
+        IncompleteCol::Reason,
+        IncompleteCol::Game,
+        IncompleteCol::Target,
+    ];
+
+    fn column(col: IncompleteCol) -> Column {
+        match col {
+            IncompleteCol::Reason => Column::new("reason", "Why", Width::Fixed(10.0)).sortable(),
+            IncompleteCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            IncompleteCol::Target => Column::new(
+                "file",
+                "File",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+        }
+    }
+
+    fn key(&self) -> String {
+        format!(
+            "{}:{}",
+            incomplete_reason_label(self.0.reason),
+            self.0.target
+        )
+    }
+
+    fn title(&self) -> String {
+        self.0.target.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{} {} {}", self.0.target, self.0.game, self.0.group)
+    }
+
+    fn cell(&self, col: IncompleteCol) -> AnyView {
+        let i = &self.0;
+        match col {
+            IncompleteCol::Reason => capitalised(incomplete_reason_label(i.reason)).into_any(),
+            IncompleteCol::Game => view! { <Clip text=i.game.clone() /> }.into_any(),
+            IncompleteCol::Target => view! { <Clip text=i.target.clone() /> }.into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: IncompleteCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            IncompleteCol::Reason => a.reason.cmp(&b.reason),
+            IncompleteCol::Game => a.game.cmp(&b.game),
+            IncompleteCol::Target => a.target.cmp(&b.target),
+        }
+    }
+}
+
+fn incomplete_detail(row: IncompleteRow) -> AnyView {
+    let i = row.0;
+    let failed = i.reason == stage_select_api::build::IncompleteReason::Failed;
+    view! {
+        <p>{capitalised(incomplete_reason_label(i.reason))}</p>
+        {i.detail.map(|d| {
+            if failed {
+                view! { <Problem message=d live=MessageLive::Off /> }.into_any()
+            } else {
+                view! { <p>{d}</p> }.into_any()
+            }
+        })}
+        <dl class="facts">
+            <dt>"Game"</dt>
+            <dd>{i.game}</dd>
+            <dt>"Game group"</dt>
+            <dd>{i.group}</dd>
+        </dl>
+    }
+    .into_any()
+}
+
 /// What the folder lacks of its current build's selection, and why.
 #[component]
 fn IncompleteItems(folder: i64) -> impl IntoView {
@@ -1320,42 +1420,31 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Incomplete>(&format!("/libraries/{folder}/incomplete")).await }
     });
+    let items = last_good_rows(move || loaded.get().map(|r| r.map(|i| i.items)));
+    let rows = Signal::derive(move || {
+        items.with(|items| Arc::new(items.iter().cloned().map(IncompleteRow).collect::<Vec<_>>()))
+    });
     view! {
         <section aria-labelledby="incomplete-title">
             <h2 id="incomplete-title">"Incomplete"</h2>
             <p class="lede">
-                "The folder lacks these selected games. Fix what stops them, then plan again; failed files are \
-                listed with their errors."
+                "The folder lacks these selected games. Fix what stops them, then plan again; open a failed file \
+                to see its error."
             </p>
             {move || match loaded.get() {
                 None => view! { <Loading what="what the folder lacks" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(incomplete)) => view! {
-                    <ul class="plain">
-                        {incomplete
-                            .items
-                            .into_iter()
-                            .map(|i| {
-                                let failed = i.reason == stage_select_api::build::IncompleteReason::Failed;
-                                view! {
-                                    <li>
-                                        <code>{i.target}</code>
-                                        {format!(": {}", incomplete_reason_label(i.reason))}
-                                        {i.detail.map(|d| {
-                                            if failed {
-                                                view! { <Problem message=d live=MessageLive::Off /> }.into_any()
-                                            } else {
-                                                format!(": {d}").into_any()
-                                            }
-                                        })}
-                                    </li>
-                                }
-                            })
-                            .collect_view()}
-                    </ul>
-                }
-                .into_any(),
+                Some(Ok(_)) => ().into_any(),
             }}
+            <List
+                id="incomplete"
+                label="Incomplete"
+                rows
+                empty="The folder lacks nothing."
+                placeholder="Filter by file, game or game group"
+                detail=Callback::new(incomplete_detail)
+                scope="incomplete"
+            />
         </section>
     }
 }
@@ -1442,70 +1531,268 @@ fn check_view(check: FolderCheck) -> impl IntoView {
                 })
                 .collect_view()}
         </ul>
-        {(!files.is_empty()).then(|| view! {
-            <h3>"Built files that changed"</h3>
-            <ul class="plain">
-                {files
-                    .into_iter()
-                    .map(|f| {
-                        let flag = (!f.torrentzip).then_some(", not TorrentZip");
-                        view! {
-                            <li>
-                                <code>{f.target}</code>
-                                {format!(": {}", file_outcome_label(f.outcome))}
-                                {flag}
-                                {f.detail.filter(|d| d != "not TorrentZip").map(|d| format!(": {d}"))}
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
+        {(!files.is_empty()).then(|| {
+            let rows = Signal::stored(Arc::new(files.into_iter().map(CheckedRow).collect::<Vec<_>>()));
+            let looks = Signal::derive(move || rows.with(|rows| present_looks(rows.iter().map(|r| r.0.outcome))));
+            view! {
+                <h3>"Built files that changed"</h3>
+                <List
+                    id="changed-files"
+                    label="Built files that changed"
+                    rows
+                    empty="No built file changed."
+                    placeholder="Filter by file or game"
+                    detail=Callback::new(checked_detail)
+                    legend=move || view! { <LegendStrip looks list="changed-files" /> }
+                    scope="changed"
+                />
+            }
         })}
-        {(!check.drift.is_empty()).then(|| view! {
-            <h3>"Not built here"</h3>
-            <p class="note small">
-                "Entries Stage Select did not build. They are left as they are; only one at a selected game's file \
-                makes the folder incomplete."
-            </p>
-            <ul class="plain">
-                {check
-                    .drift
-                    .into_iter()
-                    .map(|d| {
-                        let game = d.game.map(|g| format!(" ({g})"));
-                        let conflict = d.conflict.then_some(", at a selected game's file");
-                        view! {
-                            <li>
-                                <code>{d.name}</code>
-                                {format!(": {}", drift_kind_label(d.kind))}
-                                {game}
-                                {conflict}
-                                {d.detail.map(|x| format!(": {x}"))}
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
+        {(!check.drift.is_empty()).then(|| {
+            let rows = Signal::stored(Arc::new(check.drift.into_iter().map(DriftRow).collect::<Vec<_>>()));
+            view! {
+                <h3>"Not built here"</h3>
+                <p class="note small">
+                    "Entries Stage Select did not build. They are left as they are; only one at a selected game's file \
+                    makes the folder incomplete."
+                </p>
+                <List
+                    id="drift"
+                    label="Not built here"
+                    rows
+                    empty="Nothing here that Stage Select did not build."
+                    placeholder="Filter by name or game"
+                    detail=Callback::new(drift_detail)
+                    scope="drift"
+                />
+            }
         })}
-        {(!check.acknowledged.is_empty()).then(|| view! {
-            <h3>"Acknowledged"</h3>
-            <p class="note small">
-                "Entries you acknowledged. They are not reported as drift again until they change."
-            </p>
-            <ul class="plain">
-                {check
-                    .acknowledged
-                    .into_iter()
-                    .map(|d| view! {
-                        <li>
-                            <code>{d.name}</code>
-                            {format!(": {}", drift_kind_label(d.kind))}
-                        </li>
-                    })
-                    .collect_view()}
-            </ul>
+        {(!check.acknowledged.is_empty()).then(|| {
+            let rows = Signal::stored(Arc::new(check.acknowledged.into_iter().map(DriftRow).collect::<Vec<_>>()));
+            view! {
+                <h3>"Acknowledged"</h3>
+                <p class="note small">
+                    "Entries you acknowledged. They are not reported as drift again until they change."
+                </p>
+                <List
+                    id="acknowledged"
+                    label="Acknowledged"
+                    rows
+                    empty="You acknowledged nothing."
+                    placeholder="Filter by name or game"
+                    detail=Callback::new(drift_detail)
+                    scope="acknowledged"
+                />
+            }
         })}
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckedCol {
+    Outcome,
+    Target,
+    Game,
+    TorrentZip,
+}
+
+/// A built file a check found changed, or not TorrentZip.
+#[derive(Clone, PartialEq)]
+struct CheckedRow(stage_select_api::build::CheckedFile);
+
+impl ListRow for CheckedRow {
+    type Col = CheckedCol;
+    const COLUMNS: &'static [CheckedCol] = &[
+        CheckedCol::Outcome,
+        CheckedCol::Target,
+        CheckedCol::Game,
+        CheckedCol::TorrentZip,
+    ];
+
+    fn column(col: CheckedCol) -> Column {
+        match col {
+            CheckedCol::Outcome => Column::new("outcome", "Found", Width::Fixed(4.5))
+                .sortable()
+                .hint("What the check found"),
+            CheckedCol::Target => Column::new(
+                "file",
+                "File",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            CheckedCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            CheckedCol::TorrentZip => {
+                Column::new("torrentzip", "TorrentZip", Width::Fixed(7.0)).sortable()
+            }
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.target.clone()
+    }
+
+    fn title(&self) -> String {
+        self.0.target.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{} {}", self.0.target, self.0.game)
+    }
+
+    fn cell(&self, col: CheckedCol) -> AnyView {
+        let f = &self.0;
+        match col {
+            CheckedCol::Outcome => {
+                view! { <StatusIcon status=f.outcome tab_stop=false /> }.into_any()
+            }
+            CheckedCol::Target => view! { <Clip text=f.target.clone() /> }.into_any(),
+            CheckedCol::Game => view! { <Clip text=f.game.clone() /> }.into_any(),
+            CheckedCol::TorrentZip => (if f.torrentzip { "Yes" } else { "No" }).into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: CheckedCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            CheckedCol::Outcome => a.outcome.rank().cmp(&b.outcome.rank()),
+            CheckedCol::Target => a.target.cmp(&b.target),
+            CheckedCol::Game => a.game.cmp(&b.game),
+            CheckedCol::TorrentZip => a.torrentzip.cmp(&b.torrentzip),
+        }
+    }
+}
+
+fn checked_detail(row: CheckedRow) -> AnyView {
+    let f = row.0;
+    view! {
+        <p>
+            <StatusBadge status=f.outcome />
+        </p>
+        <p>{f.outcome.look().hint}</p>
+        {(!f.torrentzip).then(|| view! { <p>"It isn't TorrentZip."</p> })}
+        {f.detail.filter(|d| d != "not TorrentZip").map(|d| view! { <p>{d}</p> })}
+        <dl class="facts">
+            <dt>"Game"</dt>
+            <dd>{f.game}</dd>
+        </dl>
+    }
+    .into_any()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DriftCol {
+    Kind,
+    Name,
+    Game,
+}
+
+/// An entry in the folder that Stage Select did not build.
+#[derive(Clone, PartialEq)]
+struct DriftRow(stage_select_api::build::DriftEntry);
+
+impl ListRow for DriftRow {
+    type Col = DriftCol;
+    const COLUMNS: &'static [DriftCol] = &[DriftCol::Kind, DriftCol::Name, DriftCol::Game];
+
+    fn column(col: DriftCol) -> Column {
+        match col {
+            DriftCol::Kind => Column::new(
+                "kind",
+                "What it is",
+                Width::Flex {
+                    min: 12.0,
+                    share: 1,
+                },
+            )
+            .sortable(),
+            DriftCol::Name => Column::new(
+                "name",
+                "Name",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            DriftCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.name.clone()
+    }
+
+    fn title(&self) -> String {
+        self.0.name.clone()
+    }
+
+    fn search(&self) -> String {
+        format!(
+            "{} {}",
+            self.0.name,
+            self.0.game.as_deref().unwrap_or_default()
+        )
+    }
+
+    fn cell(&self, col: DriftCol) -> AnyView {
+        let d = &self.0;
+        match col {
+            DriftCol::Kind => {
+                let tag = d
+                    .conflict
+                    .then(|| view! { " " <span class="tag">"At a selected file"</span> });
+                view! { <Clip text=drift_kind_label(d.kind) /> {tag} }.into_any()
+            }
+            DriftCol::Name => view! { <Clip text=d.name.clone() /> }.into_any(),
+            DriftCol::Game => d.game.clone().map(|g| view! { <Clip text=g /> }).into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: DriftCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            DriftCol::Kind => a.kind.cmp(&b.kind),
+            DriftCol::Name => a.name.cmp(&b.name),
+            DriftCol::Game => a.game.cmp(&b.game),
+        }
+    }
+}
+
+fn drift_detail(row: DriftRow) -> AnyView {
+    let d = row.0;
+    view! {
+        <p>{drift_kind_label(d.kind)}</p>
+        {d.conflict.then(|| view! {
+            <p>"It is at a selected game's file, which makes the folder incomplete."</p>
+        })}
+        {d.detail.map(|x| view! { <p>{x}</p> })}
+        {d.game.map(|g| view! {
+            <dl class="facts">
+                <dt>"Game"</dt>
+                <dd>{g}</dd>
+            </dl>
+        })}
+    }
+    .into_any()
 }
 
 /// Plans a cleanup of what the latest check found: what to do with each entry Stage Select did not build that you
@@ -2375,18 +2662,109 @@ pub fn BuildScreen() -> impl IntoView {
     }
 }
 
-fn build_item_line(item: BuildItem) -> impl IntoView {
-    view! {
-        <li>
-            <code>{item.target}</code>
-            {format!(
-                ": {}, {}",
-                item_kind_label(item.kind).to_lowercase(),
-                item_state_label(item.state).to_lowercase(),
-            )}
-            {item.error.map(|message| view! { <Problem message live=MessageLive::Off /> })}
-        </li>
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemCol {
+    State,
+    Kind,
+    Target,
+    Game,
+}
+
+/// A file a build wrote or meant to, by its place in the build: a build may set a file aside and write another at the
+/// same target.
+#[derive(Clone, PartialEq)]
+struct BuildItemRow(usize, BuildItem);
+
+impl ListRow for BuildItemRow {
+    type Col = ItemCol;
+    const COLUMNS: &'static [ItemCol] = &[
+        ItemCol::State,
+        ItemCol::Kind,
+        ItemCol::Target,
+        ItemCol::Game,
+    ];
+
+    fn column(col: ItemCol) -> Column {
+        match col {
+            ItemCol::State => Column::new("state", "State", Width::Fixed(4.5))
+                .sortable()
+                .hint("Whether the build wrote it"),
+            ItemCol::Kind => Column::new("kind", "Kind", Width::Fixed(4.5))
+                .sortable()
+                .hint("How the build writes it"),
+            ItemCol::Target => Column::new(
+                "file",
+                "File",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            ItemCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+        }
     }
+
+    fn key(&self) -> String {
+        self.0.to_string()
+    }
+
+    fn title(&self) -> String {
+        self.1.target.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{} {}", self.1.target, self.1.game)
+    }
+
+    fn cell(&self, col: ItemCol) -> AnyView {
+        let item = &self.1;
+        match col {
+            ItemCol::State => view! { <StatusIcon status=item.state tab_stop=false /> }.into_any(),
+            ItemCol::Kind => {
+                view! { <StatusIcon status=BuildKind::from(item.kind) tab_stop=false /> }.into_any()
+            }
+            ItemCol::Target => view! { <Clip text=item.target.clone() /> }.into_any(),
+            ItemCol::Game => view! { <Clip text=item.game.clone() /> }.into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: ItemCol) -> Ordering {
+        let (a, b) = (&self.1, &other.1);
+        match col {
+            ItemCol::State => a.state.rank().cmp(&b.state.rank()),
+            ItemCol::Kind => BuildKind::from(a.kind)
+                .rank()
+                .cmp(&BuildKind::from(b.kind).rank()),
+            ItemCol::Target => a.target.cmp(&b.target),
+            ItemCol::Game => a.game.cmp(&b.game),
+        }
+    }
+}
+
+fn build_item_detail(row: BuildItemRow) -> AnyView {
+    let item = row.1;
+    view! {
+        <p>
+            <StatusBadge status=item.state />
+            " "
+            <StatusBadge status=BuildKind::from(item.kind) />
+        </p>
+        {item.error.map(|message| view! { <Problem message live=MessageLive::Off /> })}
+        <dl class="facts">
+            <dt>"Game"</dt>
+            <dd>{item.game}</dd>
+        </dl>
+    }
+    .into_any()
 }
 
 fn build_view(detail: BuildDetail) -> impl IntoView {
@@ -2398,6 +2776,23 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             format!("Library folder #{}", b.folder),
         ),
     ];
+    let rows: Signal<Arc<Vec<BuildItemRow>>> = Signal::stored(Arc::new(
+        detail
+            .items
+            .into_iter()
+            .enumerate()
+            .map(|(i, item)| BuildItemRow(i, item))
+            .collect(),
+    ));
+    let looks = Signal::derive(move || {
+        rows.with(|rows| {
+            let mut looks = present_looks(rows.iter().map(|r| r.1.state));
+            looks.extend(present_looks(
+                rows.iter().map(|r| BuildKind::from(r.1.kind)),
+            ));
+            looks
+        })
+    });
     view! {
         <Crumbs trail here=format!("Build #{}", b.id) />
         <h1>{format!("Build #{}", b.id)}</h1>
@@ -2436,12 +2831,15 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
         </ul>
         <section aria-labelledby="items-title">
             <h2 id="items-title">"Files"</h2>
-            {if detail.items.is_empty() {
-                view! { <p class="note">"The build had no files to write."</p> }.into_any()
-            } else {
-                view! { <ul class="plain">{detail.items.into_iter().map(build_item_line).collect_view()}</ul> }
-                    .into_any()
-            }}
+            <List
+                id="build-files"
+                label="Files"
+                rows
+                empty="The build had no files to write."
+                placeholder="Filter by file or game"
+                detail=Callback::new(build_item_detail)
+                legend=move || view! { <LegendStrip looks list="build-files" /> }
+            />
         </section>
     }
 }

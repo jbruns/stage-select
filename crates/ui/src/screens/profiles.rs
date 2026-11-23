@@ -21,7 +21,7 @@ use crate::arcade_model::{arcade_systems, stray_arcade_problem, use_global_arcad
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::layout::Crumbs;
-use crate::parts::list::{Clip, Column, List, ListRow, Width};
+use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
@@ -340,6 +340,121 @@ fn Retirement(record: ProfileRecord, refresh: RwSignal<u64>) -> impl IntoView {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewCol {
+    Selection,
+    SourceSet,
+    Version,
+    Made,
+    Kept,
+    Review,
+}
+
+/// A selection of the profile that no library folder uses.
+#[derive(Clone, PartialEq)]
+struct PreviewRow(SelectionRecord);
+
+impl ListRow for PreviewRow {
+    type Col = PreviewCol;
+    const COLUMNS: &'static [PreviewCol] = &[
+        PreviewCol::Selection,
+        PreviewCol::SourceSet,
+        PreviewCol::Version,
+        PreviewCol::Made,
+        PreviewCol::Kept,
+        PreviewCol::Review,
+    ];
+
+    fn column(col: PreviewCol) -> Column {
+        match col {
+            PreviewCol::Selection => Column::new("selection", "Selection", Width::Fixed(7.0))
+                .numeric()
+                .sortable(),
+            PreviewCol::SourceSet => Column::new(
+                "source-set",
+                "Source set",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            PreviewCol::Version => Column::new("version", "Version", Width::Fixed(5.5))
+                .numeric()
+                .sortable()
+                .hint("The profile version it selected with"),
+            PreviewCol::Made => Column::new("made", "Made", Width::Fixed(11.0)).sortable(),
+            PreviewCol::Kept => Column::new("kept", "Kept", Width::Fixed(5.5))
+                .numeric()
+                .sortable()
+                .hint("Games it keeps"),
+            PreviewCol::Review => Column::new("review", "To review", Width::Fixed(6.5))
+                .numeric()
+                .sortable()
+                .hint("Game groups that need a decision from you"),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.id.to_string()
+    }
+
+    fn title(&self) -> String {
+        format!("Selection #{}", self.0.id)
+    }
+
+    fn search(&self) -> String {
+        format!("#{} {}", self.0.id, self.0.source_set)
+    }
+
+    fn cell(&self, col: PreviewCol) -> AnyView {
+        let s = &self.0;
+        match col {
+            PreviewCol::Selection => format!("#{}", s.id).into_any(),
+            PreviewCol::SourceSet => view! { <Clip text=s.source_set.clone() /> }.into_any(),
+            PreviewCol::Version => s.profile.version.to_string().into_any(),
+            PreviewCol::Made => view! { <Clip text=when(&s.created_at) /> }.into_any(),
+            PreviewCol::Kept => s.summary.kept.to_string().into_any(),
+            PreviewCol::Review => s.summary.needs_review().to_string().into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: PreviewCol) -> std::cmp::Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            PreviewCol::Selection => a.id.cmp(&b.id),
+            PreviewCol::SourceSet => a.source_set.cmp(&b.source_set),
+            PreviewCol::Version => a.profile.version.cmp(&b.profile.version),
+            PreviewCol::Made => a.created_at.cmp(&b.created_at),
+            PreviewCol::Kept => a.summary.kept.cmp(&b.summary.kept),
+            PreviewCol::Review => a.summary.needs_review().cmp(&b.summary.needs_review()),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(format!("/selections/{}", self.0.id))
+    }
+}
+
+fn preview_detail(row: PreviewRow) -> AnyView {
+    let s = row.0;
+    view! {
+        <dl class="facts">
+            <dt>"Source set"</dt>
+            <dd>{s.source_set.clone()}</dd>
+            <dt>"Profile version"</dt>
+            <dd>{s.profile.version}</dd>
+            <dt>"Made"</dt>
+            <dd>{when(&s.created_at)}</dd>
+            <dt>"Kept"</dt>
+            <dd>{s.summary.kept}</dd>
+            <dt>"To review"</dt>
+            <dd>{s.summary.needs_review()}</dd>
+        </dl>
+    }
+    .into_any()
+}
+
 /// The profile's previews: its Selections no Library Folder uses. A Source Set's page lists only the Selections
 /// its Library Folders use.
 #[component]
@@ -350,6 +465,18 @@ fn Previews(name: String) -> impl IntoView {
         live.settled.track();
         let path = path.clone();
         async move { api::get::<Vec<SelectionRecord>>(&path).await }
+    });
+    let all = last_good_rows(move || selections.get());
+    let rows = Signal::derive(move || {
+        all.with(|all| {
+            Arc::new(
+                all.iter()
+                    .filter(|s| s.library_folders.is_empty() && !s.pruned)
+                    .cloned()
+                    .map(PreviewRow)
+                    .collect::<Vec<_>>(),
+            )
+        })
     });
     let new_href = format!("/selections/new?profile={}", api::segment(&name));
     view! {
@@ -366,41 +493,105 @@ fn Previews(name: String) -> impl IntoView {
             {move || match selections.get() {
                 None => view! { <Loading what="the previews" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(all)) => {
-                    let previews: Vec<SelectionRecord> = all
-                        .into_iter()
-                        .filter(|s| s.library_folders.is_empty() && !s.pruned)
-                        .collect();
-                    if previews.is_empty() {
-                        return view! { <p class="note">"None yet."</p> }.into_any();
-                    }
-                    view! {
-                        <ul class="plain">
-                            {previews
-                                .into_iter()
-                                .map(|s| {
-                                    view! {
-                                        <li>
-                                            <A href=format!("/selections/{}", s.id)>{format!("Selection #{}", s.id)}</A>
-                                            {format!(
-                                                " of {}, version {}, made {}: {} kept, {} to review",
-                                                s.source_set,
-                                                s.profile.version,
-                                                when(&s.created_at),
-                                                s.summary.kept,
-                                                s.summary.needs_review(),
-                                            )}
-                                        </li>
-                                    }
-                                })
-                                .collect_view()}
-                        </ul>
-                    }
-                        .into_any()
-                }
+                Some(Ok(_)) => ().into_any(),
             }}
+            <List
+                id="previews"
+                label="Previews"
+                rows
+                empty="None yet."
+                placeholder="Filter by selection or source set"
+                detail=Callback::new(preview_detail)
+                scope="previews"
+            />
         </section>
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VersionCol {
+    Version,
+    Saved,
+    SavedBy,
+    Sha,
+}
+
+#[derive(Clone, PartialEq)]
+struct VersionRow(ProfileVersion);
+
+impl ListRow for VersionRow {
+    type Col = VersionCol;
+    const COLUMNS: &'static [VersionCol] = &[
+        VersionCol::Version,
+        VersionCol::Saved,
+        VersionCol::SavedBy,
+        VersionCol::Sha,
+    ];
+
+    fn column(col: VersionCol) -> Column {
+        match col {
+            VersionCol::Version => Column::new("version", "Version", Width::Fixed(5.5))
+                .numeric()
+                .sortable(),
+            VersionCol::Saved => Column::new("saved", "Saved", Width::Fixed(11.0)).sortable(),
+            VersionCol::SavedBy => {
+                Column::new("saved-by", "Saved by", Width::Flex { min: 8.0, share: 2 }).sortable()
+            }
+            VersionCol::Sha => {
+                Column::new("sha256", "SHA-256", Width::Fixed(9.0)).hint("The start of its SHA-256")
+            }
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.version.to_string()
+    }
+
+    fn title(&self) -> String {
+        format!("Version {}", self.0.version)
+    }
+
+    fn search(&self) -> String {
+        format!("{} {} {}", self.0.version, self.0.saved_by, self.0.sha256)
+    }
+
+    fn cell(&self, col: VersionCol) -> AnyView {
+        let v = &self.0;
+        match col {
+            VersionCol::Version => v.version.to_string().into_any(),
+            VersionCol::Saved => view! { <Clip text=when(&v.saved_at) /> }.into_any(),
+            VersionCol::SavedBy => view! { <Clip text=v.saved_by.clone() /> }.into_any(),
+            VersionCol::Sha => {
+                view! { <code class="hash small">{short_sha(&v.sha256).to_string()}</code> }
+                    .into_any()
+            }
+        }
+    }
+
+    fn compare(&self, other: &Self, col: VersionCol) -> std::cmp::Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            VersionCol::Version => a.version.cmp(&b.version),
+            VersionCol::Saved => a.saved_at.cmp(&b.saved_at),
+            VersionCol::SavedBy => a.saved_by.cmp(&b.saved_by),
+            VersionCol::Sha => a.sha256.cmp(&b.sha256),
+        }
+    }
+}
+
+fn version_detail(row: VersionRow) -> AnyView {
+    let v = row.0;
+    view! {
+        <dl class="facts">
+            <dt>"Saved"</dt>
+            <dd>{format!("{} by {}", when(&v.saved_at), v.saved_by)}</dd>
+            <dt>"SHA-256"</dt>
+            <dd>
+                <code class="hash">{v.sha256.clone()}</code>
+            </dd>
+        </dl>
+    }
+    .into_any()
 }
 
 #[component]
@@ -410,6 +601,10 @@ fn Versions(name: String) -> impl IntoView {
         let path = path.clone();
         async move { api::get::<Vec<ProfileVersion>>(&path).await }
     });
+    let loaded = last_good_rows(move || versions.get());
+    let rows = Signal::derive(move || {
+        loaded.with(|v| Arc::new(v.iter().cloned().map(VersionRow).collect::<Vec<_>>()))
+    });
     view! {
         <section aria-labelledby="versions-title">
             <h2 id="versions-title">"Versions"</h2>
@@ -417,30 +612,17 @@ fn Versions(name: String) -> impl IntoView {
             {move || match versions.get() {
                 None => view! { <Loading what="the versions" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(versions)) => {
-                    view! {
-                        <ul class="plain">
-                            {versions
-                                .into_iter()
-                                .map(|v| {
-                                    view! {
-                                        <li>
-                                            {format!(
-                                                "Version {}, saved {} by {} ",
-                                                v.version,
-                                                when(&v.saved_at),
-                                                v.saved_by,
-                                            )}
-                                            <code class="hash small">{short_sha(&v.sha256).to_string()}</code>
-                                        </li>
-                                    }
-                                })
-                                .collect_view()}
-                        </ul>
-                    }
-                        .into_any()
-                }
+                Some(Ok(_)) => ().into_any(),
             }}
+            <List
+                id="versions"
+                label="Versions"
+                rows
+                empty="No versions saved yet."
+                placeholder="Filter by version, who saved it or SHA-256"
+                detail=Callback::new(version_detail)
+                scope="versions"
+            />
         </section>
     }
 }

@@ -609,9 +609,10 @@ dd.games {
   margin: 0;
 }
 
+/* A short list is only as tall as its rows; a long one scrolls within this height. */
 .list-scroll {
   position: relative;
-  height: min(70vh, 48rem);
+  max-height: min(70vh, 48rem);
   overflow: auto;
   background: var(--color-surface);
   border: var(--border-width) solid var(--color-divider);

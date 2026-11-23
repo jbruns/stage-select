@@ -314,10 +314,11 @@ pub fn List<T: ListRow>(
     legend: Option<ViewFn>,
     /// For a second list on a page: the prefix of its own URL keys, such as `changes` for `changes-q`, so each list
     /// keeps its own filter, sort and open row.
-    #[prop(optional)]
-    scope: Option<&'static str>,
+    #[prop(optional, into)]
+    scope: Option<String>,
 ) -> impl IntoView {
-    let (query, set_query) = use_list_query_in(scope);
+    let scope = StoredValue::new(scope);
+    let (query, set_query) = use_list_query_in(scope.get_value());
     let query_map = use_query_map();
     let location = use_location();
     let go = crate::app::navigator();
@@ -835,8 +836,12 @@ pub fn List<T: ListRow>(
     let close_href = Signal::derive(move || {
         let mut q = query.get();
         q.selected = None;
-        let pairs =
-            query_map.with(|m| q.merged_in(scope, m.latest_values().map(|(k, v)| (k.as_ref(), v))));
+        let pairs = query_map.with(|m| {
+            q.merged_in(
+                scope.get_value().as_deref(),
+                m.latest_values().map(|(k, v)| (k.as_ref(), v)),
+            )
+        });
         format!("{}{}", location.pathname.get(), query_string(&pairs))
     });
     // The open row's current data: it follows a reload, and the detail redraws only when the row itself changed.
