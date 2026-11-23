@@ -132,7 +132,7 @@ fn run(case: &Case) -> Selection {
     let selection = outcome.selection;
 
     for group in &selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             assert!(
                 winner.rule.reference.is_some(),
                 "{}: {} has no rule",
@@ -195,12 +195,12 @@ fn overrides_exclude_and_include_titles_by_name_regex_and_full_name() {
     let group = |name: &str| selection.groups.iter().find(|g| g.group == name).unwrap();
     let excluded = |group: &str, title: &str| {
         let row = group_rows(&selection, group);
-        row.exclusions.iter().find(|e| e.title == title).cloned()
+        row.left_out.iter().find(|e| e.title == title).cloned()
     };
     assert!(excluded("test title 2", "Test Title 2 (USA)").is_some());
     assert!(excluded("test title 4 (pirate)", "Test Title 4 (USA) (Pirate)").is_some());
     let included = group("test title 1")
-        .winners
+        .kept
         .iter()
         .find(|w| w.title == "Test Title 1 (Germany)")
         .expect("the include override keeps a title the region order removes");

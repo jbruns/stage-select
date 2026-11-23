@@ -14,7 +14,7 @@ use stage_select_api::build::{
     PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, STATE, invalid_name,
 };
 use stage_select_api::report::{Entry, EvidenceLevel, Finding};
-use stage_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
+use stage_select_api::selection::{Outcome, ReleaseRow, Selection, SelectionProfile, diff_rows};
 use stage_select_api::storage::{
     Laid, Storage, StorageFormat, StorageScope, lay_out, multidisc_dir, playlist, playlist_name,
     release_of, sbi_beside,
@@ -333,7 +333,7 @@ fn load(
         .optional()?;
     let mut selected = HashMap::new();
     for group in &selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             selected.insert(
                 format!("{}.zip", winner.title).to_lowercase(),
                 winner.title.clone(),
@@ -1218,11 +1218,11 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
         if inputs.choices.resolved_only {
             unresolved.insert(group.group.as_str());
             let titles = group
-                .winners
+                .kept
                 .iter()
                 .map(|w| &w.title)
-                .chain(group.alternatives.iter().map(|a| &a.title))
-                .chain(group.exclusions.iter().map(|e| &e.title));
+                .chain(group.clones.iter().map(|a| &a.title))
+                .chain(group.left_out.iter().map(|e| &e.title));
             let titles: HashSet<&String> = titles.collect();
             let releases: HashSet<String> = titles.iter().map(|t| release_of(t)).collect();
             untouched.extend(titles.iter().map(|t| format!("{t}.zip")));
@@ -1399,12 +1399,12 @@ fn plan_items(
     for rom in &dat.roms {
         roms_of[rom.game].push((dat.expected(rom), rom.needed()));
     }
-    let mut winners: Vec<(&str, &str)> = Vec::new();
+    let mut selected: Vec<(&str, &str)> = Vec::new();
     let mut seen = BTreeSet::new();
     for group in &inputs.selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             if seen.insert(winner.title.as_str()) {
-                winners.push((&group.group, &winner.title));
+                selected.push((&group.group, &winner.title));
             }
         }
     }
@@ -1415,7 +1415,7 @@ fn plan_items(
     let mut contained: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut disks: HashMap<&str, Vec<usize>> = HashMap::new();
     if arcade {
-        for (_, title) in &winners {
+        for (_, title) in &selected {
             if let Some(&g) = games.get(*title) {
                 contained.insert(title, dat.self_contained(g));
             }
@@ -1461,10 +1461,10 @@ fn plan_items(
     // SBI file, where the system opts in.
     let playlists = match arcade {
         true => BTreeMap::new(),
-        false => playlists(&laid, winners.iter().map(|(_, title)| *title)),
+        false => playlists(&laid, selected.iter().map(|(_, title)| *title)),
     };
     let mut sbis: Vec<(&str, &str, String, GeneratedFile)> = Vec::new();
-    for (group, title) in winners.iter().filter(|_| !arcade) {
+    for (group, title) in selected.iter().filter(|_| !arcade) {
         if let Some((target, file)) = sbi_of(&laid, title, inputs.sbi.as_ref()) {
             sbis.push((group, title, target, file));
         }
@@ -1478,7 +1478,7 @@ fn plan_items(
             folders.insert(name_key(dir), dir.to_owned());
         }
     };
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         for (target, ..) in files_of(title) {
             reserve(&target);
         }
@@ -1499,7 +1499,7 @@ fn plan_items(
             ))
             .or_default() += 1;
     }
-    let wanted = winners
+    let wanted = selected
         .iter()
         .flat_map(|&(group, game)| {
             files_of(game)
@@ -1907,7 +1907,7 @@ fn plan_items(
     // the release is written, moved, placed or kept aside, and its `.m3u` and SBI files stay as they are. A disc's SBI
     // file is generated beside it, never one of its files. A release only goes on as it was while the check finds
     // every file built for it there: one with a file gone is built from what is left, as any other is.
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         let Some(at) = unbuilt_of(title).into_iter().next() else {
             continue;
         };
@@ -1951,7 +1951,7 @@ fn plan_items(
                 .iter()
                 .all(|f| inputs.built.get(f).is_some_and(|b| b.game == title) && as_built(scan, f))
     };
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         if left_in_place(title) {
             nothing.left.extend(unbuilt_of(title));
         }
@@ -1966,7 +1966,7 @@ fn plan_items(
             .filter(|i| games.contains(&i.game.as_str()))
             .map(|i| (i.kind, i.group.clone()))
             .chain(
-                winners
+                selected
                     .iter()
                     .filter(|(_, t)| games.contains(t) && left_in_place(t))
                     .map(|(g, _)| (ItemKind::Unchanged, (*g).to_owned())),
@@ -1985,7 +1985,7 @@ fn plan_items(
         }
         let file = m3u(&laid, &discs);
         let games: Vec<&str> = discs.iter().map(|(_, t)| *t).collect();
-        let group = winners
+        let group = selected
             .iter()
             .find(|(_, t)| *t == games[0])
             .map_or(release.as_str(), |(g, _)| *g);
@@ -2808,7 +2808,7 @@ fn unkeep(item: &mut PlanItem) {
 fn changes(inputs: &Inputs, previous: &Previous) -> Vec<PlanChange> {
     diff_rows(&previous.rows, &inputs.rows)
         .into_iter()
-        .filter(|c| c.before == Some(Role::Winner) || c.after == Some(Role::Winner))
+        .filter(|c| c.before == Some(Outcome::Kept) || c.after == Some(Outcome::Kept))
         .map(|c| {
             let rule_of = |rows: &[ReleaseRow]| {
                 rows.iter()

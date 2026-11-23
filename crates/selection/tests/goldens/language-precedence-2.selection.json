@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 1,
-    "winners": 1,
-    "alternatives": 3,
-    "exclusions": 5,
+    "kept": 1,
+    "clones": 3,
+    "left_out": 5,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -33,7 +33,7 @@
     {
       "group": "test title",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title (Europe) (En,Es,It)",
           "rule": {
@@ -44,7 +44,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title (Europe) (En,De,It)",
           "clone_of": "Test Title (Europe) (En,Es,It)",
@@ -73,7 +73,7 @@
           }
         }
       ],
-      "exclusions": [
+      "left_out": [
         {
           "title": "Test Title (Europe)",
           "rule": {

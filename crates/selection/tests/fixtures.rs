@@ -178,7 +178,7 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                 cell.push('d');
             }
             entry.cells.insert(p, cell);
-            let sole_winner = match group.winners.as_slice() {
+            let sole_winner = match group.kept.as_slice() {
                 [only] => Some(only.title.as_str()),
                 _ => None,
             };
@@ -190,11 +190,11 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                     .or_default()
                     .insert(p, (kind, rule));
             };
-            for w in &group.winners {
+            for w in &group.kept {
                 let kind = if w.unresolved { 'u' } else { 'w' };
                 place(&w.title, kind, rule_text(&w.rule, None));
             }
-            for a in &group.alternatives {
+            for a in &group.clones {
                 place(&a.title, 'a', rule_text(&a.rule, None));
                 if sole_winner != Some(a.clone_of.as_str()) {
                     entry
@@ -204,7 +204,7 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                         .insert(p);
                 }
             }
-            for x in &group.exclusions {
+            for x in &group.left_out {
                 place(&x.title, 'x', rule_text(&x.rule, Some(&x.reason)));
             }
         }

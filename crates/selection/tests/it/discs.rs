@@ -110,10 +110,10 @@ fn only_europe_having_disc_2_leaves_the_group_unresolved_until_your_choice_settl
     assert!(saga.unresolved, "{saga:#?}");
     // The engine's pick is unchanged: each disc is chosen by its own name, so Disc 2 can only come from Europe.
     assert_eq!(
-        titles(saga.winners.iter().map(|w| &w.title)),
+        titles(saga.kept.iter().map(|w| &w.title)),
         BTreeSet::from(["Saga (USA) (Disc 1)", "Saga (Europe) (Disc 2)"])
     );
-    assert!(saga.winners.iter().all(|w| !w.unresolved));
+    assert!(saga.kept.iter().all(|w| !w.unresolved));
     let solo = selection.groups.iter().find(|g| g.group == "solo").unwrap();
     assert!(!solo.unresolved);
     assert_eq!(selection.summary.unresolved, 1);
@@ -133,10 +133,7 @@ fn only_europe_having_disc_2_leaves_the_group_unresolved_until_your_choice_settl
     let saga = chosen.groups.iter().find(|g| g.group == "saga").unwrap();
     assert!(!saga.unresolved && !saga.needs_review(), "{saga:#?}");
     assert_eq!(saga.choice.as_ref().unwrap().status, ChoiceStatus::Applied);
-    assert_eq!(
-        titles(saga.winners.iter().map(|w| &w.title)),
-        titles(&europe)
-    );
+    assert_eq!(titles(saga.kept.iter().map(|w| &w.title)), titles(&europe));
     assert_eq!(chosen.summary.needs_review(), 0);
 
     // Confirming the engine's mixed pick is an explicit choice too, and it is kept.

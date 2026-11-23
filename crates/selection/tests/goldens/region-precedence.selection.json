@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 4,
-    "winners": 4,
-    "alternatives": 4,
-    "exclusions": 0,
+    "kept": 4,
+    "clones": 4,
+    "left_out": 0,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -32,7 +32,7 @@
     {
       "group": "test title",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title (USA)",
           "rule": {
@@ -43,7 +43,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title (World)",
           "clone_of": "Test Title (USA)",
@@ -54,13 +54,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 2",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 2 (World)",
           "rule": {
@@ -71,7 +71,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 2 (Jimakuban) (USA)",
           "clone_of": "Test Title 2 (World)",
@@ -82,13 +82,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 3",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 3 (World)",
           "rule": {
@@ -99,7 +99,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 3 (Jimakuban) (USA, Europe) (En,Fr,De,It,Es)",
           "clone_of": "Test Title 3 (World)",
@@ -110,13 +110,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 4",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 4 (World)",
           "rule": {
@@ -127,7 +127,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 4 (USA, Europe) (Fr)",
           "clone_of": "Test Title 4 (World)",
@@ -138,7 +138,7 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     }
   ]

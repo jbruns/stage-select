@@ -315,7 +315,7 @@ fn WhatIfs(name: String) -> impl IntoView {
                                                 s.source_set,
                                                 s.profile.version,
                                                 when(&s.created_at),
-                                                s.summary.winners,
+                                                s.summary.kept,
                                                 s.summary.needs_review(),
                                             )}
                                         </li>
@@ -867,15 +867,15 @@ fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
                 <span class="what">"Groups"</span>
             </li>
             <li class="count verified">
-                <span class="n">{summary.winners}</span>
+                <span class="n">{summary.kept}</span>
                 <span class="what">"Selected"</span>
             </li>
             <li class="count">
-                <span class="n">{summary.alternatives}</span>
+                <span class="n">{summary.clones}</span>
                 <span class="what">"Alternatives"</span>
             </li>
             <li class="count">
-                <span class="n">{summary.exclusions}</span>
+                <span class="n">{summary.left_out}</span>
                 <span class="what">"Excluded"</span>
             </li>
             <li class="count review">

@@ -14,8 +14,8 @@ use stage_select_api::build::{
 use stage_select_api::ingest::{IngestAction, PlanIngest};
 use stage_select_api::repair::{PlanRepair, RepairKind};
 use stage_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, SystemSettings, Winner,
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary, SystemSettings,
 };
 use stage_select_api::storage::{StorageFormat, SystemStorage};
 use stage_select_api::{JobKind, JobState};
@@ -350,7 +350,7 @@ fn selection(sha256: &str, titles: &[&str]) -> Selection {
                 dependencies: Vec::new(),
                 group: title.to_lowercase(),
                 unresolved: false,
-                winners: vec![Winner {
+                kept: vec![KeptGame {
                     title: (*title).into(),
                     rule: Rule {
                         stage: "Parent selection".into(),
@@ -359,8 +359,8 @@ fn selection(sha256: &str, titles: &[&str]) -> Selection {
                     },
                     unresolved: false,
                 }],
-                alternatives: vec![],
-                exclusions: vec![],
+                clones: vec![],
+                left_out: vec![],
                 choice: None,
                 drift: false,
             })

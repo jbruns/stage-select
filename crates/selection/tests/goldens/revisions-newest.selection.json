@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 7,
-    "winners": 7,
-    "alternatives": 10,
-    "exclusions": 0,
+    "kept": 7,
+    "clones": 10,
+    "left_out": 0,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -41,7 +41,7 @@
     {
       "group": "test title",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title (USA) (2004-02-01)",
           "rule": {
@@ -52,7 +52,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title (USA)",
           "clone_of": "Test Title (USA) (2004-02-01)",
@@ -72,13 +72,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 2",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 2 (USA) (2004-02-01)",
           "rule": {
@@ -89,7 +89,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 2 (USA) (2004-01-01)",
           "clone_of": "Test Title 2 (USA) (2004-02-01)",
@@ -100,13 +100,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 3",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 3 (USA) (Rev 2)",
           "rule": {
@@ -117,7 +117,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 3 (USA)",
           "clone_of": "Test Title 3 (USA) (Rev 2)",
@@ -137,13 +137,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 4",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 4 - GOTY (USA)",
           "rule": {
@@ -154,7 +154,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 4 (USA)",
           "clone_of": "Test Title 4 - GOTY (USA)",
@@ -165,13 +165,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 5",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 5 - I like this version (USA)",
           "rule": {
@@ -182,7 +182,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 5 (USA)",
           "clone_of": "Test Title 5 - I like this version (USA)",
@@ -193,13 +193,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 6",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 6 (USA) (Rev 2)",
           "rule": {
@@ -210,7 +210,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 6 (USA)",
           "clone_of": "Test Title 6 (USA) (Rev 2)",
@@ -230,13 +230,13 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 7",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 7 (USA) (PlayStation the Best)",
           "rule": {
@@ -247,7 +247,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title 7 (USA)",
           "clone_of": "Test Title 7 (USA) (PlayStation the Best)",
@@ -258,7 +258,7 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     }
   ]

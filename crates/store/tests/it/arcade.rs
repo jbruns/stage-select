@@ -4,8 +4,8 @@
 use stage_select_api::build::{AddLibraryFolder, LibraryFolder};
 use stage_select_api::roots::RootSpec;
 use stage_select_api::selection::{
-    ARCADE_COVERAGE_REFUSAL, Dependency, Role, Rule, SOFTWARE_LIST_REFUSAL, Selection,
-    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
+    ARCADE_COVERAGE_REFUSAL, Dependency, KeptGame, Outcome, Rule, SOFTWARE_LIST_REFUSAL, Selection,
+    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary,
 };
 use stage_select_engine::{AuditEvidence, GameStatus};
 use stage_select_store::{Error, Store, Workers};
@@ -222,9 +222,9 @@ fn a_selection_keeps_its_dependencies_with_the_winners_that_need_them() {
     let group = |name: &str| SelectionGroup {
         group: name.into(),
         unresolved: false,
-        winners: Vec::new(),
-        alternatives: Vec::new(),
-        exclusions: Vec::new(),
+        kept: Vec::new(),
+        clones: Vec::new(),
+        left_out: Vec::new(),
         dependencies: Vec::new(),
         choice: None,
         drift: false,
@@ -236,7 +236,7 @@ fn a_selection_keeps_its_dependencies_with_the_winners_that_need_them() {
         system_settings: false,
         summary: SelectionSummary {
             groups: 2,
-            winners: 1,
+            kept: 1,
             dependencies: 1,
             ..SelectionSummary::default()
         },
@@ -251,7 +251,7 @@ fn a_selection_keeps_its_dependencies_with_the_winners_that_need_them() {
                 ..group("acmebios")
             },
             SelectionGroup {
-                winners: vec![Winner {
+                kept: vec![KeptGame {
                     title: "pong".into(),
                     rule: rule(
                         "election",
@@ -274,7 +274,7 @@ fn a_selection_keeps_its_dependencies_with_the_winners_that_need_them() {
     assert_eq!(env.store.selection(id).unwrap(), selection);
     let (rows, _) = env
         .store
-        .selection_releases(id, None, 10, Some(Role::Dependency), None)
+        .selection_releases(id, None, 10, Some(Outcome::Dependency), None)
         .unwrap();
     let rows: Vec<(&str, &[String])> = rows
         .iter()

@@ -332,14 +332,14 @@ fn render(name: &str, ran: &Ran) -> String {
             (false, false) => "",
         };
         writeln!(out, "{}{flags}", group.group).unwrap();
-        for w in &group.winners {
+        for w in &group.kept {
             let kind = if w.unresolved { "u" } else { "w" };
             writeln!(out, "  {kind} {} | {}", w.title, rule(&w.rule)).unwrap();
         }
-        for a in &group.alternatives {
+        for a in &group.clones {
             writeln!(out, "  a {} < {} | {}", a.title, a.clone_of, rule(&a.rule)).unwrap();
         }
-        for x in &group.exclusions {
+        for x in &group.left_out {
             let reason = Some(&x.reason)
                 .filter(|r| **r != x.rule.message)
                 .map(|r| format!(" (reason: {r})"))

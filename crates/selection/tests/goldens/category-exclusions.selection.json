@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 55,
-    "winners": 1,
-    "alternatives": 0,
-    "exclusions": 57,
+    "kept": 1,
+    "clones": 0,
+    "left_out": 57,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -82,9 +82,9 @@
     {
       "group": "[bios] test title 8",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "[BIOS] Test Title 8 (USA)",
           "rule": {
@@ -100,9 +100,9 @@
     {
       "group": "[mia] test title 30",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "[MIA] Test Title 30 (USA)",
           "rule": {
@@ -118,7 +118,7 @@
     {
       "group": "test title 0",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 0 (USA)",
           "rule": {
@@ -129,16 +129,16 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 1",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 1 (USA)",
           "rule": {
@@ -154,9 +154,9 @@
     {
       "group": "test title 10",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 10 (USA) (Enhancement Chip)",
           "rule": {
@@ -172,9 +172,9 @@
     {
       "group": "test title 11",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 11 (USA)",
           "rule": {
@@ -190,9 +190,9 @@
     {
       "group": "test title 12",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 12 (USA)",
           "rule": {
@@ -208,9 +208,9 @@
     {
       "group": "test title 13",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 13 (USA)",
           "rule": {
@@ -226,9 +226,9 @@
     {
       "group": "test title 14",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 14 (USA) (Demo)",
           "rule": {
@@ -244,9 +244,9 @@
     {
       "group": "test title 15",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 15 (USA) (Demo 2)",
           "rule": {
@@ -262,9 +262,9 @@
     {
       "group": "test title 16",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 16 (USA) (Demo-CD)",
           "rule": {
@@ -280,9 +280,9 @@
     {
       "group": "test title 17",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 17 (Japan) (@barai)",
           "rule": {
@@ -298,9 +298,9 @@
     {
       "group": "test title 18",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 18 (USA) (GameCube Preview)",
           "rule": {
@@ -316,9 +316,9 @@
     {
       "group": "test title 19",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 19 (USA) (Kiosk Special)",
           "rule": {
@@ -334,9 +334,9 @@
     {
       "group": "test title 2",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 2 (USA) (Program)",
           "rule": {
@@ -352,9 +352,9 @@
     {
       "group": "test title 20",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 20 (USA) (Special Kiosk)",
           "rule": {
@@ -370,9 +370,9 @@
     {
       "group": "test title 21 kiosk demo disc",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 21 Kiosk Demo Disc (USA)",
           "rule": {
@@ -388,9 +388,9 @@
     {
       "group": "test title 22 - ps2 kiosk",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 22 - PS2 Kiosk (USA)",
           "rule": {
@@ -406,9 +406,9 @@
     {
       "group": "test title 23 - psp system kiosk",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 23 - PSP System Kiosk (USA)",
           "rule": {
@@ -424,9 +424,9 @@
     {
       "group": "test title 24",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 24 (USA) (Preview)",
           "rule": {
@@ -442,9 +442,9 @@
     {
       "group": "test title 25",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 25 (USA) (Sample)",
           "rule": {
@@ -460,9 +460,9 @@
     {
       "group": "test title 26",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 26 (Japan) (Taikenban)",
           "rule": {
@@ -478,9 +478,9 @@
     {
       "group": "test title 27 trial edition",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 27 Trial Edition (USA)",
           "rule": {
@@ -496,9 +496,9 @@
     {
       "group": "test title 28",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 28 (USA)",
           "rule": {
@@ -514,9 +514,9 @@
     {
       "group": "test title 29",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 29 (USA) (Manual)",
           "rule": {
@@ -532,9 +532,9 @@
     {
       "group": "test title 29a",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 29A (USA)",
           "rule": {
@@ -550,9 +550,9 @@
     {
       "group": "test title 3",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 3 (USA) (Test Program)",
           "rule": {
@@ -568,9 +568,9 @@
     {
       "group": "test title 31",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 31 (USA)",
           "rule": {
@@ -586,9 +586,9 @@
     {
       "group": "test title 32",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 32 (USA)",
           "rule": {
@@ -604,9 +604,9 @@
     {
       "group": "test title 33",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 33 (Pirate) (USA)",
           "rule": {
@@ -622,9 +622,9 @@
     {
       "group": "test title 34",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 34 (Alpha) (USA)",
           "rule": {
@@ -640,9 +640,9 @@
     {
       "group": "test title 35",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 35 (Alpha 2) (USA)",
           "rule": {
@@ -658,9 +658,9 @@
     {
       "group": "test title 36",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 36 (Testing Alpha) (USA)",
           "rule": {
@@ -676,9 +676,9 @@
     {
       "group": "test title 37",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 37 (Beta) (USA)",
           "rule": {
@@ -694,9 +694,9 @@
     {
       "group": "test title 38",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 38 (Beta 2) (USA)",
           "rule": {
@@ -712,9 +712,9 @@
     {
       "group": "test title 39",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 39 (Testing Beta) (USA)",
           "rule": {
@@ -730,9 +730,9 @@
     {
       "group": "test title 4 check program",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 4 Check Program (USA)",
           "rule": {
@@ -748,9 +748,9 @@
     {
       "group": "test title 40",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 40 (Proto) (USA)",
           "rule": {
@@ -766,9 +766,9 @@
     {
       "group": "test title 41",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 41 (Proto 2) (USA)",
           "rule": {
@@ -784,9 +784,9 @@
     {
       "group": "test title 42",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 42 (Testing Proto) (USA)",
           "rule": {
@@ -802,9 +802,9 @@
     {
       "group": "test title 43",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 43 (Pre-production) (USA)",
           "rule": {
@@ -820,9 +820,9 @@
     {
       "group": "test title 44",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 44 (USA)",
           "rule": {
@@ -838,9 +838,9 @@
     {
       "group": "test title 45",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 45 (USA) (Promo)",
           "rule": {
@@ -856,9 +856,9 @@
     {
       "group": "test title 46 epk",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 46 EPK (USA)",
           "rule": {
@@ -874,9 +874,9 @@
     {
       "group": "test title 47 - press kit",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 47 - Press Kit (USA)",
           "rule": {
@@ -892,9 +892,9 @@
     {
       "group": "test title 48",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 48 (USA) (Unl)",
           "rule": {
@@ -910,9 +910,9 @@
     {
       "group": "test title 49",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 49 (USA) (Aftermarket)",
           "rule": {
@@ -928,9 +928,9 @@
     {
       "group": "test title 5 sample program",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 5 Sample Program (USA)",
           "rule": {
@@ -946,9 +946,9 @@
     {
       "group": "test title 50",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 50 (USA)",
           "rule": {
@@ -964,9 +964,9 @@
     {
       "group": "test title 51",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 51 (USA) (Addon)",
           "rule": {
@@ -982,9 +982,9 @@
     {
       "group": "test title 52",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 52 (USA) (DLC)",
           "rule": {
@@ -1000,9 +1000,9 @@
     {
       "group": "test title 53",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 53 (USA) (Addon for XBLA)",
           "rule": {
@@ -1036,9 +1036,9 @@
     {
       "group": "test title 6",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 6 (USA)",
           "rule": {
@@ -1063,9 +1063,9 @@
     {
       "group": "test title 7",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 7 (USA) [b]",
           "rule": {
@@ -1081,9 +1081,9 @@
     {
       "group": "test title 9",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 9 (USA)",
           "rule": {

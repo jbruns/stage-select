@@ -321,7 +321,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   "dat_sha256": "254e…",             // the DAT revision
   "system": "Atari - Atari 2600 (No-Intro)",
   "system_settings": false,          // whether the profile has settings for this system
-  "summary": { "groups": 601, "winners": 602, "alternatives": 270, "exclusions": 0, "unresolved": 2 },
+  "summary": { "groups": 601, "kept": 602, "clones": 270, "left_out": 0, "unresolved": 2 },
   "coverage_drift": {                // where the clone list and metadata no longer match the DAT
     "clone_list": true, "metadata": true,
     "unmatched_clone_list_terms": ["…"], "titles_without_metadata": ["…"]
@@ -329,15 +329,15 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   "groups": [
     {
       "group": "parachute",
-      "unresolved": true,            // decided by a tie-breaker: the winner is provisional
-      "winners": [
+      "unresolved": true,            // decided by a tie-breaker: the kept release is provisional
+      "kept": [
         { "title": "…", "unresolved": true,
           "rule": { "stage": "Parent selection", "ref": "REF0059", "message": "…" } }
       ],
-      "alternatives": [
+      "clones": [
         { "title": "…", "clone_of": "…", "rule": { "stage": "…", "ref": "…", "message": "…" } }
       ],
-      "exclusions": [ { "title": "…", "reason": "Demos, kiosks, and samples", "rule": { "…": "…" } } ]
+      "left_out": [ { "title": "…", "reason": "Demos, kiosks, and samples", "rule": { "…": "…" } } ]
     }
   ]
 }
@@ -350,8 +350,8 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   `category` (`catver` or `listxml_heuristic`, absent when your category filter is off), and the filters you turned on
   that were `unavailable` because the DAT had nothing for them to read, or, for `rating`, because no `bestgames.ini`
   was read.
-- Each winner, alternative and exclusion carries the rule that decided it: the stage, the engine's trace reference and
-  its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
+- Each release in `kept`, `clones` and `left_out` carries the rule that decided it: the stage, the engine's trace
+  reference and its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
   different releases, or whose selected release lacks a disc: one of its own, even one your settings exclude, or one
@@ -363,7 +363,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.
 - A group has `drift` when a release in it has no metadata, or the clone list names it but no longer matches the DAT.
 - A selection the service makes from a source set with a coverage (see "Coverage") chooses only among the games in
-  it. `pins.coverage` lists the regions it chose among, and each release outside them is an exclusion whose rule's
+  it. `pins.coverage` lists the regions it chose among, and each release outside them is left out, and its rule's
   stage is `coverage`, with the message "outside its source set's coverage". Without a coverage, `pins` has no
   `coverage`.
 
@@ -585,11 +585,11 @@ other changes you make to it are undone at the next build, and a collection you 
 An addition RomM hasn't indexed can't be added. The job lists it as unresolved, which is a warning: RomM may not
 have scanned it yet, or may not hash files on that platform. Updating the collection needs the token's `roms.read`,
 `collections.read` and `collections.write` scopes. Without `collections.write`, Stage Select doesn't touch any
-collection, and the warning names the missing scope. If you turn RomM off or change its address meanwhile, or Title
+collection, and the warning names the missing scope. If you turn RomM off or change its address meanwhile, or Stage
 Select stops, the update stops, and the next build RomM scans brings the collection up to date.
 
 Turning RomM off, or changing its address, deletes the collection. Stage Select uses the address and token you had
-saved before, in the background: saving your settings never waits for RomM. If RomM can't delete it then, Title
+saved before, in the background: saving your settings never waits for RomM. If RomM can't delete it then, Stage
 Select keeps that address and token in the store, like your saved token, and tries again each time the service
 starts and before the next update, until RomM deletes it or says it is already gone.
 
@@ -1309,7 +1309,7 @@ from. It is bound to a source set and a selection profile, and so to a system; a
 its own profile. A source set cannot be registered in a writable root, and nothing else is ever written to one.
 
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
-marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Title
+marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Stage
 Select keeps in a folder it manages is inside `.stage-select/`: the marker, the folder a build stages files in, and
 the kept files under `retained/`. It is made private to the service's user, and Stage Select uses it only while it
 still is: a `.stage-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
@@ -1384,7 +1384,7 @@ folder and writes only to the store. It reads a built file only when its size or
 store's record: a file with the same content refreshes the record; one holding the same ROMs in another ZIP is
 recorded as built and flagged not TorrentZip; anything else is a conflict. Every other entry is drift, reported as a
 known title that is not selected, a selected title the store did not build, a known title under another name, an
-unknown file, or a directory, which is never opened. Symlinks and special files are unknown and never opened. Title
+unknown file, or a directory, which is never opened. Symlinks and special files are unknown and never opened. Stage
 Select's own entries are never drift. Drift is a warning: only a conflict at a selected game's file makes the folder
 incomplete.
 
@@ -1920,7 +1920,7 @@ What these versions promise you:
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
 | `GET /api/v1/selections/{id}`                      | a selection's record and summary                             |
 | `GET /api/v1/selections/{id}/selection`            | the explained selection, as `select` prints it               |
-| `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
+| `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?outcome=`, `?group=`   |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
@@ -2545,7 +2545,7 @@ python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwrigh
 
 [RomM](https://github.com/rommapp/romm) can serve your play library beside Stage Select. Stage Select verifies,
 selects and builds your files. RomM finds their metadata and artwork and serves them to your players. This section
-sets RomM up so that only Stage Select writes your library. It is written for RomM 5.4. To turn RomM on in Title
+sets RomM up so that only Stage Select writes your library. It is written for RomM 5.4. To turn RomM on in Stage
 Select and fill in its settings, see "RomM".
 
 **Mount your play library read-only.** Mount the root you named under **Root** in the RomM settings at
@@ -2677,7 +2677,7 @@ The tests fail, rather than skip, without it.
   MIAs, RetroAchievements data and internal config. See its [README](third_party/retool/README.md).
 - **Fixture goldens:** `crates/selection/tests/fixtures.rs` selects from every one of Retool's fixture DATs with
   sixteen profiles, and compares each with `crates/selection/tests/goldens/fixtures/<DAT>.txt`: every group's
-  winners, alternatives and exclusions with their rules, and the warnings. The goldens were made while the patched
+  kept releases, clones and releases left out with their rules, and the warnings. The goldens were made while the patched
   Retool was still the oracle and agreed with the port on every case, so they stand for it now. A debug build checks
   the feature DATs and two system DATs; CI also runs every DAT with
   `cargo test --release -p stage-select-selection --test fixtures`, which takes about a minute.

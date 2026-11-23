@@ -751,7 +751,7 @@ pub(super) fn check_library_path(
             root_name
         )));
     }
-    // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
+    // The folder's own path need not exist yet; the folder it would be is checked against every folder Stage
     // Select reads or writes.
     let would_be = beneath.would_be();
     if let Some((what, other)) = overlapping(c, roots, &would_be, Registering::LibraryFolder)? {

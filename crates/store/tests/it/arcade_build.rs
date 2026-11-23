@@ -16,8 +16,8 @@ use stage_select_api::build::{
     LibraryFolder, Plan, PlanItem,
 };
 use stage_select_api::selection::{
-    CoverageDrift, Dependency, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+    CoverageDrift, Dependency, KeptGame, Rule, Selection, SelectionGroup, SelectionPins,
+    SelectionProfile, SelectionSummary,
 };
 use stage_select_api::storage::{SetLayout, SystemStorage};
 use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
@@ -255,9 +255,9 @@ impl Env {
         let group = |name: &str| SelectionGroup {
             group: name.into(),
             unresolved: false,
-            winners: Vec::new(),
-            alternatives: Vec::new(),
-            exclusions: Vec::new(),
+            kept: Vec::new(),
+            clones: Vec::new(),
+            left_out: Vec::new(),
             dependencies: Vec::new(),
             choice: None,
             drift: false,
@@ -275,7 +275,7 @@ impl Env {
             })
             .collect();
         groups.extend(titles.iter().map(|title| SelectionGroup {
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: (*title).into(),
                 rule: rule("election"),
                 unresolved: false,

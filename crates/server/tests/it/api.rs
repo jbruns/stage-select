@@ -2386,7 +2386,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
 mod selections {
     use super::*;
     use serde_json::{Value, json};
-    use stage_select_api::selection::{ChoiceStatus, Role, Selection};
+    use stage_select_api::selection::{ChoiceStatus, Outcome, Selection};
     use stage_select_api::{
         GameStatus, Preview, ProfileRecord, SavedProfile, SelectionDiff, SelectionRecord,
         SelectionReleaseRow,
@@ -2486,9 +2486,9 @@ mod selections {
         selection.groups.iter().find(|g| g.group == name).unwrap()
     }
 
-    fn winners(selection: &Selection, name: &str) -> Vec<String> {
+    fn kept_titles(selection: &Selection, name: &str) -> Vec<String> {
         group(selection, name)
-            .winners
+            .kept
             .iter()
             .map(|w| w.title.clone())
             .collect()
@@ -2514,8 +2514,8 @@ mod selections {
 
         let made = selection(&client, record.id);
         assert_eq!(made.pins.coverage(), Some(&["Europe".to_owned()][..]));
-        assert_eq!(winners(&made, "pong"), ["Pong (Europe)"]);
-        let usa = &group(&made, "pong").exclusions[0];
+        assert_eq!(kept_titles(&made, "pong"), ["Pong (Europe)"]);
+        let usa = &group(&made, "pong").left_out[0];
         assert_eq!(usa.title, "Pong (USA)");
         assert!(usa.rule.is_coverage(), "{usa:?}");
     }
@@ -2610,7 +2610,7 @@ mod selections {
         );
         assert_eq!(status, 200, "{preview}");
         let preview: Preview = serde_json::from_value(preview).unwrap();
-        assert_eq!(winners(&preview.selection, "pong"), ["Pong (USA)"]);
+        assert_eq!(kept_titles(&preview.selection, "pong"), ["Pong (USA)"]);
         assert_eq!(preview.against, None);
         let profiles: Vec<ProfileRecord> = client.json("/profiles");
         assert!(profiles.is_empty(), "a preview saves nothing");
@@ -2629,7 +2629,7 @@ mod selections {
         );
         assert_eq!(selection(&client, record.id), preview.selection);
         let rows: Page<SelectionReleaseRow> =
-            client.json(&format!("/selections/{}/releases?role=winner", record.id));
+            client.json(&format!("/selections/{}/releases?outcome=kept", record.id));
         let breakout = rows
             .items
             .iter()
@@ -2700,21 +2700,23 @@ mod selections {
                 .find(|r| r.release.title == title)
                 .unwrap()
         };
-        assert_eq!(find("Pong (USA)").release.role, Role::Winner);
+        assert_eq!(find("Pong (USA)").release.outcome, Outcome::Kept);
         assert_eq!(find("Pong (USA)").availability, Some(GameStatus::Complete));
-        assert_eq!(find("Pong (Europe)").release.role, Role::Alternative);
+        assert_eq!(find("Pong (Europe)").release.outcome, Outcome::Clone);
         assert_eq!(
             find("Pong (Europe)").availability,
             Some(GameStatus::Missing)
         );
         let demo = find("Breakout (USA) (Demo)");
-        assert_eq!(demo.release.role, Role::Exclusion);
+        assert_eq!(demo.release.outcome, Outcome::LeftOut);
         assert!(
             !demo.release.rule.message.is_empty(),
             "every release names its rule"
         );
-        let excluded: Page<SelectionReleaseRow> =
-            client.json(&format!("/selections/{}/releases?role=exclusion", first.id));
+        let excluded: Page<SelectionReleaseRow> = client.json(&format!(
+            "/selections/{}/releases?outcome=left_out",
+            first.id
+        ));
         assert_eq!(excluded.items.len(), 1);
 
         let mut response = client
@@ -2748,9 +2750,9 @@ mod selections {
         );
         let made = selection(&client, chosen.id);
         let pong = group(&made, "pong");
-        assert_eq!(winners(&made, "pong"), ["Pong (Europe)"]);
-        assert_eq!(pong.winners[0].rule.stage, "choice");
-        assert_eq!(pong.winners[0].rule.message, "your choice");
+        assert_eq!(kept_titles(&made, "pong"), ["Pong (Europe)"]);
+        assert_eq!(pong.kept[0].rule.stage, "choice");
+        assert_eq!(pong.kept[0].rule.message, "your choice");
         let choice_state = pong.choice.as_ref().unwrap();
         assert_eq!(choice_state.status, ChoiceStatus::Applied);
         assert_eq!(choice_state.picks, ["Pong (USA)"]);
@@ -2781,7 +2783,7 @@ mod selections {
             ChoiceStatus::Conflicting
         );
         assert!(
-            breakout.winners.is_empty(),
+            breakout.kept.is_empty(),
             "a conflicting choice is not applied"
         );
         assert_eq!(made.summary.conflicting, 1);
@@ -2800,7 +2802,7 @@ mod selections {
         let made = selection(&client, stale.id);
         let pong = group(&made, "pong");
         assert_eq!(pong.choice.as_ref().unwrap().status, ChoiceStatus::Stale);
-        assert_eq!(winners(&made, "pong"), ["Pong (USA)"]);
+        assert_eq!(kept_titles(&made, "pong"), ["Pong (USA)"]);
         assert_eq!(made.summary.stale, 1);
         let availability: stage_select_api::Availability =
             client.json(&format!("/selections/{}/availability", stale.id));
@@ -2823,7 +2825,7 @@ mod selections {
         );
         assert!(own.system_settings);
         assert_eq!(
-            winners(&selection(&client, own.id), "pong"),
+            kept_titles(&selection(&client, own.id), "pong"),
             ["Pong (Europe)"]
         );
 
@@ -2831,14 +2833,14 @@ mod selections {
         assert_eq!(saved.version.version, 2);
         assert!(!global.system_settings);
         assert_eq!(
-            winners(&selection(&client, global.id), "pong"),
+            kept_titles(&selection(&client, global.id), "pong"),
             ["Pong (USA)"]
         );
         let diff: SelectionDiff = client.json(&format!("/selections/{}/diff", global.id));
         assert!(
             diff.changes
                 .iter()
-                .any(|c| c.title == "Pong (USA)" && c.after == Some(Role::Winner))
+                .any(|c| c.title == "Pong (USA)" && c.after == Some(Outcome::Kept))
         );
     }
 

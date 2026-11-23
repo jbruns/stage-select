@@ -9,7 +9,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_struct_table::ColumnSort;
 use stage_select_api::selection::{
-    ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, ReleaseChange, Role, SelectionGroup,
+    ARCADE_COVERAGE_REFUSAL, ChoiceStatus, Dependency, Outcome, ReleaseChange, SelectionGroup,
     SelectionProfile,
 };
 use stage_select_api::{
@@ -35,7 +35,7 @@ use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
     exclusion_text, flag_labels, group_status, includable, include_and_check, kept_need_review,
-    listed, role_label, rule_text, staged_changes, toggle, unresolved_explanation,
+    listed, outcome_label, rule_text, staged_changes, toggle, unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -98,7 +98,7 @@ impl RowSource<ReleaseItem> for ReleaseWindow {
 pub enum ReleaseCol {
     Group,
     Release,
-    Role,
+    Outcome,
     Availability,
     Rule,
     Flags,
@@ -109,15 +109,15 @@ impl ReleaseCol {
         match self {
             ReleaseCol::Group => Some(ReleaseColumn::Group),
             ReleaseCol::Release => Some(ReleaseColumn::Release),
-            ReleaseCol::Role => Some(ReleaseColumn::Role),
+            ReleaseCol::Outcome => Some(ReleaseColumn::Outcome),
             ReleaseCol::Availability => Some(ReleaseColumn::Availability),
             ReleaseCol::Rule | ReleaseCol::Flags => None,
         }
     }
 }
 
-fn role_view(role: Role) -> AnyView {
-    view! { <span class=format!("role role-{}", role.as_str())>{role_label(role)}</span> }
+fn outcome_view(outcome: Outcome) -> AnyView {
+    view! { <span class=format!("outcome outcome-{}", outcome.as_str())>{outcome_label(outcome)}</span> }
         .into_any()
 }
 
@@ -136,7 +136,7 @@ impl Grid for ReleaseItem {
     const COLUMNS: &'static [ReleaseCol] = &[
         ReleaseCol::Group,
         ReleaseCol::Release,
-        ReleaseCol::Role,
+        ReleaseCol::Outcome,
         ReleaseCol::Availability,
         ReleaseCol::Rule,
         ReleaseCol::Flags,
@@ -146,7 +146,7 @@ impl Grid for ReleaseItem {
         match col {
             ReleaseCol::Group => "Group",
             ReleaseCol::Release => "Release",
-            ReleaseCol::Role => "Role",
+            ReleaseCol::Outcome => "Role",
             ReleaseCol::Availability => "Availability",
             ReleaseCol::Rule => "Why",
             ReleaseCol::Flags => "Flags",
@@ -157,7 +157,7 @@ impl Grid for ReleaseItem {
         match col {
             ReleaseCol::Group => "c-group",
             ReleaseCol::Release => "c-wide",
-            ReleaseCol::Role | ReleaseCol::Availability => "c-status",
+            ReleaseCol::Outcome | ReleaseCol::Availability => "c-status",
             ReleaseCol::Rule => "c-reason",
             ReleaseCol::Flags => "c-flags",
         }
@@ -173,7 +173,7 @@ impl Grid for ReleaseItem {
         match col {
             ReleaseCol::Group => row.group.clone().into_any(),
             ReleaseCol::Release => row.title.clone().into_any(),
-            ReleaseCol::Role => role_view(row.role),
+            ReleaseCol::Outcome => outcome_view(row.outcome),
             ReleaseCol::Availability => {
                 availability_view(self.index.availability(i), self.index.claimed(i))
             }
@@ -279,12 +279,12 @@ pub fn ReleasesPanel(
                     "Role"
                     <select on:change=move |ev| {
                         let v = event_target_value(&ev);
-                        refilter(Box::new(move |f| f.role = Role::parse(&v)));
+                        refilter(Box::new(move |f| f.outcome = Outcome::parse(&v)));
                     }>
                         <option value="">"Any"</option>
-                        {Role::ALL
+                        {Outcome::ALL
                             .iter()
-                            .map(|r| view! { <option value=r.as_str()>{role_label(*r)}</option> })
+                            .map(|r| view! { <option value=r.as_str()>{outcome_label(*r)}</option> })
                             .collect_view()}
                     </select>
                 </label>
@@ -357,9 +357,9 @@ enum ChangeCol {
     Rule,
 }
 
-fn maybe_role(role: Option<Role>) -> AnyView {
-    match role {
-        Some(role) => role_view(role),
+fn maybe_outcome(outcome: Option<Outcome>) -> AnyView {
+    match outcome {
+        Some(outcome) => outcome_view(outcome),
         None => view! { <span class="tag">"Not in the DAT"</span> }.into_any(),
     }
 }
@@ -398,8 +398,8 @@ impl Grid for ChangeItem {
         match col {
             ChangeCol::Group => change.group.clone().into_any(),
             ChangeCol::Release => change.title.clone().into_any(),
-            ChangeCol::Before => maybe_role(change.before),
-            ChangeCol::After => maybe_role(change.after),
+            ChangeCol::Before => maybe_outcome(change.before),
+            ChangeCol::After => maybe_outcome(change.after),
             ChangeCol::Rule => rule_text(&change.rule).into_any(),
         }
     }
@@ -595,8 +595,8 @@ struct GroupItem {
 
 impl GroupItem {
     fn new(group: &SelectionGroup, availability: &Availability) -> Self {
-        let first = group.winners.first();
-        let rule = match (first, group.exclusions.first()) {
+        let first = group.kept.first();
+        let rule = match (first, group.left_out.first()) {
             (Some(w), _) => rule_text(&w.rule),
             (None, Some(e)) if e.rule.is_coverage() => rule_text(&e.rule),
             (None, Some(e)) => e.reason.clone(),
@@ -605,8 +605,8 @@ impl GroupItem {
         GroupItem {
             name: group.group.clone(),
             status: group_status(group),
-            kept: group.winners.iter().map(|w| w.title.clone()).collect(),
-            releases: group.winners.len() + group.alternatives.len() + group.exclusions.len(),
+            kept: group.kept.iter().map(|w| w.title.clone()).collect(),
+            releases: group.kept.len() + group.clones.len() + group.left_out.len(),
             rule,
             availability: GroupAvailability::of(group, &availability.games, &availability.claimed),
             needs_review: false,
@@ -940,7 +940,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             <span class="what">"Groups"</span>
                         </li>
                         <li class="count verified">
-                            <span class="n">{summary.winners}</span>
+                            <span class="n">{summary.kept}</span>
                             <span class="what">"Selected"</span>
                         </li>
                         <li class="count review">
@@ -1105,7 +1105,7 @@ fn Groups(
                 Some(g) => {
                     let a = availability.get_value();
                     let needs = g
-                        .winners
+                        .kept
                         .iter()
                         .map(|w| {
                             let of = arcade_model::dependencies_of(&index.selection, &w.title);
@@ -1356,31 +1356,31 @@ fn GroupPanel(
     let status = g.choice.as_ref().map(|c| c.status);
     let unresolved = g.engine_unresolved();
     // Each release, with whether you can include it.
-    let releases: Vec<(String, Role, String, bool)> = g
-        .winners
+    let releases: Vec<(String, Outcome, String, bool)> = g
+        .kept
         .iter()
-        .map(|w| (w.title.clone(), Role::Winner, rule_text(&w.rule), false))
-        .chain(g.alternatives.iter().map(|a| {
-            (
-                a.title.clone(),
-                Role::Alternative,
-                rule_text(&a.rule),
-                false,
-            )
-        }))
-        .chain(g.exclusions.iter().map(|e| {
+        .map(|w| (w.title.clone(), Outcome::Kept, rule_text(&w.rule), false))
+        .chain(
+            g.clones
+                .iter()
+                .map(|a| (a.title.clone(), Outcome::Clone, rule_text(&a.rule), false)),
+        )
+        .chain(g.left_out.iter().map(|e| {
             (
                 e.title.clone(),
-                Role::Exclusion,
+                Outcome::LeftOut,
                 exclusion_text(e),
                 includable(e, arcade),
             )
         }))
-        .chain(
-            g.dependencies
-                .iter()
-                .map(|d| (d.title.clone(), Role::Dependency, rule_text(&d.rule), false)),
-        )
+        .chain(g.dependencies.iter().map(|d| {
+            (
+                d.title.clone(),
+                Outcome::Dependency,
+                rule_text(&d.rule),
+                false,
+            )
+        }))
         .collect();
 
     view! {
@@ -1407,7 +1407,7 @@ fn GroupPanel(
             <ul class="plain">
                 {releases
                     .into_iter()
-                    .map(|(title, role, rule, can_include)| {
+                    .map(|(title, outcome, rule, can_include)| {
                         let t = StoredValue::new(title.clone());
                         let is_checked = move || {
                             checked_now().is_some_and(|c| c.contains(&t.get_value()))
@@ -1418,7 +1418,7 @@ fn GroupPanel(
                             view! { " " <StatusIcon status=GameFlag::NeedsReview tab_stop=false /> }
                         });
                         // A Dependency is never elected, so it can't be checked either.
-                        let excluded = matches!(role, Role::Exclusion | Role::Dependency);
+                        let excluded = matches!(outcome, Outcome::LeftOut | Outcome::Dependency);
                         view! {
                             <li class="release">
                                 <label class="inline">
@@ -1436,7 +1436,7 @@ fn GroupPanel(
                                     {title.clone()}
                                 </label>
                                 " "
-                                {role_view(role)}
+                                {outcome_view(outcome)}
                                 " "
                                 {availability_view(avail, claimed_only)}
                                 {flag}

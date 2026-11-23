@@ -22,8 +22,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::json;
 use stage_select_api::selection::{
-    Alternative, ArcadePins, CategorySource, CuratedPin, DEPENDENCY_STAGE, Dependency, Exclusion,
-    Rule, Selection, SelectionGroup, Winner,
+    ArcadePins, CategorySource, CloneGame, CuratedPin, DEPENDENCY_STAGE, Dependency, KeptGame,
+    LeftOutGame, Rule, Selection, SelectionGroup,
 };
 use stage_select_api::support::{SupportFileKind, version_number};
 use stage_select_engine::dat::{Dat, DriverStatus, Machine, Signal};
@@ -351,9 +351,9 @@ pub(crate) fn elect(
         let mut group = SelectionGroup {
             group: family.to_owned(),
             unresolved: false,
-            winners: Vec::new(),
-            alternatives: Vec::new(),
-            exclusions: Vec::new(),
+            kept: Vec::new(),
+            clones: Vec::new(),
+            left_out: Vec::new(),
             dependencies: Vec::new(),
             choice: None,
             drift: false,
@@ -371,7 +371,7 @@ pub(crate) fn elect(
                         "stage": stage,
                         "message": message,
                     }));
-                    group.exclusions.push(Exclusion {
+                    group.left_out.push(LeftOutGame {
                         title: candidate.name.to_owned(),
                         rule: Rule {
                             stage: stage.to_owned(),
@@ -943,13 +943,13 @@ fn elect_family(
         });
     }
     let winner = left[0].name;
-    group.winners.push(Winner {
+    group.kept.push(KeptGame {
         title: winner.to_owned(),
         rule: decided.expect("an election decides"),
         unresolved: false,
     });
     for (title, rule) in removed {
-        group.alternatives.push(Alternative {
+        group.clones.push(CloneGame {
             title: title.to_owned(),
             clone_of: winner.to_owned(),
             rule,
@@ -968,7 +968,7 @@ pub(crate) fn list_dependencies(
     // By name, as the Selection lists them.
     let mut needed: BTreeMap<(&str, usize), BTreeSet<String>> = BTreeMap::new();
     for group in &selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             let Some(game) = dat.game_index(&winner.title) else {
                 continue;
             };
@@ -1002,7 +1002,7 @@ pub(crate) fn list_dependencies(
     }
     for (g, title, needed_by) in placed {
         let group = &mut selection.groups[g];
-        group.exclusions.retain(|e| e.title != title);
+        group.left_out.retain(|e| e.title != title);
         group.dependencies.push(Dependency {
             rule: Rule {
                 stage: DEPENDENCY_STAGE.into(),

@@ -523,9 +523,9 @@ mod tests {
         let mut bios = SelectionGroup {
             group: "neogeo".into(),
             unresolved: false,
-            winners: Vec::new(),
-            alternatives: Vec::new(),
-            exclusions: Vec::new(),
+            kept: Vec::new(),
+            clones: Vec::new(),
+            left_out: Vec::new(),
             dependencies: vec![dependency("neogeo", &["kof98", "mslug"])],
             choice: None,
             drift: false,

@@ -34,7 +34,7 @@ use stage_select_api::romm::{
     RommTestRequest,
 };
 use stage_select_api::roots::{FolderSuggestions, RootChange, RootEdited, RootSpec};
-use stage_select_api::selection::{Role, SelectionProfile, diff_rows};
+use stage_select_api::selection::{Outcome, SelectionProfile, diff_rows};
 use stage_select_api::settings::{SettingsUpdate, SettingsView};
 use stage_select_api::storage::StoragePolicy;
 use stage_select_api::{
@@ -2271,7 +2271,7 @@ async fn selection(
 struct ReleasesQuery {
     cursor: Option<String>,
     limit: Option<usize>,
-    role: Option<Role>,
+    outcome: Option<Outcome>,
     group: Option<String>,
 }
 
@@ -2283,7 +2283,7 @@ async fn selection_releases(
     let (Path(id), Query(query)) = (id?, query?);
     let (after, limit) = paging(query.cursor.as_deref(), query.limit)?;
     let page = blocking(&state, move |store| {
-        store.selection_releases(id, after, limit, query.role, query.group.as_deref())
+        store.selection_releases(id, after, limit, query.outcome, query.group.as_deref())
     })
     .await?;
     Ok(to_page(page))

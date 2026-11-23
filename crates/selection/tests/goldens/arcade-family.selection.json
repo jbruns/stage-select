@@ -5,9 +5,9 @@
   "system_settings": false,
   "summary": {
     "groups": 5,
-    "winners": 1,
-    "alternatives": 0,
-    "exclusions": 2,
+    "kept": 1,
+    "clones": 0,
+    "left_out": 2,
     "unresolved": 0,
     "dependencies": 3
   },
@@ -21,9 +21,9 @@
     {
       "group": "acmesnd",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "acmesnd",
@@ -40,9 +40,9 @@
     {
       "group": "arcbios",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "arcbios",
@@ -59,7 +59,7 @@
     {
       "group": "blaster",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "blasterj",
           "rule": {
@@ -69,8 +69,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [
+      "clones": [],
+      "left_out": [
         {
           "title": "blaster",
           "rule": {
@@ -84,9 +84,9 @@
     {
       "group": "crane",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "crane",
           "rule": {
@@ -100,9 +100,9 @@
     {
       "group": "z80",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "z80",

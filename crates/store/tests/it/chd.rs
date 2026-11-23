@@ -14,8 +14,8 @@ use stage_select_api::build::{
     AddLibraryFolder, FileOutcome, FolderCheck, ItemState, LibraryFolder, Plan,
 };
 use stage_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary,
 };
 use stage_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
 use stage_select_store::{Store, Workers};
@@ -362,7 +362,7 @@ fn group(title: &str) -> SelectionGroup {
         dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
-        winners: vec![Winner {
+        kept: vec![KeptGame {
             title: title.into(),
             rule: Rule {
                 stage: "Parent selection".into(),
@@ -371,8 +371,8 @@ fn group(title: &str) -> SelectionGroup {
             },
             unresolved: false,
         }],
-        alternatives: vec![],
-        exclusions: vec![],
+        clones: vec![],
+        left_out: vec![],
         choice: None,
         drift: false,
     }

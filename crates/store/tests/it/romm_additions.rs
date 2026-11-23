@@ -18,8 +18,8 @@ use stage_select_api::build::{AddLibraryFolder, LibraryFolder};
 use stage_select_api::ingest::{IngestAction, PlanIngest};
 use stage_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome, RommUpdate};
 use stage_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, SystemSettings, Winner,
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary, SystemSettings,
 };
 use stage_select_api::settings::{IngestCadence, SecretUpdate, SettingsUpdate};
 use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
@@ -650,7 +650,7 @@ fn pong(sha256: &str) -> Selection {
             dependencies: Vec::new(),
             group: "pong (usa)".into(),
             unresolved: false,
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: "Pong (USA)".into(),
                 rule: Rule {
                     stage: "Parent selection".into(),
@@ -659,8 +659,8 @@ fn pong(sha256: &str) -> Selection {
                 },
                 unresolved: false,
             }],
-            alternatives: vec![],
-            exclusions: vec![],
+            clones: vec![],
+            left_out: vec![],
             choice: None,
             drift: false,
         }],

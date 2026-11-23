@@ -776,7 +776,7 @@ impl Scan {
 /// The selected Games of Selection `selection`, by their target's lowercased name.
 pub(super) fn selected_targets(c: &Connection, selection: i64) -> Result<HashMap<String, String>> {
     let mut stmt = c.prepare(
-        "SELECT title FROM selection_releases WHERE selection_id = ?1 AND role = 'winner'",
+        "SELECT title FROM selection_releases WHERE selection_id = ?1 AND outcome = 'kept'",
     )?;
     let rows = stmt.query_map([selection], |r| r.get::<_, String>(0))?;
     let mut selected = HashMap::new();

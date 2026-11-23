@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 8,
-    "winners": 4,
-    "alternatives": 0,
-    "exclusions": 4,
+    "kept": 4,
+    "clones": 0,
+    "left_out": 4,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -32,9 +32,9 @@
     {
       "group": "discard test title",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Discard Test Title (USA)",
           "rule": {
@@ -49,9 +49,9 @@
     {
       "group": "discard test title 2",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Discard Test Title 2 (USA)",
           "rule": {
@@ -66,9 +66,9 @@
     {
       "group": "discard test title 2 & 3",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Discard Test Title 2 & 3 (USA)",
           "rule": {
@@ -83,9 +83,9 @@
     {
       "group": "discard test title 3",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Discard Test Title 3 (USA)",
           "rule": {
@@ -100,7 +100,7 @@
     {
       "group": "full string",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Full String (USA)",
           "rule": {
@@ -111,14 +111,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "partial string 2",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Partial String 2 (USA)",
           "rule": {
@@ -129,14 +129,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title (USA)",
           "rule": {
@@ -147,14 +147,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 2",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 2 (USA)",
           "rule": {
@@ -165,8 +165,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     }
   ]

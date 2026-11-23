@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use stage_select_api::AuditSummary;
-use stage_select_api::selection::Role;
+use stage_select_api::selection::Outcome;
 use stage_select_engine::dat::Dat;
 use stage_select_engine::fixdat::{Lacking, Scope};
 
@@ -18,7 +18,7 @@ pub enum FixdatScope {
     Dat,
     /// The Games the Source Set's Coverage covers (ADR 0021).
     Coverage,
-    /// The winners of the Selection with this id.
+    /// The kept releases of the Selection with this id.
     Selection(i64),
 }
 
@@ -39,7 +39,7 @@ impl Store {
         })
     }
 
-    /// The have/miss CSV of Source Set `name` from its latest Audit, of the whole DAT or of the winners of Selection
+    /// The have/miss CSV of Source Set `name` from its latest Audit, of the whole DAT or of the kept releases of Selection
     /// `selection`. It reports every Game, covered or not, so it ignores Coverage.
     pub fn have_miss(&self, name: &str, selection: Option<i64>) -> Result<Export> {
         let scope = Some(selection.map_or(FixdatScope::Dat, FixdatScope::Selection));
@@ -79,7 +79,7 @@ impl Store {
             .map_err(|e| Error::Io(e.to_string()))?;
         let games = match scope {
             FixdatScope::Dat => HashSet::new(),
-            FixdatScope::Selection(id) => self.winners(name, set.id, &audit, id)?,
+            FixdatScope::Selection(id) => self.kept_titles(name, set.id, &audit, id)?,
             FixdatScope::Coverage => {
                 let covering = self.covering(&set.record)?;
                 dat.games
@@ -108,10 +108,10 @@ impl Store {
         }))
     }
 
-    /// The winners of Selection `id`, refused unless it selected from the registration `set_id` of Source Set `name`
+    /// The kept releases of Selection `id`, refused unless it selected from the registration `set_id` of Source Set `name`
     /// against the DAT Revision of its latest Audit, `audit`. The registration, not the name, decides: an
     /// Unregistered Source Set's name can be registered again.
-    fn winners(
+    fn kept_titles(
         &self,
         name: &str,
         set_id: i64,
@@ -146,7 +146,7 @@ impl Store {
         Ok(self
             .selection_rows(id)?
             .into_iter()
-            .filter(|row| row.role == Role::Winner)
+            .filter(|row| row.outcome == Outcome::Kept)
             .map(|row| row.title)
             .collect())
     }

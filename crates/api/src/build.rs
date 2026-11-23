@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::report::{EvidenceLevel, Finding, HeaderRule};
-use crate::selection::Role;
+use crate::selection::Outcome;
 
 /// The one directory, inside every folder Stage Select manages, that holds everything it keeps there for itself:
 /// the marker, a Build's staging folder, the retention area and any temporary name a write needs. Nothing else of
@@ -744,9 +744,9 @@ pub struct PlanChange {
     pub group: String,
     pub title: String,
     /// Absent when the release is new.
-    pub before: Option<Role>,
+    pub before: Option<Outcome>,
     /// Absent when the release is gone.
-    pub after: Option<Role>,
+    pub after: Option<Outcome>,
     pub cause: Cause,
 }
 

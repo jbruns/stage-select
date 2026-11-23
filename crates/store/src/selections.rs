@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use stage_select_api::selection::{
-    Alternative, CoverageDrift, Dependency, Exclusion, GroupChoice, ReleaseRow, Role, Rule,
-    Selection, SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
+    CloneGame, CoverageDrift, Dependency, GroupChoice, KeptGame, LeftOutGame, Outcome, ReleaseRow,
+    Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary,
 };
 use stage_select_api::{
     Availability, DatRevisionRecord, GameStatus, Job, JobKind, JobState, ProfileVersionRef,
@@ -146,14 +146,14 @@ fn check_full(c: &Connection, id: i64) -> Result<SelectionRecord> {
 }
 
 fn release_from_row(row: &Row) -> rusqlite::Result<ReleaseRow> {
-    let role: String = row.get(1)?;
+    let outcome: String = row.get(1)?;
     Ok(ReleaseRow {
         group: row.get(0)?,
-        role: Role::parse(&role).ok_or_else(|| {
+        outcome: Outcome::parse(&outcome).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
                 1,
                 rusqlite::types::Type::Text,
-                format!("unknown role {role}").into(),
+                format!("unknown outcome {outcome}").into(),
             )
         })?,
         title: row.get(2)?,
@@ -174,7 +174,7 @@ fn release_from_row(row: &Row) -> rusqlite::Result<ReleaseRow> {
 }
 
 const RELEASE_COLUMNS: &str =
-    "rel.group_name, rel.role, rel.title, rel.clone_of, rel.reason, rel.stage, rel.ref, rel.message,
+    "rel.group_name, rel.outcome, rel.title, rel.clone_of, rel.reason, rel.stage, rel.ref, rel.message,
      rel.unresolved, rel.from_choice, rel.seq, rel.needed_by";
 
 /// The Source Set's latest finished, full Audit against the Selection's DAT Revision.
@@ -234,7 +234,7 @@ fn write_selection(
         ])?;
     }
     let mut releases = tx.prepare(
-        "INSERT INTO selection_releases (selection_id, seq, group_name, role, title, clone_of, reason, stage,
+        "INSERT INTO selection_releases (selection_id, seq, group_name, outcome, title, clone_of, reason, stage,
                                          ref, message, unresolved, from_choice, needed_by)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?;
@@ -243,7 +243,7 @@ fn write_selection(
             id,
             seq as i64,
             r.group,
-            r.role.as_str(),
+            r.outcome.as_str(),
             r.title,
             r.clone_of,
             r.reason,
@@ -252,7 +252,7 @@ fn write_selection(
             r.rule.message,
             r.unresolved,
             r.from_choice,
-            (r.role == Role::Dependency).then(|| to_json(&r.needed_by)),
+            (r.outcome == Outcome::Dependency).then(|| to_json(&r.needed_by)),
         ])?;
     }
     Ok(id)
@@ -312,9 +312,9 @@ pub(super) fn read_selection(c: &Connection, id: i64) -> Result<Selection> {
                 unresolved: r.get(1)?,
                 drift: r.get(2)?,
                 choice,
-                winners: Vec::new(),
-                alternatives: Vec::new(),
-                exclusions: Vec::new(),
+                kept: Vec::new(),
+                clones: Vec::new(),
+                left_out: Vec::new(),
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -331,23 +331,23 @@ pub(super) fn read_selection(c: &Connection, id: i64) -> Result<Selection> {
             )));
         };
         let group = &mut groups[i];
-        match row.role {
-            Role::Winner => group.winners.push(Winner {
+        match row.outcome {
+            Outcome::Kept => group.kept.push(KeptGame {
                 title: row.title,
                 rule: row.rule,
                 unresolved: row.unresolved,
             }),
-            Role::Alternative => group.alternatives.push(Alternative {
+            Outcome::Clone => group.clones.push(CloneGame {
                 title: row.title,
                 clone_of: row.clone_of.unwrap_or_default(),
                 rule: row.rule,
             }),
-            Role::Exclusion => group.exclusions.push(Exclusion {
+            Outcome::LeftOut => group.left_out.push(LeftOutGame {
                 title: row.title,
                 rule: row.rule,
                 reason: row.reason.unwrap_or_default(),
             }),
-            Role::Dependency => group.dependencies.push(Dependency {
+            Outcome::Dependency => group.dependencies.push(Dependency {
                 title: row.title,
                 needed_by: row.needed_by,
                 rule: row.rule,
@@ -540,14 +540,14 @@ impl Store {
         })
     }
 
-    /// Up to `limit` of the Selection's releases after the one at `after`, optionally only those with `role`, or
+    /// Up to `limit` of the Selection's releases after the one at `after`, optionally only those with `outcome`, or
     /// in the group `group`, each with its availability.
     pub fn selection_releases(
         &self,
         id: i64,
         after: Option<u64>,
         limit: usize,
-        role: Option<Role>,
+        outcome: Option<Outcome>,
         group: Option<&str>,
     ) -> Result<(Vec<SelectionReleaseRow>, Option<u64>)> {
         self.read(|conn| {
@@ -559,14 +559,14 @@ impl Store {
                         g.status, g.claimed_roms <> '[]'
                  FROM selection_releases rel
                  LEFT JOIN audit_games g ON g.audit_id = ?5 AND g.name = rel.title
-                 WHERE rel.selection_id = ?1 AND rel.seq > ?2 AND (?3 IS NULL OR rel.role = ?3)
+                 WHERE rel.selection_id = ?1 AND rel.seq > ?2 AND (?3 IS NULL OR rel.outcome = ?3)
                    AND (?6 IS NULL OR rel.group_name = ?6)
                  ORDER BY rel.seq LIMIT ?4"
             ))?;
             let mut rows = stmt.query(params![
                 id,
                 after.map_or(-1, |a| a as i64),
-                role.map(Role::as_str),
+                outcome.map(Outcome::as_str),
                 limit as i64 + 1,
                 audit,
                 group

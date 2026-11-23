@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 1,
-    "winners": 1,
-    "alternatives": 2,
-    "exclusions": 0,
+    "kept": 1,
+    "clones": 2,
+    "left_out": 0,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -27,7 +27,7 @@
     {
       "group": "test title",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title (World) (El)",
           "rule": {
@@ -38,7 +38,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "Test Title (Thailand) (En)",
           "clone_of": "Test Title (World) (El)",
@@ -58,7 +58,7 @@
           }
         }
       ],
-      "exclusions": [],
+      "left_out": [],
       "drift": true
     }
   ]

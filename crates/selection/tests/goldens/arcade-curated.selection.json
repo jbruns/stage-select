@@ -5,9 +5,9 @@
   "system_settings": false,
   "summary": {
     "groups": 19,
-    "winners": 3,
-    "alternatives": 5,
-    "exclusions": 15,
+    "kept": 3,
+    "clones": 5,
+    "left_out": 15,
     "unresolved": 0,
     "dependencies": 3,
     "curated_unmatched": 2
@@ -22,9 +22,9 @@
     {
       "group": "acmebios",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "acmebios",
@@ -41,9 +41,9 @@
     {
       "group": "acmesnd",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "acmesnd",
@@ -60,9 +60,9 @@
     {
       "group": "calcul8",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "calcul8",
           "rule": {
@@ -76,9 +76,9 @@
     {
       "group": "crane",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "crane",
           "rule": {
@@ -92,9 +92,9 @@
     {
       "group": "fighter",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "fighter",
           "rule": {
@@ -116,9 +116,9 @@
     {
       "group": "homepc",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "homepc",
           "rule": {
@@ -132,9 +132,9 @@
     {
       "group": "jukebox",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "jukebox",
           "rule": {
@@ -148,9 +148,9 @@
     {
       "group": "mjhouse",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "mjhouse",
           "rule": {
@@ -164,9 +164,9 @@
     {
       "group": "mystery",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "mystery",
           "rule": {
@@ -180,9 +180,9 @@
     {
       "group": "oldbios",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "oldbios",
           "rule": {
@@ -196,9 +196,9 @@
     {
       "group": "pokerace",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "pokerace",
           "rule": {
@@ -212,9 +212,9 @@
     {
       "group": "proto",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "proto",
           "rule": {
@@ -228,7 +228,7 @@
     {
       "group": "racer",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "racera",
           "rule": {
@@ -238,8 +238,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [
+      "clones": [],
+      "left_out": [
         {
           "title": "racer",
           "rule": {
@@ -253,9 +253,9 @@
     {
       "group": "reels",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "reels",
           "rule": {
@@ -269,7 +269,7 @@
     {
       "group": "sailor",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "sailor",
           "rule": {
@@ -280,7 +280,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "sailore",
           "clone_of": "sailor",
@@ -291,12 +291,12 @@
           }
         }
       ],
-      "exclusions": []
+      "left_out": []
     },
     {
       "group": "shooter",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "shooteru",
           "rule": {
@@ -307,7 +307,7 @@
           "unresolved": false
         }
       ],
-      "alternatives": [
+      "clones": [
         {
           "title": "shooter",
           "clone_of": "shooteru",
@@ -345,14 +345,14 @@
           }
         }
       ],
-      "exclusions": []
+      "left_out": []
     },
     {
       "group": "typist",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "typist",
           "rule": {
@@ -366,9 +366,9 @@
     {
       "group": "worldh",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "worldh",
           "rule": {
@@ -382,9 +382,9 @@
     {
       "group": "z80",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [],
+      "kept": [],
+      "clones": [],
+      "left_out": [],
       "dependencies": [
         {
           "title": "z80",

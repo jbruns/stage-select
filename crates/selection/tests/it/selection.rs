@@ -74,10 +74,10 @@ fn a_fail_safe_tie_is_unresolved_and_keeps_retools_pick() {
         .find(|g| g.group == "tie alpha")
         .unwrap_or_else(|| panic!("no tie group in {:#?}", selection.groups));
     assert!(tie.unresolved, "{tie:#?}");
-    assert_eq!(tie.winners.len(), 1, "{tie:#?}");
-    assert!(tie.winners[0].unresolved);
-    assert_eq!(tie.winners[0].rule.reference.as_deref(), Some("REF0059"));
-    assert_eq!(tie.alternatives.len(), 1, "{tie:#?}");
+    assert_eq!(tie.kept.len(), 1, "{tie:#?}");
+    assert!(tie.kept[0].unresolved);
+    assert_eq!(tie.kept[0].rule.reference.as_deref(), Some("REF0059"));
+    assert_eq!(tie.clones.len(), 1, "{tie:#?}");
 
     let solo = selection.groups.iter().find(|g| g.group == "solo").unwrap();
     assert!(!solo.unresolved, "{solo:#?}");
@@ -99,7 +99,7 @@ fn a_selection_without_clone_lists_selects_without_them_and_says_so() {
         .select(&path, &SelectionProfile::default(), &support::options())
         .unwrap();
 
-    assert_eq!(selection.summary.winners, 1);
+    assert_eq!(selection.summary.kept, 1);
     assert_eq!(
         selection.coverage_drift.titles_without_metadata,
         ["Solo (Europe)"]
@@ -180,23 +180,23 @@ fn a_selection_chooses_only_among_the_games_its_coverage_covers() {
     let uncovered = engine
         .select(&path, &usa_first(), &support::options())
         .unwrap();
-    assert_eq!(uncovered.groups[0].winners[0].title, "Title (USA)");
+    assert_eq!(uncovered.groups[0].kept[0].title, "Title (USA)");
 
     let selection = engine
         .select(&path, &usa_first(), &covering(&["Europe"]))
         .unwrap();
 
     let group = &selection.groups[0];
-    assert_eq!(group.winners.len(), 1, "{group:#?}");
-    assert_eq!(group.winners[0].title, "Title (Europe)");
+    assert_eq!(group.kept.len(), 1, "{group:#?}");
+    assert_eq!(group.kept[0].title, "Title (Europe)");
     let usa = group
-        .exclusions
+        .left_out
         .iter()
         .find(|e| e.title == "Title (USA)")
         .unwrap_or_else(|| panic!("the USA release is not excluded: {group:#?}"));
     assert!(usa.rule.is_coverage(), "{usa:#?}");
     assert_eq!(usa.rule.message, "outside its source set's coverage");
-    assert_eq!(selection.summary.exclusions, 1);
+    assert_eq!(selection.summary.left_out, 1);
     assert_eq!(selection.pins.coverage(), Some(&["Europe".to_owned()][..]));
     assert_eq!(uncovered.pins.coverage(), None);
 }
@@ -227,16 +227,16 @@ fn a_group_its_coverage_covers_none_of_is_shown_excluded_and_a_world_release_is_
         .iter()
         .find(|g| g.group == "only japan")
         .unwrap_or_else(|| panic!("{:#?}", selection.groups));
-    assert!(japan.winners.is_empty(), "{japan:#?}");
-    assert_eq!(japan.exclusions.len(), 2, "{japan:#?}");
-    assert!(japan.exclusions.iter().all(|e| e.rule.is_coverage()));
-    let winners: Vec<&str> = selection
+    assert!(japan.kept.is_empty(), "{japan:#?}");
+    assert_eq!(japan.left_out.len(), 2, "{japan:#?}");
+    assert!(japan.left_out.iter().all(|e| e.rule.is_coverage()));
+    let kept: Vec<&str> = selection
         .groups
         .iter()
-        .flat_map(|g| &g.winners)
+        .flat_map(|g| &g.kept)
         .map(|w| w.title.as_str())
         .collect();
-    assert_eq!(winners, ["Everywhere (World)"], "{:#?}", selection.groups);
+    assert_eq!(kept, ["Everywhere (World)"], "{:#?}", selection.groups);
 }
 
 #[test]
@@ -281,14 +281,14 @@ fn a_clone_list_group_keeps_its_covered_releases_and_an_include_cannot_bring_bac
         .iter()
         .find(|g| g.group == "merged")
         .unwrap_or_else(|| panic!("{:#?}", selection.groups));
-    assert_eq!(merged.winners[0].title, "Other Name (Europe)");
-    assert_eq!(merged.exclusions[0].title, "Merged (USA)");
-    assert!(merged.exclusions[0].rule.is_coverage());
+    assert_eq!(merged.kept[0].title, "Other Name (Europe)");
+    assert_eq!(merged.left_out[0].title, "Merged (USA)");
+    assert!(merged.left_out[0].rule.is_coverage());
     assert!(
         selection
             .groups
             .iter()
-            .all(|g| g.winners.is_empty() || g.group == "merged"),
+            .all(|g| g.kept.is_empty() || g.group == "merged"),
         "{:#?}",
         selection.groups
     );
@@ -328,11 +328,7 @@ fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_no
     let saga = selection
         .groups
         .iter()
-        .find(|g| {
-            g.winners
-                .iter()
-                .any(|w| w.title == "Saga (Europe) (Disc 1)")
-        })
+        .find(|g| g.kept.iter().any(|w| w.title == "Saga (Europe) (Disc 1)"))
         .unwrap_or_else(|| panic!("{:#?}", selection.groups));
     assert!(
         saga.unresolved,
@@ -343,9 +339,7 @@ fn a_multi_disc_game_whose_other_discs_are_outside_its_coverage_is_unresolved_no
         "{saga:#?}"
     );
     assert!(
-        saga.winners
-            .iter()
-            .all(|w| w.title != "Saga (USA) (Disc 2)"),
+        saga.kept.iter().all(|w| w.title != "Saga (USA) (Disc 2)"),
         "the uncovered disc stays out: {saga:#?}"
     );
 }
@@ -374,14 +368,14 @@ fn a_clone_list_ignored_title_outside_its_coverage_is_excluded_by_its_coverage()
         .select(&path, &usa_first(), &covering(&["Europe"]))
         .unwrap();
 
-    let exclusions: Vec<_> = selection
+    let left_out: Vec<_> = selection
         .groups
         .iter()
-        .flat_map(|g| &g.exclusions)
+        .flat_map(|g| &g.left_out)
         .filter(|e| e.title == "Ignored (USA)")
         .collect();
-    assert_eq!(exclusions.len(), 1, "{:#?}", selection.groups);
-    assert!(exclusions[0].rule.is_coverage(), "{:#?}", exclusions[0]);
+    assert_eq!(left_out.len(), 1, "{:#?}", selection.groups);
+    assert!(left_out[0].rule.is_coverage(), "{:#?}", left_out[0]);
 }
 
 #[test]
@@ -524,7 +518,7 @@ fn excluded(selection: &Selection) -> Vec<&str> {
     selection
         .groups
         .iter()
-        .flat_map(|g| &g.exclusions)
+        .flat_map(|g| &g.left_out)
         .map(|e| e.title.as_str())
         .collect()
 }
@@ -680,7 +674,7 @@ fn relative_install_data_work_and_dat_paths_work() {
             &support::options(),
         )
         .unwrap();
-    assert_eq!(selection.summary.winners, 1);
+    assert_eq!(selection.summary.kept, 1);
 }
 
 /// The acceptance run on a real DAT, which can't be committed:
@@ -700,14 +694,14 @@ fn a_real_dat_gets_a_rule_for_every_group() {
     let elapsed = started.elapsed();
 
     for group in &selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             assert!(
                 winner.rule.reference.is_some(),
                 "{}: {group:#?}",
                 winner.title
             );
         }
-        for alternative in &group.alternatives {
+        for alternative in &group.clones {
             assert!(!alternative.rule.message.is_empty(), "{group:#?}");
         }
     }

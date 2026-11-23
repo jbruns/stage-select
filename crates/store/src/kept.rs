@@ -803,7 +803,7 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
          FROM kept_files k JOIN library_folders m ON m.id = k.folder_id
          WHERE k.id = ?1 AND k.reason = 'repack' AND k.game IS NOT NULL AND m.current_build_id IS NOT NULL
            AND EXISTS (SELECT 1 FROM builds c JOIN selection_releases r ON r.selection_id = c.selection_id
-                       WHERE c.id = m.current_build_id AND r.role = 'winner'
+                       WHERE c.id = m.current_build_id AND r.outcome = 'kept'
                          AND lower(r.title || '.zip') = lower(k.name))
            AND NOT EXISTS (SELECT 1 FROM build_incomplete i WHERE i.build_id = m.current_build_id
                            AND lower(i.target) = lower(k.name) AND i.reason = 'failed' AND i.detail = ?2)",

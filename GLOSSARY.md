@@ -287,7 +287,7 @@ damage.
 _Avoid_: Outdated, dirty
 
 **Drift**:
-Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Title
+Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Stage
 Select did not build. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
 the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)

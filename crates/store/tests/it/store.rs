@@ -1069,8 +1069,8 @@ fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_it
 mod profiles_and_selections {
     use super::*;
     use stage_select_api::selection::{
-        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionGroup,
-        SelectionPins, SelectionProfile, SelectionSummary, Winner,
+        ChoiceStatus, CloneGame, CoverageDrift, GroupChoice, KeptGame, Rule, Selection,
+        SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary,
     };
     use stage_select_api::{GameStatus, JobKind, JobState, StartSelectionFor};
     use std::collections::BTreeSet;
@@ -1104,8 +1104,8 @@ mod profiles_and_selections {
             system_settings: false,
             summary: SelectionSummary {
                 groups: 2,
-                winners: 1,
-                alternatives: 1,
+                kept: 1,
+                clones: 1,
                 choices: 1,
                 ..SelectionSummary::default()
             },
@@ -1115,13 +1115,13 @@ mod profiles_and_selections {
                     dependencies: Vec::new(),
                     group: "combat".into(),
                     unresolved: false,
-                    winners: vec![Winner {
+                    kept: vec![KeptGame {
                         title: "Combat (USA)".into(),
                         rule: rule("Parent selection"),
                         unresolved: false,
                     }],
-                    alternatives: vec![],
-                    exclusions: vec![],
+                    clones: vec![],
+                    left_out: vec![],
                     choice: None,
                     drift: true,
                 },
@@ -1129,13 +1129,13 @@ mod profiles_and_selections {
                     dependencies: Vec::new(),
                     group: "pong".into(),
                     unresolved: false,
-                    winners: vec![],
-                    alternatives: vec![Alternative {
+                    kept: vec![],
+                    clones: vec![CloneGame {
                         title: "Pong (USA)".into(),
                         clone_of: "pong".into(),
                         rule: Rule::choice(),
                     }],
-                    exclusions: vec![],
+                    left_out: vec![],
                     choice: Some(GroupChoice {
                         checked: BTreeSet::new(),
                         status: ChoiceStatus::Applied,

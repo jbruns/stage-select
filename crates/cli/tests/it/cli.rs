@@ -506,7 +506,7 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
     let selection: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(selection["schema"], "stage-select.selection/1");
     assert_eq!(selection["system"], "Test - System");
-    assert_eq!(selection["groups"][0]["winners"][0]["title"], "Pong (USA)");
+    assert_eq!(selection["groups"][0]["kept"][0]["title"], "Pong (USA)");
 
     std::fs::write(&profile, r#"{"region_ordr": ["USA"]}"#).unwrap();
     let out = stage_select()

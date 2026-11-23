@@ -12,8 +12,8 @@ use stage_select_api::build::{
     PlanChoices, PlanCleanup, PlanKeptDeletion, RemovalKind, RestoreKind,
 };
 use stage_select_api::selection::{
-    Alternative, CoverageDrift, Exclusion, Rule, Selection, SelectionGroup, SelectionPins,
-    SelectionProfile, SelectionSummary, Winner,
+    CloneGame, CoverageDrift, KeptGame, LeftOutGame, Rule, Selection, SelectionGroup,
+    SelectionPins, SelectionProfile, SelectionSummary,
 };
 use stage_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorage};
 use stage_select_api::{JobKind, JobState};
@@ -311,13 +311,13 @@ fn group(title: &str) -> SelectionGroup {
         dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
-        winners: vec![Winner {
+        kept: vec![KeptGame {
             title: title.into(),
             rule: rule("Parent selection"),
             unresolved: false,
         }],
-        alternatives: vec![],
-        exclusions: vec![],
+        clones: vec![],
+        left_out: vec![],
         choice: None,
         drift: false,
     }
@@ -2778,15 +2778,15 @@ fn the_preview_attributes_each_change_to_settings_choices_or_the_dat_revision() 
         .save_profile(PROFILE, &profile, Some(1), "Operator", &[], WORKERS)
         .unwrap();
     let mut combat = group("Combat (USA)");
-    let lost = combat.winners.pop().unwrap();
-    combat.alternatives.push(Alternative {
+    let lost = combat.kept.pop().unwrap();
+    combat.clones.push(CloneGame {
         title: lost.title,
         clone_of: "Pong (USA)".into(),
         rule: Rule::choice(),
     });
     let mut breakout = group("Breakout (USA)");
-    let dropped = breakout.winners.pop().unwrap();
-    breakout.exclusions.push(Exclusion {
+    let dropped = breakout.kept.pop().unwrap();
+    breakout.left_out.push(LeftOutGame {
         title: dropped.title,
         rule: rule("Region"),
         reason: "Region".into(),
@@ -4072,15 +4072,15 @@ fn with_saga(env: &Env) -> String {
     revision.sha256
 }
 
-fn saga(winners: &[&str], others: &[&str]) -> SelectionGroup {
-    let mut saga = group(winners[0]);
+fn saga(kept: &[&str], others: &[&str]) -> SelectionGroup {
+    let mut saga = group(kept[0]);
     saga.group = "saga".into();
-    saga.winners = winners.iter().map(|w| group(w).winners.remove(0)).collect();
-    saga.alternatives = others
+    saga.kept = kept.iter().map(|w| group(w).kept.remove(0)).collect();
+    saga.clones = others
         .iter()
-        .map(|title| Alternative {
+        .map(|title| CloneGame {
             title: (*title).into(),
-            clone_of: winners[0].into(),
+            clone_of: kept[0].into(),
             rule: rule("Region"),
         })
         .collect();
@@ -5241,8 +5241,8 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
     // built file in place, built but no longer selected.
     let mut unresolved = group("Combat (USA)");
     unresolved.unresolved = true;
-    unresolved.winners[0].title = "Yars (USA)".into();
-    unresolved.alternatives = vec![Alternative {
+    unresolved.kept[0].title = "Yars (USA)".into();
+    unresolved.clones = vec![CloneGame {
         title: "Combat (USA)".into(),
         clone_of: "Yars (USA)".into(),
         rule: rule("Region"),

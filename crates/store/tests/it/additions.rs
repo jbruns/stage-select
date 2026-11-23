@@ -18,8 +18,8 @@ use stage_select_api::build::{PlanKeptDeletion, RETENTION};
 use stage_select_api::ingest::{IngestAction, IngestPlan, ItemState, PlanIngest, Proposal};
 use stage_select_api::repair::{PlanRepair, RepairChoice, RepairPlan};
 use stage_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, SystemSettings, Winner,
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary, SystemSettings,
 };
 use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
 use stage_select_engine::torrentzip;
@@ -391,7 +391,7 @@ fn group(title: &str) -> SelectionGroup {
         dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
-        winners: vec![Winner {
+        kept: vec![KeptGame {
             title: title.into(),
             rule: Rule {
                 stage: "Parent selection".into(),
@@ -400,8 +400,8 @@ fn group(title: &str) -> SelectionGroup {
             },
             unresolved: false,
         }],
-        alternatives: vec![],
-        exclusions: vec![],
+        clones: vec![],
+        left_out: vec![],
         choice: None,
         drift: false,
     }

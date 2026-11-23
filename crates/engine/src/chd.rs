@@ -110,7 +110,7 @@ impl HeaderRefusal {
     pub fn as_disk(self) -> String {
         match self {
             HeaderRefusal::Version(version) => format!(
-                "it is a version {version} CHD, and only a version 5 CHD can match a disk; update it outside Title \
+                "it is a version {version} CHD, and only a version 5 CHD can match a disk; update it outside Stage \
                  Select, with chdman copy, then audit again"
             ),
             refusal => refusal.why(),

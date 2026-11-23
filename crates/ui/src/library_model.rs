@@ -163,7 +163,7 @@ each game with disks twice: once for its ZIP, and once for its disk folder, whic
 
 /// The rest of that sentence after the setting's name: what to do then, and that RomM's list holds for every platform.
 pub const ROMM_AFTER_SETTING: &str = "in your RomM configuration, then scan the platform again. RomM keeps that setting \
-as one list for every platform, so it leaves out a folder of these names on every platform, not only this one. Title \
+as one list for every platform, so it leaves out a folder of these names on every platform, not only this one. Stage \
 Select doesn't change RomM's configuration for you.";
 
 /// The upstream request for RomM to take exclusions per platform.

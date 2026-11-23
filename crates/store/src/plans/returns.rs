@@ -75,7 +75,7 @@ pub(super) fn returns(
         .selection
         .groups
         .iter()
-        .flat_map(|g| &g.winners)
+        .flat_map(|g| &g.kept)
         .map(|w| w.title.as_str())
         .collect();
     let selected = |game: &str| !remove_all && chosen.contains(game);

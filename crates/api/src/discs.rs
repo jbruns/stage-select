@@ -165,11 +165,11 @@ fn numbers(word: &str, numbers: &BTreeSet<u32>) -> String {
 /// Every title of the group, whatever its role.
 fn titles(group: &SelectionGroup) -> impl Iterator<Item = &str> {
     group
-        .winners
+        .kept
         .iter()
         .map(|w| w.title.as_str())
-        .chain(group.alternatives.iter().map(|a| a.title.as_str()))
-        .chain(group.exclusions.iter().map(|e| e.title.as_str()))
+        .chain(group.clones.iter().map(|a| a.title.as_str()))
+        .chain(group.left_out.iter().map(|e| e.title.as_str()))
 }
 
 /// Each release the disc titles among `selected` come from, with their disc numbers.
@@ -187,7 +187,7 @@ fn chosen<'a>(selected: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, B
 /// 0021): Coverage narrows what may be chosen, never how many discs make the game whole.
 fn expected(group: &SelectionGroup, chosen: &BTreeMap<String, BTreeSet<u32>>) -> BTreeSet<u32> {
     let excluded: BTreeSet<&str> = group
-        .exclusions
+        .left_out
         .iter()
         .filter(|e| !e.rule.is_coverage())
         .map(|e| e.title.as_str())
@@ -217,7 +217,7 @@ pub fn check<'a>(
         .any(|have| !discs.is_subset(have))
         .then(|| DiscCheck {
             excluded: group
-                .exclusions
+                .left_out
                 .iter()
                 .filter_map(|e| disc(&e.title))
                 .filter(|d| chosen.contains_key(&d.release))
@@ -263,7 +263,7 @@ fn applied(group: &SelectionGroup) -> Option<&GroupChoice> {
 /// The discs of the group that none of its winners has, each with the titles in the group that have it: what a
 /// Library Folder built from the group lacks. Empty when no winner is a disc.
 pub fn missing(group: &SelectionGroup) -> BTreeMap<u32, Vec<String>> {
-    let missing = uncovered(group, group.winners.iter().map(|w| w.title.as_str()));
+    let missing = uncovered(group, group.kept.iter().map(|w| w.title.as_str()));
     let mut out: BTreeMap<u32, Vec<String>> = BTreeMap::new();
     for title in titles(group) {
         if let Some(d) = disc(title).filter(|d| missing.contains(&d.number)) {
@@ -292,8 +292,7 @@ pub fn unresolved_reason(group: &SelectionGroup) -> Option<String> {
 /// choice for such a group is then recorded as settling an unresolved group. Winners are never changed.
 pub fn mark_unresolved(selection: &mut Selection) {
     for group in &mut selection.groups {
-        if !group.unresolved
-            && check(group, group.winners.iter().map(|w| w.title.as_str())).is_some()
+        if !group.unresolved && check(group, group.kept.iter().map(|w| w.title.as_str())).is_some()
         {
             group.unresolved = true;
         }
@@ -321,7 +320,7 @@ mod tests {
 
     use super::*;
     use crate::selection::{
-        Alternative, CoverageDrift, Exclusion, Rule, SelectionPins, SelectionSummary, Winner,
+        CloneGame, CoverageDrift, KeptGame, LeftOutGame, Rule, SelectionPins, SelectionSummary,
     };
 
     #[test]
@@ -379,23 +378,23 @@ mod tests {
         }
     }
 
-    fn group(winners: &[&str], exclusions: &[&str]) -> SelectionGroup {
+    fn group(kept: &[&str], left_out: &[&str]) -> SelectionGroup {
         SelectionGroup {
             dependencies: Vec::new(),
             group: "title".into(),
             unresolved: false,
-            winners: winners
+            kept: kept
                 .iter()
-                .map(|t| Winner {
+                .map(|t| KeptGame {
                     title: t.to_string(),
                     rule: rule(),
                     unresolved: false,
                 })
                 .collect(),
-            alternatives: vec![],
-            exclusions: exclusions
+            clones: vec![],
+            left_out: left_out
                 .iter()
-                .map(|t| Exclusion {
+                .map(|t| LeftOutGame {
                     title: t.to_string(),
                     rule: rule(),
                     reason: "Regions".into(),
@@ -428,7 +427,7 @@ mod tests {
         mark_unresolved(&mut s);
 
         assert!(s.groups[0].unresolved);
-        assert_eq!(s.groups[0].winners, mixed.winners);
+        assert_eq!(s.groups[0].kept, mixed.kept);
         assert!(!s.groups[1].unresolved);
         assert_eq!(s.summary.unresolved, 1);
         assert_eq!(
@@ -440,9 +439,9 @@ mod tests {
     #[test]
     fn a_selected_release_without_a_disc_another_release_has_is_unresolved() {
         let mut usa = group(&["Title (USA) (Disc 1)"], &[]);
-        usa.alternatives = ["Title (Europe) (Disc 1)", "Title (Europe) (Disc 2)"]
+        usa.clones = ["Title (Europe) (Disc 1)", "Title (Europe) (Disc 2)"]
             .into_iter()
-            .map(|title| Alternative {
+            .map(|title| CloneGame {
                 title: title.into(),
                 clone_of: "Title (USA) (Disc 1)".into(),
                 rule: rule(),
@@ -499,7 +498,7 @@ mod tests {
     /// then are.
     fn chosen_group(checked: &[&str]) -> SelectionGroup {
         let mut g = group(checked, &[]);
-        g.alternatives = [
+        g.clones = [
             "Saga (USA) (Disc 1)",
             "Saga (Europe) (Disc 1)",
             "Saga (Europe) (Disc 2)",
@@ -507,7 +506,7 @@ mod tests {
         ]
         .into_iter()
         .filter(|t| !checked.contains(t))
-        .map(|title| Alternative {
+        .map(|title| CloneGame {
             title: title.into(),
             clone_of: String::new(),
             rule: Rule::choice(),

@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Deserialize;
 use stage_select_api::selection::{
-    Alternative, CoverageDrift, Exclusion, Rule, SELECTION_TRACE_SCHEMA, SelectionGroup,
-    SelectionSummary, Winner,
+    CloneGame, CoverageDrift, KeptGame, LeftOutGame, Rule, SELECTION_TRACE_SCHEMA, SelectionGroup,
+    SelectionSummary,
 };
 
 use crate::Error;
@@ -251,7 +251,7 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             let (rule, unresolved) = explain.winner(group, parent);
             let row = row(&mut rows, group);
             row.unresolved |= unresolved;
-            row.winners.push(Winner {
+            row.kept.push(KeptGame {
                 title: parent.clone(),
                 rule,
                 unresolved,
@@ -259,7 +259,7 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
         }
         for (clone, parent) in clones {
             let rule = explain.alternative(group, clone);
-            row(&mut rows, group).alternatives.push(Alternative {
+            row(&mut rows, group).clones.push(CloneGame {
                 title: clone.clone(),
                 clone_of: parent.clone(),
                 rule,
@@ -272,7 +272,7 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
         } else {
             explain.exclusion(title, reason)
         };
-        row(&mut rows, group).exclusions.push(Exclusion {
+        row(&mut rows, group).left_out.push(LeftOutGame {
             title: title.clone(),
             rule,
             reason: reason.clone(),
@@ -289,19 +289,19 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
     let groups: Vec<SelectionGroup> = rows
         .into_values()
         .map(|mut row| {
-            row.winners.iter_mut().for_each(|w| rename(&mut w.title));
-            for alternative in &mut row.alternatives {
+            row.kept.iter_mut().for_each(|w| rename(&mut w.title));
+            for alternative in &mut row.clones {
                 rename(&mut alternative.title);
                 rename(&mut alternative.clone_of);
             }
-            row.exclusions.iter_mut().for_each(|e| rename(&mut e.title));
-            row.winners.sort_by(|a, b| a.title.cmp(&b.title));
-            row.alternatives.sort_by(|a, b| a.title.cmp(&b.title));
-            row.exclusions.sort_by(|a, b| a.title.cmp(&b.title));
+            row.left_out.iter_mut().for_each(|e| rename(&mut e.title));
+            row.kept.sort_by(|a, b| a.title.cmp(&b.title));
+            row.clones.sort_by(|a, b| a.title.cmp(&b.title));
+            row.left_out.sort_by(|a, b| a.title.cmp(&b.title));
             summary.groups += 1;
-            summary.winners += row.winners.len();
-            summary.alternatives += row.alternatives.len();
-            summary.exclusions += row.exclusions.len();
+            summary.kept += row.kept.len();
+            summary.clones += row.clones.len();
+            summary.left_out += row.left_out.len();
             summary.unresolved += usize::from(row.unresolved);
             row
         })
@@ -328,9 +328,9 @@ fn row<'r>(rows: &'r mut BTreeMap<String, SelectionGroup>, name: &str) -> &'r mu
             dependencies: Vec::new(),
             group: name.to_owned(),
             unresolved: false,
-            winners: Vec::new(),
-            alternatives: Vec::new(),
-            exclusions: Vec::new(),
+            kept: Vec::new(),
+            clones: Vec::new(),
+            left_out: Vec::new(),
             choice: None,
             drift: false,
         })
@@ -532,17 +532,11 @@ mod tests {
         let derived = derive(&trace(&steps, &[group])).unwrap();
         let row = &derived.groups[0];
         assert!(!row.unresolved);
-        assert_eq!(row.winners[0].rule.reference.as_deref(), Some("REF0014"));
-        assert_eq!(row.winners[0].rule.message, "REF0014 message");
-        assert_eq!(row.alternatives[0].title, A_EU);
-        assert_eq!(
-            row.alternatives[0].rule.reference.as_deref(),
-            Some(FAIL_SAFE)
-        );
-        assert_eq!(
-            row.alternatives[1].rule.reference.as_deref(),
-            Some("REF0014")
-        );
+        assert_eq!(row.kept[0].rule.reference.as_deref(), Some("REF0014"));
+        assert_eq!(row.kept[0].rule.message, "REF0014 message");
+        assert_eq!(row.clones[0].title, A_EU);
+        assert_eq!(row.clones[0].rule.reference.as_deref(), Some(FAIL_SAFE));
+        assert_eq!(row.clones[1].rule.reference.as_deref(), Some("REF0014"));
         assert_eq!(derived.coverage_drift.unmatched_clone_list_terms, ["Gone"]);
     }
 
@@ -580,7 +574,7 @@ mod tests {
         let group = serde_json::json!({"schema":1,"type":"group","group":"b","parents":[B_EU],"clones":{A_EU: B_EU}});
         let derived = derive(&trace(&steps, &[group])).unwrap();
         assert!(derived.groups[0].unresolved);
-        assert!(derived.groups[0].winners[0].unresolved);
+        assert!(derived.groups[0].kept[0].unresolved);
         assert_eq!(derived.summary.unresolved, 1);
     }
 
@@ -621,7 +615,7 @@ mod tests {
         let derived = derive(&trace(&steps, &[group])).unwrap();
         assert!(derived.groups[0].unresolved);
         assert_eq!(
-            derived.groups[0].alternatives[0].rule.reference.as_deref(),
+            derived.groups[0].clones[0].rule.reference.as_deref(),
             Some("REF0072")
         );
     }

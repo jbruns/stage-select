@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use stage_select_api::selection::{
-    Alternative, ChoiceStatus, GroupChoice, Rule, Selection, SelectionGroup, Winner,
+    ChoiceStatus, CloneGame, GroupChoice, KeptGame, Rule, Selection, SelectionGroup,
 };
 
 /// Applies `choices` (by group: the checked releases) to `selection`, flags every group with coverage drift, and
@@ -21,11 +21,11 @@ pub fn apply(selection: &mut Selection, choices: Option<&BTreeMap<String, BTreeS
     let choices = choices.unwrap_or(&empty);
     for group in &mut selection.groups {
         group.drift = group
-            .winners
+            .kept
             .iter()
             .map(|w| &w.title)
-            .chain(group.alternatives.iter().map(|a| &a.title))
-            .chain(group.exclusions.iter().map(|e| &e.title))
+            .chain(group.clones.iter().map(|a| &a.title))
+            .chain(group.left_out.iter().map(|e| &e.title))
             .any(|t| without_metadata.contains(t.as_str()));
         if let Some(checked) = choices.get(&group.group) {
             apply_to_group(group, checked);
@@ -41,14 +41,14 @@ pub fn apply(selection: &mut Selection, choices: Option<&BTreeMap<String, BTreeS
 }
 
 fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
-    let picks: Vec<String> = group.winners.iter().map(|w| w.title.clone()).collect();
+    let picks: Vec<String> = group.kept.iter().map(|w| w.title.clone()).collect();
     let engine_unresolved = group.unresolved;
-    let excluded: BTreeSet<&str> = group.exclusions.iter().map(|e| e.title.as_str()).collect();
+    let excluded: BTreeSet<&str> = group.left_out.iter().map(|e| e.title.as_str()).collect();
     let checkable: BTreeSet<&str> = group
-        .winners
+        .kept
         .iter()
         .map(|w| w.title.as_str())
-        .chain(group.alternatives.iter().map(|a| a.title.as_str()))
+        .chain(group.clones.iter().map(|a| a.title.as_str()))
         .collect();
     let conflicting: Vec<String> = checked
         .iter()
@@ -81,10 +81,10 @@ fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
     }
 
     let mut releases: Vec<(String, Option<Rule>, Option<String>)> = Vec::new();
-    for w in group.winners.drain(..) {
+    for w in group.kept.drain(..) {
         releases.push((w.title, None, None));
     }
-    for a in group.alternatives.drain(..) {
+    for a in group.clones.drain(..) {
         releases.push((a.title, Some(a.rule), Some(a.clone_of)));
     }
     let first_checked = releases
@@ -96,7 +96,7 @@ fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
     let mut alternatives = Vec::new();
     for (title, rule, clone_of) in releases {
         if checked.contains(&title) {
-            winners.push(Winner {
+            winners.push(KeptGame {
                 title,
                 rule: Rule::choice(),
                 unresolved: false,
@@ -115,14 +115,14 @@ fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
             }
             _ => (Rule::choice(), fallback.clone()),
         };
-        alternatives.push(Alternative {
+        alternatives.push(CloneGame {
             title,
             clone_of,
             rule,
         });
     }
-    group.winners = winners;
-    group.alternatives = alternatives;
+    group.kept = winners;
+    group.clones = alternatives;
     group.unresolved = false;
 }
 
@@ -130,9 +130,9 @@ fn apply_to_group(group: &mut SelectionGroup, checked: &BTreeSet<String>) {
 pub(crate) fn recount(selection: &mut Selection) {
     let summary = &mut selection.summary;
     summary.groups = selection.groups.len();
-    summary.winners = selection.groups.iter().map(|g| g.winners.len()).sum();
-    summary.alternatives = selection.groups.iter().map(|g| g.alternatives.len()).sum();
-    summary.exclusions = selection.groups.iter().map(|g| g.exclusions.len()).sum();
+    summary.kept = selection.groups.iter().map(|g| g.kept.len()).sum();
+    summary.clones = selection.groups.iter().map(|g| g.clones.len()).sum();
+    summary.left_out = selection.groups.iter().map(|g| g.left_out.len()).sum();
     summary.dependencies = selection.groups.iter().map(|g| g.dependencies.len()).sum();
     summary.unresolved = selection.groups.iter().filter(|g| g.unresolved).count();
     let status = |s: ChoiceStatus| {
@@ -151,7 +151,7 @@ pub(crate) fn recount(selection: &mut Selection) {
 mod tests {
     use super::*;
     use stage_select_api::selection::{
-        CoverageDrift, Exclusion, Role, SelectionPins, SelectionSummary,
+        CoverageDrift, LeftOutGame, Outcome, SelectionPins, SelectionSummary,
     };
 
     fn rule(stage: &str) -> Rule {
@@ -178,24 +178,24 @@ mod tests {
                 dependencies: Vec::new(),
                 group: "game".into(),
                 unresolved,
-                winners: vec![Winner {
+                kept: vec![KeptGame {
                     title: "Game (USA)".into(),
                     rule: rule("Parent selection"),
                     unresolved,
                 }],
-                alternatives: vec![
-                    Alternative {
+                clones: vec![
+                    CloneGame {
                         title: "Game (Europe)".into(),
                         clone_of: "Game (USA)".into(),
                         rule: rule("Parent selection"),
                     },
-                    Alternative {
+                    CloneGame {
                         title: "Game (Japan)".into(),
                         clone_of: "Game (USA)".into(),
                         rule: rule("Parent selection"),
                     },
                 ],
-                exclusions: vec![Exclusion {
+                left_out: vec![LeftOutGame {
                     title: "Game (USA) (Demo)".into(),
                     rule: rule("Exclusions"),
                     reason: "Demos".into(),
@@ -216,10 +216,10 @@ mod tests {
         )])
     }
 
-    fn roles(s: &Selection) -> Vec<(Role, String, String)> {
+    fn roles(s: &Selection) -> Vec<(Outcome, String, String)> {
         s.rows()
             .into_iter()
-            .map(|r| (r.role, r.title, r.rule.stage))
+            .map(|r| (r.outcome, r.title, r.rule.stage))
             .collect()
     }
 
@@ -230,15 +230,15 @@ mod tests {
         assert_eq!(
             roles(&s),
             vec![
-                (Role::Winner, "Game (Europe)".into(), "choice".into()),
-                (Role::Alternative, "Game (USA)".into(), "choice".into()),
+                (Outcome::Kept, "Game (Europe)".into(), "choice".into()),
+                (Outcome::Clone, "Game (USA)".into(), "choice".into()),
                 (
-                    Role::Alternative,
+                    Outcome::Clone,
                     "Game (Japan)".into(),
                     "Parent selection".into()
                 ),
                 (
-                    Role::Exclusion,
+                    Outcome::LeftOut,
                     "Game (USA) (Demo)".into(),
                     "Exclusions".into()
                 ),
@@ -264,15 +264,10 @@ mod tests {
     fn a_choice_of_nothing_leaves_the_group_out() {
         let mut s = selection(false);
         apply(&mut s, Some(&choose("game", &[])));
-        assert!(s.groups[0].winners.is_empty());
-        assert_eq!(s.groups[0].alternatives.len(), 3);
-        assert_eq!(s.summary.winners, 0);
-        assert!(
-            s.groups[0]
-                .alternatives
-                .iter()
-                .all(|a| a.clone_of == "game")
-        );
+        assert!(s.groups[0].kept.is_empty());
+        assert_eq!(s.groups[0].clones.len(), 3);
+        assert_eq!(s.summary.kept, 0);
+        assert!(s.groups[0].clones.iter().all(|a| a.clone_of == "game"));
     }
 
     #[test]
@@ -288,7 +283,7 @@ mod tests {
         assert!(!group.needs_review());
         assert_eq!(group.choice.as_ref().unwrap().status, ChoiceStatus::Applied);
         assert!(group.engine_unresolved());
-        assert!(!group.winners[0].unresolved);
+        assert!(!group.kept[0].unresolved);
         assert_eq!(s.summary.needs_review(), 0);
     }
 
@@ -298,7 +293,7 @@ mod tests {
         apply(&mut s, Some(&choose("game", &["Game (USA)"])));
         let choice = s.groups[0].choice.as_ref().unwrap();
         assert_eq!(choice.status, ChoiceStatus::MatchesDefault);
-        assert_eq!(s.groups[0].winners[0].rule.stage, "Parent selection");
+        assert_eq!(s.groups[0].kept[0].rule.stage, "Parent selection");
         assert_eq!(s.summary.choices, 0);
     }
 
@@ -310,7 +305,7 @@ mod tests {
         let choice = group.choice.as_ref().unwrap();
         assert_eq!(choice.status, ChoiceStatus::Conflicting);
         assert_eq!(choice.problems, vec!["Game (USA) (Demo)".to_owned()]);
-        assert_eq!(group.winners[0].title, "Game (USA)");
+        assert_eq!(group.kept[0].title, "Game (USA)");
         assert!(group.needs_review());
         assert_eq!(s.summary.conflicting, 1);
     }
@@ -321,7 +316,7 @@ mod tests {
         apply(&mut s, Some(&choose("game", &["Game (Brazil)"])));
         let group = &s.groups[0];
         assert_eq!(group.choice.as_ref().unwrap().status, ChoiceStatus::Stale);
-        assert_eq!(group.winners[0].title, "Game (USA)");
+        assert_eq!(group.kept[0].title, "Game (USA)");
         assert!(group.needs_review());
 
         let mut s = selection(false);

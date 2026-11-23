@@ -661,11 +661,7 @@ impl Store {
             .selection
             .groups
             .iter()
-            .flat_map(|g| {
-                g.winners
-                    .iter()
-                    .map(|w| (w.title.as_str(), g.group.as_str()))
-            })
+            .flat_map(|g| g.kept.iter().map(|w| (w.title.as_str(), g.group.as_str())))
             .collect();
         let group_of = |game: Option<&String>| {
             game.and_then(|game| groups.get(game.as_str()))

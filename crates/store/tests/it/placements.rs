@@ -10,8 +10,8 @@ use crate::common::*;
 use stage_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder};
 use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use stage_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary,
 };
 use stage_select_api::storage::placed_path;
 use stage_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState, Report};
@@ -549,13 +549,13 @@ fn select(env: &Env, title: &str, sha256: &str) -> i64 {
             dependencies: Vec::new(),
             group: title.to_lowercase(),
             unresolved: false,
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: title.into(),
                 rule,
                 unresolved: false,
             }],
-            alternatives: vec![],
-            exclusions: vec![],
+            clones: vec![],
+            left_out: vec![],
             choice: None,
             drift: false,
         }],

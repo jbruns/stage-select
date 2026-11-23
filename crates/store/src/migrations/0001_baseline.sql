@@ -680,14 +680,14 @@ CREATE TABLE selection_groups (
     PRIMARY KEY (selection_id, seq)
 );
 
--- Per release, in group order and then winners, alternatives and exclusions. Each Dependency of the Winners is listed
--- once, in a role of its own (ADRs 0025 and 0027), with needed_by, a JSON array of the Winners' names that need it;
--- null for every other role.
+-- Per release, in group order and then kept, clones and left out. Each Dependency of the kept releases is listed
+-- once, in an outcome of its own (ADRs 0025 and 0027), with needed_by, a JSON array of the kept releases' names that
+-- need it; null for every other outcome.
 CREATE TABLE selection_releases (
     selection_id INTEGER NOT NULL REFERENCES selections (id),
     seq INTEGER NOT NULL,
     group_name TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('winner', 'alternative', 'exclusion', 'dependency')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('kept', 'clone', 'left_out', 'dependency')),
     title TEXT NOT NULL,
     clone_of TEXT,
     reason TEXT,
@@ -698,9 +698,9 @@ CREATE TABLE selection_releases (
     from_choice INTEGER NOT NULL,
     needed_by TEXT,
     PRIMARY KEY (selection_id, seq),
-    CHECK ((role = 'dependency') = (needed_by IS NOT NULL))
+    CHECK ((outcome = 'dependency') = (needed_by IS NOT NULL))
 );
-CREATE INDEX selection_releases_by_role ON selection_releases (selection_id, role);
+CREATE INDEX selection_releases_by_outcome ON selection_releases (selection_id, outcome);
 
 -- Something that cites a Selection as provenance, such as a Library Folder's current Build ('library-folder:<id>'),
 -- or holds it for a Build Job from its approval until it ends ('build-job:<id>'); audit_citations does the same for

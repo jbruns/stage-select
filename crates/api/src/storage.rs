@@ -389,7 +389,7 @@ fn is_plain_name(name: &str) -> bool {
         && !is_reserved_name(name)
 }
 
-/// Why a Game is stored as TorrentZip where the policy says loose or loose folder: its name or a ROM's is one Title
+/// Why a Game is stored as TorrentZip where the policy says loose or loose folder: its name or a ROM's is one Stage
 /// Select keeps its own work under.
 pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Stage Select keeps its own work under, \
      so it can't be stored loose, and it stays TorrentZip";
