@@ -2,6 +2,7 @@
 //! asks for.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -252,6 +253,39 @@ impl ListRow for AdditionRow {
 }
 
 /// The additions, each opening with its facts and the form to edit, retire or restore it.
+/// Your unsaved edits to additions' names and parents, by addition: they live with the list, not its detail, so they
+/// survive the detail moving between the pane and the drawer, or opening another addition and coming back.
+#[derive(Debug, Clone, Default)]
+struct Drafts(HashMap<i64, (String, String)>);
+
+impl Drafts {
+    /// The name and parent the form shows for addition `id`: your edit, or else the addition's own.
+    fn of(&self, id: i64, name: &str, parent: Option<&str>) -> (String, String) {
+        self.0
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| (name.to_string(), parent.unwrap_or_default().to_string()))
+    }
+
+    fn entry(&mut self, id: i64, name: &str, parent: Option<&str>) -> &mut (String, String) {
+        let fresh = self.of(id, name, parent);
+        self.0.entry(id).or_insert(fresh)
+    }
+
+    fn set_name(&mut self, id: i64, name: &str, parent: Option<&str>, value: String) {
+        self.entry(id, name, parent).0 = value;
+    }
+
+    fn set_parent(&mut self, id: i64, name: &str, parent: Option<&str>, value: String) {
+        self.entry(id, name, parent).1 = value;
+    }
+
+    /// Addition `id` is saved: the form shows what it now holds.
+    fn saved(&mut self, id: i64) {
+        self.0.remove(&id);
+    }
+}
+
 #[component]
 pub fn AdditionsList(
     #[prop(into)] additions: Signal<Arc<Vec<Addition>>>,
@@ -262,6 +296,7 @@ pub fn AdditionsList(
     });
     let looks =
         Signal::derive(move || rows.with(|rows| present_looks(rows.iter().map(|r| r.0.state))));
+    let drafts = RwSignal::new(Drafts::default());
     view! {
         <List
             id="additions"
@@ -269,7 +304,7 @@ pub fn AdditionsList(
             rows
             empty="You have no additions yet."
             placeholder="Filter by name, system, game or where it came from"
-            detail=Callback::new(move |row: AdditionRow| view! { <AdditionDetail addition=row.0 refresh /> }.into_any())
+            detail=Callback::new(move |row: AdditionRow| view! { <AdditionDetail addition=row.0 drafts refresh /> }.into_any())
             legend=move || view! { <LegendStrip looks list="additions" /> }
         />
     }
@@ -394,10 +429,30 @@ pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
 
 /// An addition's facts, and the form to rename it, retire it or restore it.
 #[component]
-fn AdditionDetail(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
+fn AdditionDetail(
+    addition: Addition,
+    drafts: RwSignal<Drafts>,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
     let id = addition.id;
-    let name = RwSignal::new(addition.name.clone());
-    let parent = RwSignal::new(addition.parent.clone().unwrap_or_default());
+    let (own_name, own_parent) = (
+        StoredValue::new(addition.name.clone()),
+        StoredValue::new(addition.parent.clone()),
+    );
+    let draft = move || {
+        drafts
+            .with(|d| own_name.with_value(|n| own_parent.with_value(|p| d.of(id, n, p.as_deref()))))
+    };
+    let set_name = move |value: String| {
+        own_name.with_value(|n| {
+            own_parent.with_value(|p| drafts.update(|d| d.set_name(id, n, p.as_deref(), value)))
+        })
+    };
+    let set_parent = move |value: String| {
+        own_name.with_value(|n| {
+            own_parent.with_value(|p| drafts.update(|d| d.set_parent(id, n, p.as_deref(), value)))
+        })
+    };
     let problem = RwSignal::new(None::<String>);
     let editable = matches!(
         addition.state,
@@ -406,15 +461,16 @@ fn AdditionDetail(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
     let retirable = addition.state == AdditionState::Active;
     let restorable = addition.state == AdditionState::Retired;
     let save = move |_| {
-        let parent = parent.get_untracked();
+        let (name, parent) = untrack(draft);
         let body = EditAddition {
-            name: Some(name.get_untracked()),
+            name: Some(name),
             parent: Some((!parent.trim().is_empty()).then_some(parent)),
         };
         leptos::task::spawn_local(async move {
             match api::patch::<_, Addition>(&format!("/additions/{id}"), &body).await {
                 Ok(_) => {
                     problem.set(None);
+                    drafts.update(|d| d.saved(id));
                     refresh.update(|n| *n += 1);
                 }
                 Err(message) => problem.set(Some(message)),
@@ -475,16 +531,16 @@ fn AdditionDetail(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
                     "Name "
                     <input
                         type="text"
-                        prop:value=move || name.get()
-                        on:input=move |ev| name.set(event_target_value(&ev))
+                        prop:value=move || draft().0
+                        on:input=move |ev| set_name(event_target_value(&ev))
                     />
                 </label>
                 <label>
                     "Parent game, if any "
                     <input
                         type="text"
-                        prop:value=move || parent.get()
-                        on:input=move |ev| parent.set(event_target_value(&ev))
+                        prop:value=move || draft().1
+                        on:input=move |ev| set_parent(event_target_value(&ev))
                     />
                 </label>
                 <button type="button" on:click=save>"Save the name and parent"</button>
@@ -505,6 +561,35 @@ fn AdditionDetail(addition: Addition, refresh: RwSignal<u64>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_edit_outlives_its_detail_until_it_is_saved() {
+        let mut drafts = Drafts::default();
+        assert_eq!(
+            drafts.of(7, "Pocket Ranger", Some("Ranger")),
+            ("Pocket Ranger".to_string(), "Ranger".to_string())
+        );
+        drafts.set_name(
+            7,
+            "Pocket Ranger",
+            Some("Ranger"),
+            "Pocket Ranger DX".into(),
+        );
+        drafts.set_parent(7, "Pocket Ranger", Some("Ranger"), String::new());
+        assert_eq!(
+            drafts.of(7, "Pocket Ranger", Some("Ranger")),
+            ("Pocket Ranger DX".to_string(), String::new())
+        );
+        assert_eq!(
+            drafts.of(8, "Other", None),
+            ("Other".to_string(), String::new())
+        );
+        drafts.saved(7);
+        assert_eq!(
+            drafts.of(7, "Pocket Ranger DX", None),
+            ("Pocket Ranger DX".to_string(), String::new())
+        );
+    }
 
     #[test]
     fn a_suggested_name_drops_folders_and_the_extension() {
