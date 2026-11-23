@@ -18,9 +18,9 @@ use stage_select_api::additions::{
     Addition, AdditionsCheck, AdditionsSet, EditAddition, SystemQuery,
 };
 use stage_select_api::build::{
-    AddLibraryFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeLibraryFolder,
-    FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, PlacedFile, Plan, PlanBuild,
-    PlanCleanup, PlanKeptDeletion,
+    AddLibraryFolder, ApproveKeptDeletion, ApprovePlan, BuildDetail, BuildSummary, BuiltFile,
+    ChangeLibraryFolder, FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder,
+    PlacedFile, Plan, PlanBuild, PlanCleanup, PlanKeptDeletion,
 };
 use stage_select_api::calibration::Calibration;
 use stage_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
@@ -206,6 +206,15 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             get(ingest_plans).post(plan_ingest),
         )
         .route("/ingest-folders/{root}/kept-files", get(ingest_kept_files))
+        .route(
+            "/ingest-folders/{root}/kept-deletions",
+            post(plan_ingest_kept_deletion),
+        )
+        .route("/ingest-kept-deletions/{id}", get(ingest_kept_deletion))
+        .route(
+            "/ingest-kept-deletions/{id}/approval",
+            post(approve_ingest_kept_deletion),
+        )
         .route(
             "/ingest-folders/{root}/dismissals",
             post(dismiss_ingest_items),
@@ -1056,13 +1065,13 @@ async fn approve_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<KeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_kept_deletion(id, &approve.digest, &actor)
+            store.approve_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1239,6 +1248,48 @@ async fn ingest_kept_files(
     ))
 }
 
+/// Plans deleting kept files of the Ingest Folder; nothing is deleted until the plan is approved.
+async fn plan_ingest_kept_deletion(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+    body: Result<Json<PlanKeptDeletion>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
+    let Path(root) = root?;
+    let Json(request) = body?;
+    let plan = blocking(&state, move |store| {
+        store.plan_ingest_kept_deletion(&root, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn ingest_kept_deletion(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_kept_deletion(id)).await?,
+    ))
+}
+
+/// Approves deleting kept files of an Ingest Folder with the digest you reviewed, and deletes them before it answers.
+async fn approve_ingest_kept_deletion(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.approve_ingest_kept_deletion(id, approve.owner, &approve.digest, &actor)
+        })
+        .await?,
+    ))
+}
+
 async fn additions_sets(State(state): State<AppState>) -> ApiResult<Json<Vec<AdditionsSet>>> {
     Ok(Json(
         blocking(&state, move |store| store.additions_sets()).await?,
@@ -1364,13 +1415,13 @@ async fn approve_additions_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_additions_kept_deletion(id, &approve.digest, &actor)
+            store.approve_additions_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))
@@ -1469,13 +1520,13 @@ async fn approve_source_kept_deletion(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ApprovePlan>, JsonRejection>,
+    body: Result<Json<ApproveKeptDeletion>, JsonRejection>,
 ) -> ApiResult<Json<SourceKeptDeletion>> {
     let Path(id) = id?;
     let Json(approve) = body?;
     Ok(Json(
         blocking(&state, move |store| {
-            store.approve_source_kept_deletion(id, &approve.digest, &actor)
+            store.approve_source_kept_deletion(id, approve.owner, &approve.digest, &actor)
         })
         .await?,
     ))

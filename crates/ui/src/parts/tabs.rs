@@ -33,8 +33,9 @@ const TAB_STATE: [&str; 14] = [
     "flag",
 ];
 
-/// A scoped list's own keys, such as `changes-q`, which a second list on a page uses: they go with the tab too.
-const LIST_KEYS: [&str; 5] = ["q", "sort", "row", "sel", "all"];
+/// A scoped list's own keys, such as `changes-q`, which a second list on a page uses, and the kind its review filters
+/// by and the deletion it shows: they go with the tab too.
+const LIST_KEYS: [&str; 7] = ["q", "sort", "row", "sel", "all", "kind", "deletion"];
 
 fn is_tab_state(key: &str) -> bool {
     TAB_STATE.contains(&key)
@@ -276,6 +277,9 @@ mod tests {
             ("versions-row", "2"),
             ("stale-sel", "a,b"),
             ("drift-all", "1"),
+            ("kept-deletion", "4"),
+            ("kept-7-kind", "left"),
+            ("kept-7-deletion", "5"),
             ("saved", "2"),
         ];
         assert_eq!(

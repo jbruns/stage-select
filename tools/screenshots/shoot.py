@@ -35,10 +35,12 @@ target/screenshots/.work/<label>/:
   a stray file added and the folder checked, so its drift tab has drift; and play/game-boy, its plan waiting for
   approval;
 - the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows;
-- the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan.
+- the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan;
+- kept files: play/atari-2600-spare, built, then two strays set aside from it by an approved cleanup, with a plan to
+  delete them waiting for approval; and a file discarded from `drop` through an approved plan.
 
 It doesn't seed curation, cue packs, RomM, notifications, a stale library folder, a
-DAT fetch, kept files from an approved repair or ingest plan, or a running or interrupted job. The activity-running
+DAT fetch, kept files from an approved repair, or a running or interrupted job. The activity-running
 screen shows a running job all the same: the page itself hands the newest job's state and progress to its live
 stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
@@ -99,12 +101,17 @@ SCREENS = {
     "library-plan": "/libraries/{library}?tab=plan",
     "library-pending-plan": "/libraries/{pending_library}?tab=plan",
     "library-drift": "/libraries/{library}?tab=drift",
+    "library-kept": "/libraries/{kept_library}?tab=kept",
+    "kept-deletion": "/libraries/{kept_library}?tab=kept&kept-deletion={kept_deletion}",
     "build": "/builds/{build}",
     "additions": "/additions",
     "source-set-additions": "/source-sets/{additions_set}?tab=additions",
     "ingest": "/ingest",
     "ingest-folder": "/ingest/drop",
+    "ingest-kept": "/ingest/drop?tab=kept",
+    "source-set-kept": "/source-sets/{findings_set}?tab=kept",
     "activity": "/activity",
+    "activity-kept": "/activity/kept",
     "activity-running": "/activity",
     "welcome": "/welcome",
     "roots": "/settings/roots",
@@ -510,6 +517,43 @@ def seed(api, data):
             raise RuntimeError(f"the audit {job['state']}")
 
     step("a failed audit", failed_audit)
+
+    def kept_library():
+        # Built, then two strays put in it and the folder checked; a cleanup sets them aside as kept files.
+        made["kept_library"], _ = library(ATARI, "atari-2600-spare", True)
+        strays = ("Stray Disk (USA).zip", "Old Save (USA).zip")
+        for name in strays:
+            (play / "atari-2600-spare" / name).write_bytes(payload("a stray " + name))
+        job = api.follow(api.post(f"/libraries/{made['kept_library']}/checks"))
+        if job["state"] != "succeeded":
+            raise RuntimeError(f"the check {job['state']}")
+        plan = api.post(f"/libraries/{made['kept_library']}/cleanups",
+                        {"entries": {name: "keep_aside" for name in strays}})
+        job = api.follow(api.post(f"/plans/{plan['id']}/approval", {"digest": plan["digest"]}))
+        if job["state"] != "succeeded":
+            raise RuntimeError(f"the cleanup {job['id']} {job['state']}")
+        if not api.get(f"/libraries/{made['kept_library']}/kept-files"):
+            raise RuntimeError("the cleanup kept nothing")
+        deletion = api.post(f"/libraries/{made['kept_library']}/kept-deletions", {"all": True})
+        made["kept_deletion"] = deletion["id"]
+
+    if ATARI in selections:
+        step("kept files in play/atari-2600-spare, a deletion planned", kept_library)
+
+    def discard():
+        (drop / "scan-0007.bin").write_bytes(payload("a scanner's leftover"))
+        for _ in range(2):
+            api.follow(api.post("/ingest-folders/drop/scans"))
+        item = next(i for i in api.get("/ingest-folders/drop/items") if i["name"] == "scan-0007.bin")
+        plan = api.post("/ingest-folders/drop/plans", {"action": "discard", "items": [item["id"]]})
+        api.post(f"/ingest-plans/{plan['id']}/approval", {"digest": plan["digest"]})
+        for _ in range(120):
+            if api.get("/ingest-folders/drop/kept-files"):
+                return
+            time.sleep(0.5)
+        raise RuntimeError("the discarded file wasn't kept")
+
+    step("a file discarded from drop, kept", discard)
     return made, failures
 
 

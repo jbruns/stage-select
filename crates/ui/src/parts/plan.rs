@@ -16,7 +16,7 @@ use super::list::{Clip, Keep, List, ListRow, RowAction, Selected, ToolAction};
 use super::message::{Message, MessageKind};
 use super::plan_model::{kind_counts, kind_from_slug, kind_slug, with_active};
 use super::status::{Status, StatusIcon};
-use super::url_state::use_query_edit;
+use super::url_state::{scoped, use_query_edit};
 
 /// A row of a plan review: a `ListRow` with the kind of item it is.
 pub trait PlanRow: ListRow {
@@ -41,6 +41,15 @@ pub fn use_kind_filter<K: Status>() -> (Signal<Option<K>>, Callback<Option<K>>) 
 
 /// The status the URL's `key` filters a list by, and a way to change it: for a strip of counts that filter.
 pub fn use_status_filter<K: Status>(key: &'static str) -> (Signal<Option<K>>, Callback<Option<K>>) {
+    use_status_filter_in(None, key)
+}
+
+/// As `use_status_filter`, for the list scoped by `scope`: its `{scope}-{key}`.
+pub fn use_status_filter_in<K: Status>(
+    scope: Option<&str>,
+    key: &'static str,
+) -> (Signal<Option<K>>, Callback<Option<K>>) {
+    let [key, row, sel, all] = [key, "row", "sel", "all"].map(|k| scoped(scope, k));
     let query = use_query_map();
     // A memo, so the rest of the query changing (checking every matching row sets `all`) leaves the kind, and the
     // list's filter by it, as they are: a new filter would clear the matching rows just checked.
@@ -50,9 +59,9 @@ pub fn use_status_filter<K: Status>(key: &'static str) -> (Signal<Option<K>>, Ca
         // Another kind shows other rows, so the open row and the checked rows go.
         edit.run(vec![
             (key, k.map(kind_slug)),
-            ("row", None),
-            ("sel", None),
-            ("all", None),
+            (row, None),
+            (sel, None),
+            (all, None),
         ])
     });
     (kind.into(), set)
@@ -192,8 +201,12 @@ pub fn PlanReview<R: PlanRow>(
     #[prop(optional, into)]
     message: Signal<Option<String>>,
     #[prop(optional, into)] placeholder: Option<String>,
+    /// For a review beside another list on its page: the prefix of its URL keys, `{scope}-kind` among them.
+    #[prop(optional, into)]
+    scope: MaybeProp<String>,
 ) -> impl IntoView {
-    let (kind, set_kind) = use_kind_filter::<R::Kind>();
+    let scope = scope.get_untracked();
+    let (kind, set_kind) = use_status_filter_in::<R::Kind>(scope.as_deref(), "kind");
     let counts = Signal::derive(move || {
         rows.with(|r| {
             kind_counts(
@@ -226,6 +239,7 @@ pub fn PlanReview<R: PlanRow>(
             keep
             placeholder
             legend=move || view! { <Legend statuses list=id /> }
+            scope
         />
     }
 }

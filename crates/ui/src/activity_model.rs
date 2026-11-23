@@ -1,14 +1,9 @@
-//! The Activity screen's pure logic: the counters over its Jobs, where each Job links, and the kept files of every
-//! folder as one list.
+//! The Activity screen's pure logic: the counters over its Jobs and where each Job links. Its kept files of every
+//! folder are `kept_model`'s.
 
-use stage_select_api::build::{KeptFile, LibraryFolder};
-use stage_select_api::ingest::IngestKeptFile;
-use stage_select_api::repair::SourceKeptFile;
 use stage_select_api::{Job, JobLoad, JobState, JobThroughput, Rates};
 
-use crate::build_model::keep_reason_label;
 use crate::jobs::{JobBook, LiveJob};
-use crate::parts::url_state::encode;
 use crate::shell::with_failures;
 
 /// How many of the listed Jobs are Running, Queued and Failed.
@@ -53,121 +48,6 @@ pub fn opened_failure<'a>(
     jobs.into_iter()
         .find(|j| j.id == id && j.state == JobState::Failed)
         .map(|j| j.id)
-}
-
-/// Where a kept file is kept: each folder Stage Select keeps files aside in.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeptPlace {
-    LibraryFolder {
-        id: i64,
-        path: String,
-    },
-    IngestFolder(String),
-    SourceSet(String),
-    /// By its system, `<provider>/<name>`.
-    AdditionsSet(String),
-}
-
-impl KeptPlace {
-    fn kind(&self) -> &'static str {
-        match self {
-            KeptPlace::LibraryFolder { .. } => "library-folder",
-            KeptPlace::IngestFolder(_) => "ingest-folder",
-            KeptPlace::SourceSet(_) => "source-set",
-            KeptPlace::AdditionsSet(_) => "additions-set",
-        }
-    }
-
-    /// The folder's name.
-    pub fn name(&self) -> String {
-        match self {
-            KeptPlace::LibraryFolder { path, .. } => path.clone(),
-            KeptPlace::IngestFolder(root) => root.clone(),
-            KeptPlace::SourceSet(name) => name.clone(),
-            KeptPlace::AdditionsSet(system) => system.clone(),
-        }
-    }
-
-    /// The page where you review and delete its kept files.
-    pub fn href(&self) -> String {
-        match self {
-            KeptPlace::LibraryFolder { id, .. } => format!("/libraries/{id}?tab=kept"),
-            KeptPlace::IngestFolder(root) => format!("/ingest/{}?tab=kept", encode(root)),
-            KeptPlace::SourceSet(name) => format!("/source-sets/{}?tab=kept", encode(name)),
-            KeptPlace::AdditionsSet(_) => "/additions".to_string(),
-        }
-    }
-}
-
-/// One kept file of any folder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeptRow {
-    pub place: KeptPlace,
-    /// Its ID among its kind of folder's kept files.
-    pub id: i64,
-    pub name: String,
-    /// Its name in the retention area, in `<generation>/`.
-    pub kept_name: String,
-    pub generation: u64,
-    pub reason: String,
-    pub size: u64,
-    pub kept_at: String,
-}
-
-impl KeptRow {
-    /// Unique across every folder: kept files are numbered per kind of folder.
-    pub fn key(&self) -> String {
-        format!("{}-{}", self.place.kind(), self.id)
-    }
-
-    pub fn library(folder: &LibraryFolder, f: KeptFile) -> KeptRow {
-        KeptRow {
-            place: KeptPlace::LibraryFolder {
-                id: folder.id,
-                path: folder.path.clone(),
-            },
-            id: f.id,
-            name: f.name,
-            kept_name: f.kept_name,
-            generation: f.generation,
-            reason: keep_reason_label(f.reason).to_string(),
-            size: f.file.size,
-            kept_at: f.kept_at,
-        }
-    }
-
-    pub fn ingest(root: &str, f: IngestKeptFile) -> KeptRow {
-        KeptRow {
-            place: KeptPlace::IngestFolder(root.to_string()),
-            id: f.id,
-            name: f.name,
-            kept_name: f.kept_name,
-            generation: f.generation,
-            reason: f.reason,
-            size: f.file.size,
-            kept_at: f.kept_at,
-        }
-    }
-
-    /// A kept file of a Source Set, or of an Additions Set when `place` says so.
-    pub fn source(place: KeptPlace, f: SourceKeptFile) -> KeptRow {
-        KeptRow {
-            place,
-            id: f.id,
-            name: f.name,
-            kept_name: f.kept_name,
-            generation: f.generation,
-            reason: f.reason,
-            size: f.file.size,
-            kept_at: f.kept_at,
-        }
-    }
-}
-
-/// The kept files, the most recently kept first.
-pub fn newest_first(mut rows: Vec<KeptRow>) -> Vec<KeptRow> {
-    rows.sort_by(|a, b| b.kept_at.cmp(&a.kept_at));
-    rows
 }
 
 /// A rate of bytes per second in binary units, terse enough for a cell: "312 MiB/s", "4.2 GiB/s", "0 B/s".
@@ -387,67 +267,6 @@ mod tests {
         assert_eq!(opened_failure(&jobs, Some("8")), None);
         assert_eq!(opened_failure(&jobs, Some("x")), None);
         assert_eq!(opened_failure(&jobs, None), None);
-    }
-
-    fn kept(place: KeptPlace, id: i64, kept_at: &str) -> KeptRow {
-        KeptRow {
-            place,
-            id,
-            name: format!("file {id}.zip"),
-            kept_name: format!("file {id}.zip.kept"),
-            generation: 1,
-            reason: "replaced".into(),
-            size: 10,
-            kept_at: kept_at.into(),
-        }
-    }
-
-    #[test]
-    fn kept_files_of_every_folder_are_one_list_newest_first_each_linking_to_its_folder() {
-        let rows = newest_first(vec![
-            kept(
-                KeptPlace::LibraryFolder {
-                    id: 3,
-                    path: "roms/Atari".into(),
-                },
-                1,
-                "2026-01-02T00:00:00Z",
-            ),
-            kept(
-                KeptPlace::SourceSet("Atari 2600".into()),
-                1,
-                "2026-01-04T00:00:00Z",
-            ),
-            kept(
-                KeptPlace::IngestFolder("My Drop".into()),
-                1,
-                "2026-01-01T00:00:00Z",
-            ),
-            kept(
-                KeptPlace::AdditionsSet("No-Intro/Atari - 2600".into()),
-                1,
-                "2026-01-03T00:00:00Z",
-            ),
-        ]);
-        let shown: Vec<(String, String)> = rows.iter().map(|r| (r.key(), r.place.href())).collect();
-        assert_eq!(
-            shown,
-            [
-                (
-                    "source-set-1".to_string(),
-                    "/source-sets/Atari%202600?tab=kept".to_string()
-                ),
-                ("additions-set-1".to_string(), "/additions".to_string()),
-                (
-                    "library-folder-1".to_string(),
-                    "/libraries/3?tab=kept".to_string()
-                ),
-                (
-                    "ingest-folder-1".to_string(),
-                    "/ingest/My%20Drop?tab=kept".to_string()
-                ),
-            ]
-        );
     }
 
     #[test]

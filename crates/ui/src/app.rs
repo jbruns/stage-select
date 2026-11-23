@@ -77,7 +77,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/additions") view=Additions />
                     <ParentRoute path=path!("/activity") view=Activity>
                         <Route path=path!("") view=Jobs />
-                        <Route path=path!("kept") view=KeptFiles />
+                        <Route path=path!("kept") view=|| view! { <KeptFiles /> } />
                     </ParentRoute>
                     <ParentRoute path=path!("/settings") view=Settings>
                         <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" options=replace() /> } />

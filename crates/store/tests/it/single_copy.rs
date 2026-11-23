@@ -1167,9 +1167,12 @@ fn a_deletion_of_the_source_sets_kept_files_waits_for_a_build_placing_its_games(
             },
         )
         .unwrap();
-    let refused = env
-        .store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator");
+    let refused = env.store.approve_source_kept_deletion(
+        deletion.id,
+        deletion.content.source_set,
+        &deletion.digest,
+        "Operator",
+    );
     assert!(
         matches!(&refused, Err(Error::Conflict(why)) if why.contains("places the source set's games")),
         "{refused:?}"
@@ -1556,7 +1559,12 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
         .unwrap();
     assert_eq!(deletion.content.files.len(), 2, "{deletion:?}");
     env.store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(env.store.source_kept_files(SET).unwrap().is_empty());
     assert!(

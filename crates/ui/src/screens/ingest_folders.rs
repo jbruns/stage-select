@@ -9,16 +9,16 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
 use stage_select_api::Job;
 use stage_select_api::additions::NewAddition;
-use stage_select_api::build::RETENTION;
 use stage_select_api::ingest::{
-    Assessment, DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan,
-    PlanIngest, Proposal, RegisterIngestFolder,
+    Assessment, DismissIngestItems, IngestFolder, IngestItem, IngestPlan, PlanIngest, Proposal,
+    RegisterIngestFolder,
 };
 
 use crate::api;
 use crate::app::{Loading, navigator, use_ingest_changed};
 use crate::events::use_live;
 use crate::ingest_model::{self, Choices, Count, Decision, FolderTab};
+use crate::kept_model::KeptPlace;
 use crate::model::{earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::layout::Crumbs;
@@ -34,6 +34,7 @@ use crate::parts::tabs::{Tab, Tabs, tab_link, use_tab};
 use crate::parts::url_state::{edited, query_string};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
+use crate::screens::kept::KeptFiles;
 use crate::screens::lifecycle::{LifecycleSection, Paths, UnregisterAction};
 use crate::screens::source_sets::set_href;
 use crate::shell::waiting_on_decision;
@@ -522,7 +523,8 @@ fn FolderView(
                 .into_any()
             }
             FolderTab::Kept => {
-                view! { <KeptFiles base=lifecycle.with_value(|(_, b)| b.clone()) refresh /> }.into_any()
+                let root = lifecycle.with_value(|(r, _)| r.clone());
+                view! { <KeptFiles place=KeptPlace::IngestFolder(root) refresh /> }.into_any()
             }
         }}
     }
@@ -1207,58 +1209,4 @@ fn item_detail(row: ItemRow, edits: RwSignal<BTreeMap<i64, NewAddition>>) -> Any
         {addable}
     }
     .into_any()
-}
-
-#[component]
-fn KeptFiles(base: String, refresh: RwSignal<u64>) -> impl IntoView {
-    let live = use_live();
-    let files = LocalResource::new(move || {
-        live.settled.track();
-        refresh.track();
-        let path = format!("{base}/kept-files");
-        async move { api::get::<Vec<IngestKeptFile>>(&path).await }
-    });
-    let summary = move || match files.get() {
-        Some(Ok(files)) => format!("Kept files ({})", files.len()),
-        _ => "Kept files".to_string(),
-    };
-    view! {
-        <details class="kept">
-            <summary>{summary}</summary>
-            <p class="lede">
-                "Items you discarded, DATs you imported and the originals of repacks, set aside in the folder. \
-                Nothing here is deleted until you approve a cleanup."
-            </p>
-            {move || match files.get() {
-                None => view! { <Loading what="the kept files" /> }.into_any(),
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(files)) if files.is_empty() => {
-                    view! { <p class="note">"No files are set aside."</p> }.into_any()
-                }
-                Some(Ok(files)) => view! {
-                    <ul class="plain">
-                        {files
-                            .into_iter()
-                            .map(|f| {
-                                view! {
-                                    <li>
-                                        <code>{f.name.clone()}</code>
-                                        {format!(
-                                            " as {RETENTION}/{}/{}: {}, {}, {}",
-                                            f.generation,
-                                            f.kept_name,
-                                            f.reason,
-                                            ingest_model::size(f.file.size),
-                                            when(&f.kept_at),
-                                        )}
-                                    </li>
-                                }
-                            })
-                            .collect_view()}
-                    </ul>
-                }
-                .into_any(),
-            }}
-        </details>
-    }
 }

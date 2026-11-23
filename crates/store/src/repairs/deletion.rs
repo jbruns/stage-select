@@ -1,4 +1,4 @@
-//! Deleting kept files of a Source Set or of an Additions Set, once you approve it: as for a Library Folder, each file
+//! Deleting kept files of a Source Set, an Additions Set or an Ingest Folder, once you approve it: as for a Library Folder, each file
 //! is moved, by one rename that never replaces anything, into the private folder kept files are deleted from, and
 //! deleted there only once it is found to be the file that was kept. Anything else moved there is moved back.
 
@@ -24,11 +24,13 @@ use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
 use stage_select_engine::meter::Tally;
 
-/// Whose kept files: a Source Set's, kept by its repairs, or an Additions Set's, kept as its additions retire.
+/// Whose kept files: a Source Set's, kept by its repairs, an Additions Set's, kept as its additions retire, or an
+/// Ingest Folder's, kept by its plans.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Owner {
     Source,
     Additions,
+    Ingest,
 }
 
 impl Owner {
@@ -49,6 +51,13 @@ impl Owner {
                 "NULL",
                 "additions_kept_deletions",
             ),
+            Owner::Ingest => (
+                "ingest_kept",
+                "folder_id",
+                "plan_id",
+                "NULL",
+                "ingest_kept_deletions",
+            ),
         };
         sql.replace("{kept}", kept)
             .replace("{owner}", owner)
@@ -61,6 +70,7 @@ impl Owner {
         match self {
             Owner::Source => Scope::Source(set),
             Owner::Additions => Scope::Additions(set),
+            Owner::Ingest => Scope::Ingest(set),
         }
     }
 
@@ -68,7 +78,32 @@ impl Owner {
         match self {
             Owner::Source => "source set",
             Owner::Additions => "additions set",
+            Owner::Ingest => "ingest folder",
         }
+    }
+
+    /// The name `set` is registered under: a Source Set's name, an Additions Set's system or an Ingest Folder's Root;
+    /// `None` once it is unregistered.
+    fn registered_name(self, c: &Connection, set: i64) -> Result<Option<String>> {
+        let sql = match self {
+            Owner::Source => {
+                "SELECT name FROM source_sets WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+            Owner::Additions => {
+                "SELECT 1 FROM additions_sets WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+            Owner::Ingest => {
+                "SELECT root FROM ingest_folders WHERE id = ?1 AND unregistered_at IS NULL"
+            }
+        };
+        if self == Owner::Additions {
+            let registered: Option<i64> = c.query_row(sql, [set], |r| r.get(0)).optional()?;
+            return match registered {
+                Some(_) => Ok(Some(crate::additions::set_by_id(c, set)?.system)),
+                None => Ok(None),
+            };
+        }
+        Ok(c.query_row(sql, [set], |r| r.get(0)).optional()?)
     }
 
     /// Why kept file `id` cannot be deleted now, or `None`.
@@ -76,6 +111,7 @@ impl Owner {
         match self {
             Owner::Source => source_kept_reserved(c, id),
             Owner::Additions => additions_kept_reserved(c, id),
+            Owner::Ingest => Ok(None),
         }
     }
 
@@ -87,18 +123,25 @@ impl Owner {
                 None => crate::placements::placing_build(c, set)?,
             });
         }
+        if self == Owner::Ingest
+            && let Some(why) = crate::ingest::ingest_busy(c, set)?
+        {
+            return Ok(Some(why));
+        }
         let deletion: Option<i64> = c
             .query_row(
-                "SELECT id FROM additions_kept_deletions
-                 WHERE additions_set_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+                &self.sql(
+                    "SELECT id FROM {deletions}
+                     WHERE {owner} = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+                ),
                 [set],
                 |r| r.get(0),
             )
             .optional()?;
         Ok(deletion.map(|id| {
             format!(
-                "deletion {id} of kept files of the additions set is not finished; the service finishes it when it \
-                 next starts"
+                "deletion {id} of kept files of the {} is not finished; the service finishes it when it next starts",
+                self.what()
             )
         }))
     }
@@ -149,6 +192,7 @@ fn deletion_from_row(r: &Row) -> rusqlite::Result<SourceKeptDeletion> {
     let outcomes: Option<String> = r.get(8)?;
     Ok(SourceKeptDeletion {
         id: r.get(0)?,
+        owner: None,
         digest: r.get(1)?,
         created_at: r.get(2)?,
         content: json(r, 3)?,
@@ -181,6 +225,10 @@ fn deletion_by_id(c: &Connection, owner: Owner, id: i64) -> Result<SourceKeptDel
             "no deletion {id} of kept files of an {}",
             owner.what()
         ))
+    })
+    .and_then(|mut d| {
+        d.owner = owner.registered_name(c, d.content.source_set)?;
+        Ok(d)
     })
 }
 
@@ -279,6 +327,7 @@ fn slot(owner: Owner, file: &SourceKeptFile) -> String {
     match owner {
         Owner::Source => format!("source-kept-{}", file.id),
         Owner::Additions => format!("additions-kept-{}", file.id),
+        Owner::Ingest => format!("ingest-kept-{}", file.id),
     }
 }
 
@@ -305,17 +354,19 @@ impl Store {
         self.read(|c| deletion_by_id(c, Owner::Source, id))
     }
 
-    /// Approves deleting kept files of a Source Set as reviewed with `digest`, and carries it out. Each file is
+    /// Approves deleting kept files of Source Set `owner_reviewed` as reviewed with `digest`, and carries it out; a
+    /// deletion of another set's kept files is refused. Each file is
     /// deleted only while its kept entry is the file that was kept; anything else is left, and its outcome says why.
     /// Refused while a repair or another deletion of the Source Set is unfinished, while an Addition is
     /// still being added from a file it picks, and when its kept files changed since the plan.
     pub fn approve_source_kept_deletion(
         &self,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(Owner::Source, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Source, id, owner_reviewed, digest_reviewed, actor)
     }
 
     /// The kept files of Source Set `set`, registered or not, newest generation first.
@@ -358,10 +409,11 @@ impl Store {
     pub fn approve_additions_kept_deletion(
         &self,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        self.approve_kept_deletion_of(Owner::Additions, id, digest_reviewed, actor)
+        self.approve_kept_deletion_of(Owner::Additions, id, owner_reviewed, digest_reviewed, actor)
     }
 
     /// The kept files of Additions Set `set`, registered or not, newest generation first.
@@ -380,12 +432,40 @@ impl Store {
         self.plan_kept_deletion_of(Owner::Additions, set, &system, request)
     }
 
+    /// Plans deleting the kept files of the Ingest Folder of Root `root` that `request` picks, as for a Source Set.
+    /// Nothing is deleted until you approve it.
+    pub fn plan_ingest_kept_deletion(
+        &self,
+        root: &str,
+        request: &PlanKeptDeletion,
+    ) -> Result<SourceKeptDeletion> {
+        let folder = self.read(|c| crate::ingest::registered_id(c, root))?;
+        self.plan_kept_deletion_of(Owner::Ingest, folder, root, request)
+    }
+
+    pub fn ingest_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
+        self.read(|c| deletion_by_id(c, Owner::Ingest, id))
+    }
+
+    /// Approves deleting kept files of an Ingest Folder as reviewed with `digest`, and carries it out, as for a
+    /// Source Set. Refused while a plan of the folder is still moving its items.
+    pub fn approve_ingest_kept_deletion(
+        &self,
+        id: i64,
+        owner_reviewed: i64,
+        digest_reviewed: &str,
+        actor: &str,
+    ) -> Result<SourceKeptDeletion> {
+        self.approve_kept_deletion_of(Owner::Ingest, id, owner_reviewed, digest_reviewed, actor)
+    }
+
     /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
     fn open_owner(&self, owner: Owner, set: i64) -> Result<std::result::Result<FolderDir, String>> {
         let roots = &*self.roots();
         match owner {
             Owner::Source => open_repairable(self, roots, set, MarkerRule::Required),
             Owner::Additions => self.open_additions(set),
+            Owner::Ingest => crate::ingest::open_by_id(self, roots, set),
         }
     }
 
@@ -468,6 +548,7 @@ impl Store {
         &self,
         owner: Owner,
         id: i64,
+        owner_reviewed: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
@@ -484,6 +565,12 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
+        if owner_reviewed != set {
+            return Err(Error::Conflict(format!(
+                "deletion {id} deletes kept files of another {}; review it there",
+                owner.what()
+            )));
+        }
         let roots = self.roots();
         self.open_owner(owner, set)?.map_err(Error::Refused)?;
         let lifecycle = self.lock_roots_unchanged(&roots)?;
@@ -530,16 +617,18 @@ impl Store {
         let kind = match owner {
             Owner::Source => RegistrationKind::SourceSet,
             Owner::Additions => RegistrationKind::AdditionsSet,
+            Owner::Ingest => RegistrationKind::IngestFolder,
         };
         self.settle_marker(kind, set)?;
         self.read(|c| deletion_by_id(c, owner, id))
     }
 
-    /// Finishes each approved deletion of kept files of a Source Set or an Additions Set that a stop interrupted.
+    /// Finishes each approved deletion of kept files of a Source Set, an Additions Set or an Ingest Folder that a stop
+    /// interrupted.
     /// Returns each left unfinished, with why.
     pub fn recover_source_kept_deletions(&self) -> Result<Vec<(i64, String)>> {
         let mut left = Vec::new();
-        for owner in [Owner::Source, Owner::Additions] {
+        for owner in [Owner::Source, Owner::Additions, Owner::Ingest] {
             let unfinished: Vec<i64> = self.read(|c| {
                 let mut stmt = c.prepare(&owner.sql(
                     "SELECT id FROM {deletions} WHERE approved_at IS NOT NULL AND finished_at IS NULL ORDER BY id",

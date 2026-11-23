@@ -844,7 +844,6 @@ mod tests {
         drop(Store::open(&path).unwrap());
 
         assert_eq!(stamp(&path), baseline());
-        assert_eq!(migrations::MIGRATIONS.len(), 1);
     }
 
     #[test]

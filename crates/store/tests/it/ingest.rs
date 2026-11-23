@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
+use stage_select_api::build::PlanKeptDeletion;
 use stage_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
 use stage_select_api::support::{SupportFileKind, SupportFileOrigin};
 use stage_select_api::{AuditEvidence, JobKind};
@@ -591,6 +592,146 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
         .store
         .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(again.is_err(), "a plan is carried out once");
+}
+
+#[test]
+fn a_kept_file_of_an_ingest_folder_is_deleted_only_once_you_approve_its_deletion() {
+    let env = Env::new();
+    env.put("mystery.a26", b"homebrew");
+    env.put("other.a26", b"other");
+    env.scan();
+    env.scan();
+    let plan = env.plan(IngestAction::Discard, &["mystery.a26", "other.a26"]);
+    env.store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    let mystery = kept.iter().find(|k| k.name == "mystery.a26").unwrap().id;
+    let before = env.listing();
+
+    let deletion = env
+        .store
+        .plan_ingest_kept_deletion(
+            "in",
+            &PlanKeptDeletion {
+                ids: vec![mystery],
+                all: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(deletion.content.files.len(), 1);
+    assert_eq!(deletion.content.files[0].id, mystery);
+    assert_eq!(env.listing(), before, "planning deletes nothing");
+    let wrong = env.store.approve_ingest_kept_deletion(
+        deletion.id,
+        deletion.content.source_set,
+        "0000",
+        "Operator",
+    );
+    assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
+    assert_eq!(env.listing(), before);
+    let elsewhere = env.store.approve_ingest_kept_deletion(
+        deletion.id,
+        deletion.content.source_set + 1,
+        &deletion.digest,
+        "Operator",
+    );
+    assert!(
+        matches!(&elsewhere, Err(Error::Conflict(m)) if m.contains("another ingest folder")),
+        "a deletion is approved only as the kept files of the folder you reviewed it under: {elsewhere:?}"
+    );
+    assert_eq!(env.listing(), before);
+
+    let done = env
+        .store
+        .approve_ingest_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
+        .unwrap();
+    assert!(done.finished_at.is_some(), "{done:?}");
+    assert_eq!(done.outcomes.len(), 1);
+    assert!(done.outcomes[0].deleted, "{:?}", done.outcomes);
+    assert_eq!(env.listing(), [".stage-select/retained/1/other.a26.kept"]);
+    let left: Vec<String> = env
+        .store
+        .ingest_kept_files("in")
+        .unwrap()
+        .into_iter()
+        .map(|k| k.name)
+        .collect();
+    assert_eq!(left, ["other.a26"]);
+    assert_eq!(env.store.ingest_kept_deletion(deletion.id).unwrap(), done);
+    assert!(
+        env.store
+            .approve_ingest_kept_deletion(
+                deletion.id,
+                deletion.content.source_set,
+                &deletion.digest,
+                "Operator"
+            )
+            .is_err(),
+        "a deletion is carried out once"
+    );
+    let gone = env.store.plan_ingest_kept_deletion(
+        "in",
+        &PlanKeptDeletion {
+            ids: vec![mystery],
+            all: false,
+        },
+    );
+    assert!(matches!(gone, Err(Error::Refused(_))), "{gone:?}");
+}
+
+#[test]
+fn a_kept_file_of_an_ingest_folder_rewritten_after_you_review_its_deletion_is_never_deleted() {
+    let env = Env::new();
+    env.put("mystery.a26", b"homebrew");
+    env.scan();
+    env.scan();
+    let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
+    env.store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let deletion = env
+        .store
+        .plan_ingest_kept_deletion(
+            "in",
+            &PlanKeptDeletion {
+                ids: vec![],
+                all: true,
+            },
+        )
+        .unwrap();
+    let kept = env
+        .dir("in")
+        .join(".stage-select/retained/1/mystery.a26.kept");
+    // Rewritten through a descriptor, the same length, with its mtime put back.
+    let mtime = std::fs::metadata(&kept).unwrap().modified().unwrap();
+    let rewritten: Vec<u8> = std::fs::read(&kept).unwrap().iter().map(|b| !b).collect();
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::options().write(true).open(&kept).unwrap();
+        file.write_all(&rewritten).unwrap();
+        file.set_modified(mtime).unwrap();
+        file.sync_all().unwrap();
+    }
+
+    let done = env
+        .store
+        .approve_ingest_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
+        .unwrap();
+
+    assert!(!done.outcomes[0].deleted, "{:?}", done.outcomes);
+    assert_eq!(std::fs::read(&kept).unwrap(), rewritten);
+    assert_eq!(env.store.ingest_kept_files("in").unwrap().len(), 1);
 }
 
 #[test]

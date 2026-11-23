@@ -75,6 +75,30 @@ fn scoped_key(scope: Option<&str>, base: &str) -> String {
     }
 }
 
+/// The key `base` stands for in a list scoped by `scope`, such as `changes-kind`, kept once for the life of the page:
+/// for state a page keeps beside a scoped list's own, which `use_query_edit` sets by `&'static str`.
+pub fn scoped(scope: Option<&str>, base: &'static str) -> &'static str {
+    match scope {
+        None => base,
+        Some(_) => intern(scoped_key(scope, base)),
+    }
+}
+
+/// `s`, kept once for the life of the page: for an ID or key made at run time where a `&'static str` is asked for.
+pub fn intern(s: String) -> &'static str {
+    thread_local! {
+        static INTERNED: std::cell::RefCell<std::collections::HashSet<&'static str>> = Default::default();
+    }
+    INTERNED.with_borrow_mut(|interned| match interned.get(s.as_str()) {
+        Some(kept) => kept,
+        None => {
+            let kept: &'static str = Box::leak(s.into_boxed_str());
+            interned.insert(kept);
+            kept
+        }
+    })
+}
+
 impl ListQuery {
     /// The state a query string's pairs hold; an empty value counts as none.
     pub fn from_pairs<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
@@ -382,6 +406,14 @@ mod tests {
             ],
         );
         assert_eq!(read, q);
+    }
+
+    #[test]
+    fn a_scoped_key_made_at_run_time_is_kept_once() {
+        assert_eq!(scoped(None, "kind"), "kind");
+        let kind = scoped(Some("kept-7"), "kind");
+        assert_eq!(kind, "kept-7-kind");
+        assert!(std::ptr::eq(kind, scoped(Some("kept-7"), "kind")));
     }
 
     #[test]

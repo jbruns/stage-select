@@ -564,7 +564,12 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
         .unwrap();
     let deleted = env
         .store
-        .approve_additions_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_additions_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:#?}");
     assert!(
@@ -668,7 +673,12 @@ fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
         )
         .unwrap();
     env.store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     let left = files(&env.set());
     assert!(!left.contains(".stage-select/marker"), "{left:?}");
@@ -766,7 +776,12 @@ fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
         )
         .unwrap();
     env.store
-        .approve_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(
+            deletion.id,
+            deletion.content.folder,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(files(&dir).is_empty(), "{:?}", files(&dir));
 }

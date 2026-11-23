@@ -12,7 +12,10 @@ use super::{BACKUPS, Error, Result, io_error};
 pub(crate) const APPLICATION_ID: i32 = 0x5353_656C;
 
 /// Applied in order; `PRAGMA user_version` counts those already applied.
-pub(super) const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_baseline.sql")];
+pub(super) const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_baseline.sql"),
+    include_str!("migrations/0002_ingest_kept_deletions.sql"),
+];
 
 /// What a store made by an earlier release is refused with.
 pub(crate) const PRE_BASELINE: &str =

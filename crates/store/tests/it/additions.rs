@@ -1148,7 +1148,12 @@ fn a_kept_file_an_addition_is_added_from_is_reserved_until_its_job_ends_and_may_
     let deletion = env.store.plan_source_kept_deletion(SET, &pick).unwrap();
     let done = env
         .store
-        .approve_source_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_source_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(done.outcomes.iter().all(|o| o.deleted), "{done:#?}");
     assert!(!path.exists());
@@ -1249,7 +1254,12 @@ fn a_retired_addition_moves_into_the_kept_files_from_where_it_is_restored_or_del
         .unwrap();
     let done = env
         .store
-        .approve_additions_kept_deletion(deletion.id, &deletion.digest, "Operator")
+        .approve_additions_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        )
         .unwrap();
     assert!(done.outcomes.iter().all(|o| o.deleted), "{done:#?}");
     assert!(additions_kept(&env).is_empty());
@@ -1496,9 +1506,12 @@ fn a_restore_rolled_back_keeps_what_it_put_back_listed_as_found_and_never_delete
             all: false,
         },
     ) {
-        let done =
-            env.store
-                .approve_additions_kept_deletion(deletion.id, &deletion.digest, "Operator");
+        let done = env.store.approve_additions_kept_deletion(
+            deletion.id,
+            deletion.content.source_set,
+            &deletion.digest,
+            "Operator",
+        );
         assert!(
             done.is_err() || done.unwrap().outcomes.iter().all(|o| !o.deleted),
             "a file found in place is never deleted"
