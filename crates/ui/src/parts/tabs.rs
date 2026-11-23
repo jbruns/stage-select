@@ -13,10 +13,10 @@ use super::status::{Look, Status};
 use super::url_state::{edited, query_string};
 
 /// The query string's keys that belong to one tab's content, such as its list's filter: a link to another tab leaves
-/// them behind. Besides the shared list's own, `finding`, `state`, `algorithm` (an audit's Entries), `status`,
-/// `availability` and `flag` (a selection's groups, an ingest folder's Items) and `outcome` (a plan's items once
-/// applied) filter one tab's list, and `plan` names the plan one tab shows; no page keeps any of them across its tabs.
-const TAB_STATE: [&str; 15] = [
+/// them behind. Besides the shared list's own, `finding`, `state`, `algorithm` (an audit's Entries), `covered` (its
+/// Game Statuses), `status`, `availability` and `flag` (a selection's groups, an ingest folder's Items) and `outcome`
+/// (a plan's items once applied) filter one tab's list, and `plan` names the plan one tab shows; no page keeps any of them across its tabs.
+const TAB_STATE: [&str; 16] = [
     "tab",
     "q",
     "sort",
@@ -28,6 +28,7 @@ const TAB_STATE: [&str; 15] = [
     "finding",
     "state",
     "algorithm",
+    "covered",
     "status",
     "availability",
     "flag",
@@ -260,6 +261,7 @@ mod tests {
         let pairs = [
             ("finding", "missing"),
             ("status", "unmatched"),
+            ("covered", "yes"),
             ("saved", "2"),
         ];
         assert_eq!(

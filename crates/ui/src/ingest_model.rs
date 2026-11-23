@@ -565,7 +565,7 @@ fn additions_link(system: Option<&String>) -> Link {
         Some(system) => Link::new(
             format!(
                 "/additions{}",
-                query_string(&[("q".into(), system.clone())])
+                query_string(&[(crate::screens::additions::SYSTEM.into(), system.clone())])
             ),
             "Open the additions set",
         ),
@@ -1105,7 +1105,7 @@ mod tests {
         assert_eq!(
             made_link(IngestAction::Addition, Some(&atari), &ended(true, None)),
             Some(Link::new(
-                "/additions?q=No-Intro%2FAtari%202600",
+                "/additions?system=No-Intro%2FAtari%202600",
                 "Open the additions set"
             )),
             "an addition opens its system's additions set"
@@ -1170,7 +1170,10 @@ mod tests {
         };
         assert_eq!(
             plan_made_link(&plan_of(&["Atari", "Atari"])),
-            Some(Link::new("/additions?q=Atari", "Open the additions set"))
+            Some(Link::new(
+                "/additions?system=Atari",
+                "Open the additions set"
+            ))
         );
         assert_eq!(
             plan_made_link(&plan_of(&["Atari", "NES"])),

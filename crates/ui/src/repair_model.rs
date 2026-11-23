@@ -128,22 +128,32 @@ impl CouldChange {
             Found::Entries(Finding::Unmatched) => "Unmatched entries to set aside",
             Found::Entries(Finding::Matched) => "Matched entries",
             Found::Games(GameStatus::Missing) => "Missing games to fill",
+            Found::Games(GameStatus::Incomplete) => "Incomplete games to complete",
             Found::Games(_) => "Games",
         }
     }
 
-    /// The query pair that narrows the source set's Entries or Games tab to what it counts.
-    pub fn filter(self) -> (&'static str, &'static str) {
+    /// The query pairs that narrow the source set's Entries or Games tab to what it counts. Where its Coverage
+    /// applies (`covered`), its games are counted only in it, and so are those the tab lists.
+    pub fn filter(self, covered: bool) -> Vec<(&'static str, &'static str)> {
         match self.found {
-            Found::Entries(f) => (crate::model::FINDING, f.as_str()),
-            Found::Games(s) => (crate::model::STATUS, s.as_str()),
+            Found::Entries(f) => vec![(crate::model::FINDING, f.as_str())],
+            Found::Games(s) => {
+                let mut pairs = vec![(crate::model::STATUS, s.as_str())];
+                if covered {
+                    pairs.push((crate::model::COVERED, crate::model::COVERED_YES));
+                }
+                pairs
+            }
         }
     }
 }
 
 /// What of an audit's `findings` and `games` a repair could change, in the order a plan lists its kinds: misnamed and
 /// conflicting entries are renamed, mismatched and unreadable ones replaced from an Ingest Folder, unmatched ones set
-/// aside, and missing games filled. Those it found none of are left out.
+/// aside, and missing and incomplete games filled. Those it found none of are left out. What an Audit doesn't count
+/// ahead of a plan, spare copies of matched ROMs to set aside and games to repack or convert per the storage policy,
+/// [`repair_lead`] names instead.
 pub fn could_change(
     findings: &BTreeMap<Finding, usize>,
     games: &BTreeMap<GameStatus, usize>,
@@ -156,11 +166,8 @@ pub fn could_change(
         (Finding::Unmatched, PlanKind::SetAside),
     ]
     .map(|(f, kind)| (Found::Entries(f), findings.get(&f).copied(), kind));
-    let games = [(
-        Found::Games(GameStatus::Missing),
-        games.get(&GameStatus::Missing).copied(),
-        PlanKind::Fill,
-    )];
+    let games = [GameStatus::Missing, GameStatus::Incomplete]
+        .map(|s| (Found::Games(s), games.get(&s).copied(), PlanKind::Fill));
     entries
         .into_iter()
         .chain(games)
@@ -176,10 +183,15 @@ pub fn repair_lead(audited: bool, could: &[CouldChange]) -> &'static str {
             "Not audited yet. A repair is proposed from an audit, so audit the source set first."
         }
         (true, true) => {
-            "The latest audit found nothing a repair could change. Items in your ingest folders may still fill or \
-             replace games, so you can propose one anyway."
+            "The latest audit found no entries to rename, replace or set aside, and no missing or incomplete games. \
+             A repair may still set aside spare copies or repack games to your storage policy, which an audit \
+             doesn't count: propose one to see what it would do."
         }
-        (true, false) => "The latest audit found these, which a repair could change:",
+        (true, false) => {
+            "The latest audit found these, which a repair could change. It may also set aside spare copies or \
+             repack games to your storage policy, which an audit doesn't count: propose one to see everything it \
+             would do."
+        }
     }
 }
 
@@ -1151,14 +1163,27 @@ mod tests {
                 (Found::Entries(Finding::Unreadable), 1, PlanKind::Replace),
                 (Found::Entries(Finding::Unmatched), 2, PlanKind::SetAside),
                 (Found::Games(GameStatus::Missing), 5, PlanKind::Fill),
+                (Found::Games(GameStatus::Incomplete), 4, PlanKind::Fill),
             ],
-            "matched entries and complete or incomplete games are nothing a repair changes, and none counted is left out"
+            "a repair fills missing and incomplete games; matched entries and complete games aren't counted, and \
+             none counted is left out"
         );
         assert_eq!(could[0].what(), "Misnamed entries to rename");
         assert_eq!(could[3].what(), "Missing games to fill");
-        assert_eq!(could[0].filter(), ("finding", "misnamed"));
-        assert_eq!(could[3].filter(), ("status", "missing"));
-        assert!(repair_lead(true, &could).contains("could change"));
+        assert_eq!(could[4].what(), "Incomplete games to complete");
+        assert_eq!(could[0].filter(true), [("finding", "misnamed")]);
+        assert_eq!(could[3].filter(false), [("status", "missing")]);
+        assert_eq!(
+            could[4].filter(true),
+            [("status", "incomplete"), ("covered", "yes")],
+            "with a coverage the counts are of covered games, and so is the list a tile opens"
+        );
+        let lead = repair_lead(true, &could);
+        assert!(lead.contains("could change"), "{lead}");
+        assert!(
+            lead.contains("spare copies") && lead.contains("storage policy"),
+            "what the audit can't count is named: {lead}"
+        );
     }
 
     #[test]
@@ -1170,6 +1195,13 @@ mod tests {
         assert!(clean.is_empty());
         let (unaudited, nothing) = (repair_lead(false, &[]), repair_lead(true, &clean));
         assert!(unaudited.starts_with("Not audited yet"), "{unaudited}");
-        assert!(nothing.contains("found nothing"), "{nothing}");
+        assert!(
+            !nothing.contains("nothing a repair could change"),
+            "a matched-only audit can still need spare copies set aside or games repacked: {nothing}"
+        );
+        assert!(
+            nothing.contains("spare copies") && nothing.contains("storage policy"),
+            "{nothing}"
+        );
     }
 }

@@ -755,20 +755,20 @@ fn WhatARepairCouldChange(name: String) -> impl IntoView {
         let name = wanted.get_value();
         async move {
             let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
-            Ok::<_, String>(
-                sets.into_iter()
-                    .find(|s| s.set.name == name)
-                    .and_then(|s| s.latest),
-            )
+            Ok::<_, String>(sets.into_iter().find(|s| s.set.name == name))
         }
     });
     move || {
-        let latest = latest.get()?.ok()?;
-        let could = latest
-            .as_ref()
+        let summary = latest.get()?.ok()?;
+        let audit = summary.as_ref().and_then(|s| s.latest.as_ref());
+        let could = audit
             .map(|a| could_change(&a.findings, &a.games))
             .unwrap_or_default();
-        let lead = repair_lead(latest.is_some(), &could);
+        let lead = repair_lead(audit.is_some(), &could);
+        // The summary counts games only in the coverage, unless it couldn't be applied.
+        let covered = summary
+            .as_ref()
+            .is_some_and(|s| s.set.coverage.is_some() && !s.coverage_unavailable);
         let tiles = could
             .into_iter()
             .map(|c| {
@@ -776,8 +776,12 @@ fn WhatARepairCouldChange(name: String) -> impl IntoView {
                     Found::Entries(_) => PageTab::Entries,
                     Found::Games(_) => PageTab::Games,
                 };
-                let (key, value) = c.filter();
-                let href = format!("{}&{key}={value}", tab_href(&name, tab));
+                let href = c
+                    .filter(covered)
+                    .into_iter()
+                    .fold(tab_href(&name, tab), |href, (key, value)| {
+                        format!("{href}&{key}={value}")
+                    });
                 let n = view! { <a href=href>{c.n}</a> };
                 match c.found {
                     Found::Entries(f) => view! {
