@@ -26,10 +26,11 @@ use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::outcome::{JobOutcome, job_href};
 use crate::parts::plan::{Change, PlanReview, PlanRow, apply_to_all, set_actions};
 use crate::parts::plan_model::{apply_choice, offered_by_any};
 use crate::parts::status::{BuildKind, Status, StatusIcon};
-use crate::screens::library_folders::{BuildProgress, Planner, use_planner};
+use crate::screens::library_folders::{Planner, use_planner};
 
 /// What approving a plan that places or returns games does to your source set.
 const CHANGES_SOURCE_SET: &str = "Approving this plan also changes your source set: each game placed is taken out \
@@ -552,7 +553,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                     </dd>
                     {plan.job.map(|j| view! {
                         <dt>"Build job"</dt>
-                        <dd><A href=format!("/activity?row={j}")>{format!("#{j}")}</A></dd>
+                        <dd><A href=job_href(j)>{format!("#{j}")}</A></dd>
                     })}
                 </dl>
             </details>
@@ -636,7 +637,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                     move || {
                         live.book
                             .with(|b| b.get(job).is_some())
-                            .then(|| view! { <BuildProgress job /> })
+                            .then(|| view! { <JobOutcome job cancel=true /> })
                     }
                 })}
             {move || problem.get().map(|message| view! { <Problem message /> })}

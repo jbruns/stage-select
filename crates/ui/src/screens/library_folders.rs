@@ -31,8 +31,8 @@ use crate::build_model::{
 use crate::events::{Live, use_live};
 use crate::library_model::{
     BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
-    Replan, Replans, build_finished, built_for, checked_in, drifted, fresh, live_status, location,
-    no_coverage, pick, plan_state, romm_exclusions, selection_under_way, stale_label,
+    Replan, Replans, built_for, checked_in, drifted, fresh, live_status, location, no_coverage,
+    pick, plan_state, romm_exclusions, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::help::Help;
@@ -42,19 +42,19 @@ use crate::parts::legend::{Legend, LegendStrip, present, present_looks};
 use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
-use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem, Said};
+use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
+use crate::parts::outcome::{JobOutcome, Reports, ShowReports};
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
 };
-use crate::parts::tabs::{Tab, Tabs, use_tab};
+use crate::parts::tabs::{Tab, Tabs, tab_link, use_tab};
 use crate::placement_model::{Fresh, OnlyCopies, READING_ONLY_COPIES, marked, only_copies_unknown};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::coverage::InheritedCoverage;
-use crate::screens::jobs::progress_view;
 use crate::screens::library_plan::LibraryPlan;
 use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
@@ -123,7 +123,7 @@ fn last_checked(folder: &LibraryFolder, full: bool) -> AnyView {
 }
 
 fn tab_href(id: i64, tab: FolderTab) -> String {
-    format!("/libraries/{id}?tab={}", tab.key())
+    tab_link(&format!("/libraries/{id}"), Some(tab.key()), &[])
 }
 
 fn set_href(name: &str) -> String {
@@ -444,14 +444,11 @@ async fn sleep(ms: i32) {
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
-/// Starts a check of the folder, and says how that went in `said`.
-fn check(folder: i64, what: String, said: RwSignal<Option<Result<String, String>>>) {
+/// Starts a check of the folder, and reports the job or its refusal.
+fn check(folder: i64, what: String, reports: Reports) {
     leptos::task::spawn_local(async move {
         let started = api::post::<_, Job>(&format!("/libraries/{folder}/checks"), &()).await;
-        said.set(Some(match started {
-            Ok(job) => Ok(format!("Checking {what}: job #{}.", job.id)),
-            Err(message) => Err(format!("Couldn't check {what}: {message}")),
-        }));
+        reports.started(started, &format!("Couldn't check {what}"));
     });
 }
 
@@ -691,7 +688,7 @@ pub fn Libraries() -> impl IntoView {
             keep
         })
     });
-    let said = RwSignal::new(None::<Result<String, String>>);
+    let said = Reports::new();
     let go = navigator();
     let actions = vec![
         ToolAction::page(Glyph::Plus, "New library folder", move || {
@@ -701,6 +698,7 @@ pub fn Libraries() -> impl IntoView {
             Glyph::FileCheck,
             "Check",
             move |chosen: Selected<FolderRow>| {
+                said.clear();
                 for row in chosen.rows {
                     check(row.0.id, location(&row.0), said);
                 }
@@ -711,6 +709,7 @@ pub fn Libraries() -> impl IntoView {
         let (id, what) = (row.0.id, location(&row.0));
         vec![
             RowAction::run(Glyph::FileCheck, "Check", move || {
+                said.clear();
                 check(id, what.clone(), said)
             }),
             RowAction::run(Glyph::ClipboardList, "Plan build", move || {
@@ -728,7 +727,7 @@ pub fn Libraries() -> impl IntoView {
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        <Said said />
+        <ShowReports reports=said />
         <List
             id="libraries"
             label="Library folders"
@@ -1119,9 +1118,12 @@ fn FolderPage(
     };
     let busy = Signal::derive(move || now.get() == LibraryStatus::Running);
     let title = location(&folder);
-    let said = RwSignal::new(None::<Result<String, String>>);
+    let said = Reports::new();
     let what = title.clone();
-    let start_check = move |_| check(id, what.clone(), said);
+    let start_check = move |_| {
+        said.clear();
+        check(id, what.clone(), said)
+    };
     let plan = move |_| {
         planner.start(id, None, PlanChoices::default());
         go.run(tab_href(id, FolderTab::Plan));
@@ -1160,7 +1162,7 @@ fn FolderPage(
                 </button>
             </div>
         </header>
-        <Said said />
+        <ShowReports reports=said />
         <Tabs label="Library folder" tabs=folder_tabs />
         {move || match tab.get() {
             FolderTab::Overview => view! {
@@ -1193,7 +1195,7 @@ fn FolderPage(
 fn Overview(folder: LibraryFolder) -> impl IntoView {
     let id = folder.id;
     view! {
-        {folder.active_job.map(|job| view! { <BuildProgress job /> })}
+        {folder.active_job.map(|job| view! { <JobOutcome job cancel=true /> })}
         {reasons(&folder)}
         {folder_facts(&folder)}
         {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
@@ -1462,14 +1464,15 @@ fn CheckPanel(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl I
                 .ok()
         }
     });
-    let problem = RwSignal::new(None::<String>);
+    let reports = Reports::new();
     let start = move |_| {
-        problem.set(None);
+        reports.clear();
         leptos::task::spawn_local(async move {
-            match api::post::<_, Job>(&format!("/libraries/{folder}/checks"), &()).await {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(message) => problem.set(Some(message)),
+            let started = api::post::<_, Job>(&format!("/libraries/{folder}/checks"), &()).await;
+            if started.is_ok() {
+                refresh.update(|n| *n += 1);
             }
+            reports.started(started, "Couldn't check the folder");
         });
     };
     view! {
@@ -1482,7 +1485,7 @@ fn CheckPanel(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl I
             <div class="form">
                 <button type="button" disabled=move || busy.get() on:click=start>"Check the folder"</button>
             </div>
-            {move || problem.get().map(|message| view! { <Problem message /> })}
+            <ShowReports reports />
             {move || loaded.get().flatten().map(check_view)}
         </section>
     }
@@ -2048,74 +2051,6 @@ fn cleanup_actions_all() -> [CleanupAction; 4] {
         CleanupAction::AddAddition,
     ]
 }
-/// A job's progress on the folder, live, with a way to cancel a build while it runs.
-#[component]
-pub(crate) fn BuildProgress(job: i64) -> impl IntoView {
-    let live = use_live();
-    let problem = RwSignal::new(None::<String>);
-    let cancelling = RwSignal::new(false);
-    let cancel = move |_| {
-        cancelling.set(true);
-        leptos::task::spawn_local(async move {
-            let done =
-                api::post::<_, Job>(&format!("/jobs/{job}/cancellation"), &serde_json::json!({}))
-                    .await;
-            cancelling.set(false);
-            match done {
-                Ok(_) => problem.set(None),
-                Err(message) => problem.set(Some(message)),
-            }
-        });
-    };
-    view! {
-        <Message kind=MessageKind::NOTICE>
-            {format!("Job #{job} ")}
-            {move || match live.book.with(|b| b.get(job).cloned()) {
-                Some(l) if l.job.state.is_final() => {
-                    let outcome = match &l.job.error {
-                        Some(error) => format!("ended {}: {error}", l.job.state.as_str()),
-                        None => format!("ended {}.", l.job.state.as_str()),
-                    };
-                    let ready = build_finished(&l.job).then(|| {
-                        view! {
-                            " "
-                            <img class="ready" src="/stage-select-ready.svg" alt="" width="58" height="14" />
-                        }
-                    });
-                    view! { <span>{outcome}</span> {ready} }.into_any()
-                }
-                Some(l) => {
-                    let control = if l.job.kind != JobKind::Build {
-                        None
-                    } else if l.job.cancel_requested_at.is_some() {
-                        Some(
-                            view! {
-                                <span class="note">
-                                    " You cancelled it: the file it is writing finishes, files already in place stay, and the rest are left for a new plan."
-                                </span>
-                            }
-                            .into_any(),
-                        )
-                    } else {
-                        Some(
-                            view! {
-                                " "
-                                <button type="button" disabled=move || cancelling.get() on:click=cancel>
-                                    "Cancel the build"
-                                </button>
-                            }
-                            .into_any(),
-                        )
-                    };
-                    view! { <span>"is running. "</span> {progress_view(&l)} {control} }.into_any()
-                }
-                None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
-            }}
-        </Message>
-        {move || problem.get().map(|message| view! { <Problem message /> })}
-    }
-}
-
 /// Plans building one of the bound selection profile's selections of the source set.
 #[component]
 fn PlanForm(folder: LibraryFolder) -> impl IntoView {

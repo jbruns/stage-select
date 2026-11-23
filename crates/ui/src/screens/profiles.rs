@@ -23,11 +23,12 @@ use crate::model::{revision_label, short_sha, when};
 use crate::parts::layout::Crumbs;
 use crate::parts::list::{Clip, Column, List, ListRow, Width, last_good_rows};
 use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::status::{GroupStatus, StatusCount};
 use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::screens::arcade_settings::ArcadeSettingsForm;
-use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
+use crate::screens::selection::{ChangesTable, ReleasesPanel};
 use crate::selection_model::{
     SelectionIndex, Setting, Source, add_item, group_counts, lines, move_item, preview_set,
     reset_global, reset_system, system_tabs, use_global_settings,
@@ -277,7 +278,7 @@ pub fn ProfileScreen() -> impl IntoView {
                     .map(|(version, job)| {
                         view! {
                             <Message kind=MessageKind::DONE>{format!("Saved version {version}.")}</Message>
-                            {job.map(|job| view! { <SelectionQueued job /> })}
+                            {job.map(|job| view! { <JobOutcome job /> })}
                         }
                     })}
                 <Editor name=Some(record.name.clone()) initial=record.latest.clone() />
@@ -980,7 +981,7 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                                 {done
                                     .jobs
                                     .into_iter()
-                                    .map(|job| view! { <SelectionQueued job=job.id /> })
+                                    .map(|job| view! { <JobOutcome job=job.id seed=job /> })
                                     .collect_view()}
                             }
                                 .into_any()

@@ -27,14 +27,15 @@ use crate::parts::list::{
     Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::message::Problem;
+use crate::parts::outcome::{JobOutcome, job_href};
 use crate::parts::pending::ActionPending;
 use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
-use crate::parts::tabs::{Tab, Tabs, use_tab};
+use crate::parts::tabs::{Tab, Tabs, tab_link, use_tab};
 use crate::parts::url_state::{edited, query_string};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
 use crate::screens::lifecycle::{LifecycleSection, Paths, UnregisterAction};
-use crate::screens::source_sets::tab_href;
+use crate::screens::source_sets::set_href;
 use crate::shell::waiting_on_decision;
 use crate::source_set_model::PageTab;
 
@@ -890,7 +891,7 @@ fn Items(
                 actions.push(RowAction::go(
                     Glyph::Activity,
                     format!("Open job #{job}"),
-                    format!("/activity?row={job}"),
+                    job_href(job),
                 ));
             }
             if let (Some(plan), Some(Proposal::SourceSet { source_set, .. })) =
@@ -899,7 +900,11 @@ fn Items(
                 actions.push(RowAction::go(
                     Glyph::Wrench,
                     format!("Open repair #{plan}"),
-                    format!("{}&plan={plan}", tab_href(source_set, PageTab::Repair)),
+                    tab_link(
+                        &set_href(source_set),
+                        Some(PageTab::Repair.slug()),
+                        &[("plan", &plan.to_string())],
+                    ),
                 ));
             }
             if let Some(plan) = m.plan {
@@ -960,7 +965,7 @@ fn Items(
                     <span class="spinner" aria-hidden="true"></span>
                     <span>{format!("Plan #{id} you approved is moving {what} out of the folder.")}</span>
                     {job.map(|job| view! {
-                        <A href=format!("/activity?row={job}")>{format!("Job #{job}")}</A>
+                        <A href=job_href(job)>{format!("Job #{job}")}</A>
                     })}
                     <button type="button" on:click=move |_| review.run(id)>
                         {format!("Review plan #{id}")}
@@ -1015,6 +1020,9 @@ fn Items(
             <ActionPending action=scanning status="Starting a scan…">
                 {move || (folder.with(Option::is_some) && !registered.get()).then(|| view! {
                     <p class="note">"Register the folder before you scan it."</p>
+                })}
+                {move || scanning.value().get().and_then(Result::ok).map(|job| view! {
+                    <JobOutcome job=job.id seed=job />
                 })}
             </ActionPending>
             <ActionPending action=decide status=deciding>
@@ -1138,7 +1146,7 @@ fn item_detail(row: ItemRow, edits: RwSignal<BTreeMap<i64, NewAddition>>) -> Any
             <dd>
                 {format!("{by}: {what}{at}")}
                 {m.job.map(|job| view! {
-                    " · " <A href=format!("/activity?row={job}")>{format!("Job #{job}")}</A>
+                    " · " <A href=job_href(job)>{format!("Job #{job}")}</A>
                 })}
             </dd>
         }

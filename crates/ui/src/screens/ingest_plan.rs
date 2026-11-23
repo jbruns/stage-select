@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
+use leptos_router::components::A;
 use stage_select_api::build::ApprovePlan;
 use stage_select_api::ingest::{IngestAction, IngestOutcome, IngestPlan, IngestPlanItem};
 
@@ -16,6 +17,7 @@ use crate::ingest_model::{self, Outcome};
 use crate::model::{short_sha, when};
 use crate::parts::list::{Column, ListRow, Width, last_good_rows};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
+use crate::parts::outcome::Link;
 use crate::parts::pending::ActionPending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{IngestPlanKind, Status, StatusBadge, StatusIcon};
@@ -27,6 +29,7 @@ struct IngestRow {
     kind: IngestPlanKind,
     outcome: Option<IngestOutcome>,
     result: Outcome,
+    made: Option<Link>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +117,9 @@ fn rows(plan: &IngestPlan) -> Vec<IngestRow> {
             let outcome = plan.outcomes.iter().find(|o| o.item == item.item).cloned();
             IngestRow {
                 result: ingest_model::outcome(plan, outcome.as_ref()),
+                made: outcome
+                    .as_ref()
+                    .and_then(|o| ingest_model::made_link(plan.content.action, o)),
                 item: item.clone(),
                 kind,
                 outcome,
@@ -128,6 +134,7 @@ fn row_detail(row: IngestRow) -> AnyView {
         kind,
         outcome,
         result,
+        made,
     } = row;
     let ended = outcome.and_then(|o| o.error.or(o.detail));
     view! {
@@ -168,6 +175,7 @@ fn row_detail(row: IngestRow) -> AnyView {
             <dd>
                 {result.label()}
                 {ended.map(|e| format!(": {e}"))}
+                {made.map(|l| view! { " · " <A href=l.href>{l.label}</A> })}
             </dd>
         </dl>
     }
@@ -233,6 +241,7 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 )),
                 (Some(_), Some(at)) => Some(format!("Finished {}.", when(at))),
             };
+            let made = ingest_model::plan_made_link(&p);
             let label = if n == 1 {
                 "Approve and move 1 item".to_string()
             } else {
@@ -261,7 +270,12 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
                         p.content.fingerprint.len()
                     )}
                 </p>
-                {state.map(|s| view! { <Message kind=MessageKind::DONE live=Live::Off>{s}</Message> })}
+                {state.map(|s| view! {
+                    <Message kind=MessageKind::DONE live=Live::Off>
+                        {s}
+                        {made.clone().map(|l| view! { " " <A href=l.href>{l.label}</A> })}
+                    </Message>
+                })}
                 <div class="form">{approve}</div>
             }
         })
