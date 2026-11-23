@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
-use title_select_api::ingest::{IngestFolder, ItemState};
-use title_select_api::{Job, JobState};
+use stage_select_api::ingest::{IngestFolder, ItemState};
+use stage_select_api::{Job, JobState};
 
 /// How many items across the Ingest Folders wait on a decision: to plan them out of the folder or dismiss them.
 pub fn waiting_on_decision(folders: &[IngestFolder]) -> u64 {
@@ -119,7 +119,7 @@ impl FromStr for SeenJobs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::Workers;
+    use stage_select_api::Workers;
 
     fn folder(counts: Vec<(ItemState, u64)>) -> IngestFolder {
         IngestFolder {

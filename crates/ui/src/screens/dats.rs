@@ -5,8 +5,8 @@ use leptos::html::Form;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use title_select_api::support::SupportFileImport;
-use title_select_api::{
+use stage_select_api::support::SupportFileImport;
+use stage_select_api::{
     AuditSummary, CuePackImport, CuePackRecord, Dat, DatRevisionRecord, DeletedDatRevision,
     DeletionBlocker, DeletionBlockerKind, ImportOutcome, ImportedDatRevision, SourceSetRecord,
 };
@@ -884,7 +884,7 @@ pub(crate) fn Upload(on_done: Callback<()>) -> impl IntoView {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::DatFormat;
+    use stage_select_api::DatFormat;
 
     use super::*;
 

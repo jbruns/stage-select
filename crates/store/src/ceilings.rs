@@ -14,16 +14,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rusqlite::Connection;
-use title_select_api::calibration::Calibration;
-use title_select_api::settings::{
+use stage_select_api::calibration::Calibration;
+use stage_select_api::settings::{
     Ceiling, CeilingInput, CeilingOverrides, CeilingSource, CeilingsUpdate,
     DEFAULT_ARCHIVE_WORKERS, HostCeilings, HostOverrides, JobsView, MAX_ARCHIVE_WORKERS,
     MAX_MIB_PER_S, MAX_WORKERS, Pace, RootCeilings, RootOverrides,
 };
-use title_select_engine::Pools;
-use title_select_engine::cap::Caps;
-use title_select_engine::pool::Pool;
-use title_select_engine::sevenz::Gate;
+use stage_select_engine::Pools;
+use stage_select_engine::cap::Caps;
+use stage_select_engine::pool::Pool;
+use stage_select_engine::sevenz::Gate;
 
 use crate::roots::Roots;
 use crate::{Error, Result, Store};
@@ -296,7 +296,7 @@ impl Default for RootPools {
     }
 }
 
-impl title_select_engine::meter::RootLimits for RootPools {
+impl stage_select_engine::meter::RootLimits for RootPools {
     fn caps(&self, root: &str) -> Option<Arc<Caps>> {
         if let Some(caps) = self
             .caps
@@ -338,7 +338,7 @@ pub struct JobPools {
 
 impl JobPools {
     /// Lets `meter` report this Job's allowance from these pools.
-    pub fn meter(&self, meter: &title_select_engine::meter::JobMeter) {
+    pub fn meter(&self, meter: &stage_select_engine::meter::JobMeter) {
         meter.shares(self.readers.clone(), self.hashers.clone());
     }
 
@@ -400,16 +400,16 @@ impl Store {
     /// reads through the shared pools starts its threads as they let them work, whatever these say, so a Ceiling or
     /// pace changed while it runs reaches it at each worker's next file; these are what it records, and what the
     /// pace's share is taken of where it reads without them.
-    pub fn job_workers(&self) -> title_select_api::Workers {
+    pub fn job_workers(&self) -> stage_select_api::Workers {
         let cpus = crate::calibration::cpus();
         let Ok(view) = self.ceilings() else {
-            return title_select_api::Workers {
+            return stage_select_api::Workers {
                 readers: cpus,
                 hashers: cpus,
             };
         };
         let ceiling = |c: &Ceiling| c.ceiling.unwrap_or(1) as usize;
-        title_select_api::Workers {
+        stage_select_api::Workers {
             readers: view
                 .roots
                 .iter()
@@ -430,7 +430,7 @@ impl Store {
         let live = self.live_ceilings()?;
         // A Root not registered is read with the readers of the CPU count, at this pace.
         Ok(JobPools {
-            readers: title_select_engine::meter::RootLimits::readers(&*live.readers, root),
+            readers: stage_select_engine::meter::RootLimits::readers(&*live.readers, root),
             hashers: live.hashers.clone(),
         })
     }
@@ -456,7 +456,7 @@ impl Store {
 
     /// Each Root's byte-rate caps in force now, in bytes a second, by name: none for a Root under `unthrottled`, or
     /// without a byte-rate Ceiling.
-    pub fn byte_caps(&self) -> BTreeMap<String, title_select_api::ByteCaps> {
+    pub fn byte_caps(&self) -> BTreeMap<String, stage_select_api::ByteCaps> {
         self.ceilings
             .readers
             .caps
@@ -464,7 +464,7 @@ impl Store {
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(root, caps)| {
-                let caps = title_select_api::ByteCaps {
+                let caps = stage_select_api::ByteCaps {
                     read_bytes_per_s: caps.read.rate(),
                     write_bytes_per_s: caps.write.rate(),
                 };
@@ -485,10 +485,10 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::ByteCaps;
-    use title_select_api::calibration::{HostCalibration, Knee, RootCalibration, RootOutcome};
-    use title_select_api::settings::{HostCeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
-    use title_select_engine::meter::RootLimits;
+    use stage_select_api::ByteCaps;
+    use stage_select_api::calibration::{HostCalibration, Knee, RootCalibration, RootOutcome};
+    use stage_select_api::settings::{HostCeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    use stage_select_engine::meter::RootLimits;
 
     use super::*;
 
@@ -726,7 +726,7 @@ mod tests {
         let [readers, read_mib_per_s, write_mib_per_s] = ceilings;
         store
             .register_root(
-                &title_select_api::roots::RootSpec {
+                &stage_select_api::roots::RootSpec {
                     name: name.into(),
                     path: path.display().to_string(),
                     readers,
@@ -1083,13 +1083,13 @@ mod tests {
     }
 
     /// An Audit's reads, counted as they start and end.
-    impl title_select_engine::PayloadReads for Reading {
-        fn prior(&self, _: &str) -> Option<title_select_engine::PayloadRead> {
+    impl stage_select_engine::PayloadReads for Reading {
+        fn prior(&self, _: &str) -> Option<stage_select_engine::PayloadRead> {
             self.start();
             None
         }
 
-        fn record(&self, _: &str, _: &title_select_engine::PayloadRead) {
+        fn record(&self, _: &str, _: &stage_select_engine::PayloadRead) {
             self.end();
         }
     }
@@ -1138,25 +1138,25 @@ mod tests {
 
     fn audit(
         (set, dat): (&std::path::Path, &std::path::Path),
-        workers: title_select_api::Workers,
+        workers: stage_select_api::Workers,
         pools: &JobPools,
-        tally: title_select_engine::meter::Tally,
+        tally: stage_select_engine::meter::Tally,
         reads: &Reading,
-        progress: &(dyn Fn(title_select_engine::Progress) + Sync),
+        progress: &(dyn Fn(stage_select_engine::Progress) + Sync),
     ) {
-        let options = title_select_engine::Options {
+        let options = stage_select_engine::Options {
             file: "Test.dat".into(),
             confine: None,
             workers,
             pools: Some(pools.pools()),
             progress: Some(progress),
-            evidence: title_select_api::report::AuditEvidence::Full,
+            evidence: stage_select_api::report::AuditEvidence::Full,
             reads: Some(reads),
             tally,
             placed: &[],
             disks: None,
         };
-        title_select_engine::audit_with(dat, set, &options).unwrap();
+        stage_select_engine::audit_with(dat, set, &options).unwrap();
     }
 
     /// Runs `f` on a thread of its own, failing if it takes longer than 60 s.
@@ -1198,7 +1198,7 @@ mod tests {
             // Two at once at first, the default pace's half of your 4; six once you raise it to 12; one once you
             // lower it to 1, even unthrottled; then three once the pace is gentle and you raise it to 12 again. Each
             // change is made as that many files are done, and the files after it wait for it.
-            let progress = |p: title_select_engine::Progress| {
+            let progress = |p: stage_select_engine::Progress| {
                 let set = |u: SettingsUpdate| {
                     store.update_settings(&u, "Operator").unwrap();
                 };
@@ -1297,7 +1297,7 @@ mod tests {
                                 started: false,
                             };
                             let mut reading =
-                                title_select_engine::meter::Reading::new(counted, &tally);
+                                stage_select_engine::meter::Reading::new(counted, &tally);
                             std::io::copy(&mut reading, &mut std::io::sink()).unwrap();
                         }
                     });

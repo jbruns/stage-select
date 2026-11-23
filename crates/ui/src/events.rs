@@ -10,7 +10,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{EventSource, MessageEvent};
 
-use title_select_api::{JobEvent, Throughput};
+use stage_select_api::{JobEvent, Throughput};
 
 use crate::api;
 use crate::jobs::{Applied, JobBook, parse_event};

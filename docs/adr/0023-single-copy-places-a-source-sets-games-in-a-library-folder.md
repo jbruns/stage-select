@@ -11,7 +11,7 @@ Accepted. Amends ADR 0002, ADR 0010 and ADR 0013.
 A Build copies each selected Game from its Source Set into a Library Folder, so every selected Game is kept twice.
 Block cloning (ADR 0006) makes a copy nearly free only when both files share a format and a filesystem that clones.
 It does not help when they differ: a TorrentZip Source Set built loose, a disc Source Set built to CHD, a repack, or
-a Host whose filesystem does not clone. Organizers such as Sonarr keep one copy and move it into the library. Title
+a Host whose filesystem does not clone. Organizers such as Sonarr keep one copy and move it into the library. Stage
 Select is a preservation tool first, so it can't adopt that by default, but some Operators choose space over a
 second copy, and that choice is theirs to make.
 

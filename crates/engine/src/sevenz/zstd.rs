@@ -1,7 +1,7 @@
 //! zstd frames, checked as they stream out of a 7z towards the decoder.
 //!
 //! The zstd decoder `sevenz-rust2` builds reads frame after frame and takes each frame's window from its header,
-//! with no limit of Title Select's. [`Guarded`] sits between the archive and that decoder: it follows the frames of
+//! with no limit of Stage Select's. [`Guarded`] sits between the archive and that decoder: it follows the frames of
 //! each zstd packed stream as their bytes pass, and fails the read holding a frame header whose window passes the
 //! limit, so the decoder never sees that header and never allocates its window.
 

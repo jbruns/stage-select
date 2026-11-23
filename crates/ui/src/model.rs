@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use title_select_api::{
+use stage_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, Dat, DatRevisionRecord, Entry, EntryRow,
     EvidenceLevel, Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, ImportOutcome,
     NamedHeaderRule, Reuse,
@@ -629,9 +629,9 @@ pub struct AuditGames {
 }
 
 /// The Games of `games` the Audit found any of their own files of, among `entries`, as
-/// [`title_select_api::report::games_found`] finds them.
+/// [`stage_select_api::report::games_found`] finds them.
 pub fn games_found(entries: &[EntryRow], games: &[GameRow]) -> HashSet<String> {
-    title_select_api::report::games_found(
+    stage_select_api::report::games_found(
         entries.iter().map(|row| &row.entry),
         games.iter().map(|row| &row.game),
     )
@@ -884,9 +884,9 @@ pub fn is_plain_text(content_type: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stage_select_api::report::{DELTA_CHD, Dependency};
+    use stage_select_api::{AvailableElsewhere, Evidence, RomRef};
     use std::borrow::Cow;
-    use title_select_api::report::{DELTA_CHD, Dependency};
-    use title_select_api::{AvailableElsewhere, Evidence, RomRef};
 
     #[test]
     fn a_missing_header_warning_names_the_system_whose_emulators_need_it() {
@@ -1424,7 +1424,7 @@ mod tests {
         DatRevisionRecord {
             sha256: sha.repeat(64),
             dat: "No-Intro/Atari - 2600".into(),
-            format: title_select_api::DatFormat::Logiqx,
+            format: stage_select_api::DatFormat::Logiqx,
             provider: Some("No-Intro".into()),
             name: "Atari - 2600".into(),
             description: None,
@@ -1488,7 +1488,7 @@ mod tests {
     fn a_dat_revision_found_by_its_sha256_or_else_its_version() {
         let dats = vec![Dat {
             dat: "No-Intro/Atari - 2600".into(),
-            format: title_select_api::DatFormat::Logiqx,
+            format: stage_select_api::DatFormat::Logiqx,
             provider: Some("No-Intro".into()),
             name: "Atari - 2600".into(),
             revisions: vec![revision("a"), revision("b")],
@@ -1534,7 +1534,7 @@ mod tests {
     fn a_headered_entry_says_how_big_its_header_is() {
         let mut headered = entry("a.nes", Finding::Matched, &["Zelda"], &["sha1"]);
         assert_eq!(header_text(&headered), None);
-        headered.evidence.as_mut().unwrap().header = Some(title_select_api::Header { bytes: 16 });
+        headered.evidence.as_mut().unwrap().header = Some(stage_select_api::Header { bytes: 16 });
         assert_eq!(
             header_text(&headered).as_deref(),
             Some("16 bytes, left out when matching and kept in the file")

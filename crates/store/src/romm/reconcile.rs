@@ -1,5 +1,5 @@
 //! Comparing RomM's view of a Library Folder with the files its Builds made, once a scan the Build requested finished
-//! (#143). Title Select never writes identity into RomM (ADR 0020): it reads the platform's ROMs and their files, and
+//! (#143). Stage Select never writes identity into RomM (ADR 0020): it reads the platform's ROMs and their files, and
 //! shows where RomM disagrees. A file in the folder no Build made isn't compared: Drift covers it.
 //!
 //! RomM 5.4.1 (research 0136): `GET /api/platforms` names each platform's internal id beside its `fs_slug`;
@@ -15,8 +15,8 @@ use std::sync::Weak;
 
 use rusqlite::{OptionalExtension, params};
 use serde::Deserialize;
-use title_select_api::build::ExpectedRom;
-use title_select_api::romm::{
+use stage_select_api::build::ExpectedRom;
+use stage_select_api::romm::{
     RommFlag, RommReconcileCounts, RommReconcileRow, RommReconciliation, RommRescan,
     RommScanOutcome,
 };
@@ -143,7 +143,7 @@ fn unchanged(path: &Path, built: &Built) -> bool {
 }
 
 fn sha1_of(mut read: impl std::io::Read) -> Option<String> {
-    let mut hasher = title_select_engine::payload::Hasher::new();
+    let mut hasher = stage_select_engine::payload::Hasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
         match read.read(&mut buf) {
@@ -300,7 +300,7 @@ fn compare(
     (counts, rows)
 }
 
-/// Why reading RomM stopped: the Store is gone, Title Select is stopping, or RomM's settings changed meanwhile, and
+/// Why reading RomM stopped: the Store is gone, Stage Select is stopping, or RomM's settings changed meanwhile, and
 /// nothing is recorded; or a request failed, and that is.
 enum Halt {
     Abandon,
@@ -428,7 +428,7 @@ impl Store {
     /// finished (see [`Store::reconcile_romm`]). Any other Job, or scan, leads to none.
     pub fn reconcile_romm_scan(
         store: &Weak<Store>,
-        job: &title_select_api::Job,
+        job: &stage_select_api::Job,
         timing: &ScanTiming,
         stop: &ScanStop,
     ) -> Result<Option<RommReconciliation>> {

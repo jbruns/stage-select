@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::support;
-use title_select_api::discs::{self, DISC_RENAME, normalize};
-use title_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
+use stage_select_api::discs::{self, DISC_RENAME, normalize};
+use stage_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
 
 #[test]
 fn the_disc_rename_table_is_the_pinned_configs() {
     let path = Path::new(
-        &std::env::var_os("TITLE_SELECT_CLONE_LISTS").expect("set in .cargo/config.toml"),
+        &std::env::var_os("STAGE_SELECT_CLONE_LISTS").expect("set in .cargo/config.toml"),
     )
     .join("config/internal-config.json");
     #[derive(serde::Deserialize)]
@@ -73,7 +73,7 @@ fn only_europe_has_disc_2(dir: &Path) -> PathBuf {
 }
 
 fn write_dat(dir: &Path, file: &str, games: &[&str]) -> PathBuf {
-    let name = "Title Select - Discs";
+    let name = "Stage Select - Discs";
     let games: String = games.iter().map(|g| game(g)).collect();
     let path = dir.join(file);
     std::fs::write(
@@ -110,10 +110,10 @@ fn only_europe_having_disc_2_leaves_the_group_unresolved_until_your_choice_settl
     assert!(saga.unresolved, "{saga:#?}");
     // The engine's pick is unchanged: each disc is chosen by its own name, so Disc 2 can only come from Europe.
     assert_eq!(
-        titles(saga.winners.iter().map(|w| &w.title)),
+        titles(saga.kept.iter().map(|w| &w.title)),
         BTreeSet::from(["Saga (USA) (Disc 1)", "Saga (Europe) (Disc 2)"])
     );
-    assert!(saga.winners.iter().all(|w| !w.unresolved));
+    assert!(saga.kept.iter().all(|w| !w.unresolved));
     let solo = selection.groups.iter().find(|g| g.group == "solo").unwrap();
     assert!(!solo.unresolved);
     assert_eq!(selection.summary.unresolved, 1);
@@ -133,10 +133,7 @@ fn only_europe_having_disc_2_leaves_the_group_unresolved_until_your_choice_settl
     let saga = chosen.groups.iter().find(|g| g.group == "saga").unwrap();
     assert!(!saga.unresolved && !saga.needs_review(), "{saga:#?}");
     assert_eq!(saga.choice.as_ref().unwrap().status, ChoiceStatus::Applied);
-    assert_eq!(
-        titles(saga.winners.iter().map(|w| &w.title)),
-        titles(&europe)
-    );
+    assert_eq!(titles(saga.kept.iter().map(|w| &w.title)), titles(&europe));
     assert_eq!(chosen.summary.needs_review(), 0);
 
     // Confirming the engine's mixed pick is an explicit choice too, and it is kept.

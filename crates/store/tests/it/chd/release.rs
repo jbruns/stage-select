@@ -4,16 +4,16 @@
 //! with the files laid out beside them. Nothing is extracted, put home, filled or deleted.
 
 use super::*;
-use title_select_api::build::FileOutcome;
-use title_select_api::repair::{RepairChoice, RepairItem, RepairKind, RepairPlan, RepairStep};
-use title_select_api::report::GameStatus;
-use title_select_api::storage::placed_path;
-use title_select_store::Fault;
+use stage_select_api::build::FileOutcome;
+use stage_select_api::repair::{RepairChoice, RepairItem, RepairKind, RepairPlan, RepairStep};
+use stage_select_api::report::GameStatus;
+use stage_select_api::storage::placed_path;
+use stage_select_store::Fault;
 
 impl Env {
     /// Plans a repair of the source set with `choices` in place of the defaults.
     fn repair_plan(&self, choices: &[(&str, RepairChoice)]) -> RepairPlan {
-        let request = title_select_api::repair::PlanRepair {
+        let request = stage_select_api::repair::PlanRepair {
             choices: choices.iter().map(|(k, c)| (k.to_string(), *c)).collect(),
             ..Default::default()
         };
@@ -150,25 +150,25 @@ fn keeping(plan: &RepairPlan, path: &str) -> u32 {
 /// a track of other bytes, and audits it fully. Returns the folder and the selection that places it.
 fn damaged_orbit(env: &mut Env, chdman: &Path) -> (LibraryFolder, i64) {
     let folder = place_orbit(env, chdman);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let placing = env.select(&[CD]);
     let returning = env.select(&[DVD]);
     flag_orbit(env, &env.plan(&folder, returning));
     let made = tempfile::tempdir().unwrap();
     let other = orbit_with_another_track(chdman, made.path());
     std::fs::copy(&other, env.dir().join("Orbit (USA).chd")).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     assert_ne!(env.status(CD), GameStatus::Complete);
     (folder, placing)
 }
 
 /// Where the source set keeps `kept`, one of its kept files.
-fn kept_at(env: &Env, kept: &title_select_api::repair::SourceKeptFile) -> PathBuf {
+fn kept_at(env: &Env, kept: &stage_select_api::repair::SourceKeptFile) -> PathBuf {
     env.tmp
         .path()
         .join("roots/sets")
         .join(SET)
-        .join(".title-select/retained")
+        .join(".stage-select/retained")
         .join(kept.generation.to_string())
         .join(&kept.kept_name)
 }
@@ -229,7 +229,7 @@ fn a_repair_releases_a_damaged_placed_chd_into_the_source_sets_kept_files() {
     let kept = env.store.source_kept_files(SET).unwrap();
     let copy = kept_at(&env, &kept[0]);
     assert_eq!(std::fs::read(&copy).unwrap(), bytes, "set aside as it was");
-    let pick = title_select_api::build::PlanKeptDeletion {
+    let pick = stage_select_api::build::PlanKeptDeletion {
         ids: vec![kept[0].id],
         all: false,
     };
@@ -311,7 +311,7 @@ fn a_released_chd_is_rebuilt_by_the_next_repair_for_the_next_build_to_place() {
     assert_eq!(placed, [("Orbit (USA).chd".to_owned(), true)]);
     assert!(env.in_set(CD).is_empty(), "{:?}", env.in_set(CD));
     // Placed again as a CHD a full audit reads as the DAT's.
-    let report = env.audit(title_select_engine::AuditEvidence::Full);
+    let report = env.audit(stage_select_engine::AuditEvidence::Full);
     let game = report.games.iter().find(|g| g.name == CD).unwrap();
     assert_eq!(game.status, GameStatus::Complete, "{game:?}");
 }
@@ -420,7 +420,7 @@ fn a_copy_across_filesystems_whose_original_cant_be_deleted_stays_kept_beside_it
     assert_eq!(std::fs::read(env.dir().join(m3u)).unwrap(), bytes);
     each_disc_once(&env, &folder, "its folder can't be written", Some(m3u));
 
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     env.repair(&env.repair_plan(&[]));
     assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
     assert_eq!(env.set_kept(), saga_released_with(&folder, Some(m3u)));
@@ -460,7 +460,7 @@ fn a_release_its_root_has_no_space_for_is_refused_before_it_runs() {
         .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap_err();
     assert!(
-        matches!(&refused, title_select_store::Error::Refused(why) if why.contains("needs up to")),
+        matches!(&refused, stage_select_store::Error::Refused(why) if why.contains("needs up to")),
         "{refused:?}"
     );
     assert!(env.store.repair_plan(plan.id).unwrap().approval.is_none());
@@ -549,11 +549,11 @@ fn damaged_saga(env: &mut Env, chdman: &Path, n: usize) -> (LibraryFolder, i64) 
     let (folder, selection) = env.folder(&SAGA);
     let job = env.build(&env.plan(&folder, selection));
     assert_eq!(job.state, JobState::Succeeded, "{:?}", states(env, &job));
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let made = tempfile::tempdir().unwrap();
     let other = saga_with_another_track(chdman, made.path(), n);
     std::fs::copy(&other, env.dir().join(SAGA_CHDS[n - 1])).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     (folder, selection)
 }
 
@@ -681,7 +681,7 @@ fn a_two_disc_release_with_a_damaged_disc_sets_every_disc_aside() {
     assert!(env.store.placed_files(SET).unwrap().iter().all(|p| p.chd));
     assert!(env.in_set("Saga").is_empty(), "{:?}", env.in_set("Saga"));
     // Placed again as CHDs a full audit reads as the DAT's.
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     assert_eq!(env.status(SAGA[0]), GameStatus::Complete);
     assert_eq!(env.status(SAGA[1]), GameStatus::Complete);
 }
@@ -696,9 +696,9 @@ fn a_two_disc_release_with_a_gone_disc_sets_the_other_aside_and_forgets_it() {
     let (folder, selection) = env.folder(&SAGA);
     let job = env.build(&env.plan(&folder, selection));
     assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
 
     let plan = env.repair_plan(&[]);
     for game in SAGA {
@@ -817,7 +817,7 @@ fn a_release_left_part_way_is_released_whole_by_the_next_repair() {
     );
     each_disc_once(&env, &folder, "disc 1 changed", None);
 
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let plan = env.repair_plan(&[]);
     assert_eq!(item_of(&plan, SAGA[0]).chosen, RepairChoice::KeepAside);
     assert!(only_keeps(&plan), "{:#?}", plan.content.steps);
@@ -964,7 +964,7 @@ fn a_release_stopped_and_started_again_leaves_each_disc_placed_or_kept() {
             each_disc_once(&env, &folder, &label, twice);
 
             env.follow_up(plan.id);
-            env.audit(title_select_engine::AuditEvidence::Full);
+            env.audit(stage_select_engine::AuditEvidence::Full);
             if saga_anywhere_placed(&env) {
                 env.repair(&env.repair_plan(&[]));
             }
@@ -988,9 +988,9 @@ fn a_placed_chd_the_audit_couldnt_read_is_set_aside_only_by_your_choice() {
     let Some(chdman) = chdman() else { return };
     let mut env = Env::new(Some(&chdman));
     let folder = place_orbit(&mut env, &chdman);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     without_chdman(&mut env);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
 
     let plan = env.repair_plan(&[]);
     let item = item_of(&plan, CD);
@@ -1037,7 +1037,7 @@ fn choosing_to_set_aside_one_disc_the_audit_couldnt_read_sets_its_release_aside(
     let mut env = Env::new(Some(&chdman));
     let (folder, _) = damaged_saga(&mut env, &chdman, 2);
     without_chdman(&mut env);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
 
     let plan = env.repair_plan(&[]);
     for game in SAGA {
@@ -1070,7 +1070,7 @@ fn choosing_to_leave_one_disc_of_a_release_leaves_every_disc_placed() {
     }
     assert!(plan.content.steps.is_empty(), "{:#?}", plan.content.steps);
 
-    let request = title_select_api::repair::PlanRepair {
+    let request = stage_select_api::repair::PlanRepair {
         choices: [
             (format!("game:{}", SAGA[0]), RepairChoice::Leave),
             (format!("game:{}", SAGA[1]), RepairChoice::KeepAside),
@@ -1080,7 +1080,7 @@ fn choosing_to_leave_one_disc_of_a_release_leaves_every_disc_placed() {
     };
     let refused = env.store.plan_repair(SET, &request);
     assert!(
-        matches!(&refused, Err(title_select_store::Error::Refused(why)) if why.contains("choose the same")),
+        matches!(&refused, Err(stage_select_store::Error::Refused(why)) if why.contains("choose the same")),
         "{refused:?}"
     );
 }
@@ -1123,11 +1123,11 @@ fn a_released_disc_in_the_system_folder_takes_its_sbi_file_with_it() {
     let job = env.build(&env.plan(&folder, selection));
     assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
     assert_eq!(tree(&env.dir()), ["Orbit (USA).chd", "Orbit (USA).sbi"]);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let made = tempfile::tempdir().unwrap();
     let other = orbit_with_another_track(&chdman, made.path());
     std::fs::copy(other, env.dir().join("Orbit (USA).chd")).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
 
     let done = env.repair(&env.repair_plan(&[]));
     assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
@@ -1155,7 +1155,7 @@ fn flat_saga(env: &mut Env, chdman: &Path) -> LibraryFolder {
         .systems
         .get_mut(SYSTEM)
         .unwrap()
-        .layout = Some(title_select_api::storage::DiscLayout::Flat);
+        .layout = Some(stage_select_api::storage::DiscLayout::Flat);
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     sbi_on(
         env,
@@ -1176,7 +1176,7 @@ fn flat_saga(env: &mut Env, chdman: &Path) -> LibraryFolder {
             "Saga (USA) (Disc 2).sbi",
         ]
     );
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     folder
 }
 
@@ -1190,7 +1190,7 @@ fn a_release_laid_out_flat_takes_its_sbi_files_with_it() {
     let made = tempfile::tempdir().unwrap();
     let other = saga_with_another_track(&chdman, made.path(), 2);
     std::fs::copy(other, env.dir().join("Saga (USA) (Disc 2).chd")).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
 
     let done = env.repair(&env.repair_plan(&[]));
     assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
@@ -1216,7 +1216,7 @@ fn a_release_one_of_whose_sbi_files_cant_be_set_aside_stays_recorded_by_its_chds
     let mut env = Env::new(Some(&chdman));
     let folder = flat_saga(&mut env, &chdman);
     std::fs::remove_file(env.dir().join("Saga (USA) (Disc 2).chd")).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let plan = env.repair_plan(&[]);
     let sbi = env.dir().join("Saga (USA) (Disc 2).sbi");
     env.store
@@ -1237,7 +1237,7 @@ fn a_release_one_of_whose_sbi_files_cant_be_set_aside_stays_recorded_by_its_chds
         [placed_path(folder.id, "Saga (USA) (Disc 1).sbi")]
     );
 
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     env.repair(&env.repair_plan(&[]));
     assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
     assert_eq!(
@@ -1262,7 +1262,7 @@ fn a_release_whose_every_chd_is_gone_sets_its_m3u_aside_and_forgets_its_discs() 
     for chd in SAGA_CHDS {
         std::fs::remove_file(env.dir().join(chd)).unwrap();
     }
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let plan = env.repair_plan(&[]);
     for game in SAGA {
         assert_eq!(item_of(&plan, game).chosen, RepairChoice::KeepAside);
@@ -1310,7 +1310,7 @@ fn a_release_whose_m3u_cant_be_set_aside_stays_placed_whole() {
     assert!(env.set_kept().is_empty(), "{:?}", env.set_kept());
     each_disc_once(&env, &folder, "the .m3u changed", None);
 
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     env.repair(&env.repair_plan(&[]));
     assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
     assert_eq!(env.set_kept(), saga_released(&folder));
@@ -1360,7 +1360,7 @@ fn a_release_stopped_before_its_delete_stamp_is_recorded_keeps_the_copy_and_the_
     assert_eq!(env.set_kept(), saga_released(&folder), "nothing lost");
 
     env.follow_up(plan.id);
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let plan = env.repair_plan(&[]);
     assert_eq!(item_of(&plan, SAGA[0]).chosen, RepairChoice::KeepAside);
     env.repair(&plan);
@@ -1383,7 +1383,7 @@ fn a_gone_disc_put_back_as_its_release_is_released_stays_placed() {
         let path = env.dir().join(SAGA_CHDS[1]);
         let bytes = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        env.audit(title_select_engine::AuditEvidence::Full);
+        env.audit(stage_select_engine::AuditEvidence::Full);
         let plan = env.repair_plan(&[]);
         let seq = keeping(&plan, put_back);
         env.store
@@ -1417,7 +1417,7 @@ fn a_release_whose_every_chd_is_gone_stays_recorded_until_its_last_side_file_is_
         for n in 1..=2 {
             std::fs::remove_file(env.dir().join(format!("Saga (USA) (Disc {n}).chd"))).unwrap();
         }
-        env.audit(title_select_engine::AuditEvidence::Full);
+        env.audit(stage_select_engine::AuditEvidence::Full);
         let plan = env.repair_plan(&[]);
         assert!(only_keeps(&plan), "{:#?}", plan.content.steps);
         let sbi = env.dir().join(format!("Saga (USA) (Disc {changed}).sbi"));
@@ -1445,7 +1445,7 @@ fn a_release_whose_every_chd_is_gone_stays_recorded_until_its_last_side_file_is_
                 .exists()
         );
 
-        env.audit(title_select_engine::AuditEvidence::Full);
+        env.audit(stage_select_engine::AuditEvidence::Full);
         env.repair(&env.repair_plan(&[]));
         assert!(!saga_anywhere_placed(&env), "{:?}", tree(&env.dir()));
         assert_eq!(
@@ -1498,7 +1498,7 @@ fn a_gone_disc_beside_a_placed_chd_read_only_by_its_claim_is_never_filled() {
     let (_folder, _) = damaged_saga(&mut env, &chdman, 2);
     store_as_torrentzip(&env);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Quick);
+    env.audit(stage_select_engine::AuditEvidence::Quick);
     let zip = saga_zip(&env, 2);
     ingest(&mut env, &chdman, "Saga 2.zip", &zip);
     let plan = env.repair_plan(&[]);
@@ -1520,8 +1520,8 @@ fn a_placed_chd_rewritten_under_its_stamp_since_an_incremental_audit_is_left_as_
     let Some(chdman) = chdman() else { return };
     let mut env = Env::new(Some(&chdman));
     damaged_saga(&mut env, &chdman, 2);
-    env.audit(title_select_engine::AuditEvidence::Quick);
-    env.audit(title_select_engine::AuditEvidence::Incremental);
+    env.audit(stage_select_engine::AuditEvidence::Quick);
+    env.audit(stage_select_engine::AuditEvidence::Incremental);
     let plan = env.repair_plan(&[]);
     assert!(only_keeps(&plan));
     assert_eq!(item_of(&plan, SAGA[0]).chosen, RepairChoice::KeepAside);
@@ -1541,7 +1541,7 @@ fn a_gone_disc_beside_a_placed_chd_changed_since_the_full_audit_is_never_filled(
     let (folder, _) = damaged_saga(&mut env, &chdman, 2);
     store_as_torrentzip(&env);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     corrupt_keeping_stamp(&env.dir().join(SAGA_CHDS[0]));
     let zip = saga_zip(&env, 2);
     ingest(&mut env, &chdman, "Saga 2.zip", &zip);
@@ -1600,7 +1600,7 @@ fn a_chd_put_back_before_its_keep_is_recorded_stays_placed() {
         "a restored CHD is orphaned: {:?}",
         env.placed_paths(),
     );
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let next = env.repair_plan(&[]);
     assert!(only_keeps(&next));
     keeping(&next, SAGA_CHDS[0]);
@@ -1614,7 +1614,7 @@ fn a_gone_disc_beside_a_damaged_chd_read_only_by_its_claim_is_never_filled() {
     let mut env = Env::new(Some(&chdman));
     damaged_saga(&mut env, &chdman, 1);
     std::fs::remove_file(env.dir().join(SAGA_CHDS[1])).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Quick);
+    env.audit(stage_select_engine::AuditEvidence::Quick);
     let zip = saga_zip(&env, 2);
     ingest(&mut env, &chdman, "Saga 2.zip", &zip);
     let plan = env.repair_plan(&[]);
@@ -1627,8 +1627,8 @@ fn a_gone_disc_beside_a_damaged_chd_read_only_by_its_claim_is_never_filled() {
 fn a_parted_release_with_an_ingest_copy_is_never_filled() {
     let Some(chdman) = chdman() else { return };
     for evidence in [
-        title_select_engine::AuditEvidence::Full,
-        title_select_engine::AuditEvidence::Quick,
+        stage_select_engine::AuditEvidence::Full,
+        stage_select_engine::AuditEvidence::Quick,
     ] {
         let mut env = Env::new(Some(&chdman));
         let (folder, _) = damaged_saga(&mut env, &chdman, 1);
@@ -1675,12 +1675,12 @@ fn a_conflicting_entry_in_a_released_chd_is_set_aside_once() {
     let mut env = Env::new(Some(&chdman));
     let (folder, _) = damaged_saga(&mut env, &chdman, 1);
     std::fs::copy(env.dir().join(SAGA_CHDS[1]), env.dir().join(SAGA_CHDS[0])).unwrap();
-    let report = env.audit(title_select_engine::AuditEvidence::Full);
+    let report = env.audit(stage_select_engine::AuditEvidence::Full);
     assert!(
         report
             .entries
             .iter()
-            .any(|entry| entry.finding == title_select_api::Finding::Conflicting)
+            .any(|entry| entry.finding == stage_select_api::Finding::Conflicting)
     );
     let plan = env.repair_plan(&[]);
     assert!(
@@ -1734,7 +1734,7 @@ fn a_two_disc_release_with_copies_ingested_before_it_is_released_is_rebuilt_by_t
     assert_eq!(job.state, JobState::Succeeded, "{:?}", states(&env, &job));
     assert_eq!(env.placed_paths(), SAGA_CHDS);
     assert!(env.in_set("Saga").is_empty(), "{:?}", env.in_set("Saga"));
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     assert_eq!(env.status(SAGA[0]), GameStatus::Complete);
     assert_eq!(env.status(SAGA[1]), GameStatus::Complete);
 }
@@ -1788,7 +1788,7 @@ fn a_chd_put_back_in_a_replaced_folder(across: bool) {
         "across={across}: a restored CHD is orphaned: {:?}",
         env.placed_paths()
     );
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let next = env.repair_plan(&[]);
     assert!(only_keeps(&next), "{:#?}", next.content);
     keeping(&next, SAGA_CHDS[0]);
@@ -1845,7 +1845,7 @@ fn a_chd_put_back_in_a_replaced_library_folder_as_its_keep_is_recorded_stays_pla
         "a restored CHD is orphaned: {:?}",
         env.placed_paths()
     );
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let next = env.repair_plan(&[]);
     assert!(only_keeps(&next), "{:#?}", next.content);
     keeping(&next, SAGA_CHDS[1]);
@@ -1869,7 +1869,7 @@ fn a_release_split_by_a_chd_put_back_after_its_repair_was_approved_is_written_no
         std::fs::remove_file(env.dir().join(chd)).unwrap();
     }
     std::fs::remove_file(env.dir().join("Saga (USA).m3u/Saga (USA).m3u")).unwrap();
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let zip = saga_zip(&env, 2);
     ingest(&mut env, &chdman, "Saga 2.zip", &zip);
     let plan = env.repair_plan(&[]);
@@ -1888,7 +1888,7 @@ fn a_release_split_by_a_chd_put_back_after_its_repair_was_approved_is_written_no
         !env.in_set(SAGA[1]).is_empty(),
         "the split this test starts from"
     );
-    env.audit(title_select_engine::AuditEvidence::Full);
+    env.audit(stage_select_engine::AuditEvidence::Full);
     let next = env.repair_plan(&[]);
     assert!(plans_nothing_for_saga(&next), "{:#?}", next.content);
 }

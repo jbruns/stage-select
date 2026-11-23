@@ -26,10 +26,10 @@ tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar
 tools/curated-list/fetch  # the curated list for the arcade Selection tests
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
-cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
-cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
-cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
-cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+cargo nextest run --profile ci --locked -E 'not binary_id(stage-select-selection::fixtures)'
+cargo nextest run --profile ci --release --locked --package stage-select-selection --test fixtures
 ```
 
 Locally, build only what your role needs, through `tools/check`:

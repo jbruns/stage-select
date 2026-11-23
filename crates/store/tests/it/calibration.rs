@@ -1,16 +1,16 @@
 //! Calibration Jobs: how one queues ahead of every other Job and runs alone, what it reads and records, and when
 //! its results are Stale, from synthetic Roots with tiny step limits.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::path::PathBuf;
 use std::time::Duration;
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
-use title_select_api::calibration::{CalibrationStale, RootOutcome};
-use title_select_api::{AuditEvidence, JobKind, JobState, Workers};
-use title_select_engine::calibrate::Limits;
-use title_select_store::calibration::Calibrating;
-use title_select_store::{DATABASE, Error, Store};
+use stage_select_api::calibration::{CalibrationStale, RootOutcome};
+use stage_select_api::{AuditEvidence, JobKind, JobState, Workers};
+use stage_select_engine::calibrate::Limits;
+use stage_select_store::calibration::Calibrating;
+use stage_select_store::{DATABASE, Error, Store};
 
 const KIB: usize = 1 << 10;
 
@@ -92,7 +92,7 @@ impl Env {
         self.tmp.path().join("sets").join(name)
     }
 
-    fn enqueue_audit(&self, set: &str) -> title_select_api::Job {
+    fn enqueue_audit(&self, set: &str) -> stage_select_api::Job {
         self.store
             .enqueue_audit(
                 set,
@@ -108,7 +108,7 @@ impl Env {
     }
 
     /// Queues a Calibration, claims it and runs it.
-    fn calibrate(&self, how: &Calibrating) -> title_select_api::Job {
+    fn calibrate(&self, how: &Calibrating) -> stage_select_api::Job {
         let job = self.store.enqueue_calibration("Operator").unwrap();
         assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
         self.store.run_calibration(job.id, how).unwrap()
@@ -250,7 +250,7 @@ fn a_cancelled_calibration_keeps_the_roots_it_finished() {
     let job = env.store.enqueue_calibration("Operator").unwrap();
     env.store.claim_job().unwrap().unwrap();
     // Cancelled once the Host and the first Root, `in`, are measured.
-    let cancel = |p: title_select_engine::Progress| {
+    let cancel = |p: stage_select_engine::Progress| {
         if p.files_done == 2 {
             env.store.cancel_job(job.id).unwrap();
         }
@@ -296,7 +296,7 @@ fn a_calibration_that_panics_fails_and_lets_other_jobs_run() {
     let job = env.store.enqueue_calibration("Operator").unwrap();
     env.store.claim_job().unwrap().unwrap();
     let held = env.enqueue_audit("Alpha");
-    let panics = |p: title_select_engine::Progress| {
+    let panics = |p: stage_select_engine::Progress| {
         if p.files_done == 2 {
             panic!("a sweep went wrong");
         }

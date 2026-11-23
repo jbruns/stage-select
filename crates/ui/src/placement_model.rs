@@ -4,9 +4,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use title_select_api::build::{BuiltFile, LibraryFolder, PlacedFile};
-use title_select_api::storage::split_placed;
-use title_select_api::{EntryRow, GameStatus, ReviewFlag, SourceSetSummary};
+use stage_select_api::build::{BuiltFile, LibraryFolder, PlacedFile};
+use stage_select_api::storage::split_placed;
+use stage_select_api::{EntryRow, GameStatus, ReviewFlag, SourceSetSummary};
 
 use crate::model::when;
 use crate::parts::status::Placement;
@@ -441,15 +441,15 @@ mod tests {
         };
         let placed = game_placements(&[
             entry(1, "Pong (USA).zip", "Pong (USA)"),
-            entry(2, ".title-select/placed/7/Combat (USA).zip", "Combat (USA)"),
+            entry(2, ".stage-select/placed/7/Combat (USA).zip", "Combat (USA)"),
             entry(
                 3,
-                ".title-select/placed/7/disc/Orbit (Track 1).bin",
+                ".stage-select/placed/7/disc/Orbit (Track 1).bin",
                 "Orbit",
             ),
             entry(
                 4,
-                ".title-select/placed/7/disc/Orbit (Track 2).bin",
+                ".stage-select/placed/7/disc/Orbit (Track 2).bin",
                 "Orbit",
             ),
         ]);
@@ -502,7 +502,7 @@ mod tests {
     fn review_flag(game: &str) -> ReviewFlag {
         ReviewFlag {
             game: game.into(),
-            path: format!(".title-select/placed/7/{game}.chd"),
+            path: format!(".stage-select/placed/7/{game}.chd"),
             reason: "track 2's SHA-1 differs from the DAT's".into(),
             build: 12,
             raised_at: "2026-11-01T10:00:00Z".into(),
@@ -634,7 +634,7 @@ mod tests {
     fn a_flagged_game_says_why_and_which_build_found_it() {
         let flag = ReviewFlag {
             game: "Orbit".into(),
-            path: ".title-select/placed/7/Orbit.chd".into(),
+            path: ".stage-select/placed/7/Orbit.chd".into(),
             reason: "track 2's SHA-1 differs from the DAT's".into(),
             build: 12,
             raised_at: "2026-11-01T10:00:00Z".into(),

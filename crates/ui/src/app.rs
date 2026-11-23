@@ -4,9 +4,9 @@ use leptos_router::components::{A, ParentRoute, Redirect, Route, Router, Routes}
 use leptos_router::hooks::use_navigate;
 use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
-use title_select_api::ingest::IngestFolder;
-use title_select_api::settings::{Pace, SettingsView};
-use title_select_api::{Job, JobState};
+use stage_select_api::ingest::IngestFolder;
+use stage_select_api::settings::{Pace, SettingsView};
+use stage_select_api::{Job, JobState};
 
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
@@ -42,7 +42,7 @@ pub fn App() -> impl IntoView {
             <header class="bar">
                 <a class="brand" href="/">
                     <img src="/icon-64.png" alt="" width="24" height="24" />
-                    <span class="brand-name">"Title Select"</span>
+                    <span class="brand-name">"Stage Select"</span>
                 </a>
                 <Nav />
                 <PaceMark />
@@ -88,7 +88,7 @@ pub fn App() -> impl IntoView {
                 </Routes>
             </main>
             <footer class="footer">
-                <A href="/settings/about">"About Title Select and its licences"</A>
+                <A href="/settings/about">"About Stage Select and its licences"</A>
             </footer>
         </Router>
     }
@@ -225,7 +225,7 @@ fn replace() -> NavigateOptions {
 }
 
 /// The local storage key holding the failed Jobs the Operator opened.
-const SEEN_JOBS_KEY: &str = "title-select.seen-failed-jobs";
+const SEEN_JOBS_KEY: &str = "stage-select.seen-failed-jobs";
 
 /// The failed Jobs the Operator opened, shared by the Activity badge and the screen that marks them seen.
 #[derive(Clone, Copy)]

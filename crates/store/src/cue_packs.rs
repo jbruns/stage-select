@@ -15,9 +15,9 @@ use super::fetch::{NOT_HELD, hold_pack};
 use super::repairs::planning::CueSheet;
 use super::{Error, Result, Store, io_error, now};
 
-use title_select_api::{CuePackOrigin, CuePackRecord, ImportOutcome};
-use title_select_engine::build::CueLimits;
-use title_select_engine::payload::Checksums;
+use stage_select_api::{CuePackOrigin, CuePackRecord, ImportOutcome};
+use stage_select_engine::build::CueLimits;
+use stage_select_engine::payload::Checksums;
 
 /// The directory, in the store directory, that holds cue packs.
 pub const CUE_PACKS: &str = "cue_packs";
@@ -122,7 +122,7 @@ impl Store {
                 "{dat}: import the DAT before a cue pack for it"
             )));
         }
-        let sha = title_select_engine::sha256_hex(bytes);
+        let sha = stage_select_engine::sha256_hex(bytes);
         let packs = self.dir.join(CUE_PACKS);
         std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;
         let tmp = packs.join(format!(".{sha}.check"));
@@ -130,7 +130,7 @@ impl Store {
         let sheets = File::open(&tmp)
             .map_err(|e| io_error(&tmp, e))
             .and_then(|f| {
-                title_select_engine::build::cue_sheets(&f, &CUE_LIMITS)
+                stage_select_engine::build::cue_sheets(&f, &CUE_LIMITS)
                     .map_err(|why| Error::Refused(format!("{file}: not a cue pack: {why}")))
             });
         let _ = std::fs::remove_file(&tmp);

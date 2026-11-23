@@ -1,18 +1,18 @@
 //! Repairing Source Sets: plans proposed from the latest Audit and assessed ingest items, the choices you make before
 //! approving one, and what an approved repair does, from synthetic DATs, Source Sets and files.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
-use title_select_api::build::PlanKeptDeletion;
-use title_select_api::ingest::Need;
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
-use title_select_api::storage::{StorageFormat, SystemStorage};
-use title_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
-use title_select_engine::build::is_torrentzip;
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::build::PlanKeptDeletion;
+use stage_select_api::ingest::Need;
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use stage_select_api::storage::{StorageFormat, SystemStorage};
+use stage_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
+use stage_select_engine::build::is_torrentzip;
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -63,11 +63,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -146,7 +146,7 @@ impl Env {
     }
 
     /// Claims and runs the Repair Job queued for `plan`.
-    fn run_repair_job(&self, plan: &RepairPlan) -> title_select_api::Job {
+    fn run_repair_job(&self, plan: &RepairPlan) -> stage_select_api::Job {
         let job = plan.job.expect("an approved repair has a job");
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job);
@@ -162,7 +162,7 @@ impl Env {
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     }
 
-    fn latest_report(&self) -> title_select_api::Report {
+    fn latest_report(&self) -> stage_select_api::Report {
         let latest = &self.store.history("Alpha").unwrap()[0];
         self.store.report(latest.id).unwrap()
     }
@@ -193,12 +193,12 @@ impl Env {
     fn ingest_listing(&self) -> Vec<String> {
         Env::files(&self.tmp.path().join("in"))
             .into_iter()
-            .filter(|p| p != ".title-select/marker")
+            .filter(|p| p != ".stage-select/marker")
             .collect()
     }
 }
 
-fn item<'a>(plan: &'a RepairPlan, key: &str) -> &'a title_select_api::repair::RepairItem {
+fn item<'a>(plan: &'a RepairPlan, key: &str) -> &'a stage_select_api::repair::RepairItem {
     plan.content
         .items
         .iter()
@@ -245,8 +245,8 @@ fn a_misnamed_game_is_renamed_as_torrentzip_and_the_first_repair_writes_the_mark
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Pong (Anthology).a26.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Pong (Anthology).a26.kept",
             "Pong (USA).zip"
         ]
     );
@@ -302,10 +302,10 @@ fn a_game_not_stored_as_torrentzip_is_repacked_and_its_original_kept() {
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Adventure (USA).zip.kept",
-            ".title-select/retained/1/Combat (USA).zip.kept",
-            ".title-select/retained/1/Yars (USA).a26.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Adventure (USA).zip.kept",
+            ".stage-select/retained/1/Combat (USA).zip.kept",
+            ".stage-select/retained/1/Yars (USA).a26.kept",
             "Adventure (USA).zip",
             "Combat (USA).zip",
             "Yars (USA).zip",
@@ -1042,8 +1042,8 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/readme.txt.kept"
+            ".stage-select/marker",
+            ".stage-select/retained/1/readme.txt.kept"
         ]
     );
 
@@ -1070,7 +1070,7 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
         .unwrap();
 
     assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
-    assert_eq!(env.listing(), [".title-select/marker"]);
+    assert_eq!(env.listing(), [".stage-select/marker"]);
     assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
 }
 
@@ -1104,9 +1104,9 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
             )
             .unwrap();
         let set = env.set();
-        let kept = set.join(".title-select/retained/1/readme.txt.kept");
+        let kept = set.join(".stage-select/retained/1/readme.txt.kept");
         if once_moved {
-            let deleting = set.join(".title-select/retained/.deleting");
+            let deleting = set.join(".stage-select/retained/.deleting");
             env.store
                 .hook_faults(Some(std::sync::Arc::new(move |fault| {
                     if fault == Fault::SourceKeptMoved(id) {
@@ -1168,7 +1168,7 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
     let moved = env.listing();
     let slot = moved
         .iter()
-        .find(|p| p.starts_with(".title-select/retained/.deleting/"))
+        .find(|p| p.starts_with(".stage-select/retained/.deleting/"))
         .unwrap_or_else(|| panic!("{moved:?}"))
         .clone();
     let recover_until_synced = || {
@@ -1317,7 +1317,7 @@ fn once_a_source_set_has_been_repaired_a_repair_is_refused_without_its_marker() 
     let plan = env.plan();
     assert!(!plan.content.creates_marker);
 
-    std::fs::remove_file(env.set().join(".title-select/marker")).unwrap();
+    std::fs::remove_file(env.set().join(".stage-select/marker")).unwrap();
     let before = env.listing();
     let refused = env
         .store
@@ -1352,8 +1352,8 @@ fn a_conflicting_entry_is_left_unless_you_choose_otherwise() {
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Combat (USA).a26.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Combat (USA).a26.kept",
             "Pong (USA).zip"
         ]
     );
@@ -1378,8 +1378,8 @@ fn a_conflicting_entry_you_choose_to_keep_aside_is_kept_aside() {
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Combat (USA).a26.kept"
+            ".stage-select/marker",
+            ".stage-select/retained/1/Combat (USA).a26.kept"
         ]
     );
 }
@@ -1396,7 +1396,7 @@ fn a_missing_game_filled_from_a_loose_ingest_item_that_is_exactly_its_rom_delete
     assert_eq!(pong.default, RepairChoice::Apply);
     let done = env.approve(&plan);
 
-    assert_eq!(env.listing(), [".title-select/marker", "Pong (USA).zip"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Pong (USA).zip"]);
     assert!(is_torrentzip(&env.set().join("Pong (USA).zip")));
     assert!(
         env.ingest_listing().is_empty(),
@@ -1430,7 +1430,7 @@ fn a_missing_game_filled_from_a_zip_ingest_item_keeps_the_original_in_the_ingest
     assert_eq!(item(&plan, "game:Combat (USA)").kind, RepairKind::Fill);
     env.approve(&plan);
 
-    assert_eq!(env.listing(), [".title-select/marker", "Combat (USA).zip"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Combat (USA).zip"]);
     assert!(is_torrentzip(&env.set().join("Combat (USA).zip")));
     let kept = env.store.ingest_kept_files("in").unwrap();
     assert_eq!(kept.len(), 1);
@@ -1438,7 +1438,7 @@ fn a_missing_game_filled_from_a_zip_ingest_item_keeps_the_original_in_the_ingest
     assert_eq!(
         env.ingest_listing(),
         [format!(
-            ".title-select/retained/{}/combat.zip.kept",
+            ".stage-select/retained/{}/combat.zip.kept",
             kept[0].generation
         )]
     );
@@ -1464,8 +1464,8 @@ fn a_mismatched_entry_is_replaced_from_ingest_and_kept() {
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Yars (USA).a26.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Yars (USA).a26.kept",
             "Yars (USA).zip"
         ]
     );
@@ -1572,7 +1572,7 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
         );
         let kept: Vec<&String> = listing
             .iter()
-            .filter(|p| p.starts_with(".title-select/retained/"))
+            .filter(|p| p.starts_with(".stage-select/retained/"))
             .collect();
         assert_eq!(
             kept.len(),
@@ -1625,7 +1625,7 @@ fn originals_named_alike_but_for_case_are_kept_under_names_that_differ_beyond_ca
     assert_eq!(
         listing
             .iter()
-            .filter(|p| p.starts_with(".title-select/retained/"))
+            .filter(|p| p.starts_with(".stage-select/retained/"))
             .count(),
         2,
         "{listing:?}"
@@ -1675,8 +1675,8 @@ fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
         assert_eq!(
             env.listing(),
             [
-                ".title-select/marker",
-                ".title-select/retained/1/Pong (Anthology).a26.kept",
+                ".stage-select/marker",
+                ".stage-select/retained/1/Pong (Anthology).a26.kept",
                 "Pong (USA).zip"
             ],
             "{stop:?}"
@@ -1906,7 +1906,7 @@ fn assert_nothing_done(env: &Env, plan: &RepairPlan) {
     );
     assert_eq!(
         env.listing(),
-        [".title-select/marker", "Pong (Anthology).a26", "readme.txt"]
+        [".stage-select/marker", "Pong (Anthology).a26", "readme.txt"]
     );
 }
 
@@ -1921,7 +1921,7 @@ fn a_step_a_cancellation_skipped_never_commits_its_item() {
         .iter()
         .position(|s| s.item == "game:Pong (USA)" && matches!(s.step, RepairStep::Keep { .. }))
         .unwrap();
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "UPDATE repair_steps SET state = 'skipped', error = 'cancelled' WHERE seq = ?1",
         [keep as i64],
@@ -1990,14 +1990,14 @@ fn swapped_in_for_a_staged_file_being_deleted(reusing_its_inode: bool) {
     assert!(ran.is_err(), "{ran:?}");
     env.store.inject_fault(None);
     // What was moved to be deleted is, by the time the repair goes on, another file.
-    let deleting = env.set().join(".title-select/retained/.deleting");
+    let deleting = env.set().join(".stage-select/retained/.deleting");
     let slot = std::fs::read_dir(&deleting)
         .unwrap()
         .next()
         .unwrap()
         .unwrap()
         .path();
-    let staged = std::fs::read_dir(env.set().join(".title-select"))
+    let staged = std::fs::read_dir(env.set().join(".stage-select"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .find(|n| n.starts_with("new-"));
@@ -2027,7 +2027,7 @@ fn swapped_in_for_a_staged_file_being_deleted(reusing_its_inode: bool) {
         .listing()
         .into_iter()
         .find(|n| {
-            n.starts_with(".title-select/new-") || n.starts_with(".title-select/retained/1/new-")
+            n.starts_with(".stage-select/new-") || n.starts_with(".stage-select/retained/1/new-")
         })
         .unwrap_or_else(|| panic!("{:?}", env.listing()));
     assert_eq!(
@@ -2040,7 +2040,7 @@ fn swapped_in_for_a_staged_file_being_deleted(reusing_its_inode: bool) {
 fn a_staged_file_changed_since_it_was_written_is_kept_and_never_deleted() {
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
-    let staged = std::fs::read_dir(env.set().join(".title-select"))
+    let staged = std::fs::read_dir(env.set().join(".stage-select"))
         .unwrap()
         .map(|e| e.unwrap().path())
         .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("new-"))
@@ -2064,14 +2064,14 @@ fn a_staged_file_changed_since_it_was_written_is_kept_and_never_deleted() {
     assert_eq!(
         std::fs::read(
             env.set()
-                .join(".title-select/retained/1")
+                .join(".stage-select/retained/1")
                 .join(&kept[0].kept_name)
         )
         .unwrap(),
         b"someone else's"
     );
     assert!(
-        std::fs::read_dir(env.set().join(".title-select/retained/.deleting"))
+        std::fs::read_dir(env.set().join(".stage-select/retained/.deleting"))
             .unwrap()
             .next()
             .is_none()
@@ -2082,7 +2082,7 @@ fn a_staged_file_changed_since_it_was_written_is_kept_and_never_deleted() {
 fn a_staged_file_written_to_once_moved_to_be_deleted_is_kept_even_with_the_same_bytes() {
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
-    let deleting = env.set().join(".title-select/retained/.deleting");
+    let deleting = env.set().join(".stage-select/retained/.deleting");
     // Only its ctime tells: written through a descriptor with what it held, its mtime set back.
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -2113,7 +2113,7 @@ fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_un
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
     // The kept files folder can't be made, so nothing can be moved to be deleted.
-    let blocker = env.set().join(".title-select/retained");
+    let blocker = env.set().join(".stage-select/retained");
     let at = blocker.clone();
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -2141,7 +2141,7 @@ fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_un
 }
 
 #[test]
-fn a_new_file_kept_aside_is_recorded_as_title_selects_only_while_it_matches_what_was_written() {
+fn a_new_file_kept_aside_is_recorded_as_stage_selects_only_while_it_matches_what_was_written() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");
     env.audit(AuditEvidence::Full);
@@ -2159,7 +2159,7 @@ fn a_new_file_kept_aside_is_recorded_as_title_selects_only_while_it_matches_what
     let target = env.set().join("Pong (USA).zip");
     let kept = env
         .set()
-        .join(".title-select/retained/1/Pong (USA).zip.kept");
+        .join(".stage-select/retained/1/Pong (USA).zip.kept");
     // Once moved aside, the file under that inode is rewritten before the service, stopping, records it kept.
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -2205,7 +2205,7 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_kept_after_a
             .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         let set = env.set();
-        let kept = set.join(".title-select/retained/1/Pong (USA).zip.kept");
+        let kept = set.join(".stage-select/retained/1/Pong (USA).zip.kept");
         let staged = std::sync::Arc::new(std::sync::Mutex::new(None));
         let found = staged.clone();
         let kept_path = kept.clone();
@@ -2214,7 +2214,7 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_kept_after_a
             .hook_faults(Some(std::sync::Arc::new(move |fault| {
                 if fault == Fault::RepairStaged(0) {
                     std::fs::write(set.join("Pong (USA).zip"), b"someone else's").unwrap();
-                    *found.lock().unwrap() = std::fs::read_dir(set.join(".title-select"))
+                    *found.lock().unwrap() = std::fs::read_dir(set.join(".stage-select"))
                         .unwrap()
                         .map(|e| e.unwrap().path())
                         .find(|p| {
@@ -2272,7 +2272,7 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_only_once_bo
         .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     let set = env.set();
-    let kept = set.join(".title-select/retained/1/Pong (USA).zip.kept");
+    let kept = set.join(".stage-select/retained/1/Pong (USA).zip.kept");
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
             if fault == Fault::RepairStaged(0) {
@@ -2379,7 +2379,7 @@ fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_st
     );
     assert!(
         env.listing()
-            .contains(&".title-select/retained/1/Pong (USA).zip.kept".to_owned())
+            .contains(&".stage-select/retained/1/Pong (USA).zip.kept".to_owned())
     );
 }
 
@@ -2426,7 +2426,7 @@ fn a_kept_file_recorded_before_a_stop_is_accepted_when_its_step_runs_again() {
     assert!(ran.is_err(), "{ran:?}");
     env.store.inject_fault(None);
     // As a stop between recording the kept file and ending its step would leave it.
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "UPDATE repair_steps SET state = 'moving', kept_id = NULL, finished_at = NULL WHERE seq = ?1",
         [keep as i64],
@@ -2467,8 +2467,8 @@ fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_agai
         assert_eq!(
             env.listing(),
             [
-                ".title-select/marker",
-                ".title-select/retained/1/readme.txt.kept"
+                ".stage-select/marker",
+                ".stage-select/retained/1/readme.txt.kept"
             ],
             "{stop:?}"
         );
@@ -2492,7 +2492,7 @@ fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
     assert!(ran.is_err(), "{ran:?}");
     env.store.inject_fault(None);
     // Written over in place, as a file put there looks when it reuses the freed inode number, as on Linux.
-    let temp = env.set().join(".title-select/marker.new");
+    let temp = env.set().join(".stage-select/marker.new");
     let file = std::fs::OpenOptions::new()
         .write(true)
         .truncate(true)
@@ -2506,7 +2506,7 @@ fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
 
     assert_eq!(ended.state, JobState::Failed, "{ended:?}");
     assert_eq!(std::fs::read(&temp).unwrap(), b"someone else's");
-    assert!(!env.set().join(".title-select/marker").exists());
+    assert!(!env.set().join(".stage-select/marker").exists());
     assert!(env.set().join("readme.txt").exists());
 }
 
@@ -2532,7 +2532,7 @@ fn a_file_put_in_place_of_the_first_marker_once_it_is_checked_is_never_written_o
             env.store.recover_jobs(WORKERS).unwrap();
             approved = env.store.repair_plan(plan.id).unwrap();
         }
-        let temp = env.set().join(".title-select/marker.new");
+        let temp = env.set().join(".stage-select/marker.new");
         let swapped = temp.clone();
         // A file put in its place, which on Linux may get the inode number just freed.
         env.store
@@ -2553,7 +2553,7 @@ fn a_file_put_in_place_of_the_first_marker_once_it_is_checked_is_never_written_o
             "{after_a_stop}"
         );
         assert!(
-            !env.set().join(".title-select/marker").exists(),
+            !env.set().join(".stage-select/marker").exists(),
             "{after_a_stop}"
         );
         assert!(env.set().join("readme.txt").exists(), "{after_a_stop}");
@@ -2570,7 +2570,7 @@ fn a_marker_that_appears_while_the_first_one_is_written_is_never_replaced() {
         .store
         .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
-    let marker = env.set().join(".title-select/marker");
+    let marker = env.set().join(".stage-select/marker");
     let planted = marker.clone();
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
@@ -2702,7 +2702,7 @@ fn a_file_swapped_after_its_audit_is_left_alone_even_once_an_interrupted_audit_r
         .unwrap();
     env.store.claim_job().unwrap();
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let progress = |p: title_select_engine::Progress| {
+        let progress = |p: stage_select_engine::Progress| {
             if p.files_done == 1 {
                 panic!("stopped");
             }
@@ -2760,7 +2760,7 @@ fn a_file_moved_in_place_of_one_being_kept_aside_is_recorded_kept_under_its_own_
     env.put("readme.txt", b"hello");
     env.audit(AuditEvidence::Full);
     let plan = env.plan();
-    let kept = env.set().join(".title-select/retained/1/readme.txt.kept");
+    let kept = env.set().join(".stage-select/retained/1/readme.txt.kept");
 
     let ended = run_with_hook(&env, &plan, move |fault| {
         if matches!(fault, Fault::RepairMoved(_)) {
@@ -2776,7 +2776,7 @@ fn a_file_moved_in_place_of_one_being_kept_aside_is_recorded_kept_under_its_own_
     let recorded = env.store.source_kept_files("Alpha").unwrap();
     assert_eq!(recorded.len(), 1, "{recorded:?}");
     assert!(recorded[0].reason.contains("found in place of readme.txt"));
-    let at = std::fs::metadata(env.set().join(".title-select/retained/1/readme.txt.kept")).unwrap();
+    let at = std::fs::metadata(env.set().join(".stage-select/retained/1/readme.txt.kept")).unwrap();
     use std::os::unix::fs::MetadataExt;
     assert_eq!(
         (recorded[0].identity.dev, recorded[0].identity.ino),
@@ -2804,7 +2804,7 @@ fn a_file_moved_in_place_of_one_being_renamed_is_put_back_under_its_old_name() {
         "{:#?}",
         ended.outcomes
     );
-    assert_eq!(env.listing(), [".title-select/marker", "Wrong.zip"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Wrong.zip"]);
     assert_eq!(
         std::fs::read(env.set().join("Wrong.zip")).unwrap(),
         b"intruder"
@@ -2817,7 +2817,7 @@ fn a_file_published_in_place_of_the_first_marker_is_moved_back_and_never_left_as
     env.put("readme.txt", b"hello");
     env.audit(AuditEvidence::Full);
     let plan = env.plan();
-    let marker = env.set().join(".title-select/marker");
+    let marker = env.set().join(".stage-select/marker");
 
     let ended = run_with_hook(&env, &plan, move |fault| {
         if fault == Fault::RepairMarkerPublished {
@@ -2826,9 +2826,9 @@ fn a_file_published_in_place_of_the_first_marker_is_moved_back_and_never_left_as
     });
 
     assert!(ended.finished_at.is_none() || ended.outcomes.iter().all(|o| !o.done));
-    assert!(!env.set().join(".title-select/marker").exists());
+    assert!(!env.set().join(".stage-select/marker").exists());
     assert_eq!(
-        std::fs::read(env.set().join(".title-select/marker.new")).unwrap(),
+        std::fs::read(env.set().join(".stage-select/marker.new")).unwrap(),
         b"intruder"
     );
     assert!(
@@ -2850,7 +2850,7 @@ fn a_file_moved_in_place_of_an_ingest_original_being_kept_is_recorded_kept_under
 
     let ended = run_with_hook(&env, &plan, move |fault| {
         if fault == Fault::IngestSetAside {
-            let retained = ingest.join(".title-select/retained");
+            let retained = ingest.join(".stage-select/retained");
             for generation in std::fs::read_dir(&retained).unwrap() {
                 let kept = generation.unwrap().path().join("combat.zip.kept");
                 if kept.exists() {
@@ -2881,7 +2881,7 @@ fn a_repair_uses_the_stamps_its_own_audit_read_even_when_an_overlapping_audit_re
         .unwrap();
     env.store.claim_job().unwrap();
     // Once this Audit has read Wrong.zip as Pong, the file is swapped and another Audit reads and finishes first.
-    let progress = |p: title_select_engine::Progress| {
+    let progress = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
             std::fs::remove_file(env.set().join("Wrong.zip")).unwrap();
             write_torrentzip(
@@ -3052,8 +3052,8 @@ fn a_source_set_is_converted_to_loose_and_back_with_each_original_kept() {
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Pong (USA).a26.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Pong (USA).a26.kept",
             "Pong (USA).zip"
         ]
     );
@@ -3197,7 +3197,7 @@ fn with_delete_originals_on_an_original_is_deleted_once_its_converted_file_verif
         .len();
     assert_eq!(sets.read, 2 * zip + 6 * b"pong".len() as u64);
 
-    assert_eq!(env.listing(), [".title-select/marker", "Pong (USA).zip"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Pong (USA).zip"]);
     assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
     let pong = done
         .outcomes
@@ -3220,7 +3220,7 @@ fn an_original_that_changed_after_it_was_converted_is_kept() {
     let delete = step_seq(&plan, |s| matches!(s, RepairStep::Delete { .. }));
     let kept = env
         .set()
-        .join(".title-select/retained/1/Pong (USA).a26.kept");
+        .join(".stage-select/retained/1/Pong (USA).a26.kept");
     env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
         if at == Fault::ConversionVerified(delete) {
             write_file(&kept, b"pong, changed");
@@ -3231,7 +3231,7 @@ fn an_original_that_changed_after_it_was_converted_is_kept() {
 
     let listing = env.listing();
     assert!(
-        listing.contains(&".title-select/retained/1/Pong (USA).a26.kept".to_string()),
+        listing.contains(&".stage-select/retained/1/Pong (USA).a26.kept".to_string()),
         "{listing:?}"
     );
     assert_eq!(env.store.source_kept_files("Alpha").unwrap().len(), 1);
@@ -3267,7 +3267,7 @@ fn an_original_whose_converted_file_does_not_verify_is_kept() {
 
     let listing = env.listing();
     assert!(
-        listing.contains(&".title-select/retained/1/Pong (USA).a26.kept".to_string()),
+        listing.contains(&".stage-select/retained/1/Pong (USA).a26.kept".to_string()),
         "{listing:?}"
     );
     let pong = done
@@ -3325,7 +3325,7 @@ fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() 
         assert!(done.outcomes.iter().all(|o| o.done), "{stop:?}: {done:#?}");
         assert_eq!(
             env.listing(),
-            [".title-select/marker", "Pong (USA).zip"],
+            [".stage-select/marker", "Pong (USA).zip"],
             "{stop:?}"
         );
         assert!(
@@ -3401,9 +3401,9 @@ fn a_conversion_keeps_an_approved_occupant_of_its_new_name_aside_before_it_puts_
     assert_eq!(
         env.listing(),
         [
-            ".title-select/marker",
-            ".title-select/retained/1/Pong (USA).a26.kept",
-            ".title-select/retained/1/Pong (USA).zip.kept",
+            ".stage-select/marker",
+            ".stage-select/retained/1/Pong (USA).a26.kept",
+            ".stage-select/retained/1/Pong (USA).zip.kept",
             "Pong (USA).zip"
         ]
     );
@@ -3438,7 +3438,7 @@ fn an_ingest_fill_into_a_loose_source_set_is_stored_loose() {
 
     assert_eq!(
         env.listing(),
-        [".title-select/marker", "Combat (USA).a26", "Pong (USA).a26"]
+        [".stage-select/marker", "Combat (USA).a26", "Pong (USA).a26"]
     );
     assert_eq!(
         std::fs::read(env.set().join("Combat (USA).a26")).unwrap(),
@@ -3734,7 +3734,7 @@ fn a_disc_systems_loose_tracks_are_moved_into_loose_folders_by_default() {
     );
     let done = env.approve(&plan);
 
-    let mut wanted = vec![".title-select/marker".to_string()];
+    let mut wanted = vec![".stage-select/marker".to_string()];
     wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
     wanted.sort();
     assert_eq!(env.listing(), wanted);
@@ -3781,7 +3781,7 @@ fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_ve
         .count();
     assert_eq!(deletes, quest.len(), "{:#?}", to_zip.content.steps);
     let zipped = env.approve(&to_zip);
-    assert_eq!(env.listing(), [".title-select/marker", "Quest (USA).zip"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Quest (USA).zip"]);
     assert!(is_torrentzip(&env.set().join("Quest (USA).zip")));
     assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
     env.run_queued_audit(&zipped);
@@ -3805,7 +3805,7 @@ fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_ve
         if at == Fault::RepairStaged(build) {
             let staged = Env::files(&set)
                 .iter()
-                .filter(|p| p.starts_with(".title-select/new-"))
+                .filter(|p| p.starts_with(".stage-select/new-"))
                 .count();
             *seen.lock().unwrap() = Some(staged);
         }
@@ -3813,7 +3813,7 @@ fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_ve
     let foldered = env.approve(&to_folder);
     env.store.hook_faults(None);
     assert_eq!(*staged_together.lock().unwrap(), Some(quest.len()));
-    let mut wanted = vec![".title-select/marker".to_string()];
+    let mut wanted = vec![".stage-select/marker".to_string()];
     wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
     wanted.sort();
     assert_eq!(env.listing(), wanted);
@@ -4482,7 +4482,7 @@ fn planning_matches_cue_sheets_indexed_at_import_without_reading_the_pack() {
     assert!(
         env.listing()
             .iter()
-            .all(|name| !name.starts_with(".title-select/new-")),
+            .all(|name| !name.starts_with(".stage-select/new-")),
         "{:?}",
         env.listing()
     );
@@ -4570,7 +4570,7 @@ fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zi
     assert!(fill.summary.contains("quest.zip"), "{}", fill.summary);
     let done = env.approve(&plan);
 
-    let mut wanted = vec![".title-select/marker".to_string()];
+    let mut wanted = vec![".stage-select/marker".to_string()];
     wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
     wanted.sort();
     assert_eq!(env.listing(), wanted);
@@ -4580,7 +4580,7 @@ fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zi
     assert_eq!(
         env.ingest_listing(),
         [format!(
-            ".title-select/retained/{}/quest.zip.kept",
+            ".stage-select/retained/{}/quest.zip.kept",
             kept[0].generation
         )]
     );
@@ -4662,7 +4662,7 @@ fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_
     let done = env.approve(&plan);
     env.run_queued_audit(&done);
     assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
-    let mut wanted = vec![".title-select/marker".to_string()];
+    let mut wanted = vec![".stage-select/marker".to_string()];
     wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
     wanted.sort();
     assert_eq!(env.listing(), wanted);
@@ -4913,7 +4913,7 @@ fn missing_games_are_filled_from_7z_ingest_items_of_every_method_solid_or_not_in
         .iter()
         .map(|(_, _, game, _)| format!("{game}.zip"))
         .collect();
-    want.push(".title-select/marker".into());
+    want.push(".stage-select/marker".into());
     want.sort();
     assert_eq!(env.listing(), want);
     for (_, _, game, _) in &discs {
@@ -4953,7 +4953,7 @@ fn a_game_filled_from_a_7z_into_a_loose_source_set_is_stored_loose() {
     assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
     env.approve(&plan);
 
-    assert_eq!(env.listing(), [".title-select/marker", "Pong (USA).a26"]);
+    assert_eq!(env.listing(), [".stage-select/marker", "Pong (USA).a26"]);
     assert_eq!(
         std::fs::read(env.set().join("Pong (USA).a26")).unwrap(),
         b"pong"
@@ -4981,7 +4981,7 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
         plan.content.steps
     );
     // Half of 1 MiB/s under the default pace: the 4 MiB original alone takes 8 s to read.
-    use title_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    use stage_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
     let slow = SettingsUpdate {
         ceilings: Some(CeilingsUpdate {
             roots: [(
@@ -5029,7 +5029,7 @@ fn a_repair_you_cancel_while_a_capped_build_reads_stops_at_once_and_changes_noth
     }
     assert_eq!(
         env.listing(),
-        [".title-select/marker", "Big (Anthology).bin"]
+        [".stage-select/marker", "Big (Anthology).bin"]
     );
 }
 
@@ -5050,7 +5050,7 @@ fn a_repair_that_cannot_start_ends_failed_with_why_even_after_a_stop_as_it_is_ab
         std::fs::create_dir(&set).unwrap();
         let states = || -> Vec<String> {
             let db =
-                rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+                rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
             let mut stmt = db
                 .prepare("SELECT state FROM repair_steps WHERE plan_id = ?1 ORDER BY seq")
                 .unwrap();
@@ -5230,8 +5230,8 @@ fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_
         .unwrap();
     assert_eq!(
         edited.voided,
-        [title_select_api::roots::VoidedPlan {
-            kind: title_select_api::roots::VoidedPlanKind::Repair,
+        [stage_select_api::roots::VoidedPlan {
+            kind: stage_select_api::roots::VoidedPlanKind::Repair,
             plan: plan.id,
             job,
             writes_to: "source set Alpha".into(),

@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
-use title_select_api::HeaderRule;
-use title_select_api::dat::{DatFormat, HeaderClaims, recognise_provider};
-pub use title_select_api::storage::SetLayout;
+use stage_select_api::HeaderRule;
+use stage_select_api::dat::{DatFormat, HeaderClaims, recognise_provider};
+pub use stage_select_api::storage::SetLayout;
 
 use crate::Error;
 
@@ -230,7 +230,7 @@ impl Signal {
     ];
 }
 
-pub use title_select_api::arcade::DriverStatus;
+pub use stage_select_api::arcade::DriverStatus;
 
 /// A driver status as ListXML writes it; none for a value MAME doesn't write.
 fn driver_status(text: &str) -> Option<DriverStatus> {
@@ -852,15 +852,15 @@ impl Dat {
         }
     }
 
-    /// The built-in Header Rule the header names; none if it names none, or one Title Select does not know.
+    /// The built-in Header Rule the header names; none if it names none, or one Stage Select does not know.
     pub fn header(&self) -> Option<HeaderRule> {
         self.header_rule.as_deref().and_then(HeaderRule::named)
     }
 
     /// What a Build expects of `rom`, one of this DAT's ROMs: its size and checksums, and the Header Rule they leave
     /// a Header out under.
-    pub fn expected(&self, rom: &Rom) -> title_select_api::build::ExpectedRom {
-        title_select_api::build::ExpectedRom {
+    pub fn expected(&self, rom: &Rom) -> stage_select_api::build::ExpectedRom {
+        stage_select_api::build::ExpectedRom {
             name: rom.name.clone(),
             size: rom.size,
             crc: rom.crc.clone(),

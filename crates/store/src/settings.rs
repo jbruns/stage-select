@@ -3,8 +3,8 @@
 //! restart: each use reads the settings as they are then, and the pace, which running Jobs read at each file, is held
 //! in memory too.
 //!
-//! To add a section, add its field to [`Settings`], to [`title_select_api::settings::SettingsView`] and
-//! [`title_select_api::settings::SettingsUpdate`], and a name for its row in [`Store::update_settings`] and
+//! To add a section, add its field to [`Settings`], to [`stage_select_api::settings::SettingsView`] and
+//! [`stage_select_api::settings::SettingsUpdate`], and a name for its row in [`Store::update_settings`] and
 //! [`load`]. A secret is kept here in plain text, and only [`Settings::view`] is ever sent: it says whether a secret
 //! is set, never what it is.
 
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use title_select_api::settings::{
+use stage_select_api::settings::{
     ArchiveLimits, ChdTimeouts, FetchSettings, HostOverrides, IngestCadence, JobsView,
     MAX_CHD_SECONDS, MAX_CHECK_EVERY_MINUTES, MAX_DICTIONARY_MIB, MAX_KEPT, MAX_SCAN_EVERY_MINUTES,
     MAX_SETTLE_SECS, NotifyEvent, NotifyUpdate, NotifyView, Pace, PathTemplates, Retention,
@@ -152,8 +152,8 @@ impl Settings {
     }
 
     /// How long chdman may run on a disc.
-    pub fn chd_limits(&self) -> title_select_engine::chd::Limits {
-        title_select_engine::chd::Limits {
+    pub fn chd_limits(&self) -> stage_select_engine::chd::Limits {
+        stage_select_engine::chd::Limits {
             base: std::time::Duration::from_secs(self.chd.seconds),
             per_gib: std::time::Duration::from_secs(self.chd.seconds_per_gib),
         }
@@ -435,7 +435,7 @@ fn check(roots: &Roots, update: &SettingsUpdate) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::romm::{RommUpdate, RommView};
+    use stage_select_api::romm::{RommUpdate, RommView};
 
     use super::*;
 
@@ -448,7 +448,7 @@ mod tests {
     /// Registers each Root `specs` gives, in its own new folder under `dir`: a name, and whether it is an ingest
     /// folder or else writable.
     fn register(store: &Store, dir: &std::path::Path, specs: &[(&str, Option<bool>)]) {
-        use title_select_api::roots::{RootKind, RootSpec};
+        use stage_select_api::roots::{RootKind, RootSpec};
         for (name, how) in specs {
             let path = dir.join("roots").join(name);
             std::fs::create_dir_all(&path).unwrap();

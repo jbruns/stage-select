@@ -12,7 +12,7 @@ The pilot proved the engine, but its workbench was hard to use. It had eight pee
 Source Set's page linked to its Repair but not to its Library Folders. Plans explained every item in prose, and a
 choice could only be changed one item at a time: leaving 128 Unmatched Entries took 128 dropdown changes (#59). Slow
 requests only disabled a button (#65, #61). ROM managers such as ClrMamePro lean on dense jargon and on modes that
-can disagree without saying so. Media servers centre on metadata that Title Select doesn't keep. Organizer services
+can disagree without saying so. Media servers centre on metadata that Stage Select doesn't keep. Organizer services
 such as Sonarr come closest: they centre on one object, keep a toolbar of icons and short labels at the top of each
 page, edit in bulk with "no change" as the default, and keep a legend strip under each list.
 
@@ -42,7 +42,7 @@ page, edit in bulk with "no change" as the default, and keep a legend strip unde
   follows one Source Set from Audit to Repair to Build, and task-centred pages split it across the app.
 - **A ClrMamePro- or RomVault-style tree with colour-coded nodes.** Rejected: colour alone isn't accessible, and a
   tree hides counts and bulk decisions.
-- **A poster grid in the style of a media server.** Rejected: Title Select isn't driven by metadata.
+- **A poster grid in the style of a media server.** Rejected: Stage Select isn't driven by metadata.
 
 ## Consequences
 

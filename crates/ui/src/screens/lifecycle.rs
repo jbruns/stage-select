@@ -8,8 +8,8 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use serde::Deserialize;
-use title_select_api::build::PlanKeptDeletion;
-use title_select_api::lifecycle::{
+use stage_select_api::build::PlanKeptDeletion;
+use stage_select_api::lifecycle::{
     AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationHistory,
     RegistrationKind, UnregisteredRecord, Unregistration,
 };
@@ -365,7 +365,7 @@ fn DeleteKept(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoVi
         return view! {
             <p class="note">
                 {format!(
-                    "{} kept files are left in the folder. Title Select no longer manages them; delete them yourself if you want them gone.",
+                    "{} kept files are left in the folder. Stage Select no longer manages them; delete them yourself if you want them gone.",
                     record.kept_files
                 )}
             </p>
@@ -399,7 +399,7 @@ fn DeleteKept(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoVi
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
-            let body = title_select_api::build::ApprovePlan { digest: p.digest };
+            let body = stage_select_api::build::ApprovePlan { digest: p.digest };
             match api::post::<_, serde_json::Value>(&format!("{approval}/{}/approval", p.id), &body)
                 .await
             {
@@ -602,7 +602,7 @@ pub fn AdditionsSetAsideAction(system: String, refresh: RwSignal<u64>) -> impl I
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
-            let body = title_select_api::build::ApprovePlan { digest: p.digest };
+            let body = stage_select_api::build::ApprovePlan { digest: p.digest };
             match api::post::<_, AdditionsSetAside>(&path.get_value(), &body).await {
                 Ok(_) => {
                     plan.set(None);
@@ -678,7 +678,7 @@ pub fn MoveFolderAction(folder: i64, from: String, refresh: RwSignal<u64>) -> im
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
-            let body = title_select_api::build::ApprovePlan { digest: p.digest };
+            let body = stage_select_api::build::ApprovePlan { digest: p.digest };
             let path = format!("/library-moves/{}/approval", p.id);
             match api::post::<_, FolderMove>(&path, &body).await {
                 Ok(done) => {

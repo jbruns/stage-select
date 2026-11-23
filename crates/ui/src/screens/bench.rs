@@ -8,7 +8,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::hooks::use_query_map;
-use title_select_api::{
+use stage_select_api::{
     ALGORITHMS, Entry, EntryRow, Evidence, EvidenceLevel, Finding, Game, GameRow, GameStatus,
     RomRef,
 };
@@ -17,7 +17,7 @@ use crate::model::{AuditEntries, DerivedCounts};
 use crate::parts::list::{Clip, Column, List, ListRow, Width};
 use crate::screens::audit::EntriesPanel;
 use crate::screens::repair::bench_plan;
-use title_select_api::repair::RepairPlan;
+use stage_select_api::repair::RepairPlan;
 
 /// A synthetic Entry as a row of the shared list.
 #[derive(Clone)]

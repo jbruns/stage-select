@@ -7,22 +7,22 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
-use title_select_api::build::{
+use stage_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
     FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
     KeepReason, Plan, PlanAddition, PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem,
     PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, STATE, invalid_name,
 };
-use title_select_api::report::{Entry, EvidenceLevel, Finding};
-use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
-use title_select_api::storage::{
+use stage_select_api::report::{Entry, EvidenceLevel, Finding};
+use stage_select_api::selection::{Outcome, ReleaseRow, Selection, SelectionProfile, diff_rows};
+use stage_select_api::storage::{
     Laid, Storage, StorageFormat, StorageScope, lay_out, multidisc_dir, playlist, playlist_name,
     release_of, sbi_beside,
 };
-use title_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
-use title_select_engine::build::{Probe, holds_as, is_torrentzip};
-use title_select_engine::dat::Dat;
-use title_select_engine::sha256_hex;
+use stage_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
+use stage_select_engine::build::{Probe, holds_as, is_torrentzip};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::sha256_hex;
 
 use super::audits::{ENTRY_COLUMNS, entry_from_row};
 use super::checks::{Ack, Scan, ScanInput, Seen, read_acks, read_probes, scan, store_check};
@@ -195,7 +195,7 @@ struct Inputs {
     cached: HashMap<String, (Seen, Probe)>,
     /// The directories Builds created in the folder that outlive them, such as the retention area, by name.
     dirs: HashMap<String, Identity>,
-    /// The entries Title Select did not build that you acknowledged, by name.
+    /// The entries Stage Select did not build that you acknowledged, by name.
     acks: HashMap<String, Ack>,
     /// What the storage policy says for the folder's system.
     storage: Storage,
@@ -209,7 +209,7 @@ struct Inputs {
     /// The system's latest SBI pack, when the storage policy puts each disc's SBI file beside it.
     sbi: Option<crate::sbi_packs::SbiPack>,
     /// The files of the Placed Games the folder holds, which a plan never writes over or keeps aside.
-    placed: Vec<title_select_api::build::PlacedFile>,
+    placed: Vec<stage_select_api::build::PlacedFile>,
     /// The Library Folder holding the Source Set's Placed Games, if one does.
     holding: Option<i64>,
     /// The Library Folders the Source Set's Placed Games are in, by id: their Root and path.
@@ -333,7 +333,7 @@ fn load(
         .optional()?;
     let mut selected = HashMap::new();
     for group in &selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             selected.insert(
                 format!("{}.zip", winner.title).to_lowercase(),
                 winner.title.clone(),
@@ -493,7 +493,7 @@ fn check_folder(
         if is_own(name) {
             let own = match dir.sub(STATE).and_then(|state| state.entries()) {
                 Ok(own) => own,
-                // Not Title Select's own private folder: its marker cannot be trusted either.
+                // Not Stage Select's own private folder: its marker cannot be trusted either.
                 Err(e) => {
                     blockers.push(blocker(BlockerKind::Marker, e.to_string()));
                     return None;
@@ -501,7 +501,7 @@ fn check_folder(
             };
             for (entry, _) in own {
                 let name = format!("{STATE}/{entry}");
-                // A folder Title Select was creating that was never renamed into place is recorded, and left.
+                // A folder Stage Select was creating that was never renamed into place is recorded, and left.
                 let recorded_leftover = || matches!(dir.stat(&name), Ok(Some(st)) if inputs.dirs.get(&name) == Some(&Identity::of(&st)));
                 if name == STAGING
                     || name == MARKER_NEW
@@ -569,7 +569,7 @@ fn check_folder(
                 cached: &inputs.cached,
                 acks: &inputs.acks,
                 // Counted when a Job plans, as a Build does again before it writes; not when you do.
-                tally: &title_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
+                tally: &stage_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
                 placed: &inputs.placed,
             },
             None,
@@ -1014,14 +1014,14 @@ impl<'a> Sources<'a> {
     /// The Placed Game's file at `path`, as its Source Set's Audits name it, opened in the Library Folder holding it
     /// without following a symlink; none for a file in the Source Set's own folder, or one that can't be opened.
     fn open_placed(&self, path: &str) -> Option<std::fs::File> {
-        let (folder, rel) = title_select_api::storage::split_placed(path)?;
+        let (folder, rel) = stage_select_api::storage::split_placed(path)?;
         self.placed_dirs.get(&folder)?.as_ref()?.open_file(rel).ok()
     }
 
     /// The source file at `path`, confined to the Source Set's Root, or for a Placed Game's file to the Library Folder
     /// holding it, its identity and its status change time.
     fn file(&mut self, path: &'a str) -> Option<(FileStat, FileIdentity, i128)> {
-        if title_select_api::storage::split_placed(path).is_some() {
+        if stage_select_api::storage::split_placed(path).is_some() {
             let found = self.open_placed(path).and_then(|file| {
                 let st = rustix::fs::fstat(&file).ok()?;
                 let id = Identity::of(&st);
@@ -1095,7 +1095,7 @@ impl<'a> Sources<'a> {
                 == names;
         let torrentzip = match self.open_placed(path) {
             Some(file) => {
-                title_select_engine::torrentzip::central(&mut std::io::BufReader::new(file)).is_ok()
+                stage_select_engine::torrentzip::central(&mut std::io::BufReader::new(file)).is_ok()
             }
             None => self
                 .set_dir
@@ -1218,11 +1218,11 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
         if inputs.choices.resolved_only {
             unresolved.insert(group.group.as_str());
             let titles = group
-                .winners
+                .kept
                 .iter()
                 .map(|w| &w.title)
-                .chain(group.alternatives.iter().map(|a| &a.title))
-                .chain(group.exclusions.iter().map(|e| &e.title));
+                .chain(group.clones.iter().map(|a| &a.title))
+                .chain(group.left_out.iter().map(|e| &e.title));
             let titles: HashSet<&String> = titles.collect();
             let releases: HashSet<String> = titles.iter().map(|t| release_of(t)).collect();
             untouched.extend(titles.iter().map(|t| format!("{t}.zip")));
@@ -1241,7 +1241,7 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
                     "the group {} is unresolved{}; confirm a choice for it in the selection, or build the resolved \
                      groups only",
                     group.group,
-                    title_select_api::discs::unresolved_reason(group)
+                    stage_select_api::discs::unresolved_reason(group)
                         .map(|reason| format!(": {reason}"))
                         .unwrap_or_default()
                 ),
@@ -1399,12 +1399,12 @@ fn plan_items(
     for rom in &dat.roms {
         roms_of[rom.game].push((dat.expected(rom), rom.needed()));
     }
-    let mut winners: Vec<(&str, &str)> = Vec::new();
+    let mut selected: Vec<(&str, &str)> = Vec::new();
     let mut seen = BTreeSet::new();
     for group in &inputs.selection.groups {
-        for winner in &group.winners {
+        for winner in &group.kept {
             if seen.insert(winner.title.as_str()) {
-                winners.push((&group.group, &winner.title));
+                selected.push((&group.group, &winner.title));
             }
         }
     }
@@ -1415,7 +1415,7 @@ fn plan_items(
     let mut contained: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut disks: HashMap<&str, Vec<usize>> = HashMap::new();
     if arcade {
-        for (_, title) in &winners {
+        for (_, title) in &selected {
             if let Some(&g) = games.get(*title) {
                 contained.insert(title, dat.self_contained(g));
             }
@@ -1461,10 +1461,10 @@ fn plan_items(
     // SBI file, where the system opts in.
     let playlists = match arcade {
         true => BTreeMap::new(),
-        false => playlists(&laid, winners.iter().map(|(_, title)| *title)),
+        false => playlists(&laid, selected.iter().map(|(_, title)| *title)),
     };
     let mut sbis: Vec<(&str, &str, String, GeneratedFile)> = Vec::new();
-    for (group, title) in winners.iter().filter(|_| !arcade) {
+    for (group, title) in selected.iter().filter(|_| !arcade) {
         if let Some((target, file)) = sbi_of(&laid, title, inputs.sbi.as_ref()) {
             sbis.push((group, title, target, file));
         }
@@ -1478,7 +1478,7 @@ fn plan_items(
             folders.insert(name_key(dir), dir.to_owned());
         }
     };
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         for (target, ..) in files_of(title) {
             reserve(&target);
         }
@@ -1499,7 +1499,7 @@ fn plan_items(
             ))
             .or_default() += 1;
     }
-    let wanted = winners
+    let wanted = selected
         .iter()
         .flat_map(|&(group, game)| {
             files_of(game)
@@ -1763,11 +1763,11 @@ fn plan_items(
                 )
             } else if item.adoptable {
                 format!(
-                    "{name} is in the folder and was not built by Title Select, but holds the ROMs the DAT expects \
+                    "{name} is in the folder and was not built by Stage Select, but holds the ROMs the DAT expects \
                      there; leave it, adopt it as built, or keep it aside and rebuild"
                 )
             } else {
-                format!("{name} is in the folder and was not built by Title Select")
+                format!("{name} is in the folder and was not built by Stage Select")
             };
             if !conflict(&mut item, found, keep_chosen && !chosen, scan, &why) {
                 items.push(item);
@@ -1869,7 +1869,7 @@ fn plan_items(
                     || item.chd
                     || chosen
                         .iter()
-                        .any(|c| title_select_api::storage::split_placed(&c.entry.path).is_some());
+                        .any(|c| stage_select_api::storage::split_placed(&c.entry.path).is_some());
                 item.sources = chosen
                     .iter()
                     .zip(&item.roms)
@@ -1907,7 +1907,7 @@ fn plan_items(
     // the release is written, moved, placed or kept aside, and its `.m3u` and SBI files stay as they are. A disc's SBI
     // file is generated beside it, never one of its files. A release only goes on as it was while the check finds
     // every file built for it there: one with a file gone is built from what is left, as any other is.
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         let Some(at) = unbuilt_of(title).into_iter().next() else {
             continue;
         };
@@ -1951,7 +1951,7 @@ fn plan_items(
                 .iter()
                 .all(|f| inputs.built.get(f).is_some_and(|b| b.game == title) && as_built(scan, f))
     };
-    for (_, title) in &winners {
+    for (_, title) in &selected {
         if left_in_place(title) {
             nothing.left.extend(unbuilt_of(title));
         }
@@ -1966,7 +1966,7 @@ fn plan_items(
             .filter(|i| games.contains(&i.game.as_str()))
             .map(|i| (i.kind, i.group.clone()))
             .chain(
-                winners
+                selected
                     .iter()
                     .filter(|(_, t)| games.contains(t) && left_in_place(t))
                     .map(|(g, _)| (ItemKind::Unchanged, (*g).to_owned())),
@@ -1985,7 +1985,7 @@ fn plan_items(
         }
         let file = m3u(&laid, &discs);
         let games: Vec<&str> = discs.iter().map(|(_, t)| *t).collect();
-        let group = winners
+        let group = selected
             .iter()
             .find(|(_, t)| *t == games[0])
             .map_or(release.as_str(), |(g, _)| *g);
@@ -2204,12 +2204,12 @@ fn whole_releases(items: &mut [PlanItem], held: &BTreeMap<String, String>) {
 }
 
 /// Why `game`, a name from the DAT, can't name what a play library lays out for it: it must be one name, not one
-/// Title Select keeps its own work under, as every file and folder the layout makes from it is.
+/// Stage Select keeps its own work under, as every file and folder the layout makes from it is.
 fn invalid_game(game: &str) -> Option<String> {
     invalid_name(game)
         .or_else(|| {
-            title_select_api::storage::is_reserved_name(game)
-                .then(|| format!("{game} is a name Title Select keeps its own work under"))
+            stage_select_api::storage::is_reserved_name(game)
+                .then(|| format!("{game} is a name Stage Select keeps its own work under"))
         })
         .map(|why| format!("the game's name: {why}"))
 }
@@ -2218,8 +2218,8 @@ fn invalid_game(game: &str) -> Option<String> {
 /// disc layout makes. A disc layout makes only `<game>.cue/` and `<release>.m3u/`, one level deep.
 fn invalid_path(target: &str, disk: bool) -> Option<String> {
     let reserved = |name: &str| {
-        title_select_api::storage::is_reserved_name(name)
-            .then(|| format!("{name} is a name Title Select keeps its own work under"))
+        stage_select_api::storage::is_reserved_name(name)
+            .then(|| format!("{name} is a name Stage Select keeps its own work under"))
     };
     if let Some(why) = target
         .split('/')
@@ -2270,14 +2270,14 @@ fn in_the_way(
     game: &str,
 ) -> Option<String> {
     let files = files?;
-    let release = title_select_api::storage::release_of(game);
+    let release = stage_select_api::storage::release_of(game);
     // A file the release's unit keeps aside before it puts its own files in place.
     let ours = |found: &Found| {
         found.regular
             && inputs
                 .built
                 .get(&found.name)
-                .is_some_and(|b| title_select_api::storage::release_of(&b.game) == release)
+                .is_some_and(|b| stage_select_api::storage::release_of(&b.game) == release)
             && as_built(scan, &found.name)
     };
     if let Some((dir, _)) = target.split_once('/') {
@@ -2472,13 +2472,13 @@ fn generate(
             )
         } else if item.adoptable {
             format!(
-                "{} is in the folder and was not built by Title Select, but is exactly the file a build writes \
+                "{} is in the folder and was not built by Stage Select, but is exactly the file a build writes \
                  there; leave it, adopt it as built, or keep it aside and rebuild",
                 found.name
             )
         } else {
             format!(
-                "{} is in the folder and was not built by Title Select",
+                "{} is in the folder and was not built by Stage Select",
                 found.name
             )
         };
@@ -2551,7 +2551,7 @@ fn playlists<'a>(
         };
         let release = release_of(title);
         if entry.starts_with(&format!("{}/", multidisc_dir(&release)))
-            && let Some(disc) = title_select_api::discs::disc(title)
+            && let Some(disc) = stage_select_api::discs::disc(title)
         {
             out.entry(release).or_default().push((disc.number, title));
         }
@@ -2734,7 +2734,7 @@ fn storage_notes(storage: Storage, dat: Option<&Dat>, items: &[PlanItem]) -> Vec
         let why = match &item.addition {
             Some(_) => {
                 let names: Vec<&str> = item.roms.iter().map(|r| r.name.as_str()).collect();
-                title_select_api::storage::target_of(storage, &item.game, &names).2
+                stage_select_api::storage::target_of(storage, &item.game, &names).2
             }
             None => laid.get(&item.game).and_then(|l| l.note),
         };
@@ -2808,7 +2808,7 @@ fn unkeep(item: &mut PlanItem) {
 fn changes(inputs: &Inputs, previous: &Previous) -> Vec<PlanChange> {
     diff_rows(&previous.rows, &inputs.rows)
         .into_iter()
-        .filter(|c| c.before == Some(Role::Winner) || c.after == Some(Role::Winner))
+        .filter(|c| c.before == Some(Outcome::Kept) || c.after == Some(Outcome::Kept))
         .map(|c| {
             let rule_of = |rows: &[ReleaseRow]| {
                 rows.iter()
@@ -2914,7 +2914,7 @@ impl Store {
         })?;
         if !choices.remove_all && inputs.revision.format == DatFormat::SoftwareList {
             return Err(Error::Refused(
-                title_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
+                stage_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
             ));
         }
         inputs.copy_across = self.across_filesystems(None);
@@ -3244,7 +3244,7 @@ mod digest_tests {
     #[test]
     fn a_plan_digest_is_the_sha256_of_its_compact_json() {
         let json = r#"{"folder":1,"generation":2,"selection":3,"audit":4,"dat_revision":"abc","items":[],"blockers":[]}"#;
-        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        let content: stage_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(
             digest(&content),
@@ -3255,7 +3255,7 @@ mod digest_tests {
     #[test]
     fn a_cleanup_plan_digest_is_the_sha256_of_its_compact_json() {
         let json = r#"{"folder":1,"generation":2,"selection":3,"audit":null,"dat_revision":"abc","items":[],"blockers":[],"cleanup":{"build":5,"choices":{"restore":[7]},"entries":[],"fingerprint":"f"}}"#;
-        let content: title_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
+        let content: stage_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(
             digest(&content),

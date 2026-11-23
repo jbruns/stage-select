@@ -1,6 +1,6 @@
 [package]
-name = "title-select-api"
-description = "Title Select's versioned JSON API types, shared by the Service, its clients and the UI"
+name = "stage-select-api"
+description = "Stage Select's versioned JSON API types, shared by the Service, its clients and the UI"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

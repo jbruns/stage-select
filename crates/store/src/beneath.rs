@@ -7,7 +7,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use title_select_api::paths::relative_path;
+use stage_select_api::paths::relative_path;
 
 use crate::roots::Root;
 use crate::{Error, Result};

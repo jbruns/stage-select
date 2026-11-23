@@ -2,8 +2,8 @@
 //! (research 0105 §4): its driver's source directory, whether it names a software list, and its control types. The
 //! heuristic agrees with catver about 91% of the time on MAME 0.289, and misses quiz, mature and most tabletop machines.
 
-use title_select_api::arcade::Category;
-use title_select_engine::dat::Machine;
+use stage_select_api::arcade::Category;
+use stage_select_engine::dat::Machine;
 
 /// catver's top-level categories of machines that aren't arcade games.
 const NON_ARCADE_CATEGORIES: &[&str] = &[

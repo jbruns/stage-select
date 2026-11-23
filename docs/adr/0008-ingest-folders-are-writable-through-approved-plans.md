@@ -8,17 +8,17 @@ Accepted. Amended by ADR 0029: configuration lives in the store, and there is no
 
 ## Context
 
-An Ingest Folder is where new files arrive, from a Downloader or a manual drop. The glossary first said Title Select
+An Ingest Folder is where new files arrive, from a Downloader or a manual drop. The glossary first said Stage Select
 never writes to it. Then filling a Missing Game, discarding junk or importing a DAT found there would leave a copy
 behind for the Operator to delete by hand, forever. Downloaders already move files out of their completed folders.
-Title Select already writes Library Folders safely: a marker, a no-follow folder handle, renames that never replace,
+Stage Select already writes Library Folders safely: a marker, a no-follow folder handle, renames that never replace,
 identity checks and durable intents (ADR 0007, #37, #38). Unlike a Library Folder, an Ingest Folder is also written
 by the Operator and by Downloaders, which may run as another uid with group write. Any of them can append to, overwrite,
-rename, replace or link to an entry at any moment, including while Title Select is moving it.
+rename, replace or link to an entry at any moment, including while Stage Select is moving it.
 
 ## Decision
 
-- An Ingest Folder is a Root of kind `ingest`, declared writable in `title-select.toml`. There may be several. The
+- An Ingest Folder is a Root of kind `ingest`, declared writable in `stage-select.toml`. There may be several. The
   Operator registers each one, which writes a marker naming this store; every scan and every write fails closed
   without it.
 - Scans only read. They are Jobs the Operator starts, or that an optional per-folder schedule queues; there is no

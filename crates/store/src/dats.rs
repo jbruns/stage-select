@@ -6,10 +6,10 @@ use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use super::blobs::{remove_blob, write_blob};
 use super::{DATS, Error, Result, Store, io_error, now};
-use title_select_api::dat::{known_provider, provider_part};
-use title_select_engine::dat::Dat;
+use stage_select_api::dat::{known_provider, provider_part};
+use stage_select_engine::dat::Dat;
 
-pub use title_select_api::{DatFormat, DatRevisionRecord, ImportOutcome};
+pub use stage_select_api::{DatFormat, DatRevisionRecord, ImportOutcome};
 
 pub(super) const REVISION_COLUMNS: &str = "r.id, r.sha256, d.provider, d.name, r.version, r.file_name, \
      r.imported_at, r.source_url, r.blob_dropped_at IS NULL, r.format, r.description, r.author, r.homepage, \
@@ -178,7 +178,7 @@ pub(crate) fn dat_format(c: &Connection, dat_id: i64) -> Result<Option<DatFormat
 pub(crate) fn check_selectable(c: &Connection, dat_id: i64) -> Result<()> {
     match dat_format(c, dat_id)? {
         Some(DatFormat::SoftwareList) => Err(Error::Refused(
-            title_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
+            stage_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
         )),
         _ => Ok(()),
     }
@@ -188,7 +188,7 @@ pub(crate) fn check_selectable(c: &Connection, dat_id: i64) -> Result<()> {
 pub(crate) fn check_coverable(c: &Connection, dat_id: i64, coverage: Option<&str>) -> Result<()> {
     match (coverage, dat_format(c, dat_id)?) {
         (Some(_), Some(DatFormat::Listxml)) => Err(Error::Refused(
-            title_select_api::selection::ARCADE_COVERAGE_REFUSAL.to_owned(),
+            stage_select_api::selection::ARCADE_COVERAGE_REFUSAL.to_owned(),
         )),
         _ => Ok(()),
     }

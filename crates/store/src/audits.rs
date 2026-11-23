@@ -13,9 +13,9 @@ use super::jobs::JobRow;
 use super::repairs::open_repair;
 use super::sets::{Resolved, SourceSetRow, resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, now};
-use title_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
-use title_select_engine::payload::Checksums;
-use title_select_engine::{
+use stage_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
+use stage_select_engine::payload::Checksums;
+use stage_select_engine::{
     ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
     Game, GameStatus, GameWarning, Header, HeaderRule, NamedHeaderRule, ONE_WORKER_EACH, Options,
     PayloadRead, PayloadReads, Placed, Progress, Report, Reuse, RomRef, SCHEMA, Summary, Workers,
@@ -54,7 +54,7 @@ pub(super) struct RunningAudit {
     /// The files of the Source Set's Placed Games, by the Library Folder that holds them.
     placed: Vec<PlacedRead>,
     /// How chdman verifies the Source Set's Disks (ADR 0026).
-    disks: title_select_engine::ChdAudit,
+    disks: stage_select_engine::ChdAudit,
 }
 
 /// What an Audit reads of the Placed Games one Library Folder holds: their recorded files, through the folder's Root.
@@ -65,8 +65,8 @@ struct PlacedRead {
     /// For a Job, its pools for the folder's Root: its readers, and the Host's hash workers.
     pools: Option<crate::ceilings::JobPools>,
     /// Those of `files` that are CHDs, and how chdman reads them.
-    chds: Vec<title_select_engine::PlacedChd>,
-    chd: title_select_engine::ChdAudit,
+    chds: Vec<stage_select_engine::PlacedChd>,
+    chd: stage_select_engine::ChdAudit,
 }
 
 /// The payload reads recorded for a Source Set, as an Audit of it reuses and records them.
@@ -449,7 +449,7 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         Some(rule) => Value::Text(rule.name.clone()),
         None => Value::Null,
     });
-    let found = title_select_api::report::games_found(&report.entries, &report.games);
+    let found = stage_select_api::report::games_found(&report.entries, &report.games);
     let nothing_to_check_found = report
         .games
         .iter()
@@ -644,7 +644,7 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
             field(Some(format!("available elsewhere {elsewhere}")));
         }
     }
-    Ok(title_select_engine::hex(&hasher.finalize()))
+    Ok(stage_select_engine::hex(&hasher.finalize()))
 }
 
 /// The Audit `id`'s content SHA-256: as recorded when it finished, or else worked out now.
@@ -945,9 +945,9 @@ impl Store {
     /// `tally`, within the CHD time limits, in the store's `tmp/`.
     pub(crate) fn disk_audit(
         &self,
-        tally: title_select_engine::meter::Tally,
-    ) -> Result<title_select_engine::ChdAudit> {
-        Ok(title_select_engine::ChdAudit::verifying(
+        tally: stage_select_engine::meter::Tally,
+    ) -> Result<stage_select_engine::ChdAudit> {
+        Ok(stage_select_engine::ChdAudit::verifying(
             self.chdman(),
             tally,
             self.settings()?.chd_limits(),
@@ -967,7 +967,7 @@ impl Store {
                 let tally =
                     job.map_or_else(Default::default, |job| self.meter.job(job).tally(None));
                 self.chdman()
-                    .map(|program| title_select_engine::chd::Chdman {
+                    .map(|program| stage_select_engine::chd::Chdman {
                         program,
                         threads,
                         deadline: Default::default(),
@@ -975,7 +975,7 @@ impl Store {
                     })
             }
         };
-        let chd = title_select_engine::ChdAudit {
+        let chd = stage_select_engine::ChdAudit {
             chdman,
             limits: self.settings()?.chd_limits(),
             tmp: self.dir().join(crate::TMP),
@@ -987,7 +987,7 @@ impl Store {
                 let chds = chds
                     .iter()
                     .filter(|c| c.folder == folder)
-                    .map(|c| title_select_engine::PlacedChd {
+                    .map(|c| stage_select_engine::PlacedChd {
                         rel: c.path.clone(),
                         game: c.game.clone(),
                         sha1: c.sha1.clone(),
@@ -1085,7 +1085,7 @@ impl Store {
                 chd: p.chd.clone(),
             })
             .collect();
-        let report = title_select_engine::audit_with(
+        let report = stage_select_engine::audit_with(
             &blob,
             &running.resolved.path,
             &Options {
@@ -1124,7 +1124,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `title-select.audit/1` report of a stored Audit, generated from its rows.
+    /// The `stage-select.audit/1` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only
@@ -1367,7 +1367,7 @@ fn page<T>(mut items: Vec<T>, limit: usize, seq: impl Fn(&T) -> u64) -> (Vec<T>,
 
 /// Refuses an Audit that is not finished or whose Entries were pruned.
 /// `set` with its latest finished Audit and its open Repair.
-fn set_summary(c: &Connection, set: title_select_api::SourceSetRecord) -> Result<SourceSetSummary> {
+fn set_summary(c: &Connection, set: stage_select_api::SourceSetRecord) -> Result<SourceSetSummary> {
     let latest = c
         .prepare_cached(&format!(
             "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
@@ -1455,14 +1455,14 @@ mod tests {
         let store = Store::open(&tmp.path().join("store")).unwrap();
         store
             .register_root(
-                &title_select_api::roots::RootSpec::new("sets", &root),
+                &stage_select_api::roots::RootSpec::new("sets", &root),
                 "test",
             )
             .unwrap();
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
-                    retention: Some(title_select_api::settings::Retention {
+                &stage_select_api::settings::SettingsUpdate {
+                    retention: Some(stage_select_api::settings::Retention {
                         audits_keep: 1,
                         ..Default::default()
                     }),

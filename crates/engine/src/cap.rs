@@ -1,4 +1,4 @@
-//! Byte-rate caps (ADR 0022): a read bucket and a write bucket for each Root, shared by every Job, that hold Title
+//! Byte-rate caps (ADR 0022): a read bucket and a write bucket for each Root, shared by every Job, that hold Stage
 //! Select's own reads and writes of the Root to the pace's share of its byte-rate Ceilings.
 //!
 //! A [`Bucket`] is a queue of reservations kept as one number, the time by which everything reserved so far is paid

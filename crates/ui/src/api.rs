@@ -4,7 +4,7 @@
 use gloo_net::http::{Request, Response};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use title_select_api::{ErrorBody, GameRow, PREFIX, Page};
+use stage_select_api::{ErrorBody, GameRow, PREFIX, Page};
 
 pub fn url(path: &str) -> String {
     format!("{PREFIX}{path}")

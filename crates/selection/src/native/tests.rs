@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
-use title_select_api::selection::SelectionProfile;
+use stage_select_api::selection::SelectionProfile;
 
 use super::settings::Settings;
 

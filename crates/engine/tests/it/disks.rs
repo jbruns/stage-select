@@ -3,28 +3,28 @@
 //! it with `chdman verify`, and an incremental one reuses that while the file is unchanged. A delta CHD is Unreadable,
 //! and an older CHD Unmatched.
 //!
-//! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
+//! The tests that run chdman find it as the store does: `STAGE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
 //! missing they are skipped, except in CI, where they fail.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::common::*;
-use title_select_engine::chd::{Chdman, Unverified};
-use title_select_engine::{
+use stage_select_engine::chd::{Chdman, Unverified};
+use stage_select_engine::{
     AuditEvidence, ChdAudit, Entry, EvidenceLevel, Finding, Game, GameStatus, ONE_WORKER_EACH,
     Options, PayloadRead, PayloadReads, Report, Reuse, audit_with,
 };
 
 /// chdman, as the store finds it; `None`, outside CI, where it isn't there.
 fn chdman() -> Option<PathBuf> {
-    match title_select_engine::chd::locate(None) {
+    match stage_select_engine::chd::locate(None) {
         Ok(path) if path.is_file() => Some(path),
         found if std::env::var_os("CI").is_some() => {
             panic!("CI runs these tests with chdman: {found:?}")
         }
         _ => {
-            eprintln!("skipped: chdman isn't here; set TITLE_SELECT_CHDMAN to run this test");
+            eprintln!("skipped: chdman isn't here; set STAGE_SELECT_CHDMAN to run this test");
             None
         }
     }
@@ -103,7 +103,7 @@ fn run(
 /// Writes a ListXML of `machines`, each `(name, attributes, body)`, to `dir/mame.xml`.
 fn listxml(dir: &Path, machines: &[(&str, &str, &str)]) -> PathBuf {
     let path = dir.join("mame.xml");
-    std::fs::write(&path, title_select_test_fixtures::listxml(machines)).unwrap();
+    std::fs::write(&path, stage_select_test_fixtures::listxml(machines)).unwrap();
     path
 }
 
@@ -155,7 +155,7 @@ fn real_chd(chdman: &Path, path: &Path, seed: u64, parent: Option<&Path>) -> Str
     let out = cmd.output().unwrap();
     assert!(out.status.success(), "{out:?}");
     std::fs::remove_file(&raw).unwrap();
-    title_select_engine::chd::header(&std::fs::File::open(path).unwrap())
+    stage_select_engine::chd::header(&std::fs::File::open(path).unwrap())
         .unwrap()
         .sha1
 }
@@ -389,7 +389,7 @@ fn a_chd_older_than_version_5_is_unmatched_and_says_to_update_it() {
         assert_eq!(old.finding, Finding::Unmatched, "{evidence:?}");
         let why = old.reason.as_deref().unwrap();
         assert!(why.contains("version 4 CHD"), "{why}");
-        assert!(why.contains("update it outside Title Select"), "{why}");
+        assert!(why.contains("update it outside Stage Select"), "{why}");
         assert_eq!(game(&report, "blaster").status, GameStatus::Incomplete);
     }
 }
@@ -438,7 +438,7 @@ fn only_chdmans_verdict_on_a_chd_refutes_it_never_a_chdman_that_is_missing_crash
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("blaster.chd");
     write_file(&path, &synthetic_chd(5, &sha(1), None));
-    let header = title_select_engine::chd::header(&std::fs::File::open(&path).unwrap()).unwrap();
+    let header = stage_select_engine::chd::header(&std::fs::File::open(&path).unwrap()).unwrap();
 
     let verify = |program: &Path| chd_audit(program, tmp.path()).verify(&path, &header);
 
@@ -565,7 +565,7 @@ fn a_real_uncompressed_chd_is_unreadable_in_a_full_audit_as_chdman_has_nothing_t
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    let sha1 = title_select_engine::chd::header(&std::fs::File::open(&path).unwrap())
+    let sha1 = stage_select_engine::chd::header(&std::fs::File::open(&path).unwrap())
         .unwrap()
         .sha1;
     let dat = blaster(&f, &sha1);

@@ -1,5 +1,5 @@
 //! The lifecycle of registrations. Unregistering a Source Set, Library Folder, Additions Set or Ingest Folder keeps its
-//! row and history, read-only, and touches no game file: only Title Select's own marker is removed, once no Kept File
+//! row and history, read-only, and touches no game file: only Stage Select's own marker is removed, once no Kept File
 //! of it is left to delete. It is refused while anything holds the registration: another registration that depends
 //! on it, a Job Queued or Running for it, or work on it not finished. Forgetting an Unregistered registration then
 //! deletes its history from the store, touching no file.
@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{MARKER, RETENTION, STATE};
-use title_select_api::lifecycle::{
+use stage_select_api::build::{MARKER, RETENTION, STATE};
+use stage_select_api::lifecycle::{
     Forgotten, Holds, RegistrationHistory, RegistrationKind, UnregisteredRecord, Unregistration,
 };
 
@@ -269,7 +269,7 @@ pub(crate) fn holds_of(c: &Connection, kind: RegistrationKind, id: i64) -> Resul
 }
 
 /// The Kept Files of a registration still in its folder, which only its marker lets you delete. A kept directory is
-/// never deleted by Title Select, so it does not count.
+/// never deleted by Stage Select, so it does not count.
 fn live_kept(c: &Connection, kind: RegistrationKind, id: i64) -> Result<u64> {
     let sql = match kind {
         RegistrationKind::SourceSet => {
@@ -347,7 +347,7 @@ fn remove_own_marker(
     kind: RegistrationKind,
     id: i64,
 ) -> std::result::Result<(), String> {
-    let left = |why: String| Err(format!("its .title-select marker was left in place: {why}"));
+    let left = |why: String| Err(format!("its .stage-select marker was left in place: {why}"));
     let before = match dir.stat(MARKER) {
         Ok(None) => return Ok(()),
         Ok(Some(st)) => st,
@@ -496,13 +496,13 @@ impl Store {
         self.unregister(RegistrationKind::SourceSet, id)
     }
 
-    /// Unregisters Library Folder `id`. Its built files are left in place, as files Title Select no longer manages.
+    /// Unregisters Library Folder `id`. Its built files are left in place, as files Stage Select no longer manages.
     pub fn unregister_library_folder(&self, id: i64) -> Result<Unregistration> {
         self.read(|c| Self::registered_library_folder(c, id))?;
         self.unregister(RegistrationKind::LibraryFolder, id)
     }
 
-    /// Unregisters the Additions Set of `system`. Its additions are left in its folder, as files Title Select no
+    /// Unregisters the Additions Set of `system`. Its additions are left in its folder, as files Stage Select no
     /// longer manages.
     pub fn unregister_additions_set(&self, system: &str) -> Result<Unregistration> {
         let id = self.read(|c| Self::additions_set_id(c, system))?;
@@ -533,7 +533,7 @@ impl Store {
             })?;
             if kept > 0 {
                 notes.push(format!(
-                    "{kept} kept files are left in its kept files folder, which Title Select no longer manages"
+                    "{kept} kept files are left in its kept files folder, which Stage Select no longer manages"
                 ));
             }
         }
@@ -568,7 +568,7 @@ impl Store {
         }
         if kept > 0 {
             return Ok(Some(format!(
-                "{kept} kept files are left in its folder; its .title-select marker stays until you delete them"
+                "{kept} kept files are left in its folder; its .stage-select marker stays until you delete them"
             )));
         }
         let dir = match kind {

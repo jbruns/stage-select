@@ -8,9 +8,9 @@
   "system_settings": false,
   "summary": {
     "groups": 9,
-    "winners": 8,
-    "alternatives": 0,
-    "exclusions": 11,
+    "kept": 8,
+    "clones": 0,
+    "left_out": 11,
     "unresolved": 0
   },
   "coverage_drift": {
@@ -43,7 +43,7 @@
     {
       "group": "test title 0 (disc 1)",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 0 (Disc 1) (USA)",
           "rule": {
@@ -54,8 +54,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 0 (Germany)",
           "rule": {
@@ -70,7 +70,7 @@
     {
       "group": "test title 0 (disc 2)",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 0 (Disc 2) (USA)",
           "rule": {
@@ -81,14 +81,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 1",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 1 (USA)",
           "rule": {
@@ -99,8 +99,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 1 (Asia) (Disc 1) (Japanese Version)",
           "rule": {
@@ -179,7 +179,7 @@
     {
       "group": "test title 2",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 2 (USA)",
           "rule": {
@@ -190,16 +190,16 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 2 (europe)",
       "unresolved": false,
-      "winners": [],
-      "alternatives": [],
-      "exclusions": [
+      "kept": [],
+      "clones": [],
+      "left_out": [
         {
           "title": "Test Title 2 (Europe)",
           "rule": {
@@ -214,7 +214,7 @@
     {
       "group": "test title 3",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 3 (USA)",
           "rule": {
@@ -225,14 +225,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 3 (french)",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 3 (USA) (Fr)",
           "rule": {
@@ -243,14 +243,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 4",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 4 (USA)",
           "rule": {
@@ -261,14 +261,14 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     },
     {
       "group": "test title 4 (pirate)",
       "unresolved": false,
-      "winners": [
+      "kept": [
         {
           "title": "Test Title 4 (USA) (Pirate)",
           "rule": {
@@ -279,8 +279,8 @@
           "unresolved": false
         }
       ],
-      "alternatives": [],
-      "exclusions": [],
+      "clones": [],
+      "left_out": [],
       "drift": true
     }
   ]

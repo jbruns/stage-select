@@ -36,7 +36,7 @@ ends and emulators widely prefer CHD and `.m3u` playlists.
 - Every Game of one release is stored in one format: a Multi-disc Game's discs, and every track of a disc, are
   never split across formats.
 - Redump's `.cue` files are DAT ROMs, so its cue pack can fill or replace them in a Repair. SBI files are not DAT
-  ROMs: Title Select keeps them in its store and a Build places them beside a Game only when the system opts in.
+  ROMs: Stage Select keeps them in its store and a Build places them beside a Game only when the system opts in.
 
 ## Considered Options
 

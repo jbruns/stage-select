@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use super::jobs::{check_no_active, finish_running, job_by_id};
 use super::sets::{resolve, set_by_name};
 use super::{Error, Result, Store, now};
-use title_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
-use title_select_engine::{FileStamp, StatEntry};
+use stage_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
+use stage_select_engine::{FileStamp, StatEntry};
 
 /// Why a restart Interrupted a stat walk, which is never queued again: the next one finds the same.
 pub(crate) const WALK_INTERRUPTED: &str = "the service stopped while the check for changes was running; nothing in \
@@ -313,7 +313,7 @@ impl Store {
             }
             !stop.get()
         };
-        let Some(mut walked) = title_select_engine::stat_walk(
+        let Some(mut walked) = stage_select_engine::stat_walk(
             &resolved.path,
             Some(&resolved.canonical_root),
             &keep_going,
@@ -323,8 +323,8 @@ impl Store {
         };
         // Its Placed Games' files are its own too, where they are placed.
         for (folder, placed, files) in self.placed_folders(set.id)? {
-            walked.extend(title_select_engine::stat_placed(
-                &title_select_engine::Placed {
+            walked.extend(stage_select_engine::stat_placed(
+                &stage_select_engine::Placed {
                     id: folder,
                     root: &placed.canonical_root,
                     folder: &placed.rel,
@@ -333,7 +333,7 @@ impl Store {
                     tally: Default::default(),
                     // A stat walk reads no file.
                     chds: Vec::new(),
-                    chd: title_select_engine::ChdAudit {
+                    chd: stage_select_engine::ChdAudit {
                         chdman: Err("a stat walk runs no chdman".into()),
                         limits: self.settings()?.chd_limits(),
                         tmp: self.dir().join(crate::TMP),

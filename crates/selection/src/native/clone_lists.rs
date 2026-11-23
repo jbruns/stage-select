@@ -282,7 +282,7 @@ fn region_list(value: &J) -> PyResult<Vec<String>> {
     }
 }
 
-/// A priority Retool stores as it reads it. Title Select's clone lists only hold numbers here.
+/// A priority Retool stores as it reads it. Stage Select's clone lists only hold numbers here.
 fn int(value: &J) -> PyResult<i64> {
     match value {
         J::Int(i) => Ok(*i),

@@ -1,13 +1,13 @@
 //! Coverage in the workbench, without rendering (ADR 0021): its label, the editor's choices grouped like the presets,
 //! and the one-line summaries of what a Coverage leaves out and what changing it would do.
 //!
-//! The presets and the covering rule are the API crate's (`title_select_api::coverage`), so the workbench reads a
+//! The presets and the covering rule are the API crate's (`stage_select_api::coverage`), so the workbench reads a
 //! Coverage as the Service stores it.
 
 use std::collections::BTreeSet;
 
-use title_select_api::coverage::{PRESETS, Preset, UNKNOWN, WORLD};
-use title_select_api::{CoveragePreview, GameStatus, OutsideCoverage, RegionCount};
+use stage_select_api::coverage::{PRESETS, Preset, UNKNOWN, WORLD};
+use stage_select_api::{CoveragePreview, GameStatus, OutsideCoverage, RegionCount};
 
 /// What a Coverage is called: "Every region" without one; the names of the presets it is made of, joined
 /// ("Asia + Europe + Australia"); else how many regions it names, as after a hand edit.
@@ -309,8 +309,8 @@ pub fn region_rows(regions: &[RegionCount], all: bool) -> Vec<RegionCount> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use title_select_api::CoverageStaleFolder;
-    use title_select_api::coverage::preset;
+    use stage_select_api::CoverageStaleFolder;
+    use stage_select_api::coverage::preset;
 
     use super::*;
 

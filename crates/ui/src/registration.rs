@@ -1,9 +1,9 @@
 //! The Source Set registration form's pure logic: the path a Path Template proposes for a DAT, the live preview
 //! of the folder the registration would use, whether the DAT takes a Coverage, and the Roots it may go in.
 
-use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
-use title_select_api::roots::RootKind;
-use title_select_api::{Dat, Root};
+use stage_select_api::paths::{PathTemplate, TokenValues, relative_path};
+use stage_select_api::roots::RootKind;
+use stage_select_api::{Dat, Root};
 
 /// The path `template` proposes for `dat`, or why it proposes none, as a sentence for the form.
 pub fn propose(template: &str, dat: &Dat) -> Result<String, String> {
@@ -80,7 +80,7 @@ pub fn set_roots(roots: Vec<Root>) -> Vec<Root> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+    use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 
     fn root(name: &str, kind: RootKind, writable: bool) -> Root {
         Root {
@@ -114,7 +114,7 @@ mod tests {
     fn dat(provider: &str, name: &str) -> Dat {
         Dat {
             dat: format!("{provider}/{name}"),
-            format: title_select_api::DatFormat::Logiqx,
+            format: stage_select_api::DatFormat::Logiqx,
             provider: Some(provider.into()),
             name: name.into(),
             revisions: Vec::new(),
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn a_mame_listxml_is_registered_with_no_coverage_whatever_the_draft_says() {
         let mut mame = dat("MAME", "MAME");
-        mame.format = title_select_api::DatFormat::Listxml;
+        mame.format = stage_select_api::DatFormat::Listxml;
         let europe = Ok(Some(vec!["Europe".to_owned()]));
 
         assert_eq!(no_coverage(Some(&mame)), Some(ARCADE_COVERAGE_REFUSAL));

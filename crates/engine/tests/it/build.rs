@@ -3,9 +3,9 @@
 use std::fs::File;
 
 use crate::common::*;
-use title_select_engine::build::{GameIndex, probe};
-use title_select_engine::dat::Dat;
-use title_select_engine::meter::Tally;
+use stage_select_engine::build::{GameIndex, probe};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::meter::Tally;
 
 #[test]
 fn a_file_is_a_game_whose_needed_roms_it_holds_without_its_optional_or_nodump_ones() {

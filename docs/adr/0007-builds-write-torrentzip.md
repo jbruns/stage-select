@@ -16,7 +16,7 @@ lacks ZIP64 and sets no UTF-8 flag.
 
 ## Decision
 
-- Every ZIP a Build writes is TorrentZip, produced by Title Select's own writer and checked by its own validator,
+- Every ZIP a Build writes is TorrentZip, produced by Stage Select's own writer and checked by its own validator,
   following the format as igir documents it. The goal is output that the validators ROM managers use accept.
 - Deflate uses a pinned, statically linked zlib at level 9. Byte-identity with other TorrentZip tools is a best
   effort, checked against a committed golden made from a synthetic payload, and is not guaranteed.

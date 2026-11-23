@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use title_select_store::fetch::{Allowed, Http};
+use stage_select_store::fetch::{Allowed, Http};
 
 /// A listener that answers every request with `body`, counting the connections it accepts.
 fn listen(body: &'static str) -> (String, Arc<AtomicUsize>) {

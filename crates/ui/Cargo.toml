@@ -1,6 +1,6 @@
 [package]
-name = "title-select-ui"
-description = "Title Select's workbench: a Leptos client-side UI over the /api/v1 JSON API"
+name = "stage-select-ui"
+description = "Stage Select's workbench: a Leptos client-side UI over the /api/v1 JSON API"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 bench = []
 
 [dependencies]
-title-select-api.workspace = true
+stage-select-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }

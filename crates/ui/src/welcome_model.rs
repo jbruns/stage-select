@@ -2,8 +2,8 @@
 //! now, and what each waits on. Every step is worked out from what the store holds, so none is remembered: once a
 //! Root exists the home screen no longer leads here.
 
-use title_select_api::roots::RootKind;
-use title_select_api::{Root, SourceSetSummary};
+use stage_select_api::roots::RootKind;
+use stage_select_api::{Root, SourceSetSummary};
 
 use crate::registration::holds_source_sets;
 

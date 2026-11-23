@@ -239,8 +239,8 @@ pub struct Overrides {
 /// The version of the trace records a Selection is derived from.
 pub const SELECTION_TRACE_SCHEMA: u32 = 1;
 
-/// An explained Selection: per Game group, the chosen releases, the alternatives and the exclusions, each with the
-/// rule responsible.
+/// An explained Selection: per Game Group, the kept releases, the clones and those left out, each with the rule
+/// responsible.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Selection {
     pub pins: SelectionPins,
@@ -263,9 +263,9 @@ pub struct Selection {
 /// port's or the arcade selector's (ADR 0027), never both.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionPins {
-    /// The Title Select version whose engine made the Selection: absent on a Selection made before the cutover.
+    /// The Stage Select version whose engine made the Selection: absent on a Selection made before the cutover.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title_select_version: Option<String>,
+    pub stage_select_version: Option<String>,
     /// What the Retool port chose with: only on a Selection of a DAT other than an Arcade DAT.
     #[serde(flatten)]
     pub retool: Option<RetoolPins>,
@@ -371,11 +371,11 @@ pub const SOFTWARE_LIST_REFUSAL: &str =
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionSummary {
     pub groups: usize,
-    pub winners: usize,
-    pub alternatives: usize,
-    pub exclusions: usize,
+    pub kept: usize,
+    pub clones: usize,
+    pub left_out: usize,
     pub unresolved: usize,
-    /// Groups whose winners the Operator's choice decided.
+    /// Groups whose kept releases the Operator's choice decided.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub choices: usize,
     /// Stale choices, including those for groups that are gone.
@@ -383,7 +383,7 @@ pub struct SelectionSummary {
     pub stale: usize,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub conflicting: usize,
-    /// Dependencies of the winners (ADR 0025), each counted once.
+    /// Dependencies of the kept releases (ADR 0025), each counted once.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dependencies: usize,
     /// Shortnames the curated list names that the DAT Revision lacks; `pins.arcade.curated.unmatched` lists them.
@@ -419,14 +419,14 @@ pub struct CoverageDrift {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionGroup {
     pub group: String,
-    /// Retool picked at least one winner by a tie-breaker; the pick is provisional and needs a decision.
+    /// Retool kept at least one release by a tie-breaker; the pick is provisional and needs a decision.
     pub unresolved: bool,
-    /// Usually one. None when every release in the group is excluded.
-    pub winners: Vec<Winner>,
-    pub alternatives: Vec<Alternative>,
-    pub exclusions: Vec<Exclusion>,
-    /// Members of the group that a winner of the Selection needs to run, such as a BIOS or a device (ADR 0025):
-    /// never elected, and never excluded.
+    /// Usually one. None when every release in the group is left out.
+    pub kept: Vec<KeptGame>,
+    pub clones: Vec<CloneGame>,
+    pub left_out: Vec<LeftOutGame>,
+    /// Members of the group that a kept release of the Selection needs to run, such as a BIOS or a device (ADR 0025):
+    /// never elected, and never left out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<Dependency>,
     /// The Operator's choice for the group, if the Profile has one.
@@ -442,7 +442,7 @@ impl SelectionGroup {
     pub fn picks(&self) -> BTreeSet<String> {
         match &self.choice {
             Some(choice) => choice.picks.iter().cloned().collect(),
-            None => self.winners.iter().map(|w| w.title.clone()).collect(),
+            None => self.kept.iter().map(|w| w.title.clone()).collect(),
         }
     }
 
@@ -469,11 +469,11 @@ pub struct GroupChoice {
     /// The releases checked.
     pub checked: BTreeSet<String>,
     pub status: ChoiceStatus,
-    /// The engine's winners, before the choice was applied.
+    /// The engine's kept releases, before the choice was applied.
     pub picks: Vec<String>,
     /// Whether the engine left the group unresolved.
     pub engine_unresolved: bool,
-    /// Checked releases that are now excluded (conflicting) or gone from the group (stale).
+    /// Checked releases that are now left out (conflicting) or gone from the group (stale).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
 }
@@ -481,11 +481,11 @@ pub struct GroupChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChoiceStatus {
-    /// The choice decided the group's winners.
+    /// The choice decided the group's kept releases.
     Applied,
     /// The engine now picks exactly the checked releases, so the choice can be dropped.
     MatchesDefault,
-    /// A checked release is now excluded by the settings; the choice is not applied.
+    /// A checked release is now left out by the settings; the choice is not applied.
     Conflicting,
     /// A checked release is gone from the group; the choice is not applied.
     Stale,
@@ -513,36 +513,36 @@ impl ChoiceStatus {
     }
 }
 
-/// A release's role in its group.
+/// A release's Selection Outcome in its group, or that a kept release needs it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Role {
-    Winner,
-    Alternative,
-    Exclusion,
-    /// Needed by a winner, such as a BIOS or a device (ADR 0025).
+pub enum Outcome {
+    Kept,
+    Clone,
+    LeftOut,
+    /// Needed by a kept release, such as a BIOS or a device (ADR 0025).
     Dependency,
 }
 
-impl Role {
-    pub const ALL: [Role; 4] = [
-        Role::Winner,
-        Role::Alternative,
-        Role::Exclusion,
-        Role::Dependency,
+impl Outcome {
+    pub const ALL: [Outcome; 4] = [
+        Outcome::Kept,
+        Outcome::Clone,
+        Outcome::LeftOut,
+        Outcome::Dependency,
     ];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Role::Winner => "winner",
-            Role::Alternative => "alternative",
-            Role::Exclusion => "exclusion",
-            Role::Dependency => "dependency",
+            Outcome::Kept => "kept",
+            Outcome::Clone => "clone",
+            Outcome::LeftOut => "left_out",
+            Outcome::Dependency => "dependency",
         }
     }
 
-    pub fn parse(s: &str) -> Option<Role> {
-        Role::ALL.into_iter().find(|r| r.as_str() == s)
+    pub fn parse(s: &str) -> Option<Outcome> {
+        Outcome::ALL.into_iter().find(|r| r.as_str() == s)
     }
 }
 
@@ -550,15 +550,15 @@ impl Role {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseRow {
     pub group: String,
-    pub role: Role,
+    pub outcome: Outcome,
     pub title: String,
-    /// For an alternative, the winner it is an alternative to.
+    /// For a clone, the kept release it is a clone of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clone_of: Option<String>,
-    /// For an exclusion, Retool's reason.
+    /// For a release left out, Retool's reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// For a Dependency, the winners that need it.
+    /// For a Dependency, the kept releases that need it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub needed_by: Vec<String>,
     pub rule: Rule,
@@ -567,14 +567,14 @@ pub struct ReleaseRow {
 }
 
 impl Selection {
-    /// Every release, group by group, winners then alternatives then exclusions then Dependencies.
+    /// Every release, group by group, kept then clones then left out then Dependencies.
     pub fn rows(&self) -> Vec<ReleaseRow> {
         let mut rows = Vec::new();
         for group in &self.groups {
-            for w in &group.winners {
+            for w in &group.kept {
                 rows.push(ReleaseRow {
                     group: group.group.clone(),
-                    role: Role::Winner,
+                    outcome: Outcome::Kept,
                     title: w.title.clone(),
                     clone_of: None,
                     reason: None,
@@ -584,10 +584,10 @@ impl Selection {
                     from_choice: w.rule.is_choice(),
                 });
             }
-            for a in &group.alternatives {
+            for a in &group.clones {
                 rows.push(ReleaseRow {
                     group: group.group.clone(),
-                    role: Role::Alternative,
+                    outcome: Outcome::Clone,
                     title: a.title.clone(),
                     clone_of: Some(a.clone_of.clone()),
                     reason: None,
@@ -597,10 +597,10 @@ impl Selection {
                     from_choice: a.rule.is_choice(),
                 });
             }
-            for e in &group.exclusions {
+            for e in &group.left_out {
                 rows.push(ReleaseRow {
                     group: group.group.clone(),
-                    role: Role::Exclusion,
+                    outcome: Outcome::LeftOut,
                     title: e.title.clone(),
                     clone_of: None,
                     reason: Some(e.reason.clone()),
@@ -613,7 +613,7 @@ impl Selection {
             for d in &group.dependencies {
                 rows.push(ReleaseRow {
                     group: group.group.clone(),
-                    role: Role::Dependency,
+                    outcome: Outcome::Dependency,
                     title: d.title.clone(),
                     clone_of: None,
                     reason: None,
@@ -628,33 +628,33 @@ impl Selection {
     }
 }
 
-/// How one release's role changed between two Selections.
+/// How one release's outcome changed between two Selections.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseChange {
     pub group: String,
     pub title: String,
     /// Absent when the release is new.
-    pub before: Option<Role>,
+    pub before: Option<Outcome>,
     /// Absent when the release is gone.
-    pub after: Option<Role>,
+    pub after: Option<Outcome>,
     /// The rule responsible now, or before when the release is gone.
     pub rule: Rule,
 }
 
-/// Release by release, what changed from one Selection to another. Releases whose role is unchanged are left out.
+/// Release by release, what changed from one Selection to another. Releases whose outcome is unchanged are omitted.
 pub fn diff_rows(before: &[ReleaseRow], after: &[ReleaseRow]) -> Vec<ReleaseChange> {
     let key = |r: &ReleaseRow| (r.group.clone(), r.title.clone());
     let old: BTreeMap<_, _> = before.iter().map(|r| (key(r), r)).collect();
     let new: BTreeMap<_, _> = after.iter().map(|r| (key(r), r)).collect();
     let mut changes = Vec::new();
     for (k, a) in &new {
-        let previous = old.get(k).map(|b| b.role);
-        if previous != Some(a.role) {
+        let previous = old.get(k).map(|b| b.outcome);
+        if previous != Some(a.outcome) {
             changes.push(ReleaseChange {
                 group: k.0.clone(),
                 title: k.1.clone(),
                 before: previous,
-                after: Some(a.role),
+                after: Some(a.outcome),
                 rule: a.rule.clone(),
             });
         }
@@ -664,7 +664,7 @@ pub fn diff_rows(before: &[ReleaseRow], after: &[ReleaseRow]) -> Vec<ReleaseChan
             changes.push(ReleaseChange {
                 group: k.0.clone(),
                 title: k.1.clone(),
-                before: Some(b.role),
+                before: Some(b.outcome),
                 after: None,
                 rule: b.rule.clone(),
             });
@@ -675,7 +675,7 @@ pub fn diff_rows(before: &[ReleaseRow], after: &[ReleaseRow]) -> Vec<ReleaseChan
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Winner {
+pub struct KeptGame {
     pub title: String,
     /// The rule that decided it.
     pub rule: Rule,
@@ -683,29 +683,29 @@ pub struct Winner {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Alternative {
+pub struct CloneGame {
     pub title: String,
-    /// The winner it is an alternative to.
+    /// The kept release it is a clone of.
     pub clone_of: String,
     /// The rule that removed it.
     pub rule: Rule,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Exclusion {
+pub struct LeftOutGame {
     pub title: String,
     pub rule: Rule,
     /// Retool's reason, such as `Demos, kiosks, and samples`.
     pub reason: String,
 }
 
-/// A member of a group that winners need, such as a BIOS or a device (ADR 0025).
+/// A member of a group that kept releases need, such as a BIOS or a device (ADR 0025).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dependency {
     pub title: String,
-    /// The winners that need it, sorted.
+    /// The kept releases that need it, sorted.
     pub needed_by: Vec<String>,
-    /// Names the winners that need it.
+    /// Names the kept releases that need it.
     pub rule: Rule,
 }
 
@@ -777,10 +777,10 @@ mod tests {
         .unwrap();
         let retool = old.retool.as_ref().unwrap();
         assert_eq!(retool.retool_commit.as_deref(), Some("59f169f"));
-        assert_eq!(old.title_select_version, None);
+        assert_eq!(old.stage_select_version, None);
 
         let new = SelectionPins {
-            title_select_version: Some("0.7.0".into()),
+            stage_select_version: Some("0.7.0".into()),
             retool: Some(RetoolPins {
                 clone_list_commit: "cdeb391".into(),
                 trace_schema: 1,
@@ -790,14 +790,14 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&new).unwrap(),
-            r#"{"title_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
+            r#"{"stage_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
         );
     }
 
     #[test]
     fn arcade_pins_carry_no_retool_pins() {
         let pins = SelectionPins {
-            title_select_version: Some("0.7.0".into()),
+            stage_select_version: Some("0.7.0".into()),
             retool: None,
             arcade: Some(ArcadePins {
                 build: "0.289 (mame0289)".into(),
@@ -811,7 +811,7 @@ mod tests {
         let json = serde_json::to_string(&pins).unwrap();
         assert_eq!(
             json,
-            r#"{"title_select_version":"0.7.0","arcade":{"build":"0.289 (mame0289)","category":"listxml_heuristic"}}"#
+            r#"{"stage_select_version":"0.7.0","arcade":{"build":"0.289 (mame0289)","category":"listxml_heuristic"}}"#
         );
         let read: SelectionPins = serde_json::from_str(&json).unwrap();
         assert_eq!(read, pins);

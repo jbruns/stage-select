@@ -1,7 +1,7 @@
-# Title Select
+# Stage Select
 
-Title Select audits Source Sets against DAT Revisions and, later, builds explained Selections from them into a Play
-Library. "Title Select" is the product's name, not a domain term.
+Stage Select audits Source Sets against DAT Revisions and, later, builds explained Selections from them into a Play
+Library. "Stage Select" is the product's name, not a domain term.
 
 ## Inventory
 
@@ -19,7 +19,7 @@ of each machine, rather than from release names.
 
 **DAT Provider**:
 The group that publishes a DAT, such as No-Intro, Redump or MAME; an author or a DAT Format alone does not establish
-it. Title Select fetches only from a DAT Provider that permits automated fetching, and only when the Operator turns
+it. Stage Select fetches only from a DAT Provider that permits automated fetching, and only when the Operator turns
 fetching on.
 _Avoid_: Source (alone), group
 
@@ -33,8 +33,8 @@ DAT's machines. Kept like a DAT Revision, by its SHA-256, with the MAME version 
 fetching switch or dropped in, never shipped.
 
 **Fixdat**:
-A DAT that Title Select writes listing what a Source Set lacks against a DAT Revision: its Missing Games, and the
-missing ROMs of its Incomplete Games, optionally only those a Selection chose. Title Select never acquires them.
+A DAT that Stage Select writes listing what a Source Set lacks against a DAT Revision: its Missing Games, and the
+missing ROMs of its Incomplete Games, optionally only those a Selection chose. Stage Select never acquires them.
 _Avoid_: Missing list, wanted list
 
 **Game**:
@@ -81,34 +81,34 @@ Arcade DAT has no Coverage.
 _Avoid_: Scope, subset, Filtered DAT, region filter (when meaning Coverage)
 
 **Follow**:
-A Source Set's opt-in to newer DAT Revisions of its DAT, whether the Operator drops them in or Title Select fetches
+A Source Set's opt-in to newer DAT Revisions of its DAT, whether the Operator drops them in or Stage Select fetches
 them from a DAT Provider that permits it. A newer revision makes a Following Source Set Stale; it never starts an
 Audit by itself.
 _Avoid_: Subscribe, track, auto-update
 
 **Play Library**:
-The selected collection that players and front ends read, derived for a device, purpose or preference. Title Select
+The selected collection that players and front ends read, derived for a device, purpose or preference. Stage Select
 builds Selections into it.
 _Avoid_: Library (alone), output
 
 **Ingest Folder**:
 A folder where new files arrive, such as a Downloader's completed folder or a manual drop: a writable Root of kind
-`ingest` that the Operator registers for Title Select to assess. Title Select writes to it only through an approved
+`ingest` that the Operator registers for Stage Select to assess. Stage Select writes to it only through an approved
 plan that names each item, where it goes and why, and only while its marker says it is this store's Ingest Folder.
 _Avoid_: Source (alone), Downloads
 
 **Root**:
-A named folder the Operator registers for Title Select to read, or to write, such as the one holding Source Sets. Its
+A named folder the Operator registers for Stage Select to read, or to write, such as the one holding Source Sets. Its
 name never changes once registered. A Source Set or a Play Library folder is identified by its Root and a path
 relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets that Repairs may
 write. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
 _Avoid_: Mount, share
 
 **Operator**:
-The person who runs Title Select and approves its Change Plans.
+The person who runs Stage Select and approves its Change Plans.
 
 **Unregister**:
-To end Title Select's management of a Source Set, Library Folder, Additions Set, Ingest Folder or Root, touching
+To end Stage Select's management of a Source Set, Library Folder, Additions Set, Ingest Folder or Root, touching
 none of its game files. Something another registration depends on cannot be unregistered. Removing the files as well
 is a separate approved Change Plan that sets them aside as Kept Files.
 _Avoid_: Delete, remove (when no file is set aside)
@@ -120,12 +120,12 @@ the Selections that used them.
 _Avoid_: Archive, delete
 
 **Job**:
-A durable unit of work that Title Select runs for the Operator, such as an Audit. It is Queued, Running, Succeeded,
+A durable unit of work that Stage Select runs for the Operator, such as an Audit. It is Queued, Running, Succeeded,
 Failed or Interrupted, and it survives a browser disconnecting or the Service restarting.
 _Avoid_: Task, run
 
 **Host**:
-The machine the Service runs on, as far as Title Select can see it: its CPUs and its Roots.
+The machine the Service runs on, as far as Stage Select can see it: its CPUs and its Roots.
 _Avoid_: Server, NAS, box
 
 **Ceiling**:
@@ -264,8 +264,8 @@ Applying an approved Change Plan that creates or updates a Play Library from a S
 _Avoid_: Publish, export
 
 **Library Folder**:
-A Play Library folder that the Operator registers for Title Select to build into, identified by its Root and a path
-relative to it, and bound to one system, one Source Set and one Selection Profile. Of a Play Library, Title Select
+A Play Library folder that the Operator registers for Stage Select to build into, identified by its Root and a path
+relative to it, and bound to one system, one Source Set and one Selection Profile. Of a Play Library, Stage Select
 writes only to Library Folders; every other Play Library file is unmanaged and never touched. A system may have several.
 _Avoid_: Managed Folder, output folder, target
 
@@ -277,7 +277,7 @@ _Avoid_: Naming scheme
 **Incomplete**:
 A Library Folder whose current Build lacks a selected Game, because its Game Group was unresolved and skipped, had no
 source, failed, or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its Game
-Group left that disc out; or lacks a Dependency or Disk of a selected Game. Title Select shows why and how many.
+Group left that disc out; or lacks a Dependency or Disk of a selected Game. Stage Select shows why and how many.
 
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
@@ -287,7 +287,7 @@ damage.
 _Avoid_: Outdated, dirty
 
 **Drift**:
-Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Title
+Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Stage
 Select did not build. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
 the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)

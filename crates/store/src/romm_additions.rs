@@ -9,8 +9,8 @@ use std::sync::{Mutex, Weak};
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::Deserialize;
-use title_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome};
-use title_select_api::{Job, JobKind};
+use stage_select_api::romm::{RommAdditions, RommAdditionsOutcome, RommScanOutcome};
+use stage_select_api::{Job, JobKind};
 
 use crate::fetch::Method;
 use crate::romm::{Romm, RommClient, RommError, ScanStop, ScanTiming};
@@ -18,7 +18,7 @@ use crate::{Result, Store, now};
 
 /// The collection's name in RomM.
 pub const NAME: &str = "Additions";
-const DESCRIPTION: &str = "Every addition Title Select built into a library folder RomM scans. Title Select keeps \
+const DESCRIPTION: &str = "Every addition Stage Select built into a library folder RomM scans. Stage Select keeps \
                            it in step after each build, so a change you make to it here is undone.";
 
 /// One change to the collection at a time, across every Store in the process: a sync, or deleting it once RomM is
@@ -53,7 +53,7 @@ impl Store {
     }
 }
 
-/// The fields of RomM's collection that Title Select reads.
+/// The fields of RomM's collection that Stage Select reads.
 #[derive(Deserialize)]
 struct Collection {
     id: i64,
@@ -64,7 +64,7 @@ struct Collection {
     is_public: bool,
 }
 
-/// The field of RomM's ROM that Title Select reads.
+/// The field of RomM's ROM that Stage Select reads.
 #[derive(Deserialize)]
 struct Rom {
     id: i64,
@@ -207,7 +207,7 @@ fn delete_released(store: &Weak<Store>, timeout: Option<std::time::Duration>) ->
 /// A form RomM reads as `multipart/form-data`, and its content type.
 fn multipart(fields: &[(&str, &str)]) -> (String, Vec<u8>) {
     let boundary = format!(
-        "title-select-{:x}",
+        "stage-select-{:x}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -254,7 +254,7 @@ fn sync(
         if stop.is_stopped() {
             return Err(Some((
                 RommAdditionsOutcome::Stopped,
-                not_synced("Title Select stopped"),
+                not_synced("Stage Select stopped"),
             )));
         }
         let now = match store.upgrade().ok_or(None)?.settings() {
@@ -311,7 +311,7 @@ fn sync(
         return Err(Some((
             RommAdditionsOutcome::Error,
             not_synced(&format!(
-                "Your RomM token lacks the {scopes} {what}. Create a token with every scope Title Select needs in \
+                "Your RomM token lacks the {scopes} {what}. Create a token with every scope Stage Select needs in \
                  RomM and save it in your RomM settings"
             )),
         )));
@@ -369,7 +369,7 @@ fn sync(
                     RommClient::read::<Collection>(path, &bytes).map_err(failed)?,
                     true,
                 ),
-                // The token's user already has a collection of that name, which Title Select no longer tracks.
+                // The token's user already has a collection of that name, which Stage Select no longer tracks.
                 // RomM lists other users' public collections too, so only one the token may change is its user's:
                 // adding no ROM to it changes nothing.
                 Err(RommError::Status { status: 409, .. }) => {
@@ -394,7 +394,7 @@ fn sync(
                                 RommAdditionsOutcome::Error,
                                 not_synced(&format!(
                                     "RomM says your token's user already has a collection named \"{NAME}\", but \
-                                     Title Select can't find exactly one. Rename or delete it in RomM"
+                                     Stage Select can't find exactly one. Rename or delete it in RomM"
                                 )),
                             )));
                         }

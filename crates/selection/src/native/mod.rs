@@ -46,7 +46,7 @@ pub(crate) fn system_name(dat: &std::path::Path, internal_config: &[u8]) -> Opti
     let text = process::read_text(dat).ok()?;
     let settings = settings::Settings::new(
         internal_config,
-        &title_select_api::selection::SelectionProfile::default(),
+        &stage_select_api::selection::SelectionProfile::default(),
         "",
     )
     .ok()?;
@@ -61,7 +61,7 @@ impl GameRegions {
     pub fn new(internal_config: &[u8]) -> Result<Self, crate::Error> {
         settings::Settings::new(
             internal_config,
-            &title_select_api::selection::SelectionProfile::default(),
+            &stage_select_api::selection::SelectionProfile::default(),
             "",
         )
         .map(GameRegions)

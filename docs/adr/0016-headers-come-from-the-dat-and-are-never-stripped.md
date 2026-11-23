@@ -15,7 +15,7 @@ need it: NES and 7800 games rarely play without it.
 ## Decision
 
 - A DAT Revision's Header Rule is the one its DAT names (`<clrmamepro header="…"/>`). A DAT that names none gets no
-  Header Rule, whatever its system. Title Select has four built-in rules, matching No-Intro's detectors: NES
+  Header Rule, whatever its system. Stage Select has four built-in rules, matching No-Intro's detectors: NES
   (`NES\x1a`, 16 bytes), FDS (`FDS\x1a`, 16 bytes), Atari 7800 (`ATARI7800` at offset 1, 128 bytes) and Lynx
   (`LYNX`, 64 bytes).
 - When a DAT Revision has a Header Rule and an Entry starts with that Header, the Audit hashes the Entry once, without

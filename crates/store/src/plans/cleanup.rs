@@ -1,6 +1,6 @@
 //! Planning a cleanup: what to do with the drift a check finds in a Library Folder, each action one you chose for one
 //! entry, kept file or built file. A cleanup is planned against the folder's current Build, its Selection and DAT
-//! Revision, and lists every entry Title Select did not build as the plan's check found it, chosen or not, so that
+//! Revision, and lists every entry Stage Select did not build as the plan's check found it, chosen or not, so that
 //! its digest binds the folder as it was planned against: approving it, and carrying it out, compute it again and
 //! refuse it when anything it lists changed. Planning only reads the folder.
 
@@ -8,14 +8,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
-use title_select_api::build::{
+use stage_select_api::build::{
     BlockerKind, CheckSummary, Cleanup, CleanupAction, CleanupEntry, CleanupRepack, CleanupRestore,
     DriftKind, ExpectedRom, FileOutcome, FolderCheck, GeneratedFile, KeptFile, Plan, PlanChoices,
     PlanCleanup, PlanContent, PlanSource, RETENTION, RestoreKind, invalid_name,
 };
-use title_select_engine::build::{GameIndex, Probe, holds_as};
-use title_select_engine::dat::Dat;
-use title_select_engine::meter::Tally;
+use stage_select_engine::build::{GameIndex, Probe, holds_as};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::meter::Tally;
 
 use super::{
     Blocker, Folder, Found, Inputs, LaidFile, Planned, Sources as SetSources, blocker,
@@ -26,7 +26,7 @@ use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{folder_by_id, open_folder};
 use crate::kept::{kept_where, name_key, open_retention};
 use crate::{Error, Fault, Result, Store};
-use title_select_api::storage::is_reserved_name;
+use stage_select_api::storage::is_reserved_name;
 
 fn refuse(target: &str, message: String) -> Blocker {
     Blocker {
@@ -220,7 +220,7 @@ fn hash_lines(lines: &BTreeSet<String>) -> String {
         hash.update(line.as_bytes());
         hash.update(b"\n");
     }
-    title_select_engine::hex(&hash.finalize())
+    stage_select_engine::hex(&hash.finalize())
 }
 
 /// The names in the folder a cleanup may put an entry at, and those it claims as it is planned.
@@ -238,7 +238,7 @@ impl Names<'_> {
     fn claim(&mut self, name: &str) -> std::result::Result<(), String> {
         let lower = name_key(name);
         if name.split('/').next().is_some_and(is_reserved_name) {
-            return Err(format!("{name} is a name Title Select keeps for itself"));
+            return Err(format!("{name} is a name Stage Select keeps for itself"));
         }
         if self.claimed.contains(&lower) {
             return Err(format!(
@@ -410,7 +410,7 @@ impl Store {
                         blockers.push(refuse(
                             name,
                             format!(
-                                "{name} is not something in the folder that Title Select did not build, as it is \
+                                "{name} is not something in the folder that Stage Select did not build, as it is \
                                  now"
                             ),
                         ));
@@ -609,7 +609,7 @@ impl Store {
                         )
                     });
                     let repack = match (built, checked, f) {
-                        (None, ..) => Err(format!("{target} is not a file Title Select built")),
+                        (None, ..) => Err(format!("{target} is not a file Stage Select built")),
                         (Some(built), ..) if built.chd => Err(format!(
                             "{target} is a CHD, as the storage policy says, so it is not repacked"
                         )),
@@ -661,11 +661,7 @@ impl Store {
             .selection
             .groups
             .iter()
-            .flat_map(|g| {
-                g.winners
-                    .iter()
-                    .map(|w| (w.title.as_str(), g.group.as_str()))
-            })
+            .flat_map(|g| g.kept.iter().map(|w| (w.title.as_str(), g.group.as_str())))
             .collect();
         let group_of = |game: Option<&String>| {
             game.and_then(|game| groups.get(game.as_str()))

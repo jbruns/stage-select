@@ -5,12 +5,12 @@ igir at `f0766c89`, oxyromon at `9c631bda`, RomM at `a19957e3`, and the format r
 note [0106-rom-patch-format-specs.md](0106-rom-patch-format-specs.md). No Source Set, Host or Operator data was read,
 and no request went to No-Intro or DAT-o-MATIC. **Inference** marks conclusions the sources don't state directly.
 
-#106 asks whether Title Select should apply IPS, BPS, UPS or xdelta patches to Verified Games to produce Additions, as
+#106 asks whether Stage Select should apply IPS, BPS, UPS or xdelta patches to Verified Games to produce Additions, as
 igir does; what provenance such an Addition would record; and whether it would be rebuilt when its base changes.
 
 ## Recommendation
 
-**Staged go. Don't patch in Title Select yet; make the Ingest path patch-aware now, and keep an in-house `patch`
+**Staged go. Don't patch in Stage Select yet; make the Ingest path patch-aware now, and keep an in-house `patch`
 Addition source designed but unbuilt.**
 
 1. **Now: an ingest guard (~150 lines with tests).** Recognise patch files by extension and signature (`PATCH`,
@@ -31,7 +31,7 @@ Why:
 - What delegating loses is exactly what an in-house source would add: RomM applies on a base mismatch, records no
   base or patch, and can't re-apply. Those are only worth building once the Operator keeps patched games as curated
   Library content rather than one-off downloads.
-- RomM can't notify Title Select of a new patched file (§5), so an Ingest Folder, which Title Select already scans
+- RomM can't notify Stage Select of a new patched file (§5), so an Ingest Folder, which Stage Select already scans
   and settles (ADR 0008), is the only integration that needs no new code.
 
 Answers to #106's three questions:
@@ -42,7 +42,7 @@ Answers to #106's three questions:
 | What provenance? | If built: base ROM by full hashes plus DAT Revision and name, patch SHA-256, the patch's declared checksums, header view. Via Ingest: only the output's own hashes. |
 | Rebuilt when the base changes? | Never silently. Flag a stale base; re-apply only through an approved Change Plan (§6.4). |
 
-## 1. What Title Select has today
+## 1. What Stage Select has today
 
 - **Additions** have three sources: an Ingest item that matched nothing, Drift in a Library Folder, and a Source Set
   Entry no DAT knows (`crates/api/src/additions.rs:18-26`). Migration 0012 enforces one link column per source with
@@ -107,7 +107,7 @@ Detail is in [0106-rom-patch-format-specs.md](0106-rom-patch-format-specs.md). I
   add/remove must be an in-memory view for applying, never a change to stored bytes.
 - Ordered chains (a base translation plus addenda) are a known need no mainstream tool does first-class.
 - Disc hacks usually ship xdelta against one Redump track plus an edited cue; the result leaves the DAT entirely.
-- Patches are distributed separately from ROMs. Title Select should accept only Operator-supplied patches and never
+- Patches are distributed separately from ROMs. Stage Select should accept only Operator-supplied patches and never
   fetch them, in the spirit of ADR 0012.
 
 ## 4. RomM's patcher
@@ -133,12 +133,12 @@ every write path fails cleanly; uploads share those primitives (**Inference** fo
 "Upload to RomM" work means making the Play Library writable for RomM. A foreign write there becomes a Conflict that
 the next Build skips (overwrite) or Unknown Drift (new file), and becomes an Addition only through an approved
 Cleanup with `AddAddition` (`crates/store/src/checks.rs:420-563`, `crates/store/src/builds/cleanup.rs`). That works,
-but reverses research 0005 and the glossary rule that Title Select alone writes Library Folders.
+but reverses research 0005 and the glossary rule that Stage Select alone writes Library Folders.
 
 **The supported landing zone is an Ingest Folder** (ADR 0008: settle interval, durable intent). RomM can't target
 one, so the flow is: patch in RomM, download, drop into an Ingest Folder.
 
-**Notification.** RomM can't tell Title Select that a patched ROM exists:
+**Notification.** RomM can't tell Stage Select that a patched ROM exists:
 
 - Notification kinds cover scans, tasks, streaming sessions, roles, channels, devices and `custom`; there is no "ROM
   added" kind (`backend/models/notification.py:17-47`).
@@ -157,7 +157,7 @@ nothing flags or re-applies when the base changes; no ordered chains.
 
 | Option | Production lines | Test lines | Main pieces |
 |---|---:|---:|---|
-| Title Select applies patches | ~1,190–1,560 | ~430–610 | IPS/UPS/BPS (~470–550), apply-and-verify stage (~150–190), UI (~300–380), Job kind (~80–130), upload and blobs (~100), provenance and stale-base check (~120–150) |
+| Stage Select applies patches | ~1,190–1,560 | ~430–610 | IPS/UPS/BPS (~470–550), apply-and-verify stage (~150–190), UI (~300–380), Job kind (~80–130), upload and blobs (~100), provenance and stale-base check (~120–150) |
 | Outside patcher, output via Ingest | ~70–110 | ~40–60 | Patch guard in Ingest assessment, docs |
 
 For scale: 88k production and 30k test lines of Rust at `c41633a`; the Additions PR (#54) added 7,346 lines. Parser
@@ -168,8 +168,8 @@ sizes are estimated from Flips, igir and Rom Patcher JS, since no patch code exi
 | Need | Tool |
 |---|---|
 | Try a hack once, play it now | RomM (download) |
-| Kept, verified, rebuilt hacks in the Play Library | Title Select |
-| A base guaranteed correct (BPS/UPS refuse a mismatch) | Title Select |
+| Kept, verified, rebuilt hacks in the Play Library | Stage Select |
+| A base guaranteed correct (BPS/UPS refuse a mismatch) | Stage Select |
 | PPF, APS, RUP at low cost | RomM |
 
 ## 6. Deferred design: `AdditionSource::Patch`

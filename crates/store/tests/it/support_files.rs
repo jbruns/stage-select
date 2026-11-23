@@ -1,9 +1,9 @@
 //! MAME support files you drop in (ADR 0012's amendment): kept unmodified by SHA-256, with the MAME version their
 //! header names.
 
-use title_select_api::ImportOutcome;
-use title_select_api::support::{SupportFileKind, SupportFileOrigin};
-use title_select_store::{Error, Store};
+use stage_select_api::ImportOutcome;
+use stage_select_api::support::{SupportFileKind, SupportFileOrigin};
+use stage_select_store::{Error, Store};
 
 fn ini(file: &str, version: &str) -> Vec<u8> {
     format!(

@@ -2,15 +2,15 @@
 //! Coverage are never filled or listed as wanted, but present ones are still renamed and repacked. From a synthetic
 //! DAT, Source Set and Ingest Folder; regions are read from Game names by the Selection engine.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
-use title_select_api::ingest::{ItemState, Need, Proposal};
-use title_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
-use title_select_api::{AuditEvidence, GameStatus, JobState, Workers};
-use title_select_engine::dat::Dat;
-use title_select_store::{Error, FixdatScope, Store};
+use stage_select_api::ingest::{ItemState, Need, Proposal};
+use stage_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
+use stage_select_api::{AuditEvidence, GameStatus, JobState, Workers};
+use stage_select_engine::dat::Dat;
+use stage_select_store::{Error, FixdatScope, Store};
 
 const SET: &str = "Alpha";
 const WORKERS: Workers = Workers {
@@ -94,18 +94,18 @@ impl Env {
             ],
         );
         if regions {
-            let regions = title_select_selection::Engine::locate(None)
+            let regions = stage_select_selection::Engine::locate(None)
                 .and_then(|engine| engine.regions())
                 .expect("the clone lists tools/clone-lists/fetch unpacks");
             store.set_regions(move |game| regions.of(game));
         }
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },

@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use jiff::{SignedDuration, Timestamp};
-use title_select_api::{Job, JobKind, JobState};
-use title_select_store::Store;
+use stage_select_api::{Job, JobKind, JobState};
+use stage_select_store::Store;
 use tokio::sync::Notify;
 
 use crate::jobs::Jobs;
@@ -117,8 +117,8 @@ impl FollowUps {
 
     /// The follow-up scan of the folder of Root `root` that queuing returned, if one was queued. A folder no longer
     /// registered loses its follow-up; one that met a scan already queued or running keeps it.
-    fn queued(&self, root: &str, queued: title_select_store::Result<Job>) -> Option<Job> {
-        use title_select_store::Error;
+    fn queued(&self, root: &str, queued: stage_select_store::Result<Job>) -> Option<Job> {
+        use stage_select_store::Error;
         match queued {
             Ok(job) => Some(job),
             Err(Error::NotFound(_)) => {
@@ -128,7 +128,7 @@ impl FollowUps {
             Err(Error::Conflict(_) | Error::JobActive { .. }) => None,
             Err(err) => {
                 eprintln!(
-                    "title-select: cannot queue a follow-up scan of ingest folder {root}: {err}"
+                    "stage-select: cannot queue a follow-up scan of ingest folder {root}: {err}"
                 );
                 None
             }
@@ -172,7 +172,7 @@ fn follow_up(store: &Store, follow_ups: &FollowUps, root: &str, succeeded: bool)
     let settles_at = match store.ingest_follow_up_at(root) {
         Ok(at) => at,
         Err(err) => {
-            eprintln!("title-select: cannot tell when to scan ingest folder {root} again: {err}");
+            eprintln!("stage-select: cannot tell when to scan ingest folder {root} again: {err}");
             return;
         }
     };
@@ -192,7 +192,7 @@ fn follow_up(store: &Store, follow_ups: &FollowUps, root: &str, succeeded: bool)
 pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>) {
     let seeded = {
         let (store, jobs) = (store.clone(), jobs.clone());
-        tokio::task::spawn_blocking(move || -> title_select_store::Result<()> {
+        tokio::task::spawn_blocking(move || -> stage_select_store::Result<()> {
             for folder in store.ingest_folders()? {
                 if folder.id.is_some() {
                     follow_up(&store, &jobs.follow_ups, &folder.root, true);
@@ -204,8 +204,8 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>) {
     };
     match seeded {
         Ok(Ok(())) => {}
-        Ok(Err(err)) => eprintln!("title-select: cannot find ingest folders to scan again: {err}"),
-        Err(err) => eprintln!("title-select: cannot find ingest folders to scan again: {err}"),
+        Ok(Err(err)) => eprintln!("stage-select: cannot find ingest folders to scan again: {err}"),
+        Err(err) => eprintln!("stage-select: cannot find ingest folders to scan again: {err}"),
     }
     loop {
         for root in jobs.follow_ups.take_due(Timestamp::now()) {
@@ -220,7 +220,7 @@ pub async fn run(store: Arc<Store>, jobs: Arc<Jobs>) {
                         jobs.changed(job);
                     }
                 }
-                Err(err) => eprintln!("title-select: cannot queue a follow-up scan: {err}"),
+                Err(err) => eprintln!("stage-select: cannot queue a follow-up scan: {err}"),
             }
         }
         match jobs.follow_ups.next_due() {
@@ -327,13 +327,13 @@ mod tests {
         follow_ups.after_scan("busy", settles(60), at(0));
         assert_eq!(follow_ups.take_due(at(60)), ["busy", "gone"]);
 
-        let gone = Err(title_select_store::Error::NotFound(
+        let gone = Err(stage_select_store::Error::NotFound(
             "ingest folder gone is not registered".into(),
         ));
         assert!(follow_ups.queued("gone", gone).is_none());
         assert_eq!(follow_ups.due_at("gone"), None);
 
-        let busy = Err(title_select_store::Error::Conflict(
+        let busy = Err(stage_select_store::Error::Conflict(
             "a scan is already queued".into(),
         ));
         assert!(follow_ups.queued("busy", busy).is_none());

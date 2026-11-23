@@ -2,8 +2,8 @@ use std::process::Command;
 
 use crate::common::*;
 
-fn title_select() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_title-select"))
+fn stage_select() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_stage-select"))
 }
 
 fn pong_fixture() -> (Fixture, std::path::PathBuf) {
@@ -17,7 +17,7 @@ fn pong_fixture() -> (Fixture, std::path::PathBuf) {
 fn audit_prints_a_json_report_to_stdout() {
     let (f, dat) = pong_fixture();
 
-    let out = title_select()
+    let out = stage_select()
         .arg("audit")
         .arg("--dat")
         .arg(&dat)
@@ -31,7 +31,7 @@ fn audit_prints_a_json_report_to_stdout() {
         String::from_utf8_lossy(&out.stderr)
     );
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["schema"], "title-select.audit/1");
+    assert_eq!(report["schema"], "stage-select.audit/1");
     assert_eq!(report["dat_revision"]["name"], "Test - System");
     assert_eq!(report["summary"]["findings"]["matched"], 1);
     assert_eq!(report["entries"][0]["finding"], "matched");
@@ -43,7 +43,7 @@ fn audit_prints_a_json_report_to_stdout() {
 fn a_stateless_audit_says_it_ran_in_full() {
     let (f, dat) = pong_fixture();
 
-    let out = title_select()
+    let out = stage_select()
         .arg("audit")
         .arg("--dat")
         .arg(&dat)
@@ -66,7 +66,7 @@ fn audit_writes_the_report_to_the_output_file() {
     let (f, dat) = pong_fixture();
     let output = f.dat_dir.path().join("report.json");
 
-    let out = title_select()
+    let out = stage_select()
         .arg("audit")
         .arg("--dat")
         .arg(&dat)
@@ -98,7 +98,7 @@ fn audit_fails_with_a_message_for_an_unreadable_dat_or_a_missing_source_set() {
         (not_xml.as_path(), f.set.path()),
         (dat.as_path(), missing_set.as_path()),
     ] {
-        let out = title_select()
+        let out = stage_select()
             .arg("audit")
             .arg("--dat")
             .arg(dat)
@@ -135,8 +135,8 @@ fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history(
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -159,8 +159,8 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -186,7 +186,7 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
     let report: serde_json::Value =
         serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
-    assert_eq!(report["schema"], "title-select.audit/1");
+    assert_eq!(report["schema"], "stage-select.audit/1");
     assert_eq!(report["summary"]["findings"]["matched"], 1);
 
     let sets = run_ok(ts().args(["set", "list"]));
@@ -240,8 +240,8 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -258,7 +258,7 @@ fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
 
     let xml = run_ok(ts().args(["fixdat", rel]));
     let fixdat =
-        title_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
+        stage_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
     assert_eq!(fixdat.games, ["Breakout (USA)"]);
 
     let out = f.dat_dir.path().join("exports");
@@ -314,8 +314,8 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -365,8 +365,8 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
     std::fs::create_dir_all(root.join("Mine/Test - System")).unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -415,8 +415,8 @@ fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -464,12 +464,12 @@ fn version_prints_the_pinned_clone_list_commit() {
         .collect();
     assert_eq!(commits.len(), 1, "the clone-list commit");
 
-    let out = title_select().arg("--version").output().unwrap();
+    let out = stage_select().arg("--version").output().unwrap();
 
     assert!(out.status.success());
     let version = String::from_utf8_lossy(&out.stdout);
     assert!(
-        version.starts_with(&format!("title-select {}\n", env!("CARGO_PKG_VERSION"))),
+        version.starts_with(&format!("stage-select {}\n", env!("CARGO_PKG_VERSION"))),
         "{version}"
     );
     for commit in commits {
@@ -479,8 +479,8 @@ fn version_prints_the_pinned_clone_list_commit() {
 
 #[test]
 fn a_stored_audit_without_a_store_fails_with_a_message() {
-    let out = title_select()
-        .env_remove("TITLE_SELECT_STORE")
+    let out = stage_select()
+        .env_remove("STAGE_SELECT_STORE")
         .args(["audit", "--set", "Anything"])
         .output()
         .unwrap();
@@ -496,7 +496,7 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
     std::fs::write(&profile, r#"{"region_order": ["USA"]}"#).unwrap();
 
     let stdout = run_ok(
-        title_select()
+        stage_select()
             .arg("select")
             .arg("--dat")
             .arg(&dat)
@@ -504,12 +504,12 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
             .arg(&profile),
     );
     let selection: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(selection["schema"], "title-select.selection/1");
+    assert_eq!(selection["schema"], "stage-select.selection/1");
     assert_eq!(selection["system"], "Test - System");
-    assert_eq!(selection["groups"][0]["winners"][0]["title"], "Pong (USA)");
+    assert_eq!(selection["groups"][0]["kept"][0]["title"], "Pong (USA)");
 
     std::fs::write(&profile, r#"{"region_ordr": ["USA"]}"#).unwrap();
-    let out = title_select()
+    let out = stage_select()
         .arg("select")
         .arg("--dat")
         .arg(&dat)
@@ -529,7 +529,7 @@ fn select_reads_the_support_files_it_is_given_for_a_listxml() {
     let profile = f.dat_dir.path().join("profile.json");
     std::fs::write(&profile, "{}").unwrap();
     let stdout = run_ok(
-        title_select()
+        stage_select()
             .arg("select")
             .arg("--dat")
             .arg(data.join("arcade.xml"))
@@ -554,7 +554,7 @@ fn the_engine_choice_and_the_conformance_command_are_gone() {
         &["select", "--engine", "builtin", "--profile"][..],
         &["conformance", "--profile"][..],
     ] {
-        let out = title_select()
+        let out = stage_select()
             .args(args)
             .arg(&profile)
             .arg("--dat")
@@ -572,21 +572,21 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     std::fs::create_dir_all(&inbox).unwrap();
     write_file(&inbox.join("mystery.bin"), b"nobody knows");
     let store = f.dat_dir.path().join("store");
-    let opened = title_select_store::Store::open(&store).unwrap();
+    let opened = stage_select_store::Store::open(&store).unwrap();
     opened
         .register_root(
-            &title_select_api::roots::RootSpec::new("in", &inbox)
-                .of_kind(title_select_api::roots::RootKind::Ingest),
+            &stage_select_api::roots::RootSpec::new("in", &inbox)
+                .of_kind(stage_select_api::roots::RootKind::Ingest),
             "test",
         )
         .unwrap();
     opened
         .update_settings(
-            &title_select_api::settings::SettingsUpdate {
+            &stage_select_api::settings::SettingsUpdate {
                 ingest_folders: Some(
                     [(
                         "in".to_owned(),
-                        title_select_api::settings::IngestCadence {
+                        stage_select_api::settings::IngestCadence {
                             settle_secs: 0,
                             scan_every_minutes: None,
                         },
@@ -600,8 +600,8 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
         .unwrap();
     drop(opened);
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
 
@@ -624,8 +624,8 @@ fn dat_import_takes_no_provider_and_says_when_the_header_names_none() {
     let f = Fixture::new();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     let help = run_ok(ts().args(["dat", "import", "--help"]));
@@ -660,8 +660,8 @@ fn dat_delete_refuses_while_a_source_set_uses_the_dat_and_deletes_once_none_does
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let store = f.dat_dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
@@ -692,8 +692,8 @@ fn support_file_import_keeps_a_support_file_and_list_prints_it() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     let ini = dir.path().join("languages.ini");
@@ -738,8 +738,8 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
     let ts = || {
-        let mut cmd = title_select();
-        cmd.env("TITLE_SELECT_STORE", &store);
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
         cmd
     };
     let missing = ts()
@@ -783,7 +783,7 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     run_ok(ts().args(["root", "unregister", "sets"]));
     assert!(run_ok(ts().args(["root", "list"])).starts_with("no roots are registered"));
 
-    let changes = title_select_store::Store::open(&store)
+    let changes = stage_select_store::Store::open(&store)
         .unwrap()
         .root_changes("sets")
         .unwrap();
@@ -806,11 +806,11 @@ fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
     let store = f.dat_dir.path().join("store");
 
     for args in [
-        &["--config", "title-select.toml", "serve"][..],
-        &["serve", "--config", "title-select.toml"],
+        &["--config", "stage-select.toml", "serve"][..],
+        &["serve", "--config", "stage-select.toml"],
     ] {
-        let out = title_select()
-            .env("TITLE_SELECT_STORE", &store)
+        let out = stage_select()
+            .env("STAGE_SELECT_STORE", &store)
             .args(args)
             .output()
             .unwrap();
@@ -821,8 +821,8 @@ fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
             "{stderr}"
         );
     }
-    let out = title_select()
-        .env("TITLE_SELECT_STORE", &store)
+    let out = stage_select()
+        .env("STAGE_SELECT_STORE", &store)
         .args(["serve", "--identity-header", "Remote-User"])
         .args(["--trusted-proxies", "10.0.0.0/8,nonsense"])
         .output()
@@ -831,7 +831,7 @@ fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains(
-            "--trusted-proxies (TITLE_SELECT_TRUSTED_PROXIES): \"nonsense\" is not a CIDR"
+            "--trusted-proxies (STAGE_SELECT_TRUSTED_PROXIES): \"nonsense\" is not a CIDR"
         ),
         "{stderr}"
     );
@@ -841,7 +841,7 @@ fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
     );
 }
 
-/// A `title-select serve` process, stopped when dropped.
+/// A `stage-select serve` process, stopped when dropped.
 struct Serving(std::process::Child);
 
 impl Drop for Serving {
@@ -857,17 +857,17 @@ fn the_service_starts_from_environment_variables_alone() {
 
     let f = Fixture::new();
     let mut serving = Serving(
-        title_select()
+        stage_select()
             .arg("serve")
-            .env("TITLE_SELECT_STORE", f.dat_dir.path().join("store"))
-            .env("TITLE_SELECT_LISTEN", "127.0.0.1:0")
-            .env("TITLE_SELECT_IDENTITY_HEADER", "Remote-User")
+            .env("STAGE_SELECT_STORE", f.dat_dir.path().join("store"))
+            .env("STAGE_SELECT_LISTEN", "127.0.0.1:0")
+            .env("STAGE_SELECT_IDENTITY_HEADER", "Remote-User")
             .env(
-                "TITLE_SELECT_TRUSTED_PROXIES",
+                "STAGE_SELECT_TRUSTED_PROXIES",
                 " 192.0.2.0/24 , 127.0.0.0/8,::1/128,",
             )
-            .env_remove("TITLE_SELECT_OPERATOR_TOKEN_FILE")
-            .env_remove("TITLE_SELECT_DEV_IDENTITY")
+            .env_remove("STAGE_SELECT_OPERATOR_TOKEN_FILE")
+            .env_remove("STAGE_SELECT_DEV_IDENTITY")
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap(),

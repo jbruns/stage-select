@@ -6,23 +6,23 @@
 //! The tests with Disks make their CHDs with chdman, found as the store finds it. Where it is missing they are skipped,
 //! except in CI, where they fail.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use title_select_api::roots::RootSpec;
 
 use crate::common::noise;
-use title_select_api::build::{
+use stage_select_api::build::{
     AddLibraryFolder, BuildItem, FileOutcome, FolderCheck, IncompleteReason, ItemKind, ItemState,
     LibraryFolder, Plan, PlanItem,
 };
-use title_select_api::selection::{
-    CoverageDrift, Dependency, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+use stage_select_api::selection::{
+    CoverageDrift, Dependency, KeptGame, Rule, Selection, SelectionGroup, SelectionPins,
+    SelectionProfile, SelectionSummary,
 };
-use title_select_api::storage::{SetLayout, SystemStorage};
-use title_select_api::{AuditEvidence, Job, JobKind, JobState};
-use title_select_store::{Fault, Store, Workers};
-use title_select_test_fixtures::{mame_rom_xml, write_torrentzip};
+use stage_select_api::storage::{SetLayout, SystemStorage};
+use stage_select_api::{AuditEvidence, Job, JobKind, JobState};
+use stage_select_store::{Fault, Store, Workers};
+use stage_select_test_fixtures::{mame_rom_xml, write_torrentzip};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -105,13 +105,13 @@ fn family(layout: SetLayout) -> Vec<(&'static str, Vec<&'static str>)> {
 
 /// chdman, as the store finds it; `None`, outside CI, where it isn't there.
 fn chdman() -> Option<PathBuf> {
-    match title_select_engine::chd::locate(None) {
+    match stage_select_engine::chd::locate(None) {
         Ok(path) if path.is_file() => Some(path),
         found if std::env::var_os("CI").is_some() => {
             panic!("CI runs these tests with chdman: {found:?}")
         }
         _ => {
-            eprintln!("skipped: chdman isn't here; set TITLE_SELECT_CHDMAN to run this test");
+            eprintln!("skipped: chdman isn't here; set STAGE_SELECT_CHDMAN to run this test");
             None
         }
     }
@@ -131,7 +131,7 @@ fn make_chd(chdman: &Path, path: &Path) -> String {
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    title_select_engine::chd::header(&std::fs::File::open(path).unwrap())
+    stage_select_engine::chd::header(&std::fs::File::open(path).unwrap())
         .unwrap()
         .sha1
 }
@@ -255,9 +255,9 @@ impl Env {
         let group = |name: &str| SelectionGroup {
             group: name.into(),
             unresolved: false,
-            winners: Vec::new(),
-            alternatives: Vec::new(),
-            exclusions: Vec::new(),
+            kept: Vec::new(),
+            clones: Vec::new(),
+            left_out: Vec::new(),
             dependencies: Vec::new(),
             choice: None,
             drift: false,
@@ -275,7 +275,7 @@ impl Env {
             })
             .collect();
         groups.extend(titles.iter().map(|title| SelectionGroup {
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: (*title).into(),
                 rule: rule("election"),
                 unresolved: false,
@@ -357,12 +357,12 @@ fn members(path: &Path) -> Vec<String> {
     names
 }
 
-/// Every file under `dir`, as paths relative to it, leaving out Title Select's own.
+/// Every file under `dir`, as paths relative to it, leaving out Stage Select's own.
 fn files(dir: &Path) -> Vec<String> {
     let mut found: Vec<String> = walkdir::WalkDir::new(dir)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| e.file_name() != ".title-select")
+        .filter_entry(|e| e.file_name() != ".stage-select")
         .map(|e| e.unwrap())
         .filter(|e| e.file_type().is_file())
         .map(|e| {
@@ -858,7 +858,7 @@ fn a_cancel_once_a_games_disk_is_in_place_still_places_its_zip() {
 
 /// Writes `path` as an ordinary ZIP, not TorrentZip, holding `members`.
 fn write_plain_zip(path: &Path, members: &[&str]) {
-    title_select_test_fixtures::write_zip(path, &payloads(members));
+    stage_select_test_fixtures::write_zip(path, &payloads(members));
 }
 
 /// `members` with their payloads.
@@ -887,7 +887,7 @@ fn single_copy_places_a_built_self_contained_zip_with_its_dependencies_evidence(
     assert_eq!(placing.kind, ItemKind::Place);
     assert_eq!(
         placing.place.as_ref().map(|p| p.how),
-        Some(title_select_api::build::PlaceHow::Built)
+        Some(stage_select_api::build::PlaceHow::Built)
     );
     let ended = env.build(&plan);
 
@@ -914,7 +914,7 @@ fn single_copy_converts_an_ordinary_zip_with_its_dependencies_evidence() {
     let placing = item(&plan, "blaster.zip");
     assert_eq!(
         placing.place.as_ref().map(|p| p.how),
-        Some(title_select_api::build::PlaceHow::Convert),
+        Some(stage_select_api::build::PlaceHow::Convert),
         "{placing:#?} {:#?}",
         plan.content.notes
     );
@@ -938,7 +938,7 @@ fn a_placed_zip_goes_home_as_that_zip_whatever_format_the_storage_policy_gives_s
     env.build(&env.plan(env.select(&["blaster"])));
     assert!(!env.set().join("blaster.zip").exists());
     let mut policy = env.store.storage_policy().unwrap();
-    policy.source_sets.format = title_select_api::storage::StorageFormat::LooseFolder;
+    policy.source_sets.format = stage_select_api::storage::StorageFormat::LooseFolder;
     policy.play_libraries.single_copy = false;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
 

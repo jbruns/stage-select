@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use title_select_api::repair::{PlanRepair, RepairPlan};
-use title_select_api::{
+use stage_select_api::repair::{PlanRepair, RepairPlan};
+use stage_select_api::{
     AddSourceSet, AuditEvidence, Dat, GameStatus, Job, PathTemplateDefaults, Root, SourceSetRecord,
     SourceSetSummary, StartAudit,
 };
@@ -83,7 +83,7 @@ pub fn start_check(name: String, said: RwSignal<Option<String>>) {
 }
 
 /// Each cause of a stale source set as its icon, whose tooltip says what it found.
-pub fn stale_icons(stale: &[title_select_api::SourceSetStale]) -> AnyView {
+pub fn stale_icons(stale: &[stage_select_api::SourceSetStale]) -> AnyView {
     model::stale_causes(stale)
         .into_iter()
         .map(|(cause, line)| {

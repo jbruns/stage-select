@@ -5,22 +5,22 @@
 //!
 //! The CHD test finds chdman as the store does; where it is missing it is skipped, except in CI, where it fails.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::JobState;
-use title_select_api::build::{
+use stage_select_api::JobState;
+use stage_select_api::build::{
     AddLibraryFolder, CleanupAction, DriftKind, FileOutcome, FolderCheck, ItemKind, LibraryFolder,
     Plan, PlanBuild, PlanCleanup, RETENTION, RemovalKind, STATE,
 };
-use title_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+use stage_select_api::selection::{
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary,
 };
-use title_select_api::storage::{DiscLayout, StorageFormat, SystemStorage};
-use title_select_store::{Store, Workers};
+use stage_select_api::storage::{DiscLayout, StorageFormat, SystemStorage};
+use stage_select_store::{Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "Redump/Test - System";
@@ -123,13 +123,13 @@ const ES_DE_LOOSE: [&str; 9] = [
 ];
 
 fn chdman() -> Option<PathBuf> {
-    match title_select_engine::chd::locate(None) {
+    match stage_select_engine::chd::locate(None) {
         Ok(path) if path.is_file() => Some(path),
         found if std::env::var_os("CI").is_some() => {
             panic!("CI runs these tests with chdman: {found:?}")
         }
         _ => {
-            eprintln!("skipped: chdman isn't here; set TITLE_SELECT_CHDMAN to run this test");
+            eprintln!("skipped: chdman isn't here; set STAGE_SELECT_CHDMAN to run this test");
             None
         }
     }
@@ -196,7 +196,7 @@ impl Env {
             write_loose_folder(&sets.join(SET), game, &roms);
         }
         store
-            .audit_source_set(SET, None, title_select_engine::AuditEvidence::Full)
+            .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Full)
             .unwrap();
         let env = Env {
             tmp,
@@ -268,7 +268,7 @@ impl Env {
     }
 
     /// Approves and runs `plan`, whatever becomes of it.
-    fn run(&self, plan: &Plan) -> title_select_api::Job {
+    fn run(&self, plan: &Plan) -> stage_select_api::Job {
         let job = self
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
@@ -278,7 +278,7 @@ impl Env {
     }
 
     /// The items of `job`'s Build.
-    fn items(&self, job: &title_select_api::Job) -> Vec<title_select_api::build::BuildItem> {
+    fn items(&self, job: &stage_select_api::Job) -> Vec<stage_select_api::build::BuildItem> {
         let build = self.store.build_of_job(job.id).unwrap().unwrap();
         self.store.build(build.id).unwrap().items
     }
@@ -287,8 +287,8 @@ impl Env {
     fn build_cancelled_at(
         &self,
         plan: &Plan,
-        at: impl Fn(title_select_store::Fault) -> bool + Send + Sync + 'static,
-    ) -> title_select_api::Job {
+        at: impl Fn(stage_select_store::Fault) -> bool + Send + Sync + 'static,
+    ) -> stage_select_api::Job {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Mutex, mpsc};
         let job = self
@@ -354,7 +354,7 @@ impl Env {
         self.store.latest_check(folder.id).unwrap().unwrap()
     }
 
-    /// Every file in the folder, by its path in it, other than Title Select's own.
+    /// Every file in the folder, by its path in it, other than Stage Select's own.
     fn files(&self) -> Vec<String> {
         files_in(&self.dir())
     }
@@ -372,7 +372,7 @@ impl Env {
     }
 }
 
-/// Every file in `dir`, by its path in it, other than Title Select's own.
+/// Every file in `dir`, by its path in it, other than Stage Select's own.
 fn files_in(dir: &Path) -> Vec<String> {
     fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -399,7 +399,7 @@ fn group(title: &str) -> SelectionGroup {
         dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
-        winners: vec![Winner {
+        kept: vec![KeptGame {
             title: title.into(),
             rule: Rule {
                 stage: "Parent selection".into(),
@@ -408,8 +408,8 @@ fn group(title: &str) -> SelectionGroup {
             },
             unresolved: false,
         }],
-        alternatives: vec![],
-        exclusions: vec![],
+        clones: vec![],
+        left_out: vec![],
         choice: None,
         drift: false,
     }
@@ -444,7 +444,7 @@ fn sbi_pack_of(members: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 /// The plan's items for `game`.
-fn items_of<'p>(plan: &'p Plan, game: &str) -> Vec<&'p title_select_api::build::PlanItem> {
+fn items_of<'p>(plan: &'p Plan, game: &str) -> Vec<&'p stage_select_api::build::PlanItem> {
     plan.content
         .items
         .iter()
@@ -563,7 +563,7 @@ fn audit_with_absent_optional(env: &mut Env, roms: &[(&str, &str)]) {
         .audit_source_set(
             SET,
             Some(&env.sha256),
-            title_select_engine::AuditEvidence::Full,
+            stage_select_engine::AuditEvidence::Full,
         )
         .unwrap();
 }
@@ -953,7 +953,7 @@ fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<
         .audit_source_set(
             SET,
             Some(&env.sha256),
-            title_select_engine::AuditEvidence::Full,
+            stage_select_engine::AuditEvidence::Full,
         )
         .unwrap();
     (env, folder, before)
@@ -1237,7 +1237,7 @@ fn sbi_files_go_beside_their_cue_when_the_system_opts_in() {
     let sbi = ("SBI\0orbit".len() + "SBI\0saga".len()) as u64;
     assert_eq!(
         play,
-        title_select_engine::meter::Counted {
+        stage_select_engine::meter::Counted {
             read: sbi,
             written: sbi,
             files_read: 0,
@@ -1309,7 +1309,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
         .collect();
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
-            if let title_select_store::Fault::PublishedUnsynced(seq) = fault
+            if let stage_select_store::Fault::PublishedUnsynced(seq) = fault
                 && disc1.contains(&seq)
                 && !saga.swap(true, std::sync::atomic::Ordering::SeqCst)
             {
@@ -1333,7 +1333,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     let synced = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = synced.clone();
     store.hook_faults(Some(std::sync::Arc::new(move |fault| {
-        if let title_select_store::Fault::ParentSynced(seq) = fault {
+        if let stage_select_store::Fault::ParentSynced(seq) = fault {
             seen.lock().unwrap().push(seq);
         }
     })));
@@ -1360,7 +1360,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     for file in &saga {
         assert!(built.iter().any(|b| b.target == *file), "{file}: {built:?}");
     }
-    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
+    assert!(!env.dir().join(stage_select_api::build::STAGING).exists());
 }
 
 #[test]
@@ -1447,7 +1447,7 @@ fn a_release_whose_disc_2_fails_keeps_its_originals_and_publishes_none_of_its_fi
         .unwrap() as i64;
     env.store
         .hook_faults(Some(std::sync::Arc::new(move |fault| {
-            if fault == title_select_store::Fault::Staged(first) {
+            if fault == stage_select_store::Fault::Staged(first) {
                 std::fs::write(&track, noise(99, len)).unwrap();
             }
         })));
@@ -1503,7 +1503,7 @@ fn a_plan_whose_sbi_pack_changed_before_you_run_it_is_stale() {
         .store
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
-        matches!(approved, Err(title_select_store::Error::Conflict(_))),
+        matches!(approved, Err(stage_select_store::Error::Conflict(_))),
         "{approved:?}"
     );
 }
@@ -1557,7 +1557,7 @@ fn a_release_of_one_file_discs_cancelled_after_disc_1_puts_neither_disc_in_place
         .position(|i| i.game == DUO[0])
         .unwrap() as i64;
     let ended = env.build_cancelled_at(&plan, move |f| {
-        f == title_select_store::Fault::Staged(disc1)
+        f == stage_select_store::Fault::Staged(disc1)
     });
 
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
@@ -1575,7 +1575,7 @@ fn injected() -> Vec<(&'static str, Vec<RomSpec>)> {
     };
     vec![
         (
-            ".title-select/retained/1/Injected",
+            ".stage-select/retained/1/Injected",
             vec![rom("Injected.iso", &noise(30, 2048 * 10))],
         ),
         ("Sub/Game (Disc 1)", cue(1)),
@@ -1588,7 +1588,7 @@ fn a_game_whose_name_is_a_path_or_a_private_folder_is_never_laid_out() {
     let env = Env::with(StorageFormat::LooseFolder, injected);
     let folder = env.folder();
     let games = [
-        ".title-select/retained/1/Injected",
+        ".stage-select/retained/1/Injected",
         "Sub/Game (Disc 1)",
         "Sub/Game (Disc 2)",
     ];
@@ -1740,7 +1740,7 @@ const ORBIT_FLAT: [&str; 3] = [
 /// place, and a build after it keeps the rest of the old layout aside.
 fn switch_stopped(
     to_flat: bool,
-    stop: impl Fn(&[i64], title_select_store::Fault) -> bool + Send + Sync + 'static,
+    stop: impl Fn(&[i64], stage_select_store::Fault) -> bool + Send + Sync + 'static,
 ) {
     let layout = |flat| SystemStorage {
         format: Some(StorageFormat::LooseFolder),
@@ -1806,7 +1806,7 @@ fn switch_stopped(
 fn killed_and_recovered(
     env: Env,
     plan: &Plan,
-    stop: impl Fn(title_select_store::Fault) -> bool + Send + Sync + 'static,
+    stop: impl Fn(stage_select_store::Fault) -> bool + Send + Sync + 'static,
 ) -> Env {
     let job = env
         .store
@@ -1837,21 +1837,21 @@ fn killed_and_recovered(
 
 #[test]
 fn a_switch_to_the_es_de_layout_stopped_while_clearing_the_flat_files_finishes_on_recovery() {
-    use title_select_store::Fault;
+    use stage_select_store::Fault;
     switch_stopped(false, |c, f| f == Fault::BeforeKeep(c[0]));
     switch_stopped(false, |c, f| f == Fault::Cleared(c[c.len() - 1]));
 }
 
 #[test]
 fn a_switch_to_the_flat_layout_stopped_while_clearing_the_cue_folder_finishes_on_recovery() {
-    use title_select_store::Fault;
+    use stage_select_store::Fault;
     switch_stopped(true, |c, f| f == Fault::BeforeKeep(c[0]));
     switch_stopped(true, |c, f| f == Fault::Cleared(c[c.len() - 1]));
 }
 
 #[test]
 fn a_switch_back_that_writes_only_the_cue_and_stops_before_it_goes_in_place_finishes_on_recovery() {
-    use title_select_store::Fault;
+    use stage_select_store::Fault;
     let flat = |flat| SystemStorage {
         format: Some(StorageFormat::LooseFolder),
         layout: Some(if flat {
@@ -1976,7 +1976,7 @@ fn switching_to_flat_leaves_a_cue_folder_you_made_and_its_release_as_they_are() 
     assert!(env.kept(&folder).iter().all(|k| !k.starts_with("Orbit")));
 }
 
-/// A folder you laid out by hand in the ES-DE layout before Title Select built anything in it: `selection`'s discs,
+/// A folder you laid out by hand in the ES-DE layout before Stage Select built anything in it: `selection`'s discs,
 /// as a build into another folder lays them out, copied into it once it is registered. A build into it then writes
 /// nothing, every file being in the way, so that a check finds them all as drift.
 fn laid_out_by_hand(env: &Env) -> (LibraryFolder, i64) {
@@ -2025,7 +2025,7 @@ fn inodes(env: &Env) -> BTreeMap<String, u64> {
 }
 
 /// Plans a cleanup of `folder` adopting `names`, and runs it.
-fn adopt(env: &Env, folder: &LibraryFolder, names: &[String]) -> title_select_api::Job {
+fn adopt(env: &Env, folder: &LibraryFolder, names: &[String]) -> stage_select_api::Job {
     let request = PlanCleanup {
         entries: names
             .iter()
@@ -2587,7 +2587,7 @@ fn a_chd_whose_track_metadata_says_it_holds_more_than_its_disc_is_refused_before
 
 /// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
 /// failed included.
-fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+fn assert_recorded_as_metered(env: &Env, job: &stage_select_api::Job) {
     let counted = env.store.meter().so_far(job.id).expect("metered").counted;
     let recorded = job.throughput.expect("its throughput");
     assert_eq!(

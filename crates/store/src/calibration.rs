@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::calibration::{
+use stage_select_api::calibration::{
     Calibration, CalibrationStale, CurvePoint, HostCalibration, Knee, RootCalibration, RootOutcome,
 };
-use title_select_api::{Job, JobKind, JobState};
-use title_select_engine::Progress;
-use title_select_engine::calibrate::{self, Limits, RootSweep, Sweep};
-use title_select_engine::meter::JobMeter;
+use stage_select_api::{Job, JobKind, JobState};
+use stage_select_engine::Progress;
+use stage_select_engine::calibrate::{self, Limits, RootSweep, Sweep};
+use stage_select_engine::meter::JobMeter;
 
 use super::jobs::{finish_running, job_by_id};
 use super::{Error, Result, Store, now};
@@ -474,7 +474,7 @@ enum Found<'a> {
         done: bool,
     },
     /// Those a walk finds, depth first in name order: each folder open with the names in it still to visit,
-    /// reversed. The walk passes over symlinks and the folders Title Select keeps for itself.
+    /// reversed. The walk passes over symlinks and the folders Stage Select keeps for itself.
     Walk {
         stack: Vec<(FolderDir, Vec<(String, FileType)>)>,
     },
@@ -530,7 +530,7 @@ impl RootFiles<'_> {
                     stack.pop();
                     continue;
                 };
-                if title_select_engine::is_own_entry(&name) {
+                if stage_select_engine::is_own_entry(&name) {
                     continue;
                 }
                 let at = dir.path().join(&name);

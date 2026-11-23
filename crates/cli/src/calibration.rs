@@ -1,6 +1,6 @@
 //! Prints what a Calibration measured, for `calibrate --server`.
 
-use title_select_api::calibration::{
+use stage_select_api::calibration::{
     Calibration, CalibrationStale, CurvePoint, Knee, RootCalibration, RootOutcome,
 };
 
@@ -117,7 +117,7 @@ pub fn stale(calibration: &Calibration) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::calibration::HostCalibration;
+    use stage_select_api::calibration::HostCalibration;
 
     fn point(workers: usize, mib_per_s: f64) -> CurvePoint {
         CurvePoint {

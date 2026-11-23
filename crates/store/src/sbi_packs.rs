@@ -14,8 +14,8 @@ use super::blobs::{remove_blob, write_blob};
 use super::fetch::{NOT_HELD, hold_pack};
 use super::{Error, Result, Store, io_error, now};
 
-use title_select_api::ImportOutcome;
-use title_select_engine::sha256_hex;
+use stage_select_api::ImportOutcome;
+use stage_select_engine::sha256_hex;
 
 /// The directory, in the store directory, that holds SBI packs.
 pub const SBI_PACKS: &str = "sbi_packs";
@@ -231,12 +231,12 @@ impl Store {
         pack: &str,
         member: &str,
         sha256: &str,
-        tally: &title_select_engine::meter::Tally,
+        tally: &stage_select_engine::meter::Tally,
     ) -> Result<Vec<u8>> {
         let path = self.sbi_pack_path(pack);
         let file = std::fs::File::open(&path).map_err(|e| io_error(&path, e))?;
         tally.file_read();
-        let file = title_select_engine::meter::Reading::new(file, tally);
+        let file = stage_select_engine::meter::Reading::new(file, tally);
         let mut archive = zip::ZipArchive::new(file)
             .map_err(|e| Error::Io(format!("{}: not a ZIP: {e}", path.display())))?;
         let mut found = archive

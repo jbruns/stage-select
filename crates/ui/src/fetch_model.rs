@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use title_select_api::fetch::{
+use stage_select_api::fetch::{
     FetchArtifact, FetchArtifactStatus, FetchOutcome, FetchProviderStatus, FetchStatus,
     FetchSupport, FetchSystem,
 };
@@ -149,7 +149,7 @@ pub fn refresh_after(status: &FetchStatus) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::fetch::{FetchAttempt, FetchProvider, FetchTrigger};
+    use stage_select_api::fetch::{FetchAttempt, FetchProvider, FetchTrigger};
 
     use super::*;
 

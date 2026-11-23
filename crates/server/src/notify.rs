@@ -1,6 +1,6 @@
 //! Webhook notifications: one signed JSON POST per event, sent by one delivery task from a bounded queue, so that no
 //! Job ever waits on the webhook. Job events come from [`crate::jobs::Jobs::changed`]; the rest from the store as each
-//! write that makes one commits ([`title_select_store::Store::set_observer`]). The webhook is set in the workbench's
+//! write that makes one commits ([`stage_select_store::Store::set_observer`]). The webhook is set in the workbench's
 //! settings, and a change applies to the next event: one already queued goes where it was queued for.
 
 use std::collections::{HashSet, VecDeque};
@@ -9,12 +9,12 @@ use std::time::Duration;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use title_select_api::settings::NotifyEvent;
-use title_select_api::{Job, JobKind, JobState, SourceSetStale};
-use title_select_engine::hex;
-use title_select_store::fetch::Http;
-use title_select_store::observe::Observed;
-use title_select_store::settings::Notify;
+use stage_select_api::settings::NotifyEvent;
+use stage_select_api::{Job, JobKind, JobState, SourceSetStale};
+use stage_select_engine::hex;
+use stage_select_store::fetch::Http;
+use stage_select_store::observe::Observed;
+use stage_select_store::settings::Notify;
 use tokio::sync::mpsc;
 
 /// The most events waiting for delivery; one more is dropped.
@@ -154,7 +154,7 @@ impl Notifier {
         let event = queued.payload.event;
         if self.queue.try_send(queued).is_err() {
             eprintln!(
-                "title-select: dropped a {event} notification: {QUEUE} are already waiting for your webhook"
+                "stage-select: dropped a {event} notification: {QUEUE} are already waiting for your webhook"
             );
         }
     }
@@ -188,8 +188,8 @@ pub async fn deliver(delivery: Delivery) {
                     &url,
                     &[
                         ("Content-Type", "application/json"),
-                        ("X-Title-Select-Event", event),
-                        ("X-Title-Select-Signature", &signature),
+                        ("X-Stage-Select-Event", event),
+                        ("X-Stage-Select-Signature", &signature),
                     ],
                     &body,
                     ATTEMPT_TIMEOUT,
@@ -208,7 +208,7 @@ pub async fn deliver(delivery: Delivery) {
         }
         if !delivered {
             eprintln!(
-                "title-select: cannot deliver the {} notification to your webhook: {why}. Dropped it after {ATTEMPTS} \
+                "stage-select: cannot deliver the {} notification to your webhook: {why}. Dropped it after {ATTEMPTS} \
                  attempts",
                 payload.event
             );
@@ -348,7 +348,7 @@ fn observed_payload(observed: Observed, workbench: Option<&str>) -> Payload {
                 NotifyEvent::DriftFound,
                 format!("{root}/{path}"),
                 format!(
-                    "A check of play library folder {root}/{path} found {drift} {entries} Title Select did not build."
+                    "A check of play library folder {root}/{path} found {drift} {entries} Stage Select did not build."
                 ),
                 format!("/libraries/{folder}"),
             )

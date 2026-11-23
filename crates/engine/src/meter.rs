@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-use title_select_api::{Rates, Workers};
+use stage_select_api::{Rates, Workers};
 
 use crate::cap::{Bucket, Caps, Clock, Monotonic, Receipt, copy_chunk, piece};
 use crate::pool::{OwnedPermit, Pool};

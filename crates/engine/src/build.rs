@@ -7,8 +7,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use title_select_api::HeaderRule;
-use title_select_api::build::ExpectedRom;
+use stage_select_api::HeaderRule;
+use stage_select_api::build::ExpectedRom;
 
 use crate::dat::Dat;
 use crate::meter::{Metered, Reading as Counting, Switched, Tally};

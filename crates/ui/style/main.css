@@ -1041,16 +1041,16 @@ tbody td button.small {
   color: var(--color-review);
 }
 
-.role-winner {
+.outcome-kept {
   color: var(--color-verified);
   font-weight: 700;
 }
 
-.role-alternative {
+.outcome-clone {
   color: var(--color-text-secondary);
 }
 
-.role-exclusion {
+.outcome-left_out {
   color: var(--color-failed);
 }
 

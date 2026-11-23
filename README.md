@@ -1,4 +1,4 @@
-# Title Select
+# Stage Select
 
 Audits ROM collections against DAT files, and records exactly what was verified and against which DAT revision.
 
@@ -12,7 +12,7 @@ The words used here are defined in [GLOSSARY.md](GLOSSARY.md).
 ## Audit
 
 ```sh
-title-select audit --dat <DAT file> <source set directory> [--evidence <quick|full>] [--output <report file>]
+stage-select audit --dat <DAT file> <source set directory> [--evidence <quick|full>] [--output <report file>]
 ```
 
 This audit is stateless: it needs no store or configuration. `audit --set` (below) audits a registered source set
@@ -34,7 +34,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   for these systems do, an entry that starts with that header is matched by what follows it, so headered and
   headerless dumps both match. Each entry is still read once. A ZIP member that might start with the header is always
   read, even in a quick inventory, because the CRC32 its archive records includes the header. A DAT that names no rule
-  never has a header left out, and a rule Title Select doesn't know is reported and has no effect. The header is never
+  never has a header left out, and a rule Stage Select doesn't know is reported and has no effect. The header is never
   stripped: repairs and builds copy the file as it is, header and all, and check what they wrote against the DAT
   without the header.
 - Most NES and Atari 7800 emulators need the header. A game matched by a dump without it gets the warning
@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": "title-select.audit/1",  // this report's shape and its version; see "API"
+  "schema": "stage-select.audit/1",  // this report's shape and its version; see "API"
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -160,7 +160,7 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   no `read_at`. `read_at` is when the payload was read. `reused` is `unchanged_file_heuristic` when the audit reused
   an earlier read because the file looked unchanged; see `audit --set`.
 - `dat_revision.header_rule` names the header rule the DAT gives: `name` as the DAT spells it, and `rule` one of `nes`,
-  `fds`, `atari7800` or `lynx`, or `null` when the name isn't one Title Select knows, so no header was left out.
+  `fds`, `atari7800` or `lynx`, or `null` when the name isn't one Stage Select knows, so no header was left out.
   `evidence.header.bytes` is the size of the header an entry starts with, which matching left out.
 - `warnings` on a game lists its warnings, and `summary.warnings` counts the games with each. The only warning is
   `header_missing`: an NES or Atari 7800 game matched by a dump without its header, which may not play.
@@ -209,15 +209,15 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
 ## Selection
 
 ```sh
-title-select select --dat <DAT file> --profile <selection profile file> [--output <file>] [--timeout <seconds>]
+stage-select select --dat <DAT file> --profile <selection profile file> [--output <file>] [--timeout <seconds>]
   [--clone-lists <dir>] [--support-file <catver.ini, languages.ini or bestgames.ini>]...
 ```
 
 Chooses releases from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
-`--output`. Selection runs inside Title Select, offline, and stops after `--timeout` seconds (600 by default). It reads
-a pinned copy of the clone lists and metadata: `--clone-lists`, else `TITLE_SELECT_CLONE_LISTS`, else
+`--output`. Selection runs inside Stage Select, offline, and stops after `--timeout` seconds (600 by default). It reads
+a pinned copy of the clone lists and metadata: `--clone-lists`, else `STAGE_SELECT_CLONE_LISTS`, else
 `/opt/clone-lists`, where the image has them. Clone lists fetched at another commit than this binary's pins are
-refused. The selection is derived from a trace of every decision selection made. `title-select --version` prints the
+refused. The selection is derived from a trace of every decision selection made. `stage-select --version` prints the
 clone-list commit, and the workbench's About page says where selection comes from.
 
 A MAME ListXML gets an arcade selection instead: filters drop what isn't an arcade game, and one machine is chosen in
@@ -229,7 +229,7 @@ rating, its parent's, for an optional minimum rating; a family it doesn't rate i
 families. The selection records each file's SHA-256 and MAME version, and says when a file is for an older MAME than
 the ListXML: machines added since aren't in it, so they're read as they would be without it. An arcade selection can also keep to the pinned curated list of arcade games,
 `curated-mame-arcade-romset`: it keeps only the families the list names and prefers the machine it names, and lists
-the names that match no machine of the ListXML. The list is at `TITLE_SELECT_CURATED_LIST`, else `/opt/curated-list`,
+the names that match no machine of the ListXML. The list is at `STAGE_SELECT_CURATED_LIST`, else `/opt/curated-list`,
 where the image has it; a list fetched at another commit than this binary's pin is refused.
 
 Your selection profile is JSON; every field is optional, and an unknown field, region, language or video standard is
@@ -304,7 +304,7 @@ selection lists the rating filter as unavailable.
 In overrides and post filters, plain text matches part of a release's name, `|` the full name and `/` a regular
 expression (Python syntax, ignoring case). A profile with a regular expression that doesn't compile is refused, so it
 can't silently match nothing; so is one that nests groups more than 60 deep. Anything else the engine warns about on a run that succeeds goes to the server's log, or
-to standard error for `title-select select`.
+to standard error for `stage-select select`.
 
 A choice replaces the selection's winners in one group with the releases you checked, zero or more, after the engine
 has run. It is kept only where it differs from what the engine picks, or where you confirmed an unresolved group's
@@ -314,14 +314,14 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 
 ```jsonc
 {
-  "schema": "title-select.selection/1", // this output's shape and its version; see "API"
+  "schema": "stage-select.selection/1", // this output's shape and its version; see "API"
   "pins": {                          // what the selection was made with
-    "title_select_version": "0.7.0", "clone_list_commit": "cdeb391e…", "trace_schema": 1
+    "stage_select_version": "0.7.0", "clone_list_commit": "cdeb391e…", "trace_schema": 1
   },
   "dat_sha256": "254e…",             // the DAT revision
   "system": "Atari - Atari 2600 (No-Intro)",
   "system_settings": false,          // whether the profile has settings for this system
-  "summary": { "groups": 601, "winners": 602, "alternatives": 270, "exclusions": 0, "unresolved": 2 },
+  "summary": { "groups": 601, "kept": 602, "clones": 270, "left_out": 0, "unresolved": 2 },
   "coverage_drift": {                // where the clone list and metadata no longer match the DAT
     "clone_list": true, "metadata": true,
     "unmatched_clone_list_terms": ["…"], "titles_without_metadata": ["…"]
@@ -329,29 +329,29 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   "groups": [
     {
       "group": "parachute",
-      "unresolved": true,            // decided by a tie-breaker: the winner is provisional
-      "winners": [
+      "unresolved": true,            // decided by a tie-breaker: the kept release is provisional
+      "kept": [
         { "title": "…", "unresolved": true,
           "rule": { "stage": "Parent selection", "ref": "REF0059", "message": "…" } }
       ],
-      "alternatives": [
+      "clones": [
         { "title": "…", "clone_of": "…", "rule": { "stage": "…", "ref": "…", "message": "…" } }
       ],
-      "exclusions": [ { "title": "…", "reason": "Demos, kiosks, and samples", "rule": { "…": "…" } } ]
+      "left_out": [ { "title": "…", "reason": "Demos, kiosks, and samples", "rule": { "…": "…" } } ]
     }
   ]
 }
 ```
 
-- `pins` names the Title Select version that made the selection and the clone-list commit it read. A selection made
-  by Title Select 0.6.0 or earlier has no `title_select_version`: it has `retool_commit` and `patch_set_sha256` instead,
+- `pins` names the Stage Select version that made the selection and the clone-list commit it read. A selection made
+  by Stage Select 0.6.0 or earlier has no `stage_select_version`: it has `retool_commit` and `patch_set_sha256` instead,
   naming the selection engine it was made with then. An arcade selection reads no clone lists, so its `pins` has no
   `clone_list_commit` or `trace_schema`. It has `arcade` instead: the MAME `build`, what decided each machine's
   `category` (`catver` or `listxml_heuristic`, absent when your category filter is off), and the filters you turned on
   that were `unavailable` because the DAT had nothing for them to read, or, for `rating`, because no `bestgames.ini`
   was read.
-- Each winner, alternative and exclusion carries the rule that decided it: the stage, the engine's trace reference and
-  its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
+- Each release in `kept`, `clones` and `left_out` carries the rule that decided it: the stage, the engine's trace
+  reference and its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
   different releases, or whose selected release lacks a disc: one of its own, even one your settings exclude, or one
@@ -363,17 +363,17 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.
 - A group has `drift` when a release in it has no metadata, or the clone list names it but no longer matches the DAT.
 - A selection the service makes from a source set with a coverage (see "Coverage") chooses only among the games in
-  it. `pins.coverage` lists the regions it chose among, and each release outside them is an exclusion whose rule's
+  it. `pins.coverage` lists the regions it chose among, and each release outside them is left out, and its rule's
   stage is `coverage`, with the message "outside its source set's coverage". Without a coverage, `pins` has no
   `coverage`.
 
 ## Store
 
-The store is one directory: a SQLite database (`title-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
+The store is one directory: a SQLite database (`stage-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
 the cue packs you import or fetch under `cue_packs/<sha256>`, the SBI packs you fetch under `sbi_packs/<sha256>`, the
-MAME support files you import or fetch under `support_files/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
-first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
-`<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
+MAME support files you import or fetch under `support_files/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `STAGE_SELECT_STORE`; it is created on
+first use. Only one Stage Select process may have a store open at a time: it holds an exclusive lock on
+`<store>/lock`, and another process fails at once with "the store is in use by another Stage Select process".
 
 - The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON`, a busy timeout and
   `temp_store=MEMORY`, so SQLite never writes temporary files outside the store.
@@ -381,11 +381,11 @@ first use. Only one Title Select process may have a store open at a time: it hol
   `dats/` that no DAT revision holds, under `cue_packs/` that no cue pack holds, under `sbi_packs/` that no SBI
   pack holds, and under `support_files/` that no support file holds, are deleted each time the store
   opens.
-- Migrations are embedded and forward-only, starting from one baseline that marks the database as Title Select's.
+- Migrations are embedded and forward-only, starting from one baseline that marks the database as Stage Select's.
   Before one runs on a store that already has a schema, the database is copied with `VACUUM INTO` to
-  `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused. A store made by a release
-  from before the baseline is refused too, untouched, with "This store was made by an earlier release of Title Select
-  and can't be opened. Start a new store.": point `--store` at a new directory.
+  `backups/schema-<version>-<time>.sqlite`. A store from a newer Stage Select is refused. A store made by a release
+  before 0.13.0 is refused too, with "This store was made by an earlier release and can't be opened.
+  Start a new store.": point `--store` at a new directory.
 - A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest revision
   of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a
@@ -406,15 +406,15 @@ first use. Only one Title Select process may have a store open at a time: it hol
 
 ## Configuration
 
-You set up Title Select in the workbench, under Settings, or with the commands below, and everything you set is kept
+You set up Stage Select in the workbench, under Settings, or with the commands below, and everything you set is kept
 in the store, so a backup of the store keeps it too. Each change applies at once, without a restart. The few things
 the service needs before it starts are flags and environment variables instead; see "Starting the service".
 
 ### Roots
 
-A root is a folder Title Select may read: the source sets in it, the play library folders it builds into, an ingest
-folder, or the additions sets. Title Select reads none of your folders until you register a root for them. You
-register, edit and unregister roots under Settings, then Roots, in the workbench; with `title-select root`; or with
+A root is a folder Stage Select may read: the source sets in it, the play library folders it builds into, an ingest
+folder, or the additions sets. Stage Select reads none of your folders until you register a root for them. You
+register, edit and unregister roots under Settings, then Roots, in the workbench; with `stage-select root`; or with
 the API (see "HTTP API"). To help you find the path, the workbench suggests the folders the service can see
 directly under `/data`, `/mnt`, `/media` and `/srv`, and those mount points themselves, and says whether it can
 write to each. It lists at most 50 folders under each, follows no symbolic link, and leaves out the roots you've
@@ -427,7 +427,7 @@ registered. Each root has:
   folder, where new files arrive (see "Ingest folders"); or `additions`, where your additions sets live, one folder
   per system (see "Additions"). There is at most one `additions` root. An ingest or additions root is always
   writable.
-- **Whether it's writable.** Title Select writes only to writable roots, and checks it can write to the folder
+- **Whether it's writable.** Stage Select writes only to writable roots, and checks it can write to the folder
   when you make a root writable. A read-only root may instead list its **writable paths**: the source sets in it,
   each a path in the root, that repairs may write to. An additions root has no writable paths.
 - **Its ceilings**, the most every job together may do in it; see "Jobs". You set them with the root, or under
@@ -458,17 +458,17 @@ What you can't change, and what a change does:
 - A plan you approve while a root it uses is being changed is refused, changing nothing: review it again.
 
 ```sh
-title-select root list
-title-select root register <name> <path> [--kind general|ingest|additions] [--writable | --read-only]
+stage-select root list
+stage-select root register <name> <path> [--kind general|ingest|additions] [--writable | --read-only]
     [--writable-path <path>]… [--readers N] [--read-mib-per-s N] [--write-mib-per-s N]
-title-select root edit <name> [--path <path>] [--kind …] [--writable | --read-only]
+stage-select root edit <name> [--path <path>] [--kind …] [--writable | --read-only]
     [--writable-path <path>]… [--no-writable-paths] [--readers N|default] [--read-mib-per-s N|default]
     [--write-mib-per-s N|default]
-title-select root unregister <name>
-title-select root holds <name>
+stage-select root unregister <name>
+stage-select root holds <name>
 ```
 
-`root list` prints each root's name, path, kind, where Title Select may write to it, and your ceilings for it.
+`root list` prints each root's name, path, kind, where Stage Select may write to it, and your ceilings for it.
 `root edit` changes only what you give; `--writable-path` replaces the root's writable paths, and `default` clears
 your value of a ceiling. The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
@@ -481,15 +481,15 @@ one. There is no configuration file. A change takes effect when you restart the 
 
 | Flag | Environment variable | What it does | Default |
 | --- | --- | --- | --- |
-| `--store` | `TITLE_SELECT_STORE` | the store directory; see "Store" | none; the image's is `/store` |
-| `--listen` | `TITLE_SELECT_LISTEN` | the address the service listens on | `127.0.0.1:8080`; the image's is `0.0.0.0:8080` |
-| `--ui` | `TITLE_SELECT_UI` | the workbench's built bundle, served at `/`; see "Workbench" | none; the image's is `/ui` |
-| `--clone-lists` | `TITLE_SELECT_CLONE_LISTS` | the clone lists selection reads | `/opt/clone-lists` |
-| `--token-file` | `TITLE_SELECT_OPERATOR_TOKEN_FILE` | the file holding your operator token; see "Auth" | none |
-| `--identity-header` | `TITLE_SELECT_IDENTITY_HEADER` | the header your authenticating reverse proxy names you in; see "Auth" | none |
-| `--trusted-proxies` | `TITLE_SELECT_TRUSTED_PROXIES` | the proxies that header is trusted from, as comma-separated CIDRs; see "Auth" | none |
-| `--dev-identity` | `TITLE_SELECT_DEV_IDENTITY` | for local development, the identity of a request with no credential; see "Auth" | none |
-| `--chdman` | `TITLE_SELECT_CHDMAN` | the chdman builds and audits run; see "Storage policy" | `chdman` on the `PATH`; the image's is `/usr/local/bin/chdman` |
+| `--store` | `STAGE_SELECT_STORE` | the store directory; see "Store" | none; the image's is `/store` |
+| `--listen` | `STAGE_SELECT_LISTEN` | the address the service listens on | `127.0.0.1:8080`; the image's is `0.0.0.0:8080` |
+| `--ui` | `STAGE_SELECT_UI` | the workbench's built bundle, served at `/`; see "Workbench" | none; the image's is `/ui` |
+| `--clone-lists` | `STAGE_SELECT_CLONE_LISTS` | the clone lists selection reads | `/opt/clone-lists` |
+| `--token-file` | `STAGE_SELECT_OPERATOR_TOKEN_FILE` | the file holding your operator token; see "Auth" | none |
+| `--identity-header` | `STAGE_SELECT_IDENTITY_HEADER` | the header your authenticating reverse proxy names you in; see "Auth" | none |
+| `--trusted-proxies` | `STAGE_SELECT_TRUSTED_PROXIES` | the proxies that header is trusted from, as comma-separated CIDRs; see "Auth" | none |
+| `--dev-identity` | `STAGE_SELECT_DEV_IDENTITY` | for local development, the identity of a request with no credential; see "Auth" | none |
+| `--chdman` | `STAGE_SELECT_CHDMAN` | the chdman builds and audits run; see "Storage policy" | `chdman` on the `PATH`; the image's is `/usr/local/bin/chdman` |
 
 A flag you give wins over its environment variable. The service refuses to start, saying which flag and environment
 variable to fix, when it has no way to authenticate you, or when the auth settings don't fit together; see "Auth".
@@ -523,10 +523,10 @@ they change, every open workbench hears of it and shows them as they are now.
 
 ### RomM
 
-Title Select can work alongside a [RomM](https://github.com/rommapp/romm) that serves your play library. It is off
+Stage Select can work alongside a [RomM](https://github.com/rommapp/romm) that serves your play library. It is off
 until you turn it on, and a RomM that is down or refuses a request never stops an audit, a selection or a build.
-Title Select is tested with RomM 5.4; another release may work, and testing the connection says
-when yours is untested. To set RomM up beside Title Select, see "Using with RomM".
+Stage Select is tested with RomM 5.4; another release may work, and testing the connection says
+when yours is untested. To set RomM up beside Stage Select, see "Using with RomM".
 
 Under Settings, then Operations, the RomM section holds:
 
@@ -551,21 +551,21 @@ another.
 
 #### The scan after a build
 
-When a build, a library cleanup or a restore of a kept file changes files in a library folder, Title Select asks RomM
+When a build, a library cleanup or a restore of a kept file changes files in a library folder, Stage Select asks RomM
 to scan that folder's platform once the job ends, with a quick scan of that platform alone. A job that changed
 nothing, or only forgot files already gone, asks for no scan, and neither do repairs, additions or unregistering. The scan needs the token's `tasks.run`
 scope.
 
-Title Select follows the scan for up to 10 minutes after the job ends; the library folder is free meanwhile. While
+Stage Select follows the scan for up to 10 minutes after the job ends; the library folder is free meanwhile. While
 RomM is busy with another scan, it asks again, waiting longer each time. Each request uses your RomM settings as they
 are then, so a token you replace meanwhile is used from the next request. If you turn RomM off or change its address
-or root meanwhile, or Title Select stops, it stops following the scan and doesn't follow it again. The job's detail
+or root meanwhile, or Stage Select stops, it stops following the scan and doesn't follow it again. The job's detail
 shows how the scan went under **RomM scan**:
 
 - **Scanning**: RomM is scanning now.
 - **Scanned**: RomM finished scanning.
 - **Scan failed**, **Scan timed out**, **Scan not followed**, **RomM unavailable** (RomM has no scan worker running)
-  or **Scan error**: RomM didn't scan, or Title Select can't tell whether it did. The detail says why; scan the platform in RomM.
+  or **Scan error**: RomM didn't scan, or Stage Select can't tell whether it did. The detail says why; scan the platform in RomM.
 - **No platform**: the folder isn't one RomM platform, being nested deeper than RomM reads or missing from disk, so
   RomM wasn't asked.
 
@@ -575,21 +575,21 @@ In the API, the job's `romm_scan` holds `{"platform", "outcome", "task_id"?, "de
 
 #### The Additions collection
 
-Once RomM finishes a scan a build asked for, Title Select updates a public collection in RomM named **Additions**. It
+Once RomM finishes a scan a build asked for, Stage Select updates a public collection in RomM named **Additions**. It
 holds every addition built into a library folder that is a RomM platform: each is found in RomM by its SHA-1, then
-added, and anything else in the collection is removed. Title Select makes the collection the first time, and again
-if you delete it in RomM. If your token's user already has a collection named **Additions** that Title Select doesn't
+added, and anything else in the collection is removed. Stage Select makes the collection the first time, and again
+if you delete it in RomM. If your token's user already has a collection named **Additions** that Stage Select doesn't
 know, it uses that one. It knows the collection by RomM's id, not its name, so renaming it in RomM is fine, but
 other changes you make to it are undone at the next build, and a collection you make private is shared again.
 
 An addition RomM hasn't indexed can't be added. The job lists it as unresolved, which is a warning: RomM may not
 have scanned it yet, or may not hash files on that platform. Updating the collection needs the token's `roms.read`,
-`collections.read` and `collections.write` scopes. Without `collections.write`, Title Select doesn't touch any
-collection, and the warning names the missing scope. If you turn RomM off or change its address meanwhile, or Title
+`collections.read` and `collections.write` scopes. Without `collections.write`, Stage Select doesn't touch any
+collection, and the warning names the missing scope. If you turn RomM off or change its address meanwhile, or Stage
 Select stops, the update stops, and the next build RomM scans brings the collection up to date.
 
-Turning RomM off, or changing its address, deletes the collection. Title Select uses the address and token you had
-saved before, in the background: saving your settings never waits for RomM. If RomM can't delete it then, Title
+Turning RomM off, or changing its address, deletes the collection. Stage Select uses the address and token you had
+saved before, in the background: saving your settings never waits for RomM. If RomM can't delete it then, Stage
 Select keeps that address and token in the store, like your saved token, and tries again each time the service
 starts and before the next update, until RomM deletes it or says it is already gone.
 
@@ -600,7 +600,7 @@ being `synced`, `stopped` or `error`, and `unresolved` the names of the addition
 
 #### Comparing RomM's view with your library folder
 
-Once the scan a build asked for finishes, Title Select reads every ROM RomM lists for that folder's platform, with
+Once the scan a build asked for finishes, Stage Select reads every ROM RomM lists for that folder's platform, with
 their files, and compares them with the files your builds made there. It needs the token's `roms.read` and
 `platforms.read` scopes. The library folder's **RomM** tab shows the latest comparison: how many files agree, and each
 file RomM sees otherwise, flagged as one or more of:
@@ -612,7 +612,7 @@ file RomM sees otherwise, flagged as one or more of:
   compared by the files inside it, a CHD by the SHA-1 in its header, and each file of a game of several files, such
   as a disc's tracks or an `.m3u` folder's discs, on its own. A hash RomM didn't compute isn't a difference.
 
-Title Select never changes what RomM matched: fix a match in RomM, or use a file's **Ask RomM to scan again**, which
+Stage Select never changes what RomM matched: fix a match in RomM, or use a file's **Ask RomM to scan again**, which
 scans an unidentified ROM for a match and any other ROM again whole. It needs the `tasks.run` scope, and RomM turned
 on; if RomM refuses, the tab says why. Once you change RomM's address, or the folder's RomM platform, a comparison's
 ROMs may not be the ones RomM lists now, so a rescan from it is refused until you compare again. **Compare again**
@@ -653,7 +653,7 @@ you type the path.
 ## Commands
 
 ```sh
-title-select dat import <DAT file> [--source-url <url>]
+stage-select dat import <DAT file> [--source-url <url>]
 ```
 
 Imports an unmodified DAT file as a DAT revision, recording its SHA-256, original filename, import time and source
@@ -679,7 +679,7 @@ the earlier stays registered and the other is unregistered, its folder left as i
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
 
 ```sh
-title-select dat delete <SHA-256>
+stage-select dat delete <SHA-256>
 ```
 
 Deletes a DAT revision nothing depends on, even the newest, last or a restored one: it leaves the list of DAT
@@ -692,8 +692,8 @@ forgotten or unregistered to make it deletable. Past audits that are history sti
 revision you delete leaves the list; importing the same file again adds it back as a new import.
 
 ```sh
-title-select cue-pack import <ZIP file> --dat <provider>/<name> [--source-url <url>]
-title-select cue-pack list
+stage-select cue-pack import <ZIP file> --dat <provider>/<name> [--source-url <url>]
+stage-select cue-pack list
 ```
 
 `cue-pack import` stores a cue pack, a ZIP of a disc system's `.cue` sheets such as Redump publishes for each system,
@@ -703,12 +703,12 @@ larger than 1 MiB, or whose cue sheets expand to more than 64 MiB together. Each
 as it is imported, so planning a repair reads none of the cue pack, and a build reads only the sheets it writes,
 within the same limits. Importing the same bytes again changes nothing; a cue pack already
 imported for another DAT is refused. A repair of a source set bound to that DAT can then fill a missing cue sheet, or
-replace one that doesn't match, from it (see "Repairs"). Title Select never downloads a cue pack itself. `cue-pack
+replace one that doesn't match, from it (see "Repairs"). Stage Select never downloads a cue pack itself. `cue-pack
 list` prints each cue pack with its DAT, file, cue sheets, import time and SHA-256.
 
 ```sh
-title-select support-file import <file> [--source-url <url>]
-title-select support-file list
+stage-select support-file import <file> [--source-url <url>]
+stage-select support-file list
 ```
 
 `support-file import` keeps a MAME support file, `catver.ini`, `languages.ini` or `bestgames.ini` from progetto-SNAPS,
@@ -719,12 +719,12 @@ prints each support file, imported or fetched, with its MAME version, file, wher
 SHA-256.
 
 ```sh
-title-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
+stage-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
   [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>]
-title-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
-title-select set coverage <source set> --clear
-title-select set list
-title-select set history <source set>
+stage-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
+stage-select set coverage <source set> --clear
+stage-select set list
+stage-select set history <source set>
 ```
 
 `set add` registers a folder in a root, such as `sets "No-Intro/Atari - 2600"`, as a source set bound to an imported
@@ -741,7 +741,7 @@ the time, DAT revision, counts (with the games carrying each warning, such as `h
 evidence, and whether the full audit is kept or only its summary.
 
 ```sh
-title-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <quick|incremental|full>]
+stage-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <quick|incremental|full>]
   [--output <report file>]
 ```
 
@@ -763,15 +763,15 @@ them with the new ROMs. The read, reused and claimed counts go to stderr, and `s
 evidence.
 
 ```sh
-title-select fixdat <source set> [--scope coverage|dat | --selection <id>] [--output <file or folder>]
-title-select have-miss <source set> [--selection <id>] [--output <file or folder>]
+stage-select fixdat <source set> [--scope coverage|dat | --selection <id>] [--output <file or folder>]
+stage-select have-miss <source set> [--selection <id>] [--output <file or folder>]
 ```
 
 Both export what a source set lacks by its latest audit, against that audit's DAT revision, and read nothing else: they
 never fetch or acquire a game. `fixdat` writes a fixdat, a Logiqx XML DAT another tool can use to find what you lack. It
 lists each missing game with all its ROMs, and each incomplete game with only its missing ROMs, in the DAT's order, with
 each ROM's size and exactly the hashes the DAT gives. A missing MAME disk is listed as a `<disk>` by its name and SHA-1,
-which other tools read; Title Select reads disks only from MAME's ListXML, so a fixdat imported as a DAT lists no disks,
+which other tools read; Stage Select reads disks only from MAME's ListXML, so a fixdat imported as a DAT lists no disks,
 and a game that lacks only disks is complete against it. Its header is named `fixdat_<DAT name>`, and its description
 names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished. When the DAT names a
 header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
@@ -794,24 +794,24 @@ a coverage is refused. `have-miss` lists every game of the DAT, whatever the cov
 no audit yet is refused: audit it first.
 
 ```sh
-title-select ingest register <ingest root>
-title-select ingest scan <ingest root>
-title-select ingest items <ingest root>
+stage-select ingest register <ingest root>
+stage-select ingest scan <ingest root>
+stage-select ingest items <ingest root>
 ```
 
 `ingest register` registers a root of kind `ingest` as an ingest folder, writing its marker; see "Ingest folders".
 `ingest scan` scans it now, and `ingest items` lists each item with its state and what is proposed for it.
 
 ```sh
-title-select set holds|unregister <source set>
-title-select library holds|unregister <library folder id>
-title-select additions holds|unregister <system>
-title-select ingest holds|unregister <ingest root>
-title-select root holds <root>
-title-select profile retire|restore <selection profile>
-title-select unregistered list
-title-select unregistered history <source-set|library-folder|additions-set|ingest-folder> <id>
-title-select unregistered forget <source-set|library-folder|additions-set|ingest-folder> <id>
+stage-select set holds|unregister <source set>
+stage-select library holds|unregister <library folder id>
+stage-select additions holds|unregister <system>
+stage-select ingest holds|unregister <ingest root>
+stage-select root holds <root>
+stage-select profile retire|restore <selection profile>
+stage-select unregistered list
+stage-select unregistered history <source-set|library-folder|additions-set|ingest-folder> <id>
+stage-select unregistered forget <source-set|library-folder|additions-set|ingest-folder> <id>
 ```
 
 `holds` prints what holds a registration: each reason it can't be unregistered yet, such as a library folder built
@@ -824,16 +824,16 @@ history (its audits, selections, builds and jobs) by the id `list` prints, and `
 ## Service
 
 ```sh
-title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>] [--identity-header <name>
+stage-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>] [--identity-header <name>
   --trusted-proxies <cidr>,…] [--dev-identity <name>] [--chdman <file>]
 ```
 
 Runs the Service: the `/api/v1` JSON API, and the jobs that run audits and selections. It listens on `--listen` or
-`TITLE_SELECT_LISTEN`, by default `127.0.0.1:8080`, and holds the store, and its lock, until it stops on SIGTERM or
+`STAGE_SELECT_LISTEN`, by default `127.0.0.1:8080`, and holds the store, and its lock, until it stops on SIGTERM or
 Ctrl-C. While it runs, the store commands above fail with "the store is in use"; use the API, or the headless audit
-below, instead. This is the supported way to run Title Select on your server. With `--ui` or `TITLE_SELECT_UI` naming
+below, instead. This is the supported way to run Stage Select on your server. With `--ui` or `STAGE_SELECT_UI` naming
 the workbench's built bundle, it also serves the workbench at `/`; see "Workbench". Selections and previews read the
-clone lists named by `--clone-lists` or `TITLE_SELECT_CLONE_LISTS`, else `/opt/clone-lists`, as for `select`. Without
+clone lists named by `--clone-lists` or `STAGE_SELECT_CLONE_LISTS`, else `/opt/clone-lists`, as for `select`. Without
 them the Service still starts and runs audits, and refuses selections and previews, saying why. Every flag has an
 environment variable; see "Starting the service".
 
@@ -843,16 +843,16 @@ Every API path but `/api/v1/health` needs you to authenticate. Outside the API, 
 (see "Notifications and metrics") need no authentication. The Service refuses to start without a way to
 authenticate you:
 
-- `--identity-header` (`TITLE_SELECT_IDENTITY_HEADER`) with `--trusted-proxies` (`TITLE_SELECT_TRUSTED_PROXIES`):
+- `--identity-header` (`STAGE_SELECT_IDENTITY_HEADER`) with `--trusted-proxies` (`STAGE_SELECT_TRUSTED_PROXIES`):
   your authenticating reverse proxy sets the header, such as `Remote-User`, to your identity. The header is trusted
   only from a peer inside one of the CIDRs, given comma-separated, such as `10.89.0.2/32, ::1/128`, and a request
   carrying it from any other peer is rejected. Any peer inside them can claim any identity, so list your proxy's own
   address alone; see "Image". Each needs the other, and the header must be a valid header name. The
   identity is recorded as the actor of each job the request starts.
-- The operator token: a file named by `TITLE_SELECT_OPERATOR_TOKEN_FILE` (or `--token-file`) holds a secret, sent as
+- The operator token: a file named by `STAGE_SELECT_OPERATOR_TOKEN_FILE` (or `--token-file`) holds a secret, sent as
   `Authorization: Bearer <token>`. The Service keeps only its SHA-256 and compares in constant time. Jobs it starts
   record the actor `Operator token`.
-- `--dev-identity` (`TITLE_SELECT_DEV_IDENTITY`), for local development: a request with no credential is you, under
+- `--dev-identity` (`STAGE_SELECT_DEV_IDENTITY`), for local development: a request with no credential is you, under
   that identity. The Service refuses to start with it unless it listens on a loopback address, and refuses an empty
   one.
 
@@ -884,7 +884,7 @@ Ceilings are the most work the service does at once, shared by every job running
 Each ceiling's value comes from the first of these that has one:
 
 1. **Yours:** the value you set under Settings, then Operations, then "Adjust ceilings"; for a root's, also with
-   `title-select root edit` or with the root in the API.
+   `stage-select root edit` or with the root in the API.
 2. **The calibration:** the host's knee for `hashers`, each root's knee for its `readers`, and the throughput at that
    knee for its `read_mib_per_s`; see "Calibration".
 3. **The CPU count** the service can use, for `concurrent`, `hashers` and `readers`. `archive_workers` defaults to 2,
@@ -959,7 +959,7 @@ A calibration measures what this computer and your roots can do, so you can see 
 It is a job of kind `calibration`, started from the workbench (Settings, then Operations), through the API, or with:
 
 ```sh
-title-select calibrate --server <url>
+stage-select calibrate --server <url>
 ```
 
 It measures:
@@ -1111,7 +1111,7 @@ A newer DAT revision reaches the store in one of two ways: you drop it in, or th
 recognized from its header, whatever its file name: a DAT whose header names a DAT you already have is assessed as a
 DAT you may import, and once you approve the import, the source sets that follow that DAT become stale. A DAT older than the newest
 revision you have is recorded, but it doesn't become the newest revision and makes nothing stale. This is the
-only way to bring in No-Intro DATs. Title Select never contacts No-Intro, not even to check for a newer version, and
+only way to bring in No-Intro DATs. Stage Select never contacts No-Intro, not even to check for a newer version, and
 refuses any address there: download its DATs yourself and drop them in.
 
 **Fetching.** The service can fetch newer DAT revisions from Redump and from MAME's releases. Each provider is off
@@ -1129,7 +1129,7 @@ for the systems a registered source set follows, and only those DATs:
 Each system's DAT, cue pack and SBI pack is fetched at most once a day, counting every attempt, whether scheduled or
 yours, and each request is sent once, even when two fetches start together. The service checks every hour for
 anything due. Requests to a provider are made one at a time, at least a second apart, even across a restart of the
-service, and say what Title Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
+service, and say what Stage Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
 due it says when the next fetch may run. A fetch stops at its first error and keeps the last good DAT revision; the
 error shows on the DATs screen until a later fetch succeeds. Nothing is fetched from anywhere but the provider itself:
 requests, and any redirect, go only to that provider's own hosts, and a redirect anywhere else fails the fetch. While
@@ -1142,7 +1142,7 @@ are kept beside them; each is tied to the fetch that brought it.
 **MAME support files.** Selecting arcade machines reads `catver.ini`, `languages.ini` and `bestgames.ini` from
 [progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating (see
 "Selection"). Without `catver.ini`, it reads each machine's category from the ListXML, and the selection says
-so. Title Select doesn't ship
+so. Stage Select doesn't ship
 them, as they carry no licence. With fetching from MAME on, the service fetches them from progetto-SNAPS's own GitHub
 mirror: it asks the GitHub API which commit the mirror is at,
 then fetches each file from that commit. It does so when a source set you register, following or not, is first bound
@@ -1183,8 +1183,8 @@ spelling the store keeps of its provider: one you save for `redump/<name>` befor
 keeping originals wins over following the default, and that wins over deleting them. Only a game with one ROM can be stored loose: a
 game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
-its name or a ROM's name isn't a plain file name, is the name of the folder Title Select keeps its own work in
-(`.title-select`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
+its name or a ROM's name isn't a plain file name, is the name of the folder Stage Select keeps its own work in
+(`.stage-select`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
 stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
 disc layout says; any other system's play libraries store TorrentZip or loose. A MAME ListXML's source sets keep every
 game as a TorrentZip, whatever format you give source sets, as MAME reads each game from a ZIP: a repair never stores
@@ -1205,7 +1205,7 @@ each system. The default is the ES-DE layout:
 The flat layout puts every file of every disc directly in the system folder, and writes no `.m3u`. A disc stored as
 TorrentZip is `<game>.zip` in the system folder in either layout. Under the ES-DE layout, a disc of several files that
 isn't one `.cue` with its tracks stays TorrentZip, with every other disc of its game, and the plan says why. A game's
-name must be one plain name, not a path and not a name Title Select keeps its own work under: the plan refuses any
+name must be one plain name, not a path and not a name Stage Select keeps its own work under: the plan refuses any
 other, so the only folders a layout makes are `<game>.cue/` and `<game>.m3u/`. Names that differ only in case or
 Unicode form are the same name, so a plan refuses two files, or a file and a folder, that would share one.
 
@@ -1237,7 +1237,7 @@ DAT's hashes. A CHD that doesn't give back the DAT's files is never put in place
 checked CHD's SHA-1, which its header holds and which covers its data and its track list, is recorded, and a check of
 the folder afterwards reads only that header, never the compressed data: a CHD recompressed by another chdman is the
 same CHD and isn't drift, but one whose data or track list changed is, and the check says which. A build runs chdman as
-`--chdman` or `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its own and names it. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
+`--chdman` or `STAGE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its own and names it. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
 twice its CHD's size while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it
 into place. It removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each
 GiB of the disc, set by the CHD time limits under Settings, then Operations; one that runs longer is stopped,
@@ -1270,7 +1270,7 @@ audit verified, and moves the original into the folder's kept files.
 "Delete originals after conversion", set globally and for each system in each scope, is off by default. When it's on,
 a conversion deletes each original only once its converted file is verified: a TorrentZip is opened as canonical and
 its members' hashes and sizes match the ROMs exactly; a loose file's hashes match its ROM exactly. The original is
-kept aside first, then moved into `.title-select/retained/.deleting` and read back through the same open file, and
+kept aside first, then moved into `.stage-select/retained/.deleting` and read back through the same open file, and
 deleted only when it still matches what the conversion read and recorded, before it put the converted file in place:
 its hash, size, modification time and change time. A check of the folder never changes that record. An original
 that changed in any way, even repacked with the same ROMs, or whose converted file doesn't verify, stays in the kept
@@ -1304,16 +1304,16 @@ parent.
 
 ### Library folders and builds
 
-A library folder is a folder in a writable root that Title Select builds selections into, for your front end to play
+A library folder is a folder in a writable root that Stage Select builds selections into, for your front end to play
 from. It is bound to a source set and a selection profile, and so to a system; a system may have several, each with
 its own profile. A source set cannot be registered in a writable root, and nothing else is ever written to one.
 
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
-marker, `.title-select/marker`, holding the store's id, the folder's id and its build generation. Everything Title
-Select keeps in a folder it manages is inside `.title-select/`: the marker, the folder a build stages files in, and
-the kept files under `retained/`. It is made private to the service's user, and Title Select uses it only while it
-still is: a `.title-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
-until you move it out. Nothing else in the folder is Title Select's. Audits never read `.title-select/`,
+marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Stage
+Select keeps in a folder it manages is inside `.stage-select/`: the marker, the folder a build stages files in, and
+the kept files under `retained/`. It is made private to the service's user, and Stage Select uses it only while it
+still is: a `.stage-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
+until you move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
 and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
@@ -1354,13 +1354,13 @@ A plan never deletes a file. A built file whose game is no longer selected is a 
 a check finds it as built, forgets its record when it is gone already, and leaves it when it changed since it was
 built. A built file the plan writes again from other ROMs, as when a newer DAT revision changes the game, is a
 replacement: the old file is kept aside and the new one written in the same build. Keeping a file aside moves it, by
-one rename that never replaces anything, into `.title-select/retained/<generation>/<name>.kept` in the same folder,
+one rename that never replaces anything, into `.stage-select/retained/<generation>/<name>.kept` in the same folder,
 only while it is still the file the plan found. The retention area and each generation's folder are created under a
 temporary name the store records, made durable, renamed into place without replacing anything, and used only while
 they are still the empty folder made, owned by the service and private to it. One never renamed into place is left,
 recorded; none of these folders is ever removed, even once empty. The store records each kept file with its original name, the build
 that kept it and its provenance, and holds that provenance's selection and audit from pruning. A plan never removes a
-file Title Select did not build.
+file Stage Select did not build.
 
 Your choices are part of the plan, and of its digest: building resolved groups only, and, for each conflict, leaving
 it (the default), adopting it when it holds the ROMs the DAT expects, or keeping it aside and building the game in its
@@ -1370,7 +1370,7 @@ Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-file
 (`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
 file and the digest binds what it read, its change time and SHA-256 included. Each kept file is deleted
 only while it is still the file that was kept and still reads as you reviewed it: it is moved, without replacing anything, into the private folder
-`.title-select/retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
+`.stage-select/retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
 you reviewed it is never deleted, and its outcome says so. Anything
 else, a symlink or a directory included, is left or moved back, and reported. Until it is moved back, it stays
 recorded where it is, and the deletion stays unfinished and blocks plans for the folder; when its name is taken, you
@@ -1384,7 +1384,7 @@ folder and writes only to the store. It reads a built file only when its size or
 store's record: a file with the same content refreshes the record; one holding the same ROMs in another ZIP is
 recorded as built and flagged not TorrentZip; anything else is a conflict. Every other entry is drift, reported as a
 known title that is not selected, a selected title the store did not build, a known title under another name, an
-unknown file, or a directory, which is never opened. Symlinks and special files are unknown and never opened. Title
+unknown file, or a directory, which is never opened. Symlinks and special files are unknown and never opened. Stage
 Select's own entries are never drift. Drift is a warning: only a conflict at a selected game's file makes the folder
 incomplete.
 
@@ -1399,7 +1399,7 @@ another name is adopted under that game's file name instead, and one whose name 
 built file flagged not TorrentZip from its own contents, in one read, keeping the file as it was aside; if the
 service stops after the old file is kept aside and before the new one is in place, a selected game is reported failed, so
 the folder shows as incomplete until you put the kept copy back or build again. A kept folder is put back
-as it was, never adopted or deleted by Title Select. A disc layout you laid out yourself, the way a build lays out
+as it was, never adopted or deleted by Stage Select. A disc layout you laid out yourself, the way a build lays out
 the play library, can be adopted file by file where it is, with nothing rebuilt: each disc's `.cue` and tracks in
 a `<game>.cue/` or `<game>.m3u/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
 extracted once to check every track, or the image, against the DAT, then recorded by the SHA-1 its header holds, as a
@@ -1495,7 +1495,7 @@ game's placement; and the library folder's built files mark each file placed the
 way its build wrote it.
 
 What it trades: your source set no longer holds a copy of what you play. A placed file is the game's only copy, so
-deleting or changing it by hand loses the game. Title Select keeps no other copy of it: your own backups are the only
+deleting or changing it by hand loses the game. Stage Select keeps no other copy of it: your own backups are the only
 other copy. Keep single copy off for any system you want kept twice.
 
 How a game moves depends on where the folders are:
@@ -1548,7 +1548,7 @@ extends placing to games a play library stores as CHD, a format no source set ho
 copy. An audit can't read the tracks inside a CHD directly: a full audit copies it to the store's `tmp/` folder and
 extracts it with chdman to hash each track, which takes longer and needs free space there; an incremental audit
 reuses that read while the CHD is unchanged; and a quick inventory only takes claims from its header, so it never
-verifies the game. Title Select keeps the disc's `.cue` sheet in the store, exactly as the DAT lists it, checks it on
+verifies the game. Stage Select keeps the disc's `.cue` sheet in the store, exactly as the DAT lists it, checks it on
 every audit, and writes it back when the game returns to your source set: back up the store along with your library
 folders. If a build finds a placed CHD doesn't hold its disc as the DAT lists it, it leaves the CHD in place, deletes
 nothing, and flags the game **Needs review** with the reason: on its source set's overview, beside its game status in
@@ -1610,9 +1610,9 @@ loose file, hashed whole, whatever bytes its tail holds, and is never opened as 
 directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all.
 
 A 7z is read only here, in an ingest folder: in a source set or a library folder it stays one file, hashed whole and
-never opened, and Title Select never writes one. A file is a 7z when it begins as one. Its members are read when it is
+never opened, and Stage Select never writes one. A file is a 7z when it begins as one. Its members are read when it is
 compressed with LZMA, LZMA2 or zstd, with or without the usual executable filters, solid or not, within the same
-limits as a game's ZIP. Before any member is decoded, Title Select reads from its header the dictionary it needs. One
+limits as a game's ZIP. Before any member is decoded, Stage Select reads from its header the dictionary it needs. One
 that needs more than the largest dictionary you allow (`max_dictionary_mib`, under Settings, then Operations, then 7z
 archives) is unsupported, with "this 7z needs a <N> MiB dictionary, more than
 max_dictionary_mib (<M>); unpack it yourself or raise the limit"; it is read again on the next scan, so raising the
@@ -1657,7 +1657,7 @@ plan, whatever state it shows; an unsupported or dismissed item can still be dis
 dismissing an item never makes it movable. An item with other hard links to it cannot be in a plan. A plan lists each item, where it goes and why, and binds every
 entry of the folder by device, inode, size, modification time, change time and link count. Approving it is refused if
 anything changed.
-Discarding an item moves it into the folder's kept files, `.title-select/retained/<generation>/<name>.kept`. Importing
+Discarding an item moves it into the folder's kept files, `.stage-select/retained/<generation>/<name>.kept`. Importing
 a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
 incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
 audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Importing a MAME support
@@ -1674,7 +1674,7 @@ A move cut off by a stop is finished when the service next starts, once the fold
 
 A repair changes a source set, and only through a plan you approve, separately from any build. The source set's root
 must list its path in `writable_paths`, which keeps the source set registered where it is, with its history; and its
-folder must be writable when the repair runs. The first repair of a source set writes a marker, `.title-select/marker`,
+folder must be writable when the repair runs. The first repair of a source set writes a marker, `.stage-select/marker`,
 holding the store's id and the source set's id, and says so in its plan; every later repair, and every move into the
 source set, is refused while the marker is missing or names another store or source set.
 
@@ -1736,8 +1736,8 @@ follow-up audit is queued, no audit of the source set starts and no build readin
 the step it is on finishes, every change of the item it started finishes, and the rest are skipped.
 
 A repair never deletes. A file it replaces or sets aside is moved, by a rename that never replaces anything, into the
-source set's kept files, `.title-select/retained/<generation>/<name>.kept`; a new file is written under a temporary
-name in `.title-select/`, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
+source set's kept files, `.stage-select/retained/<generation>/<name>.kept`; a new file is written under a temporary
+name in `.stage-select/`, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
 approved ingest move does: the item's original is deleted only when what was written is exactly the ROM it names, as
 for a loose file holding one ROM, and kept in the ingest folder's kept files otherwise. Once a repair finishes it
 queues an incremental audit of the source set, even if the service stops right after. A repair cut off by a stop
@@ -1747,7 +1747,7 @@ couldn't be deleted; until it finishes, the source set stays reserved for it. A 
 change, for example because the folder can't be written or a marker appeared in it, ends there instead, saying why,
 and you plan it again. Something that would stop a resumed repair the same way every time ends that change instead,
 saying what was left where: for example, if a file it put in place was replaced before its ingest original was dealt
-with, the fill fails and both are left as they are. Audits never read `.title-select/`. You delete a source set's kept files by picking them and approving the deletion.
+with, the fill fails and both are left as they are. Audits never read `.stage-select/`. You delete a source set's kept files by picking them and approving the deletion.
 
 ### Additions
 
@@ -1794,19 +1794,19 @@ can restore a retired addition, which moves its file back, or delete its kept fi
 a source set's kept files. A name stays taken by its addition, even once it is retired. A check of an additions set,
 like that of a library folder, reads the folder and changes nothing: it reports each active addition as intact,
 missing or changed, and anything else as an unknown file. A file whose change time moved is re-hashed, and is
-intact only if it still holds what was published. It ignores `.title-select/`, where its marker and kept files are.
+intact only if it still holds what was published. It ignores `.stage-select/`, where its marker and kept files are.
 
 ### Unregistering
 
 You can unregister a source set, a library folder, an additions set or an ingest folder. Unregistering touches no
-game file: the files stay where they are, no longer managed, and only Title Select's own marker is removed. It is
+game file: the files stay where they are, no longer managed, and only Stage Select's own marker is removed. It is
 refused while anything holds the registration, and you are told what: a library folder bound to a source set, a job
 queued or running for it, or a move, build or deletion the service hasn't finished. A root has no registration of its
 own; remove it from your configuration once nothing is registered in it.
 
 What you unregistered stays readable under unregistered: its audits, selections, builds and jobs. Its kept files
 stay too, and you can still delete them; until you do, its marker stays, so the same folder can't be registered
-again. An ingest folder's kept files are left as files Title Select no longer manages. Registering the same path
+again. An ingest folder's kept files are left as files Stage Select no longer manages. Registering the same path
 again is a new registration, with a history of its own. Forgetting an unregistered registration removes its history
 from the store and touches no file; DAT revisions nothing else uses are then dropped by the store's usual cleanup.
 You forget it once its kept files are deleted, and a source set once every library folder built from it is
@@ -1838,13 +1838,13 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 Every API path is under `/api/v1`, `/api/v1/health` included. Only `/metrics` sits outside it, where scrapers expect
 it. Any other path under `/api` answers `404`.
 
-Every JSON output of the command line carries a top-level `schema`, `"title-select.<name>/<version>"`, that names its
+Every JSON output of the command line carries a top-level `schema`, `"stage-select.<name>/<version>"`, that names its
 shape and the version of it:
 
 | Output                                             | `schema`                   |
 |----------------------------------------------------|----------------------------|
-| `title-select audit`, in every form, and `GET /api/v1/audits/{id}/report` | `title-select.audit/1`     |
-| `title-select select`                              | `title-select.selection/1` |
+| `stage-select audit`, in every form, and `GET /api/v1/audits/{id}/report` | `stage-select.audit/1`     |
+| `stage-select select`                              | `stage-select.selection/1` |
 
 The other commands print text, or a DAT or CSV export, not JSON.
 
@@ -1853,7 +1853,7 @@ What these versions promise you:
 - A path, field, flag or environment variable is deprecated, with a warning, for at least one minor release before
   it is removed. Each release's notes list what it deprecates and what it removes.
 - A change that would break what you read or send gets a new version instead: a new path prefix, such as `/api/v2`,
-  or a new `schema`, such as `title-select.audit/2`. Adding a field isn't such a change, so read what you need and
+  or a new `schema`, such as `stage-select.audit/2`. Adding a field isn't such a change, so read what you need and
   ignore fields you don't know.
 
 | Method and path                                    | What                                                         |
@@ -1896,7 +1896,7 @@ What these versions promise you:
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `title-select.audit/1` report                        |
+| `GET /api/v1/audits/{id}/report`                   | the full `stage-select.audit/1` report                        |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -1920,7 +1920,7 @@ What these versions promise you:
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
 | `GET /api/v1/selections/{id}`                      | a selection's record and summary                             |
 | `GET /api/v1/selections/{id}/selection`            | the explained selection, as `select` prints it               |
-| `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
+| `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?outcome=`, `?group=`   |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
@@ -2054,11 +2054,11 @@ client should do the same: ignore a `state` whose `version` is at or below the o
 ### Headless audit
 
 ```sh
-title-select audit --server <url> --set <source set> [--revision <sha256 prefix>]
+stage-select audit --server <url> --set <source set> [--revision <sha256 prefix>]
   [--evidence <quick|incremental|full>] [--output <report file>]
 ```
 
-Starts an audit job on the Service at `<url>`, sending your operator token from `TITLE_SELECT_OPERATOR_TOKEN_FILE` (or
+Starts an audit job on the Service at `<url>`, sending your operator token from `STAGE_SELECT_OPERATOR_TOKEN_FILE` (or
 `--token-file`), and follows it to the end. `--evidence` chooses the audit's evidence as for `audit --set`. Progress
 and a summary of the findings, game statuses and the read, reused and claimed counts go to stderr; the
 report goes to stdout, or to `--output`. If the job's event stream sends nothing, not even its keep-alive, for 45
@@ -2067,78 +2067,78 @@ the token is refused or the Service cannot be reached.
 
 ### Image
 
-`ghcr.io/jbruns/title-select` is a static binary, the workbench's bundle (at `/ui`), the pinned clone lists and
+`ghcr.io/jbruns/stage-select` is a static binary, the workbench's bundle (at `/ui`), the pinned clone lists and
 metadata selection reads (at `/opt/clone-lists`), and chdman (at `/usr/local/bin/chdman`, from a pinned MAME release)
 on `gcr.io/distroless/cc-debian12:nonroot`, for linux/amd64. The licence texts the About page shows are at
-`/ui/licences`: Title Select's, that of the project selection is derived from, the clone lists and metadata's, MAME's,
+`/ui/licences`: Stage Select's, that of the project selection is derived from, the clone lists and metadata's, MAME's,
 which chdman is part of, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
 `/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
 run it with a read-only root filesystem. You set it up with environment variables alone (see "Starting the
 service"), and register your roots in the workbench once it runs:
 
 ```sh
-docker run --read-only -p 8080:8080 -v title-select-store:/store \
-  -v /path/to/token:/run/operator-token:ro -e TITLE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
-  -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/title-select:sha-<commit>
+docker run --read-only -p 8080:8080 -v stage-select-store:/store \
+  -v /path/to/token:/run/operator-token:ro -e STAGE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
+  -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/stage-select:sha-<commit>
 ```
 
 With Docker Compose:
 
 ```yaml
 services:
-  title-select:
-    image: ghcr.io/jbruns/title-select:sha-<commit>
+  stage-select:
+    image: ghcr.io/jbruns/stage-select:sha-<commit>
     read_only: true
     ports:
       - "8080:8080"
     environment:
-      TITLE_SELECT_OPERATOR_TOKEN_FILE: /run/operator-token
+      STAGE_SELECT_OPERATOR_TOKEN_FILE: /run/operator-token
     volumes:
-      - title-select-store:/store
+      - stage-select-store:/store
       - /path/to/token:/run/operator-token:ro
       - /data/source-sets:/data/source-sets:ro
 volumes:
-  title-select-store:
+  stage-select-store:
 ```
 
 Both sign you in with your operator token alone. To sign in through an authenticating reverse proxy instead, give the
 service the header the proxy names you in, and trust it only from the proxy's own address. Every peer inside
-`TITLE_SELECT_TRUSTED_PROXIES` can claim any identity, so list the proxy alone, never a whole network such as Docker's
+`STAGE_SELECT_TRUSTED_PROXIES` can claim any identity, so list the proxy alone, never a whole network such as Docker's
 bridge range, and keep the service off networks other containers share. Here the proxy and the service share a
 network of their own, the proxy has a fixed address on it, and only the proxy publishes a port:
 
 ```yaml
 services:
   proxy:
-    # your authenticating reverse proxy, forwarding to http://title-select:8080 with the Remote-User header
+    # your authenticating reverse proxy, forwarding to http://stage-select:8080 with the Remote-User header
     ports:
       - "443:443"
     networks:
-      title-select:
+      stage-select:
         ipv4_address: 10.89.0.2
-  title-select:
-    image: ghcr.io/jbruns/title-select:sha-<commit>
+  stage-select:
+    image: ghcr.io/jbruns/stage-select:sha-<commit>
     read_only: true
     environment:
-      TITLE_SELECT_IDENTITY_HEADER: Remote-User
-      TITLE_SELECT_TRUSTED_PROXIES: 10.89.0.2/32     # the proxy alone
+      STAGE_SELECT_IDENTITY_HEADER: Remote-User
+      STAGE_SELECT_TRUSTED_PROXIES: 10.89.0.2/32     # the proxy alone
     volumes:
-      - title-select-store:/store
+      - stage-select-store:/store
       - /data/source-sets:/data/source-sets:ro
     networks:
-      - title-select
+      - stage-select
 networks:
-  title-select:
+  stage-select:
     ipam:
       config:
         - subnet: 10.89.0.0/24
 volumes:
-  title-select-store:
+  stage-select-store:
 ```
 
 Your proxy must also remove any `Remote-User` header a client sends before it sets its own.
 
-The container's mounts bound what Title Select can reach: the workbench can register any folder the container can
+The container's mounts bound what Stage Select can reach: the workbench can register any folder the container can
 see as a root, so mount read-only what it must never write.
 
 CI publishes `sha-<commit>` (the full commit SHA) for each push to `main`, and `<version>` and `<major>.<minor>` for
@@ -2146,7 +2146,7 @@ each `v<version>` tag.
 
 ### Memory
 
-Title Select's memory grows with the DATs you select against and the files in a job, not with the size of the files:
+Stage Select's memory grows with the DATs you select against and the files in a job, not with the size of the files:
 [docs/memory.md](docs/memory.md) has the measurements and how to take them. Reading a 7z adds its dictionary, up to
 `max_dictionary_mib`, and up to 24 MiB for its header, for each of the `archive_workers` archives read at once. That's
 why a calibration doesn't measure `archive_workers`: what limits it is memory, as each decoder holds a large
@@ -2162,7 +2162,7 @@ archive, under the pace like the other ceilings; a change to `max_dictionary_mib
 ### Health
 
 ```sh
-title-select health [--url <url>] [--timeout <seconds>]
+stage-select health [--url <url>] [--timeout <seconds>]
 ```
 
 Checks a running Service, for a container healthcheck in an image with no shell or curl. `--url` defaults to
@@ -2172,7 +2172,7 @@ with one line on stderr saying why: the Service cannot be reached, did not answe
 answered another body. In Compose:
 
 ```yaml
-healthcheck: { test: ["CMD", "/title-select", "health"] }
+healthcheck: { test: ["CMD", "/stage-select", "health"] }
 ```
 
 ### Notifications and metrics
@@ -2193,7 +2193,7 @@ address set, each event links to the screen it concerns. A change applies to eve
 | `source_set.stale` | a source set becomes stale: files changed since its latest audit, or a newer DAT revision of a DAT it follows arrived | the source set's name | the source set |
 | `dat_revision.new` | a DAT revision is imported, by upload, drop-in or fetch | `<provider>/<DAT name>` | DATs |
 | `fetch.failed` | a request to Redump or MAME fails | `<provider>/<system>` | DATs |
-| `drift.found` | a check of a library folder finds more entries Title Select did not build than the check before | `<root>/<path>` | the library folder |
+| `drift.found` | a check of a library folder finds more entries Stage Select did not build than the check before | `<root>/<path>` | the library folder |
 
 Follow-up scans of ingest folders are jobs too, so each sends `job.finished` or `job.failed`. If that's too many events
 for you, turn off `job.finished`.
@@ -2214,8 +2214,8 @@ Each event is one `POST` of a JSON object:
 ```
 
 `at` is when it happened, in RFC 3339. `summary` is a sentence for you to read; don't parse it. `link` is `null`
-without your workbench's address. The request carries `Content-Type: application/json`, `X-Title-Select-Event: <event>`, and
-`X-Title-Select-Signature: sha256=<hex>`: the HMAC-SHA256 of the exact body under your secret. Check it before you trust
+without your workbench's address. The request carries `Content-Type: application/json`, `X-Stage-Select-Event: <event>`, and
+`X-Stage-Select-Signature: sha256=<hex>`: the HMAC-SHA256 of the exact body under your secret. Check it before you trust
 the body, comparing in constant time, as in this Python:
 
 ```python
@@ -2237,21 +2237,21 @@ store.
 
 | Metric | Type | Labels | Value |
 |---|---|---|---|
-| `title_select_build_info` | gauge | `version` | 1 |
-| `title_select_jobs_total` | counter | `kind`, `outcome` (`succeeded`, `failed`, `interrupted`) | jobs that ended so |
-| `title_select_jobs_running` | gauge | | jobs running now |
-| `title_select_source_sets_stale` | gauge | | stale source sets |
-| `title_select_source_set_stale` | gauge | `source_set` | 1 if it is stale, else 0 |
-| `title_select_source_set_last_audit_timestamp_seconds` | gauge | `source_set` | when its latest audit finished |
-| `title_select_fetch_last_timestamp_seconds` | gauge | `provider`, `system` | when its latest fetch finished |
-| `title_select_fetch_last_result` | gauge | `provider`, `system`, `outcome` (`added`, `unchanged`, `failed`) | 1, for its latest fetch's outcome |
-| `title_select_library_folder_drift` | gauge | `library_folder` (its id), `root`, `source_set` | entries its latest check found that Title Select did not build |
+| `stage_select_build_info` | gauge | `version` | 1 |
+| `stage_select_jobs_total` | counter | `kind`, `outcome` (`succeeded`, `failed`, `interrupted`) | jobs that ended so |
+| `stage_select_jobs_running` | gauge | | jobs running now |
+| `stage_select_source_sets_stale` | gauge | | stale source sets |
+| `stage_select_source_set_stale` | gauge | `source_set` | 1 if it is stale, else 0 |
+| `stage_select_source_set_last_audit_timestamp_seconds` | gauge | `source_set` | when its latest audit finished |
+| `stage_select_fetch_last_timestamp_seconds` | gauge | `provider`, `system` | when its latest fetch finished |
+| `stage_select_fetch_last_result` | gauge | `provider`, `system`, `outcome` (`added`, `unchanged`, `failed`) | 1, for its latest fetch's outcome |
+| `stage_select_library_folder_drift` | gauge | `library_folder` (its id), `root`, `source_set` | entries its latest check found that Stage Select did not build |
 
 A scrape job for Prometheus:
 
 ```yaml
 scrape_configs:
-  - job_name: title-select
+  - job_name: stage-select
     static_configs:
       - targets: ["<domain>:8080"]
 ```
@@ -2260,21 +2260,21 @@ And alerts on failed jobs, on a source set left stale for a day, and on drift:
 
 ```yaml
 groups:
-  - name: title-select
+  - name: stage-select
     rules:
-      - alert: TitleSelectJobFailed
-        expr: increase(title_select_jobs_total{outcome="failed"}[1h]) > 0
+      - alert: StageSelectJobFailed
+        expr: increase(stage_select_jobs_total{outcome="failed"}[1h]) > 0
         annotations:
           summary: "A {{ $labels.kind }} job failed"
-      - alert: TitleSelectSourceSetStale
-        expr: title_select_source_set_stale == 1
+      - alert: StageSelectSourceSetStale
+        expr: stage_select_source_set_stale == 1
         for: 1d
         annotations:
           summary: "{{ $labels.source_set }} has been stale for a day: audit it again"
-      - alert: TitleSelectDrift
-        expr: title_select_library_folder_drift > 0
+      - alert: StageSelectDrift
+        expr: stage_select_library_folder_drift > 0
         annotations:
-          summary: "Library folder {{ $labels.library_folder }} holds files Title Select did not build"
+          summary: "Library folder {{ $labels.library_folder }} holds files Stage Select did not build"
 ```
 
 ## Workbench
@@ -2433,7 +2433,7 @@ Its screens:
   to in a read-only root, and who changed it last. You register a root there, edit one, its name aside, or
   unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
-  texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
+  texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
 - **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete, stale,
   current or never built, in that precedence. Stale means its source set's latest audit found something other than the
@@ -2521,11 +2521,11 @@ cargo install cargo-leptos --locked
 cargo leptos build --release               # the workbench into target/site, and the binary
 tools/clone-lists/fetch                    # the clone lists selection reads, into .clone-lists
 tools/curated-list/fetch                   # the curated list arcade selection reads, into .curated-list
-mkdir -p target/site/licences && cp LICENSE target/site/licences/title-select.txt \
+mkdir -p target/site/licences && cp LICENSE target/site/licences/stage-select.txt \
   && cp third_party/retool/LICENSE target/site/licences/retool.txt \
   && cp .clone-lists/LICENSE target/site/licences/retool-clonelists-metadata.txt \
   && cp .curated-list/LICENSE target/site/licences/curated-mame-arcade-romset.txt
-TITLE_SELECT_CURATED_LIST=.curated-list target/release/title-select --store dev-store serve \
+STAGE_SELECT_CURATED_LIST=.curated-list target/release/stage-select --store dev-store serve \
   --ui target/site --clone-lists .clone-lists --dev-identity Developer
 ```
 
@@ -2543,9 +2543,9 @@ python3 -m venv .venv && .venv/bin/pip install playwright && .venv/bin/playwrigh
 
 ## Using with RomM
 
-[RomM](https://github.com/rommapp/romm) can serve your play library beside Title Select. Title Select verifies,
+[RomM](https://github.com/rommapp/romm) can serve your play library beside Stage Select. Stage Select verifies,
 selects and builds your files. RomM finds their metadata and artwork and serves them to your players. This section
-sets RomM up so that only Title Select writes your library. It is written for RomM 5.4. To turn RomM on in Title
+sets RomM up so that only Stage Select writes your library. It is written for RomM 5.4. To turn RomM on in Stage
 Select and fill in its settings, see "RomM".
 
 **Mount your play library read-only.** Mount the root you named under **Root** in the RomM settings at
@@ -2558,21 +2558,21 @@ services:
       - /data/roms:/romm/library/roms:ro   # the host folder you mount as that root
 ```
 
-Each library folder directly in that root is a RomM platform, named for its folder, such as `gba`. Title Select keeps
-its own state in each folder's `.title-select/` folder, and RomM skips it. Under the ES-DE disc layout, the default, a
+Each library folder directly in that root is a RomM platform, named for its folder, such as `gba`. Stage Select keeps
+its own state in each folder's `.stage-select/` folder, and RomM skips it. Under the ES-DE disc layout, the default, a
 multi-disc game's `<game>.m3u/` folder is one game in RomM, with every disc.
 
-**Give Title Select its own RomM user.** In RomM, create a user that isn't an admin, in a group that grants Tasks
+**Give Stage Select its own RomM user.** In RomM, create a user that isn't an admin, in a group that grants Tasks
 write, so that it can start scans. Signed in as that user, create a client API token with the scopes "RomM" lists,
 and enter it in the RomM settings. If you sign in to RomM with OIDC, create the token while you are signed in: an OIDC
 sign-in can't call RomM's API itself.
 
-**Leave RomM's own rescans off.** Title Select asks RomM to scan a platform when a job changes that platform's files,
+**Leave RomM's own rescans off.** Stage Select asks RomM to scan a platform when a job changes that platform's files,
 so RomM needs no watcher or schedule. Leave `ENABLE_RESCAN_ON_FILESYSTEM_CHANGE` and `ENABLE_SCHEDULED_RESCAN` unset or
 `false`, as they are by default. RomM's docs say its watcher can be unreliable over SMB or NFS, and warn against it
 while another tool writes the library.
 
-**Metadata.** Title Select names each file as its DAT names it, so RomM can match a game by its name as well as its
+**Metadata.** Stage Select names each file as its DAT names it, so RomM can match a game by its name as well as its
 hash. Turn Hasheous off: leave `HASHEOUS_API_ENABLED` unset or `false`. Use ScreenScraper instead, which matches by
 hash and by name: set `SCREENSCRAPER_USER` and `SCREENSCRAPER_PASSWORD`. For artwork, add libretro's thumbnails,
 which need no account: RomM looks them up by exact file name first, then by a close name. Put both first in
@@ -2592,18 +2592,18 @@ If you store disc games as CHD, expect them to match mostly by name. A CHD's own
 well a provider matches the hash of the disc inside a CHD varies.
 
 **Leave RomM's writing features off.** These write into your library, so they fail on a read-only mount and would
-change files Title Select built:
+change files Stage Select built:
 
 - the `gamelist.xml` and Pegasus exports: leave `scan.gamelist.export` and `scan.pegasus.export` at `false`, the
   default;
 - the **Convert library** task: leave `ROM_CONVERTO_ENABLED` unset or `false`;
-- uploads: add games through Title Select, not through RomM.
+- uploads: add games through Stage Select, not through RomM.
 
 **Arcade.** RomM 5.5 splits arcade into separate platforms, such as `mame`, `fbneo` and `fba`. When you upgrade RomM,
 check that each arcade library folder's name is still the platform you want. RomM takes every folder in a platform for
 a game of its own, so without a workaround it shows each MAME game with disks twice: once for its ZIP, and once for its
 disk folder, `<game>/`, which doesn't run. The library folder's page lists its disk folders, ready to copy into
-`exclude.roms.multi_file.names` in RomM's `config.yml`; Title Select doesn't write RomM's configuration for you. That
+`exclude.roms.multi_file.names` in RomM's `config.yml`; Stage Select doesn't write RomM's configuration for you. That
 setting is one list for every platform, so RomM leaves out a folder of these names on every platform, not only arcade.
 A list for each platform is an open request upstream,
 [rommapp/romm#5696](https://github.com/rommapp/romm/issues/5696).
@@ -2616,8 +2616,8 @@ exclude:
         - 'blaster'
 ```
 
-**What Title Select does in RomM.** With RomM turned on, Title Select:
-**What Title Select does in RomM.** With RomM turned on, Title Select:
+**What Stage Select does in RomM.** With RomM turned on, Stage Select:
+**What Stage Select does in RomM.** With RomM turned on, Stage Select:
 
 - asks RomM for a quick scan of a platform when a build, a library cleanup or a restore of a kept file changes its
   library folder, and shows how the scan went on the job; see "The scan after a build";
@@ -2631,9 +2631,9 @@ It changes nothing else in RomM. It never edits a game's name, metadata or match
 for RomM. A RomM that is down or refuses a request leaves a warning on the job, never a failure.
 
 go workspace: `crates/api` (the API's and the report's types), `crates/engine` (the Audit), `crates/store`
-(the store and configuration), `crates/server` (the Service), `crates/cli` (the `title-select` binary) and
+(the store and configuration), `crates/server` (the Service), `crates/cli` (the `stage-select` binary) and
 `crates/ui` (the workbench). The workbench's filtering, sorting, derived states and Job event handling are plain Rust,
-tested on the host with `cargo test`; `cargo clippy --package title-select-ui --target wasm32-unknown-unknown` checks
+tested on the host with `cargo test`; `cargo clippy --package stage-select-ui --target wasm32-unknown-unknown` checks
 it as the browser runs it. `crates/selection` is the Selection engine, a port of
 Retool, and derives the Selection from its trace. `crates/test-fixtures` writes the ZIPs, TorrentZips, DATs and
 ListXMLs the tests read; the crates take it only as a dev-dependency, and it never ships.
@@ -2646,9 +2646,9 @@ Renovate bumps. It builds MAME's tools with the emulator off (`SUBTARGET=tiny TO
 [tools/chdman/sdl-stub.c](tools/chdman/sdl-stub.c) stands in for SDL's library and the C++ runtime is linked in
 statically, leaving a binary that needs only the C library. The `chdman` stage holds that binary alone, so CI's test
 job exports it (`docker buildx build --target chdman --output type=local,dest=<dir> .`) and runs the CHD tests with
-`TITLE_SELECT_CHDMAN` naming it. Those tests skip when chdman can't be found, except under CI, where they fail. To run
+`STAGE_SELECT_CHDMAN` naming it. Those tests skip when chdman can't be found, except under CI, where they fail. To run
 them elsewhere, such as on macOS, build chdman from the same tag following MAME's build instructions, with
-`SUBTARGET=tiny TOOLS=1 EMULATOR=0`, or install one, and set `TITLE_SELECT_CHDMAN` to it.
+`SUBTARGET=tiny TOOLS=1 EMULATOR=0`, or install one, and set `STAGE_SELECT_CHDMAN` to it.
 
 ### Selection
 
@@ -2657,7 +2657,7 @@ which it replaced). It reads Retool's clone lists, metadata, MIAs and RetroAchie
 `third_party/clone-lists/pins.toml` pins, with the sha256 of that commit's archive.
 
 `tools/clone-lists/fetch [dir]` downloads that archive, checks its sha256 and unpacks it into `.clone-lists/`
-(gitignored), which the Selection tests use through `TITLE_SELECT_CLONE_LISTS` (cargo sets it); the image build runs
+(gitignored), which the Selection tests use through `STAGE_SELECT_CLONE_LISTS` (cargo sets it); the image build runs
 it too. It needs curl, tar and sha256sum (or shasum), and does nothing when the folder already holds the pinned commit. It
 refuses an archive holding anything but regular files and folders, naming a path outside its own folder, or
 naming anything that starts with `-`, and unpacks only what selection reads; `crates/selection/tests/it/fetch.rs` checks it against such archives.
@@ -2671,23 +2671,23 @@ The tests fail, rather than skip, without it.
   and `tools/curated-list/fetch [dir]` unpacks its `ROMSET` and `LICENSE` into `.curated-list/` (gitignored), with the
   same checks; the image has it at `/opt/curated-list`. Renovate proposes upstream's newest `master` commit, and the
   `clone-list pin` workflow writes the sha256 of either archive. The arcade tests read it through
-  `TITLE_SELECT_CURATED_LIST` (cargo sets it), and fail without it.
+  `STAGE_SELECT_CURATED_LIST` (cargo sets it), and fail without it.
 - **Retool's fixtures:** `third_party/retool/` keeps Retool's BSD-3-Clause licence and, under `fixtures/`, the test
   inputs of Retool's own suite at the commit the port followed: its fixture DATs, test configs, clone lists, metadata,
   MIAs, RetroAchievements data and internal config. See its [README](third_party/retool/README.md).
 - **Fixture goldens:** `crates/selection/tests/fixtures.rs` selects from every one of Retool's fixture DATs with
   sixteen profiles, and compares each with `crates/selection/tests/goldens/fixtures/<DAT>.txt`: every group's
-  winners, alternatives and exclusions with their rules, and the warnings. The goldens were made while the patched
+  kept releases, clones and releases left out with their rules, and the warnings. The goldens were made while the patched
   Retool was still the oracle and agreed with the port on every case, so they stand for it now. A debug build checks
   the feature DATs and two system DATs; CI also runs every DAT with
-  `cargo test --release -p title-select-selection --test fixtures`, which takes about a minute.
+  `cargo test --release -p stage-select-selection --test fixtures`, which takes about a minute.
 - **Other goldens:** `crates/selection/tests/goldens/` also holds each synthetic conformance case's Selection and
   trace (`conformance.rs`), and the Selections of 48 seeded synthetic DATs (`synthetic.txt`, `synthetic.rs`). The
   unit tests compare pieces of the port with Python's answers, frozen under `crates/selection/tests/oracle/`.
 - **Regenerating:** after a deliberate change to the engine, the derivation or the clone-list pin, regenerate with
-  `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test --release -p title-select-selection` and review the diff: every
+  `STAGE_SELECT_REGENERATE_GOLDENS=1 cargo test --release -p stage-select-selection` and review the diff: every
   changed line is a changed selection.
-- **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test it --
+- **A real DAT:** `STAGE_SELECT_ATARI_DAT=<DAT file> cargo test -p stage-select-selection --test it --
   selection::a_real_dat --ignored --nocapture` selects from it, checks every group has a rule and prints the counts.
   Never commit the DAT.
 

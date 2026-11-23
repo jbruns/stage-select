@@ -3,18 +3,18 @@
 //! is assessed CHD by CHD, each verified before a repair files it into its family's folder; and a repair never sets a
 //! Disk aside, nor writes one into a ZIP.
 //!
-//! The tests that run chdman find it as the store does: `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
+//! The tests that run chdman find it as the store does: `STAGE_SELECT_CHDMAN`, else `chdman` on the `PATH`. Where it is
 //! missing they are skipped, except in CI, where they fail.
 
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
-use title_select_api::ingest::{ItemState, Need, Proposal};
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
-use title_select_api::roots::{RootKind, RootSpec};
-use title_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
-use title_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState, Reuse};
-use title_select_store::{Store, Workers};
+use stage_select_api::ingest::{ItemState, Need, Proposal};
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
+use stage_select_api::roots::{RootKind, RootSpec};
+use stage_select_api::storage::{SetLayout, StoragePolicy, SystemStorage};
+use stage_select_api::{AuditEvidence, EvidenceLevel, Finding, GameStatus, JobState, Reuse};
+use stage_select_store::{Store, Workers};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -23,13 +23,13 @@ const WORKERS: Workers = Workers {
 
 /// chdman, as the store finds it; `None`, outside CI, where it isn't there.
 fn chdman() -> Option<PathBuf> {
-    match title_select_engine::chd::locate(None) {
+    match stage_select_engine::chd::locate(None) {
         Ok(path) if path.is_file() => Some(path),
         found if std::env::var_os("CI").is_some() => {
             panic!("CI runs these tests with chdman: {found:?}")
         }
         _ => {
-            eprintln!("skipped: chdman isn't here; set TITLE_SELECT_CHDMAN to run this test");
+            eprintln!("skipped: chdman isn't here; set STAGE_SELECT_CHDMAN to run this test");
             None
         }
     }
@@ -52,7 +52,7 @@ fn make_chd(chdman: &Path, path: &Path, seed: u64, extra: &[&std::ffi::OsStr]) -
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    title_select_engine::chd::header(&std::fs::File::open(path).unwrap())
+    stage_select_engine::chd::header(&std::fs::File::open(path).unwrap())
         .unwrap()
         .sha1
 }
@@ -82,11 +82,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -119,7 +119,7 @@ impl Env {
         self.tmp.path().join("in")
     }
 
-    fn audit(&self, evidence: AuditEvidence) -> title_select_api::Report {
+    fn audit(&self, evidence: AuditEvidence) -> stage_select_api::Report {
         self.store
             .audit_source_set("mame", None, evidence)
             .unwrap()
@@ -136,7 +136,7 @@ impl Env {
         }
     }
 
-    fn item(&self, name: &str) -> title_select_api::ingest::IngestItem {
+    fn item(&self, name: &str) -> stage_select_api::ingest::IngestItem {
         let items = self.store.ingest_items("in").unwrap();
         items
             .iter()
@@ -152,7 +152,7 @@ impl Env {
     }
 
     /// Approves `plan`, runs its Repair Job, then the Audit it owes.
-    fn approve(&self, plan: &RepairPlan) -> title_select_api::Report {
+    fn approve(&self, plan: &RepairPlan) -> stage_select_api::Report {
         let approved = self
             .store
             .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
@@ -187,7 +187,7 @@ fn files(dir: &Path) -> Vec<String> {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|p| p != ".title-select/marker")
+        .filter(|p| p != ".stage-select/marker")
         .collect();
     found.sort();
     found
@@ -197,11 +197,11 @@ fn disk(name: &str, sha1: &str) -> String {
     format!(r#"    <disk name="{name}" sha1="{sha1}" region="ide:0:hdd" index="0" writable="no"/>"#)
 }
 
-fn status(report: &title_select_api::Report, game: &str) -> GameStatus {
+fn status(report: &stage_select_api::Report, game: &str) -> GameStatus {
     report.games.iter().find(|g| g.name == game).unwrap().status
 }
 
-fn entry<'r>(report: &'r title_select_api::Report, path: &str) -> &'r title_select_api::Entry {
+fn entry<'r>(report: &'r stage_select_api::Report, path: &str) -> &'r stage_select_api::Entry {
     report
         .entries
         .iter()
@@ -475,7 +475,7 @@ fn a_repair_leaves_a_complete_games_disk_where_it_is_and_never_writes_it_into_it
     assert_eq!(
         files(&env.set()),
         [
-            ".title-select/retained/1/prog.u1.kept",
+            ".stage-select/retained/1/prog.u1.kept",
             "blaster.zip",
             "blaster/blaster.chd"
         ]
@@ -604,7 +604,7 @@ fn a_disk_filed_from_an_ingest_folder_replaces_an_older_chd_which_is_kept_aside(
     assert_eq!(status(&after, "blaster"), GameStatus::Complete);
     let kept: Vec<String> = files(&env.set())
         .into_iter()
-        .filter(|f| f.starts_with(".title-select/retained/"))
+        .filter(|f| f.starts_with(".stage-select/retained/"))
         .collect();
     assert_eq!(kept.len(), 1, "{:?}", files(&env.set()));
     assert!(kept[0].ends_with("blaster.chd.kept"), "{kept:?}");

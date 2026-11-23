@@ -6,11 +6,11 @@
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
-use title_select_api::storage::{
+use stage_select_api::storage::{
     DiscLayout, ScopePolicy, SetLayout, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
     is_disc_system, is_mame_system,
 };
-use title_select_api::{Dat, DatFormat};
+use stage_select_api::{Dat, DatFormat};
 
 use crate::api;
 use crate::app::{Loading, Problem};
@@ -21,7 +21,7 @@ const SCOPES: [(StorageScope, &str); 2] = [
     (StorageScope::PlayLibraries, "Play libraries"),
 ];
 
-const DELETE_WARNING: &str = "With this on, a conversion deletes each original as soon as its converted file is verified, instead of keeping it in kept files. You can't get a deleted original back from Title Select. An original that changed, or whose converted file doesn't verify, is always kept.";
+const DELETE_WARNING: &str = "With this on, a conversion deletes each original as soon as its converted file is verified, instead of keeping it in kept files. You can't get a deleted original back from Stage Select. An original that changed, or whose converted file doesn't verify, is always kept.";
 
 const CHD_NOTE: &str = "As CHD, a build makes each disc's CHD with chdman, extracts it once and checks every track against the DAT before it puts it in place. A disc whose CHD doesn't give back the DAT's files is never put in place. A disc that isn't one .cue with its .bin tracks, or one .iso, stays TorrentZip, with every other disc of its game.";
 
@@ -31,7 +31,7 @@ const SBI_NOTE: &str = "With this on, a build puts each disc's SBI file, from th
 
 const SINGLE_COPY_NOTE: &str = "With this on, a build places each selected game in the library folder that holds your source set's placed games instead of copying it there: each game is kept once, in your library folder, and taken out of your source set. Where your source set and that folder share a filesystem, a game is renamed into place; otherwise it is copied, read back and its original deleted. Its file in your library folder is then the game's only copy: deleting it by hand loses the game, and your own backups are the only other copy. Turning this off later makes the next plan return every placed game to your source set. For MAME's ListXML, it places a game's ZIP only from a non-merged source set: a split or merged ZIP holds more than one game's ROMs, so under those layouts every game is copied. A game whose ZIP doesn't yet hold every ROM it needs, or whose ZIP another game is written from, is copied too. A game's disks are always copied, never placed.";
 
-const PLACE_CONVERTED_NOTE: &str = "With this and single copy on, a game your play library stores as CHD, a format your source set doesn't hold, is placed too, instead of copied. The CHD is then the game's only copy, so a full audit extracts it to check each track, which takes longer than reading a file. Title Select keeps the disc's .cue sheet, exactly as the DAT lists it, and writes it back when the game returns to your source set.";
+const PLACE_CONVERTED_NOTE: &str = "With this and single copy on, a game your play library stores as CHD, a format your source set doesn't hold, is placed too, instead of copied. The CHD is then the game's only copy, so a full audit extracts it to check each track, which takes longer than reading a file. Stage Select keeps the disc's .cue sheet, exactly as the DAT lists it, and writes it back when the game returns to your source set.";
 
 const DAMAGED_PLACED_NOTE: &str = "Because the CHD is your only copy, a damaged one can't be fixed where it is: a repair sets it aside in your source set's kept files, where you can delete it, and the game is missing. With a good copy in an ingest folder, the next repair after the audit that repair queues rebuilds it in your source set. A copy of a healthy disc found in an ingest folder while its CHD was placed counts as already held, so scan that folder again after the audit. A game of several discs is set aside whole, every disc's CHD with it, never one disc alone.";
 

@@ -1,7 +1,7 @@
 use crate::common::*;
 use crate::sevenz_fixtures;
 use sha2::Digest;
-use title_select_engine::{AvailableElsewhere, EvidenceLevel, Finding, GameStatus, audit};
+use stage_select_engine::{AvailableElsewhere, EvidenceLevel, Finding, GameStatus, audit};
 
 #[test]
 fn loose_file_whose_payload_matches_its_named_rom_is_matched() {
@@ -16,7 +16,7 @@ fn loose_file_whose_payload_matches_its_named_rom_is_matched() {
     assert_eq!(report.games[0].status, GameStatus::Complete);
 }
 
-fn finding_of(report: &title_select_engine::Report, path: &str) -> Finding {
+fn finding_of(report: &stage_select_engine::Report, path: &str) -> Finding {
     report
         .entries
         .iter()
@@ -25,7 +25,7 @@ fn finding_of(report: &title_select_engine::Report, path: &str) -> Finding {
         .finding
 }
 
-fn status_of(report: &title_select_engine::Report, game: &str) -> GameStatus {
+fn status_of(report: &stage_select_engine::Report, game: &str) -> GameStatus {
     report.games.iter().find(|g| g.name == game).unwrap().status
 }
 
@@ -383,34 +383,34 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
     }
     let games: Vec<(&str, Vec<RomSpec>)> = games;
     let dat = fx.dat(&games);
-    let run = |workers: title_select_engine::Workers| {
+    let run = |workers: stage_select_engine::Workers| {
         let seen = std::sync::Mutex::new(Vec::new());
-        let progress = |p: title_select_engine::Progress| seen.lock().unwrap().push(p);
-        let options = title_select_engine::Options {
+        let progress = |p: stage_select_engine::Progress| seen.lock().unwrap().push(p);
+        let options = stage_select_engine::Options {
             file: "test.dat".into(),
             confine: None,
             workers,
             pools: None,
             progress: Some(&progress),
-            evidence: title_select_engine::AuditEvidence::Full,
+            evidence: stage_select_engine::AuditEvidence::Full,
             reads: None,
             tally: Default::default(),
             placed: &[],
             disks: None,
         };
-        let report = title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
+        let report = stage_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
         (report, seen.into_inner().unwrap())
     };
 
-    let (one, one_progress) = run(title_select_engine::ONE_WORKER_EACH);
-    let (many, many_progress) = run(title_select_engine::Workers {
+    let (one, one_progress) = run(stage_select_engine::ONE_WORKER_EACH);
+    let (many, many_progress) = run(stage_select_engine::Workers {
         readers: 4,
         hashers: 3,
     });
     assert_eq!(many.summary.findings.get(&Finding::Matched), Some(&12));
 
     // Each payload's read time is its own.
-    let unread = |report: title_select_engine::Report| {
+    let unread = |report: stage_select_engine::Report| {
         let mut entries = report.entries;
         for e in &mut entries {
             e.evidence.as_mut().unwrap().read_at = None;
@@ -430,15 +430,15 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
 }
 
 #[test]
-fn title_selects_own_entries_in_a_source_set_are_not_audited() {
+fn stage_selects_own_entries_in_a_source_set_are_not_audited() {
     let f = Fixture::new();
     let dat = f.dat(&[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])]);
     write_file(&f.set_path("Pong (USA).a26"), b"pong");
-    write_file(&f.set_path(".title-select/marker"), b"{}");
-    write_file(&f.set_path(".title-select/retained/1/old.a26"), b"old");
-    write_file(&f.set_path(".title-select/retained/.deleting/7"), b"gone");
-    write_file(&f.set_path(".title-select/staging/0.zip"), b"partial");
-    write_file(&f.set_path(".title-select/new-1-2-3"), b"partial");
+    write_file(&f.set_path(".stage-select/marker"), b"{}");
+    write_file(&f.set_path(".stage-select/retained/1/old.a26"), b"old");
+    write_file(&f.set_path(".stage-select/retained/.deleting/7"), b"gone");
+    write_file(&f.set_path(".stage-select/staging/0.zip"), b"partial");
+    write_file(&f.set_path(".stage-select/new-1-2-3"), b"partial");
     write_file(&f.set_path(".hidden.a26"), b"pong");
     write_file(&f.set_path(".deleting/9"), b"x");
 
@@ -511,9 +511,9 @@ fn shared_track_dat(f: &Fixture) -> std::path::PathBuf {
 }
 
 fn game_of<'r>(
-    report: &'r title_select_engine::Report,
+    report: &'r stage_select_engine::Report,
     name: &str,
-) -> &'r title_select_engine::Game {
+) -> &'r stage_select_engine::Game {
     report.games.iter().find(|g| g.name == name).unwrap()
 }
 
@@ -764,36 +764,36 @@ fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total
         ("Loose", vec![rom("Loose.bin", &loose)]),
         ("Zipped", vec![rom("Zipped.bin", &member)]),
     ]);
-    let meter = title_select_engine::meter::Meter::default();
+    let meter = stage_select_engine::meter::Meter::default();
     let job = meter.start(
         7,
-        title_select_engine::Workers {
+        stage_select_engine::Workers {
             readers: 2,
             hashers: 2,
         },
     );
     // Another Job reading elsewhere at the same time.
     meter
-        .start(8, title_select_engine::ONE_WORKER_EACH)
+        .start(8, stage_select_engine::ONE_WORKER_EACH)
         .tally(None)
         .read(5);
-    let options = title_select_engine::Options {
+    let options = stage_select_engine::Options {
         file: "test.dat".into(),
         confine: None,
-        workers: title_select_engine::Workers {
+        workers: stage_select_engine::Workers {
             readers: 2,
             hashers: 2,
         },
         pools: None,
         progress: None,
-        evidence: title_select_engine::AuditEvidence::Full,
+        evidence: stage_select_engine::AuditEvidence::Full,
         reads: None,
         tally: job.tally(Some("sets")),
         placed: &[],
         disks: None,
     };
 
-    title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
+    stage_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
 
     // A loose file's bytes, and a ZIP member's as stored: not its directory or headers, nor what it decompresses to.
     let stored = zip::ZipArchive::new(std::fs::File::open(fx.set_path("Zipped.zip")).unwrap())
@@ -913,9 +913,9 @@ fn dump_status_dat(f: &Fixture, listxml: bool) -> std::path::PathBuf {
 }
 
 fn entry<'r>(
-    report: &'r title_select_engine::Report,
+    report: &'r stage_select_engine::Report,
     member: &str,
-) -> &'r title_select_engine::Entry {
+) -> &'r stage_select_engine::Entry {
     report
         .entries
         .iter()

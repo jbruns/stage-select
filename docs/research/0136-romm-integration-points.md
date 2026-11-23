@@ -9,21 +9,21 @@ is `https://github.com/rommapp/docs/blob/main/docs/`, cited at main because that
 
 ## Recommendation
 
-Coordinate through RomM's API, never through its library. Title Select requests platform-scoped scans after a Build
+Coordinate through RomM's API, never through its library. Stage Select requests platform-scoped scans after a Build
 changes a Library Folder, maintains one "Additions" collection, and reads RomM back to show disagreements. It writes no
 identity into RomM. RomM keeps metadata and artwork, deployed with Hasheous off and ScreenScraper and libretro on.
-Two Title Select layouts must change first, because RomM misreads them (§4). Decisions: ADR 0019, ADR 0020.
+Two Stage Select layouts must change first, because RomM misreads them (§4). Decisions: ADR 0019, ADR 0020.
 
 | Point | Direction | Decision |
 | --- | --- | --- |
-| Scan request after a Build or cleanup | Title Select → RomM | Yes (#141) |
-| Additions collection | Title Select → RomM | Yes (#142) |
-| Per-Profile collections | Title Select → RomM | No: they repeat the library |
-| Provider ids or "verified" from our Audits | Title Select → RomM | No: we hold no provider ids; impersonating Hasheous is too brittle |
-| Reconciliation of RomM's matches with the Build | RomM → Title Select | Yes (#143) |
-| Artwork and metadata in the workbench | RomM → Title Select | Deferred |
-| ES-DE `gamelist.xml` and media in Library Folders | Title Select → library | Deferred |
-| Pulling files from RomM into an Ingest Folder | RomM → Title Select | No: circular, and Title Select never acquires |
+| Scan request after a Build or cleanup | Stage Select → RomM | Yes (#141) |
+| Additions collection | Stage Select → RomM | Yes (#142) |
+| Per-Profile collections | Stage Select → RomM | No: they repeat the library |
+| Provider ids or "verified" from our Audits | Stage Select → RomM | No: we hold no provider ids; impersonating Hasheous is too brittle |
+| Reconciliation of RomM's matches with the Build | RomM → Stage Select | Yes (#143) |
+| Artwork and metadata in the workbench | RomM → Stage Select | Deferred |
+| ES-DE `gamelist.xml` and media in Library Folders | Stage Select → library | Deferred |
+| Pulling files from RomM into an Ingest Folder | RomM → Stage Select | No: circular, and Stage Select never acquires |
 
 ## 1. Scans
 
@@ -81,7 +81,7 @@ Two Title Select layouts must change first, because RomM misreads them (§4). De
   can't express "chosen by a Selection Profile"
   ([R endpoints/collections.py](https://github.com/rommapp/romm/blob/5.4.1/backend/endpoints/collections.py#L114)).
 - **ROM edits.** `PUT /api/roms/{id}` (`roms.write`) can set provider ids, names and covers
-  ([L429-500](https://github.com/rommapp/romm/blob/5.4.1/backend/endpoints/roms/__init__.py#L429-L500)). Title Select
+  ([L429-500](https://github.com/rommapp/romm/blob/5.4.1/backend/endpoints/roms/__init__.py#L429-L500)). Stage Select
   doesn't use it: it holds no provider ids, and a renamed `fs_name` would write into the library.
 - **Identity.**
   - RomM's `verified` comes only from Hasheous or RetroAchievements
@@ -103,10 +103,10 @@ Two Title Select layouts must change first, because RomM misreads them (§4). De
   `exclude.roms.single_file.names`; the defaults are an explicit list, not a dotfile rule
   ([R utils/filesystem.py L28-38](https://github.com/rommapp/romm/blob/5.4.1/backend/utils/filesystem.py#L28-L38),
   [R config/config_manager.py L267-286](https://github.com/rommapp/romm/blob/5.4.1/backend/config/config_manager.py#L267-L286)).
-  So the `.title-select` marker file is indexed as a ROM.
+  So the `.stage-select` marker file is indexed as a ROM.
 - **Dot-folders are skipped.** Dot-folders inside a platform folder are skipped
   ([R handler/filesystem/roms_handler.py L530-544](https://github.com/rommapp/romm/blob/5.4.1/backend/handler/filesystem/roms_handler.py#L530-L544)).
-  Fix: all folder state moves under `.title-select/` (#137).
+  Fix: all folder state moves under `.stage-select/` (#137).
 - **`.multidisc/` discs are never indexed.** Discovery skips the dot-folder, so the `.m3u` becomes a standalone ROM
   whose own files, and so its download, are the playlist alone. RomM's playlist resolver does follow paths outside the
   game folder ([R utils/m3u.py L49-83](https://github.com/rommapp/romm/blob/5.4.1/backend/utils/m3u.py#L49-L83)), but
@@ -121,7 +121,7 @@ Two Title Select layouts must change first, because RomM misreads them (§4). De
 
 RomM's igir guide is the closest organizer pattern. Its DAT-sorted output is mounted `:ro` and scanned, with no API
 coordination ([D ecosystem/igir.md L174-185](https://github.com/rommapp/docs/blob/main/docs/ecosystem/igir.md#L174-L185)).
-Title Select adds scan requests and reconciliation on top of the same boundary.
+Stage Select adds scan requests and reconciliation on top of the same boundary.
 
 ## Gaps
 

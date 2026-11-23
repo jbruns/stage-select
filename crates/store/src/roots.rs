@@ -1,4 +1,4 @@
-//! Roots: the folders Title Select may read, registered, edited and unregistered by the Operator in the store
+//! Roots: the folders Stage Select may read, registered, edited and unregistered by the Operator in the store
 //! (ADR 0029), and held in memory as a snapshot that each change replaces, so that every reader sees a change at once
 //! without a restart and none waits on the database to find a Root.
 //!
@@ -12,16 +12,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use title_select_api::JobState;
-use title_select_api::paths::relative_path;
-use title_select_api::repair::{RepairPlanContent, RepairStep};
-use title_select_api::roots::{
+use stage_select_api::JobState;
+use stage_select_api::paths::relative_path;
+use stage_select_api::repair::{RepairPlanContent, RepairStep};
+use stage_select_api::roots::{
     FolderSuggestion, FolderSuggestions, RootChange, RootEdited, RootSpec, VoidedPlan,
     VoidedPlanKind,
 };
-use title_select_api::settings::{MAX_MIB_PER_S, MAX_WORKERS, RootOverrides};
+use stage_select_api::settings::{MAX_MIB_PER_S, MAX_WORKERS, RootOverrides};
 
-pub use title_select_api::roots::RootKind;
+pub use stage_select_api::roots::RootKind;
 
 use crate::{Error, Result, Store, now};
 
@@ -38,7 +38,7 @@ pub struct Root {
     pub name: String,
     pub path: PathBuf,
     pub kind: RootKind,
-    /// Whether Title Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set in it.
+    /// Whether Stage Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set in it.
     /// A Source Set is registered only in a read-only Root.
     pub writable: bool,
     /// For a read-only Root: the paths, relative to it, of the Source Sets in it that a repair may write to.
@@ -73,7 +73,7 @@ impl Root {
         self.kind == RootKind::Ingest
     }
 
-    /// Whether Title Select may write to the folder `rel` of this Root: the Root is writable, or lists `rel` among
+    /// Whether Stage Select may write to the folder `rel` of this Root: the Root is writable, or lists `rel` among
     /// its `writable_paths`.
     pub fn may_write(&self, rel: &str) -> bool {
         self.writable || relative_path(rel).is_ok_and(|rel| self.writable_paths.contains(&rel))
@@ -89,8 +89,8 @@ impl Root {
     }
 
     /// As the API returns it.
-    pub fn view(&self) -> title_select_api::Root {
-        title_select_api::Root {
+    pub fn view(&self) -> stage_select_api::Root {
+        stage_select_api::Root {
             name: self.name.clone(),
             path: self.path.display().to_string(),
             kind: self.kind,
@@ -104,7 +104,7 @@ impl Root {
         }
     }
 
-    /// What it would let Title Select write to, as `target` needs.
+    /// What it would let Stage Select write to, as `target` needs.
     fn allows(&self, target: &Target) -> bool {
         match target {
             Target::Whole => self.writable,
@@ -288,7 +288,7 @@ fn checked(spec: &RootSpec) -> Result<Checked> {
     })
 }
 
-/// Checks that `root`'s folder is there, and that Title Select can write to it if it is to.
+/// Checks that `root`'s folder is there, and that Stage Select can write to it if it is to.
 fn check_folder(root: &Checked) -> Result<()> {
     let name = &root.name;
     let path = root.path.display();
@@ -306,7 +306,7 @@ fn check_folder(root: &Checked) -> Result<()> {
         && let Err(e) = rustix::fs::access(&root.path, rustix::fs::Access::WRITE_OK)
     {
         return refused(format!(
-            "Root {name} is to be writable, but Title Select can't write to {path}: {e}."
+            "Root {name} is to be writable, but Stage Select can't write to {path}: {e}."
         ));
     }
     Ok(())
@@ -394,7 +394,7 @@ fn registrations_in(c: &Connection, name: &str) -> Result<Vec<String>> {
     Ok(holds)
 }
 
-/// The Kept Files in Root `name` that Title Select still manages though their registration is Unregistered: its
+/// The Kept Files in Root `name` that Stage Select still manages though their registration is Unregistered: its
 /// marker stays so that you can delete them, which needs the Root.
 fn managed_kept_in(c: &Connection, name: &str) -> Result<Vec<String>> {
     let mut holds = Vec::new();
@@ -1063,7 +1063,7 @@ impl Store {
     }
 
     /// Every registered Root, by name, as the API shows it.
-    pub fn roots_view(&self) -> Vec<title_select_api::Root> {
+    pub fn roots_view(&self) -> Vec<stage_select_api::Root> {
         self.roots().iter().map(Root::view).collect()
     }
 
@@ -1166,7 +1166,7 @@ impl Store {
                 )?;
                 if !sets.is_empty() {
                     return refused(format!(
-                        "Root {name} can't be made writable while it holds source sets ({}): Title Select writes to \
+                        "Root {name} can't be made writable while it holds source sets ({}): Stage Select writes to \
                          a source set's folder only where you list it in writable paths.",
                         sets.join(", ")
                     ));
@@ -1186,7 +1186,7 @@ impl Store {
                     return conflict(name, change, &running);
                 }
                 let writers: Vec<&Dep> = deps.iter().filter(|d| d.writes.is_some()).collect();
-                // Compared by what each lets Title Select write, not by its fields: listing paths on a Root that
+                // Compared by what each lets Stage Select write, not by its fields: listing paths on a Root that
                 // was wholly writable narrows it. A change can widen and narrow at once (swapping one writable
                 // path for another). While any writer depends on the Root, a change that widens at all is
                 // refused, as a path change is; only a change that solely narrows voids the writers it shuts out.

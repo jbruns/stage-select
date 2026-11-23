@@ -3,11 +3,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use title_select_api::GameStatus;
-use title_select_api::arcade::same_name;
-use title_select_api::selection::{
-    ChoiceStatus, Exclusion, ReleaseRow, Role, Rule, Selection, SelectionGroup, SelectionOptions,
-    SelectionProfile, SystemSettings,
+use stage_select_api::GameStatus;
+use stage_select_api::arcade::same_name;
+use stage_select_api::selection::{
+    ChoiceStatus, LeftOutGame, Outcome, ReleaseRow, Rule, Selection, SelectionGroup,
+    SelectionOptions, SelectionProfile, SystemSettings,
 };
 
 use crate::arcade_model::update_arcade;
@@ -15,12 +15,12 @@ use crate::model::{Sort, status_text};
 use crate::parts::status::GroupStatus;
 use crate::placement_model::FlagsNow;
 
-pub fn role_label(role: Role) -> &'static str {
-    match role {
-        Role::Winner => "Selected",
-        Role::Alternative => "Alternative",
-        Role::Exclusion => "Excluded",
-        Role::Dependency => "Dependency",
+pub fn outcome_label(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Kept => "Selected",
+        Outcome::Clone => "Alternative",
+        Outcome::LeftOut => "Excluded",
+        Outcome::Dependency => "Dependency",
     }
 }
 
@@ -39,7 +39,7 @@ pub fn rule_text(rule: &Rule) -> String {
 
 /// Why a release was excluded: the engine's reason and the rule that applied it, or, for a release outside its source
 /// set's coverage, that once.
-pub fn exclusion_text(exclusion: &Exclusion) -> String {
+pub fn exclusion_text(exclusion: &LeftOutGame) -> String {
     if exclusion.rule.is_coverage() {
         rule_text(&exclusion.rule)
     } else {
@@ -112,7 +112,7 @@ pub fn flag_labels(flags: u8) -> Vec<&'static str> {
 pub enum ReleaseColumn {
     Group,
     Release,
-    Role,
+    Outcome,
     Availability,
 }
 
@@ -186,7 +186,7 @@ impl FlagFilter {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReleaseFilter {
     pub text: String,
-    pub role: Option<Role>,
+    pub outcome: Option<Outcome>,
     pub availability: Option<AvailabilityFilter>,
     pub flag: Option<FlagFilter>,
 }
@@ -298,7 +298,7 @@ impl SelectionIndex {
             let ord = match sort.column {
                 ReleaseColumn::Group => self.group[a].cmp(&self.group[b]),
                 ReleaseColumn::Release => self.title[a].cmp(&self.title[b]),
-                ReleaseColumn::Role => self.rows[a].role.cmp(&self.rows[b].role),
+                ReleaseColumn::Outcome => self.rows[a].outcome.cmp(&self.rows[b].outcome),
                 ReleaseColumn::Availability => availability_rank(self.availability[a])
                     .cmp(&availability_rank(self.availability[b])),
             }
@@ -316,7 +316,7 @@ impl SelectionIndex {
             .copied()
             .filter(|&i| {
                 let i = i as usize;
-                filter.role.is_none_or(|r| self.rows[i].role == r)
+                filter.outcome.is_none_or(|r| self.rows[i].outcome == r)
                     && filter.availability.is_none_or(|a| match a {
                         AvailabilityFilter::Is(s) => self.availability[i] == Some(s),
                         AvailabilityFilter::Unknown => self.availability[i].is_none(),
@@ -356,7 +356,7 @@ pub struct GroupAvailability {
 
 /// Whether a build flagged any of the group's kept releases as needing review, as far as `flags` knows.
 pub fn kept_need_review(group: &SelectionGroup, flags: &FlagsNow) -> bool {
-    flags.any(group.winners.iter().map(|w| w.title.as_str()))
+    flags.any(group.kept.iter().map(|w| w.title.as_str()))
 }
 
 impl GroupAvailability {
@@ -372,7 +372,7 @@ impl GroupAvailability {
             GameStatus::Complete | GameStatus::NothingToCheck => 2,
         };
         let statuses: Vec<GameStatus> = group
-            .winners
+            .kept
             .iter()
             .filter_map(|w| games.get(&w.title).copied())
             .collect();
@@ -380,9 +380,9 @@ impl GroupAvailability {
         let at_worst = statuses.iter().filter(|s| Some(rank(**s)) == worst_rank);
         GroupAvailability {
             status: at_worst.clone().copied().min(),
-            claimed: group.winners.iter().any(|w| claimed.contains(&w.title)),
+            claimed: group.kept.iter().any(|w| claimed.contains(&w.title)),
             worst: at_worst.count(),
-            kept: group.winners.len(),
+            kept: group.kept.len(),
         }
     }
 
@@ -451,7 +451,7 @@ pub fn include_override(title: &str) -> String {
 
 /// Whether including an excluded release can win over what excluded it. The arcade selection never keeps a BIOS,
 /// a device or a machine that can't run, whatever its include list says.
-pub fn includable(exclusion: &Exclusion, arcade: bool) -> bool {
+pub fn includable(exclusion: &LeftOutGame, arcade: bool) -> bool {
     !(arcade && exclusion.rule.stage == "structural")
 }
 
@@ -492,9 +492,9 @@ pub fn include_and_check(
 /// Whether the group list shows a group: one that holds only Dependencies, such as a BIOS or a device, is summed up
 /// in the Dependency lines instead.
 pub fn listed(group: &SelectionGroup) -> bool {
-    !(group.winners.is_empty()
-        && group.alternatives.is_empty()
-        && group.exclusions.is_empty()
+    !(group.kept.is_empty()
+        && group.clones.is_empty()
+        && group.left_out.is_empty()
         && !group.dependencies.is_empty())
 }
 
@@ -507,7 +507,7 @@ pub fn group_status(group: &SelectionGroup) -> GroupStatus {
         }
         _ if group.unresolved => GroupStatus::Unresolved,
         Some(c) if c.status == ChoiceStatus::Applied => GroupStatus::YourChoice,
-        _ if group.winners.is_empty() => GroupStatus::Excluded,
+        _ if group.kept.is_empty() => GroupStatus::Excluded,
         _ => GroupStatus::Chosen,
     }
 }
@@ -717,7 +717,7 @@ pub fn add_item(list: &mut Vec<String>, typed: &str) -> bool {
 /// Why an unresolved group needs your decision: its discs, when the selection's picks or your choice leave a
 /// multi-disc game mixed or missing a disc, otherwise a tie-break.
 pub fn unresolved_explanation(group: &SelectionGroup) -> String {
-    match title_select_api::discs::unresolved_reason(group) {
+    match stage_select_api::discs::unresolved_reason(group) {
         Some(reason) => {
             let mut chars = reason.chars();
             let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
@@ -746,10 +746,10 @@ pub fn lines(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::arcade::ArcadeSettings;
-    use title_select_api::selection::{
-        Alternative, Category, CoverageDrift, Dependency, Exclusion, GroupChoice, Rule,
-        SelectionOptions, SelectionPins, SelectionSummary, Winner,
+    use stage_select_api::arcade::ArcadeSettings;
+    use stage_select_api::selection::{
+        Category, CloneGame, CoverageDrift, Dependency, GroupChoice, KeptGame, LeftOutGame, Rule,
+        SelectionOptions, SelectionPins, SelectionSummary,
     };
 
     fn rule() -> Rule {
@@ -760,27 +760,27 @@ mod tests {
         }
     }
 
-    fn group(name: &str, winner: &str, alternatives: &[&str], excluded: &[&str]) -> SelectionGroup {
+    fn group(name: &str, winner: &str, clones: &[&str], excluded: &[&str]) -> SelectionGroup {
         SelectionGroup {
             dependencies: Vec::new(),
             group: name.into(),
             unresolved: false,
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: winner.into(),
                 rule: rule(),
                 unresolved: false,
             }],
-            alternatives: alternatives
+            clones: clones
                 .iter()
-                .map(|t| Alternative {
+                .map(|t| CloneGame {
                     title: (*t).into(),
                     clone_of: winner.into(),
                     rule: rule(),
                 })
                 .collect(),
-            exclusions: excluded
+            left_out: excluded
                 .iter()
-                .map(|t| Exclusion {
+                .map(|t| LeftOutGame {
                     title: (*t).into(),
                     reason: "Demo".into(),
                     rule: rule(),
@@ -799,7 +799,7 @@ mod tests {
             &["Saga (Europe) (Disc 1)"],
             &[],
         );
-        saga.winners.push(Winner {
+        saga.kept.push(KeptGame {
             title: "Saga (Europe) (Disc 2)".into(),
             rule: rule(),
             unresolved: false,
@@ -814,7 +814,7 @@ mod tests {
         saga.choice = Some(GroupChoice {
             checked: partial,
             status: ChoiceStatus::Applied,
-            picks: saga.winners.iter().map(|w| w.title.clone()).collect(),
+            picks: saga.kept.iter().map(|w| w.title.clone()).collect(),
             engine_unresolved: true,
             problems: vec![],
         });
@@ -849,7 +849,7 @@ mod tests {
         let mut matching = group("pong", "Pong (USA)", &[], &[]);
         matching.choice = Some(applied(ChoiceStatus::MatchesDefault));
         let mut excluded = group("demo", "Demo (USA)", &[], &["Demo (USA)"]);
-        excluded.winners.clear();
+        excluded.kept.clear();
 
         let statuses: Vec<GroupStatus> = [review, unresolved, yours, matching, excluded]
             .iter()
@@ -1004,7 +1004,7 @@ mod tests {
         assert_eq!(
             only(ReleaseFilter {
                 text: "PONG".into(),
-                role: Some(Role::Alternative),
+                outcome: Some(Outcome::Clone),
                 ..Default::default()
             }),
             ["Pong (Europe)"]
@@ -1110,7 +1110,7 @@ mod tests {
         SelectionGroup {
             group: "racer".into(),
             unresolved: false,
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: "racera".into(),
                 rule: arcade_rule(
                     "election",
@@ -1118,8 +1118,8 @@ mod tests {
                 ),
                 unresolved: false,
             }],
-            alternatives: Vec::new(),
-            exclusions: vec![Exclusion {
+            clones: Vec::new(),
+            left_out: vec![LeftOutGame {
                 title: "racer".into(),
                 rule: arcade_rule("quality", "driver status preliminary, below imperfect"),
                 reason: "driver status".into(),
@@ -1155,8 +1155,8 @@ mod tests {
     fn a_group_holding_only_dependencies_is_left_out_of_the_group_list() {
         let mut z80 = racer();
         z80.group = "z80".into();
-        z80.winners.clear();
-        z80.exclusions.clear();
+        z80.kept.clear();
+        z80.left_out.clear();
         z80.dependencies = vec![Dependency {
             title: "z80".into(),
             needed_by: vec!["racera".into()],
@@ -1165,7 +1165,7 @@ mod tests {
         assert!(!listed(&z80));
         assert!(listed(&racer()));
         let mut excluded = racer();
-        excluded.winners.clear();
+        excluded.kept.clear();
         assert!(
             listed(&excluded),
             "a family whose every machine is excluded"
@@ -1181,10 +1181,10 @@ mod tests {
     #[test]
     fn only_an_exclusion_your_include_list_can_win_over_offers_include_and_check() {
         let group = racer();
-        let quality = &group.exclusions[0];
+        let quality = &group.left_out[0];
         assert!(includable(quality, true));
         assert!(includable(quality, false));
-        let bios = Exclusion {
+        let bios = LeftOutGame {
             title: "acmebios".into(),
             rule: arcade_rule("structural", "a BIOS, which isn't played on its own"),
             reason: "BIOS".into(),
@@ -1295,7 +1295,7 @@ mod tests {
     #[test]
     fn a_groups_availability_is_its_worst_kept_release() {
         let mut g = group("golf", "Golf (USA)", &[], &[]);
-        g.winners.push(Winner {
+        g.kept.push(KeptGame {
             title: "Golf (Europe)".into(),
             rule: rule(),
             unresolved: false,
@@ -1350,9 +1350,9 @@ mod tests {
 
     #[test]
     fn a_group_needs_review_when_a_build_flagged_a_release_it_keeps() {
-        let flag = |game: &str| title_select_api::ReviewFlag {
+        let flag = |game: &str| stage_select_api::ReviewFlag {
             game: game.into(),
-            path: format!(".title-select/placed/7/{game}.zip"),
+            path: format!(".stage-select/placed/7/{game}.zip"),
             reason: "its CRC32 differs from the DAT's".into(),
             build: 3,
             raised_at: "t".into(),
@@ -1380,17 +1380,17 @@ mod tests {
 
     #[test]
     fn a_release_outside_the_coverage_says_so_once() {
-        let outside = Exclusion {
+        let outside = LeftOutGame {
             title: "Pong (Japan)".into(),
             rule: Rule::coverage(),
-            reason: title_select_api::selection::COVERAGE_MESSAGE.into(),
+            reason: stage_select_api::selection::COVERAGE_MESSAGE.into(),
         };
         assert_eq!(
             exclusion_text(&outside),
             "Outside its source set's coverage"
         );
 
-        let demo = Exclusion {
+        let demo = LeftOutGame {
             title: "Pong (Demo)".into(),
             rule: rule(),
             reason: "Demos".into(),

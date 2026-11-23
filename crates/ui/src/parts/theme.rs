@@ -12,7 +12,7 @@ use leptos_use::storage::use_local_storage;
 use super::icon::{Glyph, IconButton};
 
 /// The local storage key holding your theme; `assets/boot.js` reads it too.
-pub const THEME_KEY: &str = "title-select.theme";
+pub const THEME_KEY: &str = "stage-select.theme";
 
 /// The theme you chose.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -1,8 +1,8 @@
 //! The Roots screen's form, as typed, turned into the Root `POST /roots` registers or `PUT /roots/{name}` replaces;
 //! and what the screen says of a Root and of the plans an edit voided.
 
-use title_select_api::Root;
-use title_select_api::roots::{RootEdited, RootKind, RootSpec, VoidedPlanKind};
+use stage_select_api::Root;
+use stage_select_api::roots::{RootEdited, RootKind, RootSpec, VoidedPlanKind};
 
 /// A Root's form as typed: `writable_paths` one to a line.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -98,7 +98,7 @@ pub fn kind_note(kind: RootKind) -> &'static str {
     }
 }
 
-/// Where Title Select may write in `root`, as its cell says it; its writable paths have a column of their own.
+/// Where Stage Select may write in `root`, as its cell says it; its writable paths have a column of their own.
 pub fn access(root: &Root) -> &'static str {
     if root.writable {
         "Writable"
@@ -127,7 +127,7 @@ pub fn voided_lines(edited: &RootEdited) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use title_select_api::roots::VoidedPlan;
+    use stage_select_api::roots::VoidedPlan;
 
     use super::*;
 

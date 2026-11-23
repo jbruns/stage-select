@@ -5,20 +5,20 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::report::{EvidenceLevel, Finding, HeaderRule};
-use crate::selection::Role;
+use crate::selection::Outcome;
 
-/// The one directory, inside every folder Title Select manages, that holds everything it keeps there for itself:
+/// The one directory, inside every folder Stage Select manages, that holds everything it keeps there for itself:
 /// the marker, a Build's staging folder, the retention area and any temporary name a write needs. Nothing else of
-/// Title Select's is ever left in the folder, and an Audit, a check or an Ingest assessment never reports it, or
+/// Stage Select's is ever left in the folder, and an Audit, a check or an Ingest assessment never reports it, or
 /// anything in it.
-pub const STATE: &str = ".title-select";
+pub const STATE: &str = ".stage-select";
 /// The marker file every Library Folder holds: its [`Marker`] as JSON.
-pub const MARKER: &str = ".title-select/marker";
+pub const MARKER: &str = ".stage-select/marker";
 /// The folder, inside a Library Folder, that a Build stages its files in, so that renames never cross mounts.
-pub const STAGING: &str = ".title-select/staging";
+pub const STAGING: &str = ".stage-select/staging";
 /// The directory, inside a Library Folder, where Kept Files are set aside under `<generation>/`, each renamed with
 /// [`kept_name`]. A check never reports it, or what is in it, as Drift.
-pub const RETENTION: &str = ".title-select/retained";
+pub const RETENTION: &str = ".stage-select/retained";
 /// The suffix every Kept File's name ends with: no tool that scans a folder for games matches it.
 pub const KEPT_SUFFIX: &str = ".kept";
 
@@ -44,7 +44,7 @@ pub struct Marker {
     pub generation: u64,
 }
 
-/// A folder in a writable Root that Title Select builds a Source Set's Selections into.
+/// A folder in a writable Root that Stage Select builds a Source Set's Selections into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LibraryFolder {
     pub id: i64,
@@ -212,7 +212,7 @@ pub enum ItemKind {
     Unchanged,
     /// No Entry in the Audit holds every ROM its Game needs; skipped.
     NoSource,
-    /// A file Title Select did not build is at the target, or one it built was changed there; it is never
+    /// A file Stage Select did not build is at the target, or one it built was changed there; it is never
     /// overwritten, so the item is skipped.
     Conflict,
     /// Cannot be built as planned, such as an invalid name or an unmanaged file at the target; skipped.
@@ -226,9 +226,9 @@ pub enum ItemKind {
     /// Never a plan item: a Build's item that removes a built file whose game is no longer selected, one of the
     /// plan's removals.
     Remove,
-    /// Never a plan item: a cleanup's item that keeps aside an entry Title Select did not build.
+    /// Never a plan item: a cleanup's item that keeps aside an entry Stage Select did not build.
     KeepAside,
-    /// Never a plan item: a cleanup's item that acknowledges an entry Title Select did not build, leaving it.
+    /// Never a plan item: a cleanup's item that acknowledges an entry Stage Select did not build, leaving it.
     Acknowledge,
     /// Never a plan item: a cleanup's item that puts a kept file back in the folder.
     Restore,
@@ -323,7 +323,7 @@ pub enum KeepReason {
     Replacement,
     /// A file in conflict at a selected game's target that you chose to keep aside and rebuild.
     Conflict,
-    /// An entry Title Select did not build that you chose to keep aside in a cleanup.
+    /// An entry Stage Select did not build that you chose to keep aside in a cleanup.
     Drift,
     /// A built file that was not TorrentZip, kept as it was when a cleanup repacked it.
     Repack,
@@ -378,7 +378,7 @@ pub enum RemovalKind {
     Keep,
     /// It is gone already; its record is dropped.
     Forget,
-    /// It changed since it was built, so it is not the file Title Select built; it is left as it is.
+    /// It changed since it was built, so it is not the file Stage Select built; it is left as it is.
     Leave,
 }
 
@@ -744,9 +744,9 @@ pub struct PlanChange {
     pub group: String,
     pub title: String,
     /// Absent when the release is new.
-    pub before: Option<Role>,
+    pub before: Option<Outcome>,
     /// Absent when the release is gone.
-    pub after: Option<Role>,
+    pub after: Option<Outcome>,
     pub cause: Cause,
 }
 
@@ -1045,7 +1045,7 @@ pub enum IncompleteReason {
     NoSource,
     /// Its file failed to build.
     Failed,
-    /// Something Title Select did not build, or changed since, is at its target.
+    /// Something Stage Select did not build, or changed since, is at its target.
     Conflict,
     /// It cannot be built as planned, such as for an invalid name.
     Blocked,
@@ -1206,13 +1206,13 @@ pub struct CheckedFile {
     pub detail: Option<String>,
 }
 
-/// What an entry Title Select did not build is.
+/// What an entry Stage Select did not build is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DriftKind {
     /// A game the DAT lists, under its own name, that the selection does not select.
     Unselected,
-    /// A selected game, under its own name, that Title Select did not build. A plan can adopt it.
+    /// A selected game, under its own name, that Stage Select did not build. A plan can adopt it.
     Selected,
     /// A game the DAT lists, under another name.
     Renamed,
@@ -1242,7 +1242,7 @@ impl DriftKind {
     }
 }
 
-/// One entry in a Library Folder that Title Select did not build.
+/// One entry in a Library Folder that Stage Select did not build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DriftEntry {
     pub name: String,
@@ -1280,9 +1280,9 @@ pub struct CheckSummary {
     pub unreadable: u64,
     /// Files the check read.
     pub hashed: u64,
-    /// Entries Title Select did not build.
+    /// Entries Stage Select did not build.
     pub drift: u64,
-    /// Entries Title Select did not build that you acknowledged, unchanged since; not counted as drift.
+    /// Entries Stage Select did not build that you acknowledged, unchanged since; not counted as drift.
     pub acknowledged: u64,
 }
 
@@ -1320,10 +1320,10 @@ pub struct KeptFile {
     pub reason: KeepReason,
     /// The Build that kept it.
     pub build: i64,
-    /// The Build that wrote it, when Title Select built it.
+    /// The Build that wrote it, when Stage Select built it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub built_by: Option<i64>,
-    /// The DAT's game it was built for, when Title Select built it.
+    /// The DAT's game it was built for, when Stage Select built it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game: Option<String>,
     /// Its SHA-256; none for a directory, which is never read.
@@ -1337,7 +1337,7 @@ pub struct KeptFile {
     pub directory: bool,
 }
 
-/// What a cleanup does with an entry Title Select did not build.
+/// What a cleanup does with an entry Stage Select did not build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CleanupAction {
@@ -1367,7 +1367,7 @@ impl CleanupAction {
 /// put back, and the built files to repack as TorrentZip. Anything not named is left as it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanCleanup {
-    /// Entries Title Select did not build, by name, and what to do with each.
+    /// Entries Stage Select did not build, by name, and what to do with each.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub entries: BTreeMap<String, CleanupAction>,
     /// Kept files to put back, by id.
@@ -1387,7 +1387,7 @@ impl PlanCleanup {
     }
 }
 
-/// An entry Title Select did not build, as a cleanup found it, and what it does with it. A cleanup lists every such
+/// An entry Stage Select did not build, as a cleanup found it, and what it does with it. A cleanup lists every such
 /// entry, chosen or not, so that its digest binds the folder as it was planned against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanupEntry {
@@ -1441,7 +1441,7 @@ pub enum RestoreKind {
     /// Under the file name of the selected game it holds, recorded as built: its own name is taken, or is not that
     /// game's.
     Adopt,
-    /// Back under its own name, as an entry Title Select did not build: it holds no selected game.
+    /// Back under its own name, as an entry Stage Select did not build: it holds no selected game.
     PutBack,
 }
 

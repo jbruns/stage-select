@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 use crate::common::*;
 use crate::sevenz_fixtures::*;
 use sha2::{Digest, Sha256};
-use title_select_api::build::ExpectedRom;
-use title_select_engine::build::{Probe, Probed, ZipLimits, verify, verify_loose};
-use title_select_engine::payload::Hasher;
-use title_select_engine::sevenz::{self, Decoding, Gate};
+use stage_select_api::build::ExpectedRom;
+use stage_select_engine::build::{Probe, Probed, ZipLimits, verify, verify_loose};
+use stage_select_engine::payload::Hasher;
+use stage_select_engine::sevenz::{self, Decoding, Gate};
 
 fn probed(path: &Path, max_dictionary_mib: u32) -> Probed {
     let gate = Gate::new(1);
@@ -430,8 +430,8 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
     for solid in [true, false] {
         let source = dir.path().join(format!("{solid}.7z"));
         write_7z(&source, &borrowed(&members), Method::Lzma2, solid);
-        let meter = title_select_engine::meter::Meter::default();
-        let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+        let meter = stage_select_engine::meter::Meter::default();
+        let job = meter.start(1, stage_select_engine::ONE_WORKER_EACH);
         let gate = Gate::new(1);
         let decoding = Decoding {
             gate: &gate,
@@ -457,7 +457,7 @@ fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
         let staged = (members[0].1.len() + members[1].1.len()) as u64;
         assert_eq!(
             spill,
-            title_select_engine::meter::Counted {
+            stage_select_engine::meter::Counted {
                 read: staged,
                 written: staged,
                 files_read: 2,
@@ -641,9 +641,9 @@ fn a_7z_probed_as_a_library_file_is_one_opaque_payload() {
     let path = dir.path().join("Game.7z");
     write_7z(&path, &[("Game.bin", b"game")], Method::Lzma2, true);
 
-    let probe = title_select_engine::build::probe(
+    let probe = stage_select_engine::build::probe(
         &File::open(&path).unwrap(),
-        &title_select_engine::meter::Tally::default(),
+        &stage_select_engine::meter::Tally::default(),
     )
     .unwrap();
 
@@ -654,7 +654,7 @@ fn a_7z_probed_as_a_library_file_is_one_opaque_payload() {
     assert_eq!(probe.payloads[0].sha256, sha256_hex(&bytes));
 }
 
-/// Title Select never writes 7z: no production source names the writer, and the production dependency leaves out
+/// Stage Select never writes 7z: no production source names the writer, and the production dependency leaves out
 /// the feature that compiles it.
 #[test]
 fn no_code_path_writes_7z() {
@@ -749,8 +749,8 @@ fn bytes_read_decoding_a_7z_and_written_from_it_are_counted() {
     write_7z(&source, &borrowed(&members), Method::Lzma2, true);
     let (member, bytes) = &members[1];
     let rom = expected("Track 01.bin", bytes);
-    let meter = title_select_engine::meter::Meter::default();
-    let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+    let meter = stage_select_engine::meter::Meter::default();
+    let job = meter.start(1, stage_select_engine::ONE_WORKER_EACH);
     let gate = Gate::new(1);
     let decoding = Decoding {
         gate: &gate,
@@ -789,8 +789,8 @@ fn probing_a_7z_of_many_blocks_counts_its_whole_file_pass_and_blocks_as_one_file
     let members = disc();
     let source = dir.path().join("Game.7z");
     write_7z(&source, &borrowed(&members), Method::Lzma2, false);
-    let meter = title_select_engine::meter::Meter::default();
-    let job = meter.start(1, title_select_engine::ONE_WORKER_EACH);
+    let meter = stage_select_engine::meter::Meter::default();
+    let job = meter.start(1, stage_select_engine::ONE_WORKER_EACH);
     let gate = Gate::new(1);
     let decoding = Decoding {
         gate: &gate,

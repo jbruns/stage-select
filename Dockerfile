@@ -59,19 +59,19 @@ RUN cargo chef prepare --recipe-path recipe.json
 # removed once the build's output is out of it, so the layer cached for the build stays small.
 FROM toolchain AS server
 COPY --from=planner /src/recipe.json recipe.json
-RUN cargo chef cook --recipe-path recipe.json --locked --package title-select --bin title-select --no-default-features \
+RUN cargo chef cook --recipe-path recipe.json --locked --package stage-select --bin stage-select --no-default-features \
       --release \
     && cargo fetch --locked
 COPY . .
 RUN cargo leptos build --release --cargo-locked --server-only \
-    && cp target/release/title-select /title-select \
+    && cp target/release/stage-select /stage-select \
     && rm -r target
 # The store volume's mount point, owned by the nonroot user in the final stage.
 RUN mkdir /store
 
 FROM toolchain AS front
 COPY --from=planner /src/recipe.json recipe.json
-RUN LEPTOS_OUTPUT_NAME=title-select cargo chef cook --recipe-path recipe.json --locked --package title-select-ui \
+RUN LEPTOS_OUTPUT_NAME=stage-select cargo chef cook --recipe-path recipe.json --locked --package stage-select-ui \
       --no-default-features --target wasm32-unknown-unknown --target-dir target/front --profile wasm-release \
     && cargo fetch --locked
 COPY . .
@@ -84,7 +84,7 @@ RUN set -o pipefail \
     && grep 'running wasm-opt' /tmp/leptos.log | grep -q -- ' -O1 ' \
     && rm /tmp/leptos.log \
     && cp -r target/site /ui \
-    && mkdir -p /ui/licences && cp LICENSE /ui/licences/title-select.txt \
+    && mkdir -p /ui/licences && cp LICENSE /ui/licences/stage-select.txt \
     && rm -r target
 
 # The clone lists, metadata, MIAs and RetroAchievements data Selection reads (ADR 0015), at the pinned commit, checked
@@ -127,7 +127,7 @@ FROM scratch AS chdman
 COPY --from=chdman-build /out/chdman /chdman
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
-COPY --from=server /title-select /title-select
+COPY --from=server /stage-select /stage-select
 COPY --from=front /ui /ui
 COPY --from=server --chown=65532:65532 /store /store
 COPY --from=clone-lists /opt/clone-lists /opt/clone-lists
@@ -139,14 +139,14 @@ COPY --from=clone-lists /opt/clone-lists/LICENSE /ui/licences/retool-clonelists-
 COPY --from=clone-lists /opt/curated-list/LICENSE /ui/licences/curated-mame-arcade-romset.txt
 COPY --from=chdman-build /out/chdman /usr/local/bin/chdman
 COPY --from=chdman-build /out/mame.txt /ui/licences/mame.txt
-ENV TITLE_SELECT_STORE=/store \
-    TITLE_SELECT_LISTEN=0.0.0.0:8080 \
-    TITLE_SELECT_UI=/ui \
-    TITLE_SELECT_CLONE_LISTS=/opt/clone-lists \
-    TITLE_SELECT_CURATED_LIST=/opt/curated-list \
-    TITLE_SELECT_CHDMAN=/usr/local/bin/chdman
+ENV STAGE_SELECT_STORE=/store \
+    STAGE_SELECT_LISTEN=0.0.0.0:8080 \
+    STAGE_SELECT_UI=/ui \
+    STAGE_SELECT_CLONE_LISTS=/opt/clone-lists \
+    STAGE_SELECT_CURATED_LIST=/opt/curated-list \
+    STAGE_SELECT_CHDMAN=/usr/local/bin/chdman
 VOLUME /store
 EXPOSE 8080
 USER nonroot:nonroot
-ENTRYPOINT ["/title-select"]
+ENTRYPOINT ["/stage-select"]
 CMD ["serve"]

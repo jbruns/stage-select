@@ -1,23 +1,23 @@
 //! Checks of Library Folders: what is in a folder now against the store's record of what Builds put there. A check
 //! only reads the folder, through the handle it was opened by and without following a symlink; what it finds is
 //! written to the store alone. A built file is read only when its size or modification time differ from its record,
-//! and every entry Title Select did not build is classified as Drift, read once and then only when it changes.
+//! and every entry Stage Select did not build is classified as Drift, read once and then only when it changes.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
-use title_select_api::build::{
+use stage_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
     PlacedFile,
 };
-use title_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
-use title_select_api::{DatFormat, HeaderRule, Job, JobKind, JobState};
-use title_select_engine::Progress;
-use title_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
-use title_select_engine::dat::Dat;
-use title_select_engine::meter::Tally;
+use stage_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
+use stage_select_api::{DatFormat, HeaderRule, Job, JobKind, JobState};
+use stage_select_engine::Progress;
+use stage_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
+use stage_select_engine::dat::Dat;
+use stage_select_engine::meter::Tally;
 
 use super::audits::choose_revision;
 use super::dats::revision_by_id;
@@ -58,7 +58,7 @@ impl Seen {
     }
 }
 
-/// An entry Title Select did not build that you acknowledged, as it was then.
+/// An entry Stage Select did not build that you acknowledged, as it was then.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Ack {
     pub identity: Identity,
@@ -119,7 +119,7 @@ pub(super) struct ScanInput<'a> {
     pub placed: &'a [PlacedFile],
 }
 
-/// The names in a folder other than Title Select's own entries, sorted, with each disc layout folder's entries in
+/// The names in a folder other than Stage Select's own entries, sorted, with each disc layout folder's entries in
 /// place of it, and each of `disks`, as [`deepen`].
 pub(super) fn listing(dir: &FolderDir, disks: &HashSet<String>) -> std::io::Result<Vec<String>> {
     let names: Vec<String> = dir
@@ -235,13 +235,13 @@ fn chd_header(
     dir: &FolderDir,
     name: &str,
     seen: &Stat,
-) -> std::result::Result<title_select_engine::chd::Header, String> {
+) -> std::result::Result<stage_select_engine::chd::Header, String> {
     let file: File = dir.open_file(name).map_err(|e| e.to_string())?;
     let before = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     if Seen::of(&before) != Seen::of(seen) {
         return Err("it changed while it was read".to_owned());
     }
-    let header = title_select_engine::chd::header(&file)?;
+    let header = stage_select_engine::chd::header(&file)?;
     still(dir, name, &file, seen)?;
     Ok(header)
 }
@@ -776,7 +776,7 @@ impl Scan {
 /// The selected Games of Selection `selection`, by their target's lowercased name.
 pub(super) fn selected_targets(c: &Connection, selection: i64) -> Result<HashMap<String, String>> {
     let mut stmt = c.prepare(
-        "SELECT title FROM selection_releases WHERE selection_id = ?1 AND role = 'winner'",
+        "SELECT title FROM selection_releases WHERE selection_id = ?1 AND outcome = 'kept'",
     )?;
     let rows = stmt.query_map([selection], |r| r.get::<_, String>(0))?;
     let mut selected = HashMap::new();
@@ -1044,7 +1044,7 @@ impl Store {
             let revision = (record.sha256, record.blob_present);
             let storage = crate::storage::policy(
                 &tx,
-                title_select_api::storage::StorageScope::PlayLibraries,
+                stage_select_api::storage::StorageScope::PlayLibraries,
                 &folder.system,
             )?;
             Ok(CheckInputs {

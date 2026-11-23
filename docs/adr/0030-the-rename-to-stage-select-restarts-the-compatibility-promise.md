@@ -21,7 +21,7 @@ start it from an empty store.
 - **The rename is a clean break.** Every name maps straight across to its Stage Select form. 0.13.0 reads no earlier
   name: no old environment variable, state folder, store file name, local storage key or `schema` string.
 - **Nothing made before 0.13.0 is carried.** The store takes a new `application_id`. A store stamped by an earlier
-  release is refused, left untouched, and the Operator is told to start a new store. A folder marked by an earlier
+  release is refused, and the Operator is told to start a new store. A folder marked by an earlier
   release is not this store's, and nothing in it is adopted.
 - **The promise 0.12.0 published is withdrawn, once.** ADR 0028's promise restarts at 0.13.0 on the same terms:
   append-only migrations, a release's warning before a removal, a new version for a breaking machine format, and

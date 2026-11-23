@@ -1,13 +1,13 @@
 //! Deleting a DAT Revision nothing depends on (ADR 0003, amendment of 2026-11-15).
 
+use stage_select_api::roots::RootSpec;
 use std::path::PathBuf;
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::settings::{DEFAULT_SELECTIONS_KEPT, Retention, SettingsUpdate};
-use title_select_api::{DatRevisionRecord, DeletionBlocker, DeletionBlockerKind as K};
-use title_select_engine::AuditEvidence;
-use title_select_store::{Error, ImportOutcome, Store};
+use stage_select_api::settings::{DEFAULT_SELECTIONS_KEPT, Retention, SettingsUpdate};
+use stage_select_api::{DatRevisionRecord, DeletionBlocker, DeletionBlockerKind as K};
+use stage_select_engine::AuditEvidence;
+use stage_select_store::{Error, ImportOutcome, Store};
 
 const SET: &str = "No-Intro/Test - System";
 
@@ -94,7 +94,7 @@ impl Env {
 
     /// The store's database, with foreign keys off, for a fixture row the public interface can't make on its own.
     fn db(&self) -> rusqlite::Connection {
-        let db = rusqlite::Connection::open(self.store.dir().join("title-select.sqlite")).unwrap();
+        let db = rusqlite::Connection::open(self.store.dir().join("stage-select.sqlite")).unwrap();
         db.pragma_update(None, "foreign_keys", "OFF").unwrap();
         db
     }

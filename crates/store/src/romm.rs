@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 use rusqlite::{OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use title_select_api::build::CleanupAction;
-use title_select_api::romm::{
+use stage_select_api::build::CleanupAction;
+use stage_select_api::romm::{
     RommCheck, RommFolderPlatform, RommPlatform, RommScan, RommScanOutcome, RommTestRequest,
     RommUpdate, RommUser, RommView, version_tested,
 };
-use title_select_api::settings::SecretUpdate;
-use title_select_api::{Job, JobKind};
+use stage_select_api::settings::SecretUpdate;
+use stage_select_api::{Job, JobKind};
 
 use crate::fetch::{Http, Method, refusal_unnamed};
 use crate::roots::Roots;
@@ -86,7 +86,7 @@ impl std::fmt::Debug for Romm {
 }
 
 impl Romm {
-    /// Whether Title Select talks to RomM: it is turned on, with an address, a token and a root.
+    /// Whether Stage Select talks to RomM: it is turned on, with an address, a token and a root.
     pub fn is_on(&self) -> bool {
         self.enabled && self.base_url.is_some() && self.token.is_some() && self.root.is_some()
     }
@@ -212,7 +212,7 @@ pub const BODY_LIMIT: u64 = 16 << 20;
 /// Why a request to RomM failed. Its message never names the token.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RommError {
-    /// The address is one Title Select won't send a token to.
+    /// The address is one Stage Select won't send a token to.
     #[error("{0}")]
     Address(String),
     /// RomM didn't answer: it is down, its address is wrong, or it took longer than the timeout.
@@ -268,14 +268,14 @@ struct HeartbeatSystem {
     version: String,
 }
 
-/// The fields of RomM's user that Title Select reads.
+/// The fields of RomM's user that Stage Select reads.
 #[derive(Deserialize)]
 struct Me {
     username: String,
     role: String,
 }
 
-/// How each of [`title_select_api::romm::REQUIRED_SCOPES`] is checked: a request that only that scope admits, and
+/// How each of [`stage_select_api::romm::REQUIRED_SCOPES`] is checked: a request that only that scope admits, and
 /// that changes nothing. A token lacking the scope is answered 403; one holding it is answered, or told the made-up id
 /// isn't found.
 const PROBES: [(&str, Method, &str); 5] = [
@@ -291,7 +291,7 @@ const PROBES: [(&str, Method, &str); 5] = [
     (
         "tasks.run",
         Method::Get,
-        "/api/tasks/title-select-scope-check",
+        "/api/tasks/stage-select-scope-check",
     ),
 ];
 
@@ -415,7 +415,7 @@ impl RommClient {
         }
     }
 
-    /// Whether the token lacks `scope`, one of [`title_select_api::romm::REQUIRED_SCOPES`], by the request that
+    /// Whether the token lacks `scope`, one of [`stage_select_api::romm::REQUIRED_SCOPES`], by the request that
     /// tests it while changing nothing.
     pub fn lacks(&self, scope: &str) -> std::result::Result<bool, RommError> {
         let (_, method, path) = PROBES
@@ -493,7 +493,7 @@ pub struct ScanEnd {
     pub detail: Option<String>,
 }
 
-/// The fields of RomM's answer to a scan request, or to a poll of its task, that Title Select reads.
+/// The fields of RomM's answer to a scan request, or to a poll of its task, that Stage Select reads.
 #[derive(Deserialize)]
 struct Task {
     task_id: String,
@@ -578,7 +578,7 @@ fn follow_romm_scan(
         end(
             RommScanOutcome::Stopped,
             task_id,
-            stopped(fs_slug, task_id.is_some(), "Title Select stopped"),
+            stopped(fs_slug, task_id.is_some(), "Stage Select stopped"),
         )
     };
     let client = |task_id: Option<&str>| -> std::result::Result<RommClient, Option<ScanEnd>> {
@@ -679,7 +679,7 @@ fn follow_romm_scan(
         return end(
                 RommScanOutcome::Error,
                 None,
-                "RomM accepted the scan, but named its task in a way Title Select can't follow. Check the scan in \
+                "RomM accepted the scan, but named its task in a way Stage Select can't follow. Check the scan in \
                  RomM."
                     .into(),
             );
@@ -944,7 +944,7 @@ impl Store {
             end.detail = Some(stopped(
                 &fs_slug,
                 true,
-                "Title Select stopped while it waited on RomM",
+                "Stage Select stopped while it waited on RomM",
             ));
         }
         scan.outcome = end.outcome;
@@ -954,7 +954,7 @@ impl Store {
         step(&scan, changed)
     }
 
-    /// Records each RomM scan still followed as no longer followed, as Title Select won't follow it again, and
+    /// Records each RomM scan still followed as no longer followed, as Stage Select won't follow it again, and
     /// returns their Jobs. Called as the Service stops, and once at start for the scans of a Service that stopped
     /// without it.
     pub fn recover_romm_scans(&self) -> Result<Vec<i64>> {
@@ -966,7 +966,7 @@ impl Store {
                 )?;
                 let rows = stmt.query_map(
                     params![
-                        "Title Select stopped while it followed RomM's scan, so whether it finished isn't known. \
+                        "Stage Select stopped while it followed RomM's scan, so whether it finished isn't known. \
                          Check the platform in RomM.",
                         now()
                     ],

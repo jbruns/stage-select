@@ -3,12 +3,12 @@
 //! `Legend` (see `parts::legend`).
 
 use leptos::prelude::*;
-use title_select_api::JobState;
-use title_select_api::build::ItemKind;
-use title_select_api::ingest::IngestAction;
-use title_select_api::repair::RepairKind;
-use title_select_api::report::{Finding, GameStatus};
-use title_select_api::romm::{RommAdditionsOutcome, RommFlag, RommScanOutcome};
+use stage_select_api::JobState;
+use stage_select_api::build::ItemKind;
+use stage_select_api::ingest::IngestAction;
+use stage_select_api::repair::RepairKind;
+use stage_select_api::report::{Finding, GameStatus};
+use stage_select_api::romm::{RommAdditionsOutcome, RommFlag, RommScanOutcome};
 
 use super::icon::{Glyph, Icon};
 
@@ -742,7 +742,7 @@ impl Status for BuildKind {
                 Glyph::TriangleAlert,
                 Tone::Review,
                 "Conflict",
-                "Skipped: a file Title Select didn't build, or one changed since, is at the target and is never overwritten.",
+                "Skipped: a file Stage Select didn't build, or one changed since, is at the target and is never overwritten.",
             ),
             BuildKind::Unresolved => look(
                 Glyph::CircleQuestionMark,
@@ -766,13 +766,13 @@ impl Status for BuildKind {
                 Glyph::Archive,
                 Tone::Review,
                 "Set aside",
-                "Moves an entry Title Select didn't build to kept files.",
+                "Moves an entry Stage Select didn't build to kept files.",
             ),
             BuildKind::Acknowledge => look(
                 Glyph::Eye,
                 Tone::Neutral,
                 "Acknowledge",
-                "Leaves an entry Title Select didn't build where it is.",
+                "Leaves an entry Stage Select didn't build where it is.",
             ),
             BuildKind::Restore => look(
                 Glyph::Undo2,
@@ -896,7 +896,7 @@ impl Status for IngestStatus {
                 Glyph::FileX,
                 Tone::Failed,
                 "Unreadable",
-                "It couldn't be read, or it's an archive Title Select doesn't open.",
+                "It couldn't be read, or it's an archive Stage Select doesn't open.",
             ),
             IngestStatus::Dismissed => look(
                 Glyph::CircleOff,
@@ -1212,7 +1212,7 @@ impl Status for JobState {
     }
 }
 
-/// How RomM's view of a file a build made disagrees with the build. Title Select only shows it: RomM's matches are
+/// How RomM's view of a file a build made disagrees with the build. Stage Select only shows it: RomM's matches are
 /// changed in RomM.
 impl Status for RommFlag {
     const ALL: &'static [Self] = &RommFlag::ALL;
@@ -1264,7 +1264,7 @@ impl Status for RommScanOutcome {
                 Glyph::CircleQuestionMark,
                 Tone::Review,
                 "Scan not followed",
-                "Title Select stopped following the scan before it ended, so check the platform in RomM.",
+                "Stage Select stopped following the scan before it ended, so check the platform in RomM.",
             ),
             RommScanOutcome::Failed => look(
                 Glyph::CircleX,
@@ -1317,7 +1317,7 @@ impl Status for RommAdditionsOutcome {
                 Glyph::CircleQuestionMark,
                 Tone::Review,
                 "Update stopped",
-                "Title Select stopped before the collection was in step; the next build RomM scans tries again.",
+                "Stage Select stopped before the collection was in step; the next build RomM scans tries again.",
             ),
             RommAdditionsOutcome::Error => look(
                 Glyph::TriangleAlert,

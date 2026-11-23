@@ -18,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 pub use read::Pools;
-pub use title_select_api::Workers;
-pub use title_select_api::report::*;
+pub use stage_select_api::Workers;
+pub use stage_select_api::report::*;
 
 use dat::{Dat, DumpStatus};
 use payload::Checksums;
@@ -81,7 +81,7 @@ pub struct Options<'a> {
 /// The recorded files of a Source Set's Placed Games in one Library Folder (ADR 0023). Only these are read of it,
 /// never another file there; a file that is gone is no Entry, so its Game is Missing or Incomplete.
 pub struct Placed<'a> {
-    /// The Library Folder's id, which names each Entry's path ([`title_select_api::storage::placed_path`]).
+    /// The Library Folder's id, which names each Entry's path ([`stage_select_api::storage::placed_path`]).
     pub id: i64,
     /// The canonical path of the folder's Root. Everything below it, the folder itself included, is opened without
     /// following a symbolic link.
@@ -111,7 +111,7 @@ pub struct PlacedChd {
     /// The SHA-1 its header held when extracting it gave back every track of its disc exactly.
     pub sha1: String,
     /// Its disc's ROMs as the DAT listed them when it was placed: a CD's cue sheet and tracks, or a DVD's image.
-    pub roms: Vec<title_select_api::build::ExpectedRom>,
+    pub roms: Vec<stage_select_api::build::ExpectedRom>,
     /// A CD's cue sheet as kept in the store, or why it can't be read.
     pub cue: Option<Result<Vec<u8>, String>>,
 }
@@ -256,11 +256,11 @@ pub trait PayloadReads: Sync {
     fn claimed(&self, _path: &str, _stamp: &FileStamp) {}
 }
 
-/// Whether `name`, an entry anywhere in a Source Set, is the `.title-select` directory Title Select keeps there for
+/// Whether `name`, an entry anywhere in a Source Set, is the `.stage-select` directory Stage Select keeps there for
 /// itself, which an Audit passes over with all it holds: the marker, kept files, and any file being written under a
 /// temporary name.
 pub fn is_own_entry(name: &str) -> bool {
-    title_select_api::storage::is_reserved_name(name)
+    stage_select_api::storage::is_reserved_name(name)
 }
 
 /// `bytes` as lowercase hex, two digits a byte, with no prefix or separator: how every SHA-256, SHA-1 and MD5 is
@@ -319,7 +319,7 @@ struct Walked {
     files: Vec<ToRead>,
 }
 
-/// Walks the Source Set at `root` as an Audit does, passing over Title Select's own entries and confined as
+/// Walks the Source Set at `root` as an Audit does, passing over Stage Select's own entries and confined as
 /// `confine` says. Stops, returning none, once `keep_going` says no.
 fn walk(
     root: &Path,
@@ -424,7 +424,7 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
     let mut files = Vec::new();
     let mut stamps = Vec::new();
     for rel in recorded {
-        let at = title_select_api::storage::placed_path(placed.id, rel);
+        let at = stage_select_api::storage::placed_path(placed.id, rel);
         let path = placed
             .folder
             .split('/')
@@ -1082,7 +1082,7 @@ impl<'d> Holders<'d> {
     /// folders above it or the loose file that is named for a Game. None when none is.
     pub fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
         // A Placed Game's file is held as it is in its Library Folder.
-        let path = title_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
+        let path = stage_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
         let mut parts = path.split(['/', '\\']).rev();
         let file = parts.next()?;
         let zip = member.and_then(|_| {

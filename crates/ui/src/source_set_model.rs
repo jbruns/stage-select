@@ -1,11 +1,11 @@
 //! What the source set screens decide without rendering: a source set's row status, where its repair is, its page's
 //! tabs, and one timeline of what happened to it.
 
-use title_select_api::build::{BuildState, BuildSummary};
-use title_select_api::ingest::{IngestAction, IngestPlan};
-use title_select_api::repair::{RepairPlan, RepairStep};
-use title_select_api::selection::ARCADE_COVERAGE_REFUSAL;
-use title_select_api::{
+use stage_select_api::build::{BuildState, BuildSummary};
+use stage_select_api::ingest::{IngestAction, IngestPlan};
+use stage_select_api::repair::{RepairPlan, RepairStep};
+use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+use stage_select_api::{
     AuditEvidence, AuditSummary, DatFormat, Finding, FollowedRevision, JobKind, JobState,
     OpenRepair, SourceSetStale, SourceSetSummary, StatWalk,
 };
@@ -382,7 +382,7 @@ pub fn timeline(
 
 /// The source sets running a job: those of the jobs given that are queued or running. A check for changes counts
 /// only while it runs: one waits, at low priority, for every other job.
-pub fn running<'a>(jobs: impl IntoIterator<Item = &'a title_select_api::Job>) -> Vec<String> {
+pub fn running<'a>(jobs: impl IntoIterator<Item = &'a stage_select_api::Job>) -> Vec<String> {
     let mut names: Vec<String> = jobs
         .into_iter()
         .filter(|j| !j.state.is_final() && !j.source_set.is_empty())
@@ -461,8 +461,8 @@ pub fn missing_export_path(set: &str, export: MissingExport, scope: ExportScope)
 /// The selections an export can be limited to: those of the latest audit's DAT revision that still hold their rows.
 pub fn export_selections<'a>(
     latest: &AuditSummary,
-    selections: &'a [title_select_api::SelectionRecord],
-) -> Vec<&'a title_select_api::SelectionRecord> {
+    selections: &'a [stage_select_api::SelectionRecord],
+) -> Vec<&'a stage_select_api::SelectionRecord> {
     selections
         .iter()
         .filter(|s| !s.pruned && s.dat_revision_sha256 == latest.dat_revision_sha256)
@@ -470,7 +470,7 @@ pub fn export_selections<'a>(
 }
 
 /// How a selection is offered in the export's choice.
-pub fn selection_option(selection: &title_select_api::SelectionRecord) -> String {
+pub fn selection_option(selection: &stage_select_api::SelectionRecord) -> String {
     format!(
         "Selection #{}: {} v{}",
         selection.id, selection.profile.name, selection.profile.version
@@ -481,7 +481,7 @@ pub fn selection_option(selection: &title_select_api::SelectionRecord) -> String
 mod tests {
     use std::collections::BTreeMap;
 
-    use title_select_api::{Finding, SourceSetRecord};
+    use stage_select_api::{Finding, SourceSetRecord};
 
     use super::*;
 
@@ -575,7 +575,7 @@ mod tests {
         );
         let latest = uncovered_trouble.latest.as_mut().unwrap();
         latest.findings = BTreeMap::from([(Finding::Matched, 3), (Finding::Misnamed, 1)]);
-        uncovered_trouble.covered_entries = Some(title_select_api::CoveredEntries {
+        uncovered_trouble.covered_entries = Some(stage_select_api::CoveredEntries {
             findings: BTreeMap::from([(Finding::Matched, 1)]),
             claimed: 0,
         });
@@ -666,7 +666,7 @@ mod tests {
             "id": 7, "folder": 2, "plan": 5, "job": 8, "state": "succeeded", "generation": 1,
             "selection": 1, "audit": 1, "dat_revision": "r", "started_at": "2026-01-05T00:00:00Z",
             "finished_at": "2026-01-06T00:00:00Z", "applied": 1, "failed": 0, "pending": 0, "uncertain": 0,
-            "planned": (title_select_api::build::PlanSummary { copy: 1, ..Default::default() })
+            "planned": (stage_select_api::build::PlanSummary { copy: 1, ..Default::default() })
         }))
         .unwrap();
         let ingest: IngestPlan = serde_json::from_value(serde_json::json!({
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn a_source_set_is_running_while_a_job_for_it_is_queued_or_running() {
         let job =
-            |name: &str, state: &str| -> title_select_api::Job { job_of("audit", name, state) };
+            |name: &str, state: &str| -> stage_select_api::Job { job_of("audit", name, state) };
         let jobs = [
             job("GB", "running"),
             job("GBA", "succeeded"),
@@ -746,7 +746,7 @@ mod tests {
         );
     }
 
-    fn job_of(kind: &str, name: &str, state: &str) -> title_select_api::Job {
+    fn job_of(kind: &str, name: &str, state: &str) -> stage_select_api::Job {
         {
             serde_json::from_value(serde_json::json!({
                 "id": 1, "kind": kind, "state": state, "source_set": name, "dat_revision": "r", "actor": "Operator",
@@ -800,13 +800,13 @@ mod tests {
         assert_eq!(change_counts(0, 3, 0), "3 added");
     }
 
-    fn selection(id: i64, sha: &str, pruned: bool) -> title_select_api::SelectionRecord {
-        title_select_api::SelectionRecord {
+    fn selection(id: i64, sha: &str, pruned: bool) -> stage_select_api::SelectionRecord {
+        stage_select_api::SelectionRecord {
             id,
             source_set: "GB".into(),
             dat_revision_sha256: sha.into(),
             dat_revision_version: sha.into(),
-            profile: title_select_api::ProfileVersionRef {
+            profile: stage_select_api::ProfileVersionRef {
                 name: "Mine".into(),
                 version: 3,
             },

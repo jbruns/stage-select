@@ -1,4 +1,4 @@
-//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: a fetch
+//! The only HTTP client in Stage Select. Every request, and every redirect it would follow, is checked first: a fetch
 //! must address one of its provider's own hosts ([`Allowed`]), and no request ever addresses a No-Intro host,
 //! whatever any allowlist says (ADR 0012). The other requests go to addresses the Operator configured, and follow no
 //! redirect: a webhook notification's POST ([`Http::post`]) and RomM's API ([`Http::send`], ADR 0020).
@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use ureq::http::Uri;
 
-/// The User-Agent every request sends, naming Title Select and how it fetches.
+/// The User-Agent every request sends, naming Stage Select and how it fetches.
 pub const USER_AGENT: &str = concat!(
-    "title-select/",
+    "stage-select/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/jbruns/title-select)"
 );
@@ -24,7 +24,7 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 /// Why a request failed. A failure is never retried in the same fetch.
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
-    /// The URL addresses a host Title Select never contacts, or isn't one it may request.
+    /// The URL addresses a host Stage Select never contacts, or isn't one it may request.
     #[error("{0}")]
     Forbidden(String),
     #[error("{url} answered HTTP {status}")]
@@ -43,7 +43,7 @@ pub struct Fetched {
     pub file_name: Option<String>,
 }
 
-/// Why Title Select refuses to request a URL.
+/// Why Stage Select refuses to request a URL.
 enum Refused {
     NotUrl,
     NotHttp,
@@ -72,16 +72,16 @@ fn refused(url: &str) -> Option<Refused> {
     forbidden.then_some(Refused::NoIntro(host))
 }
 
-/// Why Title Select refuses to request `url`, if it does: it is not plain `http` or `https` to a named host, carries
+/// Why Stage Select refuses to request `url`, if it does: it is not plain `http` or `https` to a named host, carries
 /// credentials, or addresses a No-Intro host.
 pub fn refusal(url: &str) -> Option<String> {
     Some(match refused(url)? {
-        Refused::NotUrl => format!("{url} is not a URL Title Select can request"),
+        Refused::NotUrl => format!("{url} is not a URL Stage Select can request"),
         Refused::NotHttp => format!("{url} is not an http or https URL"),
         Refused::NoHost => format!("{url} names no host"),
         Refused::Credentials => format!("{url} carries credentials"),
         Refused::NoIntro(host) => format!(
-            "{host} is a No-Intro host, and Title Select never sends it any request. Drop No-Intro DATs into an \
+            "{host} is a No-Intro host, and Stage Select never sends it any request. Drop No-Intro DATs into an \
              ingest folder instead"
         ),
     })
@@ -90,12 +90,12 @@ pub fn refusal(url: &str) -> Option<String> {
 /// As [`refusal`], but naming nothing of `url`, which may carry a secret such as a webhook's token.
 pub fn refusal_unnamed(url: &str) -> Option<&'static str> {
     Some(match refused(url)? {
-        Refused::NotUrl => "it is not a URL Title Select can request",
+        Refused::NotUrl => "it is not a URL Stage Select can request",
         Refused::NotHttp => "it is not an http or https URL",
         Refused::NoHost => "it names no host",
         Refused::Credentials => "it carries credentials",
         Refused::NoIntro(_) => {
-            "it addresses a No-Intro host, and Title Select never sends it any request"
+            "it addresses a No-Intro host, and Stage Select never sends it any request"
         }
     })
 }

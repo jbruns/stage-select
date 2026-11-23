@@ -1,15 +1,15 @@
+use stage_select_api::roots::RootSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::paths::PathTemplate;
-use title_select_api::settings::{
+use stage_select_api::paths::PathTemplate;
+use stage_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
 };
-use title_select_api::{DatFormat, DatRevisionRecord};
-use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Reuse};
-use title_select_store::{Error, ImportOutcome, Store};
+use stage_select_api::{DatFormat, DatRevisionRecord};
+use stage_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Reuse};
+use stage_select_store::{Error, ImportOutcome, Store};
 
 const SET: &str = "No-Intro/Test - System";
 
@@ -92,7 +92,7 @@ impl Env {
         self.add_set();
     }
 
-    fn audit(&self, revision: Option<&str>) -> title_select_store::StoredAudit {
+    fn audit(&self, revision: Option<&str>) -> stage_select_store::StoredAudit {
         self.audit_with(revision, AuditEvidence::Incremental)
     }
 
@@ -100,7 +100,7 @@ impl Env {
         &self,
         revision: Option<&str>,
         evidence: AuditEvidence,
-    ) -> title_select_store::StoredAudit {
+    ) -> stage_select_store::StoredAudit {
         self.store
             .audit_source_set("Test - System", revision, evidence)
             .unwrap()
@@ -413,9 +413,9 @@ fn a_stored_audits_report_equals_the_stateless_audits_apart_from_times() {
         .find(|g| g.name == "Breakout (USA)")
         .unwrap();
     assert_eq!(breakout.available_elsewhere[0].games, ["Pong (USA)"]);
-    let stateless = title_select_engine::audit(&env.dat(2), &set).unwrap();
+    let stateless = stage_select_engine::audit(&env.dat(2), &set).unwrap();
 
-    let without_times = |report: &title_select_engine::Report| {
+    let without_times = |report: &stage_select_engine::Report| {
         let mut json = serde_json::to_value(report).unwrap();
         let obj = json.as_object_mut().unwrap();
         obj.remove("started_at").unwrap();
@@ -490,8 +490,8 @@ fn pruning_keeps_the_latest_audits_and_leaves_summaries() {
         vec![false, false, true]
     );
     let summary = &history[2];
-    assert_eq!(summary.findings[&title_select_engine::Finding::Matched], 1);
-    assert_eq!(summary.games[&title_select_engine::GameStatus::Complete], 1);
+    assert_eq!(summary.findings[&stage_select_engine::Finding::Matched], 1);
+    assert_eq!(summary.games[&stage_select_engine::GameStatus::Complete], 1);
     assert!(matches!(env.store.report(ids[0]), Err(Error::Refused(_))));
     assert_eq!(env.store.report(ids[2]).unwrap().entries.len(), 1);
 }
@@ -525,7 +525,7 @@ fn the_latest_audit_is_read_whole_with_its_rows_after_it_prunes_its_predecessor(
     assert!(
         games.contains(&(
             "Pong (USA)".to_owned(),
-            title_select_engine::GameStatus::Complete
+            stage_select_engine::GameStatus::Complete
         )),
         "{games:?}"
     );
@@ -541,7 +541,7 @@ fn pruning_never_removes_an_audit_cited_as_provenance() {
     env.import(1);
     env.add_set();
     let cited = env.audit(None).id;
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     db.execute(
         "INSERT INTO audit_citations (audit_id, cited_by) VALUES (?1, 'test')",
         [cited],
@@ -590,7 +590,7 @@ fn a_dat_blob_is_deleted_once_no_retained_audit_or_newer_import_holds_it() {
 fn the_store_uses_wal_mode() {
     let env = Env::new(20);
 
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     let mode: String = db
         .query_row("PRAGMA journal_mode", [], |r| r.get(0))
         .unwrap();
@@ -612,7 +612,7 @@ fn a_source_set_in_a_writable_root_is_refused() {
 }
 
 fn database(store: &Store) -> rusqlite::Connection {
-    rusqlite::Connection::open(store.dir().join("title-select.sqlite")).unwrap()
+    rusqlite::Connection::open(store.dir().join("stage-select.sqlite")).unwrap()
 }
 
 #[test]
@@ -725,21 +725,21 @@ fn a_stored_audit_does_not_follow_symlinks_out_of_the_root() {
         (entry.finding, entry.reason.clone())
     };
     let escaped = (
-        title_select_engine::Finding::Unreadable,
+        stage_select_engine::Finding::Unreadable,
         Some("resolves outside the Root".to_owned()),
     );
     assert_eq!(finding("Pong (USA).a26"), escaped);
     assert_eq!(finding("elsewhere"), escaped);
     assert_eq!(
         finding("shared/Combat (USA).a26").0,
-        title_select_engine::Finding::Matched,
+        stage_select_engine::Finding::Matched,
         "a symlink inside the Root is followed"
     );
     assert_eq!(stored.entries.len(), 3, "nothing under `elsewhere` is read");
 
-    let stateless = title_select_engine::audit(&env.dat(1), &env.set_dir()).unwrap();
+    let stateless = stage_select_engine::audit(&env.dat(1), &env.set_dir()).unwrap();
     assert_eq!(
-        stateless.summary.findings[&title_select_engine::Finding::Matched],
+        stateless.summary.findings[&stage_select_engine::Finding::Matched],
         3
     );
 }
@@ -776,14 +776,14 @@ fn an_ambiguous_revision_prefix_is_refused() {
     assert!(message.contains("more than one"), "{message}");
 }
 
-const WORKERS: title_select_store::Workers = title_select_store::Workers {
+const WORKERS: stage_select_store::Workers = stage_select_store::Workers {
     readers: 2,
     hashers: 2,
 };
 
 #[test]
 fn an_audit_job_moves_from_queued_through_running_to_succeeded() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
     let (sha256, _) = env.import(2);
@@ -807,7 +807,7 @@ fn an_audit_job_moves_from_queued_through_running_to_succeeded() {
     assert!(env.store.claim_job().unwrap().is_none());
 
     let files = std::sync::Mutex::new(0);
-    let progress = |_: title_select_engine::Progress| *files.lock().unwrap() += 1;
+    let progress = |_: stage_select_engine::Progress| *files.lock().unwrap() += 1;
     let done = env
         .store
         .run_audit_job(running.id, Some(&progress))
@@ -871,7 +871,7 @@ fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
 
 #[test]
 fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
     let first = env
@@ -895,7 +895,7 @@ fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
         .unwrap();
 
     let (tmp, store) = env.reopen();
-    let gentle = title_select_store::Workers {
+    let gentle = stage_select_store::Workers {
         readers: 1,
         hashers: 1,
     };
@@ -931,7 +931,7 @@ fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
 
 #[test]
 fn every_failed_job_is_listed_however_old() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
     let run = |fail: bool| {
@@ -968,7 +968,7 @@ fn every_failed_job_is_listed_however_old() {
 
 #[test]
 fn an_audit_job_that_cannot_read_its_source_set_fails() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
     let job = env
@@ -993,7 +993,7 @@ fn an_audit_job_that_cannot_read_its_source_set_fails() {
 
 #[test]
 fn a_queued_job_holds_its_dat_revision_until_it_runs() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     let (first, _) = env.import(1);
     env.add_set();
@@ -1019,7 +1019,7 @@ fn a_queued_job_holds_its_dat_revision_until_it_runs() {
 
 #[test]
 fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_its_dat_revision() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     let (first, _) = env.import(1);
     env.add_set();
@@ -1037,7 +1037,7 @@ fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_it
     env.store.claim_job().unwrap();
 
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let progress = |_: title_select_engine::Progress| panic!("injected");
+        let progress = |_: stage_select_engine::Progress| panic!("injected");
         env.store.run_audit_job(job.id, Some(&progress))
     }));
     assert!(panicked.is_err());
@@ -1068,12 +1068,12 @@ fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_it
 
 mod profiles_and_selections {
     use super::*;
-    use std::collections::BTreeSet;
-    use title_select_api::selection::{
-        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionGroup,
-        SelectionPins, SelectionProfile, SelectionSummary, Winner,
+    use stage_select_api::selection::{
+        ChoiceStatus, CloneGame, CoverageDrift, GroupChoice, KeptGame, Rule, Selection,
+        SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary,
     };
-    use title_select_api::{GameStatus, JobKind, JobState, StartSelectionFor};
+    use stage_select_api::{GameStatus, JobKind, JobState, StartSelectionFor};
+    use std::collections::BTreeSet;
 
     const NAME: &str = "Mine";
 
@@ -1081,7 +1081,7 @@ mod profiles_and_selections {
         env: &Env,
         profile: &SelectionProfile,
         base: Option<u32>,
-    ) -> title_select_api::SavedProfile {
+    ) -> stage_select_api::SavedProfile {
         env.store
             .save_profile(NAME, profile, base, "Operator", &[], WORKERS)
             .unwrap()
@@ -1104,8 +1104,8 @@ mod profiles_and_selections {
             system_settings: false,
             summary: SelectionSummary {
                 groups: 2,
-                winners: 1,
-                alternatives: 1,
+                kept: 1,
+                clones: 1,
                 choices: 1,
                 ..SelectionSummary::default()
             },
@@ -1115,13 +1115,13 @@ mod profiles_and_selections {
                     dependencies: Vec::new(),
                     group: "combat".into(),
                     unresolved: false,
-                    winners: vec![Winner {
+                    kept: vec![KeptGame {
                         title: "Combat (USA)".into(),
                         rule: rule("Parent selection"),
                         unresolved: false,
                     }],
-                    alternatives: vec![],
-                    exclusions: vec![],
+                    clones: vec![],
+                    left_out: vec![],
                     choice: None,
                     drift: true,
                 },
@@ -1129,13 +1129,13 @@ mod profiles_and_selections {
                     dependencies: Vec::new(),
                     group: "pong".into(),
                     unresolved: false,
-                    winners: vec![],
-                    alternatives: vec![Alternative {
+                    kept: vec![],
+                    clones: vec![CloneGame {
                         title: "Pong (USA)".into(),
                         clone_of: "pong".into(),
                         rule: Rule::choice(),
                     }],
-                    exclusions: vec![],
+                    left_out: vec![],
                     choice: Some(GroupChoice {
                         checked: BTreeSet::new(),
                         status: ChoiceStatus::Applied,
@@ -1526,10 +1526,10 @@ mod profiles_and_selections {
             .store
             .fixdat(
                 "Test - System",
-                Some(title_select_store::FixdatScope::Selection(id)),
+                Some(stage_select_store::FixdatScope::Selection(id)),
             )
             .unwrap();
-        let read = title_select_engine::dat::Dat::parse(
+        let read = stage_select_engine::dat::Dat::parse(
             fixdat.content.as_bytes(),
             Path::new(&fixdat.file_name),
         )
@@ -1547,7 +1547,7 @@ mod profiles_and_selections {
         for refused in [
             env.store.fixdat(
                 "Test - System",
-                Some(title_select_store::FixdatScope::Selection(id)),
+                Some(stage_select_store::FixdatScope::Selection(id)),
             ),
             env.store.have_miss("Test - System", Some(id)),
         ] {
@@ -1585,7 +1585,7 @@ mod profiles_and_selections {
         for refused in [
             env.store.fixdat(
                 "Test - System",
-                Some(title_select_store::FixdatScope::Selection(old)),
+                Some(stage_select_store::FixdatScope::Selection(old)),
             ),
             env.store.have_miss("Test - System", Some(old)),
         ] {
@@ -1600,7 +1600,7 @@ mod profiles_and_selections {
 
 /// Each Entry's path and member, with when its payload was last read and whether this Audit reused that read.
 fn reads(
-    report: &title_select_engine::Report,
+    report: &stage_select_engine::Report,
 ) -> Vec<(String, Option<jiff::Timestamp>, Option<Reuse>)> {
     report
         .entries
@@ -1733,7 +1733,7 @@ fn a_quick_audit_stores_claims_as_claims_and_leaves_nothing_to_reuse() {
 
     let quick = env.audit_with(None, AuditEvidence::Quick);
 
-    let combat = |report: &title_select_engine::Report| {
+    let combat = |report: &stage_select_engine::Report| {
         report
             .entries
             .iter()
@@ -1772,7 +1772,7 @@ fn an_audit_against_a_newer_dat_revision_reuses_hashes_and_matches_them_again() 
     write_three_files(&env);
     write_file(&env.set_dir().join("Breakout (USA).a26"), b"break");
     let first = env.audit(None);
-    let breakout = |report: &title_select_engine::Report| {
+    let breakout = |report: &stage_select_engine::Report| {
         report
             .entries
             .iter()
@@ -1797,18 +1797,18 @@ fn an_audit_against_a_newer_dat_revision_reuses_hashes_and_matches_them_again() 
 
 #[test]
 fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
-    use title_select_store::JobState;
+    use stage_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
     write_three_files(&env);
-    let one_each = title_select_store::Workers {
+    let one_each = stage_select_store::Workers {
         readers: 1,
         hashers: 1,
     };
     // An earlier read of every file, which a full Audit must not reuse.
     let earlier = env.audit(None);
     // One file at a time, so that it stops with exactly two read: a Job's threads follow the root's shared readers.
-    use title_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
+    use stage_select_api::settings::{CeilingsUpdate, RootCeilingsUpdate, SettingsUpdate};
     let one_reader = SettingsUpdate {
         ceilings: Some(CeilingsUpdate {
             roots: [(
@@ -1837,7 +1837,7 @@ fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
     env.store.claim_job().unwrap();
     let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // The Service stops once the second file is read.
-        let progress = |p: title_select_engine::Progress| {
+        let progress = |p: stage_select_engine::Progress| {
             if p.files_done == 2 {
                 panic!("stopped");
             }

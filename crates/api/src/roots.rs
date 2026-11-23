@@ -1,4 +1,4 @@
-//! Roots: the folders Title Select may read, which the Operator registers, edits and unregisters in the store.
+//! Roots: the folders Stage Select may read, which the Operator registers, edits and unregisters in the store.
 
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +50,7 @@ pub struct Root {
     pub name: String,
     pub path: String,
     pub kind: RootKind,
-    /// Whether Title Select may write to it: Builds to its Library Folders, repairs to any Source Set in it.
+    /// Whether Stage Select may write to it: Builds to its Library Folders, repairs to any Source Set in it.
     pub writable: bool,
     /// For a read-only Root: the paths of the Source Sets in it that a repair may write to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

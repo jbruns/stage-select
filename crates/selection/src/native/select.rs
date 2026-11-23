@@ -1658,7 +1658,7 @@ mod tests {
     fn comparing_compilations_stops_at_its_budget() {
         let settings = super::super::settings::Settings::new(
             &super::super::tests::internal_config(),
-            &title_select_api::selection::SelectionProfile::default(),
+            &stage_select_api::selection::SelectionProfile::default(),
             "",
         )
         .unwrap();

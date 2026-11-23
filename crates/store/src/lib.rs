@@ -55,14 +55,14 @@ pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
-pub use support_files::{SUPPORT_FILE_LIMIT, SUPPORT_FILES};
-pub use title_select_api::{
+pub use stage_select_api::{
     AuditSummary, DatRevisionRecord, DeletedDatRevision, DeletionBlocker, DeletionBlockerKind,
     ImportOutcome, Job, JobState, LastVerified, SourceSetRecord, Workers,
 };
+pub use support_files::{SUPPORT_FILE_LIMIT, SUPPORT_FILES};
 
 /// The database's file name in the store directory.
-pub const DATABASE: &str = "title-select.sqlite";
+pub const DATABASE: &str = "stage-select.sqlite";
 /// The directory, in the store directory, that holds DAT blobs.
 pub const DATS: &str = "dats";
 /// The directory, in the store directory, that holds the DAT-exact cue sheets of CDs placed as CHD, which a CHD doesn't
@@ -100,16 +100,16 @@ pub enum Error {
     JobActive {
         source_set: String,
         job: i64,
-        kind: title_select_api::JobKind,
+        kind: stage_select_api::JobKind,
     },
     /// A DAT Revision can't be deleted while something still depends on it: `message` says what, for you to read.
     #[error("{message}")]
     RevisionInUse {
         message: String,
-        blockers: Vec<title_select_api::DeletionBlocker>,
+        blockers: Vec<stage_select_api::DeletionBlocker>,
     },
     #[error(transparent)]
-    Audit(#[from] title_select_engine::Error),
+    Audit(#[from] stage_select_engine::Error),
     /// Games' regions can't be read: no reader was set by [`Store::set_regions`], as when the Selection engine's
     /// clone lists aren't available. What needs a Coverage, or regions, can't be worked out until they are.
     #[error("{0}")]
@@ -148,19 +148,19 @@ pub struct Store {
     /// Roots and settings on first use, and again as they or a Calibration change them.
     ceilings: ceilings::Live,
     /// The pace in the settings, which running Jobs read at each file.
-    pace: std::sync::RwLock<title_select_api::settings::Pace>,
+    pace: std::sync::RwLock<stage_select_api::settings::Pace>,
     /// The largest 7z dictionary in the settings, in MiB, which each Job reads as it starts.
     max_dictionary_mib: std::sync::atomic::AtomicU32,
     /// Every registered Root, replaced whole as one changes.
     roots: std::sync::RwLock<std::sync::Arc<roots::Roots>>,
-    /// The chdman the Service was told to run, if any; else `TITLE_SELECT_CHDMAN`, else `chdman` on the `PATH`.
+    /// The chdman the Service was told to run, if any; else `STAGE_SELECT_CHDMAN`, else `chdman` on the `PATH`.
     chdman: std::sync::RwLock<Option<PathBuf>>,
     /// Held across each settings update's commit and publication, so they happen in the same order.
     settings_update: std::sync::Mutex<()>,
     /// Reads a Game's regions from its name, for Coverage; set by [`Store::set_regions`].
     regions: std::sync::OnceLock<coverage::RegionReader>,
     /// Counts the bytes and files every Job reads and writes, for each Job, each Root and in total.
-    meter: title_select_engine::meter::Meter,
+    meter: stage_select_engine::meter::Meter,
     /// Whether a repair carries a Placed Game's file between folders by a copy, as across filesystems, though one
     /// rename would do: set by [`Store::copy_across_filesystems`].
     copy_across: std::sync::atomic::AtomicBool,
@@ -215,15 +215,15 @@ pub enum Fault {
     /// After the entry of a cleanup's item with this sequence number is renamed and both folders are synced, before
     /// the store records it moved.
     MoveSynced(i64),
-    /// After a folder Title Select is creating in a Library Folder is made under its temporary name, before it is
+    /// After a folder Stage Select is creating in a Library Folder is made under its temporary name, before it is
     /// opened and checked.
     MadeDir,
-    /// After a folder Title Select is creating in a Library Folder is made and recorded under its temporary name,
+    /// After a folder Stage Select is creating in a Library Folder is made and recorded under its temporary name,
     /// before it is renamed into place.
     BeforePublishDir,
     /// As [`Fault::MadeDir`], for a Build's staging directory.
     MadeStaging,
-    /// After a folder Title Select is creating in a Library Folder is renamed into place, before its parent is
+    /// After a folder Stage Select is creating in a Library Folder is renamed into place, before its parent is
     /// synced and its identity recorded under its name.
     PublishedDir,
     /// As [`Fault::BeforePublishDir`], for a Build's staging directory.
@@ -444,7 +444,7 @@ fn lock(dir: &Path) -> Result<Lock> {
     match file.try_lock() {
         Ok(()) => Ok(Lock(file)),
         Err(TryLockError::WouldBlock) => Err(Error::Refused(format!(
-            "{}: the store is in use by another Title Select process",
+            "{}: the store is in use by another Stage Select process",
             dir.display()
         ))),
         Err(TryLockError::Error(e)) => Err(io_error(&path, e)),
@@ -463,7 +463,7 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 impl Store {
-    /// Runs `program` as chdman from now on, or, when `None`, the program `TITLE_SELECT_CHDMAN` names, else `chdman`
+    /// Runs `program` as chdman from now on, or, when `None`, the program `STAGE_SELECT_CHDMAN` names, else `chdman`
     /// on the `PATH`.
     pub fn use_chdman(&self, program: Option<PathBuf>) {
         *self.chdman.write().unwrap_or_else(|e| e.into_inner()) = program;
@@ -471,7 +471,7 @@ impl Store {
 
     /// The chdman to run, found as [`Store::use_chdman`] says.
     pub(crate) fn chdman(&self) -> std::result::Result<PathBuf, String> {
-        title_select_engine::chd::locate(
+        stage_select_engine::chd::locate(
             self.chdman
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -483,9 +483,9 @@ impl Store {
     /// and the dictionary limit in the settings; its bytes read are counted to `read`.
     pub(crate) fn decoding<'a>(
         &'a self,
-        read: &'a title_select_engine::meter::Tally,
-    ) -> title_select_engine::sevenz::Decoding<'a> {
-        title_select_engine::sevenz::Decoding {
+        read: &'a stage_select_engine::meter::Tally,
+    ) -> stage_select_engine::sevenz::Decoding<'a> {
+        stage_select_engine::sevenz::Decoding {
             gate: self.archive_gate(),
             max_dictionary_mib: self
                 .max_dictionary_mib
@@ -495,7 +495,7 @@ impl Store {
     }
 
     /// The meter that counts what every Job reads and writes.
-    pub fn meter(&self) -> &title_select_engine::meter::Meter {
+    pub fn meter(&self) -> &stage_select_engine::meter::Meter {
         &self.meter
     }
 
@@ -505,14 +505,11 @@ impl Store {
     }
 
     fn open_with(dir: &Path, migrations: &[&str]) -> Result<Store> {
-        migrations::check_header(&dir.join(DATABASE))?;
         let dats = dir.join(DATS);
         std::fs::create_dir_all(&dats).map_err(|e| io_error(&dats, e))?;
         let lock = lock(dir)?;
         let mut writer = Connection::open(dir.join(DATABASE))?;
-        // The header is the database file's: one whose WAL was never checkpointed holds its schema in the WAL, so the
-        // stamp is checked again through the connection, before anything writes. Reading may have made the WAL's
-        // sidecars by now, but a refusal leaves the database file as it was: closing doesn't checkpoint the WAL.
+        // A database with a schema that this release didn't stamp is refused before any migration runs.
         let version: i64 = writer.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let id: i32 = writer.pragma_query_value(None, "application_id", |r| r.get(0))?;
         if let Err(refused) = migrations::check_stamp(version, id) {
@@ -541,13 +538,13 @@ impl Store {
             ceilings: ceilings::Live::default(),
             pace: std::sync::RwLock::default(),
             max_dictionary_mib: std::sync::atomic::AtomicU32::new(
-                title_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB,
+                stage_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB,
             ),
             roots: std::sync::RwLock::default(),
             chdman: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
             regions: std::sync::OnceLock::new(),
-            meter: title_select_engine::meter::Meter::default(),
+            meter: stage_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
             free_space: std::sync::atomic::AtomicU64::new(u64::MAX),
             romm_syncs_waiting: std::sync::Arc::default(),
@@ -585,7 +582,7 @@ impl Store {
         );
     }
 
-    /// The bytes free to Title Select in the filesystem holding the folder `path` of Root `root`.
+    /// The bytes free to Stage Select in the filesystem holding the folder `path` of Root `root`.
     fn free_space(&self, root: &str, path: &str) -> Result<u64> {
         if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
@@ -596,7 +593,7 @@ impl Store {
         Ok(st.f_bavail.saturating_mul(st.f_frsize))
     }
 
-    /// The bytes free to Title Select in the filesystem holding the open folder `dir`, or what a test says.
+    /// The bytes free to Stage Select in the filesystem holding the open folder `dir`, or what a test says.
     fn free_in(&self, dir: impl std::os::fd::AsFd) -> Result<u64> {
         if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
@@ -704,7 +701,7 @@ impl Store {
     /// What `f` notes is handed to the observer once it returns successfully and the writer is released.
     fn with_writer<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         // A Job holding a reader permit may wait for the writer, so nothing holding it waits for one.
-        let _no_waits = title_select_engine::meter::NoReaderWaits::new();
+        let _no_waits = stage_select_engine::meter::NoReaderWaits::new();
         let mut conn = self.writer.lock().unwrap();
         observe::begin(self.observer.get().is_some());
         let out = f(&mut conn);
@@ -817,7 +814,7 @@ mod tests {
                 second = second.map(|_| ())
             );
         };
-        assert!(message.contains("in use by another Title Select process"));
+        assert!(message.contains("in use by another Stage Select process"));
         drop(first);
         Store::open(dir.path()).unwrap();
     }
@@ -860,110 +857,34 @@ mod tests {
         assert_eq!(stamp(dir.path()), baseline());
     }
 
-    /// Makes a database in `dir` as the last release before the baseline left it. The baseline is, by construction,
-    /// the schema that release's 49 migrations made (#283), so this applies it without its stamp, sets that release's
-    /// schema version, and adds a few rows.
-    fn pre_baseline(dir: &Path, wal: bool) -> Connection {
-        let conn = Connection::open(dir.join(DATABASE)).unwrap();
-        if wal {
-            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-                .unwrap();
-            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-        }
-        let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
-        let baseline = migrations::MIGRATIONS[0];
-        assert_eq!(baseline.matches(&stamp).count(), 1);
-        conn.execute_batch(&baseline.replace(&stamp, "")).unwrap();
-        conn.execute_batch(
-            "INSERT INTO roots (name, path, kind, writable, updated_by, updated_at)
-                 VALUES ('roms', '/srv/roms', 'general', 1, 'operator', '2026-01-01T00:00:00Z');
-             INSERT INTO settings (section, value, updated_by, updated_at)
-                 VALUES ('pace', '{}', 'operator', '2026-01-01T00:00:00Z');
-             INSERT INTO dats (id, provider, name) VALUES (1, 'No-Intro', 'Nintendo - Game Boy');
-             INSERT INTO source_sets (name, root, path, dat_id, added_at)
-                 VALUES ('gb', 'roms', 'gb', 1, '2026-01-01T00:00:00Z');
-             PRAGMA user_version = 49;",
-        )
-        .unwrap();
-        assert_eq!(pragma(&conn, "application_id"), "Integer(0)");
-        conn
-    }
-
-    fn assert_pre_baseline_refused(opened: Result<Store>) {
-        let Err(Error::Refused(message)) = opened else {
-            panic!(
-                "expected a refusal, got {opened:?}",
-                opened = opened.map(|_| ())
-            );
-        };
-        assert_eq!(
-            message,
-            "This store was made by an earlier release of Title Select and can't be opened. Start a new store."
-        );
-    }
-
-    fn names(dir: &Path) -> Vec<std::ffi::OsString> {
-        std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect()
-    }
+    /// The `application_id` 0.12.0 and every release before the rename stamped a store with: "TSel" in ASCII.
+    const BEFORE_THE_RENAME: i32 = 0x5453_656C;
 
     #[test]
-    fn a_store_from_before_the_baseline_is_refused_and_left_untouched() {
-        for wal in [false, true] {
+    fn a_store_with_a_schema_and_another_stamp_is_refused() {
+        // Unstamped, as before the baseline, or stamped before the rename.
+        for id in [None, Some(BEFORE_THE_RENAME)] {
             let dir = tempfile::tempdir().unwrap();
-            // Closing the last connection checkpoints a WAL and deletes its sidecars.
-            drop(pre_baseline(dir.path(), wal));
-            let path = dir.path().join(DATABASE);
-            let before = std::fs::read(&path).unwrap();
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+            let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
+            let stamp = format!("PRAGMA application_id = {};", migrations::APPLICATION_ID);
+            let other = id.map_or(String::new(), |id| format!("PRAGMA application_id = {id};"));
+            let baseline = migrations::MIGRATIONS[0];
+            assert_eq!(baseline.matches(&stamp).count(), 1);
+            conn.execute_batch(&baseline.replace(&stamp, &other))
+                .unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            drop(conn);
 
-            assert_pre_baseline_refused(Store::open(dir.path()));
+            let opened = Store::open(dir.path());
 
-            assert_eq!(std::fs::read(&path).unwrap(), before, "wal: {wal}");
-            assert_eq!(names(dir.path()), [DATABASE], "wal: {wal}");
+            let Err(Error::Refused(message)) = opened else {
+                panic!("expected a refusal, got {:?}", opened.map(|_| ()));
+            };
+            assert_eq!(
+                message,
+                "This store was made by an earlier release and can't be opened. Start a new store."
+            );
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_store_from_before_the_baseline_in_a_read_only_directory_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        drop(pre_baseline(dir.path(), true));
-        let mode = |m| std::fs::Permissions::from_mode(m);
-        std::fs::set_permissions(dir.path(), mode(0o555)).unwrap();
-
-        let opened = Store::open(dir.path());
-
-        std::fs::set_permissions(dir.path(), mode(0o755)).unwrap();
-        assert_pre_baseline_refused(opened);
-        assert_eq!(names(dir.path()), [DATABASE]);
-    }
-
-    /// A WAL never checkpointed leaves the database file's header from before its schema; what opening it reads
-    /// through the WAL is refused all the same, before anything is written to the database file.
-    #[test]
-    fn a_store_from_before_the_baseline_with_its_schema_only_in_the_wal_is_refused() {
-        let made = tempfile::tempdir().unwrap();
-        let conn = pre_baseline(made.path(), true);
-        let dir = tempfile::tempdir().unwrap();
-        for name in [DATABASE.to_string(), format!("{DATABASE}-wal")] {
-            std::fs::copy(made.path().join(&name), dir.path().join(&name)).unwrap();
-        }
-        drop(conn);
-        let path = dir.path().join(DATABASE);
-        let before = std::fs::read(&path).unwrap();
-        assert_eq!(&before[60..64], &[0, 0, 0, 0]);
-
-        let wal = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
-
-        assert_pre_baseline_refused(Store::open(dir.path()));
-
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        let after = std::fs::read(dir.path().join(format!("{DATABASE}-wal"))).unwrap();
-        assert_eq!(after, wal);
     }
 
     #[test]

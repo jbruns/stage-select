@@ -5,14 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use title_select_api::selection::{
+use stage_select_api::selection::{
     CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
     SelectionProfile, SystemSettings,
 };
-use title_select_api::support::SupportFileKind;
-use title_select_api::{DatSystem, SourceSetSystem};
-use title_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
-use title_select_selection::{Engine, Outcome};
+use stage_select_api::support::SupportFileKind;
+use stage_select_api::{DatSystem, SourceSetSystem};
+use stage_select_selection::arcade::{ArcadeSettings, ElectionStep, Orientation, Range, Variant};
+use stage_select_selection::{Engine, Outcome};
 
 use crate::support;
 
@@ -71,20 +71,20 @@ fn group<'a>(selection: &'a Selection, name: &str) -> &'a SelectionGroup {
         .unwrap_or_else(|| panic!("no group {name}"))
 }
 
-fn winners(selection: &Selection) -> BTreeSet<String> {
+fn kept(selection: &Selection) -> BTreeSet<String> {
     selection
         .groups
         .iter()
-        .flat_map(|g| g.winners.iter().map(|w| w.title.clone()))
+        .flat_map(|g| g.kept.iter().map(|w| w.title.clone()))
         .collect()
 }
 
 /// Each excluded machine with its rule's stage.
-fn exclusions(selection: &Selection) -> BTreeMap<String, String> {
+fn left_out(selection: &Selection) -> BTreeMap<String, String> {
     selection
         .groups
         .iter()
-        .flat_map(|g| g.exclusions.iter())
+        .flat_map(|g| g.left_out.iter())
         .map(|e| (e.title.clone(), e.rule.stage.clone()))
         .collect()
 }
@@ -101,13 +101,13 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
 
     assert_eq!(selection.system, "MAME");
     assert_eq!(
-        winners(selection),
+        kept(selection),
         set(&[
             "fighteru", "mystery", "proto", "racera", "sailor", "shooterw", "worldh"
         ])
     );
     assert_eq!(
-        exclusions(selection),
+        left_out(selection),
         BTreeMap::from(
             [
                 ("calcul8", "category"),
@@ -127,14 +127,14 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
 
     // The region decides the shooter family over its Japanese parent, and its bootleg loses as a bootleg.
     let shooter = group(selection, "shooter");
-    assert_eq!(shooter.winners[0].title, "shooterw");
-    let alternatives: BTreeMap<&str, &str> = shooter
-        .alternatives
+    assert_eq!(shooter.kept[0].title, "shooterw");
+    let clones: BTreeMap<&str, &str> = shooter
+        .clones
         .iter()
         .map(|a| (a.title.as_str(), a.rule.stage.as_str()))
         .collect();
     assert_eq!(
-        alternatives,
+        clones,
         BTreeMap::from([
             ("shooter", "election:region"),
             ("shootere", "election:region"),
@@ -143,7 +143,7 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
         ])
     );
     assert_eq!(
-        group(selection, "fighter").alternatives[0].rule.stage,
+        group(selection, "fighter").clones[0].rule.stage,
         "election:status"
     );
 
@@ -164,7 +164,7 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
         ])
     );
     assert_eq!(selection.summary.dependencies, 3);
-    assert!(group(selection, "acmebios").exclusions.is_empty());
+    assert!(group(selection, "acmebios").left_out.is_empty());
 
     let arcade = selection.pins.arcade.as_ref().unwrap();
     assert_eq!(arcade.build, "0.289 (mame0289)");
@@ -181,9 +181,9 @@ fn a_good_clone_beats_a_preliminary_parent_in_the_election() {
     let outcome = run(&data("arcade.xml"), &settings);
     golden("arcade-status-election", &outcome);
     let racer = group(&outcome.selection, "racer");
-    assert_eq!(racer.winners[0].title, "racera");
-    assert_eq!(racer.alternatives[0].title, "racer");
-    assert_eq!(racer.alternatives[0].rule.stage, "election:status");
+    assert_eq!(racer.kept[0].title, "racera");
+    assert_eq!(racer.clones[0].title, "racer");
+    assert_eq!(racer.clones[0].rule.stage, "election:status");
 }
 
 #[test]
@@ -191,9 +191,9 @@ fn the_family_fixture_elects_a_clone_with_its_bios_and_devices() {
     let outcome = run(&family_fixture(), &ArcadeSettings::default());
     golden("arcade-family", &outcome);
     let selection = &outcome.selection;
-    assert_eq!(winners(selection), set(&["blasterj"]));
-    assert_eq!(exclusions(selection)["blaster"], "hardware");
-    assert_eq!(exclusions(selection)["crane"], "hardware");
+    assert_eq!(kept(selection), set(&["blasterj"]));
+    assert_eq!(left_out(selection)["blaster"], "hardware");
+    assert_eq!(left_out(selection)["crane"], "hardware");
     let dependencies: BTreeSet<String> = selection
         .groups
         .iter()
@@ -205,7 +205,7 @@ fn the_family_fixture_elects_a_clone_with_its_bios_and_devices() {
 #[test]
 fn offered_filters_drop_what_they_name_and_keep_machines_that_dont_say() {
     let dat = data("arcade.xml");
-    let dropped = |settings: ArcadeSettings| exclusions(&run(&dat, &settings).selection);
+    let dropped = |settings: ArcadeSettings| left_out(&run(&dat, &settings).selection);
 
     let variants = dropped(ArcadeSettings {
         drop_variants: [Variant::Bootleg, Variant::Prototype].into(),
@@ -273,7 +273,7 @@ fn offered_filters_drop_what_they_name_and_keep_machines_that_dont_say() {
 
     // Unknown driver status keeps mystery under the quality filter.
     let quality = dropped(ArcadeSettings {
-        minimum_driver_status: Some(title_select_engine::dat::DriverStatus::Good),
+        minimum_driver_status: Some(stage_select_engine::dat::DriverStatus::Good),
         ..ArcadeSettings::default()
     });
     assert_eq!(quality["proto"], "quality");
@@ -308,8 +308,8 @@ fn a_filter_whose_signal_the_dat_lacks_is_unavailable_and_drops_nothing() {
     // A filter you left off isn't listed, though the DAT has nothing for it either.
     assert!(!arcade.unavailable.contains(&"players".to_owned()));
     // A machine that names no region ranks after every region you order.
-    assert_eq!(winners(&outcome.selection), set(&["barej"]));
-    assert!(exclusions(&outcome.selection).is_empty());
+    assert_eq!(kept(&outcome.selection), set(&["barej"]));
+    assert!(left_out(&outcome.selection).is_empty());
 }
 
 #[test]
@@ -324,12 +324,12 @@ fn include_and_exclude_lists_take_the_override_matchers() {
         ..ArcadeSettings::default()
     };
     let selection = run(&data("arcade.xml"), &settings).selection;
-    let dropped = exclusions(&selection);
+    let dropped = left_out(&selection);
     for machine in ["shooterw", "shooteru", "shootere", "shooterb"] {
         assert_eq!(dropped[machine], "list", "{machine}");
     }
-    assert_eq!(group(&selection, "shooter").winners[0].title, "shooter");
-    assert!(winners(&selection).contains("crane"));
+    assert_eq!(group(&selection, "shooter").kept[0].title, "shooter");
+    assert!(kept(&selection).contains("crane"));
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn a_systems_arcade_block_replaces_the_global_one() {
         .run(&data("arcade.xml"), &profile, &support::options())
         .unwrap()
         .selection;
-    assert_eq!(exclusions(&global)["fighter"], "list");
+    assert_eq!(left_out(&global)["fighter"], "list");
     assert!(!global.system_settings);
 
     profile.systems.insert(
@@ -383,7 +383,7 @@ fn a_systems_arcade_block_replaces_the_global_one() {
         .run(&data("arcade.xml"), &profile, &support::options())
         .unwrap()
         .selection;
-    let dropped = exclusions(&own);
+    let dropped = left_out(&own);
     assert_eq!(dropped["shooter"], "list");
     assert!(!dropped.contains_key("fighter"));
     assert!(own.system_settings);
@@ -399,8 +399,8 @@ fn the_election_runs_your_steps_in_your_order() {
     };
     let racer = run(&data("arcade.xml"), &settings).selection;
     let racer = group(&racer, "racer");
-    assert_eq!(racer.winners[0].title, "racer");
-    assert_eq!(racer.winners[0].rule.stage, "election:parent");
+    assert_eq!(racer.kept[0].title, "racer");
+    assert_eq!(racer.kept[0].rule.stage, "election:parent");
 
     // With no steps, the shortname decides.
     let settings = ArcadeSettings {
@@ -410,8 +410,8 @@ fn the_election_runs_your_steps_in_your_order() {
     };
     let selection = run(&data("arcade.xml"), &settings).selection;
     let racer = group(&selection, "racer");
-    assert_eq!(racer.winners[0].title, "racer");
-    assert_eq!(racer.winners[0].rule.stage, "election:shortname");
+    assert_eq!(racer.kept[0].title, "racer");
+    assert_eq!(racer.kept[0].rule.stage, "election:shortname");
 
     let twice = SelectionProfile {
         arcade: Some(ArcadeSettings {
@@ -431,7 +431,7 @@ fn the_election_runs_your_steps_in_your_order() {
 fn an_arcade_selection_pins_no_clone_lists_or_trace_schema() {
     let selection = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
     assert!(selection.pins.retool.is_none());
-    assert!(selection.pins.title_select_version.is_some());
+    assert!(selection.pins.stage_select_version.is_some());
 }
 
 #[test]
@@ -443,8 +443,8 @@ fn the_operators_choices_decide_a_family_and_one_gone_from_the_dat_revision_need
     let selection = run_with(&data("arcade.xml"), &profile, &ArcadeSettings::default()).selection;
 
     let shooter = group(&selection, "shooter");
-    assert_eq!(shooter.winners[0].title, "shooteru");
-    assert_eq!(shooter.winners[0].rule.stage, "choice");
+    assert_eq!(shooter.kept[0].title, "shooteru");
+    assert_eq!(shooter.kept[0].rule.stage, "choice");
     let acmebios = &group(&selection, "acmebios").dependencies[0];
     assert_eq!(acmebios.needed_by, ["fighteru", "shooteru"]);
 
@@ -496,7 +496,7 @@ fn selection_refuses_a_software_list_and_names_listxml_systems_mame() {
 
 #[test]
 fn coverage_is_refused_for_an_arcade_dat() {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         coverage: Some(vec!["USA".into()]),
         ..support::options()
     };
@@ -524,8 +524,8 @@ fn a_machine_that_names_no_language_ties_with_the_first_language() {
     .unwrap();
     let selection = run(&dat, &ArcadeSettings::default()).selection;
     let gauntlet = group(&selection, "gauntlet");
-    assert_eq!(gauntlet.winners[0].title, "gauntlet");
-    assert_eq!(gauntlet.alternatives[0].rule.stage, "election:language");
+    assert_eq!(gauntlet.kept[0].title, "gauntlet");
+    assert_eq!(gauntlet.clones[0].rule.stage, "election:language");
 }
 
 #[test]
@@ -551,8 +551,8 @@ fn an_empty_region_order_leaves_region_out_of_the_election() {
     };
     let selection = run(&dat, &settings).selection;
     let outrun = group(&selection, "outrun");
-    assert_eq!(outrun.winners[0].title, "outrun");
-    assert_eq!(outrun.winners[0].rule.stage, "election:parent");
+    assert_eq!(outrun.kept[0].title, "outrun");
+    assert_eq!(outrun.kept[0].rule.stage, "election:parent");
 }
 
 #[test]
@@ -578,8 +578,8 @@ fn an_empty_language_order_leaves_language_out_of_the_election() {
     };
     let selection = run(&dat, &settings).selection;
     let outrun = group(&selection, "outrun");
-    assert_eq!(outrun.winners[0].title, "outrun");
-    assert_eq!(outrun.winners[0].rule.stage, "election:parent");
+    assert_eq!(outrun.kept[0].title, "outrun");
+    assert_eq!(outrun.kept[0].rule.stage, "election:parent");
 }
 
 #[test]
@@ -602,9 +602,9 @@ fn a_newer_six_digit_date_beats_an_older_eight_digit_one_in_the_election() {
     .unwrap();
     let selection = run(&dat, &ArcadeSettings::default()).selection;
     let fighter = group(&selection, "fighter");
-    assert_eq!(fighter.winners[0].title, "fighterc");
-    assert_eq!(fighter.alternatives[0].title, "fighterb");
-    assert_eq!(fighter.alternatives[0].rule.stage, "election:revision");
+    assert_eq!(fighter.kept[0].title, "fighterc");
+    assert_eq!(fighter.clones[0].title, "fighterb");
+    assert_eq!(fighter.clones[0].rule.stage, "election:revision");
 }
 
 /// A comment longer than any prefix a sniff might read.
@@ -667,7 +667,7 @@ fn a_clrmamepro_dat_naming_an_xml_root_in_its_text_goes_to_the_retool_port() {
         .run(&original, &SelectionProfile::default(), &support::options())
         .unwrap()
         .selection;
-    assert!(!winners(&expected).is_empty());
+    assert!(!kept(&expected).is_empty());
     let work = tempfile::tempdir().unwrap();
     for root in ["<mame>", "<softwarelist>"] {
         let dat = work.path().join("xbox.dat");
@@ -683,7 +683,7 @@ fn a_clrmamepro_dat_naming_an_xml_root_in_its_text_goes_to_the_retool_port() {
             .unwrap()
             .selection;
         assert!(selection.pins.arcade.is_none(), "{root}");
-        assert_eq!(winners(&selection), winners(&expected), "{root}");
+        assert_eq!(kept(&selection), kept(&expected), "{root}");
     }
 }
 
@@ -709,14 +709,14 @@ fn a_number_that_is_no_calendar_date_ranks_as_naming_no_revision() {
     .unwrap();
     let selection = run(&dat, &ArcadeSettings::default()).selection;
     let fighter = group(&selection, "fighter");
-    assert_eq!(fighter.winners[0].title, "fighterb");
-    let alternatives: BTreeMap<_, _> = fighter
-        .alternatives
+    assert_eq!(fighter.kept[0].title, "fighterb");
+    let clones: BTreeMap<_, _> = fighter
+        .clones
         .iter()
         .map(|a| (a.title.as_str(), a.rule.stage.as_str()))
         .collect();
     assert_eq!(
-        alternatives,
+        clones,
         BTreeMap::from([
             ("fightera", "election:revision"),
             ("fighterc", "election:revision"),
@@ -733,7 +733,7 @@ fn support_files(kinds: &[&str]) -> Vec<PathBuf> {
 }
 
 fn run_supported(engine: &Engine, kinds: &[&str], settings: &ArcadeSettings) -> Outcome {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(kinds),
         ..support::options()
     };
@@ -751,12 +751,12 @@ fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
     );
     golden("arcade-support", &outcome);
     let selection = &outcome.selection;
-    let dropped = exclusions(selection);
+    let dropped = left_out(selection);
     let reason = |title: &str| {
         selection
             .groups
             .iter()
-            .flat_map(|g| g.exclusions.iter())
+            .flat_map(|g| g.left_out.iter())
             .find(|e| e.title == title)
             .map(|e| (e.reason.clone(), e.rule.message.clone()))
             .unwrap()
@@ -775,7 +775,7 @@ fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
         reason("calcul8").1,
         "non-arcade by the ListXML heuristic, as catver.ini doesn't list it: its driver is in casio/"
     );
-    assert!(winners(selection).contains("mystery"));
+    assert!(kept(selection).contains("mystery"));
 
     let arcade = selection.pins.arcade.as_ref().unwrap();
     assert_eq!(arcade.category, Some(CategorySource::Catver));
@@ -815,14 +815,14 @@ fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
 fn languages_ini_gives_the_language_election_the_languages_of_each_machine_it_lists() {
     let engine = engine();
     let without = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
-    assert_eq!(group(&without, "sailor").winners[0].title, "sailor");
+    assert_eq!(group(&without, "sailor").kept[0].title, "sailor");
 
     let with = run_supported(&engine, &["languages"], &ArcadeSettings::default()).selection;
     let sailor = group(&with, "sailor");
-    assert_eq!(sailor.winners[0].title, "sailore");
-    assert_eq!(sailor.winners[0].rule.stage, "election:language");
+    assert_eq!(sailor.kept[0].title, "sailore");
+    assert_eq!(sailor.kept[0].rule.stage, "election:language");
     assert_eq!(
-        sailor.alternatives[0].rule.message,
+        sailor.clones[0].rule.message,
         "language Japanese, which ranks below language English"
     );
 }
@@ -842,7 +842,7 @@ fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
     });
     let engine = engine();
     engine.check(&profile, &[]).unwrap();
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: vec![languages],
         ..support::options()
     };
@@ -851,8 +851,8 @@ fn a_language_only_languages_ini_names_can_lead_the_order_in_any_case() {
         .unwrap()
         .selection;
     let sailor = group(&selection, "sailor");
-    assert_eq!(sailor.winners[0].title, "sailor");
-    assert_eq!(sailor.winners[0].rule.stage, "election:language");
+    assert_eq!(sailor.kept[0].title, "sailor");
+    assert_eq!(sailor.kept[0].rule.stage, "election:language");
 }
 
 #[test]
@@ -917,10 +917,10 @@ fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_t
     let outcome = run_supported(&engine, &["bestgames"], &settings);
     golden("arcade-rating", &outcome);
     let selection = &outcome.selection;
-    let dropped = exclusions(selection);
+    let dropped = left_out(selection);
     // racera is rated best itself, but its family's parent is rated below 70.
     assert_eq!(dropped["racera"], "rating");
-    let racera = &group(selection, "racer").exclusions;
+    let racera = &group(selection, "racer").left_out;
     assert_eq!(
         racera
             .iter()
@@ -930,7 +930,7 @@ fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_t
             .message,
         "its family is rated 40–50 (Decent) by progetto-SNAPS, MAME 0.280, below 70"
     );
-    assert!(winners(selection).is_superset(&set(&["fighteru", "shooterw", "mystery", "sailor"])));
+    assert!(kept(selection).is_superset(&set(&["fighteru", "shooterw", "mystery", "sailor"])));
     assert!(
         outcome
             .trace
@@ -948,8 +948,8 @@ fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_t
         },
     )
     .selection;
-    assert_eq!(winners(&strict), set(&["fighteru", "shooterw"]));
-    assert_eq!(exclusions(&strict)["mystery"], "rating");
+    assert_eq!(kept(&strict), set(&["fighteru", "shooterw"]));
+    assert_eq!(left_out(&strict)["mystery"], "rating");
 
     // Without bestgames the filter is unavailable and drops nothing.
     let unrated = run(
@@ -961,7 +961,7 @@ fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_t
     );
     let arcade = unrated.selection.pins.arcade.as_ref().unwrap();
     assert!(arcade.unavailable.contains(&"rating".to_owned()));
-    assert!(winners(&unrated.selection).contains("racera"));
+    assert!(kept(&unrated.selection).contains("racera"));
 }
 
 #[test]
@@ -976,7 +976,7 @@ fn the_include_list_keeps_a_family_the_rating_filter_would_drop_and_the_trace_sa
             ..ArcadeSettings::default()
         },
     );
-    assert!(winners(&outcome.selection).is_superset(&set(&["mystery", "racera"])));
+    assert!(kept(&outcome.selection).is_superset(&set(&["mystery", "racera"])));
     let rating_line = |family: &str| {
         outcome
             .trace
@@ -997,7 +997,7 @@ fn the_include_list_keeps_a_family_the_rating_filter_would_drop_and_the_trace_sa
 /// A curated list at the pinned commit, naming `names`.
 fn curated_list(names: &[&str]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let pinned = title_select_selection::curated_list().unwrap();
+    let pinned = stage_select_selection::curated_list().unwrap();
     std::fs::write(dir.path().join("commit"), format!("{}\n", pinned.commit)).unwrap();
     std::fs::write(dir.path().join("ROMSET"), names.join("\n") + "\n").unwrap();
     dir
@@ -1015,14 +1015,14 @@ fn the_curated_list_keeps_only_its_families_and_prefers_the_machine_it_names() {
     };
     let outcome = run_supported(&engine, &[], &settings);
     // The golden names no commit, so that a new pin doesn't change it.
-    let pinned = title_select_selection::curated_list().unwrap();
+    let pinned = stage_select_selection::curated_list().unwrap();
     let mut masked = outcome.clone();
     for group in &mut masked.selection.groups {
         let rules = group
-            .winners
+            .kept
             .iter_mut()
             .map(|w| &mut w.rule)
-            .chain(group.alternatives.iter_mut().map(|a| &mut a.rule));
+            .chain(group.clones.iter_mut().map(|a| &mut a.rule));
         for rule in rules {
             if let Some(reference) = &mut rule.reference {
                 *reference = reference.replace(&pinned.commit, "<commit>");
@@ -1031,22 +1031,22 @@ fn the_curated_list_keeps_only_its_families_and_prefers_the_machine_it_names() {
     }
     golden("arcade-curated", &masked);
     let selection = &outcome.selection;
-    assert_eq!(winners(selection), set(&["racera", "sailor", "shooteru"]));
+    assert_eq!(kept(selection), set(&["racera", "sailor", "shooteru"]));
     let shooter = group(selection, "shooter");
-    assert_eq!(shooter.winners[0].rule.stage, "election:curated");
+    assert_eq!(shooter.kept[0].rule.stage, "election:curated");
     assert_eq!(
-        shooter.winners[0].rule.message,
+        shooter.kept[0].rule.message,
         "named by curated-mame-arcade-romset"
     );
     assert_eq!(
-        shooter.winners[0].rule.reference.as_deref(),
+        shooter.kept[0].rule.reference.as_deref(),
         Some(format!("{}/blob/{}/ROMSET", pinned.repository, pinned.commit).as_str())
     );
     assert_eq!(
-        group(selection, "sailor").winners[0].rule.stage,
+        group(selection, "sailor").kept[0].rule.stage,
         "election:curated"
     );
-    assert_eq!(exclusions(selection)["fighteru"], "curated");
+    assert_eq!(left_out(selection)["fighteru"], "curated");
     let curated = selection
         .pins
         .arcade
@@ -1089,7 +1089,7 @@ fn the_curated_list_at_another_commit_is_refused() {
 
 #[test]
 fn two_support_files_of_one_kind_are_refused() {
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(&["catver", "catver"]),
         ..support::options()
     };
@@ -1105,7 +1105,7 @@ fn two_support_files_of_one_kind_are_refused() {
 
 #[test]
 fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
-    let dir = std::env::var_os(title_select_selection::CURATED_LIST_ENV).map_or_else(
+    let dir = std::env::var_os(stage_select_selection::CURATED_LIST_ENV).map_or_else(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.curated-list"),
         PathBuf::from,
     );
@@ -1124,7 +1124,7 @@ fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
             panic!("{e}\nthe arcade tests need the curated list: run tools/curated-list/fetch")
         });
     // None of the synthetic machines is a real game it names.
-    assert!(winners(&outcome.selection).is_empty());
+    assert!(kept(&outcome.selection).is_empty());
     assert!(
         outcome
             .selection
@@ -1146,7 +1146,7 @@ fn a_profiles_rating_settings_reach_the_selector() {
         r#"{"systems":{"MAME":{"arcade":{"minimum_rating":70,"drop_unrated":true}}}}"#,
     )
     .unwrap();
-    let options = title_select_selection::RunOptions {
+    let options = stage_select_selection::RunOptions {
         support_files: support_files(&["bestgames"]),
         ..support::options()
     };
@@ -1154,8 +1154,8 @@ fn a_profiles_rating_settings_reach_the_selector() {
         .run(&data("arcade.xml"), &profile, &options)
         .unwrap()
         .selection;
-    assert_eq!(winners(&selection), set(&["fighteru", "shooterw"]));
-    let dropped = exclusions(&selection);
+    assert_eq!(kept(&selection), set(&["fighteru", "shooterw"]));
+    let dropped = left_out(&selection);
     // Below the minimum, and unrated.
     assert_eq!(dropped["racera"], "rating");
     assert_eq!(dropped["mystery"], "rating");
@@ -1166,7 +1166,7 @@ fn a_profiles_rating_settings_reach_the_selector() {
         .run(&data("arcade.xml"), &SelectionProfile::default(), &options)
         .unwrap()
         .selection;
-    assert!(!exclusions(&unrated).values().any(|stage| stage == "rating"));
+    assert!(!left_out(&unrated).values().any(|stage| stage == "rating"));
 }
 
 #[test]
@@ -1178,12 +1178,12 @@ fn a_profiles_curated_switch_reaches_the_selector_and_is_off_by_default() {
         .run(&data("arcade.xml"), &profile, &support::options())
         .unwrap()
         .selection;
-    assert_eq!(winners(&selection), set(&["shooteru"]));
+    assert_eq!(kept(&selection), set(&["shooteru"]));
     assert_eq!(
-        group(&selection, "shooter").winners[0].rule.stage,
+        group(&selection, "shooter").kept[0].rule.stage,
         "election:curated"
     );
-    assert_eq!(exclusions(&selection)["fighteru"], "curated");
+    assert_eq!(left_out(&selection)["fighteru"], "curated");
 
     // Off, the list isn't read, so a missing one doesn't matter, and the Selection records none.
     let off = engine
@@ -1195,6 +1195,6 @@ fn a_profiles_curated_switch_reaches_the_selector_and_is_off_by_default() {
         )
         .unwrap()
         .selection;
-    assert!(winners(&off).len() > 1);
+    assert!(kept(&off).len() > 1);
     assert_eq!(off.pins.arcade.unwrap().curated, None);
 }

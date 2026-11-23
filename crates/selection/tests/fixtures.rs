@@ -5,7 +5,7 @@
 //! There is one golden per DAT under `tests/goldens/fixtures/`, holding all sixteen profiles side by side; see
 //! `render` for the format. A release build checks every DAT, in about a minute of four cores, as each DAT and
 //! profile pair runs on its own; a debug build, which is several times slower, checks only the feature DATs and a few
-//! system DATs (`in_debug_run`). `TITLE_SELECT_REGENERATE_GOLDENS=1` with `--release` rewrites them all, and
+//! system DATs (`in_debug_run`). `STAGE_SELECT_REGENERATE_GOLDENS=1` with `--release` rewrites them all, and
 //! `ONLY_DAT=<file name>` narrows a run to one DAT.
 
 mod support;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use title_select_api::selection::{Category, Rule, Selection, SelectionProfile};
+use stage_select_api::selection::{Category, Rule, Selection, SelectionProfile};
 
 /// Every DAT under the fixtures' `source/`.
 fn fixture_dats() -> Vec<PathBuf> {
@@ -178,7 +178,7 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                 cell.push('d');
             }
             entry.cells.insert(p, cell);
-            let sole_winner = match group.winners.as_slice() {
+            let sole_winner = match group.kept.as_slice() {
                 [only] => Some(only.title.as_str()),
                 _ => None,
             };
@@ -190,11 +190,11 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                     .or_default()
                     .insert(p, (kind, rule));
             };
-            for w in &group.winners {
+            for w in &group.kept {
                 let kind = if w.unresolved { 'u' } else { 'w' };
                 place(&w.title, kind, rule_text(&w.rule, None));
             }
-            for a in &group.alternatives {
+            for a in &group.clones {
                 place(&a.title, 'a', rule_text(&a.rule, None));
                 if sole_winner != Some(a.clone_of.as_str()) {
                     entry
@@ -204,7 +204,7 @@ fn render(dat: &Path, profiles: &[(String, SelectionProfile)], ran: &[Ran]) -> S
                         .insert(p);
                 }
             }
-            for x in &group.exclusions {
+            for x in &group.left_out {
                 place(&x.title, 'x', rule_text(&x.rule, Some(&x.reason)));
             }
         }

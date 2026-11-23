@@ -13,7 +13,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat};
-use title_select_api::build::{FileStat, STATE};
+use stage_select_api::build::{FileStat, STATE};
 
 /// An open directory and the path it was opened at, for messages.
 pub(super) struct FolderDir {
@@ -87,17 +87,17 @@ impl Identity {
     }
 }
 
-impl From<Identity> for title_select_api::build::FileIdentity {
+impl From<Identity> for stage_select_api::build::FileIdentity {
     fn from(id: Identity) -> Self {
-        title_select_api::build::FileIdentity {
+        stage_select_api::build::FileIdentity {
             dev: id.dev,
             ino: id.ino,
         }
     }
 }
 
-impl From<title_select_api::build::FileIdentity> for Identity {
-    fn from(id: title_select_api::build::FileIdentity) -> Self {
+impl From<stage_select_api::build::FileIdentity> for Identity {
+    fn from(id: stage_select_api::build::FileIdentity) -> Self {
         Identity {
             dev: id.dev,
             ino: id.ino,
@@ -197,7 +197,7 @@ impl FolderDir {
     /// The directory `name` in this one, a `/`-separated path, no component of it followed if it is a symlink.
     /// The folder's [`STATE`] directory, and so any path through it, opens only while it is private to this
     /// service's user ([`FolderDir::private`]): its owner could otherwise replace the marker in it, or move a folder
-    /// Title Select writes into out of the folder.
+    /// Stage Select writes into out of the folder.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
         let (parent, leaf) = self.resolve(name)?;
         let state = parent.is_none() && leaf == STATE;
@@ -226,7 +226,7 @@ impl FolderDir {
     /// Why the folder's [`STATE`] directory, found as `why` says, is never used.
     fn not_state(&self, why: &str) -> io::Error {
         io::Error::other(format!(
-            "{} is not Title Select's own private folder: {why}; it was left as it is. Move it out of the folder, \
+            "{} is not Stage Select's own private folder: {why}; it was left as it is. Move it out of the folder, \
              then try again",
             self.at(STATE).display()
         ))
@@ -250,7 +250,7 @@ impl FolderDir {
     ///
     /// The Library Folder lets only the service's own user rename entries in it, and a process running as that user
     /// can rewrite the store as well, so it is not defended against. What this rejects is a directory another user, or
-    /// an earlier leftover, put at a name Title Select is about to trust.
+    /// an earlier leftover, put at a name Stage Select is about to trust.
     pub fn private(&self, empty: bool) -> io::Result<std::result::Result<Identity, String>> {
         let st = rustix::fs::fstat(&self.fd).map_err(|e| with_path(&self.path, e.into()))?;
         let mode = st.st_mode as u32 & 0o777;
@@ -262,7 +262,7 @@ impl FolderDir {
         }
         if mode != 0o700 {
             return Ok(Err(format!(
-                "its permissions are {mode:o}, not the 700 Title Select creates it with"
+                "its permissions are {mode:o}, not the 700 Stage Select creates it with"
             )));
         }
         if empty && !self.entries()?.is_empty() {
@@ -441,7 +441,7 @@ impl FolderDir {
     }
 
     /// Makes the entries of the directory holding `rel`, a `/`-separated path relative to this one, durable: this
-    /// directory's for a single name, and for a name in [`STATE`](title_select_api::build::STATE), that directory's.
+    /// directory's for a single name, and for a name in [`STATE`](stage_select_api::build::STATE), that directory's.
     pub fn sync_holding(&self, rel: &str) -> io::Result<()> {
         match self.resolve(rel)? {
             (Some(parent), _) => parent.sync(),
@@ -552,7 +552,7 @@ pub(super) fn parent_made<'a>(
 }
 
 /// The name, in a folder's [`STATE`] directory, that a new file meant for `name` is written under before one rename
-/// that never replaces anything puts it in place: on the folder's own filesystem, and never a name Title Select
+/// that never replaces anything puts it in place: on the folder's own filesystem, and never a name Stage Select
 /// gives anything else there.
 pub(super) fn staged_name(name: &str) -> String {
     format!("{STATE}/new-{}-{name}", super::kept::unique())
@@ -597,7 +597,7 @@ mod tests {
     fn a_state_folder_made_before_a_stop_is_synced_into_its_folder_when_next_used() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = FolderDir::open(tmp.path(), "").unwrap();
-        // A stop between making `.title-select` and syncing the folder holding it.
+        // A stop between making `.stage-select` and syncing the folder holding it.
         dir.mkdir_private(STATE).unwrap();
         SYNCED.with(|synced| synced.borrow_mut().clear());
 

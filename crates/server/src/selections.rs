@@ -6,13 +6,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use title_select_api::selection::{Selection, SelectionProfile};
-use title_select_selection::{Engine, Error, RunOptions};
-use title_select_store::{Store, TMP};
+use stage_select_api::selection::{Selection, SelectionProfile};
+use stage_select_selection::{Engine, Error, RunOptions};
+use stage_select_store::{Store, TMP};
 
 /// Why a Selection or preview cannot run without the clone lists.
 pub const UNAVAILABLE: &str = "the clone lists aren't installed on this server, so selections and previews are \
-    unavailable; start the server with --clone-lists, or set TITLE_SELECT_CLONE_LISTS";
+    unavailable; start the server with --clone-lists, or set STAGE_SELECT_CLONE_LISTS";
 
 /// The DAT blob `blob` staged under its imported file name `file`, in a scratch folder under the store's `tmp`.
 struct Staged {
@@ -60,7 +60,7 @@ pub fn select(
     })?;
     let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
-        eprintln!("title-select: selection engine warning for {file}: {warning}");
+        eprintln!("stage-select: selection engine warning for {file}: {warning}");
     }
     Ok((outcome.selection, outcome.warnings))
 }
@@ -117,7 +117,7 @@ impl Drop for PreviewGuard {
 }
 
 /// The systems already named, by DAT Revision SHA-256: a revision's header never changes.
-static SYSTEMS: Mutex<Option<HashMap<String, Option<title_select_api::DatSystem>>>> =
+static SYSTEMS: Mutex<Option<HashMap<String, Option<stage_select_api::DatSystem>>>> =
     Mutex::new(None);
 
 /// The system each registered Source Set's latest DAT Revision is for, asking the engine only about revisions
@@ -125,7 +125,7 @@ static SYSTEMS: Mutex<Option<HashMap<String, Option<title_select_api::DatSystem>
 pub fn systems(
     store: &Store,
     engine: &Engine,
-) -> Result<Vec<title_select_api::SourceSetSystem>, crate::routes::ApiError> {
+) -> Result<Vec<stage_select_api::SourceSetSystem>, crate::routes::ApiError> {
     let revisions: Vec<(String, Option<(String, std::path::PathBuf)>)> = store
         .source_sets()?
         .into_iter()
@@ -162,7 +162,7 @@ pub fn systems(
         .map(|(source_set, revision)| {
             let system = revision
                 .and_then(|(sha, _)| known.as_ref().and_then(|k| k.get(&sha).cloned().flatten()));
-            title_select_api::SourceSetSystem {
+            stage_select_api::SourceSetSystem {
                 source_set,
                 arcade: system.as_ref().is_some_and(|s| s.arcade),
                 system: system.map(|s| s.name),

@@ -7,11 +7,11 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
-use title_select_api::additions::AdditionsSet;
-use title_select_api::build::{BuildSummary, LibraryFolder};
-use title_select_api::ingest::IngestPlan;
-use title_select_api::repair::RepairPlan;
-use title_select_api::{
+use stage_select_api::additions::AdditionsSet;
+use stage_select_api::build::{BuildSummary, LibraryFolder};
+use stage_select_api::ingest::IngestPlan;
+use stage_select_api::repair::RepairPlan;
+use stage_select_api::{
     AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, OutsideCoverage,
     Placements, SetFollow, SetHoldingFolder, SourceSetRecord, SourceSetSummary, StartAudit,
     StatWalk,
@@ -303,7 +303,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
 fn Overview(
     set: SourceSetRecord,
     latest: Option<AuditSummary>,
-    revisions: Vec<title_select_api::DatRevisionRecord>,
+    revisions: Vec<stage_select_api::DatRevisionRecord>,
     outside: Option<OutsideCoverage>,
     unavailable: bool,
     present: Option<u64>,
@@ -647,7 +647,7 @@ fn ExportMissing(
         let set = set.clone();
         LocalResource::new(move || {
             let path = format!("/selections?source_set={set}");
-            async move { api::get::<Vec<title_select_api::SelectionRecord>>(&path).await }
+            async move { api::get::<Vec<stage_select_api::SelectionRecord>>(&path).await }
         })
     };
     let options = move || {
@@ -729,7 +729,7 @@ fn SetLifecycle(name: String) -> impl IntoView {
 fn StartAuditForm(
     name: String,
     latest: Option<AuditSummary>,
-    revisions: Vec<title_select_api::DatRevisionRecord>,
+    revisions: Vec<stage_select_api::DatRevisionRecord>,
 ) -> impl IntoView {
     let (default, newer) = audit_choices(latest.as_slice(), &revisions);
     let default = match default {

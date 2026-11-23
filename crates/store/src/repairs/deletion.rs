@@ -6,9 +6,9 @@ use std::collections::BTreeSet;
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
-use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion, RETENTION};
-use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::repair::{
+use stage_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion, RETENTION};
+use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::repair::{
     KeptFileReviewed, SourceKeptDeletion, SourceKeptDeletionContent, SourceKeptFile,
 };
 
@@ -22,7 +22,7 @@ use crate::kept::{
 use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
-use title_select_engine::meter::Tally;
+use stage_select_engine::meter::Tally;
 
 /// Whose kept files: a Source Set's, kept by its repairs, or an Additions Set's, kept as its additions retire.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -119,7 +119,7 @@ fn kept_from_row(r: &Row) -> rusqlite::Result<SourceKeptFile> {
         kept_name: r.get(5)?,
         reason: r.get(6)?,
         sha256: r.get(7)?,
-        file: title_select_api::build::FileStat {
+        file: stage_select_api::build::FileStat {
             size: r.get::<_, i64>(8)? as u64,
             mtime_ns: mtime.parse().unwrap_or_default(),
         },
@@ -186,7 +186,7 @@ fn deletion_by_id(c: &Connection, owner: Owner, id: i64) -> Result<SourceKeptDel
 
 fn digest(content: &SourceKeptDeletionContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a deletion always serializes");
-    title_select_engine::sha256_hex(&bytes)
+    stage_select_engine::sha256_hex(&bytes)
 }
 
 fn outcome(file: &SourceKeptFile, deleted: bool, detail: Option<String>) -> KeptDeletionOutcome {
@@ -236,7 +236,7 @@ fn review(
     file: &SourceKeptFile,
 ) -> Result<std::result::Result<KeptFileReviewed, String>> {
     let kept = &file.kept_name;
-    // A kept file of an Additions Set is deleted only on the hash recorded when Title Select kept it.
+    // A kept file of an Additions Set is deleted only on the hash recorded when Stage Select kept it.
     if owner == Owner::Additions && file.sha256.is_none() {
         return Ok(Err(format!(
             "{kept} was found in place of the file kept, so it is never deleted"
@@ -855,7 +855,7 @@ mod digest_tests {
     fn a_deletion_digest_is_the_sha256_of_its_compact_json() {
         let json =
             r#"{"source_set":1,"files":[],"reviewed":[{"id":2,"ctime_ns":3,"sha256":"abc"}]}"#;
-        let content: title_select_api::repair::SourceKeptDeletionContent =
+        let content: stage_select_api::repair::SourceKeptDeletionContent =
             serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(

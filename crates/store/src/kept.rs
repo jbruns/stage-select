@@ -1,5 +1,5 @@
 //! Kept files: files a Build moved out of a Library Folder into the folder's retention area,
-//! `.title-select/retained/<generation>/`, rather than deleting them. The retention area and each folder in it are
+//! `.stage-select/retained/<generation>/`, rather than deleting them. The retention area and each folder in it are
 //! created under a temporary name recorded by identity, made durable, renamed into place without replacing anything,
 //! and recorded by identity before anything is moved into them; one found with another identity, or not recorded at
 //! all, is never used. A file is kept aside by one rename within the folder that never replaces anything, only while
@@ -14,11 +14,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::{
+use stage_select_api::build::{
     Approval, FileStat, KeepAside, KeepReason, KeptDeletion, KeptDeletionContent,
     KeptDeletionOutcome, KeptFile, Marker, PlanKeptDeletion, RETENTION, STAGING, kept_name,
 };
-use title_select_api::repair::KeptFileReviewed;
+use stage_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
@@ -26,7 +26,7 @@ use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, p
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
-use title_select_engine::meter::Tally;
+use stage_select_engine::meter::Tally;
 
 /// What a kept file cites, in `audit_citations` and `selection_citations`: the provenance of the file a Build wrote,
 /// so that pruning never drops what its record needs.
@@ -34,7 +34,7 @@ fn cited_by(kept: i64) -> String {
     format!("kept-file:{kept}")
 }
 
-/// Whose bookkeeping a directory Title Select creates is recorded in: a Library Folder's (`folder_dirs`,
+/// Whose bookkeeping a directory Stage Select creates is recorded in: a Library Folder's (`folder_dirs`,
 /// `folder_temps`, `folder_temp_names`), an Ingest Folder's (`ingest_dirs`, `ingest_temps`, `ingest_temp_names`) or a
 /// Source Set's (`source_dirs`, `source_temps`, `source_temp_names`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,7 +200,7 @@ pub(super) fn create_dir(
     key: &str,
 ) -> Result<std::result::Result<FolderDir, String>> {
     let folder: Scope = folder.into();
-    // `name` may be a path in `parent`, such as the retention area in the folder's `.title-select` directory, which
+    // `name` may be a path in `parent`, such as the retention area in the folder's `.stage-select` directory, which
     // is made first if it is missing; the directory is then made, and renamed into place, in the one holding it.
     let (holder, name) = match parent_made(parent, name) {
         Ok(found) => found,
@@ -238,7 +238,7 @@ pub(super) fn create_dir(
         Ok(Ok(id)) => id,
         Ok(Err(why)) => {
             return not_made(format!(
-                "{}/{temp} is not the folder Title Select just created there: {why}; it was left as it is",
+                "{}/{temp} is not the folder Stage Select just created there: {why}; it was left as it is",
                 parent.path().display()
             ));
         }
@@ -445,7 +445,7 @@ pub(super) fn open_area_deleting(
     }
 }
 
-/// Settles each directory Title Select was creating in Library Folder `folder`, opened as `dir`, when it stopped:
+/// Settles each directory Stage Select was creating in Library Folder `folder`, opened as `dir`, when it stopped:
 /// one still under its temporary name, committed by name before it was made or by identity once it was checked, is
 /// recorded as this store's leftover and left, and one already renamed into place, still the directory made, is
 /// recorded. Anything else at either name is left as it is and forgotten, and nothing is removed. Run only once the
@@ -803,7 +803,7 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
          FROM kept_files k JOIN library_folders m ON m.id = k.folder_id
          WHERE k.id = ?1 AND k.reason = 'repack' AND k.game IS NOT NULL AND m.current_build_id IS NOT NULL
            AND EXISTS (SELECT 1 FROM builds c JOIN selection_releases r ON r.selection_id = c.selection_id
-                       WHERE c.id = m.current_build_id AND r.role = 'winner'
+                       WHERE c.id = m.current_build_id AND r.outcome = 'kept'
                          AND lower(r.title || '.zip') = lower(k.name))
            AND NOT EXISTS (SELECT 1 FROM build_incomplete i WHERE i.build_id = m.current_build_id
                            AND lower(i.target) = lower(k.name) AND i.reason = 'failed' AND i.detail = ?2)",
@@ -1270,7 +1270,7 @@ impl Store {
                     match kept.iter().find(|k| k.id == *id) {
                         Some(k) if k.directory => {
                             return Err(Error::Refused(format!(
-                                "kept file {id} ({}) is a folder, which Title Select does not delete; put it back with \
+                                "kept file {id} ({}) is a folder, which Stage Select does not delete; put it back with \
                                  a cleanup and remove it yourself if you no longer want it",
                                 k.name
                             )));
@@ -1492,7 +1492,7 @@ impl Store {
             deletion_by_id(tx, id)
         })?;
         self.settle_marker(
-            title_select_api::lifecycle::RegistrationKind::LibraryFolder,
+            stage_select_api::lifecycle::RegistrationKind::LibraryFolder,
             folder,
         )?;
         Ok(finished)
@@ -2191,7 +2191,7 @@ pub(super) fn drop_citations(tx: &Transaction, id: i64) -> Result<()> {
 
 fn digest(content: &KeptDeletionContent) -> String {
     let bytes = serde_json::to_vec(content).expect("a deletion always serializes");
-    title_select_engine::sha256_hex(&bytes)
+    stage_select_engine::sha256_hex(&bytes)
 }
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<KeptFile> {
@@ -2276,7 +2276,7 @@ fn deletion_by_id(c: &Connection, id: i64) -> Result<KeptDeletion> {
 /// The key under which two file names are one file on any file system, including a case-insensitive, normalizing one:
 /// lowercased, as a stand-in for case folding, and in NFC. Every set of names reserved in the kept files is keyed so.
 pub(crate) fn name_key(name: &str) -> String {
-    title_select_api::build::name_key(name)
+    stage_select_api::build::name_key(name)
 }
 
 #[cfg(test)]
@@ -2286,7 +2286,7 @@ mod tests {
     #[test]
     fn a_deletion_digest_is_the_sha256_of_its_compact_json() {
         let json = r#"{"folder":1,"files":[],"reviewed":[{"id":2,"ctime_ns":3,"sha256":"abc"}]}"#;
-        let content: title_select_api::build::KeptDeletionContent =
+        let content: stage_select_api::build::KeptDeletionContent =
             serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
         assert_eq!(

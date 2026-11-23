@@ -1,17 +1,17 @@
 //! Ingest Folders: scans, the state of each item, assessment against every Source Set, and the plans that move items
 //! out, from synthetic DATs, Source Sets and files.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
 use crate::sevenz_fixtures;
-use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
-use title_select_api::support::{SupportFileKind, SupportFileOrigin};
-use title_select_api::{AuditEvidence, JobKind};
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
+use stage_select_api::support::{SupportFileKind, SupportFileOrigin};
+use stage_select_api::{AuditEvidence, JobKind};
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const WORKERS: Workers = Workers {
     readers: 1,
@@ -92,11 +92,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -152,7 +152,7 @@ impl Env {
         let ended = self.store.run_ingest_scan_job(job.id).unwrap();
         assert_eq!(
             ended.state,
-            title_select_api::JobState::Succeeded,
+            stage_select_api::JobState::Succeeded,
             "{ended:?}"
         );
     }
@@ -192,13 +192,13 @@ impl Env {
                     .to_string_lossy()
                     .into_owned()
             })
-            .filter(|p| p != ".title-select/marker")
+            .filter(|p| p != ".stage-select/marker")
             .collect();
         found.sort();
         found
     }
 
-    fn plan(&self, action: IngestAction, items: &[&str]) -> title_select_api::ingest::IngestPlan {
+    fn plan(&self, action: IngestAction, items: &[&str]) -> stage_select_api::ingest::IngestPlan {
         let ids = items.iter().map(|name| self.item(name).id).collect();
         self.store
             .plan_ingest(
@@ -404,7 +404,7 @@ fn an_unmatched_item_is_a_candidate_addition_with_the_system_its_extension_sugge
 fn an_unsupported_archive_is_never_opened_and_a_damaged_zip_is_unreadable() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
-    let path = env.put("set.rar", b"not an archive Title Select reads");
+    let path = env.put("set.rar", b"not an archive Stage Select reads");
     // Opening it would fail, and make it Failed.
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
     write_zip(
@@ -555,7 +555,7 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert_eq!(plan.content.items.len(), 1);
     assert_eq!(
         plan.content.items[0].destination,
-        ".title-select/retained/1/mystery.a26.kept"
+        ".stage-select/retained/1/mystery.a26.kept"
     );
     assert_eq!(env.listing(), before, "planning changes nothing");
 
@@ -572,7 +572,7 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert!(applied.outcomes.iter().all(|o| o.moved), "{applied:?}");
     assert_eq!(
         env.listing(),
-        [".title-select/retained/1/mystery.a26.kept", "other.a26"]
+        [".stage-select/retained/1/mystery.a26.kept", "other.a26"]
     );
     assert_eq!(env.state("mystery.a26"), ItemState::Moved);
     let moved = env.item("mystery.a26").last_move.unwrap();
@@ -652,13 +652,13 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     let jobs = env.store.jobs(10).unwrap();
     let audits: Vec<&str> = jobs
         .iter()
-        .filter(|j| j.kind == JobKind::Audit && j.state == title_select_api::JobState::Queued)
+        .filter(|j| j.kind == JobKind::Audit && j.state == stage_select_api::JobState::Queued)
         .map(|j| j.source_set.as_str())
         .collect();
     assert_eq!(audits, ["Alpha"]);
     assert_eq!(
         env.listing(),
-        [".title-select/retained/1/Alpha System (2).dat.kept"]
+        [".stage-select/retained/1/Alpha System (2).dat.kept"]
     );
     let changed = |set: &str| -> Vec<i64> {
         let plans = env.store.source_set_ingests(set).unwrap();
@@ -747,7 +747,7 @@ fn a_dropped_in_support_file_is_known_by_its_header_imported_and_kept_and_anothe
     );
     assert_eq!(
         env.listing(),
-        [".title-select/retained/1/categories.ini.kept", "mame.ini"]
+        [".stage-select/retained/1/categories.ini.kept", "mame.ini"]
     );
 
     // The same file dropped in again is already held.
@@ -795,7 +795,7 @@ fn a_dropped_in_dat_is_recognized_as_a_newer_revision_and_makes_the_following_so
 
     let stale = env.store.source_set("Alpha").unwrap().stale;
     assert!(
-        matches!(&stale[..], [title_select_api::SourceSetStale::NewerRevision { version, .. }] if version == "2"),
+        matches!(&stale[..], [stage_select_api::SourceSetStale::NewerRevision { version, .. }] if version == "2"),
         "{stale:?}"
     );
     assert_eq!(env.store.source_set("Beta").unwrap().stale, []);
@@ -980,7 +980,7 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     env.scan();
     env.scan();
     let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
-    std::fs::remove_file(env.dir("in").join(".title-select/marker")).unwrap();
+    std::fs::remove_file(env.dir("in").join(".stage-select/marker")).unwrap();
 
     let refused = env
         .store
@@ -991,7 +991,7 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     let job = env.store.enqueue_ingest_scan("in", "Operator").unwrap();
     env.store.claim_job().unwrap();
     let ended = env.store.run_ingest_scan_job(job.id).unwrap();
-    assert_eq!(ended.state, title_select_api::JobState::Failed);
+    assert_eq!(ended.state, stage_select_api::JobState::Failed);
     assert_eq!(
         env.state("mystery.a26"),
         ItemState::Assessed,
@@ -1013,12 +1013,12 @@ fn only_an_ingest_root_is_registered_and_it_holds_no_library_folder() {
         .collect();
     assert_eq!(roots, [("in", true), ("slow", true)]);
 
-    let marker = std::fs::read_to_string(env.dir("in").join(".title-select/marker")).unwrap();
+    let marker = std::fs::read_to_string(env.dir("in").join(".stage-select/marker")).unwrap();
     assert!(marker.contains("ingest_folder"), "{marker}");
     // Registering again is a no-op; a marker of another store is refused.
     env.store.register_ingest_folder("in").unwrap();
     std::fs::write(
-        env.dir("in").join(".title-select/marker"),
+        env.dir("in").join(".stage-select/marker"),
         r#"{"store": "another", "ingest_folder": 1}"#,
     )
     .unwrap();
@@ -1280,7 +1280,7 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
                 .unwrap()
                 .into_iter()
                 .filter(|j| {
-                    j.kind == JobKind::Audit && j.state == title_select_api::JobState::Queued
+                    j.kind == JobKind::Audit && j.state == stage_select_api::JobState::Queued
                 })
                 .map(|j| (j.id, j.evidence))
                 .collect()
@@ -1403,7 +1403,7 @@ fn an_owed_audit_whose_revision_is_not_imported_yet_stays_owed() {
         .jobs(10)
         .unwrap()
         .into_iter()
-        .filter(|j| j.kind == JobKind::Audit && j.state == title_select_api::JobState::Queued)
+        .filter(|j| j.kind == JobKind::Audit && j.state == stage_select_api::JobState::Queued)
         .map(|j| j.evidence)
         .collect();
     assert_eq!(audits, [Some(AuditEvidence::Incremental)]);
@@ -1520,8 +1520,8 @@ fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is
     let limit = |max_dictionary_mib| {
         env.store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
-                    archive: Some(title_select_api::settings::ArchiveLimits { max_dictionary_mib }),
+                &stage_select_api::settings::SettingsUpdate {
+                    archive: Some(stage_select_api::settings::ArchiveLimits { max_dictionary_mib }),
                     ..Default::default()
                 },
                 "Operator",
@@ -1553,7 +1553,7 @@ fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is
     );
     assert_eq!(reads.load(Ordering::SeqCst), 2, "read again on each scan");
 
-    limit(title_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB);
+    limit(stage_select_api::settings::DEFAULT_MAX_DICTIONARY_MIB);
     env.scan();
 
     assert_eq!(env.state("yars.7z"), ItemState::Assessed);
@@ -1573,7 +1573,7 @@ fn a_7z_refused_before_7z_archives_were_read_is_read_on_the_next_scan() {
     env.scan();
     env.scan();
     assert_eq!(env.state("yars.7z"), ItemState::Assessed);
-    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
     let refused = db
         .execute(
             "UPDATE ingest_items SET state = 'unsupported', probe = NULL, assessment = NULL, \
@@ -1612,7 +1612,7 @@ fn an_optional_rom_of_a_game_with_nothing_to_check_is_needed_while_absent() {
     let extras = report.games.iter().find(|g| g.name == "Extras (Beta)");
     assert_eq!(
         extras.map(|g| g.status),
-        Some(title_select_api::GameStatus::NothingToCheck)
+        Some(stage_select_api::GameStatus::NothingToCheck)
     );
     env.put("extras.bin", b"extras");
     env.scan();

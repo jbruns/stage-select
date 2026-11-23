@@ -6,7 +6,7 @@
 crates/*/tests/
 crates/ui/bench/
 !docs/brand-kit/title-select-tokens.css
-# Title Select's licence, for the workbench's About page.
+# Stage Select's licence, for the workbench's About page.
 !LICENSE
 # The clone-list pins, which the binary embeds, and the script that fetches what they pin.
 !third_party/clone-lists/pins.toml

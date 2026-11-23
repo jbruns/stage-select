@@ -2,8 +2,8 @@
 //! CHD, and whether a conversion deletes each original once its converted file is verified.
 
 use rusqlite::{Connection, OptionalExtension, params};
-use title_select_api::DatFormat;
-use title_select_api::storage::{
+use stage_select_api::DatFormat;
+use stage_select_api::storage::{
     DiscLayout, ScopePolicy, SetLayout, Storage, StorageFormat, StoragePolicy, StorageScope,
     SystemStorage, is_disc_system, is_mame_system,
 };

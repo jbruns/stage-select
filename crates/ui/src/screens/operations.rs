@@ -3,10 +3,10 @@
 //! restart; the webhook's URL and secret and the RomM token are write-only.
 
 use leptos::prelude::*;
-use title_select_api::calibration::Calibration;
-use title_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
-use title_select_api::settings::{Ceiling, NotifyEvent, Pace, SecretUpdate, SettingsView};
-use title_select_api::{Job, Root};
+use stage_select_api::calibration::Calibration;
+use stage_select_api::romm::{RommCheck, RommFolderPlatform, RommTestRequest};
+use stage_select_api::settings::{Ceiling, NotifyEvent, Pace, SecretUpdate, SettingsView};
+use stage_select_api::{Job, Root};
 
 use crate::api;
 use crate::app::{Loading, Problem};
@@ -752,7 +752,7 @@ fn WebhookSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl
         <fieldset class="setting">
             <legend>"Webhook"</legend>
             <p class="note small">
-                "Title Select posts each event you choose to the webhook URL, signed with the secret. Both are needed before anything is sent. Neither is ever shown again once saved: you can only replace or clear them."
+                "Stage Select posts each event you choose to the webhook URL, signed with the secret. Both are needed before anything is sent. Neither is ever shown again once saved: you can only replace or clear them."
             </p>
             <SecretField
                 draft
@@ -830,7 +830,7 @@ fn RommSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
         <fieldset class="setting">
             <legend>"RomM"</legend>
             <p class="note small">
-                "How Title Select reaches your RomM. It is off until you turn it on, and a RomM that can't be reached never stops anything else. The token is never shown again once saved: you can only replace or clear it. A backup of the store holds the token."
+                "How Stage Select reaches your RomM. It is off until you turn it on, and a RomM that can't be reached never stops anything else. The token is never shown again once saved: you can only replace or clear it. A backup of the store holds the token."
             </p>
             <p>
                 <label class="inline">
@@ -883,7 +883,7 @@ fn RommSection(saved: RwSignal<SettingsView>, draft: RwSignal<Draft>) -> impl In
                         .and_then(Result::ok)
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|r| r.kind != title_select_api::roots::RootKind::Ingest)
+                        .filter(|r| r.kind != stage_select_api::roots::RootKind::Ingest)
                         .map(|r| {
                             let selected = draft.with_untracked(|d| d.romm_root == r.name);
                             let label = r.name.clone();

@@ -2,20 +2,20 @@
 //! Repairs and unregistering that follow them there. Each test records its Placements directly, from synthetic DATs,
 //! Source Sets and files; `single_copy` places them by Builds.
 
+use stage_select_api::roots::{RootKind, RootSpec};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use title_select_api::roots::{RootKind, RootSpec};
 
 use crate::common::*;
-use title_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder};
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
-use title_select_api::selection::{
-    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+use stage_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder};
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use stage_select_api::selection::{
+    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary,
 };
-use title_select_api::storage::placed_path;
-use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState, Report};
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::storage::placed_path;
+use stage_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState, Report};
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Alpha";
 const PROFILE: &str = "Mine";
@@ -65,11 +65,11 @@ impl Env {
         );
         store
             .update_settings(
-                &title_select_api::settings::SettingsUpdate {
+                &stage_select_api::settings::SettingsUpdate {
                     ingest_folders: Some(
                         [(
                             "in".to_owned(),
-                            title_select_api::settings::IngestCadence {
+                            stage_select_api::settings::IngestCadence {
                                 settle_secs: 0,
                                 scan_every_minutes: None,
                             },
@@ -245,7 +245,7 @@ fn an_audit_verifies_a_placed_game_where_it_is_placed_and_reports_it_missing_onc
     assert_eq!(pong[0].finding, Finding::Matched);
     assert_eq!(
         pong[0].evidence.as_ref().map(|e| e.level),
-        Some(title_select_api::EvidenceLevel::Payload)
+        Some(stage_select_api::EvidenceLevel::Payload)
     );
     assert_eq!(
         Env::statuses(&report),
@@ -549,13 +549,13 @@ fn select(env: &Env, title: &str, sha256: &str) -> i64 {
             dependencies: Vec::new(),
             group: title.to_lowercase(),
             unresolved: false,
-            winners: vec![Winner {
+            kept: vec![KeptGame {
                 title: title.into(),
                 rule,
                 unresolved: false,
             }],
-            alternatives: vec![],
-            exclusions: vec![],
+            clones: vec![],
+            left_out: vec![],
             choice: None,
             drift: false,
         }],
@@ -663,7 +663,7 @@ fn removing_every_file_of_the_holding_folder_returns_a_placed_game_home_and_neve
     assert_eq!(removed.state, JobState::Succeeded, "{removed:?}");
     assert!(env.set().join("Pong (USA).zip").is_file());
     assert!(!env.library().join("Pong (USA).zip").exists());
-    assert!(!env.library().join(".title-select/retained/1").exists());
+    assert!(!env.library().join(".stage-select/retained/1").exists());
     assert!(env.store.placed_files(SET).unwrap().is_empty());
     // Every game home, the folder is unregistered as the removal says.
     assert!(env.store.library_folders().unwrap().is_empty());
@@ -736,8 +736,8 @@ fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
         .unwrap();
     assert_eq!(
         edited.voided,
-        [title_select_api::roots::VoidedPlan {
-            kind: title_select_api::roots::VoidedPlanKind::Repair,
+        [stage_select_api::roots::VoidedPlan {
+            kind: stage_select_api::roots::VoidedPlanKind::Repair,
             plan: plan.id,
             job,
             writes_to: "play library folder play/atari".into(),
@@ -855,13 +855,13 @@ fn a_repair_sets_a_placed_file_aside_into_the_source_sets_kept_files() {
     );
     assert!(
         env.set()
-            .join(".title-select/retained")
+            .join(".stage-select/retained")
             .join(kept[0].generation.to_string())
             .join(&kept[0].kept_name)
             .is_file()
     );
     assert!(
-        !env.library().join(".title-select/retained").exists(),
+        !env.library().join(".stage-select/retained").exists(),
         "nothing is kept in the library folder's kept files"
     );
     let placed: Vec<String> = env
@@ -928,7 +928,7 @@ fn a_repair_repacks_a_placed_game_where_it_is_placed_by_a_rename_or_across_files
         assert_eq!(
             Env::files_under(&env.library())
                 .into_iter()
-                .filter(|f| f != ".title-select/marker")
+                .filter(|f| f != ".stage-select/marker")
                 .collect::<Vec<_>>(),
             ["Pong (USA).zip"],
             "nothing is staged, kept or left behind in the library folder (across: {across})"
@@ -936,8 +936,8 @@ fn a_repair_repacks_a_placed_game_where_it_is_placed_by_a_rename_or_across_files
         assert_eq!(
             Env::files_under(&env.set()),
             [
-                ".title-select/marker".to_owned(),
-                format!(".title-select/retained/1/{}", kept[0].kept_name),
+                ".stage-select/marker".to_owned(),
+                format!(".stage-select/retained/1/{}", kept[0].kept_name),
             ],
             "nothing staged is left in the source set's folder (across: {across})"
         );
@@ -945,19 +945,19 @@ fn a_repair_repacks_a_placed_game_where_it_is_placed_by_a_rename_or_across_files
         let kept_ino = std::os::unix::fs::MetadataExt::ino(
             &std::fs::metadata(
                 env.set()
-                    .join(".title-select/retained/1")
+                    .join(".stage-select/retained/1")
                     .join(&kept[0].kept_name),
             )
             .unwrap(),
         );
         assert_eq!(kept_ino != was.ino, across);
         assert_eq!(
-            env.set().join(".title-select/retained/.deleting").exists(),
+            env.set().join(".stage-select/retained/.deleting").exists(),
             across
         );
         assert_eq!(
             env.library()
-                .join(".title-select/retained/.deleting")
+                .join(".stage-select/retained/.deleting")
                 .exists(),
             across
         );
@@ -1097,7 +1097,7 @@ fn a_repair_copies_a_placed_file_aside_into_the_source_sets_kept_files_across_fi
     assert_eq!(kept[0].name, combat);
     let copy = env
         .set()
-        .join(".title-select/retained")
+        .join(".stage-select/retained")
         .join(kept[0].generation.to_string())
         .join(&kept[0].kept_name);
     assert_eq!(
@@ -1111,7 +1111,7 @@ fn a_repair_copies_a_placed_file_aside_into_the_source_sets_kept_files_across_fi
         "a copy, not the original renamed"
     );
     assert_eq!(
-        Env::files_under(&env.library().join(".title-select")),
+        Env::files_under(&env.library().join(".stage-select")),
         ["marker"],
         "the original was deleted, and nothing is left in the library folder's private folders"
     );
@@ -1181,7 +1181,7 @@ fn a_placed_file_changed_after_it_was_copied_aside_stays_placed_and_its_copy_sta
         "{outcome:?}"
     );
     assert!(
-        Env::files_under(&env.library().join(".title-select/retained/.deleting")).is_empty(),
+        Env::files_under(&env.library().join(".stage-select/retained/.deleting")).is_empty(),
         "it was put back, not left to be deleted"
     );
 }
@@ -1219,7 +1219,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changed_even_across_a_stop
     // Its copy, written over in place: the same file, holding something else.
     let copy = env
         .set()
-        .join(".title-select/retained")
+        .join(".stage-select/retained")
         .join(plan.content.generation.to_string())
         .join(&kept);
     std::fs::write(&copy, b"spoiled").unwrap();
@@ -1253,7 +1253,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changed_even_across_a_stop
         "{outcome:?}"
     );
     assert!(
-        Env::files_under(&env.library().join(".title-select/retained/.deleting")).is_empty(),
+        Env::files_under(&env.library().join(".stage-select/retained/.deleting")).is_empty(),
         "it was put back, not left to be deleted"
     );
 }
@@ -1281,7 +1281,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changes_after_it_was_first
             .unwrap();
         let copy = env
             .set()
-            .join(".title-select/retained")
+            .join(".stage-select/retained")
             .join(plan.content.generation.to_string())
             .join(&kept);
         let approved = env
@@ -1299,7 +1299,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changes_after_it_was_first
             assert!(ran.is_err(), "{case}: {ran:?}");
             env.store.inject_fault(None);
             assert!(
-                !Env::files_under(&env.library().join(".title-select/retained/.deleting"))
+                !Env::files_under(&env.library().join(".stage-select/retained/.deleting"))
                     .is_empty(),
                 "{case}: stopped with the original set aside to delete"
             );
@@ -1347,7 +1347,7 @@ fn a_placed_file_is_never_deleted_once_its_copy_aside_changes_after_it_was_first
             "{case}: {outcome:?}"
         );
         assert!(
-            Env::files_under(&env.library().join(".title-select/retained/.deleting")).is_empty(),
+            Env::files_under(&env.library().join(".stage-select/retained/.deleting")).is_empty(),
             "{case}: it was put back, not left to be deleted"
         );
     }
@@ -1626,7 +1626,7 @@ fn a_fill_of_a_partly_vanished_zipped_placed_game_rebuilds_it_in_place() {
             ("Joust (USA) (Side B).a26", b"joust-b"),
         ],
     );
-    // Its zip loses a member: rewritten without it, as a tool outside Title Select might.
+    // Its zip loses a member: rewritten without it, as a tool outside Stage Select might.
     write_torrentzip(
         &env.library().join("Joust (USA).zip"),
         &[("Joust (USA) (Side A).a26", b"joust-a")],
@@ -2000,7 +2000,7 @@ fn a_fill_where_a_game_is_placed_keeps_its_original_when_the_folder_moves_before
 /// As the service does when it next starts: requeues the Jobs a stop interrupted, recovers the moves out of the
 /// Ingest Folder a stop left, and runs a Repair Job for each repair not finished. Returns what recovering the moves
 /// left unfinished or ended, with why, and each Repair Job as it ended.
-fn restart(env: &Env) -> (Vec<(i64, String)>, Vec<title_select_api::Job>) {
+fn restart(env: &Env) -> (Vec<(i64, String)>, Vec<stage_select_api::Job>) {
     let mut jobs: Vec<i64> = env
         .store
         .recover_jobs(WORKERS)
@@ -2066,7 +2066,7 @@ fn an_original_that_cannot_be_returned_yet_leaves_its_fill_unfinished_until_it_i
     let (copy, name, retained) = (
         env.library().join(b),
         env.tmp.path().join("in/side-b.a26"),
-        env.tmp.path().join("in/.title-select/retained"),
+        env.tmp.path().join("in/.stage-select/retained"),
     );
     let blocked = retained.clone();
     // Its copy removed once its original is set aside to delete, its name taken, and no kept files can be made: a
@@ -2153,7 +2153,7 @@ fn a_stop_while_an_original_is_returned_into_the_kept_files_finishes_the_return_
     let at = env
         .tmp
         .path()
-        .join("in/.title-select/retained")
+        .join("in/.stage-select/retained")
         .join(kept[0].generation.to_string())
         .join(&kept[0].kept_name);
     assert_eq!(std::fs::read(at).unwrap(), b"joust-b");
@@ -2243,7 +2243,7 @@ fn a_stop_once_a_fill_went_into_a_library_folder_since_moved_leaves_it_unfinishe
                 panic!("stopped with the folder moved");
             }
         });
-        let unfinished = |left: &[(i64, String)], ended: &[title_select_api::Job]| {
+        let unfinished = |left: &[(i64, String)], ended: &[stage_select_api::Job]| {
             assert!(
                 left.iter()
                     .any(|(_, why)| why.contains("put the folder back at play/atari")),

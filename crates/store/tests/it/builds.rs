@@ -1,26 +1,26 @@
 //! Library Folders, Change Plans and Builds, from synthetic DATs, Source Sets and hand-made Selections.
 
+use stage_select_api::roots::RootSpec;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use title_select_api::roots::RootSpec;
 
 use crate::common::*;
-use title_select_api::build::{
+use stage_select_api::build::{
     AddLibraryFolder, BlockerKind, BuildState, Cause, CleanupAction, DriftKind, FileOutcome,
     FolderCheck, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, Plan, PlanBuild,
     PlanChoices, PlanCleanup, PlanKeptDeletion, RemovalKind, RestoreKind,
 };
-use title_select_api::selection::{
-    Alternative, CoverageDrift, Exclusion, Rule, Selection, SelectionGroup, SelectionPins,
-    SelectionProfile, SelectionSummary, Winner,
+use stage_select_api::selection::{
+    CloneGame, CoverageDrift, KeptGame, LeftOutGame, Rule, Selection, SelectionGroup,
+    SelectionPins, SelectionProfile, SelectionSummary,
 };
-use title_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorage};
-use title_select_api::{JobKind, JobState};
-use title_select_engine::GameStatus;
-use title_select_engine::build::verify;
-use title_select_engine::torrentzip;
-use title_select_store::{Error, Fault, Store, Workers};
+use stage_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorage};
+use stage_select_api::{JobKind, JobState};
+use stage_select_engine::GameStatus;
+use stage_select_engine::build::verify;
+use stage_select_engine::torrentzip;
+use stage_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const PROFILE: &str = "Mine";
@@ -158,7 +158,7 @@ impl Env {
 
     fn audit(&self) {
         self.store
-            .audit_source_set(SET, None, title_select_engine::AuditEvidence::Incremental)
+            .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Incremental)
             .unwrap();
     }
 
@@ -184,8 +184,8 @@ impl Env {
     fn build_with(
         &self,
         plan: &Plan,
-        progress: &(dyn Fn(title_select_engine::Progress) + Sync),
-    ) -> title_select_api::Job {
+        progress: &(dyn Fn(stage_select_engine::Progress) + Sync),
+    ) -> stage_select_api::Job {
         let job = self
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
@@ -230,14 +230,14 @@ impl Env {
                 if fault == stop {
                     panic!("killed at {fault:?}");
                 }
-            }) as title_select_store::FaultHook
+            }) as stage_select_store::FaultHook
         }))
     }
 
     /// Restarts with `hook` run at the faults recovery passes; `None` for the blocked folders when it panicked.
     fn restart_hooked(
         self,
-        hook: Option<title_select_store::FaultHook>,
+        hook: Option<stage_select_store::FaultHook>,
     ) -> (Env, Option<Vec<(i64, String)>>) {
         self.restart_changing(hook, |_| {})
     }
@@ -245,7 +245,7 @@ impl Env {
     /// As [`Env::restart_hooked`], running `change` on the store's folder while the store is closed.
     fn restart_changing(
         self,
-        hook: Option<title_select_store::FaultHook>,
+        hook: Option<stage_select_store::FaultHook>,
         change: impl FnOnce(&Path),
     ) -> (Env, Option<Vec<(i64, String)>>) {
         let Env { tmp, store, sha256 } = self;
@@ -272,7 +272,7 @@ impl Env {
     }
 
     /// Approves `plan`, then claims and runs its Build Job.
-    fn build(&self, plan: &Plan) -> title_select_api::Job {
+    fn build(&self, plan: &Plan) -> stage_select_api::Job {
         let job = self
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
@@ -311,13 +311,13 @@ fn group(title: &str) -> SelectionGroup {
         dependencies: Vec::new(),
         group: title.to_lowercase(),
         unresolved: false,
-        winners: vec![Winner {
+        kept: vec![KeptGame {
             title: title.into(),
             rule: rule("Parent selection"),
             unresolved: false,
         }],
-        alternatives: vec![],
-        exclusions: vec![],
+        clones: vec![],
+        left_out: vec![],
         choice: None,
         drift: false,
     }
@@ -368,7 +368,7 @@ fn names(dir: &Path) -> BTreeSet<String> {
 }
 
 fn marker(dir: &Path) -> serde_json::Value {
-    serde_json::from_slice(&std::fs::read(dir.join(".title-select/marker")).unwrap()).unwrap()
+    serde_json::from_slice(&std::fs::read(dir.join(".stage-select/marker")).unwrap()).unwrap()
 }
 
 #[test]
@@ -379,7 +379,7 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
     let dir = env.play().join("atari2600");
-    assert_eq!(names(&dir), BTreeSet::from([".title-select".to_owned()]));
+    assert_eq!(names(&dir), BTreeSet::from([".stage-select".to_owned()]));
     assert_eq!(marker(&dir)["generation"], 0);
     std::fs::write(dir.join("notes.txt"), b"mine").unwrap();
 
@@ -405,7 +405,7 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
             .map(|s| (s.path.clone(), s.finding.expect("a source set entry")))
             .collect::<Vec<_>>()
     };
-    use title_select_api::Finding::*;
+    use stage_select_api::Finding::*;
     // A copy-able ZIP over a loose Matched file before it in path order; Matched over an earlier Misnamed file.
     assert_eq!(source("Pong (USA)"), [("Pong (USA).zip".into(), Matched)]);
     assert_eq!(
@@ -433,7 +433,7 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
         names(&dir),
         BTreeSet::from(
             [
-                ".title-select",
+                ".stage-select",
                 "notes.txt",
                 "Pong (USA).zip",
                 "Combat (USA).zip",
@@ -646,7 +646,7 @@ fn the_digest_binds_the_plan_and_a_stale_approval_is_rejected_with_the_new_plan(
     );
     assert_eq!(
         names(&env.play().join("atari2600")),
-        BTreeSet::from([".title-select".to_owned(), "Pong (USA).zip".to_owned()])
+        BTreeSet::from([".stage-select".to_owned(), "Pong (USA).zip".to_owned()])
     );
 }
 
@@ -724,7 +724,7 @@ fn a_dat_revision_mismatch_and_an_unresolved_group_block_the_plan() {
     assert!(!plan.approvable());
 }
 
-const RETAINED: &str = ".title-select/retained";
+const RETAINED: &str = ".stage-select/retained";
 
 /// Builds every game into a new folder, then plans the selection of Pong alone: every other built file is no
 /// longer selected.
@@ -787,7 +787,7 @@ fn a_deselected_group_is_removed_by_keeping_its_file_aside() {
 
     assert_eq!(
         names(&dir),
-        BTreeSet::from([".title-select".to_string(), "Pong (USA).zip".to_string()])
+        BTreeSet::from([".stage-select".to_string(), "Pong (USA).zip".to_string()])
     );
     let kept = env.store.kept_files(folder.id).unwrap();
     assert_eq!(kept.len(), built.len() - 1);
@@ -823,7 +823,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
     let dir = env.play().join("atari2600");
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     let kept = env.store.kept_files(folder.id).unwrap();
-    let path = |k: &title_select_api::build::KeptFile| {
+    let path = |k: &stage_select_api::build::KeptFile| {
         dir.join(RETAINED)
             .join(k.generation.to_string())
             .join(&k.kept_name)
@@ -1020,7 +1020,7 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Incremental,
+            stage_select_engine::AuditEvidence::Incremental,
         )
         .unwrap();
     let id = env.record(&selection(
@@ -1114,7 +1114,7 @@ fn a_rom_its_game_does_not_need_is_built_when_found_and_left_out_without_a_gap_w
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Incremental,
+            stage_select_engine::AuditEvidence::Incremental,
         )
         .unwrap();
     let id = env.record(&selection(
@@ -1191,7 +1191,7 @@ fn a_file_built_for_a_game_now_with_nothing_to_build_is_left_as_it_is() {
             .audit_source_set(
                 SET,
                 Some(&revision.sha256),
-                title_select_engine::AuditEvidence::Incremental,
+                stage_select_engine::AuditEvidence::Incremental,
             )
             .unwrap();
     };
@@ -1382,7 +1382,7 @@ fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it(
 }
 
 /// Plans deleting every kept file of `folder`.
-fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> title_select_api::build::KeptDeletion {
+fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> stage_select_api::build::KeptDeletion {
     env.store
         .plan_kept_deletion(
             folder.id,
@@ -1395,7 +1395,7 @@ fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> title_select_api::build
 }
 
 /// Approves `deletion` until `fault` stops it as a kill would.
-fn crash_deletion(env: &Env, deletion: &title_select_api::build::KeptDeletion, fault: Fault) {
+fn crash_deletion(env: &Env, deletion: &stage_select_api::build::KeptDeletion, fault: Fault) {
     env.store.inject_fault(Some(fault));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         env.store
@@ -1592,7 +1592,7 @@ fn the_deletion_digest_binds_each_kept_files_ctime_and_sha256_read_when_it_was_p
         assert_eq!(Some(&reviewed.sha256), file.sha256.as_ref());
         assert!(reviewed.ctime_ns > 0);
     }
-    let digest = |content: &title_select_api::build::KeptDeletionContent| -> String {
+    let digest = |content: &stage_select_api::build::KeptDeletionContent| -> String {
         let bytes = serde_json::to_vec(content).unwrap();
         <sha2::Sha256 as sha2::Digest>::digest(&bytes)
             .iter()
@@ -1947,7 +1947,7 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
 
     // Without the folder's marker, nothing can be shown gone, nor planned.
     std::fs::rename(
-        dir.join(".title-select/marker"),
+        dir.join(".stage-select/marker"),
         env.tmp.path().join("marker"),
     )
     .unwrap();
@@ -1968,7 +1968,7 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
 
     std::fs::rename(
         env.tmp.path().join("marker"),
-        dir.join(".title-select/marker"),
+        dir.join(".stage-select/marker"),
     )
     .unwrap();
     let done = env
@@ -1993,16 +1993,16 @@ fn creating(dir: &Path) -> Vec<String> {
     temp_names(dir, "retained")
 }
 
-/// The temporary names, as paths in `dir`, its folder `name` in `.title-select` is created under.
+/// The temporary names, as paths in `dir`, its folder `name` in `.stage-select` is created under.
 fn temp_names(dir: &Path, name: &str) -> Vec<String> {
-    let state = dir.join(".title-select");
+    let state = dir.join(".stage-select");
     if !state.is_dir() {
         return Vec::new();
     }
     names(&state)
         .into_iter()
         .filter(|n| n.starts_with(&format!("{name}.new-")))
-        .map(|n| format!(".title-select/{n}"))
+        .map(|n| format!(".stage-select/{n}"))
         .collect()
 }
 
@@ -2480,7 +2480,7 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
 
 #[cfg(unix)]
 #[test]
-fn a_title_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
+fn a_stage_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
     use std::os::unix::fs::PermissionsExt;
     for tamper in ["a group-readable mode", "a symlink", "a file"] {
         let env = Env::new();
@@ -2488,7 +2488,7 @@ fn a_title_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
         let id = env.record(&everything(&env.sha256));
         let folder = env.folder("atari2600");
         let dir = env.play().join("atari2600");
-        let state = dir.join(".title-select");
+        let state = dir.join(".stage-select");
         assert_eq!(
             std::fs::metadata(&state).unwrap().permissions().mode() & 0o777,
             0o700,
@@ -2519,7 +2519,7 @@ fn a_title_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
         assert!(
             plan.content.blockers[0]
                 .message
-                .contains("is not Title Select's own private folder"),
+                .contains("is not Stage Select's own private folder"),
             "{tamper}: {:?}",
             plan.content.blockers
         );
@@ -2555,8 +2555,8 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     // Another folder's marker, as a wrong mount would show.
     let dir = env.play().join("atari2600");
     std::fs::copy(
-        env.play().join("atari2600-b/.title-select/marker"),
-        dir.join(".title-select/marker"),
+        env.play().join("atari2600-b/.stage-select/marker"),
+        dir.join(".stage-select/marker"),
     )
     .unwrap();
     let plan = env.plan(&first, id);
@@ -2566,7 +2566,7 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     let mut foreign = marker(&env.play().join("atari2600-b"));
     foreign["store"] = "elsewhere".into();
     foreign["folder"] = first.id.into();
-    std::fs::write(dir.join(".title-select/marker"), foreign.to_string()).unwrap();
+    std::fs::write(dir.join(".stage-select/marker"), foreign.to_string()).unwrap();
     assert_eq!(
         blockers(&env.plan(&first, id)),
         BTreeSet::from([BlockerKind::Marker])
@@ -2576,12 +2576,12 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     let mut ahead = marker(&env.play().join("atari2600-b"));
     ahead["folder"] = first.id.into();
     ahead["generation"] = 3.into();
-    std::fs::write(dir.join(".title-select/marker"), ahead.to_string()).unwrap();
+    std::fs::write(dir.join(".stage-select/marker"), ahead.to_string()).unwrap();
     let plan = env.plan(&first, id);
     assert!(plan.content.blockers[0].message.contains("newer"));
 
     // A missing marker on a folder with files.
-    std::fs::remove_file(dir.join(".title-select/marker")).unwrap();
+    std::fs::remove_file(dir.join(".stage-select/marker")).unwrap();
     std::fs::write(dir.join("readme.txt"), b"x").unwrap();
     assert_eq!(
         blockers(&env.plan(&first, id)),
@@ -2606,7 +2606,7 @@ fn a_quick_inventorys_claims_are_never_build_sources() {
     bytes[at..at + 4].copy_from_slice(b"CAFE");
     std::fs::write(&okami, &bytes).unwrap();
     env.store
-        .audit_source_set(SET, None, title_select_engine::AuditEvidence::Quick)
+        .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Quick)
         .unwrap();
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
@@ -2627,7 +2627,7 @@ fn a_quick_inventorys_claims_are_never_build_sources() {
             })
             .collect::<Vec<_>>()
     };
-    use title_select_api::{EvidenceLevel::Payload, Finding::*};
+    use stage_select_api::{EvidenceLevel::Payload, Finding::*};
     assert_eq!(
         sources("Ōkami (Japan)"),
         [("a-cafe.bin".into(), Misnamed, Some(Payload))]
@@ -2679,7 +2679,7 @@ fn a_source_that_fails_its_rehash_fails_only_its_item() {
     let dir = env.play().join("atari2600");
     assert!(!names(&dir).contains("Combat (USA).zip"));
     assert!(names(&dir).contains("Pong (USA).zip"));
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     let build = env.store.build_of_job(job.id).unwrap().unwrap();
     let detail = env.store.build(build.id).unwrap();
     let combat = detail
@@ -2706,7 +2706,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
     env.store.claim_job().unwrap();
     let dir = env.play().join("atari2600");
 
-    let stop = |p: title_select_engine::Progress| {
+    let stop = |p: stage_select_engine::Progress| {
         if p.files_done == 2 {
             panic!("the service stops");
         }
@@ -2715,7 +2715,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
         env.store.run_build_job(job.id, Some(&stop))
     }));
     assert!(ran.is_err());
-    assert!(dir.join(".title-select/staging").is_dir());
+    assert!(dir.join(".stage-select/staging").is_dir());
 
     let Env { tmp, store, .. } = env;
     let path = store.dir().to_path_buf();
@@ -2730,7 +2730,7 @@ fn an_interrupted_build_leaves_state_that_recovery_cleans_up() {
     );
     store.recover_builds().unwrap();
 
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     assert_eq!(marker(&dir)["generation"], 0);
     let build = store.build_of_job(job.id).unwrap().unwrap();
     let detail = store.build(build.id).unwrap();
@@ -2778,15 +2778,15 @@ fn the_preview_attributes_each_change_to_settings_choices_or_the_dat_revision() 
         .save_profile(PROFILE, &profile, Some(1), "Operator", &[], WORKERS)
         .unwrap();
     let mut combat = group("Combat (USA)");
-    let lost = combat.winners.pop().unwrap();
-    combat.alternatives.push(Alternative {
+    let lost = combat.kept.pop().unwrap();
+    combat.clones.push(CloneGame {
         title: lost.title,
         clone_of: "Pong (USA)".into(),
         rule: Rule::choice(),
     });
     let mut breakout = group("Breakout (USA)");
-    let dropped = breakout.winners.pop().unwrap();
-    breakout.exclusions.push(Exclusion {
+    let dropped = breakout.kept.pop().unwrap();
+    breakout.left_out.push(LeftOutGame {
         title: dropped.title,
         rule: rule("Region"),
         reason: "Region".into(),
@@ -2819,8 +2819,8 @@ fn the_current_build_keeps_its_selection_and_audit_from_pruning_until_a_later_bu
     let env = Env::new();
     env.store
         .update_settings(
-            &title_select_api::settings::SettingsUpdate {
-                retention: Some(title_select_api::settings::Retention {
+            &stage_select_api::settings::SettingsUpdate {
+                retention: Some(stage_select_api::settings::Retention {
                     audits_keep: 1,
                     selections_keep: 1,
                 }),
@@ -2886,7 +2886,7 @@ fn a_crash_between_putting_a_file_in_place_and_recording_it_is_settled_from_its_
     assert_eq!(detail.items[2].state, ItemState::Pending);
     let files = env.store.built_files(folder.id).unwrap();
     assert!(files.iter().any(|f| f.target == targets[1]));
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     assert_eq!(marker(&dir)["generation"], 0);
     let next = env.plan(&folder, id);
     assert!(next.approvable(), "{:?}", next.content.blockers);
@@ -2955,7 +2955,7 @@ fn a_marker_that_did_not_follow_the_committed_generation_is_moved_forward() {
 
     assert!(blocked.is_empty(), "{blocked:?}");
     assert_eq!(marker(&dir)["generation"], 1, "and the marker followed");
-    assert!(!dir.join(".title-select/marker.new").exists());
+    assert!(!dir.join(".stage-select/marker.new").exists());
     let build = env.store.build_of_job(job).unwrap().unwrap();
     assert_eq!(build.state, BuildState::Interrupted);
     assert_eq!(build.applied, written(&plan).len() as u64);
@@ -3078,14 +3078,14 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     let dir = env.play().join("atari2600");
     let plan = env.plan(&folder, id);
     let job = env.crash(&plan, Fault::AfterPublish(1));
-    assert!(dir.join(".title-select/staging").is_dir());
+    assert!(dir.join(".stage-select/staging").is_dir());
     let mut foreign = marker(&dir);
     foreign["store"] = "elsewhere".into();
-    std::fs::write(dir.join(".title-select/marker"), foreign.to_string()).unwrap();
+    std::fs::write(dir.join(".stage-select/marker"), foreign.to_string()).unwrap();
     // A staging directory in a folder no unfinished Build of the store accounts for.
     let other_dir = env.play().join("atari2600-b");
-    std::fs::create_dir(other_dir.join(".title-select/staging")).unwrap();
-    std::fs::write(other_dir.join(".title-select/staging/0.zip"), b"x").unwrap();
+    std::fs::create_dir(other_dir.join(".stage-select/staging")).unwrap();
+    std::fs::write(other_dir.join(".stage-select/staging/0.zip"), b"x").unwrap();
 
     let (env, blocked) = env.restart();
 
@@ -3093,13 +3093,13 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     assert_eq!(blocked.len(), 1);
     assert_eq!(blocked[0].0, build.id);
     assert!(blocked[0].1.contains("another store"), "{blocked:?}");
-    assert!(dir.join(".title-select/staging").is_dir(), "left as it is");
+    assert!(dir.join(".stage-select/staging").is_dir(), "left as it is");
     assert_eq!(marker(&dir)["store"], "elsewhere");
     let detail = env.store.build(build.id).unwrap();
     assert_eq!(detail.items[1].state, ItemState::Publishing, "not settled");
     let plan = env.plan(&folder, id);
     assert!(blockers(&plan).contains(&BlockerKind::Recovery));
-    assert!(other_dir.join(".title-select/staging/0.zip").is_file());
+    assert!(other_dir.join(".stage-select/staging/0.zip").is_file());
     let plan = env.plan(&other, id);
     assert_eq!(blockers(&plan), BTreeSet::from([BlockerKind::Recovery]));
     assert!(plan.content.blockers[0].message.contains("remove it"));
@@ -3107,10 +3107,10 @@ fn recovery_leaves_a_folder_whose_marker_is_not_the_stores_and_leftovers_no_buil
     // Once the marker is the store's again, the next start cleans up.
     let mut ours = marker(&dir);
     ours["store"] = marker(&other_dir)["store"].clone();
-    std::fs::write(dir.join(".title-select/marker"), ours.to_string()).unwrap();
+    std::fs::write(dir.join(".stage-select/marker"), ours.to_string()).unwrap();
     let (env, blocked) = env.restart();
     assert!(blocked.is_empty(), "{blocked:?}");
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     assert!(env.plan(&folder, id).approvable());
 }
 
@@ -3126,9 +3126,9 @@ fn a_symlink_planted_at_the_markers_temp_file_is_never_followed() {
     std::fs::write(&victim, b"precious").unwrap();
     let plan = env.plan(&folder, id);
 
-    let plant = |p: title_select_engine::Progress| {
+    let plant = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
-            std::os::unix::fs::symlink(&victim, dir.join(".title-select/marker.new")).unwrap();
+            std::os::unix::fs::symlink(&victim, dir.join(".stage-select/marker.new")).unwrap();
         }
     };
     let job = env.build_with(&plan, &plant);
@@ -3138,7 +3138,7 @@ fn a_symlink_planted_at_the_markers_temp_file_is_never_followed() {
     assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
     assert_eq!(marker(&dir)["generation"], 0, "the marker did not advance");
     assert!(
-        std::fs::symlink_metadata(dir.join(".title-select/marker.new"))
+        std::fs::symlink_metadata(dir.join(".stage-select/marker.new"))
             .unwrap()
             .is_symlink(),
         "recovery leaves what no build wrote"
@@ -3157,11 +3157,11 @@ fn a_marker_changed_during_a_build_stops_it_before_the_next_file_is_put_in_place
     let plan = env.plan(&folder, id);
     let targets = written(&plan);
 
-    let swap = |p: title_select_engine::Progress| {
+    let swap = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
             let mut m = marker(&dir);
             m["generation"] = 5.into();
-            std::fs::write(dir.join(".title-select/marker"), m.to_string()).unwrap();
+            std::fs::write(dir.join(".stage-select/marker"), m.to_string()).unwrap();
         }
     };
     let job = env.build_with(&plan, &swap);
@@ -3189,12 +3189,12 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
     let dir = env.play().join("atari2600");
     let moved = env.play().join("moved");
     let elsewhere = env.tmp.path().join("elsewhere");
-    std::fs::create_dir_all(elsewhere.join(".title-select")).unwrap();
-    std::fs::write(elsewhere.join(".title-select/marker"), b"someone else's").unwrap();
+    std::fs::create_dir_all(elsewhere.join(".stage-select")).unwrap();
+    std::fs::write(elsewhere.join(".stage-select/marker"), b"someone else's").unwrap();
     let plan = env.plan(&folder, id);
     let targets = written(&plan);
 
-    let swap = |p: title_select_engine::Progress| {
+    let swap = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
             std::fs::rename(&dir, &moved).unwrap();
             std::os::unix::fs::symlink(&elsewhere, &dir).unwrap();
@@ -3205,10 +3205,10 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
     assert_eq!(job.state, JobState::Succeeded, "{:?}", job.error);
     assert_eq!(
         names(&elsewhere),
-        BTreeSet::from([".title-select".to_owned()])
+        BTreeSet::from([".stage-select".to_owned()])
     );
     assert_eq!(
-        std::fs::read(elsewhere.join(".title-select/marker")).unwrap(),
+        std::fs::read(elsewhere.join(".stage-select/marker")).unwrap(),
         b"someone else's"
     );
     for target in &targets {
@@ -3250,7 +3250,7 @@ fn rom_names_with_path_parts_and_device_names_are_blocked_items() {
     assert_eq!(job.state, JobState::Succeeded);
     assert_eq!(
         names(&env.play().join("atari2600")),
-        BTreeSet::from([".title-select".to_owned(), "Pong (USA).zip".to_owned()])
+        BTreeSet::from([".stage-select".to_owned(), "Pong (USA).zip".to_owned()])
     );
 }
 
@@ -3263,7 +3263,7 @@ fn a_staged_file_replaced_after_it_was_verified_is_never_put_in_place() {
     let plan = env.plan(&folder, id);
     let targets = written(&plan);
     let dir = env.play().join("atari2600");
-    let staging = dir.join(".title-select/staging");
+    let staging = dir.join(".stage-select/staging");
     let mode = std::sync::Arc::new(std::sync::Mutex::new(None));
     let (seen, at) = (mode.clone(), staging.clone());
     env.store
@@ -3338,7 +3338,7 @@ fn a_file_replaced_at_its_target_once_renamed_is_left_and_reported_uncertain() {
             .any(|f| f.target == targets[1])
     );
     assert!(
-        !dir.join(".title-select/staging").exists(),
+        !dir.join(".stage-select/staging").exists(),
         "recovered at once"
     );
     assert!(!blockers(&env.plan(&folder, id)).contains(&BlockerKind::Recovery));
@@ -3353,7 +3353,7 @@ fn recovery_removes_only_entries_it_recorded_creating() {
     let folder = env.folder("atari2600");
     let plan = env.plan(&folder, id);
     let dir = env.play().join("atari2600");
-    let staging = dir.join(".title-select/staging");
+    let staging = dir.join(".stage-select/staging");
 
     // A staging directory swapped for a real one, holding a file named as a staged file.
     env.crash(&plan, Fault::AfterPublish(1));
@@ -3361,25 +3361,25 @@ fn recovery_removes_only_entries_it_recorded_creating() {
     std::fs::create_dir(&staging).unwrap();
     std::fs::write(staging.join("2.zip"), b"precious").unwrap();
     // A marker temp file no build wrote.
-    std::fs::write(dir.join(".title-select/marker.new"), b"also precious").unwrap();
+    std::fs::write(dir.join(".stage-select/marker.new"), b"also precious").unwrap();
     let (env, blocked) = env.restart();
 
     assert_eq!(blocked.len(), 1, "{blocked:?}");
     assert!(
-        blocked[0].1.contains(".title-select/marker.new"),
+        blocked[0].1.contains(".stage-select/marker.new"),
         "{blocked:?}"
     );
     assert_eq!(
-        std::fs::read(dir.join(".title-select/marker.new")).unwrap(),
+        std::fs::read(dir.join(".stage-select/marker.new")).unwrap(),
         b"also precious"
     );
     assert_eq!(std::fs::read(staging.join("2.zip")).unwrap(), b"precious");
 
-    std::fs::remove_file(dir.join(".title-select/marker.new")).unwrap();
+    std::fs::remove_file(dir.join(".stage-select/marker.new")).unwrap();
     let (env, blocked) = env.restart();
     assert_eq!(blocked.len(), 1, "{blocked:?}");
     assert!(
-        blocked[0].1.contains(".title-select/staging"),
+        blocked[0].1.contains(".stage-select/staging"),
         "{blocked:?}"
     );
     assert_eq!(std::fs::read(staging.join("2.zip")).unwrap(), b"precious");
@@ -3422,14 +3422,14 @@ fn recovery_waits_while_the_root_is_read_only() {
 
     assert_eq!(blocked.len(), 1, "{blocked:?}");
     assert!(blocked[0].1.contains("not writable"), "{blocked:?}");
-    assert!(dir.join(".title-select/staging").is_dir(), "left as it is");
+    assert!(dir.join(".stage-select/staging").is_dir(), "left as it is");
     let next = env.plan(&folder, id);
     assert!(blockers(&next).contains(&BlockerKind::ReadOnlyRoot));
     assert!(blockers(&next).contains(&BlockerKind::Recovery));
 
     let (env, blocked) = env.restart_with_play(true);
     assert!(blocked.is_empty(), "{blocked:?}");
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     assert!(env.plan(&folder, id).approvable());
 }
 
@@ -3438,8 +3438,8 @@ fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released
     let env = Env::new();
     env.store
         .update_settings(
-            &title_select_api::settings::SettingsUpdate {
-                retention: Some(title_select_api::settings::Retention {
+            &stage_select_api::settings::SettingsUpdate {
+                retention: Some(stage_select_api::settings::Retention {
                     audits_keep: 1,
                     selections_keep: 1,
                 }),
@@ -3457,7 +3457,7 @@ fn a_builds_selection_and_audit_are_held_from_pruning_while_it_runs_and_released
     let plan = env.plan(&folder, first);
     let audit = plan.content.audit.unwrap();
 
-    let prune = |p: title_select_engine::Progress| {
+    let prune = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
             env.audit();
             env.record(&everything(&env.sha256));
@@ -3630,7 +3630,7 @@ fn a_check_reads_only_changed_files_reports_drift_and_never_writes_to_the_folder
         first
             .drift
             .iter()
-            .all(|d| !d.name.starts_with(".title-select"))
+            .all(|d| !d.name.starts_with(".stage-select"))
     );
 
     // The records follow the touched and rezipped files; the rezipped one is not TorrentZip.
@@ -3802,7 +3802,7 @@ fn a_conflict_is_adopted_only_when_its_roms_match_the_dat_and_nothing_is_written
     let after = snapshot(&dir);
     assert_eq!(after.len(), before.len());
     for (name, entry) in &before {
-        if name != ".title-select" {
+        if name != ".stage-select" {
             assert_eq!(&after[name], entry, "{name}");
         }
     }
@@ -3998,7 +3998,7 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Incremental,
+            stage_select_engine::AuditEvidence::Incremental,
         )
         .unwrap();
     let mut unresolved = selection(
@@ -4066,21 +4066,21 @@ fn with_saga(env: &Env) -> String {
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Incremental,
+            stage_select_engine::AuditEvidence::Incremental,
         )
         .unwrap();
     revision.sha256
 }
 
-fn saga(winners: &[&str], others: &[&str]) -> SelectionGroup {
-    let mut saga = group(winners[0]);
+fn saga(kept: &[&str], others: &[&str]) -> SelectionGroup {
+    let mut saga = group(kept[0]);
     saga.group = "saga".into();
-    saga.winners = winners.iter().map(|w| group(w).winners.remove(0)).collect();
-    saga.alternatives = others
+    saga.kept = kept.iter().map(|w| group(w).kept.remove(0)).collect();
+    saga.clones = others
         .iter()
-        .map(|title| Alternative {
+        .map(|title| CloneGame {
             title: (*title).into(),
-            clone_of: winners[0].into(),
+            clone_of: kept[0].into(),
             rule: rule("Region"),
         })
         .collect();
@@ -4230,7 +4230,7 @@ fn refused(plan: &Plan) -> BTreeSet<String> {
         .collect()
 }
 
-fn kept_named(env: &Env, folder: &LibraryFolder, name: &str) -> title_select_api::build::KeptFile {
+fn kept_named(env: &Env, folder: &LibraryFolder, name: &str) -> stage_select_api::build::KeptFile {
     env.store
         .kept_files(folder.id)
         .unwrap()
@@ -4239,7 +4239,7 @@ fn kept_named(env: &Env, folder: &LibraryFolder, name: &str) -> title_select_api
         .unwrap_or_else(|| panic!("{name} is not kept"))
 }
 
-fn kept_path(dir: &Path, k: &title_select_api::build::KeptFile) -> PathBuf {
+fn kept_path(dir: &Path, k: &stage_select_api::build::KeptFile) -> PathBuf {
     dir.join(RETAINED)
         .join(k.generation.to_string())
         .join(&k.kept_name)
@@ -4252,7 +4252,7 @@ fn substitute(path: &Path, bytes: &[u8]) {
     std::fs::rename(&new, path).unwrap();
 }
 
-fn items(env: &Env, folder: &LibraryFolder) -> Vec<title_select_api::build::BuildItem> {
+fn items(env: &Env, folder: &LibraryFolder) -> Vec<stage_select_api::build::BuildItem> {
     let latest = env.store.builds(folder.id).unwrap()[0].id;
     env.store.build(latest).unwrap().items
 }
@@ -4302,7 +4302,7 @@ fn drift_is_kept_aside_whole_or_acknowledged_until_it_changes() {
         names(&dir),
         BTreeSet::from(
             [
-                ".title-select",
+                ".stage-select",
                 "Pong (USA).zip",
                 "Combat (USA).zip",
                 "readme.txt",
@@ -4643,7 +4643,7 @@ fn a_built_file_that_is_not_torrentzip_is_repacked_from_its_contents_with_the_ol
     let built = env.store.built_files(folder.id).unwrap();
     let combat = built.iter().find(|f| f.game == "Combat (USA)").unwrap();
     assert_eq!((combat.kind, combat.torrentzip), (ItemKind::Repack, true));
-    assert!(!dir.join(".title-select/staging").exists());
+    assert!(!dir.join(".stage-select/staging").exists());
     let checked = check(&env, &folder);
     assert!(checked.drift.is_empty(), "{:?}", checked.drift);
     let combat = checked
@@ -4900,7 +4900,7 @@ fn a_crash_at_each_step_of_a_repack_recovers_and_a_missing_copy_leaves_the_folde
         env.crash(&plan, fault);
         let (env, blocked) = env.restart();
         assert!(blocked.is_empty(), "{fault:?}: {blocked:?}");
-        assert!(!dir.join(".title-select/staging").exists(), "{fault:?}");
+        assert!(!dir.join(".stage-select/staging").exists(), "{fault:?}");
 
         let kept = env.store.kept_files(folder.id).unwrap();
         let combat = dir.join("Combat (USA).zip");
@@ -5019,11 +5019,11 @@ fn a_staging_folder_left_mid_creation_is_recorded_by_recovery_and_never_blocks()
             assert_eq!(temps.len(), 1, "{fault:?}: {temps:?}");
             if renamed {
                 // As if the stop came just after the rename.
-                std::fs::rename(dir.join(&temps[0]), dir.join(".title-select/staging")).unwrap();
+                std::fs::rename(dir.join(&temps[0]), dir.join(".stage-select/staging")).unwrap();
             }
             let (env, blocked) = env.restart();
             assert!(blocked.is_empty(), "{fault:?} {renamed}: {blocked:?}");
-            assert!(!dir.join(".title-select/staging").exists());
+            assert!(!dir.join(".stage-select/staging").exists());
 
             let folder = env.store.library_folder(folder.id).unwrap();
             assert!(check(&env, &folder).drift.is_empty(), "{fault:?} {renamed}");
@@ -5241,8 +5241,8 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
     // built file in place, built but no longer selected.
     let mut unresolved = group("Combat (USA)");
     unresolved.unresolved = true;
-    unresolved.winners[0].title = "Yars (USA)".into();
-    unresolved.alternatives = vec![Alternative {
+    unresolved.kept[0].title = "Yars (USA)".into();
+    unresolved.clones = vec![CloneGame {
         title: "Combat (USA)".into(),
         clone_of: "Yars (USA)".into(),
         rule: rule("Region"),
@@ -5373,7 +5373,7 @@ fn built_as_zips(env: &Env) -> (LibraryFolder, i64) {
     (folder, id)
 }
 
-fn item<'a>(plan: &'a Plan, game: &str) -> &'a title_select_api::build::PlanItem {
+fn item<'a>(plan: &'a Plan, game: &str) -> &'a stage_select_api::build::PlanItem {
     plan.content
         .items
         .iter()
@@ -5386,7 +5386,7 @@ fn build_hooked(
     env: &Env,
     plan: &Plan,
     hook: impl Fn(Fault) + Send + Sync + 'static,
-) -> title_select_api::Job {
+) -> stage_select_api::Job {
     env.store.hook_faults(Some(std::sync::Arc::new(hook)));
     let job = env.build(plan);
     env.store.hook_faults(None);
@@ -5549,7 +5549,7 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         names(&dir),
         BTreeSet::from(
             [
-                ".title-select",
+                ".stage-select",
                 "Breakout (USA).zip",
                 "Combat (USA).a26",
                 "Pong (USA).a26"
@@ -5928,7 +5928,7 @@ fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder
         );
         assert!(dir.join(&first.target).exists(), "{convert}");
         assert!(
-            !dir.join(title_select_api::build::STAGING).exists(),
+            !dir.join(stage_select_api::build::STAGING).exists(),
             "{convert}"
         );
         if convert {
@@ -6061,7 +6061,7 @@ fn a_game_whose_roms_changed_is_replaced_not_converted_and_its_original_is_never
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Incremental,
+            stage_select_engine::AuditEvidence::Incremental,
         )
         .unwrap();
     let id = env.record(&selection(
@@ -6275,7 +6275,7 @@ fn a_selection_names_the_library_folders_that_plan_from_it_and_lists_by_profile(
 #[test]
 fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_a_plan_is_open_until_built()
  {
-    use title_select_api::build::Stale;
+    use stage_select_api::build::Stale;
     let env = Env::new();
     env.audit();
     let id = env.record(&everything(&env.sha256));
@@ -6346,7 +6346,7 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
     env.store
         .change_library_folder(
             folder.id,
-            &title_select_api::build::ChangeLibraryFolder {
+            &stage_select_api::build::ChangeLibraryFolder {
                 source_set: Some("Another".into()),
                 profile: Some("Other".into()),
             },
@@ -6367,7 +6367,7 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
 #[test]
 fn a_folder_is_stale_once_its_source_sets_coverage_differs_from_its_builds_and_not_once_it_is_set_back()
  {
-    use title_select_api::build::Stale;
+    use stage_select_api::build::Stale;
     let env = Env::new();
     env.audit();
     let europe = vec!["Europe".to_owned()];
@@ -6439,7 +6439,7 @@ fn a_stat_walk_stops_for_a_build_that_waits_and_never_delays_its_approval() {
 
 #[test]
 fn drift_found_and_cleared_before_anyone_looks_is_reported_once() {
-    use title_select_store::observe::Observed;
+    use stage_select_store::observe::Observed;
     let env = Env::new();
     let seen: std::sync::Arc<std::sync::Mutex<Vec<Observed>>> = Default::default();
     let kept = seen.clone();
@@ -6468,7 +6468,7 @@ fn drift_found_and_cleared_before_anyone_looks_is_reported_once() {
 
 /// Asserts the Job recorded, as it ended, all its meter counted: what the build's recovery read and wrote as it
 /// failed included.
-fn assert_recorded_as_metered(env: &Env, job: &title_select_api::Job) {
+fn assert_recorded_as_metered(env: &Env, job: &stage_select_api::Job) {
     let counted = env.store.meter().so_far(job.id).expect("metered").counted;
     let recorded = job.throughput.expect("its throughput");
     assert_eq!(
@@ -6498,11 +6498,11 @@ fn a_build_stopped_while_it_recovers_from_failing_keeps_its_error_across_a_resta
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
-    let swap = |p: title_select_engine::Progress| {
+    let swap = |p: stage_select_engine::Progress| {
         if p.files_done == 1 {
             let mut m = marker(&dir);
             m["generation"] = 5.into();
-            std::fs::write(dir.join(".title-select/marker"), m.to_string()).unwrap();
+            std::fs::write(dir.join(".stage-select/marker"), m.to_string()).unwrap();
         }
     };
     env.store.inject_fault(Some(Fault::BuildFailed));
@@ -6557,7 +6557,7 @@ fn a_rom_its_game_does_not_need_that_a_quick_inventory_only_claims_holds_its_gam
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Quick,
+            stage_select_engine::AuditEvidence::Quick,
         )
         .unwrap();
     let id = env.record(&selection(&revision.sha256, vec![group("Bonus (USA)")]));
@@ -6602,7 +6602,7 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
         .audit_source_set(
             SET,
             Some(&revision.sha256),
-            title_select_engine::AuditEvidence::Full,
+            stage_select_engine::AuditEvidence::Full,
         )
         .unwrap();
     let (games, _) = env.store.games(audit.id, None, 100, None).unwrap();
@@ -6625,7 +6625,7 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
 }
 
 /// Approved builds of two folders in two writable Roots, neither started, the source set's folder writable too though
-/// neither build writes to it. Narrowing what the Root `play` lets Title Select write to voids its build and no other;
+/// neither build writes to it. Narrowing what the Root `play` lets Stage Select write to voids its build and no other;
 /// narrowing the source set's Root voids nothing, as both builds only read it; and `play`'s path can't change while
 /// its build is approved.
 #[test]
@@ -6633,8 +6633,8 @@ fn a_voided_build_no_longer_keeps_its_selection_and_audit_from_pruning() {
     let env = Env::new();
     env.store
         .update_settings(
-            &title_select_api::settings::SettingsUpdate {
-                retention: Some(title_select_api::settings::Retention {
+            &stage_select_api::settings::SettingsUpdate {
+                retention: Some(stage_select_api::settings::Retention {
                     audits_keep: 1,
                     selections_keep: 1,
                 }),
@@ -6716,8 +6716,8 @@ fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_ther
         .unwrap();
     assert_eq!(
         read_only.voided,
-        [title_select_api::roots::VoidedPlan {
-            kind: title_select_api::roots::VoidedPlanKind::Build,
+        [stage_select_api::roots::VoidedPlan {
+            kind: stage_select_api::roots::VoidedPlanKind::Build,
             plan: here_plan,
             job: here_job,
             writes_to: "play library folder play/atari".into(),

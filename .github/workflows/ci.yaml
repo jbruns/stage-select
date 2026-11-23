@@ -55,16 +55,16 @@ jobs:
             type=gha,scope=chdman
             type=gha
           cache-to: type=gha,mode=max,scope=chdman
-      - run: echo "TITLE_SELECT_CHDMAN=$RUNNER_TEMP/chdman/chdman" >> "$GITHUB_ENV"
+      - run: echo "STAGE_SELECT_CHDMAN=$RUNNER_TEMP/chdman/chdman" >> "$GITHUB_ENV"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       # The workbench as the browser runs it; the image build compiles it the same way.
-      - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
-      - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
+      - run: cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy --package stage-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
       # The release run below checks every fixture golden, so this one leaves them out.
-      - run: cargo nextest run --profile ci --locked -E 'not binary_id(title-select-selection::fixtures)'
+      - run: cargo nextest run --profile ci --locked -E 'not binary_id(stage-select-selection::fixtures)'
       # Every fixture golden: a debug build checks only some of them, a release build all of them in about a minute.
-      - run: cargo nextest run --profile ci --release --locked --package title-select-selection --test fixtures
+      - run: cargo nextest run --profile ci --release --locked --package stage-select-selection --test fixtures
 
   image:
     name: image build, smoke test
@@ -77,7 +77,7 @@ jobs:
           context: .
           platforms: linux/amd64
           load: true
-          tags: title-select:ci
+          tags: stage-select:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       # The Service must start with a read-only root filesystem, writing only to its store volume, configured by
@@ -89,20 +89,20 @@ jobs:
           chmod 644 "$RUNNER_TEMP/token"
           printf 'Authorization: Bearer %s' "$token" > "$RUNNER_TEMP/auth-header"
           docker run --detach --name service --read-only -p 8080:8080 \
-            -v title-select-store:/store -v "$RUNNER_TEMP/token:/run/operator-token:ro" \
-            -e TITLE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
-            -e TITLE_SELECT_IDENTITY_HEADER=Remote-User -e 'TITLE_SELECT_TRUSTED_PROXIES=172.16.0.0/12, 127.0.0.0/8' \
-            title-select:ci
+            -v stage-select-store:/store -v "$RUNNER_TEMP/token:/run/operator-token:ro" \
+            -e STAGE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
+            -e STAGE_SELECT_IDENTITY_HEADER=Remote-User -e 'STAGE_SELECT_TRUSTED_PROXIES=172.16.0.0/12, 127.0.0.0/8' \
+            stage-select:ci
           for _ in $(seq 30); do curl -fsS localhost:8080/api/v1/health && break; sleep 1; done
           curl -fsS -H @"$RUNNER_TEMP/auth-header" localhost:8080/api/v1/jobs
           curl -fsS -H 'Remote-User: smoke test' localhost:8080/api/v1/jobs
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/api/v1/jobs)" = 401
           # The workbench's bundle is served beside the API.
           curl -fsS localhost:8080/ | grep -q '/boot.js'
-          curl -fsS -o /dev/null -H 'Accept-Encoding: br' localhost:8080/pkg/title-select.wasm
+          curl -fsS -o /dev/null -H 'Accept-Encoding: br' localhost:8080/pkg/stage-select.wasm
           curl -fsS localhost:8080/source-sets | grep -q '/boot.js'
           # The About page's licence texts are served as plain text.
-          for licence in title-select retool retool-clonelists-metadata mame curated-mame-arcade-romset; do
+          for licence in stage-select retool retool-clonelists-metadata mame curated-mame-arcade-romset; do
             curl -fsS -D - -o "$RUNNER_TEMP/$licence.txt" "localhost:8080/licences/$licence.txt" \
               | grep -qi '^content-type: text/plain'
             # The curated list's Unlicense gives it to the public domain, so it says copyright in lowercase.
@@ -113,25 +113,25 @@ jobs:
         run: |
           printf '{"region_order": ["USA"]}\n' > "$RUNNER_TEMP/profile.json"
           chmod 644 "$RUNNER_TEMP/profile.json"
-          docker run --rm --read-only --network none -v title-select-select:/store \
+          docker run --rm --read-only --network none -v stage-select-select:/store \
             -v "$PWD/third_party/retool/fixtures/source/features:/dats:ro" \
             -v "$RUNNER_TEMP/profile.json:/run/profile.json:ro" \
-            title-select:ci select --dat '/dats/Retool - Prefer regions.dat' --profile /run/profile.json \
+            stage-select:ci select --dat '/dats/Retool - Prefer regions.dat' --profile /run/profile.json \
             > "$RUNNER_TEMP/selection.json"
           commit="$(grep -m1 '^commit = ' third_party/clone-lists/pins.toml | cut -d'"' -f2)"
           jq -e --arg commit "$commit" '.summary.groups > 0 and .pins.clone_list_commit == $commit
-            and (.pins.title_select_version | length > 0) and (.pins | has("retool_commit") | not)' \
+            and (.pins.stage_select_version | length > 0) and (.pins | has("retool_commit") | not)' \
             "$RUNNER_TEMP/selection.json"
-          docker run --rm title-select:ci --version | grep -q "$commit"
+          docker run --rm stage-select:ci --version | grep -q "$commit"
       # CHD builds run the image's chdman, the pinned MAME release's, from the path the image names.
       - name: chdman smoke test
         run: |
           version="$(grep -m1 '^ARG MAME_VERSION=' Dockerfile | cut -d= -f2)"
           # chdman with no command prints its banner and exits nonzero.
-          { docker run --rm --read-only --entrypoint /usr/local/bin/chdman title-select:ci || true; } \
+          { docker run --rm --read-only --entrypoint /usr/local/bin/chdman stage-select:ci || true; } \
             | grep -q "manager 0\.${version#mame0} "
-          docker image inspect title-select:ci --format '{{range .Config.Env}}{{println .}}{{end}}' \
-            | grep -qx 'TITLE_SELECT_CHDMAN=/usr/local/bin/chdman'
+          docker image inspect stage-select:ci --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -qx 'STAGE_SELECT_CHDMAN=/usr/local/bin/chdman'
       - if: always()
         run: docker logs service
 
@@ -154,7 +154,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/jbruns/title-select
+          images: ghcr.io/jbruns/stage-select
           tags: |
             type=sha,format=long
             type=semver,pattern={{version}}

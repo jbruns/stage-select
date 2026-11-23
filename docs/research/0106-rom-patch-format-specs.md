@@ -1,7 +1,7 @@
 # ROM/binary patch formats: headers, checksums, reversibility and header-sensitivity
 
 Format reference for #106, companion to [0106-patch-derived-additions.md](0106-patch-derived-additions.md),
-which holds the recommendation for Title Select. It documents, from primary sources read directly
+which holds the recommendation for Stage Select. It documents, from primary sources read directly
 (spec text, RFC text, and reference-implementation source code, not descriptions), what each common ROM
 patch format puts in its header/footer, which checksums (if any) it carries for the source file, the
 target file and the patch file itself, whether it is reversible, and how known implementations handle

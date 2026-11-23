@@ -58,7 +58,7 @@ Every plan (repair, build, cleanup, ingest, deleting kept files, setting aside) 
 
 ## Shared parts
 
-All live under `crate::parts`. Pure logic in each module is host-tested (`cargo test -p title-select-ui`); keep new
+All live under `crate::parts`. Pure logic in each module is host-tested (`cargo test -p stage-select-ui`); keep new
 pure logic there too.
 
 | Need                                   | Use                                                    | Module      |
@@ -225,6 +225,6 @@ route of a `ParentRoute`, as on Activity and Settings.
 ### Theme and colour
 
 The theme follows `prefers-color-scheme`; `ThemeToggle` cycles system → light → dark and stores the override in
-localStorage (`title-select.theme`), applied before load by `assets/boot.js`. Semantic colours in `style/main.css`
+localStorage (`stage-select.theme`), applied before load by `assets/boot.js`. Semantic colours in `style/main.css`
 use `light-dark()`. A new text or tone colour must be added to both themes, and the contrast test in `theme.rs`
 (≥ 4.5:1 on canvas, surface and selected rows) must pass.
