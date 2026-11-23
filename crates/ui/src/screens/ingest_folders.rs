@@ -821,14 +821,8 @@ fn Items(
                 ));
             }
         }
-        if row.status == IngestStatus::MatchesSourceSet
-            && let Some(Proposal::SourceSet { source_set, .. }) = &item.assessment.proposal
-        {
-            actions.push(RowAction::go(
-                Glyph::Wrench,
-                format!("Repair {source_set}"),
-                tab_href(source_set, PageTab::Kept),
-            ));
+        if let Some((label, href)) = ingest_model::repair_link(row.status, item) {
+            actions.push(RowAction::go(Glyph::Wrench, label, href));
         }
         // Tracked, so the open item's detail offers a decision as soon as you fill in what it needs.
         let choices = Choices {

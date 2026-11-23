@@ -13,6 +13,8 @@ use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::status::{IngestStatus, Status};
 use crate::screens::additions::new_addition;
+use crate::screens::source_sets::tab_href;
+use crate::source_set_model::PageTab;
 
 /// The checksum to show for an assessed item: a game file's own SHA-256, but none for a DAT, whose SHA-256 is its
 /// DAT Revision's identity and which is shown by name and version instead.
@@ -391,6 +393,18 @@ pub fn shown(only: Option<IngestStatus>, status: IngestStatus) -> bool {
     }
 }
 
+/// The "Repair {source set}" action of an item that matches a source set: its label, and the source set's repair tab,
+/// where a repair that fills from the folder is proposed or reviewed.
+pub fn repair_link(status: IngestStatus, item: &IngestItem) -> Option<(String, String)> {
+    match (status, &item.assessment.proposal) {
+        (IngestStatus::MatchesSourceSet, Some(Proposal::SourceSet { source_set, .. })) => Some((
+            format!("Repair {source_set}"),
+            tab_href(source_set, PageTab::Repair),
+        )),
+        _ => None,
+    }
+}
+
 /// Where one item of a plan stands: waiting for you to approve the plan, being moved, or how its move ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Outcome {
@@ -496,6 +510,22 @@ mod tests {
             serde_json::json!({"payloads": [payload()], "proposal": {
                 "kind": "source_set", "source_set": "Atari", "game": "Pong", "need": "missing"}}),
         )
+    }
+
+    #[test]
+    fn an_item_matching_a_source_set_offers_its_repair_tab() {
+        assert_eq!(
+            repair_link(IngestStatus::MatchesSourceSet, &fill(1)),
+            Some((
+                "Repair Atari".to_string(),
+                "/source-sets/Atari?tab=repair".to_string()
+            ))
+        );
+        assert_eq!(repair_link(IngestStatus::Moving, &fill(1)), None);
+        assert_eq!(
+            repair_link(IngestStatus::ImportFile, &homebrew(2, None)),
+            None
+        );
     }
 
     fn dat(id: i64, provider: Option<&str>, imported: bool) -> IngestItem {
