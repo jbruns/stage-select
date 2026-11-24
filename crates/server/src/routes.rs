@@ -33,7 +33,9 @@ use stage_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
     RommTestRequest,
 };
-use stage_select_api::roots::{FolderSuggestions, RootChange, RootEdited, RootSpec};
+use stage_select_api::roots::{
+    FolderListing, FolderSuggestions, FoldersQuery, RootChange, RootEdited, RootSpec,
+};
 use stage_select_api::selection::{Outcome, SelectionProfile, diff_rows};
 use stage_select_api::settings::{SettingsUpdate, SettingsView};
 use stage_select_api::storage::StoragePolicy;
@@ -98,6 +100,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/roots/{name}/unregistration", post(unregister_root))
         .route("/roots/{name}/changes", get(root_changes))
         .route("/folder-suggestions", get(folder_suggestions))
+        .route("/folders", get(folders))
         .route("/dats", get(dats))
         .route(
             "/dat-revisions",
@@ -449,6 +452,20 @@ async fn folder_suggestions(State(state): State<AppState>) -> ApiResult<Json<Fol
     let mount_points = state.mount_points.clone();
     blocking(&state, move |store| {
         Ok(store.folder_suggestions(&mount_points))
+    })
+    .await
+    .map(Json)
+}
+
+/// The folders in the folder `?path=`, to browse for a path; hidden ones too with `?hidden=true`. Read off the
+/// async workers, as a folder may be on a slow share.
+async fn folders(
+    State(state): State<AppState>,
+    query: Result<Query<FoldersQuery>, QueryRejection>,
+) -> ApiResult<Json<FolderListing>> {
+    let Query(query) = query?;
+    blocking(&state, move |store| {
+        store.folders(&query.path, query.hidden)
     })
     .await
     .map(Json)

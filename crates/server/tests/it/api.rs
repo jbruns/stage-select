@@ -822,6 +822,73 @@ fn the_api_suggests_the_unregistered_folders_of_its_mount_points() {
 }
 
 #[test]
+fn the_api_lists_the_folders_in_a_folder_and_refuses_a_path_it_cant_list() {
+    let env = Env::new();
+    let base = env.tmp.path().join("browse");
+    std::fs::create_dir_all(base.join("roms")).unwrap();
+    std::fs::create_dir_all(base.join(".hidden")).unwrap();
+    std::os::unix::fs::symlink(base.join("roms"), base.join("linked")).unwrap();
+    let service = env.start();
+    let client = Client::new(&service);
+    let at = |p: &std::path::Path| p.display().to_string();
+    let list = |path: &str, hidden: &str| {
+        let mut response = client
+            .get("/folders")
+            .query("path", path)
+            .query("hidden", hidden)
+            .call()
+            .unwrap();
+        let status = response.status().as_u16();
+        (
+            status,
+            response
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .unwrap(),
+        )
+    };
+    let folder = |name: &str| at(&base.join(name));
+
+    let (status, found) = list(&at(&base), "false");
+    assert_eq!(status, 200, "{found}");
+    assert_eq!(
+        found,
+        serde_json::json!({
+            "path": at(&base),
+            "parent": at(env.tmp.path()),
+            "folders": [
+                {"name": "linked", "path": folder("linked"), "writable": true, "link": true},
+                {"name": "roms", "path": folder("roms"), "writable": true},
+            ],
+        })
+    );
+    let (_, all) = list(&at(&base), "true");
+    assert_eq!(all["folders"][0]["name"], ".hidden", "{all}");
+
+    for (path, why) in [
+        ("browse", "absolute"),
+        (&format!("{}/../browse", at(&base)), ".."),
+        (&folder("missing"), "no folder"),
+    ] {
+        let (status, body) = list(path, "false");
+        assert_eq!(status, 400, "{path}: {body}");
+        assert!(
+            body["error"].as_str().unwrap().contains(why),
+            "{path}: {body}"
+        );
+    }
+
+    let anonymous = Client {
+        auth: None,
+        ..Client::new(&service)
+    };
+    assert_eq!(
+        status_of(anonymous.get("/folders").query("path", "/").call()),
+        401
+    );
+}
+
+#[test]
 fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     let env = Env::new();
     let service = env.start();

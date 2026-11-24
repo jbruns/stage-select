@@ -381,3 +381,161 @@ mod suggestions {
         );
     }
 }
+
+mod browsing {
+    use stage_select_api::roots::{Folder, RootSpec};
+    use stage_select_store::Error;
+    use stage_select_store::roots::FOLDERS_LISTED;
+
+    use super::Env;
+
+    fn names(found: &[Folder]) -> Vec<&str> {
+        found.iter().map(|f| f.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_folder_lists_the_folders_in_it_by_name_whatever_their_case_and_nothing_else() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        for dir in [
+            "mnt/roms/nested",
+            "mnt/Games",
+            "mnt/arcade",
+            "mnt/.hidden",
+            "mnt/lost+found",
+        ] {
+            env.dir(dir);
+        }
+        std::fs::write(mnt.join("a-file"), b"").unwrap();
+        let found = env
+            .store
+            .folders(&mnt.display().to_string(), false)
+            .unwrap();
+        assert_eq!(found.path, mnt.display().to_string());
+        assert_eq!(found.parent, Some(env.tmp.path().display().to_string()));
+        assert_eq!(names(&found.folders), ["arcade", "Games", "roms"]);
+        assert_eq!(
+            found.folders[2].path,
+            mnt.join("roms").display().to_string()
+        );
+        assert!(
+            found
+                .folders
+                .iter()
+                .all(|f| f.writable && !f.link && f.root.is_none())
+        );
+        assert!(!found.more);
+
+        let all = env.store.folders(&mnt.display().to_string(), true).unwrap();
+        assert_eq!(
+            names(&all.folders),
+            [".hidden", "arcade", "Games", "lost+found", "roms"],
+            "hidden folders only when asked"
+        );
+    }
+
+    #[test]
+    fn the_top_has_no_parent_and_a_path_is_tidied() {
+        let env = Env::new();
+        let top = env.store.folders("/", false).unwrap();
+        assert_eq!((top.path.as_str(), top.parent), ("/", None));
+        let mnt = env.dir("mnt");
+        env.dir("mnt/roms");
+        let untidy = format!("{}//./", mnt.display());
+        let found = env.store.folders(&untidy, false).unwrap();
+        assert_eq!(found.path, mnt.display().to_string());
+        assert_eq!(
+            found.folders[0].path,
+            mnt.join("roms").display().to_string()
+        );
+    }
+
+    #[test]
+    fn a_link_to_a_folder_is_shown_as_a_link_and_a_link_to_a_file_is_not() {
+        let env = Env::new();
+        let outside = env.dir("outside");
+        let mnt = env.dir("mnt");
+        std::fs::write(outside.join("file"), b"").unwrap();
+        std::os::unix::fs::symlink(&outside, mnt.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(outside.join("file"), mnt.join("file-link")).unwrap();
+        std::os::unix::fs::symlink(env.tmp.path().join("gone"), mnt.join("dangling")).unwrap();
+        let found = env
+            .store
+            .folders(&mnt.display().to_string(), false)
+            .unwrap();
+        assert_eq!(names(&found.folders), ["elsewhere"]);
+        assert!(found.folders[0].link);
+        assert_eq!(
+            found.folders[0].path,
+            mnt.join("elsewhere").display().to_string()
+        );
+    }
+
+    #[test]
+    fn each_folder_names_the_deepest_root_it_is_in() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        env.dir("mnt/sets/snes");
+        env.dir("mnt/other");
+        env.register(&RootSpec::new("mnt", &mnt)).unwrap();
+        env.register(&RootSpec::new("sets", mnt.join("sets")))
+            .unwrap();
+        let roots = |path: &std::path::Path| {
+            env.store
+                .folders(&path.display().to_string(), false)
+                .unwrap()
+                .folders
+                .into_iter()
+                .map(|f| (f.name, f.root))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            roots(&mnt),
+            [
+                ("other".into(), Some("mnt".into())),
+                ("sets".into(), Some("sets".into()))
+            ]
+        );
+        assert_eq!(
+            roots(&mnt.join("sets")),
+            [("snes".into(), Some("sets".into()))]
+        );
+        assert_eq!(
+            roots(env.tmp.path()),
+            [("mnt".into(), Some("mnt".into())), ("store".into(), None)],
+            "a root is in itself, and a folder beside it in none"
+        );
+    }
+
+    #[test]
+    fn a_full_folder_is_cut_short_and_says_so() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        for n in 0..FOLDERS_LISTED + 3 {
+            env.dir(&format!("mnt/{n:04}"));
+        }
+        let found = env
+            .store
+            .folders(&mnt.display().to_string(), false)
+            .unwrap();
+        assert_eq!(found.folders.len(), FOLDERS_LISTED);
+        assert_eq!(found.folders[0].name, "0000");
+        assert!(found.more);
+    }
+
+    #[test]
+    fn a_relative_path_a_parent_step_and_a_missing_folder_are_refused() {
+        let env = Env::new();
+        let mnt = env.dir("mnt");
+        std::fs::write(mnt.join("a-file"), b"").unwrap();
+        let refused = |path: String| match env.store.folders(&path, false) {
+            Err(Error::Refused(why)) => why,
+            other => panic!("{path}: {other:?}"),
+        };
+        assert!(refused("mnt".into()).contains("absolute"));
+        assert!(refused(String::new()).contains("absolute"));
+        assert!(refused(format!("{}/../mnt", mnt.display())).contains(".."));
+        assert!(refused(format!("{}/missing", mnt.display())).contains("no folder"));
+        assert!(refused(format!("{}/a-file", mnt.display())).contains("not a folder"));
+    }
+}

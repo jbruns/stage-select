@@ -196,3 +196,45 @@ pub struct FolderSuggestion {
     /// Whether the Service can write to it now, as it would check when the Root is registered writable.
     pub writable: bool,
 }
+
+/// The folders in one folder, as `GET /folders?path=` lists them to browse for a path: any folder the Service can
+/// see, from `/` down. Only names are read, never a file's contents.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderListing {
+    /// The folder listed, absolute.
+    pub path: String,
+    /// The folder it is in; none for `/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// The folders in it, by name, case-insensitively.
+    pub folders: Vec<Folder>,
+    /// It holds more folders than the listing shows, so some are left out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub more: bool,
+}
+
+/// One folder in a [`FolderListing`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Folder {
+    pub name: String,
+    /// Its absolute path, through the listed folder: a link's own path, not where it points.
+    pub path: String,
+    /// Whether the Service can write to it now.
+    pub writable: bool,
+    /// The registered Root it is in, if any: the deepest, when Roots nest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    /// It is a symbolic link to a folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub link: bool,
+}
+
+/// The query of `GET /folders`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoldersQuery {
+    /// The absolute path of the folder to list.
+    pub path: String,
+    /// List hidden folders too: those whose names start with a dot, and `lost+found`.
+    #[serde(default)]
+    pub hidden: bool,
+}
