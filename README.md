@@ -951,6 +951,8 @@ stage-select set holds|unregister <source set>
 stage-select library holds|unregister <library folder id>
 stage-select additions holds|unregister <system>
 stage-select ingest holds|unregister <ingest root>
+stage-select library remove <library folder id> <game>... [--action send-back|set-aside|delete]
+stage-select library restore <library folder id> <game>...
 stage-select root holds <root>
 stage-select profile retire|restore <selection profile>
 stage-select unregistered list
@@ -964,6 +966,9 @@ holds` lists what is registered in a root, which you unregister before you unreg
 `profile retire` hides a selection profile from new choices, and `profile restore` offers it again. `unregistered
 list` lists what you unregistered with the history the store still holds for it, `unregistered history` shows that
 history (its audits, selections, builds and jobs) by the id `list` prints, and `unregistered forget` removes it.
+`library remove` plans removing games from a library folder, set aside unless you choose another action, for you to
+review and approve in the workbench; `library restore` restores them, so the folder's next build puts them back. See
+"Library folders and builds".
 
 ## Service
 
@@ -1511,6 +1516,19 @@ Your choices are part of the plan, and of its digest: building resolved game gro
 it (the default), adopting it when it holds the ROMs the DAT expects, or setting it aside and building the game in its
 place. To change one, plan again with it. The removals are part of the digest too.
 
+You can also take chosen games out of a folder and keep them out. Check their files under the folder's built files
+and choose how (`POST /libraries/{id}/game-removals`, `{"games": [game], "action"}`): **Send back to source**, only
+for a game placed there under single copy, returns it to your source set as a build returns a placed game; **Set
+aside** makes its files kept files; **Delete** makes them kept files, then deletes them once the build has set them
+aside, as deleting kept files does. A game placed there that you delete is lost: it isn't returned to your source set,
+and the workbench says so before you plan it. Setting a placed game aside is refused, as its file is your source set's
+only copy, and so is sending back a game that isn't placed, or removing one with no file built there. Each removal is
+a build plan, made from the folder's current build's selection, that you review and approve; approving it adds the
+games to the folder's removed games, and a plan you don't approve adds nothing. Every later build leaves a removed
+game out, as if its selection didn't select it, and its plan says you removed it. Restore a game from the folder's
+overview (`POST /libraries/{id}/game-restorations`, `{"games": [game]}`) and the next build puts it back; a deleted
+game is built again from your source set. Removing every built file ignores the removed games.
+
 Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-files`), plan deleting some or all
 (`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it with the digest and the id of
 the folder you reviewed it under; a plan of another folder's kept files is refused. Planning reads each kept
@@ -1679,8 +1697,8 @@ at once: the next build of the old folder returns its placed games to your sourc
 new folder places them there. Games never move directly between library folders.
 
 A placed game goes back to your source set, never to kept files, when its library folder's selection no longer
-selects it, when you turn single copy off for its system, when you choose another holding folder, or when you remove
-the folder's built files. Returns run first in a build, by a rename on one mount and otherwise by a copy or
+selects it, when you turn single copy off for its system, when you choose another holding folder, when you send it
+back to source from the folder, or when you remove the folder's built files. Returns run first in a build, by a rename on one mount and otherwise by a copy or
 conversion verified against the DAT. A game that is still selected leaves an ordinary built copy behind in the
 library folder. A return that needs more space than your source set's root has free is refused before anything
 moves.
@@ -2077,7 +2095,7 @@ What these versions promise you:
 | `GET /api/v1/selections/{id}/releases`             | games, paged, with availability; `?outcome=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, `removed`, the games you removed from it, each `{"name", "removed_at", "action", "plan"}`, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -2091,6 +2109,8 @@ What these versions promise you:
 | `GET /api/v1/libraries/{id}/incomplete`            | what its current build lacks, by reason                      |
 | `GET /api/v1/libraries/{id}/kept-files`            | the files builds set aside in it, newest generation first    |
 | `POST /api/v1/libraries/{id}/kept-deletions`       | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
+| `POST /api/v1/libraries/{id}/game-removals`        | plan removing games from it: `{"games": [game], "action": "send_back" \| "set_aside" \| "delete"}`; a build plan, `201`, whose approval adds them to its `removed` games |
+| `POST /api/v1/libraries/{id}/game-restorations`    | restore removed games: `{"games": [game]}`; the library folder, whose next build puts them back |
 | `GET /api/v1/libraries/{id}/romm`                  | its latest comparison with RomM: `{"folder_id", "job_id"?, "fs_slug", "reconciled_at", "error"?, "counts" ({"files", "clean", "unidentified", "title_mismatch", "hash_mismatch"}), "rows"}`, each row `{"target", "game", "flags" (`unidentified`, `title_mismatch`, `hash_mismatch`), "rom_id"?, "romm_name"?, "detail"?}`; `404` when never compared |
 | `POST /api/v1/libraries/{id}/romm/reconciliations` | compare it with RomM now and return the comparison; `400` while RomM is off or doesn't scan it |
 | `POST /api/v1/libraries/{id}/romm/rescans`         | ask RomM to scan one ROM its latest comparison flagged: `{"rom_id"}`; returns `{"rom_id", "scan_type" (`unmatched` or `update`), "task_id"}`; `400` while RomM is off or when RomM refuses |

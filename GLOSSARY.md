@@ -352,6 +352,12 @@ A Game whose Placement is a Library Folder. Its Source Set's Audits read it ther
 Build that no longer selects it returns it to the Source Set's folder rather than setting it aside.
 _Avoid_: Moved Game, linked Game
 
+**Removed Game**:
+A selected Game the Operator removed from one Library Folder, by sending it back to its Source Set, setting it aside or
+deleting it, through an approved Change Plan. Every later Build of that folder leaves it out, as if its Selection didn't
+select it, until the Operator restores it.
+_Avoid_: Excluded Game, blocklist
+
 **Kept File**:
 A file or folder removed from a Library Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
 Ingest Folder by a plan, set aside in that folder's retention area so that no tool or Audit scans it, until the
