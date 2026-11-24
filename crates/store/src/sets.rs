@@ -202,14 +202,14 @@ pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Res
     })
 }
 
-/// The Source Set folder `rel` in the Root `root`, when nothing is there yet: its path relative to the Root, and
-/// where it would be, checked to resolve inside the Root. `None` when something is there, to be checked by
+/// The Source Set folder `rel` in the Root `root`, when nothing is there yet: its path relative to the Root, where it
+/// would be, checked to resolve inside the Root, and the Root's canonical path. `None` when something is there, to be checked by
 /// [`resolve`].
 fn missing(
     roots: &crate::roots::Roots,
     root: &str,
     rel: &str,
-) -> Result<Option<(String, PathBuf)>> {
+) -> Result<Option<(String, PathBuf, PathBuf)>> {
     use std::io::ErrorKind;
     let root_config = roots
         .root(root)
@@ -227,7 +227,7 @@ fn missing(
             beneath.rel
         )));
     }
-    Ok(Some((beneath.rel, would_be)))
+    Ok(Some((beneath.rel, would_be, beneath.canonical_root)))
 }
 
 impl Store {
@@ -300,7 +300,7 @@ impl Store {
             )));
         }
         let (rel, canonical, to_create) = match missing(roots, root, rel)? {
-            Some((rel, would_be)) => {
+            Some((rel, would_be, canonical_root)) => {
                 let name = rel.rsplit('/').next().unwrap_or(&rel);
                 let shown = would_be.display();
                 if !create {
@@ -315,7 +315,7 @@ impl Store {
                          set; turn on \"Stage Select may change this source set\", or make the folder yourself"
                     )));
                 }
-                (rel, would_be.clone(), Some(would_be))
+                (rel, would_be.clone(), Some((would_be, canonical_root)))
             }
             None => {
                 let resolved = resolve(roots, root, rel)?;
@@ -328,6 +328,8 @@ impl Store {
         };
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
         split_dat(dat)?;
+        // Dropped on a refusal or failure, the transaction's commit included, which removes what it made.
+        let mut made = None;
         let record = self.write(|tx| {
             if let Some((what, other)) = crate::folders::overlapping(
                 tx,
@@ -378,12 +380,22 @@ impl Store {
             }
             // Last, so that a registration refused creates nothing; checked again once made, in case a symlink
             // appeared in the way meanwhile.
-            if let Some(folder) = &to_create {
-                crate::roots::create_folder(folder, &format!("Source set {name}"))?;
+            if let Some((folder, canonical_root)) = &to_create {
+                self.fault_point(crate::Fault::CreatingFolder);
+                made = Some(crate::made_folders::create_beneath(
+                    canonical_root,
+                    Path::new(&rel),
+                    &format!("Source set {name}"),
+                    folder,
+                )?);
+                self.fault_point(crate::Fault::FolderCreated);
                 resolve(roots, root, &rel)?;
             }
             Ok(set_by_name(tx, &name)?.record)
         })?;
+        if let Some(made) = made {
+            made.keep();
+        }
         if repairs_may_change.is_some() {
             self.roots_changed()?;
         }

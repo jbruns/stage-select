@@ -317,34 +317,6 @@ fn check_folder(root: &Checked) -> Result<()> {
     Ok(())
 }
 
-/// Creates the folder at `path`, and each missing folder above it, as the Service's user, refusing with why it
-/// couldn't, `what` naming what the folder is for, as "Root sets".
-pub(crate) fn create_folder(path: &Path, what: &str) -> Result<()> {
-    use std::io::ErrorKind;
-    let shown = path.display();
-    match std::fs::create_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == ErrorKind::PermissionDenied => refused(format!(
-            "{what}: Stage Select can't create {shown}: the service's user may not write to the folder above it. \
-             Make the folder yourself, or let the service's user write there."
-        )),
-        Err(e) if e.kind() == ErrorKind::ReadOnlyFilesystem => refused(format!(
-            "{what}: Stage Select can't create {shown}: it is on a read-only file system."
-        )),
-        Err(e)
-            if matches!(
-                e.kind(),
-                ErrorKind::AlreadyExists | ErrorKind::NotADirectory
-            ) =>
-        {
-            refused(format!(
-                "{what}: Stage Select can't create {shown}: a file is in the way. Move the file, or check the path."
-            ))
-        }
-        Err(e) => refused(format!("{what}: Stage Select can't create {shown}: {e}.")),
-    }
-}
-
 fn refuse_second_additions(c: &Connection, root: &Checked) -> Result<()> {
     if root.kind != RootKind::Additions {
         return Ok(());
@@ -1388,18 +1360,29 @@ impl Store {
             refuse_second_additions(c, &root)
         };
         let _lifecycle = self.lifecycle_lock();
-        let created = if spec.create && std::fs::symlink_metadata(&root.path).is_err() {
+        // Dropped on a refusal or failure from here on, which removes what it made.
+        let made = if spec.create && std::fs::symlink_metadata(&root.path).is_err() {
             self.read(|c| unclaimed(c))?;
-            create_folder(&root.path, &format!("Root {}", root.name))?;
-            Some(root.path.as_path())
+            self.fault_point(crate::Fault::CreatingFolder);
+            let made =
+                crate::made_folders::create_folder(&root.path, &format!("Root {}", root.name))?;
+            self.fault_point(crate::Fault::FolderCreated);
+            Some(made)
         } else {
             None
         };
+        let created = made
+            .as_ref()
+            .filter(|m| !m.is_empty())
+            .map(|_| root.path.as_path());
         check_folder(&root)?;
         let saved = self.write(|tx| {
             unclaimed(tx)?;
             save_creating(tx, &root, "registered", actor, created)
         })?;
+        if let Some(made) = made {
+            made.keep();
+        }
         self.roots_changed()?;
         Ok(saved)
     }

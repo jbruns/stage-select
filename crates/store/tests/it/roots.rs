@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use stage_select_api::roots::{RootKind, RootSpec};
-use stage_select_store::{Error, Store};
+use stage_select_store::{Error, Fault, Store};
 
 struct Env {
     tmp: tempfile::TempDir,
@@ -143,6 +143,34 @@ fn a_root_folder_that_cant_be_created_is_refused_and_nothing_is_made() {
     let why = env.refused(&RootSpec::new("play", locked.join("play")).creating());
     assert!(why.contains("may not write"), "{why}");
     assert_eq!(env.store.roots_view().len(), 1);
+}
+
+#[test]
+fn a_root_registration_refused_once_its_folders_are_made_removes_only_those() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let probe = env.dir("probe");
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if rustix::fs::access(&probe, rustix::fs::Access::WRITE_OK).is_ok() {
+        eprintln!("skipped: this user writes to read-only folders");
+        return;
+    }
+    let there = env.dir("there");
+    let path = there.join("a/b");
+    // As a umask would leave it: a folder Stage Select can't write to, so a writable root is refused.
+    let locked = path.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::FolderCreated {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+    })));
+
+    let why = env.refused(&RootSpec::new("play", &path).writable().creating());
+
+    env.store.hook_faults(None);
+    assert!(why.contains("can't write"), "{why}");
+    assert!(there.is_dir(), "the folder that was there stays");
+    assert!(!there.join("a").exists(), "the folders made are removed");
 }
 
 #[test]

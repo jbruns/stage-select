@@ -5537,6 +5537,33 @@ fn a_source_set_folder_is_created_only_where_stage_select_may_change_it_inside_i
 }
 
 #[test]
+fn a_source_set_folder_is_never_created_through_a_folder_swapped_for_a_symlink() {
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    let shelf = ro.join("Shelf");
+    std::fs::create_dir_all(&shelf).unwrap();
+    let elsewhere = env.tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (swapped, to) = (shelf.clone(), elsewhere.clone());
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::CreatingFolder {
+            std::fs::remove_dir(&swapped).unwrap();
+            std::os::unix::fs::symlink(&to, &swapped).unwrap();
+        }
+    })));
+
+    let refused = create_set(&env, "Shelf/Delta", Some(true));
+
+    env.store.hook_faults(None);
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("is a symbolic link")),
+        "{refused:?}"
+    );
+    assert!(!elsewhere.join("Delta").exists());
+    assert!(env.store.source_set("Delta").is_err());
+}
+
+#[test]
 fn a_source_set_folder_the_service_may_not_create_is_refused() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
