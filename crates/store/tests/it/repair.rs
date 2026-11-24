@@ -5564,6 +5564,33 @@ fn a_source_set_folder_is_never_created_through_a_folder_swapped_for_a_symlink()
 }
 
 #[test]
+fn a_source_set_folder_is_never_created_through_a_root_swapped_for_a_symlink() {
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    let moved = env.tmp.path().join("roots/ro-moved");
+    let elsewhere = env.tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (from, aside, to) = (ro.clone(), moved.clone(), elsewhere.clone());
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::CreatingFolder {
+            std::fs::rename(&from, &aside).unwrap();
+            std::os::unix::fs::symlink(&to, &from).unwrap();
+        }
+    })));
+
+    let refused = create_set(&env, "Delta", Some(true));
+
+    env.store.hook_faults(None);
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(!elsewhere.join("Delta").exists());
+    assert!(
+        !moved.join("Delta").exists(),
+        "what it made in the pinned root is removed"
+    );
+    assert!(env.store.source_set("Delta").is_err());
+}
+
+#[test]
 fn a_source_set_folder_the_service_may_not_create_is_refused() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();

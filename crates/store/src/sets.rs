@@ -203,23 +203,27 @@ pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Res
 }
 
 /// The Source Set folder `rel` in the Root `root`, when nothing is there yet: its path relative to the Root, where it
-/// would be, checked to resolve inside the Root, and the Root's canonical path. `None` when something is there, to be checked by
+/// would be, checked to resolve inside the Root, and the Root, pinned at the canonical path that check compared. `None` when something is there, to be checked by
 /// [`resolve`].
 fn missing(
     roots: &crate::roots::Roots,
     root: &str,
     rel: &str,
-) -> Result<Option<(String, PathBuf, PathBuf)>> {
+) -> Result<Option<(String, PathBuf, crate::made_folders::Pinned)>> {
     use std::io::ErrorKind;
     let root_config = roots
         .root(root)
         .ok_or_else(|| Error::Refused(format!("no root named {root} is registered")))?;
-    let beneath = resolve_beneath(root_config, rel, "a source set's path")?;
+    let mut beneath = resolve_beneath(root_config, rel, "a source set's path")?;
     match std::fs::symlink_metadata(beneath.configured()) {
         // A file in the way of a folder above it: refused when creating it is tried.
         Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {}
         _ => return Ok(None),
     }
+    let pinned = crate::made_folders::Pinned::open(&root_config.path).map_err(|e| {
+        Error::Refused(format!("root {root} ({}): {e}", root_config.path.display()))
+    })?;
+    beneath.canonical_root = pinned.path().to_path_buf();
     let would_be = beneath.would_be();
     if !would_be.starts_with(&beneath.canonical_root) {
         return Err(Error::Refused(format!(
@@ -227,7 +231,7 @@ fn missing(
             beneath.rel
         )));
     }
-    Ok(Some((beneath.rel, would_be, beneath.canonical_root)))
+    Ok(Some((beneath.rel, would_be, pinned)))
 }
 
 impl Store {
@@ -300,7 +304,7 @@ impl Store {
             )));
         }
         let (rel, canonical, to_create) = match missing(roots, root, rel)? {
-            Some((rel, would_be, canonical_root)) => {
+            Some((rel, would_be, pinned)) => {
                 let name = rel.rsplit('/').next().unwrap_or(&rel);
                 let shown = would_be.display();
                 if !create {
@@ -315,7 +319,7 @@ impl Store {
                          set; turn on \"Stage Select may change this source set\", or make the folder yourself"
                     )));
                 }
-                (rel, would_be.clone(), Some((would_be, canonical_root)))
+                (rel, would_be.clone(), Some((would_be, pinned)))
             }
             None => {
                 let resolved = resolve(roots, root, rel)?;
@@ -380,13 +384,13 @@ impl Store {
             }
             // Last, so that a registration refused creates nothing; checked again once made, in case a symlink
             // appeared in the way meanwhile.
-            if let Some((folder, canonical_root)) = &to_create {
+            if let Some((folder, pinned)) = to_create {
                 self.fault_point(crate::Fault::CreatingFolder);
                 made = Some(crate::made_folders::create_beneath(
-                    canonical_root,
+                    pinned,
                     Path::new(&rel),
                     &format!("Source set {name}"),
-                    folder,
+                    &folder,
                 )?);
                 self.fault_point(crate::Fault::FolderCreated);
                 resolve(roots, root, &rel)?;

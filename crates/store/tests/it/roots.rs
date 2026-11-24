@@ -174,6 +174,28 @@ fn a_root_registration_refused_once_its_folders_are_made_removes_only_those() {
 }
 
 #[test]
+fn a_root_folder_made_but_not_opened_is_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let probe = env.dir("probe");
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o333)).unwrap();
+    if std::fs::read_dir(&probe).is_ok() {
+        eprintln!("skipped: this user reads unreadable folders");
+        return;
+    }
+    let there = env.dir("there");
+
+    // Each test runs in a process of its own; a folder made under this umask can't be opened.
+    let was = rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o444));
+    let why = env.refused(&RootSpec::new("play", there.join("a/b")).creating());
+    rustix::process::umask(was);
+
+    assert!(why.contains("can't create"), "{why}");
+    assert!(there.is_dir(), "the folder that was there stays");
+    assert!(!there.join("a").exists(), "the folder made is removed");
+}
+
+#[test]
 fn a_root_declared_writable_that_cant_be_written_is_refused() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
