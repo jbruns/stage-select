@@ -331,6 +331,12 @@ enum SetCommand {
     /// Show whether Stage Select may change a source set: whether repairs may write to its folder, and single copy
     /// may place its games in your play library folders. With `--may-change` or `--read-only`, change it.
     /// Making it read-only voids each approved plan, not yet started, that would write to it, and lists them.
+    ///
+    /// With `--dat`, bind the source set to another imported DAT of the same kind, in place: its name, path,
+    /// history, kept files and marker stay, and it is stale until you audit it against the new DAT. Each approved
+    /// plan, not yet started, made from the old DAT is voided and listed; its coverage is cleared if no game of the
+    /// new DAT is in its regions; and each play library folder built from it is stale until you build a selection
+    /// of the new DAT there. Refused while work on it is under way, or any of its games is placed under single copy.
     Edit {
         name: String,
         /// Let Stage Select change the source set.
@@ -339,6 +345,9 @@ enum SetCommand {
         /// Stop Stage Select changing the source set.
         #[arg(long)]
         read_only: bool,
+        /// The DAT to bind the source set to, as `<provider>/<name>`.
+        #[arg(long, value_name = "PROVIDER/NAME", conflicts_with_all = ["may_change", "read_only"])]
+        dat: Option<String>,
     },
     /// Show a source set's coverage: the regions of its DAT's games it keeps. With `--region` or `--preset`, set
     /// it to those regions; with `--clear`, cover every game again. Changing it moves no file and needs no new audit.
@@ -1189,8 +1198,49 @@ fn run(cli: Cli) -> Result<(), String> {
             command:
                 SetCommand::Edit {
                     name,
+                    dat: Some(dat),
+                    ..
+                },
+        } => {
+            let store = open_store(store)?;
+            let changed = store
+                .change_source_set_dat(&name, &dat, ACTOR)
+                .map_err(|e| e.to_string())?;
+            println!(
+                "{}: now bound to {}, was {}. Audit it to check it against its new DAT.",
+                changed.source_set.name, changed.to, changed.from
+            );
+            if let Some(regions) = changed.cleared_coverage {
+                println!(
+                    "coverage cleared: no game of {} is in {}; it covers every game",
+                    changed.to,
+                    regions.join(", ")
+                );
+            }
+            for voided in changed.voided {
+                println!(
+                    "voided {} plan {} (job {}): it was made from the old DAT, to write to {}",
+                    voided_kind(voided.kind),
+                    voided.plan,
+                    voided.job,
+                    voided.writes_to
+                );
+            }
+            for folder in changed.library_folders {
+                println!(
+                    "play library folder {}/{} is stale until you build a selection of the new DAT there",
+                    folder.root, folder.path
+                );
+            }
+            Ok(())
+        }
+        Command::Set {
+            command:
+                SetCommand::Edit {
+                    name,
                     may_change,
                     read_only,
+                    dat: None,
                 },
         } => {
             let store = open_store(store)?;

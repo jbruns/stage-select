@@ -2179,6 +2179,75 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
 }
 
 #[test]
+fn the_api_previews_and_changes_a_source_sets_dat_refusing_with_409() {
+    let env = Env::new();
+    let other = Dat {
+        file: "Other.dat",
+        name: "Test - Other",
+        ..Dat::default()
+    };
+    let other = std::fs::read(write_dat_as(
+        &env.tmp.path().join("in"),
+        &other,
+        &[("Pong (USA)", vec![rom("Pong (USA).bin", b"pong")])],
+    ))
+    .unwrap();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.upload("Other.dat", &other);
+    let added = client
+        .post("/source-sets")
+        .send_json(
+            serde_json::json!({"root": "sets", "path": SET, "dat": "No-Intro/Test - System"}),
+        )
+        .unwrap();
+    assert_eq!(added.status(), 201);
+    let path = "/source-sets/Test%20-%20System";
+
+    let preview: stage_select_api::DatChange = client.json(&format!(
+        "{path}/dat-change?dat=No-Intro%2FTest%20-%20Other"
+    ));
+    assert_eq!(preview.to, "No-Intro/Test - Other");
+    assert_eq!(preview.source_set.dat, "No-Intro/Test - System");
+    assert_eq!(
+        status_of(
+            client
+                .get(&format!(
+                    "{path}/dat-change?dat=No-Intro%2FTest%20-%20System"
+                ))
+                .call()
+        ),
+        409
+    );
+    assert_eq!(
+        status_of(client.get(&format!("{path}/dat-change")).call()),
+        400
+    );
+
+    let put = |body: serde_json::Value| {
+        let mut request = agent().put(format!("{}{path}/dat", client.base));
+        if let Some((name, value)) = &client.auth {
+            request = request.header(name, value);
+        }
+        request.send_json(body)
+    };
+    assert_eq!(
+        status_of(put(serde_json::json!({"dat": "No-Intro/Test - System"}))),
+        409
+    );
+    assert_eq!(
+        status_of(put(serde_json::json!({"dat": "No-Intro/Nothing"}))),
+        404
+    );
+    let mut changed = put(serde_json::json!({"dat": "No-Intro/Test - Other"})).unwrap();
+    assert_eq!(changed.status(), 200);
+    let changed: stage_select_api::DatChange = changed.body_mut().read_json().unwrap();
+    assert_eq!(changed.from, "No-Intro/Test - System");
+    assert_eq!(changed.source_set.dat, "No-Intro/Test - Other");
+}
+
+#[test]
 fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_sets_aside() {
     use stage_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();

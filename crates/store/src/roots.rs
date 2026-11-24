@@ -981,7 +981,7 @@ fn set_void_reason(set: &str) -> String {
 /// Ends voidable `plan`'s queued Job as any Job ends, releasing what it held, saying `why`; and finishes a repair
 /// plan with every step failed, and every move out of an Ingest Folder it recorded and had not started failed with
 /// it, in `tx`. `changing` names what is being changed, should the Job have started.
-fn void(tx: &Transaction, plan: &VoidedPlan, why: &str, changing: &str) -> Result<()> {
+pub(crate) fn void(tx: &Transaction, plan: &VoidedPlan, why: &str, changing: &str) -> Result<()> {
     if !crate::jobs::end_queued(tx, plan.job, JobState::Failed, why)? {
         return Err(Error::Conflict(format!(
             "job {} started while {changing} was being changed; nothing was changed",

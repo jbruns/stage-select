@@ -138,6 +138,8 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             "/source-sets/{name}/repairs-may-change",
             put(set_repairs_may_change),
         )
+        .route("/source-sets/{name}/dat", put(set_dat))
+        .route("/source-sets/{name}/dat-change", get(dat_change))
         .route("/source-sets/{name}/placements", get(placements))
         .route(
             "/source-sets/{name}/holding-folder",
@@ -1630,6 +1632,53 @@ async fn set_repairs_may_change(
     let Json(request) = body?;
     let (changed, voided) = blocking(&state, move |store| {
         let changed = store.set_repairs_may_change(&name, request.repairs_may_change, &actor)?;
+        let voided = changed
+            .voided
+            .iter()
+            .filter_map(|v| store.job(v.job).ok())
+            .collect::<Vec<_>>();
+        Ok((changed, voided))
+    })
+    .await?;
+    for job in voided {
+        state.jobs.changed(job);
+    }
+    state.jobs.wake();
+    Ok(Json(changed))
+}
+
+#[derive(Deserialize)]
+struct DatQuery {
+    dat: String,
+}
+
+/// What binding a Source Set to `?dat=<provider>/<name>` would do, changing nothing; refused with 409 as the change
+/// itself would be.
+async fn dat_change(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    query: Result<Query<DatQuery>, QueryRejection>,
+) -> ApiResult<Json<stage_select_api::DatChange>> {
+    let Path(name) = name?;
+    let Query(query) = query?;
+    Ok(Json(
+        blocking(&state, move |store| store.dat_change(&name, &query.dat)).await?,
+    ))
+}
+
+/// Binds a Source Set to another DAT in place, voiding each approved plan, not yet started, that its old DAT made.
+/// Refused with 409, changing nothing, while work on it can't be voided, while any of its Games is placed under Single
+/// Copy, or when the DAT is of another DAT Format or is the one it has.
+async fn set_dat(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<stage_select_api::SetDat>, JsonRejection>,
+) -> ApiResult<Json<stage_select_api::DatChange>> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    let (changed, voided) = blocking(&state, move |store| {
+        let changed = store.change_source_set_dat(&name, &request.dat, &actor)?;
         let voided = changed
             .voided
             .iter()

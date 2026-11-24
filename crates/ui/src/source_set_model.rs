@@ -7,8 +7,8 @@ use stage_select_api::repair::{RepairPlan, RepairStep};
 use stage_select_api::roots::VoidedPlan;
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use stage_select_api::{
-    AuditEvidence, AuditSummary, DatFormat, Finding, FollowedRevision, JobKind, JobState,
-    OpenRepair, SourceSetStale, SourceSetSummary, StatWalk,
+    AuditEvidence, AuditSummary, Dat, DatChange, DatFormat, Finding, FollowedRevision, JobKind,
+    JobState, OpenRepair, SourceSetStale, SourceSetSummary, StatWalk,
 };
 
 use crate::model::needs_review_from_counts;
@@ -41,6 +41,82 @@ pub fn may_change_said(set: &str, on: bool, voided: &[VoidedPlan]) -> String {
             said.push(' ');
             said.push_str(&line);
         }
+    }
+    said
+}
+
+/// The DATs a source set bound to `current` may be bound to instead: every other imported DAT of its DAT format, by
+/// name.
+pub fn dat_choices(dats: &[Dat], current: &str) -> Vec<String> {
+    let Some(format) = dats.iter().find(|d| d.dat == current).map(|d| d.format) else {
+        return Vec::new();
+    };
+    let mut choices: Vec<String> = dats
+        .iter()
+        .filter(|d| d.format == format && d.dat != current)
+        .map(|d| d.dat.clone())
+        .collect();
+    choices.sort();
+    choices
+}
+
+/// What binding a source set to another DAT does, a line each, as its preview says it before you confirm.
+pub fn dat_change_lines(change: &DatChange) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Its history, kept files and marker stay, and each earlier audit keeps the DAT revision it used. It is stale \
+         until you audit it against {}.",
+        change.to
+    )];
+    if let Some(regions) = &change.cleared_coverage {
+        lines.push(format!(
+            "Its coverage is cleared, as no game of {} is in {}: it covers every game.",
+            change.to,
+            regions.join(", ")
+        ));
+    }
+    for v in &change.voided {
+        let kind = match v.kind {
+            stage_select_api::roots::VoidedPlanKind::Build => "build",
+            stage_select_api::roots::VoidedPlanKind::Repair => "repair",
+        };
+        lines.push(format!(
+            "The approved {kind} plan #{}, writing to {}, is voided: it was made from {}.",
+            v.plan, v.writes_to, change.from
+        ));
+    }
+    for f in &change.library_folders {
+        lines.push(format!(
+            "Play library folder {}/{} is stale until you build a selection of {} there.",
+            f.root, f.path, change.to
+        ));
+    }
+    lines
+}
+
+/// What binding a source set to another DAT said, once made.
+pub fn dat_changed_said(change: &DatChange) -> String {
+    let mut said = format!(
+        "Source set {} is now bound to {}, was {}. Audit it to check it against its new DAT.",
+        change.source_set.name, change.to, change.from
+    );
+    if let Some(regions) = &change.cleared_coverage {
+        said.push_str(&format!(
+            " Its coverage of {} was cleared: it covers every game.",
+            regions.join(", ")
+        ));
+    }
+    if !change.voided.is_empty() {
+        said.push_str(" These approved plans were made from its old DAT, so they were voided:");
+        for line in voided_lines(&change.voided) {
+            said.push(' ');
+            said.push_str(&line);
+        }
+    }
+    for f in &change.library_folders {
+        said.push_str(&format!(
+            " Play library folder {}/{} is stale until you build a selection of the new DAT there.",
+            f.root, f.path
+        ));
     }
     said
 }
@@ -164,6 +240,9 @@ pub fn stale_causes(stale: &[SourceSetStale]) -> Vec<(StaleCause, String)> {
                 StaleCause::NewerRevision,
                 format!("DAT revision {version} waits"),
             ),
+            SourceSetStale::DatChanged { from, .. } => {
+                (StaleCause::DatChanged, format!("DAT changed from {from}"))
+            }
         })
         .collect()
 }
@@ -542,6 +621,89 @@ mod tests {
             may_change_said("GBA", false, &voided),
             "Stage Select may no longer change source set GBA. These approved plans would have changed it, so they \
              were voided: The repair plan #12, writing to source set GBA: its job #30 failed, having changed nothing."
+        );
+    }
+
+    fn dat(name: &str, format: DatFormat) -> Dat {
+        Dat {
+            dat: name.into(),
+            format,
+            provider: None,
+            name: name.into(),
+            revisions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_source_set_may_be_bound_to_any_other_dat_of_its_format() {
+        let dats = [
+            dat("No-Intro/Atari - 7800 (BIN)", DatFormat::Logiqx),
+            dat("MAME/MAME", DatFormat::Listxml),
+            dat("No-Intro/Atari - 7800 (A78)", DatFormat::Logiqx),
+            dat("No-Intro/Atari - 2600", DatFormat::Logiqx),
+        ];
+        assert_eq!(
+            dat_choices(&dats, "No-Intro/Atari - 7800 (A78)"),
+            ["No-Intro/Atari - 2600", "No-Intro/Atari - 7800 (BIN)"]
+        );
+        assert!(dat_choices(&dats, "MAME/MAME").is_empty());
+        assert!(dat_choices(&dats, "No-Intro/Gone").is_empty());
+    }
+
+    fn change() -> DatChange {
+        DatChange {
+            source_set: SourceSetRecord {
+                name: "A7800".into(),
+                root: "sets".into(),
+                path: "A7800".into(),
+                dat: "No-Intro/Atari - 7800 (BIN)".into(),
+                added_at: "then".into(),
+                last_verified_against: None,
+                follow: false,
+                stale: Vec::new(),
+                coverage: None,
+                repairs_may_change: true,
+                folder_created: None,
+            },
+            from: "No-Intro/Atari - 7800 (A78)".into(),
+            to: "No-Intro/Atari - 7800 (BIN)".into(),
+            cleared_coverage: Some(vec!["USA".into(), "Canada".into()]),
+            voided: vec![VoidedPlan {
+                kind: VoidedPlanKind::Build,
+                plan: 3,
+                job: 9,
+                writes_to: "play library folder play/A7800".into(),
+            }],
+            library_folders: vec![stage_select_api::DatChangeFolder {
+                id: 1,
+                root: "play".into(),
+                path: "A7800".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn binding_a_source_set_to_another_dat_says_what_it_clears_voids_and_makes_stale() {
+        assert_eq!(
+            dat_change_lines(&change()),
+            [
+                "Its history, kept files and marker stay, and each earlier audit keeps the DAT revision it used. \
+                 It is stale until you audit it against No-Intro/Atari - 7800 (BIN).",
+                "Its coverage is cleared, as no game of No-Intro/Atari - 7800 (BIN) is in USA, Canada: it covers \
+                 every game.",
+                "The approved build plan #3, writing to play library folder play/A7800, is voided: it was made from \
+                 No-Intro/Atari - 7800 (A78).",
+                "Play library folder play/A7800 is stale until you build a selection of No-Intro/Atari - 7800 (BIN) \
+                 there.",
+            ]
+        );
+        assert_eq!(
+            dat_changed_said(&change()),
+            "Source set A7800 is now bound to No-Intro/Atari - 7800 (BIN), was No-Intro/Atari - 7800 (A78). Audit \
+             it to check it against its new DAT. Its coverage of USA, Canada was cleared: it covers every game. \
+             These approved plans were made from its old DAT, so they were voided: The build plan #3, writing to \
+             play library folder play/A7800: its job #9 failed, having changed nothing. Play library folder \
+             play/A7800 is stale until you build a selection of the new DAT there."
         );
     }
 

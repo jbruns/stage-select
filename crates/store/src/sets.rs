@@ -26,16 +26,19 @@ const SET_QUERY: &str =
             n.sha256, n.version, n.imported_at, s.coverage,
             EXISTS (SELECT 1 FROM roots ro WHERE ro.name = s.root
                     AND (ro.writable OR EXISTS (SELECT 1 FROM json_each(ro.writable_paths) WHERE value = s.path))),
-            s.folder_created_by, s.folder_created_at
+            s.folder_created_by, s.folder_created_at,
+            CASE WHEN r.dat_id <> s.dat_id THEN ad.provider || '/' || ad.name END,
+            (SELECT changed_at FROM source_set_dat_changes WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
                                   WHERE source_set_id = s.id AND status = 'finished'
                                   ORDER BY finish_seq DESC LIMIT 1)
      LEFT JOIN dat_revisions r ON r.id = a.dat_revision_id
+     LEFT JOIN dats ad ON ad.id = r.dat_id
      LEFT JOIN stat_walks w ON w.id = (SELECT id FROM stat_walks WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
                            AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
-     LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
+     LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL AND r.dat_id = s.dat_id
                                AND n.id = (SELECT id FROM dat_revisions
                                            WHERE dat_id = s.dat_id AND deleted_at IS NULL
                                            ORDER BY header_order DESC LIMIT 1)
@@ -80,6 +83,12 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             sha256,
             version: row.get(17)?,
             imported_at: row.get(18)?,
+        });
+    }
+    if let Some(from) = row.get::<_, Option<String>>(23)? {
+        stale.push(SourceSetStale::DatChanged {
+            from,
+            changed_at: row.get::<_, Option<String>>(24)?.unwrap_or_default(),
         });
     }
     let coverage = coverage_from_row(row, 19)?;

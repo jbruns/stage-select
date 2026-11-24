@@ -173,6 +173,9 @@ pub fn stale_label(stale: &Stale) -> String {
             label_in_sentence(latest.as_deref()),
             label_in_sentence(built.as_deref()),
         ),
+        Stale::DatChanged { built } => format!(
+            "You bound its source set to another DAT; its build is of {built}. Build a selection of the new DAT."
+        ),
     }
 }
 

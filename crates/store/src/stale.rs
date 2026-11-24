@@ -201,7 +201,7 @@ pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
                                          WHERE dat_id = s.dat_id AND deleted_at IS NULL
                                          ORDER BY header_order DESC LIMIT 1)
          JOIN dat_revisions v ON v.id = a.dat_revision_id
-         WHERE s.follow AND n.header_order > v.header_order AND s.unregistered_at IS NULL",
+         WHERE s.follow AND v.dat_id = s.dat_id AND n.header_order > v.header_order AND s.unregistered_at IS NULL",
         [now()],
     )?;
     Ok(())

@@ -117,6 +117,9 @@ pub enum Stale {
         built: Option<Vec<String>>,
         latest: Option<Vec<String>>,
     },
+    /// Its Source Set was bound to another DAT: `built` is the DAT, `<provider>/<name>`, of the current Build's
+    /// Selection. A Build of a Selection of the Source Set's DAT ends this.
+    DatChanged { built: String },
 }
 
 /// A build that stopped before it finished, as the store recorded it: shown straight after a restart, without a

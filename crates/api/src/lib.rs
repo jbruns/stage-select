@@ -358,6 +358,9 @@ pub enum SourceSetStale {
         version: String,
         imported_at: String,
     },
+    /// You changed its DAT since its latest Audit, which was against `from`, at `changed_at`: an Audit against its DAT
+    /// now ends this.
+    DatChanged { from: String, changed_at: String },
 }
 
 /// What a stat walk of a Source Set found, compared with the Audit it names: files whose stamp changed, files the
@@ -415,6 +418,44 @@ pub struct SourceSetChanged {
     pub source_set: SourceSetRecord,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub voided: Vec<roots::VoidedPlan>,
+}
+
+/// The request to bind a Source Set to another DAT, `<provider>/<name>`, in place: see [`DatChange`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetDat {
+    pub dat: String,
+}
+
+/// What binding a Source Set to another DAT does, or did: `GET /source-sets/{name}/dat-change` previews it,
+/// `PUT /source-sets/{name}/dat` makes it. Its registration, name, path, history, kept files and marker stay, and
+/// every earlier Audit, Selection and Build keeps the DAT Revision it used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatChange {
+    /// The Source Set: as it is, for a preview; as the change left it, once made.
+    pub source_set: SourceSetRecord,
+    /// The DAT it was bound to, `<provider>/<name>`.
+    pub from: String,
+    /// The DAT it is bound to by the change.
+    pub to: String,
+    /// Its Coverage, which the change clears because no Game of the new DAT is in any of its regions; absent when
+    /// it keeps its Coverage, or has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared_coverage: Option<Vec<String>>,
+    /// Each approved plan, not yet started, that the change voids, as it would have used the old DAT.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voided: Vec<roots::VoidedPlan>,
+    /// The Library Folders bound to it with a current Build, which are Stale until a Selection of the new DAT is
+    /// built there, as `<root>/<path>`, with their ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub library_folders: Vec<DatChangeFolder>,
+}
+
+/// A Library Folder a [`DatChange`] makes Stale.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatChangeFolder {
+    pub id: i64,
+    pub root: String,
+    pub path: String,
 }
 
 /// The request to set a Source Set's Coverage, as engine region names, or to clear it with `null`.
