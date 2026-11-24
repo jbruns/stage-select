@@ -353,6 +353,34 @@ fn an_unregistered_source_sets_name_and_folder_are_free_and_its_history_stays_re
 }
 
 #[test]
+fn unregistering_a_source_set_stage_select_may_change_takes_its_path_out_of_its_roots_writable_paths()
+ {
+    let env = Env::new();
+    assert!(env.store.source_set(SET).unwrap().repairs_may_change);
+    env.store.unregister_source_set(SET).unwrap();
+
+    let paths = env
+        .store
+        .roots()
+        .root("sets")
+        .unwrap()
+        .writable_paths
+        .clone();
+    assert!(paths.is_empty(), "{paths:?}");
+    let changes = env.store.root_changes("sets").unwrap();
+    let last = changes.last().unwrap();
+    assert_eq!(
+        (last.action.as_str(), last.changed_by.as_str()),
+        ("edited", "Stage Select, unregistering a source set")
+    );
+    let again = env.store.add_source_set("sets", SET, SYSTEM).unwrap();
+    assert!(
+        !again.repairs_may_change,
+        "registered again, it may be changed only once you let it"
+    );
+}
+
+#[test]
 fn a_queued_job_holds_its_source_set_and_its_library_folder() {
     let env = Env::new();
     env.audit();
@@ -1520,6 +1548,82 @@ fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_
             "{rel}: {refused:?}"
         );
     }
+}
+
+/// Registers the read-only Root `nest`, holding `Outer/Inner`, and the source set at `first` in it; returns what
+/// registering the one at `second` then gives.
+fn nest(first: &str, second: &str) -> Result<stage_select_api::SourceSetRecord, Error> {
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("nest/Outer/Inner")).unwrap();
+    crate::register(
+        &env.store,
+        &[RootSpec::new("nest", env.tmp.path().join("nest"))],
+    );
+    env.store.add_source_set("nest", first, SYSTEM).unwrap();
+    let second = env.store.add_source_set("nest", second, SYSTEM);
+    assert_eq!(
+        env.store
+            .source_sets()
+            .unwrap()
+            .iter()
+            .filter(|s| s.root == "nest")
+            .count(),
+        1,
+        "nothing more is registered"
+    );
+    second
+}
+
+#[test]
+fn a_source_set_is_refused_inside_another_source_set() {
+    let refused = nest("Outer", "Outer/Inner");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("is inside source set Outer's folder") && why.contains("never nest")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_source_set_is_refused_where_it_would_hold_another_source_set() {
+    let refused = nest("Outer/Inner", "Outer");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("holds source set Inner's folder") && why.contains("never nest")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_root_is_refused_a_move_that_would_nest_its_source_sets_in_another_roots() {
+    let env = Env::new();
+    for dir in ["a/Outer", "b/Inner"] {
+        std::fs::create_dir_all(env.tmp.path().join(dir)).unwrap();
+    }
+    crate::register(
+        &env.store,
+        &[
+            RootSpec::new("a", env.tmp.path().join("a")),
+            RootSpec::new("b", env.tmp.path().join("b")),
+        ],
+    );
+    env.store.add_source_set("a", "Outer", SYSTEM).unwrap();
+    env.store.add_source_set("b", "Inner", SYSTEM).unwrap();
+
+    let refused = env.store.edit_root(
+        "b",
+        &RootSpec::new("b", env.tmp.path().join("a/Outer")),
+        "Operator",
+    );
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("source set Inner is inside source set Outer's folder")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        env.store.roots().root("b").unwrap().path,
+        env.tmp.path().join("b")
+    );
 }
 
 #[test]

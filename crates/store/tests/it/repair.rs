@@ -220,7 +220,10 @@ fn a_source_set_its_root_does_not_let_you_write_to_is_refused() {
     let refused = env.store.plan_repair("Gamma", &PlanRepair::default());
 
     match refused {
-        Err(Error::Refused(why)) => assert!(why.contains("writable paths"), "{why}"),
+        Err(Error::Refused(why)) => assert!(
+            why.contains("Stage Select may change this source set"),
+            "{why}"
+        ),
         other => panic!("{other:?}"),
     }
 }
@@ -5264,5 +5267,249 @@ fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_
     assert!(
         env.store.claim_job().unwrap().is_none(),
         "no job is left to run"
+    );
+}
+
+/// A source set registered in the read-only root `ro` as `may_change` says, holding a misnamed copy of Pong.
+fn delta(env: &Env, may_change: bool) -> stage_select_api::SourceSetRecord {
+    std::fs::create_dir_all(env.tmp.path().join("roots/ro/Delta")).unwrap();
+    write_file(
+        &env.tmp.path().join("roots/ro/Delta/Pong (Anthology).a26"),
+        b"pong",
+    );
+    let set = env
+        .store
+        .register_source_set(
+            "ro",
+            "Delta",
+            "No-Intro/Test - System",
+            None,
+            Some(may_change),
+            "Operator",
+        )
+        .unwrap();
+    env.store
+        .audit_source_set("Delta", None, AuditEvidence::Full)
+        .unwrap();
+    set
+}
+
+#[test]
+fn a_source_set_registered_for_stage_select_to_change_has_its_first_repair_write() {
+    let env = Env::new();
+    let set = delta(&env, true);
+    assert!(set.repairs_may_change);
+    assert_eq!(
+        env.store.roots().root("ro").unwrap().writable_paths,
+        ["Delta"]
+    );
+    let changes = env.store.root_changes("ro").unwrap();
+    assert_eq!(changes.last().unwrap().changed_by, "Operator");
+
+    let plan = env
+        .store
+        .plan_repair("Delta", &PlanRepair::default())
+        .unwrap();
+    let approved = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let ended = env.run_repair_job(&approved);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert!(
+        !env.tmp
+            .path()
+            .join("roots/ro/Delta/Pong (Anthology).a26")
+            .exists(),
+        "the repair renamed it"
+    );
+}
+
+#[test]
+fn a_source_set_registered_read_only_is_refused_a_repair() {
+    let env = Env::new();
+    let set = delta(&env, false);
+    assert!(!set.repairs_may_change);
+    assert!(
+        env.store
+            .roots()
+            .root("ro")
+            .unwrap()
+            .writable_paths
+            .is_empty()
+    );
+    assert!(!env.store.source_set("Gamma").unwrap().repairs_may_change);
+    assert!(env.store.source_set("Alpha").unwrap().repairs_may_change);
+
+    match env.store.plan_repair("Delta", &PlanRepair::default()) {
+        Err(Error::Refused(why)) => {
+            assert!(why.contains("may not change source set Delta"), "{why}")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_folder_listed_above_a_source_set_doesnt_let_stage_select_change_it() {
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("roots/ro/Shelf/Delta")).unwrap();
+    write_file(
+        &env.tmp
+            .path()
+            .join("roots/ro/Shelf/Delta/Pong (Anthology).a26"),
+        b"pong",
+    );
+    // As a hand-written root config might list the folder holding it.
+    env.store
+        .edit_root(
+            "ro",
+            &RootSpec::new("ro", env.tmp.path().join("roots/ro")).writing(&["Shelf"]),
+            "Operator",
+        )
+        .unwrap();
+    let set = env
+        .store
+        .register_source_set(
+            "ro",
+            "Shelf/Delta",
+            "No-Intro/Test - System",
+            None,
+            None,
+            "Operator",
+        )
+        .unwrap();
+    env.store
+        .audit_source_set("Delta", None, AuditEvidence::Full)
+        .unwrap();
+    assert!(!set.repairs_may_change);
+    match env.store.plan_repair("Delta", &PlanRepair::default()) {
+        Err(Error::Refused(why)) => {
+            assert!(why.contains("may not change source set Delta"), "{why}")
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let changed = env
+        .store
+        .set_repairs_may_change("Delta", true, "Operator")
+        .unwrap();
+    assert!(changed.source_set.repairs_may_change);
+    assert_eq!(
+        env.store.roots().root("ro").unwrap().writable_paths,
+        ["Shelf", "Shelf/Delta"]
+    );
+    env.store
+        .plan_repair("Delta", &PlanRepair::default())
+        .unwrap();
+}
+
+#[test]
+fn a_registration_refused_leaves_its_roots_writable_paths_as_they_were() {
+    let env = Env::new();
+    let refused = env.store.register_source_set(
+        "ro",
+        "Gamma",
+        "No-Intro/Test - System",
+        None,
+        Some(true),
+        "Operator",
+    );
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(
+        env.store
+            .roots()
+            .root("ro")
+            .unwrap()
+            .writable_paths
+            .is_empty()
+    );
+    assert!(!env.store.source_set("Gamma").unwrap().repairs_may_change);
+}
+
+#[test]
+fn stopping_stage_select_changing_a_source_set_voids_the_approved_repair_waiting_on_it() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let before = env.listing();
+    let plan = env.plan();
+    let job = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap()
+        .job
+        .unwrap();
+
+    let changed = env
+        .store
+        .set_repairs_may_change("Alpha", false, "Operator")
+        .unwrap();
+    assert!(!changed.source_set.repairs_may_change);
+    assert_eq!(
+        changed.voided,
+        [stage_select_api::roots::VoidedPlan {
+            kind: stage_select_api::roots::VoidedPlanKind::Repair,
+            plan: plan.id,
+            job,
+            writes_to: "source set Alpha".into(),
+        }]
+    );
+    assert!(
+        env.store
+            .roots()
+            .root("sets")
+            .unwrap()
+            .writable_paths
+            .is_empty()
+    );
+    let ended = env.store.job(job).unwrap();
+    assert_eq!(ended.state, JobState::Failed);
+    assert!(
+        ended
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("you stopped Stage Select changing source set Alpha")),
+        "{ended:?}"
+    );
+    assert_eq!(env.listing(), before, "nothing was changed");
+
+    let again = env
+        .store
+        .set_repairs_may_change("Alpha", true, "Operator")
+        .unwrap();
+    assert!(again.source_set.repairs_may_change && again.voided.is_empty());
+    assert_eq!(
+        env.store.roots().root("sets").unwrap().writable_paths,
+        ["Alpha"]
+    );
+}
+
+#[test]
+fn whether_stage_select_may_change_a_source_set_cant_change_while_its_repair_runs() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    env.store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+
+    let refused = env.store.set_repairs_may_change("Alpha", false, "Operator");
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains("source set Alpha")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        env.store.roots().root("sets").unwrap().writable_paths,
+        ["Alpha"]
+    );
+    assert!(
+        env.store
+            .set_repairs_may_change("Alpha", true, "Operator")
+            .unwrap()
+            .voided
+            .is_empty(),
+        "letting it change what it may already is nothing to do"
     );
 }

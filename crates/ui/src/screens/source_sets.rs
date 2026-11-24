@@ -16,6 +16,7 @@ use crate::app::{Loading, navigator};
 use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
+use crate::parts::choice::Choice;
 use crate::parts::folder_picker::{FolderPicker, Within};
 use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
@@ -36,7 +37,7 @@ use crate::parts::url_state::encode;
 use crate::registration;
 use crate::screens::coverage::{self, CoverageEditor, UNAVAILABLE};
 use crate::screens::repair::MAKING_PLAN;
-use crate::source_set_model::{self as model, PageTab};
+use crate::source_set_model::{self as model, MAY_CHANGE, MAY_CHANGE_NOTE, PageTab};
 
 /// A source set's page.
 pub fn set_href(name: &str) -> String {
@@ -728,6 +729,7 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
     let busy = RwSignal::new(false);
     let draft = RwSignal::new(Draft::every());
     let order = RwSignal::new(Vec::<String>::new());
+    let may_change = RwSignal::new(true);
 
     let proposal = Memo::new(move |_| {
         let Some(template) = template.get() else {
@@ -804,6 +806,7 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
             template: None,
             dat: dat.get_untracked(),
             coverage,
+            repairs_may_change: may_change.get_untracked(),
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
@@ -924,6 +927,13 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                     Some(why) => view! { <p class="note">{why}</p> }.into_any(),
                     None => view! { <CoverageEditor draft order /> }.into_any(),
                 }}
+                <Choice
+                    checked=may_change
+                    on_change=Callback::new(move |on| may_change.set(on))
+                    note=|| MAY_CHANGE_NOTE
+                >
+                    {MAY_CHANGE}
+                </Choice>
                 {move || {
                     (typed.get().is_some() && proposal.get().is_ok())
                         .then(|| {

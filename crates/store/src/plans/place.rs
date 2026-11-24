@@ -79,9 +79,9 @@ pub(super) fn place(
         .is_some_and(|r| r.may_write(&inputs.set_path));
     if !writable {
         notes.push(format!(
-            "single copy is on, but root {} doesn't let Stage Select write to source set {set}'s folder, so \
-             nothing is placed and each game is copied",
-            inputs.set_root
+            "single copy is on, but Stage Select may not change source set {set}, so nothing is placed and each \
+             game is copied. Turn on \"Stage Select may change this source set\" on the source set, and its next \
+             plan places them"
         ));
         return;
     }

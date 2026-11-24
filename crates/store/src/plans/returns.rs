@@ -124,8 +124,8 @@ pub(super) fn returns(
         }
         if !writable {
             stays.push(format!(
-                "{release} stays placed here: root {} doesn't let Stage Select write to source set {set}'s folder",
-                inputs.set_root
+                "{release} stays placed here: Stage Select may not change source set {set}. Turn on \
+                 \"Stage Select may change this source set\" on the source set to return it"
             ));
             continue;
         }

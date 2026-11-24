@@ -536,8 +536,11 @@ can see; see "Browsing for a folder". Each root has:
   per system (see "Additions"). There is at most one `additions` root. An ingest or additions root is always
   writable.
 - **Whether it's writable.** Stage Select writes only to writable roots, and checks it can write to the folder
-  when you make a root writable. A read-only root may instead list its **writable paths**: the source sets in it,
-  each a path in the root, that repairs may write to. An additions root has no writable paths.
+  when you make a root writable. In a read-only root, it changes only the source sets you let it change: each source
+  set has the switch **Stage Select may change this source set**, on by default, which lets repairs fix its files
+  and lets single copy place its games into your play library folders (see "Source sets"). The root keeps the paths
+  of those source sets as its **writable paths**; the workbench shows them, and you switch each on its source set.
+  An additions root has no writable paths.
 - **Its ceilings**, the most every job together may do in it; see "Jobs". You set them with the root, or under
   "Adjust ceilings" in Operations.
 
@@ -553,16 +556,22 @@ What you can't change, and what a change does:
   first. Unregistering a root touches no file.
 - You can't change its kind while anything holds it from being unregistered, nor make a root holding source sets
   writable.
+- You can't change its path to where a source set in it would sit inside, or hold, a source set in another root:
+  source sets never nest.
 - You can't change its path, or whether it's writable, while a job runs on it. A plan counts wherever it reads or
   writes: a repair writes to its source set, to each play library folder holding placed games it changes, and to
   each ingest folder it fills a game from.
 - You can't change its path, or make it more writable (read-only to writable, or by adding a writable path to a
   read-only root), while an approved plan that hasn't finished writes to it. A change that both narrows and widens,
-  such as swapping one writable path for another, counts as widening.
+  such as swapping one writable path for another, counts as widening. Letting Stage Select change one source set
+  waits only for unfinished work writing to that source set.
 - Making a root less writable, from writable to read-only (even listing writable paths) or by removing a writable
   path, voids each approved plan not yet started that would write where it no longer may: its job fails, having
   changed nothing, and you're told which plans. A plan already under way there must finish first. Plan again once the
-  root is as you want it.
+  root is as you want it. Stopping Stage Select changing a source set does the same for the plans that would write to
+  that source set.
+- Unregistering a source set takes its path out of its root's writable paths once no kept files of it are left to
+  delete. The change is recorded as made by "Stage Select, unregistering a source set".
 - A plan you approve while a root it uses is being changed is refused, changing nothing: review it again.
 
 ```sh
@@ -578,7 +587,7 @@ stage-select root holds <name>
 
 `root list` prints each root's name, path, kind, where Stage Select may write to it, and your ceilings for it.
 `root edit` changes only what you give; `--writable-path` replaces the root's writable paths, and `default` clears
-your value of a ceiling. The commands work on the store directly, so stop the service first, or use the workbench or
+your value of a ceiling. To switch one source set, use `set edit` (see "Source sets"). The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
 
 ### Starting the service
@@ -848,7 +857,8 @@ SHA-256.
 
 ```sh
 stage-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
-  [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>]
+  [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>] [--read-only]
+stage-select set edit <source set> [--may-change | --read-only]
 stage-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
 stage-select set coverage <source set> --clear
 stage-select set list
@@ -858,9 +868,15 @@ stage-select set history <source set>
 `set add` registers a folder in a root, such as `sets "No-Intro/Atari - 2600"`, as a source set bound to an imported
 DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it registers the path the path template
 proposes for the DAT: `--template`, else your source set path template, by default `{provider}/{dat}` (see "Path
-templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `--coverage-preset` and
+templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. Source sets never nest:
+a folder inside another source set's folder, or holding one, is refused, naming that source set, in any root. Moving a
+root is refused for the same reason when a source set in it would come to sit inside, or hold, one in another root. `--coverage-preset` and
 `--coverage-region` give it a coverage, the regions of its DAT's games you keep (see "Coverage"); repeat either and
-combine them. Leave both out to cover every game. `set coverage` prints a source set's coverage. With `--preset` or
+combine them. Leave both out to cover every game. By default Stage Select may change the source set: repairs may fix
+its files, and single copy may place its games into your play library folders; `--read-only` registers it read-only
+instead, so repairs are refused and single copy copies each game. `set edit` prints whether Stage Select may change a
+source set; `--may-change` or `--read-only` switches it, as on its overview in the workbench, and lists each approved
+plan the switch voided (see "Roots"). `set coverage` prints a source set's coverage. With `--preset` or
 `--region`, both repeatable, it sets the coverage to those regions instead, and `--clear` covers every game again; it
 moves no file and needs no new audit. Region and preset names are checked against the clone lists, `--clone-lists`
 or as for `select`, so setting a coverage needs them; clearing one doesn't. `set list` prints each source set with the DAT revision it was last verified against:
@@ -1628,6 +1644,10 @@ What it trades: your source set no longer holds a copy of what you play. A place
 deleting or changing it by hand loses the game. Stage Select keeps no other copy of it: your own backups are the only
 other copy. Keep single copy off for any system you want kept twice.
 
+Single copy moves a game out of your source set, so it places games only from a source set Stage Select may change:
+its switch **Stage Select may change this source set**, on by default (see "Roots"). With the switch off, nothing is
+placed, each game is copied, and the plan says where to turn it on.
+
 How a game moves depends on where the folders are:
 
 - **Rename**, when your source set and the library folder are on one mount. Nothing is copied or read again, and the
@@ -1802,9 +1822,10 @@ A move cut off by a stop is finished when the service next starts, once the fold
 
 ### Repairs
 
-A repair changes a source set, and only through a plan you approve, separately from any build. The source set's root
-must list its path in `writable_paths`, which keeps the source set registered where it is, with its history; and its
-folder must be writable when the repair runs. The first repair of a source set writes a marker, `.stage-select/marker`,
+A repair changes a source set, and only through a plan you approve, separately from any build. Stage Select must be
+allowed to change the source set (its switch **Stage Select may change this source set**, on by default; see "Roots"),
+which keeps the source set registered where it is, with its history; and its folder must be writable when the repair
+runs. With the switch off, a repair is refused and says where to turn it on. The first repair of a source set writes a marker, `.stage-select/marker`,
 holding the store's id and the source set's id, and says so in its plan; every later repair, and every move into the
 source set, is refused while the marker is missing or names another store or source set.
 
@@ -2007,9 +2028,9 @@ What these versions promise you:
 | `POST /api/v1/support-files`                       | import a MAME support file: multipart `source_url`?, `file`; 201 when it's new, 400 when its header names no support file or MAME version |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`), and `next_at`, when they are next fetched if they are owed but must wait |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
-| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, and `coverage`: the regions it covers, absent when it covers every game |
+| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, `coverage`: the regions it covers, absent when it covers every game, and `repairs_may_change`: whether Stage Select may change it (repairs, and single copy placing its games), as its root's `writable_paths` list its path |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
-| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game |
+| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?, "repairs_may_change"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game; `repairs_may_change`, by default `true`, adds its path to its root's `writable_paths` in the same transaction |
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows. With a coverage, the latest audit's `games` counts only the games it covers, `outside_coverage` (`{"games", "unknown_region"}`) counts the rest by game status and how many of them have the region `Unknown`, and `covered_entries` (`{"findings", "claimed"}`) counts the entries its status ranks on, those of covered games and of no game, while `latest.findings` and `latest.claimed` still count every entry; `coverage_unavailable` is `true` when the coverage couldn't be applied, and its counts are then whole |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
@@ -2017,6 +2038,7 @@ What these versions promise you:
 | `GET /api/v1/source-sets/{name}/have-miss.csv`     | a have/miss CSV of its latest audit, every game of the DAT whatever its coverage; `?selection=<id>` as for the fixdat |
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
+| `PUT /api/v1/source-sets/{name}/repairs-may-change` | let Stage Select change it, or stop: `{"repairs_may_change"}`; adds or removes its path in its root's `writable_paths`. Returns `{"source_set", "voided"?}`, each approved plan, not yet started, that stopping voided, as for `PUT /roots/{name}`; `409` while unfinished work writing to it stands in the way |
 | `PUT /api/v1/source-sets/{name}/coverage`          | set its coverage: `{"coverage": [region]}`, or `{"coverage": null}` to cover every game; returns the source set, its regions in the vocabulary's order. Moves no file and needs no new audit; `400` for an unknown region or an empty list, `409` while an approved repair of it hasn't finished, `503` to set regions without the clone lists |
 | `GET /api/v1/source-sets/{name}/placements`        | where it keeps its games under single copy: `{"holding_folder", "placed"?, "review_flags"?}`, the id of the library folder that holds its placed games (`null` when several are bound and you chose none), each library folder its games are placed in now with how many, `{"library_folder", "games"}`, and the games a build found need review, `{"game", "path", "reason", "build", "raised_at"}` |
 | `PUT /api/v1/source-sets/{name}/holding-folder`    | choose the library folder that holds its placed games: `{"folder": id}`, or `{"folder": null}` for none; returns its placements. Moves no file: the next builds return and place its games. `400` for a folder bound to another source set, `404` for no such folder, `409` while a build placing or returning its games is queued or running |
@@ -2575,8 +2597,10 @@ Its screens:
   libraries keep each game once under single copy and place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
-  **Roots** lists your roots: each one's path, kind, whether it's writable, the source set paths a repair may write
-  to in a read-only root, and who changed it last. You register a root there, with **Browse…** beside its path to
+  **Roots** lists your roots: each one's path, kind, whether it's writable, the source sets in a read-only root that
+  Stage Select may change, each linking to its page, and who changed it last; editing a read-only root lists them too.
+  You switch each on its source set: the **Stage Select may change this source set** choice when you register it, on
+  by default, and in its overview's **About it**, where turning it off lists the approved plans it voided. You register a root there, with **Browse…** beside its path to
   browse from `/`, edit one, its name aside, or
   unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence

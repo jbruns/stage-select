@@ -68,7 +68,8 @@ _Avoid_: BIOS set (when meaning any Dependency), required set
 A preserved collection, kept with its files, variants and provenance, that can be audited against its DAT and is
 recorded with the DAT Revision of its latest Audit; the source from which a Play Library is built. It changes only
 through an approved Repair, or a Build that places or returns its Games under Single Copy, and only while its Root
-may write it and its marker says it is this store's Source Set.
+may write it and its marker says it is this store's Source Set. Source Sets never nest: no Source Set's folder lies
+inside another's.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
 **Coverage**:
@@ -100,8 +101,10 @@ _Avoid_: Source (alone), Downloads
 **Root**:
 A named folder the Operator registers for Stage Select to read, or to write, such as the one holding Source Sets. Its
 name never changes once registered. A Source Set or a Play Library folder is identified by its Root and a path
-relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets that Repairs may
-write. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
+relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets Stage Select may
+change: those a Repair may write to, and whose Games Single Copy may place in Library Folders. Each Source Set
+switches its own path in or out (`repairs_may_change`, on by default when it is registered); the Operator no longer
+edits the list on the Root. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
 _Avoid_: Mount, share
 
 **Operator**:

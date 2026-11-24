@@ -571,6 +571,9 @@ impl Store {
                 "{kept} kept files are left in its folder; its .stage-select marker stays until you delete them"
             )));
         }
+        if kind == RegistrationKind::SourceSet {
+            self.unlist_unregistered_set(&reg.root, &reg.path, &reg.name)?;
+        }
         let dir = match kind {
             RegistrationKind::SourceSet => match roots.root(&reg.root) {
                 Some(root) => FolderDir::open(&root.path, &reg.path).map_err(|e| e.to_string()),
@@ -594,6 +597,38 @@ impl Store {
         };
         let removed = dir.and_then(|dir| remove_own_marker(&dir, &store, kind, id));
         Ok(removed.err())
+    }
+
+    /// Takes the folder `rel` of the Unregistered Source Set `name` out of its Root's writable paths, once nothing
+    /// is left for Stage Select to change there: no Kept Files to delete, and no Source Set registered there since.
+    /// Should other work still write there, the path stays listed.
+    fn unlist_unregistered_set(&self, root: &str, rel: &str, name: &str) -> Result<()> {
+        if !self
+            .roots()
+            .root(root)
+            .is_some_and(|r| !r.writable && r.may_write(rel))
+        {
+            return Ok(());
+        }
+        let unlisted = self.write(|tx| {
+            let live: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM source_sets WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL)",
+                params![root, rel],
+                |r| r.get(0),
+            )?;
+            if live {
+                return Ok(false);
+            }
+            match crate::roots::let_change_set(tx, root, rel, name, false, UNLISTING) {
+                Ok(_) => Ok(true),
+                Err(Error::Conflict(_)) => Ok(false),
+                Err(e) => Err(e),
+            }
+        })?;
+        if unlisted {
+            self.roots_changed()?;
+        }
+        Ok(())
     }
 
     /// Every Unregistered registration, newest first, with what of its history the store still holds.
@@ -817,6 +852,10 @@ fn unregistered_record(
 }
 
 /// The tables a forgotten registration's history may never reach into: other registrations, and what they share.
+/// Who the change to a Root's writable paths is recorded as made by, when an Unregistered Source Set's path leaves
+/// them.
+const UNLISTING: &str = "Stage Select, unregistering a source set";
+
 const SHARED: [&str; 9] = [
     "source_sets",
     "library_folders",

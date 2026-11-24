@@ -47,8 +47,9 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Five screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
-Source sets, the latter with "Only some regions" chosen, and capture the drawer whole. Three are captured at 1440px
+Seven screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
+Source sets, the latter with "Only some regions" chosen, and capture the drawer whole; root-edit opens the root
+sets' Edit drawer, and source-set-about opens the "About it" fold of a source set's overview. Three are captured at 1440px
 only. row-states checks the DATs list's fourth row, then
 opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail. It fails
 the run if its cursor row's brackets (their computed background-image) are missing while the grid has keyboard
@@ -130,8 +131,10 @@ SCREENS = {
     "row-states": "/dats",
     "messages": "/source-sets/{findings_set}?tab=repair",
     "root-register": "/settings/roots",
+    "root-edit": "/settings/roots",
     "source-set-register": "/source-sets",
     "folder-picker": "/source-sets",
+    "source-set-about": "/source-sets/{findings_set}",
 }
 
 # Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
@@ -211,6 +214,23 @@ def root_register(page):
     return Drawer(page)
 
 
+def root_edit(page):
+    """The Roots screen's "Edit the root sets" drawer: what it says of the source sets in it Stage Select may change."""
+    row = page.locator("tbody tr").filter(has=page.get_by_role("cell", name="sets", exact=True))
+    row.get_by_role("button", name="Edit…").click()
+    page.locator(".drawer").wait_for()
+    page.wait_for_timeout(300)
+    return Drawer(page)
+
+
+def source_set_about(page):
+    """A source set's overview with its "About it" fold open, down to the fold."""
+    fold = page.locator("details.fold").filter(has_text="About it")
+    fold.locator("summary").click()
+    page.wait_for_timeout(300)
+    return Top(page, fold)
+
+
 def source_set_register(page):
     """The source sets' Register drawer with "Only some regions" chosen, so its coverage shows the presets."""
     page.get_by_role("button", name="Register", exact=True).click()
@@ -233,8 +253,10 @@ DRIVEN = {
     "row-states": row_states,
     "messages": messages,
     "root-register": root_register,
+    "root-edit": root_edit,
     "source-set-register": source_set_register,
     "folder-picker": folder_picker,
+    "source-set-about": source_set_about,
 }
 
 # Driven screens captured at 1440px only.
@@ -465,8 +487,9 @@ def seed(api, data):
     for system in SYSTEMS:
         step(f"DAT {system}", lambda s=system: api.upload_dat(
             f"{s} (20260101-000000).dat", dat_xml(s, "20260101-000000")))
+        # PC Engine is registered read-only, so the roots show a source set Stage Select may not change.
         step(f"source set {system}", lambda s=system: api.post("/source-sets", {
-            "root": "sets", "path": s, "dat": f"No-Intro/{s}"}))
+            "root": "sets", "path": s, "dat": f"No-Intro/{s}", "repairs_may_change": s != PC_ENGINE}))
 
     def audit(system, evidence=None):
         body = {"source_set": system}

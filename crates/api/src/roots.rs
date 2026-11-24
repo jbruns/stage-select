@@ -52,7 +52,8 @@ pub struct Root {
     pub kind: RootKind,
     /// Whether Stage Select may write to it: Builds to its Library Folders, repairs to any Source Set in it.
     pub writable: bool,
-    /// For a read-only Root: the paths of the Source Sets in it that a repair may write to.
+    /// For a read-only Root: the paths of the Source Sets in it that Stage Select may change, by Repairs and by
+    /// Single Copy placing their Games. Each Source Set switches its own (`SourceSetRecord::repairs_may_change`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub writable_paths: Vec<String>,
     /// Your Ceilings for it: payload readers across every Job, and the MiB per second every Job may read from it and

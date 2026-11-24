@@ -455,6 +455,48 @@ fn set_coverage_sets_shows_and_clears_a_source_sets_coverage() {
 }
 
 #[test]
+fn set_add_and_set_edit_say_and_switch_whether_stage_select_may_change_a_source_set() {
+    let (f, dat) = pong_fixture();
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
+        cmd
+    };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+
+    let added = run_ok(
+        ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"])
+            .arg("--read-only"),
+    );
+    assert!(
+        added.contains("read-only: no repair writes to it"),
+        "{added}"
+    );
+    let shown = run_ok(ts().args(["set", "edit", rel]));
+    assert!(shown.contains("read-only"), "{shown}");
+
+    let let_it = run_ok(ts().args(["set", "edit", rel, "--may-change"]));
+    assert!(let_it.contains("Stage Select may change it"), "{let_it}");
+    let roots = run_ok(ts().args(["root", "list"]));
+    assert!(
+        roots.contains(&format!("read-only but for {rel}")),
+        "{roots}"
+    );
+
+    let stopped = run_ok(ts().args(["set", "edit", rel, "--read-only"]));
+    assert!(stopped.contains("read-only"), "{stopped}");
+    let both = ts()
+        .args(["set", "edit", rel, "--may-change", "--read-only"])
+        .output()
+        .unwrap();
+    assert!(!both.status.success(), "the two conflict");
+}
+
+#[test]
 fn version_prints_the_pinned_clone_list_commit() {
     let pins = include_str!("../../../../third_party/clone-lists/pins.toml");
     let commits: Vec<&str> = pins
@@ -757,7 +799,10 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     );
     assert!(registered.contains("sets\t"), "{registered}");
     run_ok(ts().args(["dat", "import"]).arg(&dat));
-    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
+    run_ok(
+        ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"])
+            .arg("--read-only"),
+    );
     let held = ts().args(["root", "unregister", "sets"]).output().unwrap();
     assert!(!held.status.success());
     assert!(String::from_utf8_lossy(&held.stderr).contains(&format!("source set {rel}")));
@@ -795,6 +840,7 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
         [
             ("registered", "command line"),
             ("edited", "command line"),
+            ("edited", "Stage Select, unregistering a source set"),
             ("unregistered", "command line")
         ]
     );

@@ -1,17 +1,16 @@
 //! The Roots screen's form, as typed, turned into the Root `POST /roots` registers or `PUT /roots/{name}` replaces;
 //! and what the screen says of a Root and of the plans an edit voided.
 
-use stage_select_api::Root;
-use stage_select_api::roots::{RootEdited, RootKind, RootSpec, VoidedPlanKind};
+use stage_select_api::roots::{RootKind, RootSpec, VoidedPlan, VoidedPlanKind};
+use stage_select_api::{Root, SourceSetRecord};
 
-/// A Root's form as typed: `writable_paths` one to a line.
+/// A Root's form as typed. Its `writable_paths` aren't in it: each Source Set switches its own.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RootDraft {
     pub name: String,
     pub path: String,
     pub kind: RootKind,
     pub writable: bool,
-    pub writable_paths: String,
 }
 
 impl RootDraft {
@@ -22,7 +21,6 @@ impl RootDraft {
             path: root.path.clone(),
             kind: root.kind,
             writable: root.writable,
-            writable_paths: root.writable_paths.join("\n"),
         }
     }
 
@@ -45,7 +43,8 @@ impl RootDraft {
     }
 
     /// The Root to send: `was` is the Root being edited, whose Ceilings it keeps, as the form doesn't show them.
-    /// Writable paths are sent only for a read-only Root. The Service checks the rest.
+    /// A read-only Root keeps the writable paths `was` has, as each Source Set switches its own; a writable Root has
+    /// none. The Service checks the rest.
     pub fn spec(&self, was: Option<&Root>) -> Result<RootSpec, String> {
         let name = match was {
             Some(root) => root.name.clone(),
@@ -59,15 +58,9 @@ impl RootDraft {
             return Err("Give the path of the root's folder.".into());
         }
         let writable = self.is_writable();
-        let writable_paths = if writable {
-            Vec::new()
-        } else {
-            self.writable_paths
-                .lines()
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .map(str::to_owned)
-                .collect()
+        let writable_paths = match was {
+            Some(root) if !writable => root.writable_paths.clone(),
+            _ => Vec::new(),
         };
         Ok(RootSpec {
             name,
@@ -106,7 +99,8 @@ pub fn kind_note(kind: RootKind) -> &'static str {
     }
 }
 
-/// Where Stage Select may write in `root`, as its cell says it; its writable paths have a column of their own.
+/// Where Stage Select may write in `root`, as its cell says it; the Source Sets it may change have a column of their
+/// own.
 pub fn access(root: &Root) -> &'static str {
     if root.writable {
         "Writable"
@@ -115,10 +109,26 @@ pub fn access(root: &Root) -> &'static str {
     }
 }
 
-/// A line for each approved plan an edit voided: which, what it would have written to, and that it changed nothing.
-pub fn voided_lines(edited: &RootEdited) -> Vec<String> {
-    edited
-        .voided
+/// The names of the Source Sets in the Root `root` that Stage Select may change, in `sets`' order.
+pub fn changeable_sets(root: &str, sets: &[SourceSetRecord]) -> Vec<String> {
+    sets.iter()
+        .filter(|s| s.root == root && s.repairs_may_change)
+        .map(|s| s.name.clone())
+        .collect()
+}
+
+/// What a read-only Root's form says of the `count` Source Sets in it that Stage Select may change.
+pub fn changeable_line(count: usize) -> String {
+    match count {
+        0 => "Stage Select may change no source sets in this root.".into(),
+        1 => "Stage Select may change 1 source set in this root:".into(),
+        n => format!("Stage Select may change {n} source sets in this root:"),
+    }
+}
+
+/// A line for each approved plan a change voided: which, what it would have written to, and that it changed nothing.
+pub fn voided_lines(voided: &[VoidedPlan]) -> Vec<String> {
+    voided
         .iter()
         .map(|v| {
             let kind = match v.kind {
@@ -135,8 +145,6 @@ pub fn voided_lines(edited: &RootEdited) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use stage_select_api::roots::VoidedPlan;
-
     use super::*;
 
     #[test]
@@ -171,14 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn a_new_root_is_sent_trimmed_writable_for_its_kind_and_with_writable_paths_only_when_read_only()
-     {
+    fn a_new_root_is_sent_trimmed_writable_for_its_kind_and_with_no_writable_paths() {
         let mut draft = RootDraft {
             name: " drop ".into(),
             path: " /srv/drop ".into(),
             kind: RootKind::Ingest,
             writable: false,
-            writable_paths: "a\n".into(),
         };
         assert_eq!(
             draft.spec(None),
@@ -186,10 +192,7 @@ mod tests {
         );
 
         draft.kind = RootKind::General;
-        assert_eq!(
-            draft.spec(None),
-            Ok(RootSpec::new("drop", "/srv/drop").writing(&["a"]))
-        );
+        assert_eq!(draft.spec(None), Ok(RootSpec::new("drop", "/srv/drop")));
 
         draft.name = "  ".into();
         assert_eq!(draft.spec(None), Err("Give the root a name.".into()));
@@ -202,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_keeps_the_roots_name_and_ceilings() {
+    fn an_edit_keeps_the_roots_name_ceilings_and_the_source_sets_it_may_change() {
         let was = root();
         let mut draft = RootDraft::of(&was);
         assert_eq!(draft.spec(Some(&was)), Ok(RootSpec::from(&was)));
@@ -221,20 +224,55 @@ mod tests {
 
     #[test]
     fn a_voided_plan_says_what_it_would_have_written_to() {
-        let edited = RootEdited {
-            root: root(),
-            voided: vec![VoidedPlan {
-                kind: VoidedPlanKind::Repair,
-                plan: 12,
-                job: 30,
-                writes_to: "source set GBA".into(),
-            }],
-        };
+        let voided = [VoidedPlan {
+            kind: VoidedPlanKind::Repair,
+            plan: 12,
+            job: 30,
+            writes_to: "source set GBA".into(),
+        }];
         assert_eq!(
-            voided_lines(&edited),
+            voided_lines(&voided),
             [
                 "The repair plan #12, writing to source set GBA: its job #30 failed, having changed nothing."
             ]
+        );
+    }
+
+    fn set(name: &str, root: &str, may_change: bool) -> SourceSetRecord {
+        SourceSetRecord {
+            name: name.into(),
+            root: root.into(),
+            path: name.into(),
+            dat: "No-Intro/Nintendo - Game Boy".into(),
+            added_at: "2026-01-01T00:00:00Z".into(),
+            last_verified_against: None,
+            follow: false,
+            stale: Vec::new(),
+            coverage: None,
+            repairs_may_change: may_change,
+        }
+    }
+
+    #[test]
+    fn a_root_lists_the_source_sets_in_it_that_stage_select_may_change() {
+        let sets = [
+            set("GBA", "sets", true),
+            set("Saturn", "sets", false),
+            set("NES", "other", true),
+            set("SNES", "sets", true),
+        ];
+        assert_eq!(changeable_sets("sets", &sets), ["GBA", "SNES"]);
+        assert_eq!(
+            changeable_line(0),
+            "Stage Select may change no source sets in this root."
+        );
+        assert_eq!(
+            changeable_line(1),
+            "Stage Select may change 1 source set in this root:"
+        );
+        assert_eq!(
+            changeable_line(3),
+            "Stage Select may change 3 source sets in this root:"
         );
     }
 }

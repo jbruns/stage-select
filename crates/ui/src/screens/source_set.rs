@@ -13,7 +13,8 @@ use stage_select_api::ingest::IngestPlan;
 use stage_select_api::repair::RepairPlan;
 use stage_select_api::{
     AuditEvidence, AuditSummary, Dat, FollowedRevision, Job, OutsideCoverage, Placements,
-    SetFollow, SetHoldingFolder, SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
+    SetFollow, SetHoldingFolder, SetRepairsMayChange, SourceSetChanged, SourceSetRecord,
+    SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
@@ -24,6 +25,7 @@ use crate::events::use_live;
 use crate::kept_model::KeptPlace;
 use crate::library_model::live_status;
 use crate::model::{audit_choices, audit_evidence_label, revision_label, warning_counts, when};
+use crate::parts::choice::Choice;
 use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
@@ -53,7 +55,8 @@ use crate::screens::source_sets::{
     stale_lines, start_audit, start_check, tab_href,
 };
 use crate::source_set_model::{
-    self as model, ExportScope, Happened, MissingExport, Moment, PageTab, no_coverage,
+    self as model, ExportScope, Happened, MAY_CHANGE, MAY_CHANGE_NOTE, MissingExport, Moment,
+    PageTab, no_coverage,
 };
 use crate::summary_model::{self, NextStep};
 
@@ -212,6 +215,27 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             refresh.update(|n| *n += 1);
         });
     });
+    let may_change = Memo::new(move |_| {
+        good.with(|g| g.as_ref().is_some_and(|(s, _)| s.set.repairs_may_change))
+    });
+    let let_change = Callback::new(move |on: bool| {
+        let request = SetRepairsMayChange {
+            repairs_may_change: on,
+        };
+        leptos::task::spawn_local(async move {
+            let set = name.get_value();
+            let path = format!("/source-sets/{}/repairs-may-change", api::segment(&set));
+            said.set(Some(
+                match api::put::<_, SourceSetChanged>(&path, &request).await {
+                    Ok(changed) => Ok(model::may_change_said(&set, on, &changed.voided)),
+                    Err(problem) => Err(format!(
+                        "Couldn't change whether Stage Select may change it: {problem}"
+                    )),
+                },
+            ));
+            refresh.update(|n| *n += 1);
+        });
+    });
 
     let page_tabs = Signal::derive(move || {
         let open = tab.get();
@@ -324,6 +348,8 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                         editing
                         follows
                         follow
+                        may_change
+                        let_change
                     />
                 }
                 .into_any(),
@@ -373,6 +399,8 @@ fn Overview(
     editing: RwSignal<bool>,
     follows: Memo<bool>,
     follow: Callback<bool>,
+    may_change: Memo<bool>,
+    let_change: Callback<bool>,
 ) -> impl IntoView {
     let name = set.name.clone();
     // A coverage set is still yours when it can't be applied; only the counts then aren't scoped to it.
@@ -484,6 +512,9 @@ fn Overview(
                 />
                 " Follow its DAT"
             </label>
+            <Choice checked=may_change on_change=let_change note=|| MAY_CHANGE_NOTE>
+                {MAY_CHANGE}
+            </Choice>
         </details>
         {latest
             .clone()
