@@ -2514,10 +2514,12 @@ fn a_game_removed_to_delete_is_kept_aside_then_deleted_and_a_placed_one_never_go
         .removals
         .iter()
         .inspect(|r| {
+            let lost = r.reason.contains("so the game is lost, not returned there");
             assert!(
-                r.keep.is_some() && r.reason.ends_with("then deleted"),
+                r.keep.is_some() && r.reason.contains("then deleted"),
                 "{r:?}"
-            )
+            );
+            assert_eq!(lost, r.game == "Pong (USA)", "{r:?}");
         })
         .map(|r| r.target.as_str())
         .collect();

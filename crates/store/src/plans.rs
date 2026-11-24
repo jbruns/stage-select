@@ -902,8 +902,15 @@ fn removals(
             removal.reason = format!(
                 "{gone}; {target} is set aside in the folder's retention area{}",
                 match removed {
-                    Some(RemoveAction::Delete) => ", then deleted",
-                    _ => "",
+                    Some(RemoveAction::Delete)
+                        if inputs.placed.iter().any(|p| p.path == *target) =>
+                        format!(
+                            ", then deleted; it is the only copy of {}, placed here from source set {}, so the game is \
+                         lost, not returned there",
+                            built.game, inputs.folder.source_set
+                        ),
+                    Some(RemoveAction::Delete) => ", then deleted".to_owned(),
+                    _ => String::new(),
                 }
             );
             removal.keep = Some(keep_of(

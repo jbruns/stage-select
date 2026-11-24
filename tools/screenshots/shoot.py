@@ -38,7 +38,9 @@ target/screenshots/.work/<label>/:
 - the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows;
 - the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan;
 - kept files: play/atari-2600-spare, built, then two strays set aside from it by an approved cleanup, with a plan to
-  delete them waiting for approval; and a file discarded from `drop` through an approved plan.
+  delete them waiting for approval; and a file discarded from `drop` through an approved plan;
+- removed games: play/atari-2600-removed, built, then one game set aside through an approved plan, so its overview
+  lists it, and a plan to delete another waiting for approval.
 
 It doesn't seed curation, cue packs, RomM, notifications, a stale library folder, a
 DAT fetch, kept files from an approved repair, or a running or interrupted job. The activity-running
@@ -47,7 +49,8 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Seven screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
+Eight screens aren't a route alone. library-remove checks two of play/atari-2600-removed's built files and opens
+the drawer that removes their games, with Delete chosen. root-register and source-set-register open the Register drawer of Roots and of
 Source sets, the latter with "Only some regions" chosen, and capture the drawer whole; root-edit opens the root
 sets' Edit drawer, and source-set-about opens the "About it" fold of a source set's overview. Three are captured at 1440px
 only. row-states checks the DATs list's fourth row, then
@@ -108,6 +111,9 @@ SCREENS = {
     "library-kept": "/libraries/{kept_library}?tab=kept",
     "kept-deletion": "/libraries/{kept_library}?tab=kept&kept-deletion={kept_deletion}",
     "library-cleanup": "/libraries/{cleanup_library}?tab=plan",
+    "library-removed": "/libraries/{removed_library}",
+    "library-removal-plan": "/libraries/{removed_library}?tab=plan",
+    "library-remove": "/libraries/{removed_library}",
     "build": "/builds/{build}",
     "additions": "/additions",
     "source-set-additions": "/source-sets/{additions_set}?tab=additions",
@@ -249,7 +255,26 @@ def folder_picker(page):
     return page
 
 
+def library_remove(page):
+    """A library folder's built files with two checked, and the drawer that removes their games, Delete chosen."""
+    files = page.locator("section[aria-labelledby=files-title]")
+    rows = files.locator(".list-row")
+    rows.first.wait_for()
+    for n in range(2):
+        rows.nth(n).locator("input[type=checkbox]").click()
+    delete = files.get_by_role("button", name="Delete")
+    if delete.is_visible():
+        delete.click()
+    else:
+        # Narrower, the toolbar's last actions are in its More actions menu.
+        files.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Delete").click()
+    page.locator(".drawer").wait_for()
+    return Drawer(page)
+
+
 DRIVEN = {
+    "library-remove": library_remove,
     "row-states": row_states,
     "messages": messages,
     "root-register": root_register,
@@ -651,6 +676,20 @@ def seed(api, data):
         raise RuntimeError("the discarded file wasn't kept")
 
     step("a file discarded from drop, kept", discard)
+
+    def removed_library():
+        # Built, then one game set aside through an approved plan, and a plan to delete another left for review.
+        made["removed_library"], _ = library(ATARI, "atari-2600-removed", True)
+        games = sorted({f["game"] for f in api.get(f"/libraries/{made['removed_library']}/files")})
+        plan = api.post(f"/libraries/{made['removed_library']}/game-removals",
+                        {"games": [games[0]], "action": "set_aside"})
+        job = api.follow(api.post(f"/plans/{plan['id']}/approval", {"digest": plan["digest"]}))
+        if job["state"] != "succeeded":
+            raise RuntimeError(f"the removal {job['id']} {job['state']}")
+        api.post(f"/libraries/{made['removed_library']}/game-removals", {"games": [games[1]], "action": "delete"})
+
+    if ATARI in selections:
+        step("removed games in play/atari-2600-removed, a deletion planned", removed_library)
     return made, failures
 
 
