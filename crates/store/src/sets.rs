@@ -9,7 +9,7 @@ use super::dats::split_dat;
 use super::{Error, Result, Store, now};
 use stage_select_api::paths::{PathTemplate, TokenValues};
 
-pub use stage_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
+pub use stage_select_api::{LastVerified, SourceSetChanged, SourceSetRecord, SourceSetStale};
 
 pub(super) struct SourceSetRow {
     pub id: i64,
@@ -21,7 +21,9 @@ const SET_QUERY: &str =
     "SELECT s.id, s.dat_id, s.name, s.root, s.path, d.provider || '/' || d.name, s.added_at,
             r.sha256, r.version, a.finished_at, s.follow,
             w.id, w.found_at, w.changed, w.added, w.removed,
-            n.sha256, n.version, n.imported_at, s.coverage
+            n.sha256, n.version, n.imported_at, s.coverage,
+            EXISTS (SELECT 1 FROM roots ro WHERE ro.name = s.root
+                    AND (ro.writable OR EXISTS (SELECT 1 FROM json_each(ro.writable_paths) WHERE value = s.path)))
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
@@ -91,6 +93,7 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             follow: row.get(10)?,
             stale,
             coverage,
+            repairs_may_change: row.get(20)?,
         },
     })
 }
@@ -167,13 +170,29 @@ impl Store {
     }
 
     /// Registers a Source Set as `add_source_set` does, with the Coverage `coverage`: engine region names the caller
-    /// checked against the engine's vocabulary (`stage_select_api::coverage::canonical`).
+    /// checked against the engine's vocabulary (`stage_select_api::coverage::canonical`). Its Root's writable paths
+    /// stay as they are.
     pub fn add_source_set_covering(
         &self,
         root: &str,
         rel: &str,
         dat: &str,
         coverage: Option<&[String]>,
+    ) -> Result<SourceSetRecord> {
+        self.register_source_set(root, rel, dat, coverage, None, "")
+    }
+
+    /// Registers a Source Set as `add_source_set_covering` does and, as `actor`, in the same transaction, lets Stage
+    /// Select change it, with `Some(true)`, or stops it, with `Some(false)`: lists its path among its Root's writable
+    /// paths, or takes it out, as [`Store::set_repairs_may_change`] does. `None` leaves the Root as it is.
+    pub fn register_source_set(
+        &self,
+        root: &str,
+        rel: &str,
+        dat: &str,
+        coverage: Option<&[String]>,
+        repairs_may_change: Option<bool>,
+        actor: &str,
     ) -> Result<SourceSetRecord> {
         let coverage = coverage_json(coverage)?;
         // Held while it is checked and recorded, so that no Library Folder registered, move approved or Root edited
@@ -194,7 +213,7 @@ impl Store {
         let rel = resolved.rel;
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
         split_dat(dat)?;
-        self.write(|tx| {
+        let record = self.write(|tx| {
             if let Some((what, other)) = crate::folders::overlapping(
                 tx,
                 roots,
@@ -229,7 +248,38 @@ impl Store {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![name, root, rel, dat_id, now(), coverage],
             )?;
+            if let Some(on) = repairs_may_change {
+                crate::roots::let_change_set(tx, root, &rel, &name, on, actor)?;
+            }
             Ok(set_by_name(tx, &name)?.record)
+        })?;
+        if repairs_may_change.is_some() {
+            self.roots_changed()?;
+        }
+        Ok(record)
+    }
+
+    /// Lets Stage Select change the Source Set `name`, or stops it, as `actor`: repairs may then write to its folder,
+    /// and Single Copy may place its Games in Library Folders. It lists the Source Set's path among its Root's
+    /// writable paths, or takes it out. Letting it is refused while unfinished work writes to its folder; stopping
+    /// it voids each approved plan, not yet started, that would write there, and says which, and is refused while
+    /// other work writes there.
+    pub fn set_repairs_may_change(
+        &self,
+        name: &str,
+        on: bool,
+        actor: &str,
+    ) -> Result<SourceSetChanged> {
+        let _lifecycle = self.lifecycle_lock();
+        let (record, voided) = self.write(|tx| {
+            let set = set_by_name(tx, name)?.record;
+            let voided = crate::roots::let_change_set(tx, &set.root, &set.path, name, on, actor)?;
+            Ok((set_by_name(tx, name)?.record, voided))
+        })?;
+        self.roots_changed()?;
+        Ok(SourceSetChanged {
+            source_set: record,
+            voided,
         })
     }
 

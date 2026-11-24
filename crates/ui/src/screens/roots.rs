@@ -3,8 +3,8 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
-use stage_select_api::Root;
 use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
+use stage_select_api::{Root, SourceSetRecord};
 
 use crate::api;
 use crate::model::when;
@@ -14,7 +14,10 @@ use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
-use crate::roots_model::{RootDraft, access, kind_label, kind_note, voided_lines};
+use crate::roots_model::{
+    RootDraft, access, changeable_line, changeable_sets, kind_label, kind_note, voided_lines,
+};
+use crate::screens::source_sets::set_href;
 
 /// Where each root's ceilings are set: the job pace, under Operations.
 pub(crate) const CEILINGS: &str = "/settings/operations#job-pace";
@@ -44,6 +47,11 @@ pub fn Roots() -> impl IntoView {
         refresh.get();
         api::get::<Vec<Root>>("/roots")
     });
+    let sets = LocalResource::new(move || {
+        refresh.get();
+        api::get::<Vec<SourceSetRecord>>("/source-sets")
+    });
+    let sets = Signal::derive(move || sets.get().and_then(Result::ok).unwrap_or_default());
     let problem = Signal::derive(move || roots.get().and_then(Result::err));
     let open = RwSignal::new(None::<Open>);
     let drawer = RwSignal::new(false);
@@ -115,7 +123,7 @@ pub fn Roots() -> impl IntoView {
                                             <th scope="col"><span class="label">"Path"</span></th>
                                             <th scope="col"><span class="label">"Kind"</span></th>
                                             <th scope="col"><span class="label">"Access"</span></th>
-                                            <th scope="col"><span class="label">"Writable paths"</span></th>
+                                            <th scope="col"><span class="label">"Source sets it may change"</span></th>
                                             <th scope="col"><span class="label">"Changed"</span></th>
                                             <th scope="col"><span class="label">"Actions"</span></th>
                                         </tr>
@@ -123,7 +131,7 @@ pub fn Roots() -> impl IntoView {
                                     <tbody>
                                         {roots
                                             .into_iter()
-                                            .map(|root| view! { <RootRow root show /> })
+                                            .map(|root| view! { <RootRow root sets show /> })
                                             .collect_view()}
                                     </tbody>
                                 </table>
@@ -154,7 +162,12 @@ pub fn Roots() -> impl IntoView {
 }
 
 #[component]
-fn RootRow(root: Root, show: impl Fn(Open) + Copy + Send + Sync + 'static) -> impl IntoView {
+fn RootRow(
+    root: Root,
+    sets: Signal<Vec<SourceSetRecord>>,
+    show: impl Fn(Open) + Copy + Send + Sync + 'static,
+) -> impl IntoView {
+    let name = root.name.clone();
     let path = root.path.clone();
     let changed = format!("{}, by {}", when(&root.updated_at), root.updated_by);
     let edit = root.clone();
@@ -168,11 +181,7 @@ fn RootRow(root: Root, show: impl Fn(Open) + Copy + Send + Sync + 'static) -> im
             <td>{kind_label(root.kind)}</td>
             <td>{access(&root)}</td>
             <td>
-                {root
-                    .writable_paths
-                    .iter()
-                    .map(|p| view! { <code>{p.clone()}</code> " " })
-                    .collect_view()}
+                {move || sets.with(|sets| set_links(&changeable_sets(&name, sets)))}
             </td>
             <td>{changed}</td>
             <td>
@@ -192,6 +201,22 @@ fn RootRow(root: Root, show: impl Fn(Open) + Copy + Send + Sync + 'static) -> im
     }
 }
 
+/// A link to each of the Source Sets `names`, comma-separated.
+fn set_links(names: &[String]) -> impl IntoView + use<> {
+    names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let href = set_href(name);
+            let name = name.clone();
+            view! {
+                {(i > 0).then_some(", ")}
+                <A href=href>{name}</A>
+            }
+        })
+        .collect_view()
+}
+
 /// The form to register a Root, or to edit `was`. `draft` holds the form as typed, when the page fills it in too.
 #[component]
 pub(crate) fn RootForm(
@@ -203,6 +228,24 @@ pub(crate) fn RootForm(
         draft.unwrap_or_else(|| RwSignal::new(was.as_ref().map(RootDraft::of).unwrap_or_default()));
     let suggested = LocalResource::new(|| api::get::<FolderSuggestions>("/folder-suggestions"));
     let editing = was.is_some();
+    // The source sets an edited read-only root holds that Stage Select may change: each switches its own.
+    let holder = was
+        .as_ref()
+        .filter(|r| !r.writable && r.kind == RootKind::General)
+        .map(|r| r.name.clone());
+    let sets = LocalResource::new(move || {
+        let holder = holder.clone();
+        async move {
+            match holder {
+                Some(root) => api::get::<Vec<SourceSetRecord>>("/source-sets")
+                    .await
+                    .ok()
+                    .map(|sets| changeable_sets(&root, &sets)),
+                None => None,
+            }
+        }
+    });
+    let changeable = Signal::derive(move || sets.get().flatten());
     let was = StoredValue::new(was);
     let problem = RwSignal::new(None::<String>);
     let request = Action::new_local(move |spec: &RootSpec| {
@@ -213,7 +256,7 @@ pub(crate) fn RootForm(
                 api::put::<_, RootEdited>(&path, &spec).await.map(|edited| {
                     (
                         format!("Saved the root {}.", edited.root.name),
-                        voided_lines(&edited),
+                        voided_lines(&edited.voided),
                     )
                 })
             } else {
@@ -308,20 +351,16 @@ pub(crate) fn RootForm(
             >
                 "Writable"
             </Choice>
-            <Show when=move || !draft.with(RootDraft::is_writable)>
-                <label class="stacked" for="root-writable-paths">
-                    "Paths repairs may write to, in the root, one to a line"
-                </label>
-                <textarea
-                    id="root-writable-paths"
-                    rows="3"
-                    prop:value=move || draft.with(|d| d.writable_paths.clone())
-                    on:input=move |ev| {
-                        let value = event_target_value(&ev);
-                        draft.update(|d| d.writable_paths = value);
-                    }
-                ></textarea>
-            </Show>
+            {move || changeable.get().map(|names| view! {
+                <p class="note small">
+                    {changeable_line(names.len())}
+                    " "
+                    {set_links(&names)}
+                </p>
+                <p class="note small">
+                    "You let Stage Select change a source set, or stop it, on the source set's overview."
+                </p>
+            })}
             {editing.then(|| view! {
                 <p class="note small">
                     "Making it less writable voids each approved plan, not yet started, that would write where it no longer may. You can't change its path or whether it's writable while a job runs on it."

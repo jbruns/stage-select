@@ -64,11 +64,11 @@ pub(crate) enum MarkerRule {
     Creating,
 }
 
-/// Why a Root does not let a repair write to `path`.
-fn not_writable(set: &str, root: &str, path: &str) -> String {
+/// Why a Root does not let a repair write to Source Set `set`.
+fn not_writable(set: &str, root: &str) -> String {
     format!(
-        "source set {set} is in root {root}, which does not let Stage Select write to it. Make the root writable, \
-         or add \"{path}\" to its writable paths, in your roots"
+        "Stage Select may not change source set {set}, in read-only root {root}. Turn on \"Stage Select may change \
+         this source set\" on its overview, and propose the repair again"
     )
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn open_repairable(
         return Ok(Err(format!("there is no root {}", record.root)));
     };
     if !root.may_write(&record.path) {
-        return Ok(Err(not_writable(&record.name, &record.root, &record.path)));
+        return Ok(Err(not_writable(&record.name, &record.root)));
     }
     let dir = match FolderDir::open(&root.path, &record.path) {
         Ok(dir) => dir,
@@ -874,11 +874,7 @@ impl Store {
             .root(&record.root)
             .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
-            return Err(Error::Refused(not_writable(
-                &record.name,
-                &record.root,
-                &record.path,
-            )));
+            return Err(Error::Refused(not_writable(&record.name, &record.root)));
         }
         let audit = self
             .history(name)?
@@ -1127,11 +1123,7 @@ impl Store {
             .root(&record.root)
             .ok_or_else(|| Error::Refused(format!("there is no root {}", record.root)))?;
         if !root.may_write(&record.path) {
-            return Err(Error::Refused(not_writable(
-                &record.name,
-                &record.root,
-                &record.path,
-            )));
+            return Err(Error::Refused(not_writable(&record.name, &record.root)));
         }
         let audit = self
             .history(name)?
@@ -1392,7 +1384,16 @@ impl Store {
             return Err(Error::Refused(why));
         }
         self.fault_point(crate::Fault::RepairApproving);
-        let _lifecycle = self.lock_roots_unchanged(roots)?;
+        let _lifecycle = match self.lock_roots_unchanged(roots) {
+            Ok(held) => held,
+            Err(changed) => {
+                // Unregistering a Source Set changes its Root too: say the cause, not the consequence.
+                self.read(|c| {
+                    crate::lifecycle::check_live(c, RegistrationKind::SourceSet, content.set_id)
+                })?;
+                return Err(changed);
+            }
+        };
         self.write(|tx| {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.

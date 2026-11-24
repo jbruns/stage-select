@@ -134,6 +134,10 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/source-sets/{name}/have-miss.csv", get(have_miss))
         .route("/source-sets/{name}/follow", put(set_follow))
         .route("/source-sets/{name}/coverage", put(set_coverage))
+        .route(
+            "/source-sets/{name}/repairs-may-change",
+            put(set_repairs_may_change),
+        )
         .route("/source-sets/{name}/placements", get(placements))
         .route(
             "/source-sets/{name}/holding-folder",
@@ -869,6 +873,7 @@ async fn source_set_summaries(
 
 async fn add_source_set(
     State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
     body: Result<Json<AddSourceSet>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<stage_select_api::SourceSetRecord>)> {
     let Json(add) = body?;
@@ -884,7 +889,14 @@ async fn add_source_set(
             (Some(path), None) => path,
             (None, template) => store.propose_source_set_path(&add.dat, template.as_deref())?,
         };
-        store.add_source_set_covering(&add.root, &path, &add.dat, coverage.as_deref())
+        store.register_source_set(
+            &add.root,
+            &path,
+            &add.dat,
+            coverage.as_deref(),
+            Some(add.repairs_may_change),
+            &actor,
+        )
     })
     .await?;
     Ok((StatusCode::CREATED, Json(record)))
@@ -1578,6 +1590,33 @@ async fn set_follow(
     Ok(Json(
         blocking(&state, move |store| store.set_follow(&name, request.follow)).await?,
     ))
+}
+
+/// Lets Stage Select change a Source Set, or stops it, voiding each approved plan, not yet started, that would write
+/// to it once stopped.
+async fn set_repairs_may_change(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<stage_select_api::SetRepairsMayChange>, JsonRejection>,
+) -> ApiResult<Json<stage_select_api::SourceSetChanged>> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    let (changed, voided) = blocking(&state, move |store| {
+        let changed = store.set_repairs_may_change(&name, request.repairs_may_change, &actor)?;
+        let voided = changed
+            .voided
+            .iter()
+            .filter_map(|v| store.job(v.job).ok())
+            .collect::<Vec<_>>();
+        Ok((changed, voided))
+    })
+    .await?;
+    for job in voided {
+        state.jobs.changed(job);
+    }
+    state.jobs.wake();
+    Ok(Json(changed))
 }
 
 /// Where a Source Set keeps its Games under Single Copy: the folder holding its Placed Games, how many each folder

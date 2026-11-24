@@ -100,8 +100,10 @@ _Avoid_: Source (alone), Downloads
 **Root**:
 A named folder the Operator registers for Stage Select to read, or to write, such as the one holding Source Sets. Its
 name never changes once registered. A Source Set or a Play Library folder is identified by its Root and a path
-relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets that Repairs may
-write. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
+relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets Stage Select may
+change: those a Repair may write to, and whose Games Single Copy may place in Library Folders. Each Source Set
+switches its own path in or out (`repairs_may_change`, on by default when it is registered); the Operator no longer
+edits the list on the Root. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
 _Avoid_: Mount, share
 
 **Operator**:

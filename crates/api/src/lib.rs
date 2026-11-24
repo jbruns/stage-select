@@ -323,6 +323,10 @@ pub struct SourceSetRecord {
     /// Its Coverage: the engine region names it covers. Absent when it covers every Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
+    /// Whether Stage Select may change it: repairs may write to its folder, and Single Copy may place its Games in
+    /// Library Folders. Derived from its Root's `writable_paths`, which list its path while this is on.
+    #[serde(default)]
+    pub repairs_may_change: bool,
 }
 
 /// One reason a Source Set is Stale. Looking changed is a heuristic, never a claim of damage.
@@ -388,6 +392,21 @@ pub struct SetFollow {
     pub follow: bool,
 }
 
+/// The request to let Stage Select change a Source Set, or to stop it: see [`SourceSetRecord::repairs_may_change`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetRepairsMayChange {
+    pub repairs_may_change: bool,
+}
+
+/// A Source Set as switching [`SetRepairsMayChange`] left it, with each approved plan, not yet started, that the
+/// switch voided because it would have written to the Source Set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSetChanged {
+    pub source_set: SourceSetRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voided: Vec<roots::VoidedPlan>,
+}
+
 /// The request to set a Source Set's Coverage, as engine region names, or to clear it with `null`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetCoverage {
@@ -439,6 +458,13 @@ pub struct AddSourceSet {
     /// Its Coverage, as engine region names; by default it covers every Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
+    /// Whether Stage Select may change it, as [`SourceSetRecord::repairs_may_change`]; on by default.
+    #[serde(default = "yes")]
+    pub repairs_may_change: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// The configured default Path Template of each kind of registration.

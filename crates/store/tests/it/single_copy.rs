@@ -49,6 +49,16 @@ impl Env {
 
     /// As [`Env::new`], with a DAT of `games`.
     pub(crate) fn with(games: &[(&'static str, Vec<RomSpec>)]) -> Env {
+        Env::setting(games, None)
+    }
+
+    /// As [`Env::new`], with `sets` listing no writable paths until Alpha is registered with Stage Select let change
+    /// it as `may_change` says.
+    pub(crate) fn registering(may_change: bool) -> Env {
+        Env::setting(&games(), Some(may_change))
+    }
+
+    fn setting(games: &[(&'static str, Vec<RomSpec>)], may_change: Option<bool>) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "roots/play", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -57,7 +67,13 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(
+                    if may_change.is_some() {
+                        &[]
+                    } else {
+                        &["Alpha"]
+                    },
+                ),
                 RootSpec::new("play", tmp.path().join("roots/play")).writable(),
             ],
         );
@@ -70,7 +86,14 @@ impl Env {
         );
         let sha256 = store.import_dat(&dat, None).unwrap().0.sha256;
         store
-            .add_source_set("sets", SET, "No-Intro/Test - System")
+            .register_source_set(
+                "sets",
+                SET,
+                "No-Intro/Test - System",
+                None,
+                may_change,
+                "Operator",
+            )
             .unwrap();
         store
             .save_profile(
@@ -371,6 +394,44 @@ fn saving_single_copy_changes_no_file_and_a_plan_without_it_copies() {
     let plan = env.plan(&env.folder, selection);
     assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Copy);
     assert!(!item(&plan, "Pong (USA)").changes_source_set);
+}
+
+#[test]
+fn a_source_set_registered_for_stage_select_to_change_has_its_games_placed() {
+    let env = Env::registering(true);
+    std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(
+        env.files(),
+        (Vec::<String>::new(), vec!["Pong (USA).a26".into()])
+    );
+}
+
+#[test]
+fn a_source_set_stage_select_may_not_change_has_each_game_copied_and_says_where_to_let_it() {
+    let env = Env::registering(false);
+    std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+    assert_ne!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("nothing is placed")
+                && n.contains("\"Stage Select may change this source set\"")),
+        "{:?}",
+        plan.content.notes
+    );
 }
 
 #[test]

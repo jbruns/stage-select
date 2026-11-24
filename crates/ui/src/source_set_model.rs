@@ -4,6 +4,7 @@
 use stage_select_api::build::{BuildState, BuildSummary};
 use stage_select_api::ingest::{IngestAction, IngestPlan};
 use stage_select_api::repair::{RepairPlan, RepairStep};
+use stage_select_api::roots::VoidedPlan;
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use stage_select_api::{
     AuditEvidence, AuditSummary, DatFormat, Finding, FollowedRevision, JobKind, JobState,
@@ -12,6 +13,32 @@ use stage_select_api::{
 
 use crate::model::needs_review_from_counts;
 use crate::parts::status::{PlanState, SourceSetFacts, SourceSetStatus, StaleCause, by_attention};
+use crate::roots_model::voided_lines;
+
+/// The switch that lets Stage Select change a Source Set's folder, as registering and its overview label it.
+pub const MAY_CHANGE: &str = "Stage Select may change this source set";
+
+/// What the switch governs, beneath it.
+pub const MAY_CHANGE_NOTE: &str = "Lets repairs fix its files, and lets single copy place its games into your play \
+    library folders. Turned off, Stage Select only reads it: repairs are refused and single copy copies each game.";
+
+/// What switching it said: whether Stage Select may now change the Source Set `set`, and each approved plan, not
+/// yet started, that turning it off voided.
+pub fn may_change_said(set: &str, on: bool, voided: &[VoidedPlan]) -> String {
+    let mut said = if on {
+        format!("Stage Select may now change source set {set}.")
+    } else {
+        format!("Stage Select may no longer change source set {set}.")
+    };
+    if !voided.is_empty() {
+        said.push_str(" These approved plans would have changed it, so they were voided:");
+        for line in voided_lines(voided) {
+            said.push(' ');
+            said.push_str(&line);
+        }
+    }
+    said
+}
 
 /// Why a Source Set takes no Coverage, from the DAT Formats of its DAT's revisions: a MAME ListXML's covers every Game,
 /// as the arcade Selection decides what a Play Library keeps (ADR 0027). `None` for any other.
@@ -489,8 +516,29 @@ mod tests {
 
     use stage_select_api::{Finding, SourceSetRecord};
 
+    use stage_select_api::roots::VoidedPlanKind;
+
     use super::*;
     use crate::parts::status::needing_a_look;
+
+    #[test]
+    fn switching_whether_stage_select_may_change_a_source_set_says_which_plans_it_voided() {
+        assert_eq!(
+            may_change_said("GBA", true, &[]),
+            "Stage Select may now change source set GBA."
+        );
+        let voided = [VoidedPlan {
+            kind: VoidedPlanKind::Repair,
+            plan: 12,
+            job: 30,
+            writes_to: "source set GBA".into(),
+        }];
+        assert_eq!(
+            may_change_said("GBA", false, &voided),
+            "Stage Select may no longer change source set GBA. These approved plans would have changed it, so they \
+             were voided: The repair plan #12, writing to source set GBA: its job #30 failed, having changed nothing."
+        );
+    }
 
     fn audit(id: i64, at: &str, sha: &str, review: usize) -> AuditSummary {
         AuditSummary {
@@ -523,6 +571,7 @@ mod tests {
                 follow: false,
                 stale: Vec::new(),
                 coverage: None,
+                repairs_may_change: true,
             },
             latest,
             repair,

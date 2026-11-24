@@ -45,7 +45,8 @@ pub struct Root {
     /// Whether Stage Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set in it.
     /// A Source Set is registered only in a read-only Root.
     pub writable: bool,
-    /// For a read-only Root: the paths, relative to it, of the Source Sets in it that a repair may write to.
+    /// For a read-only Root: the paths, relative to it, of the Source Sets in it that Stage Select may change, by
+    /// Repairs and by Single Copy placing their Games. Each Source Set switches its own path in or out.
     pub writable_paths: Vec<String>,
     /// The Operator's Ceilings for it (ADR 0022).
     pub readers: Option<u64>,
@@ -940,13 +941,22 @@ fn void_reason(root: &str) -> String {
     )
 }
 
-/// Ends voidable `plan`'s queued Job as any Job ends, releasing what it held; and finishes a repair plan with every
-/// step failed, and every move out of an Ingest Folder it recorded and had not started failed with it, in `tx`.
-fn void(tx: &Transaction, plan: &VoidedPlan, root: &str) -> Result<()> {
-    let why = void_reason(root);
-    if !crate::jobs::end_queued(tx, plan.job, JobState::Failed, &why)? {
+/// Why voided work's Job ended, when it would have written to Source Set `set`, which Stage Select may no longer
+/// change.
+fn set_void_reason(set: &str) -> String {
+    format!(
+        "voided: you stopped Stage Select changing source set {set} after this plan was approved, so it can no \
+         longer write where it would have; nothing was changed"
+    )
+}
+
+/// Ends voidable `plan`'s queued Job as any Job ends, releasing what it held, saying `why`; and finishes a repair
+/// plan with every step failed, and every move out of an Ingest Folder it recorded and had not started failed with
+/// it, in `tx`. `changing` names what is being changed, should the Job have started.
+fn void(tx: &Transaction, plan: &VoidedPlan, why: &str, changing: &str) -> Result<()> {
+    if !crate::jobs::end_queued(tx, plan.job, JobState::Failed, why)? {
         return Err(Error::Conflict(format!(
-            "job {} started while root {root} was being changed; nothing was changed",
+            "job {} started while {changing} was being changed; nothing was changed",
             plan.job
         )));
     }
@@ -963,9 +973,92 @@ fn void(tx: &Transaction, plan: &VoidedPlan, root: &str) -> Result<()> {
              WHERE plan_id = ?1 AND state = 'moving'",
             params![plan.plan, why, at],
         )?;
-        Store::void_repair(tx, plan.plan, &why, &at)?;
+        Store::void_repair(tx, plan.plan, why, &at)?;
     }
     Ok(())
+}
+
+/// Lets Stage Select change the Source Set `set`, at `rel` in the read-only Root `name`, or stops it, in `tx`, as
+/// `actor`: lists `rel` among the Root's `writable_paths`, or takes it out. The rules of widening and narrowing a
+/// Root's writable paths hold, for the work that writes to this folder alone: letting it is refused while unfinished
+/// work writes to the folder, and stopping it voids each approved plan, not yet started, that writes there, which are
+/// returned, and is refused while any other work writes there. In a writable Root, which holds no Source Set, it can
+/// only be let.
+pub(crate) fn let_change_set(
+    tx: &Transaction,
+    name: &str,
+    rel: &str,
+    set: &str,
+    on: bool,
+    actor: &str,
+) -> Result<Vec<VoidedPlan>> {
+    let was =
+        stored(tx, name)?.ok_or_else(|| Error::NotFound(format!("There is no root {name}.")))?;
+    if was.writable {
+        return match on {
+            true => Ok(Vec::new()),
+            false => refused(format!(
+                "Root {name} is writable, so Stage Select may change everything in it; make it read-only first."
+            )),
+        };
+    }
+    let rel = relative_path(rel).map_err(|e| Error::Refused(format!("{rel:?}: a path {e}.")))?;
+    if was.writable_paths.contains(&rel) == on {
+        return Ok(Vec::new());
+    }
+    let target = Target::Set(rel.clone());
+    let writers: Vec<Dep> = dependents(tx, name)?
+        .into_iter()
+        .filter(|d| d.writes.as_ref() == Some(&target))
+        .collect();
+    let mut seen = BTreeSet::new();
+    let mut held = |deps: &mut dyn Iterator<Item = String>| -> Vec<String> {
+        deps.filter(|w| seen.insert(w.clone())).collect()
+    };
+    let unvoidable = match on {
+        true => held(&mut writers.iter().map(|d| d.what.clone())),
+        false => held(
+            &mut writers
+                .iter()
+                .filter(|d| d.running.is_some() || d.voidable.is_none())
+                .map(|d| d.running.clone().unwrap_or_else(|| d.what.clone())),
+        ),
+    };
+    if !unvoidable.is_empty() {
+        return Err(Error::Conflict(format!(
+            "Whether Stage Select may change source set {set} can't change yet: {}. Try again once that has \
+             finished.",
+            unvoidable.join("; ")
+        )));
+    }
+    let mut voided = Vec::new();
+    let mut seen = BTreeSet::new();
+    for plan in writers.into_iter().filter_map(|d| d.voidable) {
+        if seen.insert((plan.kind == VoidedPlanKind::Repair, plan.plan)) {
+            void(
+                tx,
+                &plan,
+                &set_void_reason(set),
+                &format!("source set {set}"),
+            )?;
+            voided.push(plan);
+        }
+    }
+    let mut writable_paths = was.writable_paths.clone();
+    match on {
+        true => writable_paths.push(rel),
+        false => writable_paths.retain(|p| *p != rel),
+    }
+    let root = Checked {
+        name: was.name.clone(),
+        path: was.path.clone(),
+        kind: was.kind,
+        writable: false,
+        writable_paths,
+        overrides: was.overrides(),
+    };
+    save(tx, &root, "edited", actor)?;
+    Ok(voided)
 }
 
 /// A refusal naming what stands in the way.
@@ -1199,7 +1292,7 @@ impl Store {
         Ok(())
     }
 
-    fn roots_changed(&self) -> Result<()> {
+    pub(crate) fn roots_changed(&self) -> Result<()> {
         self.reload_roots()?;
         self.refresh_ceilings()?;
         Ok(())
@@ -1263,8 +1356,8 @@ impl Store {
                 )?;
                 if !sets.is_empty() {
                     return refused(format!(
-                        "Root {name} can't be made writable while it holds source sets ({}): Stage Select writes to \
-                         a source set's folder only where you list it in writable paths.",
+                        "Root {name} can't be made writable while it holds source sets ({}): Stage Select changes \
+                         a source set only where you let it, on the source set.",
                         sets.join(", ")
                     ));
                 }
@@ -1322,7 +1415,7 @@ impl Store {
                 let mut seen = BTreeSet::new();
                 for plan in lost.into_iter().filter_map(|d| d.voidable.clone()) {
                     if seen.insert((plan.kind == VoidedPlanKind::Repair, plan.plan)) {
-                        void(tx, &plan, name)?;
+                        void(tx, &plan, &void_reason(name), &format!("root {name}"))?;
                         voided.push(plan);
                     }
                 }

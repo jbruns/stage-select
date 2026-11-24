@@ -921,8 +921,16 @@ fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
 
     let set = client.add_set();
     assert_eq!(set.name, SET);
+    assert!(
+        set.repairs_may_change,
+        "Stage Select may change it unless you say not"
+    );
     let fetched: SourceSetRecord = client.json(&format!("/source-sets/{}", "Test%20-%20System"));
     assert_eq!(fetched, set);
+    let roots: Vec<stage_select_api::Root> = client.json("/roots");
+    assert_eq!(roots[0].writable_paths, [SET]);
+    let changes: Vec<stage_select_api::roots::RootChange> = client.json("/roots/sets/changes");
+    assert_eq!(changes.last().unwrap().changed_by, TOKEN_ACTOR);
 
     let (mut watching, snapshot) = client.watch();
     assert!(snapshot.jobs.is_empty());
@@ -2188,14 +2196,32 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     let service = env.start();
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat());
-    client.add_set();
+    let mut added = client
+        .post("/source-sets")
+        .send_json(serde_json::json!({
+            "root": "sets", "path": SET, "dat": "No-Intro/Test - System", "repairs_may_change": false
+        }))
+        .unwrap();
+    assert_eq!(added.status(), 201);
+    let added: SourceSetRecord = added.body_mut().read_json().unwrap();
+    assert!(!added.repairs_may_change);
     full(&client);
     let refused = client.post(repairs).send_json(serde_json::json!({}));
-    assert_eq!(status_of(refused), 400, "the root is not writable");
-    drop(service);
+    assert_eq!(status_of(refused), 400, "Stage Select may not change it");
 
-    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
-    let client = Client::new(&service);
+    let mut request = agent().put(format!(
+        "{}/source-sets/Test%20-%20System/repairs-may-change",
+        client.base
+    ));
+    if let Some((name, value)) = &client.auth {
+        request = request.header(name, value);
+    }
+    let mut switched = request
+        .send_json(serde_json::json!({ "repairs_may_change": true }))
+        .unwrap();
+    assert_eq!(switched.status(), 200);
+    let switched: stage_select_api::SourceSetChanged = switched.body_mut().read_json().unwrap();
+    assert!(switched.source_set.repairs_may_change && switched.voided.is_empty());
     let roots: Vec<stage_select_api::Root> = client.json("/roots");
     assert!(
         roots

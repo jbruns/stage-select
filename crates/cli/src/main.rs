@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use stage_select_api::JobState;
 use stage_select_api::ingest::Proposal;
 use stage_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
 use stage_select_api::roots::{RootKind, RootSpec, VoidedPlanKind};
 use stage_select_api::selection::SelectionProfile;
+use stage_select_api::{JobState, SourceSetChanged};
 use stage_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use stage_select_server::Settings;
 use stage_select_store::{FixdatScope, ImportOutcome, Store};
@@ -319,6 +319,22 @@ enum SetCommand {
         /// The clone lists to check region names against. Defaults to `/opt/clone-lists`.
         #[arg(long, env = stage_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
+        /// Don't let Stage Select change the source set: no repair may write to its folder, and single copy copies
+        /// its games instead of placing them in your play library folders. By default it may change it.
+        #[arg(long)]
+        read_only: bool,
+    },
+    /// Show whether Stage Select may change a source set: whether repairs may write to its folder, and single copy
+    /// may place its games in your play library folders. With `--may-change` or `--read-only`, change it.
+    /// Making it read-only voids each approved plan, not yet started, that would write to it, and lists them.
+    Edit {
+        name: String,
+        /// Let Stage Select change the source set.
+        #[arg(long, conflicts_with = "read_only")]
+        may_change: bool,
+        /// Stop Stage Select changing the source set.
+        #[arg(long)]
+        read_only: bool,
     },
     /// Show a source set's coverage: the regions of its DAT's games it keeps. With `--region` or `--preset`, set
     /// it to those regions; with `--clear`, cover every game again. Changing it moves no file and needs no new audit.
@@ -410,11 +426,11 @@ struct RootOptions {
     /// Let Stage Select write anywhere in the root: builds into its play library folders.
     #[arg(long, conflicts_with = "read_only")]
     writable: bool,
-    /// Let Stage Select write nowhere in the root but its writable paths.
+    /// Let Stage Select write nowhere in the root but the source sets in it you let it change.
     #[arg(long)]
     read_only: bool,
-    /// In a read-only root, a source set's path, relative to the root, that a repair may write to. Repeat it for
-    /// each; any you give replace those the root had.
+    /// In a read-only root, a source set's path, relative to the root, that Stage Select may change: repairs and
+    /// single copy placing. Repeat it for each; any you give replace those the root had. `set edit` switches one.
     #[arg(
         long = "writable-path",
         value_name = "PATH",
@@ -712,6 +728,26 @@ fn coverage(
         .map_err(|e| e.to_string())?
         .regions;
     coverage::canonical(&names, &known).map(Some)
+}
+
+/// Whether Stage Select may change a source set, as `set add` and `set edit` say it.
+fn may_change_line(on: bool) -> &'static str {
+    match on {
+        true => {
+            "Stage Select may change it: repairs may write to it, and single copy may place its games"
+        }
+        false => {
+            "read-only: no repair writes to it, and single copy copies its games instead of placing them"
+        }
+    }
+}
+
+/// A voided plan's kind, as the CLI says it.
+fn voided_kind(kind: VoidedPlanKind) -> &'static str {
+    match kind {
+        VoidedPlanKind::Build => "build",
+        VoidedPlanKind::Repair => "repair",
+    }
 }
 
 /// "covers every game", "covers USA, Canada".
@@ -1060,6 +1096,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     coverage_regions,
                     coverage_presets,
                     clone_lists,
+                    read_only,
                 },
         } => {
             let store = open_store(store)?;
@@ -1071,16 +1108,57 @@ fn run(cli: Cli) -> Result<(), String> {
                     .map_err(|e| e.to_string())?,
             };
             let set = store
-                .add_source_set_covering(&root, &path, &dat, coverage.as_deref())
+                .register_source_set(
+                    &root,
+                    &path,
+                    &dat,
+                    coverage.as_deref(),
+                    Some(!read_only),
+                    ACTOR,
+                )
                 .map_err(|e| e.to_string())?;
             let covering = match set.coverage {
                 Some(_) => format!("; {}", covers(set.coverage.as_deref())),
                 None => String::new(),
             };
             println!(
-                "{}: added from {}:{}, bound to {}{covering}",
-                set.name, set.root, set.path, set.dat
+                "{}: added from {}:{}, bound to {}{covering}; {}",
+                set.name,
+                set.root,
+                set.path,
+                set.dat,
+                may_change_line(set.repairs_may_change)
             );
+            Ok(())
+        }
+        Command::Set {
+            command:
+                SetCommand::Edit {
+                    name,
+                    may_change,
+                    read_only,
+                },
+        } => {
+            let store = open_store(store)?;
+            let changed = match may_change || read_only {
+                true => store.set_repairs_may_change(&name, may_change, ACTOR),
+                false => store.source_set(&name).map(|source_set| SourceSetChanged {
+                    source_set,
+                    voided: Vec::new(),
+                }),
+            }
+            .map_err(|e| e.to_string())?;
+            let set = changed.source_set;
+            println!("{}: {}", set.name, may_change_line(set.repairs_may_change));
+            for voided in changed.voided {
+                println!(
+                    "voided {} plan {} (job {}): it wrote to {}, which Stage Select may no longer change",
+                    voided_kind(voided.kind),
+                    voided.plan,
+                    voided.job,
+                    voided.writes_to
+                );
+            }
             Ok(())
         }
         Command::Set {
@@ -1312,10 +1390,7 @@ fn run(cli: Cli) -> Result<(), String> {
             for voided in edited.voided {
                 println!(
                     "voided {} plan {} (job {}): it wrote to {}, where {name} no longer lets Stage Select write",
-                    match voided.kind {
-                        VoidedPlanKind::Build => "build",
-                        VoidedPlanKind::Repair => "repair",
-                    },
+                    voided_kind(voided.kind),
                     voided.plan,
                     voided.job,
                     voided.writes_to

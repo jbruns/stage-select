@@ -216,7 +216,7 @@ fn explanation(step: Step) -> (&'static str, &'static str) {
             "A root is a folder Stage Select may work in.",
             "Register a read-only root for the folders that hold your games, and a writable root for the library \
              folders it builds. It reads nothing until you register a root, and writes only where you let it: in a \
-             writable root, and in the paths of a read-only root you let repairs write to.",
+             writable root, and in each source set you let it change.",
         ),
         Step::Dat => (
             "A DAT lists every file a set of games should have.",

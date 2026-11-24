@@ -353,6 +353,34 @@ fn an_unregistered_source_sets_name_and_folder_are_free_and_its_history_stays_re
 }
 
 #[test]
+fn unregistering_a_source_set_stage_select_may_change_takes_its_path_out_of_its_roots_writable_paths()
+ {
+    let env = Env::new();
+    assert!(env.store.source_set(SET).unwrap().repairs_may_change);
+    env.store.unregister_source_set(SET).unwrap();
+
+    let paths = env
+        .store
+        .roots()
+        .root("sets")
+        .unwrap()
+        .writable_paths
+        .clone();
+    assert!(paths.is_empty(), "{paths:?}");
+    let changes = env.store.root_changes("sets").unwrap();
+    let last = changes.last().unwrap();
+    assert_eq!(
+        (last.action.as_str(), last.changed_by.as_str()),
+        ("edited", "Stage Select, unregistering a source set")
+    );
+    let again = env.store.add_source_set("sets", SET, SYSTEM).unwrap();
+    assert!(
+        !again.repairs_may_change,
+        "registered again, it may be changed only once you let it"
+    );
+}
+
+#[test]
 fn a_queued_job_holds_its_source_set_and_its_library_folder() {
     let env = Env::new();
     env.audit();
