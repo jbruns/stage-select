@@ -111,8 +111,10 @@ pure logic there too.
 
 Two screen-level pieces are shared the same way. An audit's Games and Findings counts, wherever they show (the
 source set overview, the audit page), are `screens::audit::AuditCounts { audit, lists, covered? }`, with its pure
-logic in `summary_model`. Proposing a repair and opening its plan is `screens::source_sets::propose_repair(name)`
-then `repair_plan_href(name, id)`.
+logic in `summary_model`; with `covered`, its Games counts open the games with `covered=yes`. Proposing a repair and
+opening its plan is `screens::source_sets::propose_repair(name)` then `repair_plan_href(name, id)`; as a button, use
+`Proposal` with `RepairNow { proposal, name, title, secondary? }` and `ProposalStatus { proposal }`, which await the
+plan before opening it and refuse a second click while it is made.
 
 ### Icons
 

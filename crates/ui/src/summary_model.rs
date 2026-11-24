@@ -5,8 +5,11 @@ use std::collections::BTreeMap;
 
 use stage_select_api::{AuditSummary, Finding, GameStatus, Job, JobKind, SourceSetSummary};
 
-use crate::model::{ALGORITHM, FINDING, STATE, STATUS, needs_review_from_counts};
+use crate::model::{
+    ALGORITHM, COVERED, COVERED_YES, FINDING, STATE, STATUS, needs_review_from_counts,
+};
 use crate::parts::status::{AuditState, FindingStatus, Status};
+use crate::repair_model::{Found, could_change};
 use crate::source_set_model::{facts, rests_on_claims};
 
 /// Where a page keeps the lists the summary filters: the URL's `tab` of its games and of its entries, `None` for the
@@ -57,12 +60,20 @@ pub fn finding_counts(findings: &BTreeMap<Finding, usize>) -> Vec<(FindingStatus
 /// Changes to the URL's query, each key set to its value or removed for none.
 pub type Edit = Vec<(&'static str, Option<String>)>;
 
-/// What picking `status` in the games' counts does: opens the games narrowed to it, clearing what narrowed or
-/// ordered the list before; picking none clears the narrowing and stays where you are.
-pub fn pick_game(lists: Lists, status: Option<GameStatus>) -> Edit {
+/// What picking `status` in the games' counts does: opens the games narrowed to it, and to the coverage when the
+/// counts are `covered` games only, clearing what narrowed or ordered the list before; picking none clears the
+/// narrowing and stays where you are.
+pub fn pick_game(lists: Lists, status: Option<GameStatus>, covered: bool) -> Edit {
     match status {
-        None => vec![(STATUS, None)],
-        Some(status) => opened(lists.games, STATUS, status.as_str()),
+        None => vec![(STATUS, None), (COVERED, None)],
+        Some(status) => {
+            let mut edit = opened(lists.games, STATUS, status.as_str());
+            if covered {
+                edit.retain(|(k, _)| *k != COVERED);
+                edit.push((COVERED, Some(COVERED_YES.to_string())));
+            }
+            edit
+        }
     }
 }
 
@@ -102,6 +113,8 @@ pub enum NextStep {
     Audit,
     /// Propose a repair from its latest audit, and open the plan.
     Repair,
+    /// Audit it, and offer a repair second.
+    MaybeRepair,
     /// Open its open repair plan, by id.
     Review(i64),
     /// Follow its audit, queued or running, by job id: a repair proposed now would rest on the audit it supersedes.
@@ -116,8 +129,9 @@ pub fn audit_job<'a>(jobs: impl IntoIterator<Item = &'a Job>, name: &str) -> Opt
 }
 
 /// The next step for the source set `summary`: its open repair to review; the audit job `auditing` to follow, while
-/// one is queued or running; a repair, when its latest audit has entries to review and nothing has changed since;
-/// otherwise an audit.
+/// one is queued or running; an audit, when it has none or files changed since; a repair, when its latest audit
+/// found what a repair changes; otherwise an audit, with a repair second, since spare copies and the storage policy
+/// aren't counted ahead of a repair.
 pub fn next_step(summary: &SourceSetSummary, auditing: Option<i64>) -> NextStep {
     if let Some(repair) = &summary.repair {
         return NextStep::Review(repair.id);
@@ -126,15 +140,29 @@ pub fn next_step(summary: &SourceSetSummary, auditing: Option<i64>) -> NextStep 
         return NextStep::Auditing(job);
     }
     let facts = facts(summary, false);
-    if facts.audited && facts.needs_review && !facts.stale {
-        NextStep::Repair
-    } else {
-        NextStep::Audit
+    match &summary.latest {
+        Some(latest) if !facts.stale => {
+            // With a coverage, only its entries count; the games already count only covered ones.
+            let findings = summary
+                .covered_entries
+                .as_ref()
+                .map_or(&latest.findings, |c| &c.findings);
+            // An unreadable file is replaced only if another copy turns up, so it alone promises no change.
+            let sure = could_change(findings, &latest.games)
+                .iter()
+                .any(|c| c.found != Found::Entries(Finding::Unreadable));
+            if sure {
+                NextStep::Repair
+            } else {
+                NextStep::MaybeRepair
+            }
+        }
+        _ => NextStep::Audit,
     }
 }
 
 /// What an audit's page offers next, given its source set's `summary`: the open repair to review, or a repair while
-/// this audit is the latest and leads to one; the audit job `auditing` to follow, while one is queued or running;
+/// this audit is the latest (second to an audit when it found nothing a repair surely changes); the audit job `auditing` to follow, while one is queued or running;
 /// nothing otherwise.
 pub fn after_audit(
     audit: i64,
@@ -145,7 +173,7 @@ pub fn after_audit(
     match next_step(summary, auditing) {
         NextStep::Review(id) => Some(NextStep::Review(id)),
         NextStep::Auditing(job) => Some(NextStep::Auditing(job)),
-        NextStep::Repair if latest => Some(NextStep::Repair),
+        step @ (NextStep::Repair | NextStep::MaybeRepair) if latest => Some(step),
         _ => None,
     }
 }
@@ -162,8 +190,8 @@ pub fn audit_state(audit: &AuditSummary) -> AuditState {
 }
 
 /// What narrows or orders a list in the URL, cleared when a count opens one.
-const NARROWING: [&str; 9] = [
-    STATUS, FINDING, STATE, ALGORITHM, "q", "sort", "row", "sel", "all",
+const NARROWING: [&str; 10] = [
+    STATUS, FINDING, STATE, ALGORITHM, COVERED, "q", "sort", "row", "sel", "all",
 ];
 
 /// The edit that opens `tab` with only `key` narrowing it, to `value`.
@@ -247,15 +275,54 @@ mod tests {
         summary
     }
 
+    fn found(findings: &[(Finding, usize)], games: &[(GameStatus, usize)]) -> SourceSetSummary {
+        let mut s = summary(0, None);
+        let latest = s.latest.as_mut().unwrap();
+        latest.findings = findings.iter().copied().collect();
+        latest.games = games.iter().copied().collect();
+        s
+    }
+
     #[test]
-    fn a_source_set_leads_with_a_repair_only_when_its_latest_audit_has_entries_to_review() {
+    fn a_source_set_leads_with_a_repair_only_when_its_latest_audit_found_what_a_repair_changes() {
         assert_eq!(next_step(&summary(2, None), None), NextStep::Repair);
-        assert_eq!(next_step(&summary(0, None), None), NextStep::Audit);
+        let incomplete = found(
+            &[(Finding::Matched, 5)],
+            &[(GameStatus::Complete, 4), (GameStatus::Incomplete, 1)],
+        );
+        assert_eq!(
+            next_step(&incomplete, None),
+            NextStep::Repair,
+            "an incomplete game is one a repair completes"
+        );
         // Files changed since: audit again first.
         assert_eq!(next_step(&stale(summary(2, None)), None), NextStep::Audit);
         let mut never = summary(0, None);
         never.latest = None;
         assert_eq!(next_step(&never, None), NextStep::Audit);
+    }
+
+    #[test]
+    fn with_nothing_a_repair_surely_changes_an_audit_leads_and_a_repair_is_offered_second() {
+        assert_eq!(
+            next_step(&summary(0, None), None),
+            NextStep::MaybeRepair,
+            "spare copies or the storage policy may still give a repair something to do"
+        );
+        let unreadable = found(
+            &[(Finding::Matched, 5), (Finding::Unreadable, 2)],
+            &[(GameStatus::Complete, 5)],
+        );
+        assert_eq!(
+            next_step(&unreadable, None),
+            NextStep::MaybeRepair,
+            "an unreadable file is left alone unless a replacement turns up"
+        );
+        assert_eq!(
+            after_audit(7, &unreadable, None),
+            Some(NextStep::MaybeRepair)
+        );
+        assert_eq!(after_audit(6, &unreadable, None), None);
     }
 
     #[test]
@@ -274,7 +341,10 @@ mod tests {
             Some(NextStep::Repair)
         );
         assert_eq!(after_audit(6, &summary(2, None), None), None);
-        assert_eq!(after_audit(7, &summary(0, None), None), None);
+        assert_eq!(
+            after_audit(7, &summary(0, None), None),
+            Some(NextStep::MaybeRepair)
+        );
         assert_eq!(after_audit(7, &stale(summary(2, None)), None), None);
         assert_eq!(
             after_audit(6, &summary(2, Some(3)), None),
@@ -346,7 +416,7 @@ mod tests {
 
     #[test]
     fn picking_a_game_count_opens_the_games_narrowed_to_it() {
-        let edit = pick_game(ON_SOURCE_SET, Some(GameStatus::Missing));
+        let edit = pick_game(ON_SOURCE_SET, Some(GameStatus::Missing), false);
         assert_eq!(value(&edit, "tab"), Some(Some("games".into())));
         assert_eq!(value(&edit, "status"), Some(Some("missing".into())));
         for key in [
@@ -418,8 +488,32 @@ mod tests {
     }
 
     #[test]
+    fn a_game_count_of_covered_games_opens_only_the_covered_games() {
+        let covered = pick_game(ON_SOURCE_SET, Some(GameStatus::Missing), true);
+        assert_eq!(value(&covered, "status"), Some(Some("missing".into())));
+        assert_eq!(value(&covered, "covered"), Some(Some("yes".into())));
+        let whole = pick_game(ON_SOURCE_SET, Some(GameStatus::Missing), false);
+        assert_eq!(value(&whole, "covered"), Some(None));
+        assert_eq!(
+            value(
+                &pick_finding(ON_SOURCE_SET, Some(FindingStatus::Matched)),
+                "covered"
+            ),
+            Some(None),
+            "the entries aren't narrowed by coverage"
+        );
+        assert_eq!(
+            pick_game(ON_SOURCE_SET, None, true),
+            vec![("status", None), ("covered", None)]
+        );
+    }
+
+    #[test]
     fn picking_none_only_clears_the_narrowing() {
-        assert_eq!(pick_game(ON_AUDIT, None), vec![("status", None)]);
+        assert_eq!(
+            pick_game(ON_AUDIT, None, false),
+            vec![("status", None), ("covered", None)]
+        );
         assert_eq!(pick_finding(ON_AUDIT, None), vec![("finding", None)]);
     }
 

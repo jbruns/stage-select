@@ -18,11 +18,12 @@ use crate::api;
 use crate::app::{Loading, navigator};
 use crate::events::use_live;
 use crate::model::{
-    ALGORITHM, AuditEntries, AuditGames, COVERED, COVERED_YES, DEPENDENCIES_NOTE, Derived, Disks, EntryColumn,
-    EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME, NOTHING_TO_CHECK_NOTE, STATE,
-    STATUS, absent_roms, audit_evidence_label, dependency_line, disk_text, entry_name,
-    evidence_text, finding_label, game_status_label, games_found, header_rule_text, header_text,
-    parse_ndjson, payload_read_text, unneeded, warning_counts, warning_text, when,
+    ALGORITHM, AuditEntries, AuditGames, COVERED, COVERED_YES, DEPENDENCIES_NOTE, Derived, Disks,
+    EntryColumn, EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME,
+    NOTHING_TO_CHECK_NOTE, STATE, STATUS, absent_roms, audit_evidence_label, dependency_line,
+    disk_text, entry_name, evidence_text, finding_label, game_status_label, games_found,
+    header_rule_text, header_text, parse_ndjson, payload_read_text, unneeded, warning_counts,
+    warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
@@ -328,6 +329,10 @@ fn NextFromAudit(audit: i64, source_set: String, proposal: Proposal) -> impl Int
             />
         }
         .into_any(),
+        Some(NextStep::MaybeRepair) => view! {
+            <RepairNow proposal name=name.get_value() title="A repair may still set aside spare copies or repack games to your storage policy, which an audit doesn't count. It opens the plan for your review; nothing changes until you approve it." secondary=true />
+        }
+        .into_any(),
         Some(NextStep::Review(plan)) => view! {
             <A href=repair_plan_href(&name.get_value(), plan) attr:class="button primary">
                 {format!("Review repair #{plan}")}
@@ -407,7 +412,7 @@ pub fn AuditCounts(
                 <KindCounts
                     counts=games
                     active=active_game
-                    on_filter=Callback::new(move |k| go.run(summary_model::pick_game(lists, k)))
+                    on_filter=Callback::new(move |k| go.run(summary_model::pick_game(lists, k, covered)))
                     label="Games by status"
                 />
                 <GamesMeter games=audit.games.clone() />

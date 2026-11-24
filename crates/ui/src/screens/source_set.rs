@@ -254,6 +254,18 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                     <button type="button" on:click=audit_now>"Audit"</button>
                 }
                 .into_any(),
+                // The latest audit found nothing a repair surely changes, but spare copies and the storage policy
+                // aren't counted ahead of a repair.
+                Some(NextStep::MaybeRepair) => view! {
+                    <button type="button" class="primary" on:click=audit_now>"Audit"</button>
+                    <RepairNow
+                        proposal
+                        name=name.get_value()
+                        title="A repair may still set aside spare copies or repack games to your storage policy, which an audit doesn't count. It opens the plan for your review; nothing changes until you approve it."
+                        secondary=true
+                    />
+                }
+                .into_any(),
                 _ => view! {
                     <button type="button" class="primary" on:click=audit_now>"Audit"</button>
                 }

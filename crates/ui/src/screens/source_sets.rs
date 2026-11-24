@@ -111,15 +111,21 @@ impl Default for Proposal {
     }
 }
 
-/// The primary Repair button: it proposes a repair of `name` and opens the plan. `title` says what it proposes from.
+/// The Repair button, primary unless `secondary`: it proposes a repair of `name` and opens the plan. `title` says what
+/// it proposes from.
 #[component]
-pub fn RepairNow(proposal: Proposal, name: String, title: &'static str) -> impl IntoView {
+pub fn RepairNow(
+    proposal: Proposal,
+    name: String,
+    title: &'static str,
+    #[prop(optional)] secondary: bool,
+) -> impl IntoView {
     let navigate = navigator();
     let name = StoredValue::new(name);
     view! {
         <button
             type="button"
-            class="primary"
+            class=(!secondary).then_some("primary")
             disabled=proposal.pending()
             title=title
             on:click=move |_| proposal.start(name.get_value(), navigate)
