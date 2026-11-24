@@ -33,6 +33,7 @@ use crate::library_model::{
     pick, plan_state, romm_exclusions, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
+use crate::parts::folder_picker::{FolderPicker, Within};
 use crate::parts::help::Help;
 use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::layout::Crumbs;
@@ -831,6 +832,12 @@ pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> 
     let path = Memo::new(move |_| {
         registration::chosen_path(typed.get().as_deref(), &proposal.get()).unwrap_or_default()
     });
+    let within = Signal::derive(move || {
+        writable()
+            .into_iter()
+            .find(|r| r.name == root.get())
+            .map(|r| Within::new(r.path, r.name))
+    });
     let preview = move || {
         let root_path = writable()
             .into_iter()
@@ -997,16 +1004,26 @@ pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> 
                         }}
                     </select>
                 </label>
-                <label>
-                    "Path in the root"
-                    <input
-                        type="text"
-                        class="data"
-                        placeholder="Type a path"
-                        prop:value=path
-                        on:input=move |ev| typed.set(Some(event_target_value(&ev)))
-                    />
-                </label>
+                <div class="path-group">
+                    <label for="library-path">"Path in the root"</label>
+                    <div class="path-field">
+                        <input
+                            id="library-path"
+                            type="text"
+                            class="data"
+                            placeholder="Type a path"
+                            prop:value=path
+                            on:input=move |ev| typed.set(Some(event_target_value(&ev)))
+                        />
+                        <FolderPicker
+                            field="the library folder's path"
+                            value=path
+                            within=within
+                            disabled=Signal::derive(move || within.with(Option::is_none))
+                            on_choose=move |chosen: String| typed.set(Some(chosen))
+                        />
+                    </div>
+                </div>
                 {move || {
                     (typed.get().is_some() && proposal.get().is_ok())
                         .then(|| {

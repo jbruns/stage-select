@@ -47,13 +47,13 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Four screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
-Source sets, the latter with "Only some regions" chosen, and capture the drawer whole. Two are captured at 1440px
+Five screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
+Source sets, the latter with "Only some regions" chosen, and capture the drawer whole. Three are captured at 1440px
 only. row-states checks the DATs list's fourth row, then
 opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail. It fails
 the run if its cursor row's brackets (their computed background-image) are missing while the grid has keyboard
 focus. messages sets every Repack item of the repair plan to Leave, a draft that changes nothing in the store, and
-captures the page down to that notice.
+captures the page down to that notice. folder-picker opens the source set form's folder picker in the root `sets`.
 """
 
 import argparse
@@ -131,6 +131,7 @@ SCREENS = {
     "messages": "/source-sets/{findings_set}?tab=repair",
     "root-register": "/settings/roots",
     "source-set-register": "/source-sets",
+    "folder-picker": "/source-sets",
 }
 
 # Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
@@ -218,21 +219,32 @@ def source_set_register(page):
     return Drawer(page)
 
 
+def folder_picker(page):
+    """The folder picker, opened from the source set form's path in the root `sets`: its trail starts at the root,
+    so it shows no local path."""
+    page.get_by_role("button", name="Register", exact=True).click()
+    page.get_by_role("button", name="Browse for the source set's path").click()
+    page.locator(".folder-list button").first.wait_for()
+    page.wait_for_timeout(300)
+    return page
+
+
 DRIVEN = {
     "row-states": row_states,
     "messages": messages,
     "root-register": root_register,
     "source-set-register": source_set_register,
+    "folder-picker": folder_picker,
 }
 
 # Driven screens captured at 1440px only.
-WIDE_ONLY = {"row-states", "messages"}
+WIDE_ONLY = {"row-states", "messages", "folder-picker"}
 
 RUNNING = {"activity-running"}
 
 # Screens that show only what the seed made, besides any whose route names `{…}`: a job to run, DAT rows to drive, a
 # profile or an ingest folder by its seeded name. `--empty` leaves them out.
-SEEDED = {"activity-running", "row-states", "profile", "ingest-folder"}
+SEEDED = {"activity-running", "row-states", "profile", "ingest-folder", "folder-picker"}
 
 
 def needs_seed(name, route):

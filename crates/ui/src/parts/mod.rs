@@ -18,8 +18,10 @@
 //! - `url_state`: a list's filter, sort, selected row and tab in the query string.
 //! - `layout`: `SplitView`, `DetailPane` and the `Crumbs` above a page below a list.
 //! - `tabs`: `Tabs`, `RouteTabs` and `use_tab`, the one row of tabs, whose open tab is always in the URL.
+//! - `folder_picker`: `FolderPicker`, a Browse… button beside a path field that opens a folder browser.
 
 pub mod choice;
+pub mod folder_picker;
 pub mod help;
 pub mod icon;
 pub mod layers;

@@ -16,8 +16,8 @@ use stage_select_api::JobState;
 use stage_select_api::paths::relative_path;
 use stage_select_api::repair::{RepairPlanContent, RepairStep};
 use stage_select_api::roots::{
-    FolderSuggestion, FolderSuggestions, RootChange, RootEdited, RootSpec, VoidedPlan,
-    VoidedPlanKind,
+    Folder, FolderListing, FolderSuggestion, FolderSuggestions, RootChange, RootEdited, RootSpec,
+    VoidedPlan, VoidedPlanKind,
 };
 use stage_select_api::settings::{MAX_MIB_PER_S, MAX_WORKERS, RootOverrides};
 
@@ -31,6 +31,10 @@ pub const MOUNT_POINTS: [&str; 4] = ["/data", "/mnt", "/media", "/srv"];
 pub const READ_PER_MOUNT: usize = 1000;
 /// The most folders in a mount point suggested.
 pub const SUGGESTED_PER_MOUNT: usize = 50;
+/// The most entries of a folder read to list the folders in it.
+pub const READ_PER_FOLDER: usize = 10_000;
+/// The most folders in a folder listed.
+pub const FOLDERS_LISTED: usize = 500;
 
 /// A registered Root, as the store holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1060,6 +1064,99 @@ impl Store {
             }
         }
         out
+    }
+
+    /// The folders in the folder at the absolute `path`, to browse for a path: any folder the Service can see. It reads
+    /// names only, never a file. Each folder is listed by name, case-insensitively, with whether the Service can write
+    /// to it and the deepest Root it resolves into, following links. A symlink to a folder is listed as a link at its
+    /// own path; any other file is left out, as are hidden folders (a leading dot, and `lost+found`) unless `hidden`.
+    /// The listing is bounded, as a folder may be a large or slow share: it reads at most [`READ_PER_FOLDER`] entries
+    /// and lists at most [`FOLDERS_LISTED`] folders, and says when it stopped short. A relative path, a `..` step, and
+    /// a path that isn't a folder are refused.
+    pub fn folders(&self, path: &str, hidden: bool) -> Result<FolderListing> {
+        if !path.starts_with('/') {
+            return Err(Error::Refused(format!(
+                "the path must be absolute, starting with /: {path:?}"
+            )));
+        }
+        let mut at = PathBuf::new();
+        for part in Path::new(path).components() {
+            match part {
+                std::path::Component::ParentDir => {
+                    return Err(Error::Refused(format!(
+                        "the path can't step up with ..: {path}"
+                    )));
+                }
+                std::path::Component::CurDir => {}
+                part => at.push(part),
+            }
+        }
+        let shown = at.display().to_string();
+        match std::fs::metadata(&at) {
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => return Err(Error::Refused(format!("{shown} is not a folder"))),
+            Err(_) => return Err(Error::Refused(format!("there is no folder at {shown}"))),
+        }
+        let entries = std::fs::read_dir(&at)
+            .map_err(|e| Error::Refused(format!("the service can't read {shown}: {e}")))?;
+        // Membership follows links, as the Host would (see `beneath`): each Root and folder is compared canonical.
+        let roots: Vec<(PathBuf, String)> = self
+            .roots()
+            .iter()
+            .filter_map(|r| Some((r.path.canonicalize().ok()?, r.name.clone())))
+            .collect();
+        let root_of = |folder: &Path| {
+            let folder = folder.canonicalize().ok()?;
+            roots
+                .iter()
+                .filter(|(path, _)| folder.starts_with(path))
+                .max_by_key(|(path, _)| path.components().count())
+                .map(|(_, name)| name.clone())
+        };
+        let mut out = FolderListing {
+            path: shown,
+            parent: at.parent().map(|p| p.display().to_string()),
+            ..FolderListing::default()
+        };
+        for (read, entry) in entries.enumerate() {
+            if read == READ_PER_FOLDER {
+                out.more = true;
+                break;
+            }
+            let Ok(entry) = entry else { continue };
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !hidden && (name.starts_with('.') || name == "lost+found") {
+                continue;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let folder = entry.path();
+            let link = kind.is_symlink();
+            if !(kind.is_dir() || link && std::fs::metadata(&folder).is_ok_and(|m| m.is_dir())) {
+                continue;
+            }
+            let Some(text) = folder.to_str() else {
+                continue;
+            };
+            out.folders.push(Folder {
+                writable: rustix::fs::access(&folder, rustix::fs::Access::WRITE_OK).is_ok(),
+                root: root_of(&folder),
+                path: text.to_owned(),
+                name,
+                link,
+            });
+        }
+        out.folders.sort_by(|a, b| {
+            (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name))
+        });
+        if out.folders.len() > FOLDERS_LISTED {
+            out.folders.truncate(FOLDERS_LISTED);
+            out.more = true;
+        }
+        Ok(out)
     }
 
     /// Every registered Root, by name, as the API shows it.

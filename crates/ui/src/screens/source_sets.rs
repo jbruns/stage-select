@@ -16,6 +16,7 @@ use crate::app::{Loading, navigator};
 use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
+use crate::parts::folder_picker::{FolderPicker, Within};
 use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Svg;
@@ -755,6 +756,14 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
             draft.set(Draft::every());
         }
     });
+    let within = Signal::derive(move || {
+        roots
+            .get()
+            .and_then(Result::ok)?
+            .into_iter()
+            .find(|r| r.name == root.get())
+            .map(|r| Within::new(r.path, r.name))
+    });
     let preview = move || {
         let root_path = roots
             .get()
@@ -891,16 +900,26 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                         on:input=move |ev| template.set(Some(event_target_value(&ev)))
                     />
                 </label>
-                <label>
-                    "Path in the root"
-                    <input
-                        type="text"
-                        class="data"
-                        placeholder="Type a path"
-                        prop:value=path
-                        on:input=move |ev| typed.set(Some(event_target_value(&ev)))
-                    />
-                </label>
+                <div class="path-group">
+                    <label for="set-path">"Path in the root"</label>
+                    <div class="path-field">
+                        <input
+                            id="set-path"
+                            type="text"
+                            class="data"
+                            placeholder="Type a path"
+                            prop:value=path
+                            on:input=move |ev| typed.set(Some(event_target_value(&ev)))
+                        />
+                        <FolderPicker
+                            field="the source set's path"
+                            value=path
+                            within=within
+                            disabled=Signal::derive(move || within.with(Option::is_none))
+                            on_choose=move |chosen: String| typed.set(Some(chosen))
+                        />
+                    </div>
+                </div>
                 {move || match refused.get() {
                     Some(why) => view! { <p class="note">{why}</p> }.into_any(),
                     None => view! { <CoverageEditor draft order /> }.into_any(),
