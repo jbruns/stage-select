@@ -1061,6 +1061,29 @@ pub(crate) fn let_change_set(
     Ok(voided)
 }
 
+/// Refuses moving Root `name` to `path` where a Source Set in it would come to nest with one in another Root.
+fn refuse_nesting_moved(tx: &Transaction, roots: &Roots, name: &str, path: &Path) -> Result<()> {
+    let sets: Vec<(String, String)> = {
+        let mut stmt = tx.prepare(
+            "SELECT name, path FROM source_sets WHERE root = ?1 AND unregistered_at IS NULL ORDER BY name",
+        )?;
+        stmt.query_map([name], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (set, rel) in sets {
+        let Some(would_be) = crate::beneath::resolved(path, &rel) else {
+            continue;
+        };
+        if let Some(how) = crate::sets::nesting(tx, roots, &would_be, Some(name))? {
+            return refused(format!(
+                "Root {name} can't move to {}: there, source set {set} {how}, and source sets never nest.",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// A refusal naming what stands in the way.
 fn conflict<T>(name: &str, change: &str, holds: &[String]) -> Result<T> {
     Err(Error::Conflict(format!(
@@ -1361,6 +1384,9 @@ impl Store {
                         sets.join(", ")
                     ));
                 }
+            }
+            if path_changed {
+                refuse_nesting_moved(tx, &self.roots(), name, &root.path)?;
             }
             let mut voided = Vec::new();
             if path_changed || writability_changed {

@@ -1,6 +1,6 @@
 //! The Source Set registry: each Source Set is a Root plus a relative path, bound to a DAT.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
@@ -96,6 +96,55 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             repairs_may_change: row.get(20)?,
         },
     })
+}
+
+/// How the folder `would_be`, canonical, nests with a registered Source Set's, but for those in the Root
+/// `except_root`: "is inside source set X's folder (…)", "holds source set X's folder (…)" or "is source set X's
+/// folder". Source Sets never nest: an Audit, a repair and Single Copy each walk their Source Set's whole folder, so
+/// one inside another would be read and changed as part of it.
+pub(crate) fn nesting(
+    c: &Connection,
+    roots: &crate::roots::Roots,
+    would_be: &Path,
+    except_root: Option<&str>,
+) -> Result<Option<String>> {
+    let mut stmt = c.prepare(
+        "SELECT name, root, path FROM source_sets WHERE unregistered_at IS NULL ORDER BY name",
+    )?;
+    let sets = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (name, root, path) in sets {
+        if except_root == Some(root.as_str()) {
+            continue;
+        }
+        let Some(other) = roots
+            .root(&root)
+            .and_then(|r| crate::beneath::resolved(&r.path, &path))
+        else {
+            continue;
+        };
+        let how = if would_be == other {
+            "is"
+        } else if would_be.starts_with(&other) {
+            "is inside"
+        } else if other.starts_with(would_be) {
+            "holds"
+        } else {
+            continue;
+        };
+        return Ok(Some(format!(
+            "{how} source set {name}'s folder ({})",
+            other.display()
+        )));
+    }
+    Ok(None)
 }
 
 pub(super) fn set_by_name(c: &Connection, name: &str) -> Result<SourceSetRow> {
@@ -223,6 +272,12 @@ impl Store {
                 return Err(Error::Refused(format!(
                     "{rel} in root {root} would overlap {what} at {}",
                     other.display()
+                )));
+            }
+            if let Some(how) = nesting(tx, roots, &canonical, None)? {
+                return Err(Error::Refused(format!(
+                    "{rel} in root {root} {how}, and source sets never nest; register a folder that neither holds \
+                     another source set nor sits inside one"
                 )));
             }
             let dat = crate::dats::canonical_dat(tx, dat)?;

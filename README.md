@@ -556,6 +556,8 @@ What you can't change, and what a change does:
   first. Unregistering a root touches no file.
 - You can't change its kind while anything holds it from being unregistered, nor make a root holding source sets
   writable.
+- You can't change its path to where a source set in it would sit inside, or hold, a source set in another root:
+  source sets never nest.
 - You can't change its path, or whether it's writable, while a job runs on it. A plan counts wherever it reads or
   writes: a repair writes to its source set, to each play library folder holding placed games it changes, and to
   each ingest folder it fills a game from.
@@ -866,7 +868,9 @@ stage-select set history <source set>
 `set add` registers a folder in a root, such as `sets "No-Intro/Atari - 2600"`, as a source set bound to an imported
 DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it registers the path the path template
 proposes for the DAT: `--template`, else your source set path template, by default `{provider}/{dat}` (see "Path
-templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `--coverage-preset` and
+templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. Source sets never nest:
+a folder inside another source set's folder, or holding one, is refused, naming that source set, in any root. Moving a
+root is refused for the same reason when a source set in it would come to sit inside, or hold, one in another root. `--coverage-preset` and
 `--coverage-region` give it a coverage, the regions of its DAT's games you keep (see "Coverage"); repeat either and
 combine them. Leave both out to cover every game. By default Stage Select may change the source set: repairs may fix
 its files, and single copy may place its games into your play library folders; `--read-only` registers it read-only

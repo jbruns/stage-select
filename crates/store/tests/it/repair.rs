@@ -5350,6 +5350,60 @@ fn a_source_set_registered_read_only_is_refused_a_repair() {
 }
 
 #[test]
+fn a_folder_listed_above_a_source_set_doesnt_let_stage_select_change_it() {
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("roots/ro/Shelf/Delta")).unwrap();
+    write_file(
+        &env.tmp
+            .path()
+            .join("roots/ro/Shelf/Delta/Pong (Anthology).a26"),
+        b"pong",
+    );
+    // As a hand-written root config might list the folder holding it.
+    env.store
+        .edit_root(
+            "ro",
+            &RootSpec::new("ro", env.tmp.path().join("roots/ro")).writing(&["Shelf"]),
+            "Operator",
+        )
+        .unwrap();
+    let set = env
+        .store
+        .register_source_set(
+            "ro",
+            "Shelf/Delta",
+            "No-Intro/Test - System",
+            None,
+            None,
+            "Operator",
+        )
+        .unwrap();
+    env.store
+        .audit_source_set("Delta", None, AuditEvidence::Full)
+        .unwrap();
+    assert!(!set.repairs_may_change);
+    match env.store.plan_repair("Delta", &PlanRepair::default()) {
+        Err(Error::Refused(why)) => {
+            assert!(why.contains("may not change source set Delta"), "{why}")
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let changed = env
+        .store
+        .set_repairs_may_change("Delta", true, "Operator")
+        .unwrap();
+    assert!(changed.source_set.repairs_may_change);
+    assert_eq!(
+        env.store.roots().root("ro").unwrap().writable_paths,
+        ["Shelf", "Shelf/Delta"]
+    );
+    env.store
+        .plan_repair("Delta", &PlanRepair::default())
+        .unwrap();
+}
+
+#[test]
 fn a_registration_refused_leaves_its_roots_writable_paths_as_they_were() {
     let env = Env::new();
     let refused = env.store.register_source_set(

@@ -1550,6 +1550,82 @@ fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_
     }
 }
 
+/// Registers the read-only Root `nest`, holding `Outer/Inner`, and the source set at `first` in it; returns what
+/// registering the one at `second` then gives.
+fn nest(first: &str, second: &str) -> Result<stage_select_api::SourceSetRecord, Error> {
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("nest/Outer/Inner")).unwrap();
+    crate::register(
+        &env.store,
+        &[RootSpec::new("nest", env.tmp.path().join("nest"))],
+    );
+    env.store.add_source_set("nest", first, SYSTEM).unwrap();
+    let second = env.store.add_source_set("nest", second, SYSTEM);
+    assert_eq!(
+        env.store
+            .source_sets()
+            .unwrap()
+            .iter()
+            .filter(|s| s.root == "nest")
+            .count(),
+        1,
+        "nothing more is registered"
+    );
+    second
+}
+
+#[test]
+fn a_source_set_is_refused_inside_another_source_set() {
+    let refused = nest("Outer", "Outer/Inner");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("is inside source set Outer's folder") && why.contains("never nest")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_source_set_is_refused_where_it_would_hold_another_source_set() {
+    let refused = nest("Outer/Inner", "Outer");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("holds source set Inner's folder") && why.contains("never nest")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_root_is_refused_a_move_that_would_nest_its_source_sets_in_another_roots() {
+    let env = Env::new();
+    for dir in ["a/Outer", "b/Inner"] {
+        std::fs::create_dir_all(env.tmp.path().join(dir)).unwrap();
+    }
+    crate::register(
+        &env.store,
+        &[
+            RootSpec::new("a", env.tmp.path().join("a")),
+            RootSpec::new("b", env.tmp.path().join("b")),
+        ],
+    );
+    env.store.add_source_set("a", "Outer", SYSTEM).unwrap();
+    env.store.add_source_set("b", "Inner", SYSTEM).unwrap();
+
+    let refused = env.store.edit_root(
+        "b",
+        &RootSpec::new("b", env.tmp.path().join("a/Outer")),
+        "Operator",
+    );
+    assert!(
+        matches!(&refused, Err(Error::Refused(why))
+            if why.contains("source set Inner is inside source set Outer's folder")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        env.store.roots().root("b").unwrap().path,
+        env.tmp.path().join("b")
+    );
+}
+
 #[test]
 fn an_ingest_folder_is_refused_where_it_would_overlap_a_source_set() {
     let env = Env::new();

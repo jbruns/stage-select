@@ -68,7 +68,8 @@ _Avoid_: BIOS set (when meaning any Dependency), required set
 A preserved collection, kept with its files, variants and provenance, that can be audited against its DAT and is
 recorded with the DAT Revision of its latest Audit; the source from which a Play Library is built. It changes only
 through an approved Repair, or a Build that places or returns its Games under Single Copy, and only while its Root
-may write it and its marker says it is this store's Source Set.
+may write it and its marker says it is this store's Source Set. Source Sets never nest: no Source Set's folder lies
+inside another's.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
 **Coverage**:
