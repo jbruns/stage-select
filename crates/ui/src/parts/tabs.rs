@@ -60,6 +60,24 @@ pub fn tab_href<'a>(
     format!("{path}{}", query_string(&pairs))
 }
 
+/// As [`tab_href`], for a page's second tab set, kept in the query string's `key`: the page's other state, its first
+/// tab set's included, is kept, and only the scoped lists' own keys go with the tab.
+pub fn keyed_tab_href<'a>(
+    path: &str,
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    key: &str,
+    tab: Option<&str>,
+) -> String {
+    let kept = pairs.into_iter().filter(|(k, _)| {
+        *k != key
+            && !k
+                .rsplit_once('-')
+                .is_some_and(|(scope, k)| !scope.is_empty() && LIST_KEYS.contains(&k))
+    });
+    let pairs = edited(kept, &[(key, tab.map(str::to_string))]);
+    format!("{path}{}", query_string(&pairs))
+}
+
 /// A link from elsewhere to the tab `tab` of the page at `path` (its segments already encoded), showing what `state` names there, such as the plan
 /// a repair carries out: `[("plan", "9")]`. `None` is the page's first tab.
 pub fn tab_link(path: &str, tab: Option<&str>, state: &[(&str, &str)]) -> String {
@@ -187,33 +205,64 @@ pub fn RouteTabs(label: &'static str, tabs: Vec<(&'static str, &'static str)>) -
 pub struct UrlTab {
     query: Memo<leptos_router::params::ParamsMap>,
     path: Memo<String>,
+    key: &'static str,
 }
 
 /// The current page's tab, from the URL.
 pub fn use_tab() -> UrlTab {
+    use_tab_keyed("tab")
+}
+
+/// The current page's tab in its second tab set, kept in the query string's `key`.
+pub fn use_tab_keyed(key: &'static str) -> UrlTab {
     UrlTab {
         query: use_query_map(),
         path: use_location().pathname,
+        key,
     }
 }
 
 impl UrlTab {
     /// The open tab's name; `None` for the page's first tab.
     pub fn current(self) -> Option<String> {
-        self.query.read().get("tab").filter(|t| !t.is_empty())
+        self.query.read().get(self.key).filter(|t| !t.is_empty())
     }
 
     /// The link to the tab `tab`, as [`tab_href`] makes it.
     pub fn href(self, tab: Option<&str>) -> String {
         let path = self.path.get();
-        self.query
-            .with(|q| tab_href(&path, q.latest_values().map(|(k, v)| (k.as_ref(), v)), tab))
+        self.query.with(|q| {
+            let pairs = q.latest_values().map(|(k, v)| (k.as_ref(), v));
+            if self.key == "tab" {
+                tab_href(&path, pairs, tab)
+            } else {
+                keyed_tab_href(&path, pairs, self.key, tab)
+            }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_tab_set_keeps_the_first_tab_set_and_leaves_its_lists_state_behind() {
+        let pairs = [
+            ("tab", "Atari - 2600"),
+            ("uses", "versions"),
+            ("versions-q", "Operator"),
+            ("q", "kept"),
+        ];
+        assert_eq!(
+            keyed_tab_href("/profiles/Mine", pairs, "uses", Some("previews")),
+            "/profiles/Mine?tab=Atari%20-%202600&q=kept&uses=previews"
+        );
+        assert_eq!(
+            keyed_tab_href("/profiles/Mine", pairs, "uses", None),
+            "/profiles/Mine?tab=Atari%20-%202600&q=kept"
+        );
+    }
 
     #[test]
     fn a_tab_link_keeps_the_page_state_and_leaves_the_open_tab_state_behind() {

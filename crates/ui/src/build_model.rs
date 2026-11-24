@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use stage_select_api::SelectionRecord;
+use stage_select_api::build::BuildSummary;
 use stage_select_api::build::{
     Blocker, BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry,
     DriftKind, FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
@@ -12,8 +13,9 @@ use stage_select_api::build::{
 };
 
 use crate::activity_model::bytes;
-use crate::parts::plan_model::{self, Does, PlanBlocker};
+use crate::parts::plan_model::{self, Does, PlanBlocker, kind_slug};
 use crate::parts::status::{BuildKind, ItemOutcome, Status};
+use crate::parts::tabs::tab_link;
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
     match kind {
@@ -699,6 +701,46 @@ pub fn publishing(detail: &BuildDetail) -> u64 {
         .count() as u64
 }
 
+/// Whether a build earned the READY mark: it succeeded and every file it set out to write is in place, none failed,
+/// pending, uncertain or still publishing. A build job succeeds even when a file's re-hash fails, so the job's state
+/// alone can't say.
+pub fn ready(detail: &BuildDetail) -> bool {
+    let b = &detail.build;
+    b.state == BuildState::Succeeded
+        && b.failed == 0
+        && b.pending == 0
+        && b.uncertain == 0
+        && publishing(detail) == 0
+}
+
+/// A count of a build's files that need a look, and where its build page lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trouble {
+    pub state: ItemState,
+    pub text: String,
+    pub href: String,
+}
+
+/// The build's failed and uncertain files, each linking to its build page filtered to them; none when it has none.
+pub fn troubles(b: &BuildSummary) -> Vec<Trouble> {
+    [
+        (ItemState::Failed, b.failed, "failed"),
+        (ItemState::Uncertain, b.uncertain, "uncertain"),
+    ]
+    .into_iter()
+    .filter(|(_, n, _)| *n > 0)
+    .map(|(state, n, word)| Trouble {
+        state,
+        text: format!("{n} {} {word}", if n == 1 { "file" } else { "files" }),
+        href: tab_link(
+            &format!("/builds/{}", b.id),
+            None,
+            &[("state", &kind_slug(state))],
+        ),
+    })
+    .collect()
+}
+
 /// The plan's items by kind, the ones a build writes first, leaving out kinds with none.
 pub fn by_kind(items: &[PlanItem]) -> Vec<(ItemKind, Vec<&PlanItem>)> {
     ItemKind::ALL
@@ -780,6 +822,87 @@ mod tests {
     use stage_select_api::ProfileVersionRef;
     use stage_select_api::build::{BuildSummary, Cleanup, KeepAside};
     use stage_select_api::selection::{SelectionPins, SelectionSummary};
+
+    fn built(state: BuildState, applied: u64, failed: u64, items: &[ItemState]) -> BuildDetail {
+        BuildDetail {
+            build: BuildSummary {
+                id: 4,
+                folder: 7,
+                plan: 9,
+                job: 12,
+                state,
+                generation: 1,
+                selection: 2,
+                audit: 3,
+                dat_revision: "abc".into(),
+                started_at: "t".into(),
+                finished_at: Some("t".into()),
+                applied,
+                failed,
+                pending: 0,
+                uncertain: 0,
+                planned: PlanSummary::default(),
+            },
+            items: items
+                .iter()
+                .enumerate()
+                .map(|(n, &state)| BuildItem {
+                    target: format!("{n}.zip"),
+                    game: format!("{n}"),
+                    kind: ItemKind::Copy,
+                    state,
+                    error: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// The store's `a_source_that_fails_its_rehash_fails_only_its_item`: the job succeeds, yet one file failed.
+    #[test]
+    fn a_build_is_ready_only_when_every_file_it_set_out_to_write_is_in_place() {
+        use ItemState::*;
+        let clean = built(BuildState::Succeeded, 5, 0, &[Applied; 5]);
+        assert!(ready(&clean));
+        let rehash = built(
+            BuildState::Succeeded,
+            4,
+            1,
+            &[Applied, Failed, Applied, Applied, Applied],
+        );
+        assert!(!ready(&rehash), "a failed file keeps it from ready");
+        let mut pending = clean.clone();
+        pending.build.pending = 1;
+        assert!(!ready(&pending));
+        let mut uncertain = clean.clone();
+        uncertain.build.uncertain = 1;
+        assert!(!ready(&uncertain));
+        let publishing = built(BuildState::Succeeded, 4, 0, &[Applied, Publishing]);
+        assert!(!ready(&publishing));
+        assert!(!ready(&built(BuildState::Failed, 5, 0, &[Applied; 5])));
+    }
+
+    #[test]
+    fn a_last_build_names_its_failed_and_uncertain_files_and_links_to_them() {
+        let mut detail = built(BuildState::Failed, 2, 1, &[]);
+        detail.build.uncertain = 2;
+        let lines = troubles(&detail.build);
+        assert_eq!(
+            lines,
+            vec![
+                Trouble {
+                    state: ItemState::Failed,
+                    text: "1 file failed".into(),
+                    href: "/builds/4?state=failed".into(),
+                },
+                Trouble {
+                    state: ItemState::Uncertain,
+                    text: "2 files uncertain".into(),
+                    href: "/builds/4?state=uncertain".into(),
+                },
+            ]
+        );
+        assert!(troubles(&built(BuildState::Succeeded, 5, 0, &[]).build).is_empty());
+    }
 
     #[test]
     fn a_build_leads_with_its_counts_and_its_failures() {

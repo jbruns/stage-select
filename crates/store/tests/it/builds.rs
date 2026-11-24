@@ -6369,6 +6369,46 @@ fn a_selection_names_the_library_folders_that_plan_from_it_and_lists_by_profile(
 }
 
 #[test]
+fn a_profile_names_its_library_folders_and_the_version_each_was_built_with() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let built = env.folder("atari2600");
+    let unbuilt = env.folder("spare");
+    env.build(&env.plan(&built, id));
+    let uses = || {
+        env.store
+            .profile(PROFILE)
+            .unwrap()
+            .library_folders
+            .into_iter()
+            .map(|f| (f.id, f.path, f.built_version))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        uses(),
+        [
+            (built.id, "atari2600".to_string(), Some(1)),
+            (unbuilt.id, "spare".to_string(), None),
+        ]
+    );
+
+    let changed = SelectionProfile {
+        region_order: vec!["USA".into()],
+        ..Default::default()
+    };
+    env.store
+        .save_profile(PROFILE, &changed, Some(1), "Operator", &[], WORKERS)
+        .unwrap();
+    assert_eq!(
+        uses()[0].2,
+        Some(1),
+        "built with version 1, now behind version 2"
+    );
+    assert_eq!(env.store.profiles().unwrap()[0].library_folders.len(), 2);
+}
+
+#[test]
 fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_a_plan_is_open_until_built()
  {
     use stage_select_api::build::Stale;

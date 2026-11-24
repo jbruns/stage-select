@@ -3108,6 +3108,40 @@ mod selections {
         );
     }
 
+    /// A profile names the library folders bound to it, each with the version its current build used.
+    #[test]
+    fn a_profile_lists_the_library_folders_bound_to_it() {
+        let env = Env::new();
+        let play = env.tmp.path().join("roots/play");
+        env.register(&[RootSpec::new("play", &play).writable()]);
+        let service = stage_select_server::spawn(env.settings()).unwrap();
+        let client = Client::new(&service);
+        client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
+        client.add_set();
+        save(&client, json!({}));
+        assert!(
+            client
+                .json::<Value>("/profiles/Everyday")
+                .get("library_folders")
+                .is_none(),
+            "no folder uses it yet"
+        );
+        let (status, folder) = send(
+            client.post("/libraries"),
+            json!({"root": "play", "path": "gba", "source_set": SET, "profile": "Everyday"}),
+        );
+        assert_eq!(status, 201, "{folder}");
+
+        let profile: Value = client.json("/profiles/Everyday");
+        assert_eq!(
+            profile["library_folders"],
+            json!([{"id": folder["id"], "root": "play", "path": "gba"}]),
+            "never built, so no built_version"
+        );
+        let listed: Vec<Value> = client.json("/profiles");
+        assert_eq!(listed[0]["library_folders"], profile["library_folders"]);
+    }
+
     /// A Service whose RomM, a stub whose scan task answers `status`, maps the library folder play/gba, and the
     /// succeeded build job that changed it, whose scan is then followed at `timing`; and its events, from before the
     /// build.

@@ -591,6 +591,21 @@ pub struct ProfileRecord {
     /// When it was Retired: hidden from new choices, its versions kept for the Selections made with them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retired_at: Option<String>,
+    /// The registered Library Folders bound to it, by root and path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub library_folders: Vec<ProfileFolder>,
+}
+
+/// A registered Library Folder bound to a Selection Profile, and the version it was last built with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileFolder {
+    pub id: i64,
+    pub root: String,
+    pub path: String,
+    /// The version of this Profile its current Build's Selection was made with; none before its first Build, or
+    /// when that Build used another Profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_version: Option<u32>,
 }
 
 /// One immutable version of a Selection Profile.

@@ -293,12 +293,14 @@ button:hover,
   background: var(--color-hover);
 }
 
+.button.primary,
 button.primary {
   background: var(--color-action-fill);
   border-color: var(--color-action-fill);
   color: var(--color-on-action);
 }
 
+.button.primary:hover,
 button.primary:hover {
   background: var(--color-action-fill-hover);
   border-color: var(--color-action-fill-hover);
@@ -1523,6 +1525,22 @@ details.kept > summary {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+/* A page head with no trail above it */
+.page-head.top {
+  margin-top: var(--space-6);
+}
+
+.page-head + .kind-counts {
+  margin-top: var(--space-3);
+}
+
+/* Count strips side by side, each filtering the list below */
+.count-strips {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-6);
 }
 
 .page-links {

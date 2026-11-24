@@ -19,17 +19,18 @@ use crate::app::Loading;
 use crate::arcade_model::{self, Needs};
 use crate::model::{game_status_label, when};
 use crate::parts::help::Help;
-use crate::parts::icon::{Glyph, Svg};
+use crate::parts::icon::Glyph;
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, RowAction, Width};
 use crate::parts::message::{Live, Message, MessageKind, Problem};
 use crate::parts::outcome::JobOutcome;
-use crate::parts::overlay::Tooltip;
+use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::status::{
     AvailabilityStatus, GameFlag, GroupStatus, SelectionFlag, Status, StatusBadge, StatusCount,
     StatusIcon,
 };
+use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::parts::url_state::use_list_query;
 use crate::placement_model::FlagsNow;
 use crate::screens::PlanABuild;
@@ -39,7 +40,7 @@ use crate::selection_model::{
     AVAILABILITY_KEY, FLAG_KEY, FlagFilter, GroupAvailability, OUTCOME_KEY, ReleaseColumn,
     ReleaseFilter, SelectionIndex, UNKNOWN, checked, confirm, confirm_unresolved, flag_statuses,
     group_status, includable, include_and_check, kept_need_review, left_out_text, listed,
-    rule_text, staged_changes, toggle, unresolved_explanation,
+    rule_text, selection_status, staged_changes, toggle, unresolved_explanation,
 };
 
 /// A release in a Selection's list, by its index.
@@ -423,14 +424,30 @@ pub fn ChangesTable(id: &'static str, changes: Vec<ReleaseChange>) -> impl IntoV
     }
 }
 
-/// Makes a preview, a Selection a Profile's Selection from a Source Set that no Library Folder uses yet. Opened from a
-/// Profile (`?profile=`, pick a Source Set) or from a Source Set (`?source_set=`, pick a Profile).
+/// Makes a preview, a Profile's Selection from a Source Set that no Library Folder uses yet, on a page of its own.
+/// Opened from a Source Set (`?source_set=`, pick a Profile) or a Profile (`?profile=`, pick a Source Set).
 #[component]
 pub fn NewSelection() -> impl IntoView {
     let query = use_query_map();
     let given = |key: &'static str| query.read_untracked().get(key).filter(|v| !v.is_empty());
-    let source_set = RwSignal::new(given("source_set").unwrap_or_default());
-    let profile = RwSignal::new(given("profile").unwrap_or_default());
+    let back = match (given("profile"), given("source_set")) {
+        (Some(p), _) => Some((format!("/profiles/{}", api::segment(&p)), p)),
+        (None, Some(s)) => Some((format!("/source-sets/{}", api::segment(&s)), s)),
+        (None, None) => None,
+    };
+    view! {
+        <h1>"Preview a selection"</h1>
+        {back.map(|(href, name)| view! { <p><A href=href>{format!("Back to {name}")}</A></p> })}
+        <SelectionForm profile=given("profile") source_set=given("source_set") />
+    }
+}
+
+/// The form that makes a preview, starting at `profile` and `source_set` when given, and the outcome of its job,
+/// which links to the selection once made. In a drawer, or on its page.
+#[component]
+pub fn SelectionForm(profile: Option<String>, source_set: Option<String>) -> impl IntoView {
+    let source_set = RwSignal::new(source_set.unwrap_or_default());
+    let profile = RwSignal::new(profile.unwrap_or_default());
     let sets = LocalResource::new(|| api::get::<Vec<SourceSetRecord>>("/source-sets"));
     let profiles = LocalResource::new(|| api::get::<Vec<ProfileRecord>>("/profiles"));
     let outcome = RwSignal::new(None::<Result<Job, String>>);
@@ -450,18 +467,8 @@ pub fn NewSelection() -> impl IntoView {
         });
     };
     let ready = move || !source_set.get().is_empty() && !profile.get().is_empty() && !busy.get();
-    let back = match (given("profile"), given("source_set")) {
-        (Some(p), _) => Some((format!("/profiles/{}", api::segment(&p)), p)),
-        (None, Some(s)) => Some((format!("/source-sets/{}", api::segment(&s)), s)),
-        (None, None) => None,
-    };
 
     view! {
-        <h1>"Preview a selection"</h1>
-        <p class="lede">
-            "A preview is a selection that shows what a selection profile would keep from a source set, without changing any library folder. It's listed on its profile until a library folder uses it."
-        </p>
-        {back.map(|(href, name)| view! { <p><A href=href>{format!("Back to {name}")}</A></p> })}
         <form class="form" on:submit=submit>
             <label>
                 "Source set"
@@ -530,6 +537,12 @@ pub fn NewSelection() -> impl IntoView {
                     Err(message) => view! { <Problem message /> }.into_any(),
                 })
         }}
+        <Help summary="A preview changes no library folder">
+            <p>
+                "A preview is a selection that shows what a selection profile would keep from a source set, \
+                without changing any library folder. It's listed on its profile until a library folder uses it."
+            </p>
+        </Help>
     }
 }
 
@@ -587,8 +600,6 @@ struct GroupItem {
     /// The Games kept.
     kept: Vec<String>,
     releases: usize,
-    /// The rule that decided the first Game kept, or what left the group out.
-    rule: String,
     availability: GroupAvailability,
     /// Whether a build flagged a Game it keeps as needing review.
     needs_review: bool,
@@ -596,19 +607,11 @@ struct GroupItem {
 
 impl GroupItem {
     fn new(group: &SelectionGroup, availability: &Availability) -> Self {
-        let first = group.kept.first();
-        let rule = match (first, group.left_out.first()) {
-            (Some(w), _) => rule_text(&w.rule),
-            (None, Some(e)) if e.rule.is_coverage() => rule_text(&e.rule),
-            (None, Some(e)) => e.reason.clone(),
-            (None, None) => String::new(),
-        };
         GroupItem {
             name: group.group.clone(),
             status: group_status(group),
             kept: group.kept.iter().map(|w| w.title.clone()).collect(),
             releases: group.kept.len() + group.clones.len() + group.left_out.len(),
-            rule,
             availability: GroupAvailability::of(group, &availability.games, &availability.claimed),
             needs_review: false,
         }
@@ -620,7 +623,6 @@ enum GroupCol {
     Status,
     Group,
     Kept,
-    Rule,
     Releases,
     Have,
 }
@@ -631,7 +633,6 @@ impl ListRow for GroupItem {
         GroupCol::Status,
         GroupCol::Group,
         GroupCol::Kept,
-        GroupCol::Rule,
         GroupCol::Releases,
         GroupCol::Have,
     ];
@@ -660,15 +661,6 @@ impl ListRow for GroupItem {
             )
             .sortable()
             .hint("The games the selection keeps"),
-            GroupCol::Rule => Column::new(
-                "rule",
-                "Rule",
-                Width::Flex {
-                    min: 10.0,
-                    share: 2,
-                },
-            )
-            .hint("The rule that chose the kept game, or what left the game group out"),
             GroupCol::Releases => Column::new("releases", "Versions", Width::Fixed(6.0))
                 .sortable()
                 .numeric()
@@ -688,7 +680,7 @@ impl ListRow for GroupItem {
     }
 
     fn search(&self) -> String {
-        format!("{} {} {}", self.name, self.kept.join(" "), self.rule)
+        format!("{} {}", self.name, self.kept.join(" "))
     }
 
     fn cell(&self, col: GroupCol) -> AnyView {
@@ -705,7 +697,6 @@ impl ListRow for GroupItem {
                 };
                 view! { <Clip text=kept /> }.into_any()
             }
-            GroupCol::Rule => view! { <Clip text=self.rule.clone() /> }.into_any(),
             GroupCol::Releases => self.releases.to_string().into_any(),
             GroupCol::Have => {
                 let flag = self.needs_review.then(
@@ -721,7 +712,6 @@ impl ListRow for GroupItem {
             GroupCol::Status => self.status.rank().cmp(&other.status.rank()),
             GroupCol::Group => self.name.cmp(&other.name),
             GroupCol::Kept => self.kept.cmp(&other.kept),
-            GroupCol::Rule => self.rule.cmp(&other.rule),
             GroupCol::Releases => self.releases.cmp(&other.releases),
             GroupCol::Have => self.availability.label().cmp(&other.availability.label()),
         }
@@ -795,20 +785,19 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
     let set_href = format!("/source-sets/{}", api::segment(&r.source_set));
     let profile_href = format!("/profiles/{}", api::segment(&r.profile.name));
     let preview = r.library_folders.is_empty();
-    let promote_href = format!("/libraries/new?selection={id}");
 
     let trail = vec![
         ("/source-sets".to_string(), "Source sets".to_string()),
-        (set_href.clone(), r.source_set.clone()),
+        (set_href, r.source_set.clone()),
     ];
-    view! {
-        <Crumbs trail here=format!("Selection #{id}") />
-        <h1>{format!("Selection #{id}")}</h1>
+    let status = selection_status(&summary);
+    let keeps = format!(
+        "Keeps {} {}",
+        summary.kept,
+        if summary.kept == 1 { "game" } else { "games" }
+    );
+    let facts = view! {
         <dl class="facts">
-            <dt>"Source set"</dt>
-            <dd>
-                <A href=set_href>{r.source_set.clone()}</A>
-            </dd>
             <dt>"DAT revision"</dt>
             <dd>
                 <super::dats::RevisionName
@@ -891,15 +880,21 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             </dd>
         </dl>
         {r.pins.arcade.as_ref().map(arcade_model::notices).map(|notices| {
-            view! {
-                <Message kind=MessageKind::NOTICE live=Live::Off>
-                    {notices
-                        .into_iter()
-                        .map(|notice| view! { <p>{notice}</p> })
-                        .collect_view()}
-                </Message>
-            }
+            notices.into_iter().map(|notice| view! { <p>{notice}</p> }).collect_view()
         })}
+    };
+    view! {
+        <Crumbs trail here=format!("Selection #{id}") />
+        <header class="page-head">
+            <div class="page-title">
+                <h1>{format!("Selection #{id}")}</h1>
+                <StatusBadge status />
+                <span class="note small">{keeps}</span>
+            </div>
+            <div class="page-actions">
+                {(!pruned).then(|| view! { <PlanABuild selection=record.get_value() /> })}
+            </div>
+        </header>
         {(r.latest_profile_version > r.profile.version)
             .then(|| {
                 view! {
@@ -915,17 +910,6 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             {format!("Make a selection with version {}", r.latest_profile_version)}
                         </button>
                     </Message>
-                }
-            })}
-        {(!pruned)
-            .then(|| {
-                view! {
-                    <div class="actions">
-                        <A href=promote_href attr:class="button">
-                            "Create library folder from this"
-                        </A>
-                    </div>
-                    <PlanABuild selection=record.get_value() />
                 }
             })}
         {move || {
@@ -945,7 +929,6 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                             <span class="n">{summary.groups}</span>
                             <span class="what">"Game groups"</span>
                         </li>
-                        <StatusCount status=Outcome::Kept>{summary.kept}</StatusCount>
                         // Only the summary's counts are kept, and a group can carry more than one of these flags,
                         // so they show as flags, not as each group's one status.
                         <StatusCount status=SelectionFlag::Unresolved>{summary.unresolved}</StatusCount>
@@ -967,30 +950,70 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
             Some(None) => ().into_any(),
             Some(Some(Err(message))) => view! { <Problem message /> }.into_any(),
             Some(Some(Ok(loaded))) => {
+                let audit = loaded.availability.audit;
                 view! {
-                    <AvailabilityNote audit=loaded.availability.audit reaudit />
-                    <StaleGroups index=loaded.index.clone() staged />
-                    <Groups loaded staged source_set=record.get_value().source_set />
+                    {audit.is_none().then(|| view! { <NotAudited reaudit /> })}
+                    <SelectionTabs loaded staged diff record />
                     <StagedChoices record staged saved=Signal::derive(move || saved.get().and_then(Result::ok)) />
                 }
                     .into_any()
             }
         }}
+        <Help summary="About this selection">
+            {facts}
+            {move || {
+                data.get()
+                    .flatten()
+                    .and_then(Result::ok)
+                    .and_then(|loaded| loaded.availability.audit)
+                    .map(|audit| view! { <AvailabilitySource audit /> })
+            }}
+        </Help>
+    }
+}
 
-        {move || match diff.get() {
-            None | Some(None) => ().into_any(),
-            Some(Some(diff)) => {
-                let count = diff.changes.len();
+/// The selection's game groups, and its changes since the selection before it when there is one, as tabs.
+#[component]
+fn SelectionTabs(
+    loaded: Loaded,
+    staged: RwSignal<Option<SelectionProfile>>,
+    diff: LocalResource<Option<SelectionDiff>>,
+    record: StoredValue<SelectionRecord>,
+) -> impl IntoView {
+    let tab = use_tab();
+    let open = Memo::new(move |_| tab.current());
+    let tabs = Signal::derive(move || {
+        let open = open.get();
+        let mut tabs = vec![Tab::new(tab.href(None), "Game groups", open.is_none())];
+        if let Some(Some(diff)) = diff.get() {
+            tabs.push(Tab::new(
+                tab.href(Some("changes")),
+                format!("Changes ({})", diff.changes.len()),
+                open.as_deref() == Some("changes"),
+            ));
+        }
+        tabs
+    });
+    let loaded = StoredValue::new(loaded);
+    view! {
+        <Tabs label="Selection" tabs />
+        {move || match (open.get().as_deref(), diff.get()) {
+            (Some("changes"), Some(Some(diff))) => {
                 view! {
-                    <section aria-labelledby="changes-title">
-                        <h2 id="changes-title">"Changes"</h2>
-                        <p class="lede">
-                            "Since "
-                            <A href=format!("/selections/{}", diff.from)>{format!("selection #{}", diff.from)}</A>
-                            {format!(": {count} {} changed outcome.", if count == 1 { "game" } else { "games" })}
-                        </p>
-                        {(count > 0).then(|| view! { <ChangesTable id="changes" changes=diff.changes /> })}
-                    </section>
+                    <ChangesTable id="changes" changes=diff.changes />
+                    <p class="note small">
+                        "Since "
+                        <A href=format!("/selections/{}", diff.from)>{format!("selection #{}", diff.from)}</A>
+                        "."
+                    </p>
+                }
+                    .into_any()
+            }
+            _ => {
+                let loaded = loaded.get_value();
+                view! {
+                    <Groups loaded=loaded.clone() staged source_set=record.get_value().source_set />
+                    <StaleGroups index=loaded.index.clone() staged />
                 }
                     .into_any()
             }
@@ -998,28 +1021,30 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
     }
 }
 
-/// Where the availability comes from, or the offer to audit when nothing says.
+/// Where what you have comes from.
 #[component]
-fn AvailabilityNote(audit: Option<i64>, reaudit: ReAudit) -> impl IntoView {
-    match audit {
-        Some(audit) => view! {
-            <p class="lede">
-                "What you have is from "
-                <A href=format!("/audits/{audit}")>{format!("audit #{audit}")}</A>
-                ", the latest audit of this source set against this DAT revision. A kept game that is missing stays missing: to fall back to another version you have, check it."
-            </p>
-        }
-        .into_any(),
-        None => view! {
-            <Message kind=MessageKind::NOTICE live=Live::Off>
-                <p>"Not audited against this revision, so it is unknown which games you have."</p>
-                <button type="button" on:click=move |_| reaudit.start()>
-                    "Audit against this revision"
-                </button>
-            </Message>
-            {reaudit.outcome()}
-        }
-        .into_any(),
+fn AvailabilitySource(audit: i64) -> impl IntoView {
+    view! {
+        <p>
+            "What you have is from "
+            <A href=format!("/audits/{audit}")>{format!("audit #{audit}")}</A>
+            ", the latest audit of this source set against this DAT revision. A kept game that is missing stays \
+            missing: to fall back to another version you have, check it."
+        </p>
+    }
+}
+
+/// The offer to audit when no Audit says what you have.
+#[component]
+fn NotAudited(reaudit: ReAudit) -> impl IntoView {
+    view! {
+        <Message kind=MessageKind::NOTICE live=Live::Off>
+            <p>"Not audited against this revision, so it is unknown which games you have."</p>
+            <button type="button" on:click=move |_| reaudit.start()>
+                "Audit against this revision"
+            </button>
+        </Message>
+        {reaudit.outcome()}
     }
 }
 
@@ -1040,11 +1065,25 @@ fn Groups(
         .iter()
         .map(|&i| GroupItem::new(&index.selection.groups[i], &loaded.availability))
         .collect();
-    let mut counts = vec![0usize; GroupStatus::ALL.len()];
-    for item in &items {
-        counts[item.status.rank()] += 1;
-    }
-    let statuses = present(items.iter().map(|i| i.status));
+    let status_counts: Vec<(GroupStatus, usize)> = present(items.iter().map(|i| i.status))
+        .into_iter()
+        .map(|status| (status, items.iter().filter(|i| i.status == status).count()))
+        .collect();
+    let availability_counts: Vec<(AvailabilityStatus, usize)> =
+        present(items.iter().filter_map(|i| i.availability.kind()))
+            .into_iter()
+            .map(|kind| {
+                let n = items
+                    .iter()
+                    .filter(|i| i.availability.kind() == Some(kind))
+                    .count();
+                (kind, n)
+            })
+            .collect();
+    let unresolved = status_counts
+        .iter()
+        .find(|(s, _)| *s == GroupStatus::Unresolved)
+        .map_or(0, |(_, n)| *n);
     let rows = Signal::derive({
         let index = index.clone();
         move || {
@@ -1068,14 +1107,19 @@ fn Groups(
             looks
         })
     });
-    let only = RwSignal::new(None::<GroupStatus>);
+    let (only, show_only) = use_status_filter::<GroupStatus>("status");
+    let (only_have, show_only_have) = use_status_filter::<AvailabilityStatus>("availability");
     let keep = Signal::derive(move || -> Keep<GroupItem> {
-        only.get()
-            .map(|status| Arc::new(move |i: &GroupItem| i.status == status) as _)
+        let (status, have) = (only.get(), only_have.get());
+        (status.is_some() || have.is_some()).then(|| {
+            Arc::new(move |i: &GroupItem| {
+                status.is_none_or(|s| i.status == s)
+                    && have.is_none_or(|h| i.availability.kind() == Some(h))
+            }) as _
+        })
     });
     let system = StoredValue::new(index.selection.system.clone());
     let groups = StoredValue::new(index.selection.groups.clone());
-    let unresolved = counts[GroupStatus::Unresolved.rank()];
     // How many unresolved groups have no staged choice yet.
     let open = move || {
         staged.with(|p| {
@@ -1139,88 +1183,65 @@ fn Groups(
         }
     });
 
+    let confirm_all = Callback::new(move |status: GroupStatus| -> AnyView {
+        if status != GroupStatus::Unresolved || unresolved == 0 {
+            return ().into_any();
+        }
+        view! {
+            <button type="button" disabled=move || open() == 0 on:click=confirm_all>
+                {move || match open() {
+                    0 => "Every unresolved pick is confirmed".to_string(),
+                    1 => "Apply to all: confirm the 1 unresolved pick".to_string(),
+                    n => format!("Apply to all: confirm the {n} unresolved picks"),
+                }}
+            </button>
+        }
+        .into_any()
+    });
     view! {
-        <section aria-labelledby="groups-title">
-            <h2 id="groups-title">"Game groups"</h2>
-            <p class="lede">
-                {arcade.then_some("Each game group is a family: a parent machine and its clones. ")}
-                "Open a game group to see its versions, the rule that decided each, and to choose the ones you want. Your choices are staged until you save them."
-            </p>
+        <section aria-label="Game groups">
+            <div class="count-strips">
+            <KindCounts
+                counts=Signal::stored(status_counts)
+                active=only
+                on_filter=show_only
+                apply=confirm_all
+                label="Game groups by status"
+            />
+            {(!availability_counts.is_empty()).then(|| view! {
+                <KindCounts
+                    counts=Signal::stored(availability_counts)
+                    active=only_have
+                    on_filter=show_only_have
+                    label="Game groups by what you have"
+                />
+            })}
+            </div>
             <DependencyLine
                 lead="Your selected games need"
                 dependencies=all_dependencies
                 games=loaded.availability.games.clone()
                 claimed=loaded.availability.claimed.clone()
             />
-            <div class="count-strip" role="group" aria-label="Show game groups by status">
-                <ul class="counts">
-                    {statuses
-                        .into_iter()
-                        .map(|status| {
-                            let look = status.look();
-                            let n = counts[status.rank()];
-                            let tone = format!("count status-count {}", look.tone.class());
-                            view! {
-                                <li>
-                                    <Tooltip label=look.hint>
-                                        <button
-                                            type="button"
-                                            class=tone
-                                            aria-pressed=move || (only.get() == Some(status)).to_string()
-                                            on:click=move |_| {
-                                                only.update(|o| {
-                                                    *o = if *o == Some(status) { None } else { Some(status) }
-                                                })
-                                            }
-                                        >
-                                            <span class="n">{n}</span>
-                                            <span class="what">
-                                                <span class=format!("status {}", look.tone.class())>
-                                                    <Svg glyph=look.glyph />
-                                                </span>
-                                                " "
-                                                {look.label}
-                                            </span>
-                                        </button>
-                                    </Tooltip>
-                                </li>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-                {(unresolved > 0)
-                    .then(|| {
-                        view! {
-                            <div class="actions">
-                                <button
-                                    type="button"
-                                    disabled=move || open() == 0
-                                    on:click=confirm_all
-                                >
-                                    {move || match open() {
-                                        0 => "Every unresolved pick is confirmed".to_string(),
-                                        1 => "Apply to all: confirm the 1 unresolved pick".to_string(),
-                                        n => format!("Apply to all: confirm the {n} unresolved picks"),
-                                    }}
-                                </button>
-                                <span class="note small">
-                                    "Confirming keeps the selection's pick, or the games you checked, as your choice."
-                                </span>
-                            </div>
-                        }
-                    })}
-            </div>
             {flags_notice(flags)}
             <List
                 id="groups"
                 label="Game groups"
                 rows
                 empty="This selection has no game groups."
-                placeholder="Filter by game group, game or rule"
+                placeholder="Filter by game group or game"
                 keep
                 detail
                 legend=move || view! { <LegendStrip looks=legend_looks list="groups" /> }
             />
+            <Help summary="About game groups">
+                <p>
+                    {arcade.then_some("Each game group is a family: a parent machine and its clones. ")}
+                    "Open a game group to see its versions, the rule that decided each, and to choose the ones you \
+                    want. Your choices are staged until you save them. Confirming an unresolved pick keeps the \
+                    selection's pick, or the games you checked, as your choice."
+                </p>
+            </Help>
         </section>
     }
 }

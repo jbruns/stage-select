@@ -11,8 +11,8 @@ use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::build::{
     AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, ItemState, LibraryFolder,
-    PlacedFile, Plan, PlanBuild, PlanChoices,
+    ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, IncompleteReason, ItemState,
+    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, UnfinishedBuild,
 };
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -23,7 +23,7 @@ use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
     build_files, build_state_label, drift_kind_label, folders_for, incomplete_counts,
-    incomplete_reason_label, unfinished_label,
+    incomplete_reason_label, troubles, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
@@ -42,6 +42,7 @@ use crate::parts::list::{
 };
 use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::outcome::{JobOutcome, Reports, ShowReports, job_href};
+use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
@@ -128,8 +129,9 @@ fn set_href(name: &str) -> String {
     format!("/source-sets/{}", api::segment(name))
 }
 
-/// Why the folder has its status, beyond its status alone: one line each.
-fn reasons(folder: &LibraryFolder) -> AnyView {
+/// Why the folder has its status, beyond its status alone: one line each. `full` adds what it lacks, by reason, and
+/// how its unfinished build ended, where no list or outcome of them is beside.
+fn reasons(folder: &LibraryFolder, full: bool) -> AnyView {
     let mut lines: Vec<String> = Vec::new();
     if folder.plan_open {
         lines.push("A plan waits on your approval.".into());
@@ -137,10 +139,10 @@ fn reasons(folder: &LibraryFolder) -> AnyView {
     if drifted(folder) {
         lines.push("Its latest check found files that differ from its build.".into());
     }
-    if let Some(counts) = &folder.incomplete {
+    if let Some(counts) = folder.incomplete.as_ref().filter(|_| full) {
         lines.push(format!("Incomplete: {}.", incomplete_counts(counts)));
     }
-    if let Some(u) = &folder.unfinished {
+    if let Some(u) = folder.unfinished.as_ref().filter(|_| full) {
         lines.push(format!("{}.", unfinished_label(u)));
     }
     lines.extend(folder.stale.iter().map(stale_label));
@@ -580,8 +582,8 @@ fn FolderCoverage(source_set: String) -> impl IntoView {
     }
 }
 
-/// What the folder is bound to and where it stands.
-fn folder_facts(f: &LibraryFolder) -> AnyView {
+/// What the folder is bound to and where it stands; `current` adds its current build, where nothing else shows it.
+fn folder_facts(f: &LibraryFolder, current: bool) -> AnyView {
     let writable = if f.writable {
         ", writable"
     } else {
@@ -611,8 +613,10 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
                 {f.root.clone()}
                 {writable}
             </dd>
-            <dt>"Current build"</dt>
-            <dd>{current_build(&f.build)}</dd>
+            {current.then(|| view! {
+                <dt>"Current build"</dt>
+                <dd>{current_build(&f.build)}</dd>
+            })}
             {f.built_for.as_deref().map(|build| view! {
                 <dt>"Built for"</dt>
                 <dd>
@@ -635,8 +639,8 @@ fn folder_detail(row: FolderRow) -> AnyView {
         <p>
             <StatusBadge status=now />
         </p>
-        {reasons(&f)}
-        {folder_facts(&f)}
+        {reasons(&f, true)}
+        {folder_facts(&f, true)}
     }
     .into_any()
 }
@@ -675,9 +679,10 @@ pub fn Libraries() -> impl IntoView {
     });
     let said = Reports::new();
     let go = navigator();
+    let creating = RwSignal::new(false);
     let actions = vec![
         ToolAction::page(Glyph::Plus, "New library folder", move || {
-            go.run("/libraries/new".to_string())
+            creating.set(true)
         }),
         ToolAction::checked(
             Glyph::FileCheck,
@@ -733,6 +738,9 @@ pub fn Libraries() -> impl IntoView {
                 sort by it instead."
             </p>
         </Help>
+        <Drawer open=creating title="New library folder">
+            <LibraryFolderForm source_set=None selection=None />
+        </Drawer>
     }
 }
 
@@ -744,6 +752,25 @@ pub fn NewLibraryFolder() -> impl IntoView {
     let from_set = query.with_untracked(|q| q.get("source_set"));
     let from_selection =
         query.with_untracked(|q| q.get("selection").and_then(|s| s.parse::<i64>().ok()));
+    let trail = match &from_set {
+        Some(name) => vec![
+            ("/source-sets".to_string(), "Source sets".to_string()),
+            (set_href(name), name.clone()),
+        ],
+        None => vec![("/libraries".to_string(), "Library folders".to_string())],
+    };
+    view! {
+        <Crumbs trail here="New library folder" />
+        <h1>"New library folder"</h1>
+        <LibraryFolderForm source_set=from_set selection=from_selection />
+    }
+}
+
+/// The form that makes a library folder, of `source_set` or of the selection `selection` when given, then plans its
+/// first build and opens the plan. In a drawer, or on its page.
+#[component]
+pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> impl IntoView {
+    let (from_set, from_selection) = (source_set, selection);
     let planner = use_planner();
     let go = navigator();
     let chosen = LocalResource::new(move || async move {
@@ -892,16 +919,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
         });
     };
 
-    let trail = match &from_set {
-        Some(name) => vec![
-            ("/source-sets".to_string(), "Source sets".to_string()),
-            (set_href(name), name.clone()),
-        ],
-        None => vec![("/libraries".to_string(), "Library folders".to_string())],
-    };
     view! {
-        <Crumbs trail here="New library folder" />
-        <h1>"New library folder"</h1>
         {move || match roots.get() {
             Some(Ok(_)) if writable().is_empty() => view! {
                 <p class="note">
@@ -1155,9 +1173,21 @@ fn FolderPage(
                 <button type="button" disabled=move || busy.get() on:click=start_check>
                     <LabelledIcon glyph=Glyph::FileCheck label="Check" />
                 </button>
-                <button type="button" class="primary" disabled=move || busy.get() || planning.get() on:click=plan>
-                    <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
-                </button>
+                {if plan_open {
+                    view! {
+                        <A href=tab_href(id, FolderTab::Plan) attr:class="button primary">
+                            <LabelledIcon glyph=Glyph::ClipboardList label="Review plan" />
+                        </A>
+                    }
+                    .into_any()
+                } else {
+                    view! {
+                        <button type="button" class="primary" disabled=move || busy.get() || planning.get() on:click=plan>
+                            <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
+                        </button>
+                    }
+                    .into_any()
+                }}
             </div>
         </header>
         <ShowReports reports=said />
@@ -1190,17 +1220,92 @@ fn FolderPage(
     }
 }
 
-/// Where the folder stands, what it's bound to, and the files built into it.
+/// Where the folder stands and why, its last build's outcome, what it lacks and the files built into it; what it's
+/// bound to behind help, and its disk folders collapsed.
 #[component]
 fn Overview(folder: LibraryFolder) -> impl IntoView {
     let id = folder.id;
+    // The latest build's outcome: an unfinished one when it stopped after the current build, which the facts then
+    // name instead.
+    let unfinished = folder.unfinished.clone();
+    let failed_shown = unfinished.is_none() && folder.build.as_ref().is_some_and(|b| b.failed > 0);
+    let facts = folder_facts(&folder, unfinished.is_some());
+    let disk_folders = folder.disk_folders.clone();
+    let latest = match unfinished {
+        Some(u) => Some(view! { <UnfinishedOutcome unfinished=u /> }.into_any()),
+        None => folder
+            .build
+            .clone()
+            .map(|b| view! { <LastBuild summary=b /> }.into_any()),
+    };
     view! {
         {folder.active_job.map(|job| view! { <JobOutcome job cancel=true /> })}
-        {reasons(&folder)}
-        {folder_facts(&folder)}
-        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
-        {(!folder.disk_folders.is_empty()).then(|| view! { <DiskFolders folders=folder.disk_folders.clone() /> })}
+        {reasons(&folder, false)}
+        {latest}
+        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id failed_shown /> })}
         <BuiltFiles folder=id />
+        <Help summary="About this library folder">{facts}</Help>
+        {(!disk_folders.is_empty()).then(|| view! { <DiskFolders folders=disk_folders /> })}
+    }
+}
+
+/// The folder's latest build: its outcome, which links to it, how many of its files failed or are uncertain, each
+/// linking to them, and how many it set aside.
+#[component]
+fn LastBuild(summary: BuildSummary, #[prop(optional)] kept: u64) -> impl IntoView {
+    let troubles = troubles(&summary).into_iter().map(|t| {
+        view! {
+            <p class="failures">
+                <StatusIcon status=t.state tab_stop=false />
+                " "
+                <A href=t.href>{t.text}</A>
+            </p>
+        }
+    });
+    let folder = summary.folder;
+    let kept = (kept > 0).then(|| {
+        let text = format!(
+            "{kept} {} set aside",
+            if kept == 1 { "file" } else { "files" }
+        );
+        view! {
+            <p>
+                <A href=tab_href(folder, FolderTab::Kept)>{text}</A>
+            </p>
+        }
+    });
+    view! {
+        <section class="last-build" aria-label="Last build">
+            <JobOutcome job=summary.job />
+            {troubles.collect_view()}
+            {kept}
+        </section>
+    }
+}
+
+/// A build that stopped after the folder's current build: its outcome, read from the build, or until then how it
+/// ended.
+#[component]
+fn UnfinishedOutcome(unfinished: UnfinishedBuild) -> impl IntoView {
+    let id = unfinished.build;
+    let detail = LocalResource::new(move || async move {
+        api::get::<BuildDetail>(&format!("/builds/{id}")).await
+    });
+    let kept = unfinished.kept;
+    let label = format!("{}.", unfinished_label(&unfinished));
+    move || match detail.get() {
+        Some(Ok(d)) => view! { <LastBuild summary=d.build kept /> }.into_any(),
+        Some(Err(message)) => {
+            let label = label.clone();
+            view! {
+                <p>
+                    <A href=format!("/builds/{id}")>{label}</A>
+                </p>
+                <Problem message />
+            }
+            .into_any()
+        }
+        None => view! { <p>{label.clone()}</p> }.into_any(),
     }
 }
 
@@ -1208,9 +1313,10 @@ fn Overview(folder: LibraryFolder) -> impl IntoView {
 #[component]
 fn DiskFolders(folders: Vec<String>) -> impl IntoView {
     let exclusions = romm_exclusions(&folders);
+    let summary = format!("Disk folders ({})", folders.len());
     view! {
-        <section aria-labelledby="disk-folders-title">
-            <h2 id="disk-folders-title">"Disk folders"</h2>
+        <details class="lifecycle">
+            <summary>{summary}</summary>
             <p>
                 {match folders.len() {
                     1 => "1 folder holds the CHDs of the game it is named for. MAME finds them there.".to_owned(),
@@ -1228,7 +1334,7 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
                     "."
                 </p>
             </Help>
-        </section>
+        </details>
     }
 }
 
@@ -1414,9 +1520,10 @@ fn incomplete_detail(row: IncompleteRow) -> AnyView {
     .into_any()
 }
 
-/// What the folder lacks of its current build's selection, and why.
+/// What the folder lacks of its current build's selection, and why. `failed_shown` leaves out the files that failed,
+/// when the build's failure count beside links to them.
 #[component]
-fn IncompleteItems(folder: i64) -> impl IntoView {
+fn IncompleteItems(folder: i64, failed_shown: bool) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
@@ -1424,15 +1531,20 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
     });
     let items = last_good_rows(move || loaded.get().map(|r| r.map(|i| i.items)));
     let rows = Signal::derive(move || {
-        items.with(|items| Arc::new(items.iter().cloned().map(IncompleteRow).collect::<Vec<_>>()))
+        items.with(|items| {
+            Arc::new(
+                items
+                    .iter()
+                    .filter(|i| !(failed_shown && i.reason == IncompleteReason::Failed))
+                    .cloned()
+                    .map(IncompleteRow)
+                    .collect::<Vec<_>>(),
+            )
+        })
     });
     view! {
         <section aria-labelledby="incomplete-title">
             <h2 id="incomplete-title">"Incomplete"</h2>
-            <p class="lede">
-                "The folder lacks these selected games. Fix what stops them, then plan again; open a failed file \
-                to see its error."
-            </p>
             {move || match loaded.get() {
                 None => view! { <Loading what="what the folder lacks" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -1447,6 +1559,12 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
                 detail=Callback::new(incomplete_detail)
                 scope="incomplete"
             />
+            <Help summary="Why a game is missing">
+                <p>
+                    "The folder lacks these selected games. Fix what stops them, then plan again; open a file to see \
+                    why it's missing."
+                </p>
+            </Help>
         </section>
     }
 }
@@ -2461,19 +2579,32 @@ fn build_item_detail(row: BuildItemRow) -> AnyView {
     .into_any()
 }
 
-/// The library folder `folder`, named by where it is once it loads.
+/// The library folder a build wrote into, named by where it is once it loads, and the plan it built: a link to the
+/// folder's Plan tab while that plan is still the folder's newest, which is the one the tab shows.
 #[component]
-fn FolderName(folder: i64) -> impl IntoView {
+fn FolderAndPlan(folder: i64, plan: i64) -> impl IntoView {
     let loaded = LocalResource::new(move || async move {
         api::get::<LibraryFolder>(&format!("/libraries/{folder}")).await
     });
+    let loaded = Memo::new(move |_| loaded.get().and_then(Result::ok));
     view! {
-        <A href=folder_href(folder)>
-            {move || match loaded.get() {
-                Some(Ok(f)) => location(&f),
-                _ => format!("#{folder}"),
+        <dt>"Library folder"</dt>
+        <dd>
+            <A href=folder_href(folder)>
+                {move || loaded.with(|f| f.as_ref().map_or(format!("#{folder}"), location))}
+            </A>
+        </dd>
+        <dt>"Plan"</dt>
+        <dd>
+            {move || {
+                let newest = loaded.with(|f| f.as_ref().and_then(|f| f.latest_plan)) == Some(plan);
+                if newest {
+                    view! { <A href=tab_href(folder, FolderTab::Plan)>{format!("Plan #{plan}")}</A> }.into_any()
+                } else {
+                    format!("Plan #{plan}").into_any()
+                }
             }}
-        </A>
+        </dd>
     }
 }
 
@@ -2503,44 +2634,53 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             looks
         })
     });
+    let counts: Vec<(ItemState, usize)> = files
+        .counts
+        .into_iter()
+        .map(|(state, n)| (state, n as usize))
+        .collect();
+    let (only, show_only) = use_status_filter::<ItemState>("state");
+    let keep = Signal::derive(move || -> Keep<BuildItemRow> {
+        only.get()
+            .map(|state| Arc::new(move |r: &BuildItemRow| r.1.state == state) as _)
+    });
+    // A build that didn't succeed says so, and how far it got, in its outcome, which links to its job.
+    let succeeded = b.state == BuildState::Succeeded;
     view! {
         <Crumbs trail here=format!("Build #{}", b.id) />
-        <h1>{format!("Build #{}", b.id)}</h1>
-        {(b.state != BuildState::Succeeded).then(|| view! { <JobOutcome job=b.job /> })}
-        <ul class="counts">
-            {files
-                .counts
-                .into_iter()
-                .map(|(status, n)| view! { <StatusCount status>{n}</StatusCount> })
-                .collect_view()}
-        </ul>
-        <section aria-labelledby="items-title">
-            <h2 id="items-title">"Files"</h2>
-            <List
-                id="build-files"
-                label="Files"
-                rows
-                empty="The build had no files to write."
-                placeholder="Filter by file or game"
-                detail=Callback::new(build_item_detail)
-                legend=move || view! { <LegendStrip looks list="build-files" /> }
-            />
-        </section>
-        <section aria-labelledby="build-facts-title">
-            <h2 id="build-facts-title">"About the build"</h2>
+        <header class="page-head">
+            <div class="page-title">
+                <h1>{format!("Build #{}", b.id)}</h1>
+            </div>
+            <div class="page-actions">
+                <A href=folder_href(b.folder) attr:class="button primary">
+                    "Open the library folder"
+                </A>
+            </div>
+        </header>
+        {(!succeeded).then(|| view! { <JobOutcome job=b.job /> })}
+        <KindCounts counts=Signal::stored(counts) active=only on_filter=show_only label="Files by state" />
+        <List
+            id="build-files"
+            label="Files"
+            rows
+            empty="The build had no files to write."
+            placeholder="Filter by file or game"
+            keep
+            detail=Callback::new(build_item_detail)
+            legend=move || view! { <LegendStrip looks list="build-files" /> }
+        />
+        <Help summary="About this build">
         <dl class="facts">
-            <dt>"Library folder"</dt>
-            <dd>
-                <FolderName folder=b.folder />
-            </dd>
-            <dt>"State"</dt>
-            <dd>{build_state_label(b.state)}</dd>
-            <dt>"Job"</dt>
-            <dd>
-                <A href=job_href(b.job)>{format!("Job #{}", b.job)}</A>
-            </dd>
-            <dt>"Plan"</dt>
-            <dd>{format!("#{}", b.plan)}</dd>
+            <FolderAndPlan folder=b.folder plan=b.plan />
+            {succeeded.then(|| view! {
+                <dt>"State"</dt>
+                <dd>{build_state_label(b.state)}</dd>
+                <dt>"Job"</dt>
+                <dd>
+                    <A href=job_href(b.job)>{format!("Job #{}", b.job)}</A>
+                </dd>
+            })}
             <dt>"Selection"</dt>
             <dd>
                 <A href=format!("/selections/{}", b.selection)>{format!("#{}", b.selection)}</A>
@@ -2560,55 +2700,96 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
             <dt>"Finished"</dt>
             <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
         </dl>
-        </section>
+        </Help>
     }
 }
 
-/// On a selection's screen: plans building it into a library folder bound to its source set and profile.
+/// On a selection's screen, its primary action: plans building it into the one library folder bound to its source set
+/// and profile, or offers each such folder in a drawer when there are several. With none, it creates a library folder
+/// of it, in a drawer, which plans its first build.
 #[component]
 pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
     let folders = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
-    let new_href = format!("/libraries/new?selection={}", selection.id);
+    let id = selection.id;
     let selection = StoredValue::new(selection);
     let planner = use_planner();
     let go = navigator();
     let plan = move |folder: i64| {
-        let id = selection.with_value(|s| s.id);
         planner.start(folder, Some(id), PlanChoices::default());
         go.run(tab_href(folder, FolderTab::Plan));
     };
+    let choosing = RwSignal::new(false);
+    let creating = RwSignal::new(false);
+    let matching = Memo::new(move |_| {
+        let all = folders.get().and_then(Result::ok).unwrap_or_default();
+        selection.with_value(|s| {
+            folders_for(&all, s)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    });
     view! {
         {move || {
-            let all = folders.get().and_then(Result::ok).unwrap_or_default();
-            let matching: Vec<LibraryFolder> = selection
-                .with_value(|s| folders_for(&all, s).into_iter().cloned().collect());
-            if matching.is_empty() {
-                return view! {
-                    <p class="note">
-                        "To build this selection for your front end, "
-                        <A href=new_href.clone()>"make a library folder"</A>
-                        " of it."
-                    </p>
+            let matching = matching.get();
+            match matching.as_slice() {
+                [] if folders.get().is_none() => ().into_any(),
+                [] => view! {
+                    <button type="button" class="primary" on:click=move |_| creating.set(true)>
+                        <LabelledIcon glyph=Glyph::Plus label="Create library folder" />
+                    </button>
                 }
-                .into_any();
+                .into_any(),
+                [one] => {
+                    let folder = one.id;
+                    let hint = format!("Plan a build into {}", location(one));
+                    view! {
+                        <button type="button" class="primary" title=hint on:click=move |_| plan(folder)>
+                            <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
+                        </button>
+                    }
+                    .into_any()
+                }
+                _ => view! {
+                    <button type="button" class="primary" on:click=move |_| choosing.set(true)>
+                        <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
+                    </button>
+                }
+                .into_any(),
             }
-            view! {
-                <div class="form">
-                    {matching
+        }}
+        <Drawer open=choosing title="Plan a build">
+            <p>"Plan building this selection into one of the library folders that use its source set and profile."</p>
+            <ul class="plain">
+                {move || {
+                    matching
+                        .get()
                         .into_iter()
                         .map(|f| {
-                            let label = format!("Plan a build into {}", location(&f));
-                            let id = f.id;
+                            let folder = f.id;
                             view! {
-                                <button type="button" on:click=move |_| plan(id)>
-                                    {label}
-                                </button>
+                                <li>
+                                    <button type="button" on:click=move |_| plan(folder)>
+                                        {format!("Plan a build into {}", location(&f))}
+                                    </button>
+                                </li>
                             }
                         })
-                        .collect_view()}
-                </div>
-            }
-            .into_any()
-        }}
+                        .collect_view()
+                }}
+            </ul>
+            <button
+                type="button"
+                on:click=move |_| {
+                    choosing.set(false);
+                    creating.set(true);
+                }
+            >
+                "Create another library folder"
+            </button>
+        </Drawer>
+        <Drawer open=creating title="Create library folder">
+            <LibraryFolderForm source_set=None selection=Some(id) />
+        </Drawer>
     }
 }
