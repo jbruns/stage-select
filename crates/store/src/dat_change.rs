@@ -24,8 +24,9 @@ struct Assessed {
     folders: Vec<DatChangeFolder>,
 }
 
-/// Whether a Coverage of `coverage` still covers any of `games`, each read for its regions by `regions`: a region
-/// of the Coverage that some Game is in. A DAT none of whose Games is in a covered region would cover nothing.
+/// Whether a Coverage of `coverage` still covers any of `games`, each read for its regions by `regions`, by the
+/// Coverage's own rule (World always covered, United Kingdom as UK). A DAT none of whose Games is covered would
+/// cover nothing.
 pub(crate) fn keeps_coverage(
     games: &[String],
     coverage: &[String],
@@ -33,7 +34,7 @@ pub(crate) fn keeps_coverage(
 ) -> bool {
     games
         .iter()
-        .any(|game| regions(game).iter().any(|r| coverage.contains(r)))
+        .any(|game| stage_select_api::coverage::covered(&regions(game), Some(coverage)))
 }
 
 /// Why voided work's Job ended, when Source Set `set` was bound to another DAT after it was approved.
@@ -296,6 +297,9 @@ mod tests {
             "Asteroids (USA)" => vec!["USA".into()],
             "Asteroids (Europe)" => vec!["Europe".into()],
             "Asteroids (USA, Europe)" => vec!["USA".into(), "Europe".into()],
+            "Asteroids (World)" => vec!["World".into()],
+            "Asteroids (Japan)" => vec!["Japan".into()],
+            "Asteroids (United Kingdom)" => vec!["United Kingdom".into()],
             _ => Vec::new(),
         }
     }
@@ -318,5 +322,26 @@ mod tests {
             &regions
         ));
         assert!(!keeps_coverage(&[], &usa, &regions));
+    }
+
+    #[test]
+    fn a_coverage_stays_by_coverages_own_rules_for_world_and_the_united_kingdom() {
+        let usa = ["USA".to_owned()];
+        assert!(keeps_coverage(
+            &games(&["Asteroids (World)", "Asteroids (Japan)"]),
+            &usa,
+            &regions
+        ));
+        let uk = ["UK".to_owned()];
+        assert!(keeps_coverage(
+            &games(&["Asteroids (United Kingdom)", "Asteroids (Japan)"]),
+            &uk,
+            &regions
+        ));
+        assert!(!keeps_coverage(
+            &games(&["Asteroids (Japan)"]),
+            &uk,
+            &regions
+        ));
     }
 }

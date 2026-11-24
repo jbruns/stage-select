@@ -1208,8 +1208,8 @@ against the new DAT can fix its files, such as repacking loose files to your sto
   is placed in a library folder under single copy: send them back first, or turn single copy off.
 - **What it voids.** Each approved plan not yet started that was made from the old DAT: queued builds of its library
   folders and approved repairs of it. Each fails, having changed nothing, as when a root stops being writable.
-- **Coverage.** It keeps its coverage when any game of the new DAT's newest revision is in one of its regions, and
-  otherwise clears it, so it covers every game. Checking needs the clone lists when it has a coverage.
+- **Coverage.** It keeps its coverage when it still covers any game of the new DAT's newest revision, a World game
+  included, and otherwise clears it, so it covers every game. Checking needs the clone lists when it has a coverage.
 - **Staleness.** It is stale, as "DAT changed", until its next audit. A repair waits for that audit: one planned
   from an audit against the old DAT is refused. Each library folder built from it is stale, as "DAT changed", until it
   builds a selection of the new DAT; a plan built from a selection of the old DAT can't be approved. The games you
