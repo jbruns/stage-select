@@ -814,6 +814,23 @@ pub struct FolderDeletion {
     /// while there is any.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub left: Vec<FolderLeftover>,
+    /// Each kept file in `kept` as the plan found it on disk, so that approving the plan is refused once one changed
+    /// or went.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seen: Vec<KeptSeen>,
+}
+
+/// A kept file as a plan found it on disk, from `lstat`: each field none while nothing could be read there.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptSeen {
+    /// The kept file's id.
+    pub id: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_ns: Option<i128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctime_ns: Option<i128>,
 }
 
 /// An entry left in a Library Folder that deleting the folder doesn't delete.

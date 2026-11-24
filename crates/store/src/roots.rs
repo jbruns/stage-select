@@ -865,6 +865,17 @@ fn dependents(c: &Connection, name: &str) -> Result<Vec<Dep>> {
             false,
             true,
         ),
+        // Its Build, while it is queued or running, is the writer, and a queued one is voidable.
+        (
+            "SELECT f.root, 'plan ' || d.plan_id || '''s deletion of play library folder ' || f.root || '/' || f.path
+                    || ' is not finished', f.path
+             FROM folder_deletions d JOIN library_folders f ON f.id = d.folder_id
+             WHERE d.finished_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.plan_id = d.plan_id AND j.kind = 'build'
+                                                      AND j.state IN ('queued', 'running'))",
+            false,
+            true,
+        ),
         (
             "SELECT root, 'the move of play library folder ' || root || '/' || from_path || ' to ' || to_path
                     || ' is not finished', to_path

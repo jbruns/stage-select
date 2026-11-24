@@ -9,13 +9,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use stage_select_api::build::{
-    FolderDeletion, FolderDeletionOutcome, FolderLeftover, KeptFile, MARKER, Plan, PlanBuild,
-    PlanContent, PlanKeptDeletion, RETENTION, RemovalKind, STATE,
+    FolderDeletion, FolderDeletionOutcome, FolderLeftover, KeptFile, KeptSeen, MARKER, Plan,
+    PlanBuild, PlanContent, PlanKeptDeletion, RETENTION, RemovalKind, STATE,
 };
 use stage_select_api::lifecycle::RegistrationKind;
 
-use crate::folder_dir::FolderDir;
-use crate::folders::{folder_by_id, open_folder, store_id};
+use crate::folder_dir::{FolderDir, ctime_ns, file_stat};
+use crate::folders::{folder_by_id, open_folder, open_writable_folder, store_id};
 use crate::kept::generation_dir;
 use crate::lifecycle::{holds_of, remove_empty_dirs, remove_own_marker, unregister_in};
 use crate::{Error, Fault, Result, Store, now};
@@ -28,6 +28,19 @@ pub(crate) fn record(tx: &Transaction, folder: i64, plan: i64, actor: &str) -> R
     tx.execute(
         "INSERT INTO folder_deletions (plan_id, folder_id, actor) VALUES (?1, ?2, ?3)",
         params![plan, folder, actor],
+    )?;
+    Ok(())
+}
+
+/// Finishes, in the transaction that ends Build Job `job` before it started, the deletion of a folder its plan's
+/// approval recorded, with nothing of the folder deleted: `why` the Build ended.
+pub(crate) fn finish_unstarted(tx: &Transaction, job: i64, why: &str) -> Result<()> {
+    tx.execute(
+        "UPDATE folder_deletions SET finished_at = ?2, removed = 0,
+                detail = ?3 || ', so nothing of the folder was deleted and it stays registered'
+         WHERE finished_at IS NULL AND removing_at IS NULL
+           AND plan_id = (SELECT plan_id FROM jobs WHERE id = ?1 AND kind = 'build')",
+        params![job, now(), why],
     )?;
     Ok(())
 }
@@ -219,24 +232,40 @@ impl Store {
     ) -> Result<FolderDeletion> {
         let kept: Vec<KeptFile> = self
             .read(|c| crate::kept::kept_where(c, "k.folder_id = ?1 AND k.state = 'kept'", [id]))?;
+        let expected = Expected::before(content, &kept);
+        let kept: Vec<KeptFile> = kept.into_iter().filter(|k| !k.directory).collect();
         let mut left = Vec::new();
+        let mut seen: Vec<KeptSeen> = kept
+            .iter()
+            .map(|k| KeptSeen {
+                id: k.id,
+                ..KeptSeen::default()
+            })
+            .collect();
         // A folder that can't be opened blocks the plan already.
         if let Ok(dir) = open_folder(&self.roots(), root, path) {
-            leftovers(&dir, "", &Expected::before(content, &kept), &mut left)
+            leftovers(&dir, "", &expected, &mut left)
                 .map_err(|e| Error::Io(format!("{root}/{path}: {e}")))?;
+            for (k, seen) in kept.iter().zip(&mut seen) {
+                if let Ok(Some(st)) = dir.stat(&kept_path(k)) {
+                    let file = file_stat(&st);
+                    seen.size = Some(file.size);
+                    seen.mtime_ns = Some(file.mtime_ns);
+                    seen.ctime_ns = Some(ctime_ns(&st));
+                }
+            }
         }
-        Ok(FolderDeletion {
-            kept: kept.into_iter().filter(|k| !k.directory).collect(),
-            left,
-        })
+        Ok(FolderDeletion { kept, left, seen })
     }
 
     /// Carries out the deletion of its folder that plan `plan`'s approval recorded, unless it is finished: once its
-    /// Build `succeeded`, deletes the folder's kept files as an approved deletion of them by whoever approved the
-    /// plan, removes the folder when nothing else is left in it, and unregisters it. A Build that didn't succeed
-    /// finishes it with nothing of the folder deleted. Left unfinished, to finish when the service next starts, while
-    /// another change to the folder's kept files is under way or the folder can't be opened.
-    pub(crate) fn delete_folder(&self, plan: i64, succeeded: bool) -> Result<()> {
+    /// Build committed, deletes the folder's kept files as an approved deletion of them by whoever approved the plan,
+    /// removes the folder when nothing else is left in it, and unregisters it. A Build that was cancelled, stopped
+    /// before it committed, or failed finishes it with nothing of the folder deleted, and one still to run is left to
+    /// it. Left unfinished, to finish when the service next starts, while a stopped Build's recovery isn't settled,
+    /// another change to the folder's kept files is under way, the folder's Root isn't writable, or the folder can't be
+    /// opened.
+    pub(crate) fn delete_folder(&self, plan: i64) -> Result<()> {
         let pending: Option<(i64, String, Option<String>)> = self.read(|c| {
             Ok(c.query_row(
                 "SELECT folder_id, actor, removing_at FROM folder_deletions
@@ -249,15 +278,33 @@ impl Store {
         let Some((folder, actor, removing)) = pending else {
             return Ok(());
         };
-        if !succeeded {
-            return self.finish_folder_deletion(
-                plan,
-                folder,
-                false,
-                &[],
-                Some("its build didn't finish, so nothing of the folder was deleted and it stays registered".into()),
-                false,
-            );
+        match self.read(|c| build_end(c, plan))? {
+            BuildEnd::Committed => {}
+            BuildEnd::Waiting => return Ok(()),
+            BuildEnd::Unsettled(why) => {
+                return Err(Error::Conflict(format!(
+                    "plan {plan}'s deletion of the folder is waiting: {why}"
+                )));
+            }
+            BuildEnd::Ended(why) => {
+                return self.finish_folder_deletion(
+                    plan,
+                    folder,
+                    false,
+                    &[],
+                    Some(format!(
+                        "{why}, so nothing of the folder was deleted and it stays registered"
+                    )),
+                    false,
+                );
+            }
+        }
+        let root = self.read(|c| Ok(folder_by_id(c, folder)?.root))?;
+        if !self.roots().root(&root).is_some_and(|r| r.writable) {
+            return Err(Error::Conflict(format!(
+                "plan {plan}'s deletion of the folder is waiting: root {root} is not writable now. Nothing was \
+                 deleted; make it writable in your roots, and the service finishes the deletion when it next starts"
+            )));
         }
         if removing.is_none() {
             self.fault_point(Fault::FolderDeleting);
@@ -322,7 +369,7 @@ impl Store {
             let parent = FolderDir::open(&root.path, parent).ok()?;
             matches!(parent.stat(base), Ok(None)).then_some(())
         };
-        let dir = match open_folder(&roots, &row.root, &row.path) {
+        let dir = match open_writable_folder(&roots, &row.root, &row.path) {
             Ok(dir) => dir,
             // Found gone once removing it had begun: this deletion removed it before a stop.
             Err(_) if removing && gone().is_some() => {
@@ -423,27 +470,22 @@ impl Store {
         })
     }
 
-    /// Run when the service starts, after [`Store::recover_removal_deletions`]: finishes each deletion of a Library
-    /// Folder the service stopped before finishing, once its plan's Build succeeded; one whose Build didn't is
-    /// finished with nothing of the folder deleted, and one whose Build is still to run is left to it. Returns, for
-    /// each left unfinished, its plan and why.
+    /// Run when the service starts, after [`Store::recover_builds`] and [`Store::recover_removal_deletions`]:
+    /// finishes each deletion of a Library Folder the service stopped before finishing, once its plan's Build
+    /// committed; one whose Build was cancelled, stopped before it committed, or failed is finished with nothing of the
+    /// folder deleted, and one whose Build is still to run is left to it. Returns, for each left unfinished, its plan
+    /// and why.
     pub fn recover_folder_deletions(&self) -> Result<Vec<(i64, String)>> {
-        let pending: Vec<(i64, bool, Option<String>)> = self.read(|c| {
+        let pending: Vec<i64> = self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT d.plan_id, b.id IS NOT NULL, j.state FROM folder_deletions d
-                 LEFT JOIN jobs j ON j.plan_id = d.plan_id AND j.kind = 'build'
-                 LEFT JOIN builds b ON b.job_id = j.id AND b.state = 'succeeded'
-                 WHERE d.finished_at IS NULL ORDER BY d.plan_id",
+                "SELECT plan_id FROM folder_deletions WHERE finished_at IS NULL ORDER BY plan_id",
             )?;
-            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
             Ok(rows.collect::<rusqlite::Result<_>>()?)
         })?;
         let mut unfinished = Vec::new();
-        for (plan, succeeded, job) in pending {
-            if !succeeded && matches!(job.as_deref(), Some("queued" | "running")) {
-                continue;
-            }
-            match self.delete_folder(plan, succeeded) {
+        for plan in pending {
+            match self.delete_folder(plan) {
                 Ok(()) => {}
                 Err(Error::Conflict(why)) => unfinished.push((plan, why)),
                 Err(err) => return Err(err),
@@ -451,4 +493,71 @@ impl Store {
         }
         Ok(unfinished)
     }
+}
+
+/// How plan `plan`'s Build ended, for deleting its folder.
+enum BuildEnd {
+    /// It committed: it succeeded, or it was stopped once it had committed and its recovery rolled it forward.
+    Committed,
+    /// It is still to run, or running.
+    Waiting,
+    /// It was stopped once it had committed, and its recovery isn't settled: why.
+    Unsettled(String),
+    /// It ended without committing: why, for the Operator.
+    Ended(String),
+}
+
+/// How plan `plan`'s latest Build ended.
+fn build_end(c: &Connection, plan: i64) -> Result<BuildEnd> {
+    type Row = (
+        String,
+        Option<String>,
+        bool,
+        Option<String>,
+        bool,
+        bool,
+        Option<String>,
+    );
+    let row: Option<Row> = c
+        .query_row(
+            "SELECT j.state, j.error, j.cancel_requested_at IS NOT NULL, b.state, b.finalizing_at IS NOT NULL,
+                    b.cleaned_at IS NOT NULL, b.recovery_error
+             FROM jobs j LEFT JOIN builds b ON b.job_id = j.id
+             WHERE j.plan_id = ?1 AND j.kind = 'build' ORDER BY j.id DESC LIMIT 1",
+            [plan],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((job, error, cancelled, build, finalizing, cleaned, recovery)) = row else {
+        return Ok(BuildEnd::Ended("its build never ran".into()));
+    };
+    Ok(match (job.as_str(), build.as_deref()) {
+        ("queued" | "running", _) => BuildEnd::Waiting,
+        (_, Some("succeeded")) => BuildEnd::Committed,
+        _ if finalizing => match recovery {
+            None if cleaned => BuildEnd::Committed,
+            None => BuildEnd::Unsettled(
+                "its build was stopped once it had committed, and isn't recovered yet".into(),
+            ),
+            Some(why) => BuildEnd::Unsettled(format!(
+                "its build was stopped once it had committed, and recovering it failed: {why}"
+            )),
+        },
+        _ if cancelled => BuildEnd::Ended("you cancelled its build".into()),
+        ("failed", _) => BuildEnd::Ended(match error {
+            Some(why) => format!("its build failed: {why}"),
+            None => "its build failed".into(),
+        }),
+        _ => BuildEnd::Ended("its build was stopped before it finished".into()),
+    })
 }
