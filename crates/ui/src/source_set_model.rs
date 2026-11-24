@@ -22,6 +22,11 @@ pub const MAY_CHANGE: &str = "Stage Select may change this source set";
 pub const MAY_CHANGE_NOTE: &str = "Lets repairs fix its files, and lets single copy place its games into your play \
     library folders. Turned off, Stage Select only reads it: repairs are refused and single copy copies each game.";
 
+/// The registration choice that creates a missing folder, and what it needs.
+pub const CREATE_SET: &str = "Create an empty source set";
+pub const CREATE_SET_NOTE: &str = "If the folder doesn't exist yet, Stage Select creates it, and any missing \
+    folders above it in the root, for ingest to fill. It needs \"Stage Select may change this source set\" on.";
+
 /// What switching it said: whether Stage Select may now change the Source Set `set`, and each approved plan, not
 /// yet started, that turning it off voided.
 pub fn may_change_said(set: &str, on: bool, voided: &[VoidedPlan]) -> String {
@@ -572,6 +577,7 @@ mod tests {
                 stale: Vec::new(),
                 coverage: None,
                 repairs_may_change: true,
+                folder_created: None,
             },
             latest,
             repair,

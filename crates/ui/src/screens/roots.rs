@@ -9,7 +9,7 @@ use stage_select_api::{Root, SourceSetRecord};
 use crate::api;
 use crate::model::when;
 use crate::parts::choice::Choice;
-use crate::parts::folder_picker::FolderPicker;
+use crate::parts::folder_picker::{Create, FolderPicker};
 use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
@@ -336,10 +336,30 @@ pub(crate) fn RootForm(
                         field="the root's path"
                         value=Signal::derive(move || draft.with(|d| d.path.clone()))
                         on_choose=move |path: String| draft.update(|d| d.choose_path(path))
+                        create=(!editing).then(|| Create {
+                            label: "Create this folder",
+                            run: Callback::new(move |path: String| draft.update(|d| {
+                                d.choose_path(path);
+                                d.create = true;
+                            })),
+                        })
                     />
                 </div>
             </div>
-            <p class="note small">"The folder must already exist on the service's host."</p>
+            {if editing {
+                view! { <p class="note small">"The folder must already exist on the service's host."</p> }.into_any()
+            } else {
+                view! {
+                    <Choice
+                        checked=Signal::derive(move || draft.with(|d| d.create))
+                        on_change=Callback::new(move |on| draft.update(|d| d.create = on))
+                        note=|| "If the folder doesn't exist yet, Stage Select creates it, and any missing folders above it, as the service's user."
+                    >
+                        "Create this folder"
+                    </Choice>
+                }
+                .into_any()
+            }}
             <fieldset>
                 <legend>"Kind"</legend>
                 {RootKind::ALL.into_iter().map(kind_choice).collect_view()}

@@ -847,6 +847,50 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
 }
 
 #[test]
+fn root_register_and_set_add_create_a_missing_folder_with_create() {
+    let (f, dat) = pong_fixture();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
+        cmd
+    };
+    let root = f.dat_dir.path().join("new/sets");
+    let registered = run_ok(
+        ts().args(["root", "register", "sets"])
+            .arg(&root)
+            .arg("--create"),
+    );
+    assert!(
+        registered.contains(&format!("created folder {}", root.display())),
+        "{registered}"
+    );
+    assert!(root.is_dir());
+
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    let add = [
+        "set",
+        "add",
+        "sets",
+        "Empty",
+        "--dat",
+        "No-Intro/Test - System",
+    ];
+    let both = ts()
+        .args(add)
+        .args(["--create", "--read-only"])
+        .output()
+        .unwrap();
+    assert!(!both.status.success(), "the two conflict");
+    let added = run_ok(ts().args(add).arg("--create"));
+    assert!(
+        added.contains("created folder Empty in root sets"),
+        "{added}"
+    );
+    assert!(root.join("Empty").is_dir());
+}
+
+#[test]
 fn the_configuration_file_flag_is_gone_and_a_trusted_proxy_must_be_a_cidr() {
     let f = Fixture::new();
     let store = f.dat_dir.path().join("store");

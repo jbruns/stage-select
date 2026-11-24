@@ -317,6 +317,34 @@ fn check_folder(root: &Checked) -> Result<()> {
     Ok(())
 }
 
+/// Creates the folder at `path`, and each missing folder above it, as the Service's user, refusing with why it
+/// couldn't, `what` naming what the folder is for, as "Root sets".
+pub(crate) fn create_folder(path: &Path, what: &str) -> Result<()> {
+    use std::io::ErrorKind;
+    let shown = path.display();
+    match std::fs::create_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::PermissionDenied => refused(format!(
+            "{what}: Stage Select can't create {shown}: the service's user may not write to the folder above it. \
+             Make the folder yourself, or let the service's user write there."
+        )),
+        Err(e) if e.kind() == ErrorKind::ReadOnlyFilesystem => refused(format!(
+            "{what}: Stage Select can't create {shown}: it is on a read-only file system."
+        )),
+        Err(e)
+            if matches!(
+                e.kind(),
+                ErrorKind::AlreadyExists | ErrorKind::NotADirectory
+            ) =>
+        {
+            refused(format!(
+                "{what}: Stage Select can't create {shown}: a file is in the way. Move the file, or check the path."
+            ))
+        }
+        Err(e) => refused(format!("{what}: Stage Select can't create {shown}: {e}.")),
+    }
+}
+
 fn refuse_second_additions(c: &Connection, root: &Checked) -> Result<()> {
     if root.kind != RootKind::Additions {
         return Ok(());
@@ -338,6 +366,17 @@ fn refuse_second_additions(c: &Connection, root: &Checked) -> Result<()> {
 
 /// Writes `root` as it now is, as `actor`, and records the change.
 fn save(tx: &Transaction, root: &Checked, action: &str, actor: &str) -> Result<Root> {
+    save_creating(tx, root, action, actor, None)
+}
+
+/// [`save`], recording `created` as the folder the change created.
+fn save_creating(
+    tx: &Transaction,
+    root: &Checked,
+    action: &str,
+    actor: &str,
+    created: Option<&Path>,
+) -> Result<Root> {
     let at = now();
     let paths = serde_json::to_string(&root.writable_paths).expect("paths serialize");
     tx.execute(
@@ -361,6 +400,12 @@ fn save(tx: &Transaction, root: &Checked, action: &str, actor: &str) -> Result<R
     )?;
     let saved = stored(tx, &root.name)?.expect("the root was just saved");
     record(tx, &root.name, action, Some(&saved), actor, &at)?;
+    if let Some(created) = created {
+        tx.execute(
+            "UPDATE root_changes SET created_folder = ?1 WHERE id = last_insert_rowid()",
+            [created.display().to_string()],
+        )?;
+    }
     Ok(saved)
 }
 
@@ -1211,6 +1256,11 @@ impl Store {
         match std::fs::metadata(&at) {
             Ok(m) if m.is_dir() => {}
             Ok(_) => return Err(Error::Refused(format!("{shown} is not a folder"))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Error::NotFound(format!(
+                    "there is no folder at {shown} yet"
+                )));
+            }
             Err(_) => return Err(Error::Refused(format!("there is no folder at {shown}"))),
         }
         let entries = std::fs::read_dir(&at)
@@ -1284,7 +1334,8 @@ impl Store {
     pub fn root_changes(&self, name: &str) -> Result<Vec<RootChange>> {
         self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT action, root_after, changed_by, changed_at FROM root_changes WHERE root = ?1 ORDER BY id",
+                "SELECT action, root_after, changed_by, changed_at, created_folder FROM root_changes
+                 WHERE root = ?1 ORDER BY id",
             )?;
             let rows = stmt.query_map([name], |r| {
                 Ok((
@@ -1292,16 +1343,18 @@ impl Store {
                     r.get::<_, Option<String>>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
                 ))
             })?;
             let mut changes = Vec::new();
             for row in rows {
-                let (action, after, changed_by, changed_at) = row?;
+                let (action, after, changed_by, changed_at, created_folder) = row?;
                 changes.push(RootChange {
                     action,
                     after: after.and_then(|a| serde_json::from_str(&a).ok()),
                     changed_by,
                     changed_at,
+                    created_folder,
                 });
             }
             Ok(changes)
@@ -1321,20 +1374,31 @@ impl Store {
         Ok(())
     }
 
-    /// Registers the Root `spec` gives, as `actor`.
+    /// Registers the Root `spec` gives, as `actor`. If `spec` says to create its folder and the folder is missing,
+    /// creates it, and its missing parents, once the rest of the registration checks out.
     pub fn register_root(&self, spec: &RootSpec, actor: &str) -> Result<Root> {
         let root = checked(spec)?;
-        check_folder(&root)?;
-        let _lifecycle = self.lifecycle_lock();
-        let saved = self.write(|tx| {
-            if stored(tx, &root.name)?.is_some() {
+        let unclaimed = |c: &Connection| {
+            if stored(c, &root.name)?.is_some() {
                 return refused(format!(
                     "A root named {} is registered already; choose another name, or edit that one.",
                     root.name
                 ));
             }
-            refuse_second_additions(tx, &root)?;
-            save(tx, &root, "registered", actor)
+            refuse_second_additions(c, &root)
+        };
+        let _lifecycle = self.lifecycle_lock();
+        let created = if spec.create && std::fs::symlink_metadata(&root.path).is_err() {
+            self.read(|c| unclaimed(c))?;
+            create_folder(&root.path, &format!("Root {}", root.name))?;
+            Some(root.path.as_path())
+        } else {
+            None
+        };
+        check_folder(&root)?;
+        let saved = self.write(|tx| {
+            unclaimed(tx)?;
+            save_creating(tx, &root, "registered", actor, created)
         })?;
         self.roots_changed()?;
         Ok(saved)

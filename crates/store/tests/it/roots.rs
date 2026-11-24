@@ -89,6 +89,63 @@ fn a_root_whose_folder_is_missing_is_refused() {
 }
 
 #[test]
+fn a_missing_root_folder_is_created_on_request_and_recorded() {
+    let env = Env::new();
+    let path = env.tmp.path().join("new/in");
+    let root = env
+        .store
+        .register_root(
+            &RootSpec::new("in", &path)
+                .of_kind(RootKind::Ingest)
+                .creating(),
+            "Operator",
+        )
+        .unwrap();
+    assert_eq!(root.kind, RootKind::Ingest);
+    assert!(path.is_dir());
+    let changes = env.store.root_changes("in").unwrap();
+    assert_eq!(
+        changes[0].created_folder.as_deref(),
+        Some(path.display().to_string().as_str())
+    );
+
+    // A folder that is there already is registered as it is, and isn't recorded as created.
+    let there = env.dir("there");
+    env.register(&RootSpec::new("there", &there).creating())
+        .unwrap();
+    assert_eq!(
+        env.store.root_changes("there").unwrap()[0].created_folder,
+        None
+    );
+}
+
+#[test]
+fn a_root_folder_that_cant_be_created_is_refused_and_nothing_is_made() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    std::fs::write(env.tmp.path().join("file"), b"in the way").unwrap();
+    let why = env.refused(&RootSpec::new("sets", env.tmp.path().join("file/sets")).creating());
+    assert!(why.contains("a file is in the way"), "{why}");
+
+    env.register(&RootSpec::new("sets", env.dir("sets")))
+        .unwrap();
+    let clash = env.tmp.path().join("again");
+    let why = env.refused(&RootSpec::new("sets", &clash).creating());
+    assert!(why.contains("registered already"), "{why}");
+    assert!(!clash.exists(), "a refused registration creates nothing");
+
+    let locked = env.dir("locked");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if rustix::fs::access(&locked, rustix::fs::Access::WRITE_OK).is_ok() {
+        eprintln!("skipped: this user writes to read-only folders");
+        return;
+    }
+    let why = env.refused(&RootSpec::new("play", locked.join("play")).creating());
+    assert!(why.contains("may not write"), "{why}");
+    assert_eq!(env.store.roots_view().len(), 1);
+}
+
+#[test]
 fn a_root_declared_writable_that_cant_be_written_is_refused() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
@@ -562,7 +619,7 @@ mod browsing {
     }
 
     #[test]
-    fn a_relative_path_a_parent_step_and_a_missing_folder_are_refused() {
+    fn a_relative_path_a_parent_step_and_a_file_are_refused_and_a_missing_folder_isnt_found() {
         let env = Env::new();
         let mnt = env.dir("mnt");
         std::fs::write(mnt.join("a-file"), b"").unwrap();
@@ -573,7 +630,13 @@ mod browsing {
         assert!(refused("mnt".into()).contains("absolute"));
         assert!(refused(String::new()).contains("absolute"));
         assert!(refused(format!("{}/../mnt", mnt.display())).contains(".."));
-        assert!(refused(format!("{}/missing", mnt.display())).contains("no folder"));
+        let missing = env
+            .store
+            .folders(&format!("{}/missing", mnt.display()), false);
+        assert!(
+            matches!(&missing, Err(Error::NotFound(why)) if why.contains("no folder")),
+            "{missing:?}"
+        );
         assert!(refused(format!("{}/a-file", mnt.display())).contains("not a folder"));
     }
 }

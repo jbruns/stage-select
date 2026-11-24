@@ -66,6 +66,20 @@ pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Like `get`, but `None` when the Service finds nothing there (404).
+pub async fn get_found<T: DeserializeOwned>(path: &str) -> Result<Option<T>, String> {
+    let response = Request::get(&url(path)).send().await.map_err(failed)?;
+    if response.status() == 404 {
+        return Ok(None);
+    }
+    checked(response)
+        .await?
+        .json()
+        .await
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
 pub async fn text(path: &str) -> Result<String, String> {
     let response = Request::get(&url(path)).send().await.map_err(failed)?;
     checked(response)

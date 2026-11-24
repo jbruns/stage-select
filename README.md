@@ -530,7 +530,12 @@ can see; see "Browsing for a folder". Each root has:
 
 - **A name**, fixed once registered: everything you register in the root refers to it by name. It can't be empty,
   hold a `/` or a control character, or begin or end with a space.
-- **A path**, the absolute path of a folder that exists when you register it.
+- **A path**, the absolute path of a folder. If the folder doesn't exist yet, tick **Create this folder** when you
+  register the root (`root register --create`, or `"create": true` in the API), whatever its kind: Stage Select
+  creates it, and any missing folders above it, as the service's user, then registers the root. If it can't, such as
+  when the service's user may not write to the folder above, the file system is read-only, or a file is in the way,
+  it registers nothing and says why. The root's registration records the folder it created, and the service's log
+  says so. Without the choice, a missing folder is refused.
 - **A kind:** `general`, for source sets, if read-only, or play library folders, if writable; `ingest`, an ingest
   folder, where new files arrive (see "Ingest folders"); or `additions`, where your additions sets live, one folder
   per system (see "Additions"). There is at most one `additions` root. An ingest or additions root is always
@@ -576,7 +581,7 @@ What you can't change, and what a change does:
 
 ```sh
 stage-select root list
-stage-select root register <name> <path> [--kind general|ingest|additions] [--writable | --read-only]
+stage-select root register <name> <path> [--create] [--kind general|ingest|additions] [--writable | --read-only]
     [--writable-path <path>]… [--readers N] [--read-mib-per-s N] [--write-mib-per-s N]
 stage-select root edit <name> [--path <path>] [--kind …] [--writable | --read-only]
     [--writable-path <path>]… [--no-writable-paths] [--readers N|default] [--read-mib-per-s N|default]
@@ -586,7 +591,8 @@ stage-select root holds <name>
 ```
 
 `root list` prints each root's name, path, kind, where Stage Select may write to it, and your ceilings for it.
-`root edit` changes only what you give; `--writable-path` replaces the root's writable paths, and `default` clears
+`root register --create` creates the root's folder first if it is missing, and says so. `root edit` changes only
+what you give; `--writable-path` replaces the root's writable paths, and `default` clears
 your value of a ceiling. To switch one source set, use `set edit` (see "Source sets"). The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
 
@@ -745,7 +751,10 @@ changed its address or root is discarded. The tab shows a new comparison as soon
 
 Every path you register has a **Browse…** button beside it: a root's path, a source set's path in its root, and a
 library folder's path in its root. It opens a folder browser at the folder the field names, or, when the service
-can't list that folder, at the top, saying so. For a root, the top is `/`, so you can browse every folder the
+can't list that folder, at the top, saying so. When that folder doesn't exist yet, the browser says **This folder
+doesn't exist yet** and offers to create it: **Create this folder** for a root, **Create an empty source set** for a
+source set. That puts the path in the field and ticks the same choice in the form; the folder is created when you
+register. For a root, the top is `/`, so you can browse every folder the
 service can see. For a source set or a library folder, the top is the root you chose, and you choose a folder in it.
 
 The browser shows the trail of folders from the top, each a link back to it, then the folders in this one, sorted by
@@ -757,7 +766,7 @@ tick **Show hidden folders**, and lists at most 500 folders, saying when it left
 names and whether it can write to each, and changes nothing: you still register the path as before, and the service
 checks it then.
 
-In the API, `GET /api/v1/folders?path=` lists a folder's folders.
+In the API, `GET /api/v1/folders?path=` lists a folder's folders, and answers `404` for a folder that doesn't exist.
 
 ### Path templates
 
@@ -857,7 +866,7 @@ SHA-256.
 
 ```sh
 stage-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
-  [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>] [--read-only]
+  [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>] [--read-only] [--create]
 stage-select set edit <source set> [--may-change | --read-only]
 stage-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
 stage-select set coverage <source set> --clear
@@ -874,7 +883,13 @@ root is refused for the same reason when a source set in it would come to sit in
 `--coverage-region` give it a coverage, the regions of its DAT's games you keep (see "Coverage"); repeat either and
 combine them. Leave both out to cover every game. By default Stage Select may change the source set: repairs may fix
 its files, and single copy may place its games into your play library folders; `--read-only` registers it read-only
-instead, so repairs are refused and single copy copies each game. `set edit` prints whether Stage Select may change a
+instead, so repairs are refused and single copy copies each game. The folder must exist, unless you give `--create`
+(in the workbench, **Create an empty source set**; in the API, `"create": true`): Stage Select then creates it, and
+any missing folders above it in the root, for ingest to fill. It creates only folders that resolve inside the root,
+and only for a source set it may change, as creating it writes to a read-only root: `--create` and `--read-only`
+can't go together. The new source set is empty, so its first audit counts every game missing; a repair then fills
+it from your ingest folders. The source set records who had its folder created and when, and the service's log says
+so. `set edit` prints whether Stage Select may change a
 source set; `--may-change` or `--read-only` switches it, as on its overview in the workbench, and lists each approved
 plan the switch voided (see "Roots"). `set coverage` prints a source set's coverage. With `--preset` or
 `--region`, both repeatable, it sets the coverage to those regions instead, and `--clear` covers every game again; it
@@ -2034,11 +2049,11 @@ What these versions promise you:
 |----------------------------------------------------|--------------------------------------------------------------|
 | `GET /api/v1/health`                               | `{"status": "ok"}`, unauthenticated                          |
 | `GET /api/v1/roots`                                | your roots, by name: each `{"name", "path", "kind", "writable", "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "updated_by", "updated_at"}`, `kind` being `general`, `ingest` or `additions` |
-| `POST /api/v1/roots`                               | register a root: `{"name", "path", "kind"?, "writable"?, "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?}`; `201` with the root; `400` when the folder doesn't exist, can't be written though you made it writable, the name is taken, there is already an additions root, or another rule in "Roots" refuses it |
+| `POST /api/v1/roots`                               | register a root: `{"name", "path", "kind"?, "writable"?, "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "create"?}`; `create`, by default `false`, creates the folder and its missing parents first when it is missing (`PUT` ignores it); `201` with the root; `400` when the folder doesn't exist and `create` isn't `true`, can't be created, saying why, can't be written though you made it writable, the name is taken, there is already an additions root, or another rule in "Roots" refuses it |
 | `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it or a plan under way writes to it, naming them |
 | `POST /api/v1/roots/{name}/unregistration`         | unregister a root, touching no file; `204`, or `409` naming what is registered in it |
-| `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at"}`, `action` being `registered`, `edited` or `unregistered`, and `after` the root as it left it |
-| `GET /api/v1/folders?path=&hidden=`                | the folders in a folder, for browsing: `{"path", "parent"?, "folders": [{"name", "path", "writable", "root"?, "link"?}], "more"?}`, `path` being the absolute path tidied, `parent` the folder above it (none at `/`), `root` the root a folder is in once links are followed, `link` `true` for a symbolic link to a folder, listed at its own path; sorted by name, leaving out files and, unless `hidden=true`, folders whose name starts with a dot and `lost+found`; at most 500, `more` being `true` when it left some out; `400` when the path isn't absolute, steps up with `..`, or isn't a folder the service can list |
+| `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at", "created_folder"?}`, `action` being `registered`, `edited` or `unregistered`, `after` the root as it left it, and `created_folder` the folder its registration created |
+| `GET /api/v1/folders?path=&hidden=`                | the folders in a folder, for browsing: `{"path", "parent"?, "folders": [{"name", "path", "writable", "root"?, "link"?}], "more"?}`, `path` being the absolute path tidied, `parent` the folder above it (none at `/`), `root` the root a folder is in once links are followed, `link` `true` for a symbolic link to a folder, listed at its own path; sorted by name, leaving out files and, unless `hidden=true`, folders whose name starts with a dot and `lost+found`; at most 500, `more` being `true` when it left some out; `400` when the path isn't absolute, steps up with `..`, or isn't a folder the service can list; `404` when there is no folder there |
 | `GET /api/v1/folder-suggestions`                   | the folders you could register as roots: `{"folders": [{"path", "writable"}], "more"?}`, each of `/data`, `/mnt`, `/media` and `/srv` that exists and the folders directly in it, sorted, leaving out hidden folders, symbolic links and your roots; at most 50 under each, `more` being `true` when it left some out |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision, each with `blockers`: what stops you deleting it, empty when nothing does |
@@ -2051,9 +2066,9 @@ What these versions promise you:
 | `POST /api/v1/support-files`                       | import a MAME support file: multipart `source_url`?, `file`; 201 when it's new, 400 when its header names no support file or MAME version |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`), and `next_at`, when they are next fetched if they are owed but must wait |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
-| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, `coverage`: the regions it covers, absent when it covers every game, and `repairs_may_change`: whether Stage Select may change it (repairs, and single copy placing its games), as its root's `writable_paths` list its path |
+| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, `coverage`: the regions it covers, absent when it covers every game, `repairs_may_change`: whether Stage Select may change it (repairs, and single copy placing its games), as its root's `writable_paths` list its path, and `folder_created`: `{"by", "at"}`, when Stage Select created its folder |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
-| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?, "repairs_may_change"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game; `repairs_may_change`, by default `true`, adds its path to its root's `writable_paths` in the same transaction |
+| `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?, "repairs_may_change"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game; `repairs_may_change`, by default `true`, adds its path to its root's `writable_paths` in the same transaction; `"create": true` creates its folder, and the missing folders above it in the root, when it is missing, refused unless `repairs_may_change` is `true` and the folder resolves inside the root |
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows. With a coverage, the latest audit's `games` counts only the games it covers, `outside_coverage` (`{"games", "unknown_region"}`) counts the rest by game status and how many of them have the region `Unknown`, and `covered_entries` (`{"findings", "claimed"}`) counts the entries its status ranks on, those of covered games and of no game, while `latest.findings` and `latest.claimed` still count every entry; `coverage_unavailable` is `true` when the coverage couldn't be applied, and its counts are then whole |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
@@ -2626,7 +2641,7 @@ Its screens:
   Stage Select may change, each linking to its page, and who changed it last; editing a read-only root lists them too.
   You switch each on its source set: the **Stage Select may change this source set** choice when you register it, on
   by default, and in its overview's **About it**, where turning it off lists the approved plans it voided. You register a root there, with **Browse…** beside its path to
-  browse from `/`, edit one, its name aside, or
+  browse from `/` and **Create this folder** for a folder that doesn't exist yet, edit one, its name aside, or
   unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from

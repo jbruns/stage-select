@@ -868,7 +868,6 @@ fn the_api_lists_the_folders_in_a_folder_and_refuses_a_path_it_cant_list() {
     for (path, why) in [
         ("browse", "absolute"),
         (&format!("{}/../browse", at(&base)), ".."),
-        (&folder("missing"), "no folder"),
     ] {
         let (status, body) = list(path, "false");
         assert_eq!(status, 400, "{path}: {body}");
@@ -877,6 +876,9 @@ fn the_api_lists_the_folders_in_a_folder_and_refuses_a_path_it_cant_list() {
             "{path}: {body}"
         );
     }
+    // A missing folder is one the picker may offer to create.
+    let (status, body) = list(&folder("missing"), "false");
+    assert_eq!(status, 404, "{body}");
 
     let anonymous = Client {
         auth: None,
@@ -4798,4 +4800,58 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
         roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
         ["drop", "sets"]
     );
+}
+
+/// A missing folder is created on request: a Root's, recorded on its registration, and an empty Source Set's, recorded
+/// on the Source Set; a Source Set Stage Select may not change gets none.
+#[test]
+fn a_missing_root_or_source_set_folder_is_created_when_asked() {
+    use stage_select_api::roots::RootChange;
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let drop = env.tmp.path().join("new/drop");
+    let (status, body) = send_root(
+        &client,
+        "POST",
+        "/roots",
+        Some(serde_json::json!({
+            "name": "drop", "path": drop, "kind": "ingest", "writable": true, "create": true
+        })),
+    );
+    assert_eq!(status, 201, "{body}");
+    assert!(drop.is_dir());
+    let changes: Vec<RootChange> = client.json("/roots/drop/changes");
+    assert_eq!(
+        changes[0].created_folder.as_deref(),
+        Some(drop.display().to_string().as_str())
+    );
+
+    client.upload("Test - System (20260101).dat", &env.dat());
+    let add = |may_change: bool| {
+        let mut response = client
+            .post("/source-sets")
+            .send_json(serde_json::json!({
+                "root": "sets", "path": "New/Empty", "dat": "No-Intro/Test - System",
+                "repairs_may_change": may_change, "create": true
+            }))
+            .unwrap();
+        let status = response.status().as_u16();
+        (
+            status,
+            response
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .unwrap(),
+        )
+    };
+    let folder = env.tmp.path().join("roots/sets/New/Empty");
+    let (status, body) = add(false);
+    assert_eq!(status, 400, "{body}");
+    assert!(!folder.exists());
+    let (status, body) = add(true);
+    assert_eq!(status, 201, "{body}");
+    let added: SourceSetRecord = serde_json::from_value(body).unwrap();
+    assert_eq!(added.folder_created.unwrap().by, TOKEN_ACTOR);
+    assert!(folder.is_dir());
 }

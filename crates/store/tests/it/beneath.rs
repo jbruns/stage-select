@@ -166,7 +166,11 @@ fn a_source_set_path_is_refused_unless_it_names_a_folder_that_resolves_inside_it
     }
     assert_eq!(
         env.add_set("absent"),
-        Err(canonicalize_error(&env.sets().join("absent")))
+        Err(format!(
+            "there is no folder at {}; check the path, or have Stage Select create it to start an empty source \
+             set absent there",
+            env.sets().canonicalize().unwrap().join("absent").display()
+        ))
     );
     assert_eq!(
         env.add_set("file"),

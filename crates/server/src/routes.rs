@@ -462,7 +462,8 @@ async fn folder_suggestions(State(state): State<AppState>) -> ApiResult<Json<Fol
 }
 
 /// The folders in the folder `?path=`, to browse for a path; hidden ones too with `?hidden=true`. Read off the
-/// async workers, as a folder may be on a slow share.
+/// async workers, as a folder may be on a slow share. A folder that doesn't exist is not found (404), so that a
+/// picker can offer to create it.
 async fn folders(
     State(state): State<AppState>,
     query: Result<Query<FoldersQuery>, QueryRejection>,
@@ -475,15 +476,31 @@ async fn folders(
     .map(Json)
 }
 
-/// Registers a Root. Refused unless its folder exists, and can be written when it's declared writable, and unless
-/// its kind allows its writability; there is at most one Root of kind `additions`.
+/// Registers a Root. Refused unless its folder exists, or `create` asks for it and the Service can create it, and
+/// can be written when it's declared writable, and unless its kind allows its writability; there is at most one Root
+/// of kind `additions`. A folder created is noted in the event log.
 async fn register_root(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
     body: Result<Json<RootSpec>, JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<Root>)> {
     let Json(spec) = body?;
-    let root = blocking(&state, move |store| store.register_root(&spec, &actor)).await?;
+    let root = blocking(&state, move |store| {
+        let root = store.register_root(&spec, &actor)?;
+        if spec.create
+            && let Some(created) = store
+                .root_changes(&root.name)?
+                .pop()
+                .and_then(|c| c.created_folder)
+        {
+            eprintln!(
+                "stage-select: created folder {created} for root {}, as {actor} asked",
+                root.name
+            );
+        }
+        Ok(root)
+    })
+    .await?;
     state.jobs.wake();
     Ok((StatusCode::CREATED, Json(root.view())))
 }
@@ -895,8 +912,17 @@ async fn add_source_set(
             &add.dat,
             coverage.as_deref(),
             Some(add.repairs_may_change),
+            add.create,
             &actor,
         )
+        .inspect(|set| {
+            if set.folder_created.is_some() {
+                eprintln!(
+                    "stage-select: created folder {} in root {} for source set {}, as {actor} asked",
+                    set.path, set.root, set.name
+                );
+            }
+        })
     })
     .await?;
     Ok((StatusCode::CREATED, Json(record)))
