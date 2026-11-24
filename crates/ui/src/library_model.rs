@@ -1,7 +1,7 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use stage_select_api::build::{LibraryFolder, RemoveAction, Stale};
+use stage_select_api::build::{BuiltFile, LibraryFolder, RemoveAction, Stale};
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use stage_select_api::storage::release_of;
 use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem};
@@ -328,18 +328,22 @@ impl ChosenGames {
         chosen
     }
 
-    /// As [`ChosenGames::of`], each checked file of a multi-disc release's own, such as its generated `.m3u`, standing
-    /// for its discs: the games among `all` the folder's built files whose release it is.
+    /// As [`ChosenGames::of`], from each checked file's game, whether it is placed, and whether it is a generated
+    /// playlist ([`is_generated_playlist`]): a playlist, whose game is its release's name, stands for its discs, the
+    /// games among `all` the folder's built files whose release it is. Any other file stands for its own game.
     pub fn of_checked<'a>(
-        checked: impl IntoIterator<Item = (&'a str, Option<Placement>)>,
+        checked: impl IntoIterator<Item = (&'a str, Option<Placement>, bool)>,
         all: &[(&'a str, Option<Placement>)],
     ) -> ChosenGames {
-        ChosenGames::of(checked.into_iter().flat_map(|(game, placement)| {
-            let discs: Vec<(&str, Option<Placement>)> = all
-                .iter()
-                .filter(|(other, _)| *other != game && release_of(other) == game)
-                .copied()
-                .collect();
+        ChosenGames::of(checked.into_iter().flat_map(|(game, placement, playlist)| {
+            let discs: Vec<(&str, Option<Placement>)> = match playlist {
+                true => all
+                    .iter()
+                    .filter(|(other, _)| *other != game && release_of(other) == game)
+                    .copied()
+                    .collect(),
+                false => Vec::new(),
+            };
             match discs.is_empty() {
                 true => vec![(game, placement)],
                 false => discs,
@@ -354,6 +358,12 @@ impl ChosenGames {
             .map(String::as_str)
             .collect()
     }
+}
+
+/// Whether built file `file` is the `.m3u` a build generates to list a multi-disc game's discs: a file of no ROM,
+/// named for its release.
+pub fn is_generated_playlist(file: &BuiltFile) -> bool {
+    file.roms.is_empty() && file.target.to_ascii_lowercase().ends_with(".m3u")
 }
 
 /// `games` in a sentence: the name of one, or how many.
@@ -956,12 +966,54 @@ mod tests {
             ("Saga (USA) (Disc 2)", Some(Placement::Placed)),
             ("Pong", None),
         ];
-        let c = ChosenGames::of_checked([("Saga (USA)", None), ("Pong", None)], &all);
+        let c = ChosenGames::of_checked([("Saga (USA)", None, true), ("Pong", None, false)], &all);
         assert_eq!(
             c.games,
             ["Pong", "Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"]
         );
         assert_eq!(c.placed, ["Saga (USA) (Disc 2)"]);
+    }
+
+    #[test]
+    fn a_checked_game_named_like_a_release_is_itself_and_only_a_playlist_is_its_discs() {
+        let all = [("Orbit (USA)", None), ("Orbit (USA) (Disc 1)", None)];
+        let c = ChosenGames::of_checked([("Orbit (USA)", None, false)], &all);
+        assert_eq!(c.games, ["Orbit (USA)"]);
+
+        let file = |target: &str, roms: usize| BuiltFile {
+            target: target.into(),
+            game: "Saga (USA)".into(),
+            kind: stage_select_api::build::ItemKind::Repack,
+            build: 1,
+            selection: 1,
+            audit: 1,
+            dat_revision: String::new(),
+            sources: Vec::new(),
+            roms: vec![
+                stage_select_api::build::ExpectedRom {
+                    name: "Saga (USA).m3u".into(),
+                    size: 1,
+                    crc: None,
+                    md5: None,
+                    sha1: None,
+                    sha256: None,
+                    header: None,
+                };
+                roms
+            ],
+            file: stage_select_api::build::FileStat {
+                size: 1,
+                mtime_ns: 0,
+            },
+            sha256: None,
+            torrentzip: true,
+        };
+        assert!(is_generated_playlist(&file(
+            "Saga (USA).m3u/Saga (USA).m3u",
+            0
+        )));
+        assert!(!is_generated_playlist(&file("Saga (USA).m3u", 1)));
+        assert!(!is_generated_playlist(&file("Saga (USA).zip", 0)));
     }
 
     #[test]

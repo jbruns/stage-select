@@ -13,7 +13,7 @@ use stage_select_api::build::{
 };
 
 use stage_select_api::storage::release_of;
-use stage_select_engine::dat::{Dat, DumpStatus};
+use stage_select_engine::dat::{Dat, DumpStatus, Rom};
 
 use crate::folders::folder_by_id;
 use crate::{Error, Result, Store, now};
@@ -91,45 +91,45 @@ pub(crate) fn normalize(removals: &mut Vec<GameRemoval>, remove_all: bool) -> Re
     Ok(())
 }
 
-/// The other games of `dat` that need ROMs `game` holds: its clones, and each game listing a ROM of the same content,
-/// by SHA-1, or by size and CRC where either has no SHA-1. A placed game's file is the only copy of its ROMs, and an
-/// Audit counts them for these games too, so deleting it would lose them as well.
+/// The other games of `dat` that need ROMs `game`'s placed file holds, by name. That file is self-contained: it holds
+/// every ROM `game` lists and every ROM of its BIOS and devices. A game needs one when it lists a ROM of the same
+/// content, by SHA-1, or by size and CRC where either has no SHA-1, or when one of its BIOS or devices does. Disks are
+/// never placed, always copied, so none counts. A placed file is the only copy of what it holds, and an Audit counts
+/// its ROMs for those games too, so deleting it would lose them as well.
 pub(crate) fn sharing(dat: &Dat, game: &str) -> Vec<String> {
     let Some(index) = dat.game_index(game) else {
         return Vec::new();
     };
-    let dumped = |r: &&stage_select_engine::dat::Rom| r.status != DumpStatus::NoDump;
-    let held: Vec<&stage_select_engine::dat::Rom> = dat
-        .roms
-        .iter()
-        .filter(|r| r.game == index)
-        .filter(dumped)
+    let counted = |r: &Rom| !r.disk && r.status != DumpStatus::NoDump;
+    let held: Vec<&Rom> = dat
+        .self_contained(index)
+        .into_iter()
+        .map(|r| &dat.roms[r])
+        .filter(|r| counted(r))
         .collect();
-    let same = |a: &stage_select_engine::dat::Rom, b: &stage_select_engine::dat::Rom| match (
-        &a.sha1, &b.sha1,
-    ) {
+    let same = |a: &Rom, b: &Rom| match (&a.sha1, &b.sha1) {
         (Some(x), Some(y)) => x.eq_ignore_ascii_case(y),
         _ => {
-            !a.disk
-                && a.size == b.size
+            a.size == b.size
                 && matches!((&a.crc, &b.crc), (Some(x), Some(y)) if x.eq_ignore_ascii_case(y))
         }
     };
-    let mut games: BTreeSet<&str> = dat
+    let listing: BTreeSet<usize> = dat
         .roms
         .iter()
-        .filter(|r| r.game != index)
-        .filter(dumped)
+        .filter(|r| r.game != index && counted(r))
         .filter(|r| held.iter().any(|h| same(h, r)))
-        .map(|r| dat.games[r.game].as_str())
+        .map(|r| r.game)
         .collect();
-    games.extend(
-        dat.cloneof
-            .iter()
-            .enumerate()
-            .filter(|(i, parent)| *i != index && parent.as_deref() == Some(game))
-            .map(|(i, _)| dat.games[i].as_str()),
-    );
+    let mut games: BTreeSet<&str> = listing.iter().map(|&g| dat.games[g].as_str()).collect();
+    if !listing.is_empty() {
+        games.extend(
+            (0..dat.games.len())
+                .filter(|&g| g != index && !listing.contains(&g))
+                .filter(|&g| dat.dependencies(g).iter().any(|d| listing.contains(d)))
+                .map(|g| dat.games[g].as_str()),
+        );
+    }
     games.remove(game);
     games.into_iter().map(str::to_owned).collect()
 }
@@ -137,7 +137,7 @@ pub(crate) fn sharing(dat: &Dat, game: &str) -> Vec<String> {
 /// Why deleting `game`, placed here as its source set's only copy, is refused when `sharing` are the other games that
 /// need its ROMs, or none when nothing does; `None` for `sharing` when that can't be read.
 pub(crate) fn shared_refusal(game: &str, sharing: Option<&[String]>) -> Option<String> {
-    let send_back = "send it back to its source set instead";
+    let send_back = "sending it back to your source set still works";
     match sharing {
         None => Some(format!(
             "{game} is placed here as its source set's only copy, and its DAT can't be read to tell whether other \
@@ -408,23 +408,28 @@ mod tests {
 <datafile>
   <header><name>Arcade</name><description>Arcade</description><version>1</version></header>
   <game name="parent"><rom name="a.bin" size="4" crc="11111111"/><rom name="b.bin" size="4" crc="22222222"/></game>
-  <game name="clone" cloneof="parent" romof="parent"><rom name="c.bin" size="4" crc="33333333"/></game>
+  <game name="clone" cloneof="parent" romof="parent"><rom name="a.bin" merge="a.bin" size="4" crc="11111111"/><rom name="c.bin" size="4" crc="33333333"/></game>
+  <game name="cousin" cloneof="parent" romof="parent"><rom name="g.bin" size="4" crc="55555555"/></game>
   <game name="sharer"><rom name="x.bin" size="4" crc="22222222"/></game>
   <game name="alone"><rom name="d.bin" size="4" crc="44444444"/><rom name="e.bin" size="0" status="nodump"/></game>
   <game name="nodumps"><rom name="f.bin" size="0" status="nodump"/></game>
 </datafile>"#;
         let dat = Dat::parse(xml, std::path::Path::new("arcade.dat")).unwrap();
+        // A clone that lists none of its parent's ROMs doesn't need them.
         assert_eq!(sharing(&dat, "parent"), ["clone", "sharer"]);
         assert_eq!(sharing(&dat, "sharer"), ["parent"]);
         assert!(sharing(&dat, "alone").is_empty());
-        assert!(sharing(&dat, "clone").is_empty());
+        assert_eq!(sharing(&dat, "clone"), ["parent"]);
 
         let named = shared_refusal("parent", Some(&sharing(&dat, "parent"))).unwrap();
         assert!(
             named.contains("clone and sharer also need its ROMs"),
             "{named}"
         );
-        assert!(named.contains("send it back"), "{named}");
+        assert!(
+            named.contains("sending it back to your source set still works"),
+            "{named}"
+        );
         assert_eq!(shared_refusal("alone", Some(&[])), None);
         assert!(
             shared_refusal("alone", None)
@@ -437,6 +442,42 @@ mod tests {
                 .unwrap()
                 .contains("a, b, c and 2 more")
         );
+    }
+
+    #[test]
+    fn a_placed_file_holds_its_bios_and_devices_roms_but_never_a_disk() {
+        let xml = br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)">
+  <machine name="sndchip" isdevice="yes" runnable="no">
+    <description>Sound chip</description>
+    <rom name="snd.u1" size="8" crc="50a00001" sha1="50a0000000000000000000000000000000000001"/>
+  </machine>
+  <machine name="solo">
+    <description>Solo</description>
+    <rom name="solo.u1" size="8" crc="50100001" sha1="5010000000000000000000000000000000000001"/>
+    <device_ref name="sndchip"/>
+  </machine>
+  <machine name="other">
+    <description>Other</description>
+    <rom name="other.u1" size="8" crc="07e00001" sha1="07e0000000000000000000000000000000000001"/>
+    <device_ref name="sndchip"/>
+  </machine>
+  <machine name="disked">
+    <description>Disked</description>
+    <rom name="disked.u1" size="8" crc="d1500001" sha1="d150000000000000000000000000000000000001"/>
+    <disk name="shared" sha1="d15c000000000000000000000000000000000001"/>
+  </machine>
+  <machine name="diskmate">
+    <description>Diskmate</description>
+    <rom name="diskmate.u1" size="8" crc="d1500002" sha1="d150000000000000000000000000000000000002"/>
+    <disk name="shared" sha1="d15c000000000000000000000000000000000001"/>
+  </machine>
+</mame>"#;
+        let dat = Dat::parse(xml, std::path::Path::new("mame.xml")).unwrap();
+        // Solo's file holds its sound chip's ROM, the only copy of what Other needs.
+        assert_eq!(sharing(&dat, "solo"), ["other", "sndchip"]);
+        // The disk they both list is copied, never placed.
+        assert!(sharing(&dat, "disked").is_empty());
     }
 
     #[test]

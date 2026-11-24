@@ -30,9 +30,10 @@ use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
 use crate::library_model::{
     BUILT_FOR_NOTE, ChosenGames, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING,
-    ROMM_PER_PLATFORM, Replan, Replans, built_for, checked_in, drifted, fresh, live_status,
-    location, no_coverage, pick, plan_state, removal_label, removal_refusal, removal_result,
-    removed_label, romm_exclusions, selection_under_way, stale_label,
+    ROMM_PER_PLATFORM, Replan, Replans, built_for, checked_in, drifted, fresh,
+    is_generated_playlist, live_status, location, no_coverage, pick, plan_state, removal_label,
+    removal_refusal, removal_result, removed_label, romm_exclusions, selection_under_way,
+    stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::choice::Choice;
@@ -2443,7 +2444,10 @@ fn BuiltFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl I
                 let all = rows.get_untracked();
                 let all: Vec<_> = all.iter().map(|r| (r.0.game.as_str(), r.1)).collect();
                 chosen.set(ChosenGames::of_checked(
-                    picked.rows.iter().map(|r| (r.0.game.as_str(), r.1)),
+                    picked
+                        .rows
+                        .iter()
+                        .map(|r| (r.0.game.as_str(), r.1, is_generated_playlist(&r.0))),
                     &all,
                 ));
                 action.set(a);
