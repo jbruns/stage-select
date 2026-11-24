@@ -88,6 +88,10 @@ pub struct RootSpec {
     pub read_mib_per_s: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write_mib_per_s: Option<u64>,
+    /// When registering, create the folder and its missing parents first, as the Service's user, if it is missing.
+    /// An edit ignores it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub create: bool,
 }
 
 impl RootSpec {
@@ -117,6 +121,14 @@ impl RootSpec {
         }
     }
 
+    /// This Root, its folder created when it is registered if it is missing.
+    pub fn creating(self) -> RootSpec {
+        RootSpec {
+            create: true,
+            ..self
+        }
+    }
+
     /// This Root, read-only but for `paths`.
     pub fn writing(self, paths: &[&str]) -> RootSpec {
         RootSpec {
@@ -137,6 +149,7 @@ impl From<&Root> for RootSpec {
             readers: root.readers,
             read_mib_per_s: root.read_mib_per_s,
             write_mib_per_s: root.write_mib_per_s,
+            create: false,
         }
     }
 }
@@ -178,6 +191,9 @@ pub struct RootChange {
     pub after: Option<Root>,
     pub changed_by: String,
     pub changed_at: String,
+    /// The folder this change created, absolute: the Root's own folder, when registering it created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_folder: Option<String>,
 }
 
 /// The folders `GET /folder-suggestions` suggests registering as Roots: each common mount point the Service can see,

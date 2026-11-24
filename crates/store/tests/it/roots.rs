@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use stage_select_api::roots::{RootKind, RootSpec};
-use stage_select_store::{Error, Store};
+use stage_select_store::{Error, Fault, Store};
 
 struct Env {
     tmp: tempfile::TempDir,
@@ -86,6 +86,113 @@ fn a_root_whose_folder_is_missing_is_refused() {
     let why = env.refused(&RootSpec::new("sets", env.tmp.path().join("missing")));
     assert!(why.contains("doesn't exist"), "{why}");
     assert!(env.store.roots().is_empty());
+}
+
+#[test]
+fn a_missing_root_folder_is_created_on_request_and_recorded() {
+    let env = Env::new();
+    let path = env.tmp.path().join("new/in");
+    let root = env
+        .store
+        .register_root(
+            &RootSpec::new("in", &path)
+                .of_kind(RootKind::Ingest)
+                .creating(),
+            "Operator",
+        )
+        .unwrap();
+    assert_eq!(root.kind, RootKind::Ingest);
+    assert!(path.is_dir());
+    let changes = env.store.root_changes("in").unwrap();
+    assert_eq!(
+        changes[0].created_folder.as_deref(),
+        Some(path.display().to_string().as_str())
+    );
+
+    // A folder that is there already is registered as it is, and isn't recorded as created.
+    let there = env.dir("there");
+    env.register(&RootSpec::new("there", &there).creating())
+        .unwrap();
+    assert_eq!(
+        env.store.root_changes("there").unwrap()[0].created_folder,
+        None
+    );
+}
+
+#[test]
+fn a_root_folder_that_cant_be_created_is_refused_and_nothing_is_made() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    std::fs::write(env.tmp.path().join("file"), b"in the way").unwrap();
+    let why = env.refused(&RootSpec::new("sets", env.tmp.path().join("file/sets")).creating());
+    assert!(why.contains("a file is in the way"), "{why}");
+
+    env.register(&RootSpec::new("sets", env.dir("sets")))
+        .unwrap();
+    let clash = env.tmp.path().join("again");
+    let why = env.refused(&RootSpec::new("sets", &clash).creating());
+    assert!(why.contains("registered already"), "{why}");
+    assert!(!clash.exists(), "a refused registration creates nothing");
+
+    let locked = env.dir("locked");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if rustix::fs::access(&locked, rustix::fs::Access::WRITE_OK).is_ok() {
+        eprintln!("skipped: this user writes to read-only folders");
+        return;
+    }
+    let why = env.refused(&RootSpec::new("play", locked.join("play")).creating());
+    assert!(why.contains("may not write"), "{why}");
+    assert_eq!(env.store.roots_view().len(), 1);
+}
+
+#[test]
+fn a_root_registration_refused_once_its_folders_are_made_removes_only_those() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let probe = env.dir("probe");
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if rustix::fs::access(&probe, rustix::fs::Access::WRITE_OK).is_ok() {
+        eprintln!("skipped: this user writes to read-only folders");
+        return;
+    }
+    let there = env.dir("there");
+    let path = there.join("a/b");
+    // As a umask would leave it: a folder Stage Select can't write to, so a writable root is refused.
+    let locked = path.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::FolderCreated {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+    })));
+
+    let why = env.refused(&RootSpec::new("play", &path).writable().creating());
+
+    env.store.hook_faults(None);
+    assert!(why.contains("can't write"), "{why}");
+    assert!(there.is_dir(), "the folder that was there stays");
+    assert!(!there.join("a").exists(), "the folders made are removed");
+}
+
+#[test]
+fn a_root_folder_made_but_not_opened_is_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let probe = env.dir("probe");
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o333)).unwrap();
+    if std::fs::read_dir(&probe).is_ok() {
+        eprintln!("skipped: this user reads unreadable folders");
+        return;
+    }
+    let there = env.dir("there");
+
+    // Each test runs in a process of its own; a folder made under this umask can't be opened.
+    let was = rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o444));
+    let why = env.refused(&RootSpec::new("play", there.join("a/b")).creating());
+    rustix::process::umask(was);
+
+    assert!(why.contains("can't create"), "{why}");
+    assert!(there.is_dir(), "the folder that was there stays");
+    assert!(!there.join("a").exists(), "the folder made is removed");
 }
 
 #[test]
@@ -562,7 +669,7 @@ mod browsing {
     }
 
     #[test]
-    fn a_relative_path_a_parent_step_and_a_missing_folder_are_refused() {
+    fn a_relative_path_a_parent_step_and_a_file_are_refused_and_a_missing_folder_isnt_found() {
         let env = Env::new();
         let mnt = env.dir("mnt");
         std::fs::write(mnt.join("a-file"), b"").unwrap();
@@ -573,7 +680,13 @@ mod browsing {
         assert!(refused("mnt".into()).contains("absolute"));
         assert!(refused(String::new()).contains("absolute"));
         assert!(refused(format!("{}/../mnt", mnt.display())).contains(".."));
-        assert!(refused(format!("{}/missing", mnt.display())).contains("no folder"));
+        let missing = env
+            .store
+            .folders(&format!("{}/missing", mnt.display()), false);
+        assert!(
+            matches!(&missing, Err(Error::NotFound(why)) if why.contains("no folder")),
+            "{missing:?}"
+        );
         assert!(refused(format!("{}/a-file", mnt.display())).contains("not a folder"));
     }
 }

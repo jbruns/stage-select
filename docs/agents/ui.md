@@ -96,7 +96,7 @@ pure logic there too.
 | A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped?, shown? }`      | `overlay`   |
 | A row or toolbar menu                  | `Menu { glyph, label }` holding `MenuItem { disabled? }`| `overlay`  |
 | A side panel over the page             | `Drawer { open, title }`                               | `overlay`   |
-| A path field's folder browser          | `FolderPicker { field, value, within?, on_choose, disabled? }` in `.path-field` | `folder_picker` |
+| A path field's folder browser          | `FolderPicker { field, value, within?, on_choose, disabled?, create? }` in `.path-field` | `folder_picker` |
 | Any list of rows                       | `List { id, label, rows, empty, detail, .. }`          | `list`      |
 | Cell text that may not fit             | `Clip { text }`                                        | `list`      |
 | A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
@@ -260,8 +260,12 @@ Root, it names folders from the Root's name, and it chooses the path relative to
 Root's own folder. Disable it while there is no Root to browse. In a `.form`, a `<label>` can't hold the button, so
 wrap the label and the `.path-field` in a `div.path-group`. Keep any datalist of suggestions on the input.
 
-The picker opens at the field's path, or at the top with a notice when the Service can't list it; that fallback
-(`fell_back` in `FolderBrowser`) is where a "this folder doesn't exist yet" state belongs. Its folder list is a
+The picker opens at the field's path, or at the top with a notice when the Service can't list it (`fell_back` in
+`FolderBrowser`, worded by `fell_back_line`). `GET /folders` answers 404 for a missing folder (read through
+`api::get_found`), and the notice then says "This folder doesn't exist yet". Given `create` (a `Create { label, run }`,
+set only where the form can create the folder: a new Root, a new Source Set), it offers a button, `label`, that runs
+`run` with the path as the field holds it and closes the drawer; `run` puts the path in the field and ticks the
+form's own create choice, so the folder is created only when the Operator registers. Its folder list is a
 `ul.folder-list` of buttons, not a `List`: each row is one action (open the folder), with no detail, checking, sorting
 or filtering, so it is navigation, like the crumbs. It still moves with the arrow keys, Home, End, Page Up and Page Down
 through `list_model::step`, and when it opens a folder focus goes to the first folder in it, or to "Choose this folder"

@@ -17,7 +17,7 @@ use crate::coverage_model::{self, Draft};
 use crate::events::use_live;
 use crate::model::{needs_review_from_counts, when};
 use crate::parts::choice::Choice;
-use crate::parts::folder_picker::{FolderPicker, Within};
+use crate::parts::folder_picker::{Create, FolderPicker, Within};
 use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Svg;
@@ -37,7 +37,9 @@ use crate::parts::url_state::encode;
 use crate::registration;
 use crate::screens::coverage::{self, CoverageEditor, UNAVAILABLE};
 use crate::screens::repair::MAKING_PLAN;
-use crate::source_set_model::{self as model, MAY_CHANGE, MAY_CHANGE_NOTE, PageTab};
+use crate::source_set_model::{
+    self as model, CREATE_SET, CREATE_SET_NOTE, MAY_CHANGE, MAY_CHANGE_NOTE, PageTab,
+};
 
 /// A source set's page.
 pub fn set_href(name: &str) -> String {
@@ -730,6 +732,7 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
     let draft = RwSignal::new(Draft::every());
     let order = RwSignal::new(Vec::<String>::new());
     let may_change = RwSignal::new(true);
+    let create = RwSignal::new(false);
 
     let proposal = Memo::new(move |_| {
         let Some(template) = template.get() else {
@@ -807,6 +810,7 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
             dat: dat.get_untracked(),
             coverage,
             repairs_may_change: may_change.get_untracked(),
+            create: create.get_untracked(),
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
@@ -920,6 +924,13 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                             within=within
                             disabled=Signal::derive(move || within.with(Option::is_none))
                             on_choose=move |chosen: String| typed.set(Some(chosen))
+                            create=Some(Create {
+                                label: CREATE_SET,
+                                run: Callback::new(move |chosen: String| {
+                                    typed.set(Some(chosen));
+                                    create.set(true);
+                                }),
+                            })
                         />
                     </div>
                 </div>
@@ -933,6 +944,9 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                     note=|| MAY_CHANGE_NOTE
                 >
                     {MAY_CHANGE}
+                </Choice>
+                <Choice checked=create on_change=Callback::new(move |on| create.set(on)) note=|| CREATE_SET_NOTE>
+                    {CREATE_SET}
                 </Choice>
                 {move || {
                     (typed.get().is_some() && proposal.get().is_ok())

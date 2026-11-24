@@ -327,6 +327,16 @@ pub struct SourceSetRecord {
     /// Library Folders. Derived from its Root's `writable_paths`, which list its path while this is on.
     #[serde(default)]
     pub repairs_may_change: bool,
+    /// Who created its folder, and when, if Stage Select created it when the Source Set was registered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_created: Option<FolderCreated>,
+}
+
+/// Who had Stage Select create a folder, and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderCreated {
+    pub by: String,
+    pub at: String,
 }
 
 /// One reason a Source Set is Stale. Looking changed is a heuristic, never a claim of damage.
@@ -461,6 +471,10 @@ pub struct AddSourceSet {
     /// Whether Stage Select may change it, as [`SourceSetRecord::repairs_may_change`]; on by default.
     #[serde(default = "yes")]
     pub repairs_may_change: bool,
+    /// Create its folder, and the missing folders above it in the Root, if it is missing: an empty Source Set for
+    /// ingest to fill. Needs `repairs_may_change`, as creating it writes to a read-only Root.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub create: bool,
 }
 
 fn yes() -> bool {

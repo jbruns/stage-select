@@ -323,6 +323,10 @@ enum SetCommand {
         /// its games instead of placing them in your play library folders. By default it may change it.
         #[arg(long)]
         read_only: bool,
+        /// If the folder is missing, create it, and the missing folders above it in the root: an empty source set
+        /// for ingest to fill. Stage Select must be able to change the source set.
+        #[arg(long, conflicts_with = "read_only")]
+        create: bool,
     },
     /// Show whether Stage Select may change a source set: whether repairs may write to its folder, and single copy
     /// may place its games in your play library folders. With `--may-change` or `--read-only`, change it.
@@ -425,13 +429,16 @@ enum AdditionsCommand {
 enum RootCommand {
     /// List your roots: each one's path, kind, where Stage Select may write to it, and your ceilings for it.
     List,
-    /// Register a folder as a root. Refused unless the folder exists, and unless Stage Select can write to it when
-    /// you make the root writable. There can be only one root of kind `additions`.
+    /// Register a folder as a root. Refused unless the folder exists, or you give `--create`, and unless Stage Select
+    /// can write to it when you make the root writable. There can be only one root of kind `additions`.
     Register {
         /// Its name, fixed once registered: what you register in the root refers to it by name.
         name: String,
         /// The folder's absolute path.
         path: PathBuf,
+        /// If the folder is missing, create it, and the missing folders above it, as the service's user.
+        #[arg(long)]
+        create: bool,
         #[command(flatten)]
         options: RootOptions,
     },
@@ -1134,6 +1141,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     coverage_presets,
                     clone_lists,
                     read_only,
+                    create,
                 },
         } => {
             let store = open_store(store)?;
@@ -1151,9 +1159,13 @@ fn run(cli: Cli) -> Result<(), String> {
                     &dat,
                     coverage.as_deref(),
                     Some(!read_only),
+                    create,
                     ACTOR,
                 )
                 .map_err(|e| e.to_string())?;
+            if set.folder_created.is_some() {
+                println!("created folder {} in root {}", set.path, set.root);
+            }
             let covering = match set.coverage {
                 Some(_) => format!("; {}", covers(set.coverage.as_deref())),
                 None => String::new(),
@@ -1424,13 +1436,26 @@ fn run(cli: Cli) -> Result<(), String> {
                 RootCommand::Register {
                     name,
                     path,
+                    create,
                     options,
                 },
         } => {
-            let spec = options.apply(RootSpec::new(&name, path));
-            let root = open_store(store)?
+            let spec = RootSpec {
+                create,
+                ..options.apply(RootSpec::new(&name, path))
+            };
+            let store = open_store(store)?;
+            let root = store
                 .register_root(&spec, ACTOR)
                 .map_err(|e| e.to_string())?;
+            let created = store
+                .root_changes(&name)
+                .map_err(|e| e.to_string())?
+                .pop()
+                .and_then(|c| c.created_folder);
+            if let Some(created) = created {
+                println!("created folder {created}");
+            }
             println!("registered {}", root_line(&root.view()));
             Ok(())
         }

@@ -236,6 +236,7 @@ mod tests {
                 stale: Vec::new(),
                 coverage: None,
                 repairs_may_change: true,
+                folder_created: None,
             },
             latest: Some(AuditSummary {
                 id: 7,

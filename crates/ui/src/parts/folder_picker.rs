@@ -3,8 +3,8 @@
 //! choose into the field. The pure parts (where it starts, the trail of crumbs, going up, what it returns) are
 //! host-tested here.
 //!
-//! When the field's path can't be listed, the picker says why and starts at the top: that is where a folder that
-//! doesn't exist yet would be offered to be made.
+//! When the field's path can't be listed, the picker says why and starts at the top. When it doesn't exist yet, the
+//! picker says so and, given a [`Create`], offers to have it created: the form then asks the Service to create it.
 
 use leptos::html;
 use leptos::prelude::*;
@@ -32,6 +32,14 @@ impl Within {
             label: label.into(),
         }
     }
+}
+
+/// What a picker offers when the field's path doesn't exist yet: a button, `label`, that puts the path in the field
+/// and asks for it to be created, through `run`, as the form's own create box does.
+#[derive(Debug, Clone, Copy)]
+pub struct Create {
+    pub label: &'static str,
+    pub run: Callback<String>,
 }
 
 /// One crumb of the trail to the folder shown: its name and the folder it opens.
@@ -171,11 +179,24 @@ pub fn count_line(listing: &FolderListing, within: Option<&Within>) -> String {
     }
 }
 
-/// What the picker shows: the folders it listed, or why it can't list them.
+/// What the notice says when the field's path, `tried`, couldn't be listed and the picker started at `top` instead:
+/// whether it is `missing`, or a folder the Service can't list. Both are named as the picker names folders.
+pub fn fell_back_line(tried: &str, top: &str, missing: bool) -> String {
+    if missing {
+        format!("This folder doesn't exist yet: {tried}. The list starts at {top}.")
+    } else {
+        format!(
+            "You can't browse {tried}, as it isn't a folder the service can list, so this starts at {top}."
+        )
+    }
+}
+
+/// What the picker shows: the folders it listed, that the folder doesn't exist, or why it can't list it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Shown {
     Loading,
     Listed(FolderListing),
+    Missing,
     Refused(String),
 }
 
@@ -184,7 +205,8 @@ enum Shown {
 struct Answer {
     path: String,
     hidden: bool,
-    result: Result<FolderListing, String>,
+    /// `None` when the folder doesn't exist.
+    result: Result<Option<FolderListing>, String>,
 }
 
 /// What to show for the folder at `at`: an answer for another path or `hidden` is stale, so it shows as loading,
@@ -192,7 +214,8 @@ struct Answer {
 fn shown_for(answer: Option<&Answer>, at: &str, hidden: bool) -> Shown {
     match answer {
         Some(a) if a.path == at && a.hidden == hidden => match &a.result {
-            Ok(l) => Shown::Listed(l.clone()),
+            Ok(Some(l)) => Shown::Listed(l.clone()),
+            Ok(None) => Shown::Missing,
             Err(why) => Shown::Refused(why.clone()),
         },
         _ => Shown::Loading,
@@ -201,7 +224,8 @@ fn shown_for(answer: Option<&Answer>, at: &str, hidden: bool) -> Shown {
 
 /// A **Browse…** button for a path field, named for `field` ("the root's path"). It opens a drawer at the field's
 /// `value`, else at the top: `/`, or within `within`'s Root, where it returns a path relative to the Root.
-/// `on_choose` gets the folder you choose.
+/// `on_choose` gets the folder you choose. With `create`, a field's path that doesn't exist yet can be chosen to be
+/// created.
 #[component]
 pub fn FolderPicker(
     #[prop(into)] field: String,
@@ -209,12 +233,20 @@ pub fn FolderPicker(
     #[prop(optional, into)] within: Signal<Option<Within>>,
     #[prop(into)] on_choose: Callback<String>,
     #[prop(optional, into)] disabled: MaybeProp<bool>,
+    #[prop(default = None)] create: Option<Create>,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let label = format!("Browse for {field}");
     let choose = Callback::new(move |path: String| {
         on_choose.run(path);
         open.set(false);
+    });
+    let create = create.map(|c| Create {
+        label: c.label,
+        run: Callback::new(move |path: String| {
+            c.run.run(path);
+            open.set(false);
+        }),
     });
     view! {
         <button
@@ -232,19 +264,26 @@ pub fn FolderPicker(
                 start=start(&value.get_untracked(), within.get_untracked().as_ref())
                 within=within.get_untracked()
                 choose
+                create
             />
         </Drawer>
     }
 }
 
 #[component]
-fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>) -> impl IntoView {
+fn FolderBrowser(
+    start: String,
+    within: Option<Within>,
+    choose: Callback<String>,
+    create: Option<Create>,
+) -> impl IntoView {
     let within = StoredValue::new(within);
     let fallback = within.with_value(|w| top(w.as_ref()));
     let at = RwSignal::new(start);
     let hidden = RwSignal::new(false);
-    // Where the field's path led when it couldn't be listed, and why; the picker then shows the top instead.
-    let fell_back = RwSignal::new(None::<String>);
+    // Where the field's path led when it couldn't be listed, and whether that was because it doesn't exist yet; the
+    // picker then shows the top instead.
+    let fell_back = RwSignal::new(None::<(String, bool)>);
     let listed_once = RwSignal::new(false);
     let focus_list = RwSignal::new(false);
     let listing = LocalResource::new(move || {
@@ -256,7 +295,7 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
                 api::segment(&path),
                 if hidden { "&hidden=true" } else { "" }
             );
-            let result = api::get::<FolderListing>(&query).await;
+            let result = api::get_found::<FolderListing>(&query).await;
             Answer {
                 path,
                 hidden,
@@ -271,10 +310,10 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
     let fallback_at = fallback.clone();
     Effect::new(move || match shown.get() {
         Shown::Listed(_) => listed_once.set(true),
-        Shown::Refused(_) if !listed_once.get_untracked() => {
+        ref missing @ (Shown::Missing | Shown::Refused(_)) if !listed_once.get_untracked() => {
             let tried = at.get_untracked();
             if tried != fallback_at {
-                fell_back.set(Some(tried));
+                fell_back.set(Some((tried, *missing == Shown::Missing)));
                 at.set(fallback_at.clone());
             }
         }
@@ -419,13 +458,30 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
             {move || {
                 fell_back
                     .get()
-                    .map(|tried| {
-                        let (tried, top) = within
-                            .with_value(|w| (display(&tried, w.as_ref()), display(&fallback, w.as_ref())));
+                    .map(|(tried, missing)| {
+                        let (shown, top, path) = within.with_value(|w| {
+                            (
+                                display(&tried, w.as_ref()),
+                                display(&fallback, w.as_ref()),
+                                chosen(&tried, w.as_ref()),
+                            )
+                        });
+                        let offer = create.filter(|_| missing).zip(path).map(|(create, path)| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="small"
+                                    on:click=move |_| create.run.run(path.clone())
+                                >
+                                    {create.label}
+                                </button>
+                            }
+                        });
                         view! {
                             <Message kind=MessageKind::NOTICE>
-                                {format!("You can't browse {tried}, as it isn't a folder the service can list, so this starts at {top}.")}
+                                {fell_back_line(&shown, &top, missing)}
                             </Message>
+                            {offer}
                         }
                     })
             }}
@@ -435,11 +491,15 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
                         format!("Listing the folders in {}…", within.with_value(|w| display(&at.get(), w.as_ref())))
                     }
                     Shown::Listed(l) => within.with_value(|w| count_line(&l, w.as_ref())),
-                    Shown::Refused(_) => String::new(),
+                    Shown::Missing | Shown::Refused(_) => String::new(),
                 }}
             </p>
             {move || match shown.get() {
                 Shown::Refused(message) => view! { <Problem message /> }.into_any(),
+                Shown::Missing => view! {
+                    <Problem message="This folder doesn't exist yet." />
+                }
+                .into_any(),
                 _ => ().into_any(),
             }}
             <ul
@@ -645,7 +705,7 @@ mod tests {
         let answer = Answer {
             path: "/mnt".into(),
             hidden: false,
-            result: Ok(listing.clone()),
+            result: Ok(Some(listing.clone())),
         };
         assert_eq!(
             shown_for(Some(&answer), "/mnt", false),
@@ -663,6 +723,23 @@ mod tests {
             Shown::Refused("no".into())
         );
         assert_eq!(shown_for(Some(&refused), "/", false), Shown::Loading);
+        let missing = Answer {
+            result: Ok(None),
+            ..refused
+        };
+        assert_eq!(shown_for(Some(&missing), "/mnt", false), Shown::Missing);
+    }
+
+    #[test]
+    fn a_path_that_doesnt_exist_yet_says_so_and_one_that_cant_be_listed_says_why() {
+        assert_eq!(
+            fell_back_line("sets/New", "sets", true),
+            "This folder doesn't exist yet: sets/New. The list starts at sets."
+        );
+        assert_eq!(
+            fell_back_line("/root", "/", false),
+            "You can't browse /root, as it isn't a folder the service can list, so this starts at /."
+        );
     }
 
     #[test]

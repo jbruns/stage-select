@@ -46,7 +46,7 @@ pub(crate) fn resolve_beneath<'a>(root: &'a Root, rel: &str, what: &str) -> Resu
 
 impl Beneath<'_> {
     /// The Root's path as configured, joined with the path.
-    fn configured(&self) -> PathBuf {
+    pub fn configured(&self) -> PathBuf {
         self.rel
             .split('/')
             .fold(self.root.path.clone(), |p, part| p.join(part))

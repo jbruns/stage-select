@@ -22,6 +22,7 @@ mod ingest;
 mod jobs;
 mod kept;
 mod lifecycle;
+mod made_folders;
 mod migrations;
 pub mod observe;
 mod placements;
@@ -380,6 +381,11 @@ pub enum Fault {
     RemovedKept,
     /// After an edit of a Root takes the lifecycle lock, before it checks and records the edit.
     RootEditing,
+    /// Before a Root or Source Set folder registered on request is created, once its path is checked.
+    CreatingFolder,
+    /// After a Root or Source Set folder registered on request is created, before the registration is checked
+    /// further and recorded.
+    FolderCreated,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
     /// either folder is synced.
     SourceKeptMoved(i64),

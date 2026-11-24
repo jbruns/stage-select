@@ -5285,6 +5285,7 @@ fn delta(env: &Env, may_change: bool) -> stage_select_api::SourceSetRecord {
             "No-Intro/Test - System",
             None,
             Some(may_change),
+            false,
             "Operator",
         )
         .unwrap();
@@ -5375,6 +5376,7 @@ fn a_folder_listed_above_a_source_set_doesnt_let_stage_select_change_it() {
             "No-Intro/Test - System",
             None,
             None,
+            false,
             "Operator",
         )
         .unwrap();
@@ -5403,6 +5405,218 @@ fn a_folder_listed_above_a_source_set_doesnt_let_stage_select_change_it() {
         .unwrap();
 }
 
+/// Registers `rel` in the read-only Root `ro` as a Source Set bound to the test DAT, creating its folder.
+fn create_set(
+    env: &Env,
+    rel: &str,
+    may_change: Option<bool>,
+) -> Result<stage_select_api::SourceSetRecord, Error> {
+    env.store.register_source_set(
+        "ro",
+        rel,
+        "No-Intro/Test - System",
+        None,
+        may_change,
+        true,
+        "Operator",
+    )
+}
+
+#[test]
+fn an_empty_source_set_created_for_ingest_to_fill_is_filled_by_a_repair() {
+    let env = Env::new();
+    let set = create_set(&env, "Shelf/Delta", Some(true)).unwrap();
+    let created = set.folder_created.expect("its folder was created");
+    assert_eq!(created.by, "Operator");
+    assert_eq!(
+        env.store.source_set("Delta").unwrap().folder_created,
+        Some(created)
+    );
+    let folder = env.tmp.path().join("roots/ro/Shelf/Delta");
+    assert!(folder.is_dir());
+    assert!(Env::files(&folder).is_empty());
+
+    env.store
+        .audit_source_set("Delta", None, AuditEvidence::Full)
+        .unwrap();
+    let report = |env: &Env| {
+        let latest = &env.store.history("Delta").unwrap()[0];
+        env.store.report(latest.id).unwrap()
+    };
+    assert!(
+        report(&env)
+            .games
+            .iter()
+            .all(|g| g.status == GameStatus::Missing),
+        "an empty source set misses every game"
+    );
+
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    let plan = env
+        .store
+        .plan_repair("Delta", &PlanRepair::default())
+        .unwrap();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
+    let done = env.approve(&plan);
+    env.run_queued_audit(&done);
+
+    assert_eq!(
+        Env::files(&folder),
+        [".stage-select/marker", "Pong (USA).zip"]
+    );
+    assert!(env.ingest_listing().is_empty());
+    let pong = report(&env);
+    let pong = pong.games.iter().find(|g| g.name == "Pong (USA)").unwrap();
+    assert_eq!(pong.status, GameStatus::Complete);
+}
+
+#[test]
+fn a_source_set_folder_that_is_there_isnt_marked_created() {
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("roots/ro/Delta")).unwrap();
+    let set = create_set(&env, "Delta", Some(true)).unwrap();
+    assert_eq!(set.folder_created, None);
+}
+
+#[test]
+fn a_source_set_folder_is_created_only_where_stage_select_may_change_it_inside_its_root() {
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    let elsewhere = env.tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, ro.join("out")).unwrap();
+    write_file(&ro.join("file"), b"in the way");
+    let refusal = |rel: &str, may_change: Option<bool>| match create_set(&env, rel, may_change) {
+        Err(Error::Refused(why)) => why,
+        other => panic!("{rel}: {other:?}"),
+    };
+
+    for may_change in [Some(false), None] {
+        let why = refusal("Delta", may_change);
+        assert!(
+            why.contains("Stage Select may change this source set"),
+            "{why}"
+        );
+    }
+    let why = refusal("out/Delta", Some(true));
+    assert!(why.contains("resolves outside root ro"), "{why}");
+    let why = refusal("Gamma/Delta", Some(true));
+    assert!(why.contains("source sets never nest"), "{why}");
+    let why = refusal("file/Delta", Some(true));
+    assert!(why.contains("a file is in the way"), "{why}");
+    let why = refusal("Alpha", Some(true));
+    assert!(why.contains("already uses that name"), "{why}");
+
+    let without = env.store.register_source_set(
+        "ro",
+        "Delta",
+        "No-Intro/Test - System",
+        None,
+        Some(true),
+        false,
+        "Operator",
+    );
+    assert!(
+        matches!(&without, Err(Error::Refused(why)) if why.contains("there is no folder at")),
+        "{without:?}"
+    );
+
+    assert!(!ro.join("Delta").exists());
+    assert!(!ro.join("Gamma/Delta").exists());
+    assert!(!ro.join("Alpha").exists());
+    assert!(Env::files(&elsewhere).is_empty() && !elsewhere.join("Delta").exists());
+    assert!(env.store.source_set("Delta").is_err());
+    assert!(
+        env.store
+            .roots()
+            .root("ro")
+            .unwrap()
+            .writable_paths
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_source_set_folder_is_never_created_through_a_folder_swapped_for_a_symlink() {
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    let shelf = ro.join("Shelf");
+    std::fs::create_dir_all(&shelf).unwrap();
+    let elsewhere = env.tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (swapped, to) = (shelf.clone(), elsewhere.clone());
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::CreatingFolder {
+            std::fs::remove_dir(&swapped).unwrap();
+            std::os::unix::fs::symlink(&to, &swapped).unwrap();
+        }
+    })));
+
+    let refused = create_set(&env, "Shelf/Delta", Some(true));
+
+    env.store.hook_faults(None);
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("is a symbolic link")),
+        "{refused:?}"
+    );
+    assert!(!elsewhere.join("Delta").exists());
+    assert!(env.store.source_set("Delta").is_err());
+}
+
+#[test]
+fn a_source_set_folder_is_never_created_through_a_root_swapped_for_a_symlink() {
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    let moved = env.tmp.path().join("roots/ro-moved");
+    let elsewhere = env.tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (from, aside, to) = (ro.clone(), moved.clone(), elsewhere.clone());
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::CreatingFolder {
+            std::fs::rename(&from, &aside).unwrap();
+            std::os::unix::fs::symlink(&to, &from).unwrap();
+        }
+    })));
+
+    let refused = create_set(&env, "Delta", Some(true));
+
+    env.store.hook_faults(None);
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(!elsewhere.join("Delta").exists());
+    assert!(
+        !moved.join("Delta").exists(),
+        "what it made in the pinned root is removed"
+    );
+    assert!(env.store.source_set("Delta").is_err());
+}
+
+#[test]
+fn a_source_set_folder_the_service_may_not_create_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let ro = env.tmp.path().join("roots/ro");
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if rustix::fs::access(&ro, rustix::fs::Access::WRITE_OK).is_ok() {
+        eprintln!("skipped: this user writes to read-only folders");
+        return;
+    }
+    let refused = create_set(&env, "Delta", Some(true));
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("may not write")),
+        "{refused:?}"
+    );
+    assert!(env.store.source_set("Delta").is_err());
+    assert!(
+        env.store
+            .roots()
+            .root("ro")
+            .unwrap()
+            .writable_paths
+            .is_empty()
+    );
+}
+
 #[test]
 fn a_registration_refused_leaves_its_roots_writable_paths_as_they_were() {
     let env = Env::new();
@@ -5412,6 +5626,7 @@ fn a_registration_refused_leaves_its_roots_writable_paths_as_they_were() {
         "No-Intro/Test - System",
         None,
         Some(true),
+        false,
         "Operator",
     );
     assert!(refused.is_err(), "{refused:?}");

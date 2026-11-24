@@ -9,7 +9,9 @@ use super::dats::split_dat;
 use super::{Error, Result, Store, now};
 use stage_select_api::paths::{PathTemplate, TokenValues};
 
-pub use stage_select_api::{LastVerified, SourceSetChanged, SourceSetRecord, SourceSetStale};
+pub use stage_select_api::{
+    FolderCreated, LastVerified, SourceSetChanged, SourceSetRecord, SourceSetStale,
+};
 
 pub(super) struct SourceSetRow {
     pub id: i64,
@@ -23,7 +25,8 @@ const SET_QUERY: &str =
             w.id, w.found_at, w.changed, w.added, w.removed,
             n.sha256, n.version, n.imported_at, s.coverage,
             EXISTS (SELECT 1 FROM roots ro WHERE ro.name = s.root
-                    AND (ro.writable OR EXISTS (SELECT 1 FROM json_each(ro.writable_paths) WHERE value = s.path)))
+                    AND (ro.writable OR EXISTS (SELECT 1 FROM json_each(ro.writable_paths) WHERE value = s.path))),
+            s.folder_created_by, s.folder_created_at
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
@@ -94,6 +97,13 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             stale,
             coverage,
             repairs_may_change: row.get(20)?,
+            folder_created: match row.get::<_, Option<String>>(21)? {
+                Some(by) => Some(FolderCreated {
+                    by,
+                    at: row.get(22)?,
+                }),
+                None => None,
+            },
         },
     })
 }
@@ -192,6 +202,38 @@ pub(super) fn resolve(roots: &crate::roots::Roots, root: &str, rel: &str) -> Res
     })
 }
 
+/// The Source Set folder `rel` in the Root `root`, when nothing is there yet: its path relative to the Root, where it
+/// would be, checked to resolve inside the Root, and the Root, pinned at the canonical path that check compared. `None` when something is there, to be checked by
+/// [`resolve`].
+fn missing(
+    roots: &crate::roots::Roots,
+    root: &str,
+    rel: &str,
+) -> Result<Option<(String, PathBuf, crate::made_folders::Pinned)>> {
+    use std::io::ErrorKind;
+    let root_config = roots
+        .root(root)
+        .ok_or_else(|| Error::Refused(format!("no root named {root} is registered")))?;
+    let mut beneath = resolve_beneath(root_config, rel, "a source set's path")?;
+    match std::fs::symlink_metadata(beneath.configured()) {
+        // A file in the way of a folder above it: refused when creating it is tried.
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {}
+        _ => return Ok(None),
+    }
+    let pinned = crate::made_folders::Pinned::open(&root_config.path).map_err(|e| {
+        Error::Refused(format!("root {root} ({}): {e}", root_config.path.display()))
+    })?;
+    beneath.canonical_root = pinned.path().to_path_buf();
+    let would_be = beneath.would_be();
+    if !would_be.starts_with(&beneath.canonical_root) {
+        return Err(Error::Refused(format!(
+            "{}: resolves outside root {root}",
+            beneath.rel
+        )));
+    }
+    Ok(Some((beneath.rel, would_be, pinned)))
+}
+
 impl Store {
     /// The path a Path Template proposes for a Source Set bound to `dat` (`<provider>/<name>`): `template` if given,
     /// else the configured default. The path is not checked against any Root: registering it does that.
@@ -228,12 +270,18 @@ impl Store {
         dat: &str,
         coverage: Option<&[String]>,
     ) -> Result<SourceSetRecord> {
-        self.register_source_set(root, rel, dat, coverage, None, "")
+        self.register_source_set(root, rel, dat, coverage, None, false, "")
     }
 
     /// Registers a Source Set as `add_source_set_covering` does and, as `actor`, in the same transaction, lets Stage
     /// Select change it, with `Some(true)`, or stops it, with `Some(false)`: lists its path among its Root's writable
     /// paths, or takes it out, as [`Store::set_repairs_may_change`] does. `None` leaves the Root as it is.
+    ///
+    /// With `create`, a missing folder is created, with the missing folders above it in the Root, once the rest of
+    /// the registration checks out: an empty Source Set for ingest to fill. That needs `Some(true)`, as Stage Select
+    /// may only write in a read-only Root where it may change the Source Set, and a folder that resolves inside the
+    /// Root.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_source_set(
         &self,
         root: &str,
@@ -241,6 +289,7 @@ impl Store {
         dat: &str,
         coverage: Option<&[String]>,
         repairs_may_change: Option<bool>,
+        create: bool,
         actor: &str,
     ) -> Result<SourceSetRecord> {
         let coverage = coverage_json(coverage)?;
@@ -254,14 +303,37 @@ impl Store {
                  read-only root"
             )));
         }
-        let resolved = resolve(roots, root, rel)?;
-        let canonical = resolved
-            .path
-            .canonicalize()
-            .map_err(|e| Error::Refused(format!("{}: {e}", resolved.path.display())))?;
-        let rel = resolved.rel;
+        let (rel, canonical, to_create) = match missing(roots, root, rel)? {
+            Some((rel, would_be, pinned)) => {
+                let name = rel.rsplit('/').next().unwrap_or(&rel);
+                let shown = would_be.display();
+                if !create {
+                    return Err(Error::Refused(format!(
+                        "there is no folder at {shown}; check the path, or have Stage Select create it to start an \
+                         empty source set {name} there"
+                    )));
+                }
+                if repairs_may_change != Some(true) {
+                    return Err(Error::Refused(format!(
+                        "Stage Select creates the folder for source set {name} only if it may change the source \
+                         set; turn on \"Stage Select may change this source set\", or make the folder yourself"
+                    )));
+                }
+                (rel, would_be.clone(), Some((would_be, pinned)))
+            }
+            None => {
+                let resolved = resolve(roots, root, rel)?;
+                let canonical = resolved
+                    .path
+                    .canonicalize()
+                    .map_err(|e| Error::Refused(format!("{}: {e}", resolved.path.display())))?;
+                (resolved.rel, canonical, None)
+            }
+        };
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
         split_dat(dat)?;
+        // Dropped on a refusal or failure, the transaction's commit included, which removes what it made.
+        let mut made = None;
         let record = self.write(|tx| {
             if let Some((what, other)) = crate::folders::overlapping(
                 tx,
@@ -298,16 +370,36 @@ impl Store {
                     "a source set named {clash} already uses that name or folder"
                 )));
             }
+            let at = now();
+            let created_by = to_create.as_ref().map(|_| actor);
+            let created_at = to_create.as_ref().map(|_| at.as_str());
             tx.execute(
-                "INSERT INTO source_sets (name, root, path, dat_id, added_at, coverage)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![name, root, rel, dat_id, now(), coverage],
+                "INSERT INTO source_sets (name, root, path, dat_id, added_at, coverage, folder_created_by,
+                                          folder_created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![name, root, rel, dat_id, at, coverage, created_by, created_at],
             )?;
             if let Some(on) = repairs_may_change {
                 crate::roots::let_change_set(tx, root, &rel, &name, on, actor)?;
             }
+            // Last, so that a registration refused creates nothing; checked again once made, in case a symlink
+            // appeared in the way meanwhile.
+            if let Some((folder, pinned)) = to_create {
+                self.fault_point(crate::Fault::CreatingFolder);
+                made = Some(crate::made_folders::create_beneath(
+                    pinned,
+                    Path::new(&rel),
+                    &format!("Source set {name}"),
+                    &folder,
+                )?);
+                self.fault_point(crate::Fault::FolderCreated);
+                resolve(roots, root, &rel)?;
+            }
             Ok(set_by_name(tx, &name)?.record)
         })?;
+        if let Some(made) = made {
+            made.keep();
+        }
         if repairs_may_change.is_some() {
             self.roots_changed()?;
         }

@@ -11,6 +11,8 @@ pub struct RootDraft {
     pub path: String,
     pub kind: RootKind,
     pub writable: bool,
+    /// Create the folder if it is missing, when registering.
+    pub create: bool,
 }
 
 impl RootDraft {
@@ -21,6 +23,7 @@ impl RootDraft {
             path: root.path.clone(),
             kind: root.kind,
             writable: root.writable,
+            create: false,
         }
     }
 
@@ -44,7 +47,7 @@ impl RootDraft {
 
     /// The Root to send: `was` is the Root being edited, whose Ceilings it keeps, as the form doesn't show them.
     /// A read-only Root keeps the writable paths `was` has, as each Source Set switches its own; a writable Root has
-    /// none. The Service checks the rest.
+    /// none. Only a registration asks for its folder to be created. The Service checks the rest.
     pub fn spec(&self, was: Option<&Root>) -> Result<RootSpec, String> {
         let name = match was {
             Some(root) => root.name.clone(),
@@ -71,6 +74,7 @@ impl RootDraft {
             readers: was.and_then(|r| r.readers),
             read_mib_per_s: was.and_then(|r| r.read_mib_per_s),
             write_mib_per_s: was.and_then(|r| r.write_mib_per_s),
+            create: self.create && was.is_none(),
         })
     }
 }
@@ -179,12 +183,14 @@ mod tests {
     }
 
     #[test]
-    fn a_new_root_is_sent_trimmed_writable_for_its_kind_and_with_no_writable_paths() {
+    fn a_new_root_is_sent_trimmed_writable_for_its_kind_with_no_writable_paths_and_created_if_asked()
+     {
         let mut draft = RootDraft {
             name: " drop ".into(),
             path: " /srv/drop ".into(),
             kind: RootKind::Ingest,
             writable: false,
+            create: false,
         };
         assert_eq!(
             draft.spec(None),
@@ -193,6 +199,12 @@ mod tests {
 
         draft.kind = RootKind::General;
         assert_eq!(draft.spec(None), Ok(RootSpec::new("drop", "/srv/drop")));
+        draft.create = true;
+        assert_eq!(
+            draft.spec(None),
+            Ok(RootSpec::new("drop", "/srv/drop").creating())
+        );
+        draft.create = false;
 
         draft.name = "  ".into();
         assert_eq!(draft.spec(None), Err("Give the root a name.".into()));
@@ -205,13 +217,15 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_keeps_the_roots_name_ceilings_and_the_source_sets_it_may_change() {
+    fn an_edit_keeps_the_roots_name_ceilings_and_the_source_sets_it_may_change_and_creates_nothing()
+    {
         let was = root();
         let mut draft = RootDraft::of(&was);
         assert_eq!(draft.spec(Some(&was)), Ok(RootSpec::from(&was)));
 
         draft.name = "renamed".into();
         draft.writable = true;
+        draft.create = true;
         assert_eq!(
             draft.spec(Some(&was)),
             Ok(RootSpec {
@@ -250,6 +264,7 @@ mod tests {
             stale: Vec::new(),
             coverage: None,
             repairs_may_change: may_change,
+            folder_created: None,
         }
     }
 
