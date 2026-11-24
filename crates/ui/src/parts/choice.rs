@@ -28,7 +28,7 @@ pub fn Choice(
     let disabled = move || disabled.is_some_and(|d| d.get());
     let indeterminate = move || indeterminate.is_some_and(|i| i.get());
     view! {
-        <div class="choice">
+        <div class="choice-option">
             <label class="inline">
                 <input
                     type=if radio.is_some() { "radio" } else { "checkbox" }
@@ -41,7 +41,7 @@ pub fn Choice(
                 />
                 <span>{children()}</span>
             </label>
-            {note.map(|note| view! { <p class="choice-note note small" id=id>{note.run()}</p> })}
+            {note.map(|note| view! { <p class="choice-option-note note small" id=id>{note.run()}</p> })}
         </div>
     }
 }

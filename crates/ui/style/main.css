@@ -1032,16 +1032,16 @@ label.inline {
 
 /* A choice (parts::choice): the control and its name on one line, even inside a .form, whose labels stack, and the
    note on its own line under the name, indented to line up with it. */
-.choice {
-  --choice-control: 1rem;
+.choice-option {
+  --choice-option-control: 1rem;
   margin: 0 0 var(--space-3);
 }
 
-.checks .choice {
+.checks .choice-option {
   margin: 0;
 }
 
-.choice > label.inline {
+.choice-option > label.inline {
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
@@ -1050,18 +1050,18 @@ label.inline {
   color: var(--color-text);
 }
 
-.choice > label > input {
+.choice-option > label > input {
   flex: none;
-  width: var(--choice-control);
-  height: var(--choice-control);
+  width: var(--choice-option-control);
+  height: var(--choice-option-control);
   min-height: 0;
   margin: 0;
   padding: 0;
 }
 
-.choice-note {
+.choice-option-note {
   margin: var(--space-1) 0 0;
-  padding-inline-start: calc(var(--choice-control) + var(--space-2));
+  padding-inline-start: calc(var(--choice-option-control) + var(--space-2));
 }
 
 label.stacked {
