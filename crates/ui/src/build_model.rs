@@ -1071,6 +1071,7 @@ mod tests {
             stale: Vec::new(),
             built_for: None,
             disk_folders: Vec::new(),
+            removed: Vec::new(),
         }
     }
 
@@ -1167,6 +1168,7 @@ mod tests {
             adopt: vec!["Pong.zip".into()],
             keep_aside: vec!["Combat.zip".into()],
             remove_all: false,
+            remove: vec![],
         };
         let picked = BTreeMap::from([
             ("Combat.zip".to_string(), ConflictChoice::Adopt),

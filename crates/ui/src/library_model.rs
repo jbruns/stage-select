@@ -1,13 +1,13 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use stage_select_api::build::{LibraryFolder, Stale};
+use stage_select_api::build::{LibraryFolder, RemoveAction, Stale};
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
 use crate::model::earlier;
-use crate::parts::status::{LibraryFacts, LibraryStatus, PlanState, by_attention};
+use crate::parts::status::{LibraryFacts, LibraryStatus, Placement, PlanState, by_attention};
 
 /// Whether the folder's latest check, made since its current build, found it differs from that build.
 pub fn drifted(folder: &LibraryFolder) -> bool {
@@ -297,6 +297,134 @@ impl Replans {
     }
 }
 
+/// The games of the built files you checked, to remove from the folder: each once, by name, and which of them are
+/// placed there as their source set's only copy. `unknown` while that isn't known for one of them yet.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChosenGames {
+    pub games: Vec<String>,
+    pub placed: Vec<String>,
+    pub unknown: bool,
+}
+
+impl ChosenGames {
+    /// From each checked file's game and whether it is placed: a game is placed when any of its files is.
+    pub fn of<'a>(files: impl IntoIterator<Item = (&'a str, Option<Placement>)>) -> ChosenGames {
+        let mut chosen = ChosenGames::default();
+        for (game, placement) in files {
+            if !chosen.games.iter().any(|g| g == game) {
+                chosen.games.push(game.to_owned());
+            }
+            match placement {
+                Some(Placement::Placed) if !chosen.placed.iter().any(|g| g == game) => {
+                    chosen.placed.push(game.to_owned())
+                }
+                Some(Placement::Unknown) => chosen.unknown = true,
+                _ => {}
+            }
+        }
+        chosen.games.sort();
+        chosen.placed.sort();
+        chosen
+    }
+
+    fn built_only(&self) -> Vec<&str> {
+        self.games
+            .iter()
+            .filter(|g| !self.placed.contains(g))
+            .map(String::as_str)
+            .collect()
+    }
+}
+
+/// `games` in a sentence: the name of one, or how many.
+fn games_in_sentence(games: &[&str]) -> String {
+    match games {
+        [one] => one.to_string(),
+        many => format!("{} of these games", many.len()),
+    }
+}
+
+/// What the button that removes games with `action` says.
+pub fn removal_label(action: RemoveAction) -> &'static str {
+    match action {
+        RemoveAction::SendBack => "Send back to source",
+        RemoveAction::SetAside => "Set aside",
+        RemoveAction::Delete => "Delete",
+    }
+}
+
+/// How a game was removed, in the folder's list of removed games.
+pub fn removed_label(action: RemoveAction) -> &'static str {
+    match action {
+        RemoveAction::SendBack => "Sent back",
+        RemoveAction::SetAside => "Set aside",
+        RemoveAction::Delete => "Deleted",
+    }
+}
+
+/// Why removing `chosen` with `action` can't be planned, or none when it can.
+pub fn removal_refusal(action: RemoveAction, chosen: &ChosenGames) -> Option<String> {
+    if chosen.games.is_empty() {
+        return Some("Check the files of the games you want to remove.".into());
+    }
+    if chosen.unknown {
+        return Some(
+            "Whether these games are their only copies is still being read; try again once it is."
+                .into(),
+        );
+    }
+    let placed: Vec<&str> = chosen.placed.iter().map(String::as_str).collect();
+    let built = chosen.built_only();
+    match action {
+        RemoveAction::SendBack if !built.is_empty() => Some(format!(
+            "{} {} placed here from your source set, so there is nothing to send back. Set {} aside or delete {}.",
+            games_in_sentence(&built),
+            if built.len() == 1 { "isn't" } else { "aren't" },
+            if built.len() == 1 { "it" } else { "them" },
+            if built.len() == 1 { "it" } else { "them" },
+        )),
+        RemoveAction::SetAside if !placed.is_empty() => Some(format!(
+            "{} {} placed here as your source set's only copy, so {} can't be set aside. Send {} back to your source \
+             set, or delete {}.",
+            games_in_sentence(&placed),
+            if placed.len() == 1 { "is" } else { "are" },
+            if placed.len() == 1 { "it" } else { "they" },
+            if placed.len() == 1 { "it" } else { "them" },
+            if placed.len() == 1 { "it" } else { "them" },
+        )),
+        _ => None,
+    }
+}
+
+/// What removing games with `action` does to their files, for you to read before you plan it.
+pub fn removal_result(action: RemoveAction, chosen: &ChosenGames) -> String {
+    let placed: Vec<&str> = chosen.placed.iter().map(String::as_str).collect();
+    match action {
+        RemoveAction::SendBack => {
+            "Each game goes back to your source set's folder, as a build returns a placed game."
+                .into()
+        }
+        RemoveAction::SetAside => {
+            "Their files are set aside as kept files, which you can restore later.".into()
+        }
+        RemoveAction::Delete if placed.is_empty() => {
+            "Their files are set aside, then deleted once the build has set them aside.".into()
+        }
+        RemoveAction::Delete => format!(
+            "Their files are set aside, then deleted once the build has set them aside. {} {} placed here as your \
+             source set's only copy: deleting {} loses {}, and nothing goes back to your source set.",
+            games_in_sentence(&placed),
+            if placed.len() == 1 { "is" } else { "are" },
+            if placed.len() == 1 { "it" } else { "them" },
+            if placed.len() == 1 {
+                "the game"
+            } else {
+                "those games"
+            },
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +458,7 @@ mod tests {
             stale: Vec::new(),
             built_for: None,
             disk_folders: Vec::new(),
+            removed: Vec::new(),
         }
     }
 
@@ -793,5 +922,76 @@ mod tests {
         assert!(ROMM_BEFORE_SETTING.contains("each game with disks twice"));
         assert!(ROMM_AFTER_SETTING.contains("one list for every platform"));
         assert!(ROMM_AFTER_SETTING.contains("on every platform, not only this one"));
+    }
+
+    fn chosen(files: &[(&str, Option<Placement>)]) -> ChosenGames {
+        ChosenGames::of(files.iter().map(|(g, p)| (*g, *p)))
+    }
+
+    #[test]
+    fn chosen_games_are_counted_once_and_placed_when_any_file_is() {
+        let c = chosen(&[
+            ("Pong", None),
+            ("Joust", None),
+            ("Joust", Some(Placement::Placed)),
+            ("Pong", None),
+        ]);
+        assert_eq!(c.games, ["Joust", "Pong"]);
+        assert_eq!(c.placed, ["Joust"]);
+        assert!(!c.unknown);
+        assert!(chosen(&[("Pong", Some(Placement::Unknown))]).unknown);
+    }
+
+    #[test]
+    fn each_removal_says_why_it_doesnt_apply_to_the_games_you_checked() {
+        let built = chosen(&[("Pong", None)]);
+        let placed = chosen(&[("Joust", Some(Placement::Placed))]);
+        let both = chosen(&[
+            ("Pong", None),
+            ("Combat", None),
+            ("Joust", Some(Placement::Placed)),
+        ]);
+        let refusal = |a, c: &ChosenGames| removal_refusal(a, c);
+
+        assert_eq!(
+            refusal(RemoveAction::SendBack, &built).as_deref(),
+            Some(
+                "Pong isn't placed here from your source set, so there is nothing to send back. Set it aside or delete it."
+            )
+        );
+        assert_eq!(refusal(RemoveAction::SendBack, &placed), None);
+        assert!(
+            refusal(RemoveAction::SendBack, &both)
+                .unwrap()
+                .starts_with("2 of these games aren't placed"),
+        );
+        assert!(
+            refusal(RemoveAction::SetAside, &placed)
+                .unwrap()
+                .starts_with("Joust is placed here")
+        );
+        assert_eq!(refusal(RemoveAction::SetAside, &built), None);
+        for action in RemoveAction::ALL {
+            assert_eq!(refusal(RemoveAction::Delete, &both), None);
+            assert!(refusal(action, &ChosenGames::default()).is_some());
+            assert!(refusal(action, &chosen(&[("Pong", Some(Placement::Unknown))])).is_some());
+        }
+    }
+
+    #[test]
+    fn deleting_a_placed_game_says_it_is_lost_not_returned() {
+        let placed = chosen(&[("Joust", Some(Placement::Placed)), ("Pong", None)]);
+        let said = removal_result(RemoveAction::Delete, &placed);
+        assert!(
+            said.contains("Joust is placed here as your source set's only copy"),
+            "{said}"
+        );
+        assert!(
+            said.contains("nothing goes back to your source set"),
+            "{said}"
+        );
+        assert!(
+            !removal_result(RemoveAction::Delete, &chosen(&[("Pong", None)])).contains("only copy")
+        );
     }
 }
