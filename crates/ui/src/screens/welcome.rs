@@ -503,7 +503,7 @@ fn RegisterRoot(changed: Callback<()>) -> impl IntoView {
                     Ok(found) if found.folders.is_empty() => {
                         view! {
                             <p class="note">
-                                "The service sees no folder under /data, /mnt, /media or /srv. Type the path of a folder it can see."
+                                "The service sees no folder under /data, /mnt, /media or /srv. Type the path of a folder it can see, or browse for one."
                             </p>
                         }
                             .into_any()
@@ -543,7 +543,7 @@ fn RegisterRoot(changed: Callback<()>) -> impl IntoView {
                                 .then(|| {
                                     view! {
                                         <p class="note small">
-                                            "Some folders aren't listed: a mount point holds more than the service lists. Type the path if yours isn't here."
+                                            "Some folders aren't listed: a mount point holds more than the service lists. Type the path, or browse for it, if yours isn't here."
                                         </p>
                                     }
                                 })}
@@ -553,7 +553,7 @@ fn RegisterRoot(changed: Callback<()>) -> impl IntoView {
                     Err(message) => {
                         view! {
                             <p class="note">
-                                {format!("The service couldn't list the folders it sees: {message}. Type the path of a folder.")}
+                                {format!("The service couldn't list the folders it sees: {message}. Type the path of a folder, or browse for one.")}
                             </p>
                         }
                             .into_any()

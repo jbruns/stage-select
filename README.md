@@ -54,7 +54,8 @@ Then open `http://127.0.0.1:8080/`.
 
 - **The store** (`/store`) keeps everything Stage Select records and every setting you make. Back up this volume.
 - **Your games** go under `/data`, read-only. The workbench suggests the folders it finds under `/data`, `/mnt`,
-  `/media` and `/srv`. It can only see what you mount, so mount read-only what it must never write.
+  `/media` and `/srv`, and **Browse…** opens any folder it can see. It can only see what you mount, so mount
+  read-only what it must never write.
 - **Your libraries** go under `/data` too, writable. The container runs as user and group 65532, so that user must
   be able to write to the folder: for example, `chown 65532:65532 /path/to/your/libraries`.
 - **`STAGE_SELECT_LISTEN=127.0.0.1:8080`** with `--network host` keeps the service on this machine's loopback
@@ -524,7 +525,8 @@ register, edit and unregister roots under Settings, then Roots, in the workbench
 the API (see "HTTP API"). To help you find the path, the workbench suggests the folders the service can see
 directly under `/data`, `/mnt`, `/media` and `/srv`, and those mount points themselves, and says whether it can
 write to each. It lists at most 50 folders under each, follows no symbolic link, and leaves out the roots you've
-registered. Each root has:
+registered. **Browse…** beside the path opens a folder browser instead, from `/` through every folder the service
+can see; see "Browsing for a folder". Each root has:
 
 - **A name**, fixed once registered: everything you register in the root refers to it by name. It can't be empty,
   hold a `/` or a control character, or begin or end with a space.
@@ -729,6 +731,24 @@ them. Only the latest comparison of each folder is kept; one that couldn't read 
 out of time because RomM took more than 10 minutes to list the platform's ROMs. One read while you turned RomM off or
 changed its address or root is discarded. The tab shows a new comparison as soon as it is kept. In the API,
 `GET /api/v1/libraries/{id}/romm` returns it.
+
+### Browsing for a folder
+
+Every path you register has a **Browse…** button beside it: a root's path, a source set's path in its root, and a
+library folder's path in its root. It opens a folder browser at the folder the field names, or, when the service
+can't list that folder, at the top, saying so. For a root, the top is `/`, so you can browse every folder the
+service can see. For a source set or a library folder, the top is the root you chose, and you choose a folder in it.
+
+The browser shows the trail of folders from the top, each a link back to it, then the folders in this one, sorted by
+name. Each says whether it is a symbolic link, whether the service can't write to it, and the root it is in,
+unless you're browsing in that root. Open a folder by clicking it or pressing Enter, go up with **Up a folder**, and put the folder in the field with
+**Choose this folder**. Arrow keys, Home, End, Page Up and Page Down move through the folders, and Escape closes the
+browser without choosing. It leaves out hidden folders (their names start with a dot) and `lost+found` unless you
+tick **Show hidden folders**, and lists at most 500 folders, saying when it left some out. It reads only the folders'
+names and whether it can write to each, and changes nothing: you still register the path as before, and the service
+checks it then.
+
+In the API, `GET /api/v1/folders?path=` lists a folder's folders.
 
 ### Path templates
 
@@ -1974,6 +1994,7 @@ What these versions promise you:
 | `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it or a plan under way writes to it, naming them |
 | `POST /api/v1/roots/{name}/unregistration`         | unregister a root, touching no file; `204`, or `409` naming what is registered in it |
 | `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at"}`, `action` being `registered`, `edited` or `unregistered`, and `after` the root as it left it |
+| `GET /api/v1/folders?path=&hidden=`                | the folders in a folder, for browsing: `{"path", "parent"?, "folders": [{"name", "path", "writable", "root"?, "link"?}], "more"?}`, `path` being the absolute path tidied, `parent` the folder above it (none at `/`), `root` the root a folder is in, `link` `true` for a symbolic link to a folder; sorted by name, leaving out files and, unless `hidden=true`, folders whose name starts with a dot and `lost+found`; at most 500, `more` being `true` when it left some out; `400` when the path isn't absolute, steps up with `..`, or isn't a folder the service can list |
 | `GET /api/v1/folder-suggestions`                   | the folders you could register as roots: `{"folders": [{"path", "writable"}], "more"?}`, each of `/data`, `/mnt`, `/media` and `/srv` that exists and the folders directly in it, sorted, leaving out hidden folders, symbolic links and your roots; at most 50 under each, `more` being `true` when it left some out |
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision, each with `blockers`: what stops you deleting it, empty when nothing does |
@@ -2442,6 +2463,7 @@ Its screens:
   choose otherwise in the coverage editor described below. The path template proposes the path from
   the DAT, with a live preview of the folder it names; change the template, or type over the path and use "Use the
   proposed path" to go back. When the DAT has no `{platform}`, the preview says so and you type the path.
+  **Browse…** beside the path opens the folder browser in the root you chose (see "Browsing for a folder").
 - **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
   latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
   that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
@@ -2554,7 +2576,8 @@ Its screens:
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
   **Roots** lists your roots: each one's path, kind, whether it's writable, the source set paths a repair may write
-  to in a read-only root, and who changed it last. You register a root there, edit one, its name aside, or
+  to in a read-only root, and who changed it last. You register a root there, with **Browse…** beside its path to
+  browse from `/`, edit one, its name aside, or
   unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
@@ -2568,7 +2591,8 @@ Its screens:
   planned of the newest selection of its source set and profile against the source set's latest verified DAT revision,
   made first when there is none. **New library folder** (`/libraries/new`, or `/libraries/new?source_set=<name>` or
   `?selection=<id>` from a source set or a selection) picks a saved selection profile and a writable root, proposes the
-  path from the path template as for a source set, creates the folder and plans its first build. A folder's page
+  path from the path template as for a source set, with **Browse…** beside it in the root you chose, creates the folder
+  and plans its first build. A folder's page
   (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs: **Overview**, its facts, with the coverage
   it has from its source set and a link to edit it there (for a MAME folder, why it has none, the MAME version it was
   built for and which emulators run it, its disk folders, and, under **Using RomM?**, the RomM `exclude` settings ready

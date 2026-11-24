@@ -125,8 +125,28 @@ pub fn chosen(path: &str, within: Option<&Within>) -> Option<String> {
     }
 }
 
+/// How the picker names the folder at `path`: within a Root, from the Root's name ("sets/Atari - 2600"), else the
+/// path itself.
+pub fn display(path: &str, within: Option<&Within>) -> String {
+    match within {
+        Some(w) if inside(path, &w.path) => match chosen(path, within) {
+            Some(rel) => format!("{}/{rel}", w.label),
+            None => w.label.clone(),
+        },
+        _ => path.to_owned(),
+    }
+}
+
+/// The Root to name beside a folder: the one it is in, unless that is the Root the picker is within.
+fn other_root<'a>(folder: &'a Folder, within: Option<&Within>) -> Option<&'a str> {
+    folder
+        .root
+        .as_deref()
+        .filter(|r| within.is_none_or(|w| w.label != *r))
+}
+
 /// A folder's accessible name: its name, then what marks it.
-pub fn folder_label(folder: &Folder) -> String {
+pub fn folder_label(folder: &Folder, within: Option<&Within>) -> String {
     let mut label = folder.name.clone();
     if folder.link {
         label.push_str(", a link");
@@ -134,19 +154,20 @@ pub fn folder_label(folder: &Folder) -> String {
     if !folder.writable {
         label.push_str(", read-only");
     }
-    if let Some(root) = &folder.root {
+    if let Some(root) = other_root(folder, within) {
         label.push_str(&format!(", in the root {root}"));
     }
     label
 }
 
 /// How many folders `path` holds, for the live line under the trail.
-pub fn count_line(listing: &FolderListing) -> String {
+pub fn count_line(listing: &FolderListing, within: Option<&Within>) -> String {
+    let at = display(&listing.path, within);
     match listing.folders.len() {
-        0 => format!("No folders in {}", listing.path),
-        1 => format!("1 folder in {}", listing.path),
-        n if listing.more => format!("The first {n} folders in {}", listing.path),
-        n => format!("{n} folders in {}", listing.path),
+        0 => format!("No folders in {at}"),
+        1 => format!("1 folder in {at}"),
+        n if listing.more => format!("The first {n} folders in {at}"),
+        n => format!("{n} folders in {at}"),
     }
 }
 
@@ -203,7 +224,7 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
     let at = RwSignal::new(start);
     let hidden = RwSignal::new(false);
     // Where the field's path led when it couldn't be listed, and why; the picker then shows the top instead.
-    let fell_back = RwSignal::new(None::<(String, String)>);
+    let fell_back = RwSignal::new(None::<String>);
     let listed_once = RwSignal::new(false);
     let focus_list = RwSignal::new(false);
     let listing = LocalResource::new(move || {
@@ -226,10 +247,10 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
     let fallback_at = fallback.clone();
     Effect::new(move || match shown.get() {
         Shown::Listed(_) => listed_once.set(true),
-        Shown::Refused(why) if !listed_once.get_untracked() => {
+        Shown::Refused(_) if !listed_once.get_untracked() => {
             let tried = at.get_untracked();
             if tried != fallback_at {
-                fell_back.set(Some((tried, why)));
+                fell_back.set(Some(tried));
                 at.set(fallback_at.clone());
             }
         }
@@ -374,19 +395,22 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
             {move || {
                 fell_back
                     .get()
-                    .map(|(tried, why)| {
-                        let top = fallback.clone();
+                    .map(|tried| {
+                        let (tried, top) = within
+                            .with_value(|w| (display(&tried, w.as_ref()), display(&fallback, w.as_ref())));
                         view! {
                             <Message kind=MessageKind::NOTICE>
-                                {format!("The service can't list {tried} ({why}), so this starts at {top}.")}
+                                {format!("You can't browse {tried}, as it isn't a folder the service can list, so this starts at {top}.")}
                             </Message>
                         }
                     })
             }}
-            <p class="note" aria-live="polite">
+            <p class="note listed" aria-live="polite">
                 {move || match shown.get() {
-                    Shown::Loading => format!("Listing the folders in {}…", at.get()),
-                    Shown::Listed(l) => count_line(&l),
+                    Shown::Loading => {
+                        format!("Listing the folders in {}…", within.with_value(|w| display(&at.get(), w.as_ref())))
+                    }
+                    Shown::Listed(l) => within.with_value(|w| count_line(&l, w.as_ref())),
                     Shown::Refused(_) => String::new(),
                 }}
             </p>
@@ -397,7 +421,7 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
             <ul
                 class="folder-list"
                 node_ref=list
-                aria-label=move || format!("Folders in {}", at.get())
+                aria-label=move || format!("Folders in {}", within.with_value(|w| display(&at.get(), w.as_ref())))
                 on:keydown=on_keydown
             >
                 {move || match shown.get() {
@@ -405,7 +429,8 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
                         .folders
                         .into_iter()
                         .map(|folder| {
-                            let label = folder_label(&folder);
+                            let label = within.with_value(|w| folder_label(&folder, w.as_ref()));
+                            let root = within.with_value(|w| other_root(&folder, w.as_ref()).map(str::to_owned));
                             let glyph = if folder.link { Glyph::FolderSymlink } else { Glyph::Folder };
                             let path = folder.path.clone();
                             view! {
@@ -420,7 +445,7 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
                                         <span class="name">{folder.name}</span>
                                         {folder.link.then(|| view! { <span class="tag">"link"</span> })}
                                         {(!folder.writable).then(|| view! { <span class="tag">"read-only"</span> })}
-                                        {folder.root.map(|r| view! { <span class="tag">{format!("root {r}")}</span> })}
+                                        {root.map(|r| view! { <span class="tag">{format!("root {r}")}</span> })}
                                     </button>
                                 </li>
                             }
@@ -544,8 +569,13 @@ mod tests {
             link: true,
         };
         assert_eq!(
-            folder_label(&folder),
+            folder_label(&folder, None),
             "roms, a link, read-only, in the root sets"
+        );
+        assert_eq!(
+            folder_label(&folder, Some(&Within::new("/mnt", "sets"))),
+            "roms, a link, read-only",
+            "the root the picker is within goes unsaid"
         );
         let plain = Folder {
             writable: true,
@@ -553,7 +583,7 @@ mod tests {
             link: false,
             ..folder
         };
-        assert_eq!(folder_label(&plain), "roms");
+        assert_eq!(folder_label(&plain, None), "roms");
     }
 
     #[test]
@@ -562,7 +592,7 @@ mod tests {
             path: "/mnt".into(),
             ..FolderListing::default()
         };
-        assert_eq!(count_line(&listing), "No folders in /mnt");
+        assert_eq!(count_line(&listing, None), "No folders in /mnt");
         let folder = Folder {
             name: "a".into(),
             path: "/mnt/a".into(),
@@ -571,10 +601,28 @@ mod tests {
             link: false,
         };
         listing.folders = vec![folder.clone()];
-        assert_eq!(count_line(&listing), "1 folder in /mnt");
+        assert_eq!(count_line(&listing, None), "1 folder in /mnt");
         listing.folders.push(folder);
-        assert_eq!(count_line(&listing), "2 folders in /mnt");
+        assert_eq!(count_line(&listing, None), "2 folders in /mnt");
         listing.more = true;
-        assert_eq!(count_line(&listing), "The first 2 folders in /mnt");
+        assert_eq!(count_line(&listing, None), "The first 2 folders in /mnt");
+        assert_eq!(
+            count_line(&listing, Some(&Within::new("/mnt", "sets"))),
+            "The first 2 folders in sets"
+        );
+    }
+
+    #[test]
+    fn within_a_root_a_folder_is_named_from_the_root() {
+        let w = roms();
+        assert_eq!(display(&w.path, Some(&w)), w.label);
+        let deep = format!("{}/No-Intro/Atari", w.path);
+        assert_eq!(
+            display(&deep, Some(&w)),
+            format!("{}/No-Intro/Atari", w.label)
+        );
+        let beside = format!("{}sets", w.path);
+        assert_eq!(display(&beside, Some(&w)), beside);
+        assert_eq!(display(&w.path, None), w.path);
     }
 }

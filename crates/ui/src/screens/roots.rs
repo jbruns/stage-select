@@ -274,25 +274,27 @@ pub(crate) fn RootForm(
             {editing.then(|| view! {
                 <p class="note small">"A root's name can't change: what is registered in it refers to it by name."</p>
             })}
-            <label class="stacked" for="root-path">"Path"</label>
-            <div class="path-field">
-                <input
-                    id="root-path"
-                    type="text"
-                    class="wide"
-                    placeholder="/srv/roms"
-                    list="root-path-suggestions"
-                    prop:value=move || draft.with(|d| d.path.clone())
-                    on:input=move |ev| {
-                        let value = event_target_value(&ev);
-                        draft.update(|d| d.path = value);
-                    }
-                />
-                <FolderPicker
-                    field="the root's path"
-                    value=Signal::derive(move || draft.with(|d| d.path.clone()))
-                    on_choose=move |path: String| draft.update(|d| d.choose_path(path))
-                />
+            <div class="path-group">
+                <label for="root-path">"Path"</label>
+                <div class="path-field">
+                    <input
+                        id="root-path"
+                        type="text"
+                        class="wide"
+                        placeholder="/srv/roms"
+                        list="root-path-suggestions"
+                        prop:value=move || draft.with(|d| d.path.clone())
+                        on:input=move |ev| {
+                            let value = event_target_value(&ev);
+                            draft.update(|d| d.path = value);
+                        }
+                    />
+                    <FolderPicker
+                        field="the root's path"
+                        value=Signal::derive(move || draft.with(|d| d.path.clone()))
+                        on_choose=move |path: String| draft.update(|d| d.choose_path(path))
+                    />
+                </div>
             </div>
             <p class="note small">"The folder must already exist on the service's host."</p>
             <fieldset>

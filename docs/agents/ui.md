@@ -96,6 +96,7 @@ pure logic there too.
 | A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped?, shown? }`      | `overlay`   |
 | A row or toolbar menu                  | `Menu { glyph, label }` holding `MenuItem { disabled? }`| `overlay`  |
 | A side panel over the page             | `Drawer { open, title }`                               | `overlay`   |
+| A path field's folder browser          | `FolderPicker { field, value, within?, on_choose, disabled? }` in `.path-field` | `folder_picker` |
 | Any list of rows                       | `List { id, label, rows, empty, detail, .. }`          | `list`      |
 | Cell text that may not fit             | `Clip { text }`                                        | `list`      |
 | A cell that shows less than it says    | `CellTip { label }` around its icon and short text     | `list`      |
@@ -249,6 +250,22 @@ element gets back its original inert state when the last modal closes; then focu
 overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters). `Tooltip { shown }`
 shows it while a signal is true, kept within its anchor's width, for an anchor the keyboard reaches without focus.
 A tooltip wraps anywhere, and is placed again for its drawn height, so a tall one that doesn't fit below goes above.
+
+### Folder picker
+
+Every path field the Operator registers sits in a `div.path-field` with a `FolderPicker` after its input: a
+**Browse…** button (named "Browse for {field}") that opens a `Drawer` browsing `GET /folders`. Without `within` it
+browses from `/` and chooses absolute paths; with `within` (`Within::new(root_path, root_name)`) its top is that
+Root, it names folders from the Root's name, and it chooses the path relative to the Root, so it can't choose the
+Root's own folder. Disable it while there is no Root to browse. In a `.form`, a `<label>` can't hold the button, so
+wrap the label and the `.path-field` in a `div.path-group`. Keep any datalist of suggestions on the input.
+
+The picker opens at the field's path, or at the top with a notice when the Service can't list it; that fallback
+(`fell_back` in `FolderBrowser`) is where a "this folder doesn't exist yet" state belongs. Its folder list is a
+`ul.folder-list` of buttons, not a `List`: each row is one action (open the folder), with no detail, checking, sorting
+or filtering, so it is navigation, like the crumbs. It still moves with the arrow keys, Home, End, Page Up and Page Down
+through `list_model::step`, and when it opens a folder focus goes to the first folder in it, or to "Choose this folder"
+when there is none. Its pure logic (`start`, `crumbs`, `up`, `chosen`, `display`) is host-tested.
 
 ### Plan review
 
