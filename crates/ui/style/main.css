@@ -1714,7 +1714,7 @@ details.kept > summary {
   }
 }
 
-/* A source set's page: its game counts and finding badges */
+/* A source set's game counts in its list row */
 
 .game-counts {
   display: inline-flex;
@@ -1733,29 +1733,54 @@ details.kept > summary {
   vertical-align: middle;
 }
 
-.finding-badges {
+/* The one summary of an audit, on a source set's overview and the audit's page: a strip of game counts with their
+   meter, and a strip of findings */
+
+.audit-counts {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.summary-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-4);
-  padding: 0;
-  list-style: none;
-}
-
-.finding-badge {
-  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-surface);
-  border: var(--border-width) solid var(--color-divider);
-  border-radius: var(--radius-control);
-  color: var(--color-text);
-  text-decoration: none;
+  gap: var(--space-2) var(--space-3);
 }
 
-.finding-badge .n {
-  font-family: var(--font-data);
+.summary-strip .strip-label {
+  min-width: 9rem;
+  margin: 0;
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+}
+
+.summary-strip .kind-counts,
+.summary-strip .note {
+  margin: 0;
+}
+
+.from-audit {
+  margin: 0 0 var(--space-2);
+}
+
+.from-audit + .audit-counts {
+  margin-top: 0;
+}
+
+/* A section of an overview folded away until you open it */
+
+details.fold {
+  margin: var(--space-4) 0 0;
+}
+
+details.fold + details.lifecycle {
+  margin-top: var(--space-4);
+}
+
+details.fold > summary {
+  cursor: pointer;
   font-weight: 600;
 }
 

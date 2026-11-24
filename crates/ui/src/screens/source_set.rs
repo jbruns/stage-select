@@ -12,53 +12,50 @@ use stage_select_api::build::{BuildSummary, LibraryFolder};
 use stage_select_api::ingest::IngestPlan;
 use stage_select_api::repair::RepairPlan;
 use stage_select_api::{
-    AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, OutsideCoverage,
-    Placements, SetFollow, SetHoldingFolder, SourceSetRecord, SourceSetSummary, StartAudit,
-    StatWalk,
+    AuditEvidence, AuditSummary, Dat, FollowedRevision, Job, OutsideCoverage, Placements,
+    SetFollow, SetHoldingFolder, SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
-use crate::app::Loading;
+use crate::app::{Loading, navigator};
 use crate::build_model::build_state_label;
 use crate::coverage_model::{label, outside_line, regions_line};
 use crate::events::use_live;
 use crate::kept_model::KeptPlace;
 use crate::library_model::live_status;
-use crate::model::{
-    Derived, audit_choices, audit_evidence_label, needs_review_from_counts, revision_label,
-    warning_counts, when,
-};
+use crate::model::{audit_choices, audit_evidence_label, revision_label, warning_counts, when};
+use crate::parts::help::Help;
 use crate::parts::icon::Glyph;
 use crate::parts::icon::Icon;
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::message::{Problem, Said};
-use crate::parts::meter::GamesMeter;
-use crate::parts::outcome::{JobOutcome, Reports, ShowReports};
-use crate::parts::pending::PendingStatus;
+use crate::parts::outcome::{JobOutcome, Report, Reports, ShowReports};
+use crate::parts::overlay::{Drawer, Menu, MenuItem};
 use crate::parts::status::{
-    FindingStatus, GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge,
-    StatusCount, StatusIcon,
+    GameFlag, LibraryStatus, Placement, StaleCause, Status, StatusBadge, StatusIcon,
 };
 use crate::parts::tabs::{Tab, Tabs, use_tab};
 use crate::placement_model::{
     Holding, flag_detail, folder_name, placed_line, present_games, review_line,
 };
 use crate::screens::additions::{AdditionsList, SetView};
-use crate::screens::audit::{EntriesPanel, GamesPanel, load};
+use crate::screens::audit::{AuditCounts, EntriesPanel, FollowAudit, GamesPanel, load};
 use crate::screens::coverage::{self, ByRegion, CoverageDrawer, UNAVAILABLE};
 use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
 use crate::screens::kept::KeptFiles;
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
-use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab};
+use crate::screens::repair::{RepairDesk, RepairTab};
 use crate::screens::source_sets::{
-    new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
+    Proposal, ProposalStatus, RepairNow, new_library_href, preview_href, repair_plan_href,
+    stale_lines, start_audit, start_check, tab_href,
 };
 use crate::source_set_model::{
     self as model, ExportScope, Happened, MissingExport, Moment, PageTab, no_coverage,
 };
+use crate::summary_model::{self, NextStep};
 
 /// What following a DAT does, for the toggle's tooltip.
 const FOLLOW_HINT: &str =
@@ -126,11 +123,20 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             .with(|b| model::running(b.newest_first().iter().map(|l| &l.job)))
     };
     let status = Memo::new(move |_| {
-        good.get().map(|(s, _)| {
-            (
-                model::status(&s, jobs_running().contains(&name.get_value())),
-                s.set.stale,
-            )
+        good.with(|g| {
+            g.as_ref()
+                .map(|(s, _)| model::status(s, jobs_running().contains(&name.get_value())))
+        })
+    });
+    let auditing = Memo::new(move |_| {
+        live.book.with(|b| {
+            summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &name.get_value())
+        })
+    });
+    let next = Memo::new(move |_| {
+        good.with(|g| {
+            g.as_ref()
+                .map(|(s, _)| summary_model::next_step(s, auditing.get()))
         })
     });
     let repair_state = Memo::new(move |_| {
@@ -169,21 +175,33 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     let coverage =
         Signal::derive(move || good.with(|g| g.as_ref().map(|(s, _)| s.set.coverage.clone())));
     let reports = Reports::new();
+    let url_tab = use_tab();
     let audit_now = move |_| {
         reports.clear();
         start_audit(name.get_value(), reports)
     };
-    let check_now = move |_| {
+    let check_now = move || {
         reports.clear();
         start_check(name.get_value(), reports)
     };
+    let navigate = navigator();
+    let proposal = Proposal::new();
+    let started = Signal::derive(move || {
+        reports
+            .get()
+            .into_iter()
+            .filter_map(|r| match r {
+                Report::Job(job) => Some(job.id),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
+    let options = RwSignal::new(false);
     let audited =
         Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.latest.is_some())));
     let follows = Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.set.follow)));
-    let follow = move |ev: leptos::ev::Event| {
-        let request = SetFollow {
-            follow: event_target_checked(&ev),
-        };
+    let follow = Callback::new(move |follow: bool| {
+        let request = SetFollow { follow };
         leptos::task::spawn_local(async move {
             let path = format!("/source-sets/{}/follow", api::segment(&name.get_value()));
             if let Err(problem) = api::put::<_, SourceSetRecord>(&path, &request).await {
@@ -193,9 +211,8 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             }
             refresh.update(|n| *n += 1);
         });
-    };
+    });
 
-    let url_tab = use_tab();
     let page_tabs = Signal::derive(move || {
         let open = tab.get();
         PageTab::ALL
@@ -212,46 +229,71 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         <Crumbs trail=vec![("/source-sets".to_string(), "Source sets".to_string())] here=set.name.clone() />
         <header class="page-head">
             <h1>{set.name.clone()}</h1>
-            {move || {
-                status
-                    .get()
-                    .map(|(s, stale)| {
-                        let causes = (s == model::STALE).then(|| stale_icons(&stale));
-                        view! {
-                            <StatusBadge status=s />
-                            {causes}
-                        }
-                    })
-            }}
+            {move || status.get().map(|s| view! { <StatusBadge status=s /> })}
         </header>
         <div class="actions">
-            <button type="button" on:click=audit_now>
-                "Audit"
+            {move || match next.get() {
+                Some(NextStep::Repair) => view! {
+                    <RepairNow
+                        proposal
+                        name=name.get_value()
+                        title="Proposes a repair from its latest audit, and opens the plan for your review. Nothing changes until you approve it."
+                    />
+                    <button type="button" on:click=audit_now>"Audit"</button>
+                }
+                .into_any(),
+                // Its audit is on its way: follow it below rather than propose a repair it is about to supersede.
+                Some(NextStep::Auditing(_)) => view! {
+                    <button type="button" on:click=audit_now>"Audit"</button>
+                }
+                .into_any(),
+                Some(NextStep::Review(plan)) => view! {
+                    <A href=repair_plan_href(&name.get_value(), plan) attr:class="button primary">
+                        {format!("Review repair #{plan}")}
+                    </A>
+                    <button type="button" on:click=audit_now>"Audit"</button>
+                }
+                .into_any(),
+                // The latest audit found nothing a repair surely changes, but spare copies and the storage policy
+                // aren't counted ahead of a repair.
+                Some(NextStep::MaybeRepair) => view! {
+                    <button type="button" class="primary" on:click=audit_now>"Audit"</button>
+                    <RepairNow
+                        proposal
+                        name=name.get_value()
+                        title="A repair may still set aside spare copies or repack games to your storage policy, which an audit doesn't count. It opens the plan for your review; nothing changes until you approve it."
+                        secondary=true
+                    />
+                }
+                .into_any(),
+                _ => view! {
+                    <button type="button" class="primary" on:click=audit_now>"Audit"</button>
+                }
+                .into_any(),
+            }}
+            <button type="button" on:click=move |_| options.set(true)>
+                "Audit with options"
             </button>
-            <button
-                type="button"
-                on:click=check_now
-                disabled=move || !audited.get()
-                title="Compares sizes and times with its latest audit, reading no file"
-            >
-                "Check for changes"
-            </button>
-            <label class="inline" title=FOLLOW_HINT>
-                <input type="checkbox" prop:checked=follows on:change=follow />
-                " Follow its DAT"
-            </label>
-            <A href=preview_href(&set.name) attr:class="button">
-                "Preview a selection"
-            </A>
-            <A href=new_library_href(&set.name) attr:class="button">
-                "New library folder"
-            </A>
+            <Menu glyph=Glyph::Ellipsis label="More actions">
+                <MenuItem
+                    label="Check for changes"
+                    on_select=Callback::new(move |()| check_now())
+                    disabled=Signal::derive(move || !audited.get())
+                />
+                <MenuItem
+                    label="Preview a selection"
+                    on_select=Callback::new(move |()| navigate.run(preview_href(&name.get_value())))
+                />
+                <MenuItem
+                    label="New library folder"
+                    on_select=Callback::new(move |()| navigate.run(new_library_href(&name.get_value())))
+                />
+            </Menu>
         </div>
         <Said said />
+        <ProposalStatus proposal />
         <ShowReports reports />
-        <Show when=move || desk.proposing().get() && tab.get() != PageTab::Repair>
-            <PendingStatus status=MAKING_PLAN />
-        </Show>
+        <FollowAudit source_set=set.name.clone() shown=started />
         <Tabs label="Source set" tabs=page_tabs />
         {move || match summary.get() {
             Some(Err(message)) if good.with(Option::is_none) => {
@@ -280,6 +322,8 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                         unavailable=summary.coverage_unavailable
                         present=present_games(&summary)
                         editing
+                        follows
+                        follow
                     />
                 }
                 .into_any(),
@@ -303,11 +347,21 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 .get()
                 .then(|| view! { <CoverageDrawer name=name.get_value() open=editing coverage refresh said /> })
         }}
+        <Drawer open=options title="Audit with options">
+            // Read once as it opens: a job settling while it's open keeps the form, and the outcome under it.
+            {move || {
+                good.get_untracked()
+                    .map(|(s, revisions)| {
+                        view! { <StartAuditForm name=name.get_value() latest=s.latest revisions /> }
+                    })
+            }}
+        </Drawer>
     }
 }
 
-/// The headline: the latest audit's game statuses and findings, each finding linking to its entries, and the form to
-/// start another audit.
+/// The overview: why the source set stands as it does, the latest audit's games and findings, each count opening
+/// the list it counts, and where its games are kept under single copy. Its coverage, its facts, the export of what's
+/// missing and unregistering wait folded beneath.
 #[component]
 fn Overview(
     set: SourceSetRecord,
@@ -317,82 +371,36 @@ fn Overview(
     unavailable: bool,
     present: Option<u64>,
     editing: RwSignal<bool>,
+    follows: Memo<bool>,
+    follow: Callback<bool>,
 ) -> impl IntoView {
     let name = set.name.clone();
     // A coverage set is still yours when it can't be applied; only the counts then aren't scoped to it.
     let covered = set.coverage.is_some() && !unavailable;
-    let games_title = if covered { "In your coverage" } else { "Games" };
     let unavailable_note = (set.coverage.is_some() && unavailable)
         .then(|| view! { <p class="note">{UNAVAILABLE}</p> });
     let outside_line = outside
         .filter(|_| covered)
         .map(|o| view! { <p class="note">{outside_line(&o)}</p> });
-    let headline = match &latest {
+    let counts = match &latest {
         None => view! {
-            <p class="note">"Not audited yet. Start an audit to see its games and entries."</p>
+            <p class="note">"Not audited yet. Audit it to see its games and entries."</p>
         }
         .into_any(),
-        Some(a) => {
-            let review = needs_review_from_counts(&a.findings);
-            let findings = Finding::ALL
-                .into_iter()
-                .filter_map(|f| {
-                    let n = a.findings.get(&f).copied().filter(|n| *n > 0)?;
-                    let href = format!(
-                        "{}&finding={}",
-                        tab_href(&name, PageTab::Entries),
-                        f.as_str()
-                    );
-                    Some(view! {
-                        <li>
-                            <a href=href class="finding-badge">
-                                <StatusBadge status=FindingStatus::from(f) />
-                                <span class="n">{n}</span>
-                            </a>
-                        </li>
-                    })
-                })
-                .collect_view();
-            view! {
-                <section aria-labelledby="games-title">
-                    <h2 id="games-title">{games_title}</h2>
-                    {unavailable_note}
-                    <ul class="counts headline">
-                        {GameStatus::ALL
-                            .into_iter()
-                            .map(|s| {
-                                let n = a.games.get(&s).copied().unwrap_or(0);
-                                view! {
-                                    <StatusCount status=s>
-                                        {n}
-                                    </StatusCount>
-                                }
-                            })
-                            .collect_view()}
-                        <StatusCount status=Derived::NeedsReview what="Entries that need review">
-                            {review}
-                        </StatusCount>
-                    </ul>
-                    <GamesMeter games=a.games.clone() />
-                    {outside_line}
-                    <ByRegion name=name.clone() />
-                </section>
-                <section aria-labelledby="findings-title">
-                    <h2 id="findings-title">"Findings"</h2>
-                    <p class="note">"Each opens the entries with that finding."</p>
-                    <ul class="finding-badges">{findings}</ul>
-                </section>
-            }
-            .into_any()
+        Some(a) => view! {
+            <p class="note small from-audit">
+                "From "
+                <A href=format!("/audits/{}", a.id)>{format!("audit #{}", a.id)}</A>
+                {format!(", {}.", when(&a.finished_at))}
+            </p>
+            <AuditCounts audit=a.clone() lists=summary_model::ON_SOURCE_SET covered />
+            {unavailable_note}
+            {outside_line}
         }
+        .into_any(),
     };
     let facts = latest.clone().map(|a| {
         view! {
-            <dt>"Latest audit"</dt>
-            <dd>
-                <A href=format!("/audits/{}", a.id)>{format!("Audit #{}", a.id)}</A>
-                {format!(", {}", when(&a.finished_at))}
-            </dd>
             <dt>"Against"</dt>
             <dd>
                 <super::dats::RevisionName
@@ -424,10 +432,10 @@ fn Overview(
     };
     view! {
         {stale_lines(&set)}
-        {headline}
+        {counts}
         <SingleCopy name=set.name.clone() present />
-        <section aria-labelledby="coverage-title">
-            <h2 id="coverage-title">"Coverage"</h2>
+        <details class="fold">
+            <summary>"Coverage"</summary>
             <p>
                 <Icon glyph label=kind />
                 " "
@@ -440,9 +448,10 @@ fn Overview(
                     </button>
                 </div>
             })}
-        </section>
-        <section aria-labelledby="about-title">
-            <h2 id="about-title">"About it"</h2>
+            {latest.is_some().then(|| view! { <ByRegion name=name.clone() /> })}
+        </details>
+        <details class="fold">
+            <summary>"About it"</summary>
             <dl class="facts">
                 <dt>"DAT"</dt>
                 <dd>{set.dat.clone()}</dd>
@@ -467,12 +476,19 @@ fn Overview(
                         .map_or("Never".to_string(), |last| format!("{} ({})", last.version, when(&last.finished_at)))}
                 </dd>
             </dl>
-        </section>
+            <label class="inline" title=FOLLOW_HINT>
+                <input
+                    type="checkbox"
+                    prop:checked=follows
+                    on:change=move |ev| follow.run(event_target_checked(&ev))
+                />
+                " Follow its DAT"
+            </label>
+        </details>
         {latest
             .clone()
             .filter(|a| !a.pruned)
             .map(|a| view! { <ExportMissing name=set.name.clone() latest=a coverage_set=set.coverage.is_some() unavailable /> })}
-        <StartAuditForm name=set.name.clone() latest revisions />
         <SetLifecycle name=set.name.clone() />
     }
 }
@@ -674,8 +690,8 @@ fn ExportMissing(
         move || api::url(&model::missing_export_path(&set, export, scope.get()))
     };
     view! {
-        <section aria-labelledby="export-title">
-            <h2 id="export-title">"Export what's missing"</h2>
+        <details class="fold">
+            <summary>"Export what's missing"</summary>
             <p class="note">
                 "Lists what your latest audit found missing, as a fixdat or a have/miss CSV. Nothing is fetched. \
                 The have/miss CSV lists every game of the DAT unless you choose a selection."
@@ -701,7 +717,7 @@ fn ExportMissing(
                 </a>
             </div>
             {cant_scope}
-        </section>
+        </details>
     }
 }
 
@@ -765,9 +781,7 @@ fn StartAuditForm(
         });
     };
     view! {
-        <section aria-labelledby="start-title">
-            <h2 id="start-title">"Start an audit"</h2>
-            <form class="form" on:submit=start>
+        <form class="form" on:submit=start>
                 <label>
                     "DAT revision"
                     <select prop:value=revision on:change=move |ev| revision.set(event_target_value(&ev))>
@@ -809,7 +823,6 @@ fn StartAuditForm(
                         Err(message) => view! { <Problem message /> }.into_any(),
                     })
             }}
-        </section>
     }
 }
 
@@ -1058,7 +1071,6 @@ struct MomentRow {
 enum MomentCol {
     When,
     What,
-    Detail,
 }
 
 impl MomentRow {
@@ -1169,20 +1181,20 @@ impl MomentRow {
 
 impl ListRow for MomentRow {
     type Col = MomentCol;
-    const COLUMNS: &'static [MomentCol] = &[MomentCol::When, MomentCol::What, MomentCol::Detail];
+    const COLUMNS: &'static [MomentCol] = &[MomentCol::When, MomentCol::What];
 
     fn column(col: MomentCol) -> Column {
         match col {
-            MomentCol::When => Column::new("when", "When", Width::Fixed(12.0)).sortable(),
-            MomentCol::What => Column::new("what", "What", Width::Fixed(13.0)).sortable(),
-            MomentCol::Detail => Column::new(
-                "detail",
-                "Detail",
+            MomentCol::When => Column::new("when", "When", Width::Fixed(15.0)).sortable(),
+            MomentCol::What => Column::new(
+                "what",
+                "What",
                 Width::Flex {
-                    min: 16.0,
+                    min: 13.0,
                     share: 1,
                 },
-            ),
+            )
+            .sortable(),
         }
     }
 
@@ -1214,7 +1226,6 @@ impl ListRow for MomentRow {
                 .into_any(),
                 None => self.what().into_any(),
             },
-            MomentCol::Detail => self.detail().into_any(),
         }
     }
 
@@ -1222,7 +1233,6 @@ impl ListRow for MomentRow {
         match col {
             MomentCol::When => self.moment.at.cmp(&other.moment.at),
             MomentCol::What => self.what().cmp(&other.what()),
-            MomentCol::Detail => self.detail().cmp(&other.detail()),
         }
     }
 }
@@ -1270,9 +1280,9 @@ fn History(name: String) -> impl IntoView {
         })
     });
     view! {
-        <p class="lede">
-            "Newest first. A past audit opens read-only; a pruned audit keeps only its summary."
-        </p>
+        <Help summary="Newest first. Open one to see what it did.">
+            <p>"A past audit opens read-only; a pruned audit keeps only its counts."</p>
+        </Help>
         {move || match moments.get() {
             None => view! { <Loading what="its history" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
@@ -1286,17 +1296,7 @@ fn History(name: String) -> impl IntoView {
             placeholder="Filter by audit, repair, ingest, build, change or detail"
             row_actions=Callback::new(|row: MomentRow| vec![RowAction::go(Glyph::Eye, "Open", row.link())])
             detail=Callback::new(|row: MomentRow| {
-                view! {
-                    <dl class="facts">
-                        <dt>"When"</dt>
-                        <dd>{when(&row.moment.at)}</dd>
-                        <dt>"What"</dt>
-                        <dd>{row.what()}</dd>
-                        <dt>"Detail"</dt>
-                        <dd>{row.detail()}</dd>
-                    </dl>
-                }
-                    .into_any()
+                view! { <p>{row.detail()}</p> }.into_any()
             })
         />
     }

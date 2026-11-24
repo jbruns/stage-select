@@ -5,44 +5,46 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use leptos_router::hooks::{use_params_map, use_query_map};
+use leptos_router::hooks::{use_location, use_params_map, use_query_map};
 use stage_select_api::build::LibraryFolder;
 use stage_select_api::report::ReviewFlag;
 use stage_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, Entry, EvidenceLevel, Finding, Game, GameStatus,
-    HeaderRule, Job, Placements, StartAudit,
+    HeaderRule, Job, Placements, SourceSetSummary, StartAudit,
 };
 use wasm_bindgen::JsCast;
 
 use crate::api;
-use crate::app::Loading;
+use crate::app::{Loading, navigator};
 use crate::events::use_live;
 use crate::model::{
     ALGORITHM, AuditEntries, AuditGames, COVERED, COVERED_YES, DEPENDENCIES_NOTE, Derived, Disks,
     EntryColumn, EntryFilter, FINDING, GameColumn, GameDisk, GameFilter, NO_GAME,
     NOTHING_TO_CHECK_NOTE, STATE, STATUS, absent_roms, audit_evidence_label, dependency_line,
     disk_text, entry_name, evidence_text, finding_label, game_status_label, games_found,
-    games_of_status_label, header_rule_text, header_text, needs_review_from_counts, parse_ndjson,
-    payload_read_text, unneeded, warning_counts, warning_text, when,
+    header_rule_text, header_text, parse_ndjson, payload_read_text, unneeded, warning_counts,
+    warning_text, when,
 };
 use crate::parts::help::Help;
 use crate::parts::layout::Crumbs;
 use crate::parts::legend::{LegendStrip, present_looks};
 use crate::parts::list::{Clip, Column, Keep, List, ListRow, Width};
 use crate::parts::message::Problem;
+use crate::parts::meter::GamesMeter;
 use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
+use crate::parts::plan::KindCounts;
 use crate::parts::status::{
-    AvailabilityStatus, FindingStatus, GameFlag, Placement, Status, StatusBadge, StatusCount,
-    StatusIcon,
+    AvailabilityStatus, FindingStatus, GameFlag, Placement, Status, StatusBadge, StatusIcon,
 };
 use crate::parts::tabs::{self, Tabs, use_tab};
-use crate::parts::url_state::use_query_edit;
+use crate::parts::url_state::{edited, query_string, use_query_edit};
 use crate::placement_model::{
     FlagsNow, READING_FLAGS, Stamped, flag_detail, flags_unknown, folder_name, game_placements,
     stamped_flags,
 };
-use crate::source_set_model::PageTab;
+use crate::screens::source_sets::{Proposal, ProposalStatus, RepairNow, repair_plan_href};
+use crate::summary_model::{self, NextStep};
 
 /// An audit's entries and game statuses, as its panels show them.
 #[derive(Clone)]
@@ -172,17 +174,17 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
     let set = StoredValue::new(audit.source_set.clone());
     let data =
         LocalResource::new(move || async move { if pruned { None } else { Some(load(id).await) } });
-    let counts = Signal::derive(move || {
-        data.get()
-            .flatten()
-            .and_then(|d| d.ok())
-            .map(|d| d.entries.counts())
-    });
     let reaudit = ReAudit::new(
         audit.source_set.clone(),
         audit.dat_revision_sha256.clone(),
         RwSignal::new(None),
     );
+    let proposal = Proposal::new();
+    let reaudited = Signal::derive(move || {
+        reaudit
+            .outcome
+            .with(|o| o.iter().flatten().map(|j| j.id).collect::<Vec<_>>())
+    });
     let url_tab = use_tab();
     let tab = Memo::new(move |_| Tab::parse(url_tab.current().as_deref()));
     let audit_tabs = Signal::derive(move || {
@@ -195,10 +197,6 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             .collect::<Vec<_>>()
     });
     let set_href = format!("/source-sets/{}", api::segment(&audit.source_set));
-    let repair_href = tabs::tab_link(&set_href, Some(PageTab::Repair.slug()), &[]);
-    let findings = audit.findings.clone();
-    let games = audit.games.clone();
-    let needs_review = needs_review_from_counts(&findings);
     let rule = audit.header_rule.as_ref().and_then(|r| r.rule);
     let header_rule = audit.header_rule.as_ref().map(|named| {
         view! {
@@ -212,6 +210,13 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             <dd>{said}</dd>
         }
     });
+    let state = summary_model::audit_state(&audit);
+    let revision = (
+        audit.dat_revision_sha256.clone(),
+        audit.dat_revision_version.clone(),
+    );
+    let evidence = audit_evidence_label(audit.evidence);
+    let (started, finished) = (when(&audit.started_at), when(&audit.finished_at));
 
     let trail = vec![
         ("/source-sets".to_string(), "Source sets".to_string()),
@@ -219,29 +224,13 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
     ];
     view! {
             <Crumbs trail here=format!("Audit #{id}") />
-            <h1>{format!("Audit #{id}")}</h1>
-            <dl class="facts">
-                <dt>"Source set"</dt>
-                <dd>
-                    <A href=set_href>{audit.source_set.clone()}</A>
-                </dd>
-                <dt>"DAT revision"</dt>
-                <dd>
-                    <super::dats::RevisionName
-                        sha256=audit.dat_revision_sha256.clone()
-                        version=audit.dat_revision_version.clone()
-                    />
-                </dd>
-                <dt>"Started"</dt>
-                <dd>{when(&audit.started_at)}</dd>
-                <dt>"Finished"</dt>
-                <dd>{when(&audit.finished_at)}</dd>
-                <dt>"Evidence"</dt>
-                <dd>{audit_evidence_label(audit.evidence)}</dd>
-                {header_rule}
-                {warnings}
-            </dl>
+            <header class="page-head">
+                <h1>{format!("Audit #{id}")}</h1>
+                <StatusBadge status=state />
+            </header>
             <div class="actions">
+                <NextFromAudit audit=id source_set=audit.source_set.clone() proposal />
+                {reaudit.button()}
                 {(!pruned)
                     .then(|| {
                         view! {
@@ -254,50 +243,35 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                             </a>
                         }
                     })}
-                {reaudit.button()}
-                <A href=repair_href attr:class="button">"Repair the source set"</A>
             </div>
+            <ProposalStatus proposal />
             {reaudit.outcome()}
-
-            <section aria-labelledby="summary-title">
-                <h2 id="summary-title">"Summary"</h2>
-                <ul class="counts">
-                    <StatusCount status=Derived::Verified>
-                        {move || counts.get().map_or("—".to_string(), |c| c.verified.to_string())}
-                    </StatusCount>
-                    <StatusCount status=Derived::NeedsReview>{needs_review}</StatusCount>
-                    {Finding::ALL
-                        .iter()
-                        .map(|f| {
-                            let n = findings.get(f).copied().unwrap_or(0);
-                            view! {
-                                <StatusCount status=FindingStatus::from(*f) what=finding_label(*f)>
-                                    {n}
-                                </StatusCount>
-                            }
-                        })
-                        .collect_view()}
-                    {GameStatus::ALL
-                        .iter()
-                        .map(|s| {
-                            let n = games.get(s).copied().unwrap_or(0);
-                            view! {
-                                <StatusCount status=*s what=games_of_status_label(*s)>
-                                    {n}
-                                </StatusCount>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-                {pruned
-                    .then(|| {
-                        view! {
-                            <p class="note">
-                                "This audit is pruned: only its summary is kept, so its entries, game statuses and verified count are gone."
-                            </p>
-                        }
-                    })}
-            </section>
+            <FollowAudit source_set=audit.source_set.clone() shown=reaudited />
+            <Help summary="What this audit read, and how">
+                <dl class="facts">
+                    <dt>"DAT revision"</dt>
+                    <dd>
+                        <super::dats::RevisionName sha256=revision.0 version=revision.1 />
+                    </dd>
+                    <dt>"Evidence"</dt>
+                    <dd>{evidence}</dd>
+                    <dt>"Started"</dt>
+                    <dd>{started}</dd>
+                    <dt>"Finished"</dt>
+                    <dd>{finished}</dd>
+                    {header_rule}
+                    {warnings}
+                </dl>
+            </Help>
+            <AuditCounts audit=audit.clone() lists=summary_model::ON_AUDIT />
+            {pruned
+                .then(|| {
+                    view! {
+                        <p class="note">
+                            "This audit is pruned: only its counts are kept, so its entries and game statuses are gone."
+                        </p>
+                    }
+                })}
 
             {move || match data.get() {
                 None => view! { <Loading what="the entries" /> }.into_any(),
@@ -321,6 +295,146 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                 }
             }}
         }
+}
+
+/// What an audit's page offers next, as its primary action: "Repair", which proposes a repair of its source set and
+/// opens the plan, while this audit is the latest and found entries to review; or the open repair to review. Nothing
+/// otherwise, nor while an audit of its source set is queued or running, nor until its source set's status is read.
+#[component]
+fn NextFromAudit(audit: i64, source_set: String, proposal: Proposal) -> impl IntoView {
+    let live = use_live();
+    let name = StoredValue::new(source_set);
+    let summary = LocalResource::new(move || {
+        live.settled.track();
+        let name = name.get_value();
+        async move {
+            let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
+            Ok::<_, String>(sets.into_iter().find(|s| s.set.name == name))
+        }
+    });
+    let next = Memo::new(move |_| {
+        let summary = summary.get()?.ok()??;
+        let auditing = live.book.with(|b| {
+            summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &name.get_value())
+        });
+        summary_model::after_audit(audit, &summary, auditing)
+    });
+    move || {
+        match next.get() {
+        Some(NextStep::Repair) => view! {
+            <RepairNow
+                proposal
+                name=name.get_value()
+                title="Proposes a repair of its source set from this audit, and opens the plan for your review. Nothing changes until you approve it."
+            />
+        }
+        .into_any(),
+        Some(NextStep::MaybeRepair) => view! {
+            <RepairNow proposal name=name.get_value() title="A repair may still set aside spare copies or repack games to your storage policy, which an audit doesn't count. It opens the plan for your review; nothing changes until you approve it." secondary=true />
+        }
+        .into_any(),
+        Some(NextStep::Review(plan)) => view! {
+            <A href=repair_plan_href(&name.get_value(), plan) attr:class="button primary">
+                {format!("Review repair #{plan}")}
+            </A>
+        }
+        .into_any(),
+        _ => ().into_any(),
+    }
+    }
+}
+
+/// The audit of `source_set` queued or running, as its job's progress, kept once it ends so you see how it went. None
+/// while `shown` names that job: the screen shows it already.
+#[component]
+pub fn FollowAudit(source_set: String, #[prop(into)] shown: Signal<Vec<i64>>) -> impl IntoView {
+    let live = use_live();
+    let followed = Memo::new(move |prev: Option<&Option<i64>>| {
+        live.book
+            .with(|b| {
+                summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &source_set)
+            })
+            .or(prev.copied().flatten())
+    });
+    move || {
+        followed
+            .get()
+            .filter(|job| !shown.with(|s| s.contains(job)))
+            .map(|job| view! { <JobOutcome job /> })
+    }
+}
+
+/// The one summary of an audit, on a source set's overview and on the audit's own page: its games by status beside
+/// their meter, and its entries by finding. Each count opens the list it counts on `lists`, narrowed to it; the count
+/// picked shows while that list is open, and picking it again shows every row. `covered` when the games are counted
+/// in your coverage only.
+#[component]
+pub fn AuditCounts(
+    audit: AuditSummary,
+    lists: summary_model::Lists,
+    #[prop(optional)] covered: bool,
+) -> impl IntoView {
+    let query = use_query_map();
+    let location = use_location();
+    let edit_query = use_query_edit();
+    let navigate = navigator();
+    // A count that opens another tab adds a history entry, as a tab does; one that narrows the open list replaces it.
+    let go = Callback::new(move |edit: summary_model::Edit| {
+        let to = edit
+            .iter()
+            .find(|(k, _)| *k == "tab")
+            .map(|(_, v)| v.clone());
+        let now = query.with_untracked(|q| q.get("tab"));
+        match to {
+            Some(to) if to != now => {
+                let pairs = query.with_untracked(|q| {
+                    edited(q.latest_values().map(|(k, v)| (k.as_ref(), v)), &edit)
+                });
+                let path = location.pathname.get_untracked();
+                navigate.run(format!("{path}{}", query_string(&pairs)));
+            }
+            _ => edit_query.run(edit),
+        }
+    });
+    let active_game = Signal::derive(move || {
+        query.with(|q| summary_model::active_game(lists, q.get_str("tab"), q.get_str(STATUS)))
+    });
+    let active_finding = Signal::derive(move || {
+        query.with(|q| summary_model::active_finding(lists, q.get_str("tab"), q.get_str(FINDING)))
+    });
+    let games = Signal::stored(summary_model::game_counts(&audit.games));
+    let findings = Signal::stored(summary_model::finding_counts(&audit.findings));
+    let none_found = audit.findings.values().all(|n| *n == 0);
+    view! {
+        <div class="audit-counts">
+            <div class="summary-strip">
+                <h2 class="strip-label">{if covered { "In your coverage" } else { "Games" }}</h2>
+                <KindCounts
+                    counts=games
+                    active=active_game
+                    on_filter=Callback::new(move |k| go.run(summary_model::pick_game(lists, k, covered)))
+                    label="Games by status"
+                />
+                <GamesMeter games=audit.games.clone() />
+            </div>
+            <div class="summary-strip">
+                <h2 class="strip-label">"Findings"</h2>
+                {if none_found {
+                    view! { <p class="note">"No entries."</p> }.into_any()
+                } else {
+                    view! {
+                        <KindCounts
+                            counts=findings
+                            active=active_finding
+                            on_filter=Callback::new(move |k| go.run(summary_model::pick_finding(lists, k)))
+                            label="Entries by finding"
+                        />
+                    }
+                        .into_any()
+                }}
+            </div>
+        </div>
+    }
 }
 
 /// The audit page's tabs, by the URL's `tab`.
