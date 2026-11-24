@@ -99,6 +99,10 @@ ICONS = [
     "globe",
     "map-pinned",
     "map-pin-x",
+    # The folder picker: a folder, a link to one, and going up.
+    "folder",
+    "folder-symlink",
+    "corner-left-up",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

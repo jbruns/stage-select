@@ -26,6 +26,14 @@ impl RootDraft {
         }
     }
 
+    /// Fills in the path you chose, and names the root for its last folder if you haven't named it.
+    pub fn choose_path(&mut self, path: String) {
+        if self.name.trim().is_empty() {
+            self.name = crate::welcome_model::root_name(&path);
+        }
+        self.path = path;
+    }
+
     /// Whether the writable box can be changed: an ingest or additions root is always writable.
     pub fn writable_fixed(&self) -> bool {
         self.kind != RootKind::General
@@ -130,6 +138,22 @@ mod tests {
     use stage_select_api::roots::VoidedPlan;
 
     use super::*;
+
+    #[test]
+    fn a_chosen_path_names_an_unnamed_root_for_its_last_folder() {
+        let mut draft = RootDraft::default();
+        draft.choose_path("/mnt/roms".into());
+        assert_eq!(
+            (draft.name.as_str(), draft.path.as_str()),
+            ("roms", "/mnt/roms")
+        );
+        draft.choose_path("/srv/games".into());
+        assert_eq!(
+            (draft.name.as_str(), draft.path.as_str()),
+            ("roms", "/srv/games"),
+            "a name you have is kept"
+        );
+    }
 
     fn root() -> Root {
         Root {

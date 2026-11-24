@@ -77,10 +77,13 @@ pub enum Glyph {
     Globe,
     MapPinned,
     MapPinX,
+    Folder,
+    FolderSymlink,
+    CornerLeftUp,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 73] = [
+    pub const ALL: [Glyph; 76] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -154,6 +157,9 @@ impl Glyph {
         Glyph::Globe,
         Glyph::MapPinned,
         Glyph::MapPinX,
+        Glyph::Folder,
+        Glyph::FolderSymlink,
+        Glyph::CornerLeftUp,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -352,6 +358,15 @@ impl Glyph {
             Glyph::MapPinX => {
                 "<path d='M19.752 11.901A7.78 7.78 0 0 0 20 10a8 8 0 0 0-16 0c0 4.993 5.539 10.193 7.399 11.799a1 1 0 0 0 1.202 0 19 19 0 0 0 .09-.077' /><circle cx='12' cy='10' r='3' /><path d='m21.5 15.5-5 5' /><path d='m21.5 20.5-5-5' />"
             }
+            Glyph::Folder => {
+                "<path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' />"
+            }
+            Glyph::FolderSymlink => {
+                "<path d='M2 9.35V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h7' /><path d='m8 16 3-3-3-3' />"
+            }
+            Glyph::CornerLeftUp => {
+                "<path d='M14 9 9 4 4 9' /><path d='M20 20h-7a4 4 0 0 1-4-4V4' />"
+            }
         }
     }
 
@@ -431,6 +446,9 @@ impl Glyph {
             Glyph::Globe => "globe",
             Glyph::MapPinned => "map-pinned",
             Glyph::MapPinX => "map-pin-x",
+            Glyph::Folder => "folder",
+            Glyph::FolderSymlink => "folder-symlink",
+            Glyph::CornerLeftUp => "corner-left-up",
         }
     }
 }

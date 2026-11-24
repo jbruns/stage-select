@@ -1805,3 +1805,75 @@ details.dependencies > summary {
   padding: 0;
   list-style: none;
 }
+
+/* A path field with its Browse… button, and the folder picker's drawer. */
+.path-field {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.path-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-picker .crumbs ol {
+  margin-top: 0;
+  font-family: var(--font-data);
+}
+
+.folder-choose,
+.folder-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+
+.folder-tools button {
+  gap: var(--space-2);
+}
+
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.folder-list button {
+  width: 100%;
+  gap: var(--space-2);
+  border-color: transparent;
+  text-align: left;
+}
+
+.folder-list button:hover {
+  border-color: var(--color-control-border);
+}
+
+.folder-list .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-data);
+}
+
+.form .path-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-meta);
+  line-height: var(--line-meta);
+  color: var(--color-text-secondary);
+}
+
+.form .path-group .path-field > * {
+  font-size: var(--type-body);
+  color: var(--color-text);
+}
