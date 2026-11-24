@@ -230,6 +230,7 @@ fn record(c: &Connection, roots: &crate::roots::Roots, row: FolderRow) -> Result
         stale,
         built_for,
         disk_folders,
+        removed: crate::removed::removed_games(c, row.id)?,
     })
 }
 

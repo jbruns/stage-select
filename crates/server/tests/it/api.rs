@@ -3778,6 +3778,48 @@ mod selections {
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "notes.txt");
 
+        // Removing a game plans setting it aside; approved, every later plan leaves it out until you restore it.
+        let removals = format!("/libraries/{}/game-removals", folder.id);
+        let (status, body) = send(
+            client.post(&removals),
+            json!({"games": ["Combat (USA)"], "action": "send_back"}),
+        );
+        assert_eq!(status, 400, "a game built here, not placed: {body}");
+        let (status, plan) = send(
+            client.post(&removals),
+            json!({"games": ["Combat (USA)"], "action": "set_aside"}),
+        );
+        assert_eq!(status, 201, "{plan}");
+        assert_eq!(
+            plan["content"]["choices"]["remove"],
+            json!([{"game": "Combat (USA)", "action": "set_aside"}])
+        );
+        let plan: Plan = serde_json::from_value(plan).unwrap();
+        let (status, job) = send(
+            client.post(&format!("/plans/{}/approval", plan.id)),
+            json!({"digest": plan.digest}),
+        );
+        assert_eq!(status, 202, "{job}");
+        let job: Job = serde_json::from_value(job).unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        assert!(!play.join("test/Combat (USA).zip").exists());
+        let removed = &read(folder.id)["removed"];
+        assert_eq!(removed[0]["name"], "Combat (USA)", "{removed}");
+        assert_eq!(removed[0]["action"], "set_aside");
+        assert_eq!(removed[0]["plan"], plan.id);
+        let restorations = format!("/libraries/{}/game-restorations", folder.id);
+        let (status, body) = send(
+            client.post(&restorations),
+            json!({"games": ["Combat (USA)"]}),
+        );
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body.get("removed"), None, "nothing is removed now: {body}");
+        let (status, body) = send(
+            client.post(&restorations),
+            json!({"games": ["Combat (USA)"]}),
+        );
+        assert_eq!(status, 400, "a game not removed: {body}");
+
         // Saving the profile again leaves the build behind it.
         save(&client, json!({"region_order": ["Japan"]}));
         assert_eq!(

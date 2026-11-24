@@ -942,3 +942,81 @@ fn the_service_starts_from_environment_variables_alone() {
     assert_eq!(named.status(), 200);
     assert_eq!(anonymous.status(), 401);
 }
+
+#[test]
+fn library_remove_and_restore_say_why_they_are_refused() {
+    let (f, dat) = pong_fixture();
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
+        cmd
+    };
+    let play = f.dat_dir.path().join("play");
+    std::fs::create_dir_all(&play).unwrap();
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
+    run_ok(
+        ts().args(["root", "register", "play", "--writable"])
+            .arg(&play),
+    );
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
+    let folder = {
+        let opened = stage_select_store::Store::open(&store).unwrap();
+        opened
+            .save_profile(
+                "Mine",
+                &stage_select_api::selection::SelectionProfile::default(),
+                None,
+                "test",
+                &[],
+                stage_select_store::Workers {
+                    readers: 1,
+                    hashers: 1,
+                },
+            )
+            .unwrap();
+        opened
+            .add_library_folder(&stage_select_api::build::AddLibraryFolder {
+                root: "play".into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: rel.into(),
+                profile: "Mine".into(),
+            })
+            .unwrap()
+            .id
+            .to_string()
+    };
+
+    let refused = |args: &[&str]| {
+        let out = ts().args(args).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        String::from_utf8(out.stderr).unwrap()
+    };
+    let why = refused(&[
+        "library",
+        "remove",
+        &folder,
+        "Pong (USA)",
+        "--action",
+        "send-back",
+    ]);
+    assert!(why.contains("nothing was built"), "{why}");
+    // Without --action it sets the games aside: refused for the folder, not for the missing option.
+    let why = refused(&["library", "remove", &folder, "Pong (USA)"]);
+    assert!(why.contains("nothing was built"), "{why}");
+    let why = refused(&["library", "restore", &folder, "Pong (USA)"]);
+    assert!(why.contains("Pong (USA) isn't removed"), "{why}");
+    let why = refused(&[
+        "library",
+        "remove",
+        &folder,
+        "Pong (USA)",
+        "--action",
+        "lose",
+    ]);
+    assert!(why.contains("send-back"), "{why}");
+}

@@ -15,6 +15,7 @@ pub(crate) const APPLICATION_ID: i32 = 0x5353_656C;
 pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_baseline.sql"),
     include_str!("migrations/0002_ingest_kept_deletions.sql"),
+    include_str!("migrations/0003_removed_games.sql"),
 ];
 
 /// What a store made by an earlier release is refused with.

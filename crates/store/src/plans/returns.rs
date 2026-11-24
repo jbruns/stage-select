@@ -11,8 +11,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use stage_select_api::build::{
-    ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, ReturnFile, ReturnHow,
-    ReturnPlaced,
+    ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, RemoveAction, ReturnFile,
+    ReturnHow, ReturnPlaced,
 };
 use stage_select_api::storage::{Placement, placement_writing, release_of};
 use stage_select_engine::dat::Dat;
@@ -99,8 +99,17 @@ pub(super) fn returns(
         games.dedup();
         // The folder keeps a release placed in it while its Games are selected there, Single Copy is on for its
         // system, and it holds the Source Set's Placed Games; and, whatever else, while the release is held back.
+        // A release you removed a game of to delete is deleted, never returned.
+        if games
+            .iter()
+            .any(|g| inputs.removed.get(*g) == Some(&RemoveAction::Delete))
+        {
+            continue;
+        }
         let why = if remove_all {
             Some("you are removing every built file of this folder".to_owned())
+        } else if let Some(game) = games.iter().find(|g| inputs.removed.contains_key(**g)) {
+            Some(format!("you removed {game} from this folder"))
         } else if let Some(game) = games.iter().find(|g| !selected(g)) {
             Some(format!("{game} is no longer selected here"))
         } else if !inputs.storage.single_copy {

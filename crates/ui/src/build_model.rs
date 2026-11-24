@@ -9,7 +9,7 @@ use stage_select_api::build::{
     Blocker, BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry,
     DriftKind, FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
     LibraryFolder, PlaceHow, PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval,
-    PlanSummary, RemovalKind, RestoreKind, ReturnHow, UnfinishedBuild,
+    PlanSummary, RemovalKind, RemoveAction, RestoreKind, ReturnHow, UnfinishedBuild,
 };
 
 use crate::activity_model::bytes;
@@ -340,6 +340,42 @@ fn does(kind: BuildKind) -> Does {
         BuildKind::Acknowledge => Does::new("acknowledges", "entry", "entries"),
         BuildKind::Restore => Does::new("puts back", "kept file", "kept files"),
     }
+}
+
+/// What a build plan that removes games you chose does with them, for you to read before you approve it: each game
+/// with how, and, for a deletion, that it is deleted and a placed game isn't returned. None for any other plan.
+pub fn removal_notice(choices: &PlanChoices) -> Option<String> {
+    if choices.remove.is_empty() {
+        return None;
+    }
+    let games = choices
+        .remove
+        .iter()
+        .map(|r| {
+            let how = match r.action {
+                RemoveAction::SendBack => "sent back to your source set",
+                RemoveAction::SetAside => "set aside",
+                RemoveAction::Delete => "deleted",
+            };
+            format!("{} ({how})", r.game)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut said = format!(
+        "This plan removes games you chose from the folder: {games}. Approving it adds them to the folder's removed \
+         games, which its builds leave out until you restore them."
+    );
+    if choices
+        .remove
+        .iter()
+        .any(|r| r.action == RemoveAction::Delete)
+    {
+        said.push_str(
+            " A deleted game's files are set aside, then deleted: a game placed here under single copy is lost, not \
+             returned to your source set.",
+        );
+    }
+    Some(said)
 }
 
 /// A build plan's one-line summary in numbers: its rows by what each does, in the order of their kinds.
@@ -820,6 +856,7 @@ fn url_component(text: &str) -> String {
 mod tests {
     use super::*;
     use stage_select_api::ProfileVersionRef;
+    use stage_select_api::build::GameRemoval;
     use stage_select_api::build::{BuildSummary, Cleanup, KeepAside};
     use stage_select_api::selection::{SelectionPins, SelectionSummary};
 
@@ -1071,6 +1108,7 @@ mod tests {
             stale: Vec::new(),
             built_for: None,
             disk_folders: Vec::new(),
+            removed: Vec::new(),
         }
     }
 
@@ -1167,6 +1205,7 @@ mod tests {
             adopt: vec!["Pong.zip".into()],
             keep_aside: vec!["Combat.zip".into()],
             remove_all: false,
+            remove: vec![],
         };
         let picked = BTreeMap::from([
             ("Combat.zip".to_string(), ConflictChoice::Adopt),
@@ -1647,6 +1686,31 @@ mod tests {
         assert_eq!(
             plan_line(&content(Vec::new(), Vec::new())),
             "Changes nothing"
+        );
+    }
+
+    #[test]
+    fn a_plan_that_removes_games_says_how_and_warns_of_a_deletion() {
+        assert_eq!(removal_notice(&PlanChoices::default()), None);
+        let mut choices = PlanChoices {
+            remove: vec![GameRemoval {
+                game: "Pong (USA)".into(),
+                action: RemoveAction::SetAside,
+            }],
+            ..PlanChoices::default()
+        };
+        let said = removal_notice(&choices).unwrap();
+        assert!(said.contains("Pong (USA) (set aside)"), "{said}");
+        assert!(!said.contains("lost"), "{said}");
+        choices.remove.push(GameRemoval {
+            game: "Joust (USA)".into(),
+            action: RemoveAction::Delete,
+        });
+        let said = removal_notice(&choices).unwrap();
+        assert!(said.contains("Joust (USA) (deleted)"), "{said}");
+        assert!(
+            said.contains("is lost, not returned to your source set"),
+            "{said}"
         );
     }
 }

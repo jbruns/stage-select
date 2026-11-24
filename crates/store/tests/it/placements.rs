@@ -7,7 +7,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::common::*;
-use stage_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder};
+use stage_select_api::build::{
+    AddLibraryFolder, FileOutcome, FolderCheck, LibraryFolder, RemoveAction, RemoveGames,
+    RestoreGames,
+};
 use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use stage_select_api::selection::{
     CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -29,6 +32,11 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
         ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
         ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
         ("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]),
+        // Its ROM is Combat's: a placed Combat is the only copy of it.
+        (
+            "Combat (USA) (Rev 1)",
+            vec![rom("Combat (USA) (Rev 1).a26", b"combat")],
+        ),
         (
             "Joust (USA)",
             vec![
@@ -252,6 +260,7 @@ fn an_audit_verifies_a_placed_game_where_it_is_placed_and_reports_it_missing_onc
         BTreeMap::from([
             ("Pong (USA)".to_owned(), GameStatus::Complete),
             ("Combat (USA)".to_owned(), GameStatus::Complete),
+            ("Combat (USA) (Rev 1)".to_owned(), GameStatus::Missing),
             ("Yars (USA)".to_owned(), GameStatus::Missing),
             ("Joust (USA)".to_owned(), GameStatus::Missing),
         ]),
@@ -528,6 +537,11 @@ fn only_a_folder_bound_to_the_source_set_holds_its_placed_games() {
 
 /// Records `title` alone as a Selection Job's result, made with the latest Profile version.
 fn select(env: &Env, title: &str, sha256: &str) -> i64 {
+    select_all(env, &[title], sha256)
+}
+
+/// Records a Selection that keeps each of `titles`, each the one game of its own group.
+fn select_all(env: &Env, titles: &[&str], sha256: &str) -> i64 {
     env.store
         .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
         .unwrap();
@@ -545,20 +559,23 @@ fn select(env: &Env, title: &str, sha256: &str) -> i64 {
         system_settings: false,
         summary: SelectionSummary::default(),
         coverage_drift: CoverageDrift::default(),
-        groups: vec![SelectionGroup {
-            dependencies: Vec::new(),
-            group: title.to_lowercase(),
-            unresolved: false,
-            kept: vec![KeptGame {
-                title: title.into(),
-                rule,
+        groups: titles
+            .iter()
+            .map(|title| SelectionGroup {
+                dependencies: Vec::new(),
+                group: title.to_lowercase(),
                 unresolved: false,
-            }],
-            clones: vec![],
-            left_out: vec![],
-            choice: None,
-            drift: false,
-        }],
+                kept: vec![KeptGame {
+                    title: (*title).into(),
+                    rule: rule.clone(),
+                    unresolved: false,
+                }],
+                clones: vec![],
+                left_out: vec![],
+                choice: None,
+                drift: false,
+            })
+            .collect(),
         stale_choices: BTreeMap::new(),
     };
     env.store
@@ -2319,4 +2336,340 @@ fn a_stop_once_a_fill_went_into_a_library_folder_since_moved_leaves_it_unfinishe
             "across={across}"
         );
     }
+}
+
+impl Env {
+    /// Builds `titles`, each written in the Source Set's folder first, into the Library Folder, and returns the
+    /// Selection it built.
+    fn build_games(&self, titles: &[&str]) -> i64 {
+        for title in titles {
+            let (_, roms) = games().into_iter().find(|(g, _)| g == title).unwrap();
+            let members: Vec<(&str, &[u8])> = roms
+                .iter()
+                .map(|r| (r.name, r.payload.as_slice()))
+                .collect();
+            write_torrentzip(&self.set().join(format!("{title}.zip")), &members);
+        }
+        let sha256 = self.audit(AuditEvidence::Full).dat_revision.sha256;
+        let selection = select_all(self, titles, &sha256);
+        self.run_plan(&self.store.plan_build(self.folder.id, selection).unwrap());
+        selection
+    }
+
+    /// Approves `plan` and runs its Build Job to success.
+    fn run_plan(&self, plan: &stage_select_api::build::Plan) {
+        let job = self
+            .store
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
+        let ended = self.store.run_build_job(job.id, None).unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    }
+
+    /// Takes the built `<game>.zip` as `game`'s only copy: gone from the Source Set's folder, and placed here.
+    fn take_as_placed(&self, game: &str) {
+        let name = format!("{game}.zip");
+        std::fs::remove_file(self.set().join(&name)).unwrap();
+        self.store
+            .record_placement(SET, game, self.folder.id, &[&name])
+            .unwrap();
+    }
+
+    fn remove(&self, games: &[&str], action: RemoveAction) -> stage_select_api::build::Plan {
+        self.store
+            .plan_game_removal(
+                self.folder.id,
+                &RemoveGames {
+                    games: games.iter().map(|g| g.to_string()).collect(),
+                    action,
+                },
+            )
+            .unwrap()
+    }
+
+    fn removed(&self) -> Vec<(String, RemoveAction)> {
+        self.store
+            .library_folder(self.folder.id)
+            .unwrap()
+            .removed
+            .into_iter()
+            .map(|g| (g.name, g.action))
+            .collect()
+    }
+}
+
+#[test]
+fn a_game_set_aside_is_a_kept_file_every_later_build_leaves_out_until_you_restore_it() {
+    let env = Env::new();
+    let selection = env.build_games(&["Pong (USA)", "Combat (USA)"]);
+
+    let plan = env.remove(&["Combat (USA)"], RemoveAction::SetAside);
+
+    assert_eq!(
+        plan.content.removals.len(),
+        1,
+        "{:?}",
+        plan.content.removals
+    );
+    let removal = &plan.content.removals[0];
+    assert_eq!(removal.target, "Combat (USA).zip");
+    assert!(removal.keep.is_some(), "{removal:?}");
+    assert!(
+        removal
+            .reason
+            .starts_with("you removed Combat (USA) from this folder"),
+        "{removal:?}"
+    );
+    assert!(
+        env.removed().is_empty(),
+        "nothing is removed until you approve the plan"
+    );
+    env.run_plan(&plan);
+    assert!(!env.library().join("Combat (USA).zip").exists());
+    assert!(env.library().join("Pong (USA).zip").is_file());
+    let kept = env.store.kept_files(env.folder.id).unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Combat (USA).zip");
+    assert_eq!(
+        env.removed(),
+        [("Combat (USA)".to_owned(), RemoveAction::SetAside)]
+    );
+
+    // The next plan from the same Selection leaves it out, and says why.
+    let next = env.store.plan_build(env.folder.id, selection).unwrap();
+    assert!(
+        next.content.items.iter().all(|i| i.game != "Combat (USA)"),
+        "{:?}",
+        next.content.items
+    );
+    assert!(
+        next.content
+            .notes
+            .iter()
+            .any(|n| n.starts_with("you removed Combat (USA) from this folder")),
+        "{:?}",
+        next.content.notes
+    );
+
+    let restored = env
+        .store
+        .restore_games(
+            env.folder.id,
+            &RestoreGames {
+                games: vec!["Combat (USA)".into()],
+            },
+        )
+        .unwrap();
+    assert!(restored.removed.is_empty());
+    let back = env.store.plan_build(env.folder.id, selection).unwrap();
+    assert!(
+        back.content.items.iter().any(|i| i.game == "Combat (USA)"),
+        "{:?}",
+        back.content.items
+    );
+    env.run_plan(&back);
+    assert!(env.library().join("Combat (USA).zip").is_file());
+}
+
+#[test]
+fn a_placed_game_sent_back_is_returned_to_its_source_set_and_audited_complete_there() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    env.take_as_placed("Pong (USA)");
+
+    let plan = env.remove(&["Pong (USA)"], RemoveAction::SendBack);
+
+    assert!(
+        plan.content.removals.is_empty(),
+        "{:?}",
+        plan.content.removals
+    );
+    assert_eq!(plan.content.returns.len(), 1, "{:?}", plan.content);
+    assert_eq!(plan.content.returns[0].games, ["Pong (USA)"]);
+    env.run_plan(&plan);
+    assert!(env.set().join("Pong (USA).zip").is_file());
+    assert!(!env.library().join("Pong (USA).zip").exists());
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert!(env.store.kept_files(env.folder.id).unwrap().is_empty());
+    assert_eq!(
+        env.removed(),
+        [("Pong (USA)".to_owned(), RemoveAction::SendBack)]
+    );
+    assert_eq!(
+        Env::statuses(&env.audit(AuditEvidence::Full))["Pong (USA)"],
+        GameStatus::Complete
+    );
+}
+
+#[test]
+fn a_game_removed_to_delete_is_kept_aside_then_deleted_and_a_placed_one_never_goes_back() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)", "Yars (USA)"]);
+    env.take_as_placed("Pong (USA)");
+
+    let plan = env.remove(&["Pong (USA)", "Combat (USA)"], RemoveAction::Delete);
+
+    assert!(
+        plan.content.returns.is_empty(),
+        "{:?}",
+        plan.content.returns
+    );
+    let mut targets: Vec<&str> = plan
+        .content
+        .removals
+        .iter()
+        .inspect(|r| {
+            let lost = r.reason.contains("so the game is lost, not returned there");
+            assert!(
+                r.keep.is_some() && r.reason.contains("then deleted"),
+                "{r:?}"
+            );
+            assert_eq!(lost, r.game == "Pong (USA)", "{r:?}");
+        })
+        .map(|r| r.target.as_str())
+        .collect();
+    targets.sort();
+    assert_eq!(targets, ["Combat (USA).zip", "Pong (USA).zip"]);
+    env.run_plan(&plan);
+    assert!(!env.library().join("Pong (USA).zip").exists());
+    assert!(!env.library().join("Combat (USA).zip").exists());
+    assert!(
+        !env.set().join("Pong (USA).zip").exists(),
+        "never sent back"
+    );
+    assert!(env.library().join("Yars (USA).zip").is_file());
+    assert!(
+        env.store.kept_files(env.folder.id).unwrap().is_empty(),
+        "nothing stays kept"
+    );
+    assert_eq!(
+        Env::files_under(&env.library().join(".stage-select/retained")),
+        Vec::<String>::new()
+    );
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert_eq!(
+        env.removed(),
+        [
+            ("Combat (USA)".to_owned(), RemoveAction::Delete),
+            ("Pong (USA)".to_owned(), RemoveAction::Delete)
+        ]
+    );
+    assert_eq!(
+        Env::statuses(&env.audit(AuditEvidence::Full))["Pong (USA)"],
+        GameStatus::Missing
+    );
+}
+
+#[test]
+fn files_kept_aside_to_delete_are_deleted_when_the_service_next_starts_if_it_stopped_first() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    let plan = env.remove(&["Pong (USA)"], RemoveAction::Delete);
+    let job = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    // Stopped once the build succeeded, before the files it kept aside are deleted.
+    env.store.inject_fault(Some(Fault::RemovedKept));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(job.id, None)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let kept = env.store.kept_files(env.folder.id).unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Pong (USA).zip");
+
+    let Env { tmp, store, folder } = env;
+    let path = store.dir().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    store.recover_jobs(WORKERS).unwrap();
+    assert!(store.recover_builds().unwrap().is_empty());
+    assert!(store.recover_kept_deletions().unwrap().is_empty());
+    assert!(store.recover_removal_deletions().unwrap().is_empty());
+    let env = Env { tmp, store, folder };
+
+    assert!(
+        env.store.kept_files(env.folder.id).unwrap().is_empty(),
+        "the kept file is deleted"
+    );
+    assert_eq!(
+        Env::files_under(&env.library().join(".stage-select/retained")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        env.removed(),
+        [("Pong (USA)".to_owned(), RemoveAction::Delete)]
+    );
+    // Finished: a later start deletes nothing more.
+    assert!(env.store.recover_removal_deletions().unwrap().is_empty());
+}
+
+#[test]
+fn a_placed_game_whose_roms_another_game_needs_is_never_deleted_but_can_be_sent_back() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    env.take_as_placed("Combat (USA)");
+
+    let refused = env.store.plan_game_removal(
+        env.folder.id,
+        &RemoveGames {
+            games: vec!["Combat (USA)".into()],
+            action: RemoveAction::Delete,
+        },
+    );
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("Combat (USA) (Rev 1) also need its ROMs")),
+        "{refused:?}"
+    );
+    env.run_plan(&env.remove(&["Combat (USA)"], RemoveAction::SendBack));
+    assert!(env.set().join("Combat (USA).zip").is_file());
+}
+
+#[test]
+fn removing_a_game_is_refused_where_its_files_have_nowhere_to_go() {
+    let env = Env::new();
+    let removal = |games: &[&str], action| {
+        env.store.plan_game_removal(
+            env.folder.id,
+            &RemoveGames {
+                games: games.iter().map(|g| g.to_string()).collect(),
+                action,
+            },
+        )
+    };
+    assert!(
+        matches!(removal(&["Pong (USA)"], RemoveAction::SetAside), Err(Error::Refused(why)) if why.contains("nothing was built")),
+    );
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    env.take_as_placed("Pong (USA)");
+
+    for (game, action, says) in [
+        ("Yars (USA)", RemoveAction::Delete, "no file built"),
+        ("Combat (USA)", RemoveAction::SendBack, "isn't placed here"),
+        ("Pong (USA)", RemoveAction::SetAside, "only copy"),
+    ] {
+        let refused = removal(&[game], action);
+        assert!(
+            matches!(&refused, Err(Error::Refused(why)) if why.contains(says)),
+            "{game}: {refused:?}"
+        );
+    }
+    assert!(matches!(
+        removal(&[], RemoveAction::Delete),
+        Err(Error::Refused(_))
+    ));
+    let restore = env.store.restore_games(
+        env.folder.id,
+        &RestoreGames {
+            games: vec!["Combat (USA)".into()],
+        },
+    );
+    assert!(
+        matches!(&restore, Err(Error::Refused(why)) if why.contains("isn't removed")),
+        "{restore:?}"
+    );
 }

@@ -12,7 +12,8 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::build::{
     AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
     ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, IncompleteReason, ItemState,
-    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, UnfinishedBuild,
+    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, RemoveAction, RemoveGames,
+    RemovedGame, RestoreGames, UnfinishedBuild,
 };
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
@@ -28,11 +29,14 @@ use crate::build_model::{
 use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
 use crate::library_model::{
-    BUILT_FOR_NOTE, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING, ROMM_PER_PLATFORM,
-    Replan, Replans, built_for, checked_in, drifted, fresh, live_status, location, no_coverage,
-    pick, plan_state, romm_exclusions, selection_under_way, stale_label,
+    BUILT_FOR_NOTE, ChosenGames, FolderTab, Pick, ROMM_AFTER_SETTING, ROMM_BEFORE_SETTING,
+    ROMM_PER_PLATFORM, Replan, Replans, built_for, checked_in, drifted, fresh,
+    is_generated_playlist, live_status, location, no_coverage, pick, plan_state, removal_label,
+    removal_refusal, removal_result, removed_label, romm_exclusions, selection_under_way,
+    stale_label,
 };
 use crate::model::{age, earlier, when};
+use crate::parts::choice::Choice;
 use crate::parts::folder_picker::{FolderPicker, Within};
 use crate::parts::help::Help;
 use crate::parts::icon::{Glyph, LabelledIcon};
@@ -1211,7 +1215,7 @@ fn FolderPage(
         <Tabs label="Library folder" tabs=folder_tabs />
         {move || match tab.get() {
             FolderTab::Overview => view! {
-                <Overview folder=folder.get_value() />
+                <Overview folder=folder.get_value() busy refresh />
                 <FolderLifecycle folder=folder.get_value() refresh />
             }
             .into_any(),
@@ -1240,8 +1244,9 @@ fn FolderPage(
 /// Where the folder stands and why, its last build's outcome, what it lacks and the files built into it; what it's
 /// bound to behind help, and its disk folders collapsed.
 #[component]
-fn Overview(folder: LibraryFolder) -> impl IntoView {
+fn Overview(folder: LibraryFolder, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
+    let removed = folder.removed.clone();
     // The latest build's outcome: an unfinished one when it stopped after the current build, which the facts then
     // name instead.
     let unfinished = folder.unfinished.clone();
@@ -1260,7 +1265,8 @@ fn Overview(folder: LibraryFolder) -> impl IntoView {
         {reasons(&folder, false)}
         {latest}
         {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id failed_shown /> })}
-        <BuiltFiles folder=id />
+        <BuiltFiles folder=id busy refresh />
+        {(!removed.is_empty()).then(|| view! { <RemovedGames folder=id removed busy refresh /> })}
         <Help summary="About this library folder">{facts}</Help>
         {(!disk_folders.is_empty()).then(|| view! { <DiskFolders folders=disk_folders /> })}
     }
@@ -2384,9 +2390,10 @@ const ONLY_COPY: &str = "Single copy placed this game here: your source set no l
 only copy. Deleting or changing it by hand loses the game; your own backups are the only other copy. To keep a \
 copy in your source set, turn single copy off for its system, and the next build returns it there.";
 
-/// Each file the store built into the folder, with the build that wrote it.
+/// Each file the store built into the folder, with the build that wrote it; check a game's files to remove the game
+/// from the folder.
 #[component]
-fn BuiltFiles(folder: i64) -> impl IntoView {
+fn BuiltFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
     let live = use_live();
     let files = LocalResource::new(move || {
         live.settled.track();
@@ -2422,6 +2429,33 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
             })
         })
     });
+    let removing = RwSignal::new(false);
+    let chosen = RwSignal::new(ChosenGames::default());
+    let action = RwSignal::new(RemoveAction::SetAside);
+    let actions = RemoveAction::ALL
+        .into_iter()
+        .map(|a| {
+            let glyph = match a {
+                RemoveAction::SendBack => Glyph::FolderInput,
+                RemoveAction::SetAside => Glyph::Archive,
+                RemoveAction::Delete => Glyph::FileX,
+            };
+            ToolAction::checked(glyph, removal_label(a), move |picked: Selected<FileRow>| {
+                let all = rows.get_untracked();
+                let all: Vec<_> = all.iter().map(|r| (r.0.game.as_str(), r.1)).collect();
+                chosen.set(ChosenGames::of_checked(
+                    picked
+                        .rows
+                        .iter()
+                        .map(|r| (r.0.game.as_str(), r.1, is_generated_playlist(&r.0))),
+                    &all,
+                ));
+                action.set(a);
+                removing.set(true);
+            })
+            .held_while(busy)
+        })
+        .collect::<Vec<_>>();
     let looks = Signal::derive(move || {
         rows.with(|rows| {
             let mut looks = present_looks(rows.iter().map(|r| BuildKind::from(r.0.kind)));
@@ -2452,9 +2486,154 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
                 rows
                 empty="No files built yet."
                 placeholder="Filter by file or game"
+                actions
                 detail=Callback::new(file_detail)
                 legend=move || view! { <LegendStrip looks list="built-files" /> }
             />
+            <Drawer
+                open=removing
+                title=Signal::derive(move || match chosen.with(|c| c.games.len()) {
+                    1 => "Remove a game".to_string(),
+                    n => format!("Remove {n} games"),
+                })
+            >
+                <RemoveGamesForm folder chosen action open=removing refresh />
+            </Drawer>
+        </section>
+    }
+}
+
+/// A plan, after you confirm, that removes the games you checked from the folder: sent back to your source set, set
+/// aside, or deleted. Each way says why it doesn't apply to these games, and the plan opens for your review.
+#[component]
+fn RemoveGamesForm(
+    folder: i64,
+    chosen: RwSignal<ChosenGames>,
+    action: RwSignal<RemoveAction>,
+    open: RwSignal<bool>,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
+    let go = navigator();
+    let problem = RwSignal::new(None::<String>);
+    let plan = Action::new_local(move |body: &RemoveGames| {
+        let body = body.clone();
+        async move { api::post::<_, Plan>(&format!("/libraries/{folder}/game-removals"), &body).await }
+    });
+    Effect::new(move || match plan.value().get() {
+        Some(Ok(_)) => {
+            open.set(false);
+            refresh.update(|n| *n += 1);
+            go.run(tab_href(folder, FolderTab::Plan));
+        }
+        Some(Err(message)) => problem.set(Some(message)),
+        None => {}
+    });
+    let refused = move || chosen.with(|c| removal_refusal(action.get(), c));
+    let choices = RemoveAction::ALL.into_iter().map(|a| {
+        let why = move || chosen.with(|c| removal_refusal(a, c));
+        view! {
+            <Choice
+                radio="remove-action"
+                checked=Signal::derive(move || action.get() == a)
+                on_change=Callback::new(move |on: bool| if on { problem.set(None); action.set(a) })
+                disabled=Signal::derive(move || why().is_some())
+                note=move || why().unwrap_or_default()
+            >
+                {removal_label(a)}
+            </Choice>
+        }
+    });
+    let games = move || chosen.with(|c| c.games.join(", "));
+    view! {
+        <p>{games}</p>
+        <fieldset>
+            <legend>"How to remove them"</legend>
+            {choices.collect_view()}
+        </fieldset>
+        {move || {
+            let said = chosen.with(|c| removal_result(action.get(), c));
+            let warn = action.get() == RemoveAction::Delete && chosen.with(|c| !c.placed.is_empty());
+            if warn {
+                view! { <Message kind=MessageKind::NOTICE><p>{said}</p></Message> }.into_any()
+            } else {
+                view! { <p>{said}</p> }.into_any()
+            }
+        }}
+        <p class="note">
+            "Nothing changes until you approve the plan. Each removed game stays out of this folder's builds until you \
+            restore it."
+        </p>
+        <div class="form">
+            <button
+                type="button"
+                class="primary"
+                disabled=move || plan.pending().get() || refused().is_some()
+                on:click=move |_| {
+                    problem.set(None);
+                    let games = chosen.with_untracked(|c| c.games.clone());
+                    plan.dispatch_local(RemoveGames { games, action: action.get_untracked() });
+                }
+            >
+                "Make the plan"
+            </button>
+            <button type="button" on:click=move |_| open.set(false)>"Cancel"</button>
+        </div>
+        {move || problem.get().map(|message| view! { <Problem message /> })}
+    }
+}
+
+/// The games you removed from the folder, which its builds leave out, each with how you removed it and a way to
+/// restore it to the next build.
+#[component]
+fn RemovedGames(
+    folder: i64,
+    removed: Vec<RemovedGame>,
+    busy: Signal<bool>,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
+    let problem = RwSignal::new(None::<String>);
+    let restore = Action::new_local(move |game: &String| {
+        let body = RestoreGames {
+            games: vec![game.clone()],
+        };
+        async move {
+            api::post::<_, LibraryFolder>(&format!("/libraries/{folder}/game-restorations"), &body)
+                .await
+        }
+    });
+    Effect::new(move || match restore.value().get() {
+        Some(Ok(_)) => refresh.update(|n| *n += 1),
+        Some(Err(message)) => problem.set(Some(message)),
+        None => {}
+    });
+    let rows = removed.into_iter().map(|r| {
+        let game = r.name.clone();
+        let how = format!("{} · {}", removed_label(r.action), when(&r.removed_at));
+        view! {
+            <li>
+                <strong>{r.name.clone()}</strong>
+                " · "
+                {how}
+                " "
+                <button
+                    type="button"
+                    disabled=move || busy.get() || restore.pending().get()
+                    on:click=move |_| { problem.set(None); restore.dispatch_local(game.clone()); }
+                >
+                    <LabelledIcon glyph=Glyph::Undo2 label="Restore" />
+                </button>
+            </li>
+        }
+    });
+    view! {
+        <section aria-labelledby="removed-title">
+            <h2 id="removed-title">"Removed games"</h2>
+            <p>
+                "You removed these games from this folder, so its builds leave them out. Restore a game and your next \
+                build puts it back here."
+            </p>
+            <ul class="plain">{rows.collect_view()}</ul>
+            {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
 }

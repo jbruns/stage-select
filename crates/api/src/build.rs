@@ -91,6 +91,9 @@ pub struct LibraryFolder {
     /// a game of its own, as RomM does, is to leave them out (ADR 0026).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disk_folders: Vec<String>,
+    /// The games you removed from the folder, by name: every build leaves them out until you restore them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<RemovedGame>,
 }
 
 /// One thing that changed since a Library Folder's current Build: its Source Set, its Source Set's Coverage, or its
@@ -192,6 +195,78 @@ pub struct PlanChoices {
     /// Build nothing: keep aside every built file in the folder's retention area, then unregister the folder.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remove_all: bool,
+    /// The games you remove from the folder, each with what becomes of its files. The plan leaves them out as if the
+    /// selection hadn't selected them, and approving it adds them to the folder's removed games.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<GameRemoval>,
+}
+
+/// What removing a game from a Library Folder does with its files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoveAction {
+    /// Return the game, placed in the folder under Single Copy, to its Source Set's folder, as a build returns a placed
+    /// game no longer selected. Only for a placed game.
+    SendBack,
+    /// Keep its files aside in the folder's retention area, as kept files. Never for a placed game, whose file is its
+    /// Source Set's only copy.
+    SetAside,
+    /// Keep its files aside, then delete them once the build has kept them, as an approved deletion of kept files
+    /// does. A placed game is deleted too, and never returned to its Source Set.
+    Delete,
+}
+
+impl RemoveAction {
+    pub const ALL: [RemoveAction; 3] = [
+        RemoveAction::SendBack,
+        RemoveAction::SetAside,
+        RemoveAction::Delete,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RemoveAction::SendBack => "send_back",
+            RemoveAction::SetAside => "set_aside",
+            RemoveAction::Delete => "delete",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<RemoveAction> {
+        RemoveAction::ALL.into_iter().find(|a| a.as_str() == s)
+    }
+}
+
+/// A game you remove from a Library Folder, by its name in the DAT (or an Addition's name), and what becomes of its
+/// files.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct GameRemoval {
+    pub game: String,
+    pub action: RemoveAction,
+}
+
+/// A game you removed from a Library Folder: every build leaves it out until you restore it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemovedGame {
+    pub name: String,
+    pub removed_at: String,
+    /// What the plan that removed it did with its files.
+    pub action: RemoveAction,
+    /// The plan whose approval removed it.
+    pub plan: i64,
+}
+
+/// The request to plan removing games from a Library Folder: planned from its current build's selection, and added to
+/// its removed games once you approve the plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoveGames {
+    pub games: Vec<String>,
+    pub action: RemoveAction,
+}
+
+/// The request to restore games you removed from a Library Folder: the next build puts them back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreGames {
+    pub games: Vec<String>,
 }
 
 /// The request to approve a plan: the digest of the plan you reviewed.

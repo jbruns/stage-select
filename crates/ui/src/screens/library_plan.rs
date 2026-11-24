@@ -30,7 +30,7 @@ use crate::library_model::FolderTab;
 use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::list::{Clip, Column, ListRow, Width};
-use crate::parts::message::Problem;
+use crate::parts::message::{Live as MessageLive, Message, MessageKind, Problem};
 use crate::parts::outcome::{JobOutcome, job_href};
 use crate::parts::plan::{
     self, ApproveBar, Change, PlanReview, PlanRow, apply_to_all, set_actions,
@@ -840,12 +840,16 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             }
         })
     };
+    let removing = build_model::removal_notice(&plan.content.choices);
     let job = plan.job;
     // Approve sits above the list, with what it waits on; once approved, the plan's build job takes its place.
     let approve = {
         move || {
             view! {
                 {open.then(|| view! {
+                    {removing.clone().map(|said| view! {
+                        <Message kind=MessageKind::NOTICE live=MessageLive::Off><p>{said}</p></Message>
+                    })}
                     {single_copy()}
                     {partial()}
                     <ApproveBar
@@ -871,7 +875,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 </p>
                 {planned_from(plan)}
                 {(!plan.content.notes.is_empty()).then(|| view! {
-                    <h3>"Stored differently from the storage policy"</h3>
+                    <h3>"Notes"</h3>
                     <ul class="plain">
                         {plan.content.notes.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
                     </ul>

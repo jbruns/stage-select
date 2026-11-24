@@ -2054,7 +2054,17 @@ impl Store {
             self.retain_blobs()?;
             // A build that removed every built file ends with the folder unregistered, unless something came to
             // hold it meanwhile; then it stays registered, empty, and you unregister it once nothing does.
-            let content = self.plan(plan_id)?.content;
+            let plan = self.plan(plan_id)?;
+            // The files of the games it removed to delete are deleted once it has kept them aside; any it couldn't
+            // delete stay kept.
+            if let Some(build) = self.build_of_job(id)? {
+                self.fault_point(Fault::RemovedKept);
+                match self.delete_removed(&plan, build.id) {
+                    Ok(()) | Err(Error::Conflict(_) | Error::Refused(_)) => {}
+                    Err(err) => return Err(err),
+                }
+            }
+            let content = plan.content;
             if content.choices.remove_all {
                 match self.unregister(RegistrationKind::LibraryFolder, content.folder) {
                     Ok(_) | Err(Error::Conflict(_)) => {}

@@ -27,6 +27,7 @@ pub mod observe;
 mod placements;
 mod plans;
 mod profiles;
+mod removed;
 mod repairs;
 pub mod romm;
 mod romm_additions;
@@ -375,6 +376,8 @@ pub enum Fault {
     FolderRegistering,
     /// Before a change to what is registered waits for another under way to finish.
     LifecycleWaiting,
+    /// After a Build that removed games to delete succeeds, before the files it kept aside of them are deleted.
+    RemovedKept,
     /// After an edit of a Root takes the lifecycle lock, before it checks and records the edit.
     RootEditing,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
