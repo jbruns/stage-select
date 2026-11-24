@@ -749,6 +749,7 @@ impl Store {
                 storage: inputs.storage,
                 notes: Vec::new(),
                 sbi_pack: None,
+                folder_deletion: None,
             },
             previous: None,
             changes: Vec::new(),

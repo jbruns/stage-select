@@ -15,6 +15,7 @@ mod dat_deletion;
 mod dats;
 mod exports;
 pub mod fetch;
+mod folder_deletion;
 mod folder_dir;
 mod folder_moves;
 mod folders;
@@ -379,6 +380,10 @@ pub enum Fault {
     LifecycleWaiting,
     /// After a Build that removed games to delete succeeds, before the files it kept aside of them are deleted.
     RemovedKept,
+    /// After a Build that deletes its Library Folder succeeds, before the folder's kept files are deleted.
+    FolderDeleting,
+    /// After deleting a Library Folder records it is removing the folder, before anything of it is removed.
+    FolderRemoving,
     /// After an edit of a Root takes the lifecycle lock, before it checks and records the edit.
     RootEditing,
     /// Before a Root or Source Set folder registered on request is created, once its path is checked.

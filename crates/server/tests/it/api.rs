@@ -3828,6 +3828,35 @@ mod selections {
             read(folder.id)["stale"],
             json!([{"kind": "profile_saved", "built": 1, "latest": 2}])
         );
+
+        // Deleting the folder plans keeping every built file aside; approved, it deletes them and the folder's kept
+        // files, removes the folder and unregisters it.
+        let (status, plan) = send(
+            client.post(&format!("/libraries/{}/folder-deletions", folder.id)),
+            json!(null),
+        );
+        assert_eq!(status, 201, "{plan}");
+        assert_eq!(plan["content"]["choices"]["delete_folder"], true);
+        assert_eq!(
+            plan["content"]["folder_deletion"]["kept"]
+                .as_array()
+                .map(Vec::len),
+            Some(2),
+            "{plan}"
+        );
+        let plan: Plan = serde_json::from_value(plan).unwrap();
+        let (status, job) = send(
+            client.post(&format!("/plans/{}/approval", plan.id)),
+            json!({"digest": plan.digest}),
+        );
+        assert_eq!(status, 202, "{job}");
+        let job: Job = serde_json::from_value(job).unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        let deleted =
+            client.json::<Value>(&format!("/plans/{}", plan.id))["folder_deleted"].clone();
+        assert_eq!(deleted["removed"], true, "{deleted}");
+        assert!(!play.join("test").exists());
+        assert_eq!(client.json::<Vec<Value>>("/libraries"), Vec::<Value>::new());
     }
 
     /// Single copy over HTTP: naming the folder that holds the source set's placed games when several are bound, and

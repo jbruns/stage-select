@@ -187,6 +187,11 @@ pub(crate) fn end_queued(tx: &Transaction, id: i64, to: JobState, error: &str) -
         return Ok(false);
     }
     release_holds(tx, id)?;
+    crate::folder_deletion::finish_unstarted(
+        tx,
+        id,
+        &format!("its build ended before it started: {error}"),
+    )?;
     Ok(true)
 }
 

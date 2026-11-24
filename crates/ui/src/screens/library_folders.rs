@@ -1361,13 +1361,13 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
     }
 }
 
-/// Removing the folder's built files, moving it, or unregistering it.
+/// Removing the folder's built files, deleting it, moving it, or unregistering it.
 #[component]
 fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
     let base = format!("/libraries/{id}");
     view! {
-        <LifecycleSection>
+        <LifecycleSection title="Unregister, delete, set aside or move">
             <PlanAction
                 label="Remove built files"
                 explain="This plans to move every file the folder's builds wrote into its kept files, renamed in \
@@ -1376,6 +1376,17 @@ fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoVi
                     tab."
                     .to_string()
                 path=format!("{base}/removals")
+                href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
+                refresh
+            />
+            <PlanAction
+                label="Delete library folder"
+                explain="This plans to return each game placed here under single copy to your source set, delete \
+                    every other file Stage Select wrote here, including the folder's kept files, then remove the \
+                    folder and unregister it. If the folder holds files Stage Select didn't write, they stay and so \
+                    does the folder: the plan lists them. You review the plan before anything is deleted."
+                    .to_string()
+                path=format!("{base}/folder-deletions")
                 href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
                 refresh
             />

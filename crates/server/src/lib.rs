@@ -176,6 +176,12 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              {reason}. They stay kept, and are deleted when the service next starts"
         );
     }
+    for (plan, reason) in store.recover_folder_deletions()? {
+        eprintln!(
+            "stage-select: plan {plan}'s deletion of its play library folder is not finished: {reason}. The folder \
+             stays registered, and is deleted when the service next starts"
+        );
+    }
     for (id, reason) in store.recover_library_folder_moves()? {
         eprintln!(
             "stage-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \

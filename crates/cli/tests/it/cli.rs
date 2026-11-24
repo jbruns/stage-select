@@ -988,7 +988,7 @@ fn the_service_starts_from_environment_variables_alone() {
 }
 
 #[test]
-fn library_remove_and_restore_say_why_they_are_refused() {
+fn library_remove_restore_and_delete_say_why_they_are_refused() {
     let (f, dat) = pong_fixture();
     let root = f.set.path().parent().unwrap();
     let rel = f.set.path().file_name().unwrap().to_str().unwrap();
@@ -1054,6 +1054,8 @@ fn library_remove_and_restore_say_why_they_are_refused() {
     assert!(why.contains("nothing was built"), "{why}");
     let why = refused(&["library", "restore", &folder, "Pong (USA)"]);
     assert!(why.contains("Pong (USA) isn't removed"), "{why}");
+    let why = refused(&["library", "delete", &folder]);
+    assert!(why.contains("nothing to delete"), "{why}");
     let why = refused(&[
         "library",
         "remove",

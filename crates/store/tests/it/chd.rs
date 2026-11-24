@@ -898,6 +898,7 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
         },
         remove_all: false,
         remove: vec![],
+        delete_folder: false,
     };
     let plan = env
         .store

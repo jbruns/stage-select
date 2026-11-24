@@ -2024,6 +2024,11 @@ impl Store {
                     id,
                     JobState::Interrupted,
                     Some("you cancelled the build before it started; nothing was changed"),
+                )?;
+                crate::folder_deletion::finish_unstarted(
+                    tx,
+                    id,
+                    "you cancelled its build before it started",
                 )
             })?;
             return self.job(id);
@@ -2065,11 +2070,23 @@ impl Store {
                 }
             }
             let content = plan.content;
-            if content.choices.remove_all {
+            // A build that deletes its folder deletes what it kept aside and the folder's other kept files, removes
+            // the folder when nothing else is left in it, and then unregisters it.
+            if content.choices.delete_folder {
+                match self.delete_folder(plan_id) {
+                    Ok(()) | Err(Error::Conflict(_)) => {}
+                    Err(err) => return Err(err),
+                }
+            } else if content.choices.remove_all {
                 match self.unregister(RegistrationKind::LibraryFolder, content.folder) {
                     Ok(_) | Err(Error::Conflict(_)) => {}
                     Err(err) => return Err(err),
                 }
+            }
+        } else if job.state.is_final() {
+            match self.delete_folder(plan_id) {
+                Ok(()) | Err(Error::Conflict(_)) => {}
+                Err(err) => return Err(err),
             }
         }
         Ok(job)
